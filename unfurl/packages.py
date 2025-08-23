@@ -453,7 +453,10 @@ class Package:
         )
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
-        vtags = [tag[len(prefix) :] for tag in get_remote_tags(url, prefix + "*")]
+        remote_tags = get_remote_tags(url, prefix + "*")
+        if remote_tags is None:  # didn't check
+            return None
+        vtags = [tag[len(prefix) :] for tag in remote_tags]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
         # as if it didn't specify a semver at all. Unreleased versions have no backwards compatibility
@@ -467,7 +470,7 @@ class Package:
             else:
                 # otherwise return the latest version
                 return tags[0]
-        return None
+        return ""  # none found
 
     def set_version_from_repo(self, get_remote_tags) -> bool:
         try:
@@ -478,6 +481,8 @@ class Package:
                 self.safe_url,
                 e.stderr,
             )
+            return False
+        if revision is None:  # get_remote_tags didn't check
             return False
         # remember the result of the search even if we don't set the revision
         if revision:
@@ -513,6 +518,9 @@ class Package:
         )  # if set to an explicit version tag, assume it wont change
 
     def add_reference(self, repoview: RepoView) -> bool:
+        """
+        Add the RepoView to the package and update the RepoView if necessary.
+        """
         if repoview not in self.repositories:
             self.repositories.append(repoview)
             repoview.package = self
@@ -638,15 +646,19 @@ def resolve_package(
             logger.warning(msg)
         package = existing
 
-    package.add_reference(repoview)
+    package.add_reference(repoview)  # updates repoview
     return package
 
 
 def apply_lock(lock_dict, package: Package) -> bool:
     # note that repo_dict might refer to a different git repository than the one the current package rules use.
     # so the tag here might be missing on the new git repository -- that's ok we don't want to avoid that error
-    if lock_dict.get("discovered_revision") == "(MISSING)":
-        package.missing = True
+    discovered = lock_dict.get("discovered_revision")
+    if discovered:
+        if discovered == "(MISSING)":
+            package.missing = True
+    else:
+        package.discovered = True
     # note that tag might not be a semver tag so missing can still be true even if there's a tag
     tag = lock_dict.get("tag")
     if tag:
