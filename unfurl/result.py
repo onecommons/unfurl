@@ -231,7 +231,9 @@ class ChangeRecord:
 
     def set_start_time(self, startTime: Optional[datetime.datetime] = None) -> None:
         if not startTime:
-            self.startTime = datetime.datetime.now(datetime.timezone.utc)
+            self.startTime: datetime.datetime = datetime.datetime.now(
+                datetime.timezone.utc
+            )
         elif isinstance(startTime, datetime.datetime):
             self.startTime = startTime
         else:

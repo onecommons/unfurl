@@ -194,6 +194,8 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     """
     output = CommentedMap()
     output["changeId"] = task.changeId
+    output["startTime"] = task.get_start_time()
+    output["endTime"] = task.get_end_time()
     if task.previousId:
         output["previousId"] = task.previousId
     if task.target:
