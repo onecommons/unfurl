@@ -58,7 +58,7 @@ A repository that is a package can also have a revision associated with it, eith
 
 If a revision matches the `semantic versioning syntax <https://semver.org/>`_ it will be treated as a semantic version, otherwise it is treated as a opaque identifier with no implied semantics. For example, a revision can be  a git branch whose contents changes over time.
 
-If no revision is specified Unfurl will attempt to detect the latest version of the package looking on the remote repository a git tag that looks like the most recent semantic version (see https://go.dev/ref/mod#vcs-version for the algorithm) and set the local repository contents to that tag. If none is found, the latest commit from repository's default branch will be used. To override version detection, set the revision to a branch like "main".
+If no revision is specified when cloning a repository for the first time,  Unfurl will attempt to detect the latest version of the package by retrieving the upstream remote repository's git tags and setting the revision to tag that looks like the most recent semantic version (see https://go.dev/ref/mod#vcs-version for the algorithm). If none is found, the latest commit from repository's default branch will be used. To override version detection, set the ``revision`` to a branch like "main". If the :cli:`--check-upstream<unfurl>` global option was set, Unfurl it will also apply this same logic to existing repositories unless they are `locked <locked ensembles>`.
 
 Package Resolution
 ====================
