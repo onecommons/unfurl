@@ -77,7 +77,7 @@ click.rich_click.OPTION_GROUPS = {
                 "--home",
                 "--runtime",
                 "--no-runtime",
-                "--skip-upstream-check",
+                "--check-upstream",
                 "--version-check",
                 "--no-version-check",
                 "--tmp",
@@ -202,11 +202,19 @@ globalOptions = option_group(
     ),
     click.option(
         "--skip-upstream-check",
-        default=False,
+        default=True,
         is_flag=True,
-        envvar="UNFURL_SKIP_UPSTREAM_CHECK",
         show_envvar=True,
         help="Skip pulling latest upstream changes from existing repositories.",
+        hidden=True
+    ),
+    click.option(
+        "--check-upstream",
+        default=False,
+        is_flag=True,
+        envvar="UNFURL_CHECK_UPSTREAM",
+        show_envvar=True,
+        help="Pull latest upstream changes from existing repositories.",
     ),
 )
 
@@ -256,7 +264,8 @@ def _cli(
     loglevel=None,
     tmp=None,
     version_check=None,
-    skip_upstream_check=False,
+    skip_upstream_check=True,
+    check_upstream=False,
     home=None,
     **kw,
 ):
@@ -272,7 +281,9 @@ def _cli(
         os.environ["UNFURL_TMPDIR"] = tmp
     if home is not None:
         os.environ["UNFURL_HOME"] = home
-    if skip_upstream_check:
+    if check_upstream:
+        os.environ["UNFURL_SKIP_UPSTREAM_CHECK"] = ""
+    elif skip_upstream_check:
         os.environ["UNFURL_SKIP_UPSTREAM_CHECK"] = "1"
     effective_log_level = detect_log_level(loglevel, quiet, verbose)
     ctx.obj["verbose"] = detect_verbose_level(effective_log_level)
