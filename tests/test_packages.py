@@ -144,6 +144,12 @@ def test_package_rules():
     assert not package.revision
     assert package.locked
 
+    package, package_specs = _apply_package_rules(
+        "https://staging.unfurl.cloud/onecommons/unfurl-types#:v2", env_package_spec
+    )
+    # note: v2 is different package to #main rule isn't applied
+    assert package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types#:v2"
+
 
 def test_find_canonical():
     rules = "gitlab.com/onecommons/* staging.unfurl.cloud/onecommons/* unfurl.cloud/onecommons/* staging.unfurl.cloud/onecommons/*"
