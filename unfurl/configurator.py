@@ -265,6 +265,7 @@ class Configurator(metaclass=AutoRegisterClass):
         Return whether or not the configurator can execute the given task
         depending on if this configurator support the requested action and parameters
         and given the current state of the target instance?
+        Called right before running the task, so the task will have already been rendered.
 
         Args:
             task (:class:`TaskView`): The task that is about to be run.
@@ -275,7 +276,7 @@ class Configurator(metaclass=AutoRegisterClass):
         return True
 
     def should_run(self, task: "TaskView") -> Union[bool, Priority]:
-        """Does this configuration need to be run?"""
+        """Does this configuration need to be run? Called before rendering the task."""
         return task.configSpec.should_run()
 
     def save_digest(self, task: "TaskView") -> dict:

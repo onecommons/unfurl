@@ -492,10 +492,15 @@
               "type": "string"
             },
             "options": {
-              "type": "object"
+              "type": "object",
+              "description": "job options set by the user"
             },
             "summary": {
               "type": "string"
+            },
+            "changed": {
+              "type": "integer",
+              "description": "number of tasks that made changes to the target"
             },
             "specDigest": {
               "type": "string"
@@ -527,6 +532,12 @@
             "target": {
               "type": "string"
             },
+            "startTime": {
+              "$ref": "#/definitions/timestamp"
+            },
+            "endTime": {
+              "$ref": "#/definitions/timestamp"
+            },
             "implementation": {
               "$ref": "#/definitions/configurationSpec"
             },
@@ -539,15 +550,16 @@
             "changes": {
               "allOf": [
                 {
-                  "$ref": "#/definitions/namedObjects"
-                },
-                {
                   "additionalProperties": {
                     "$ref": "#/definitions/namedObjects"
                   }
                 }
               ],
               "default": {}
+            },
+            "changed": {
+              "type": "boolean",
+              "description": "true if the task made changes to the target"
             },
             "dependencies": {
               "type": "array",

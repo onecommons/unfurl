@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 import itertools
 import os
 import json
+import time
 from typing import (
     Any,
     Generator,
@@ -113,8 +114,19 @@ class ConfigChange(OperationalInstance, ChangeRecord):
             ChangeRecord.__init__(self, parentJob.changeId, parentJob.startTime)
         else:  # generate a new job id and use the given startTime
             ChangeRecord.__init__(self, startTime=startTime, previousId=previousId)
+        self._time_elapsed: float = 0
 
+    def get_end_time(self) -> str:
+        return (self.startTime + timedelta(seconds=self.time_elapsed)).strftime(
+            self.DateTimeFormat
+        )
 
+    @property
+    def time_elapsed(self):
+        if self._time_elapsed:
+            return self._time_elapsed
+        else:
+            return time.time() - self.startTime.timestamp()
 class JobOptions:
     """
     Options available to select which tasks are run, e.g. read-only
@@ -328,6 +340,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.target.root.set_attribute_manager(self._attributeManager)
         self.target_status = self.target.local_status
         self.target_state = self.target.state
+        self.set_start_time()
         self.set_envvars()
 
     def _update_status(self, result: ConfiguratorResult) -> bool:
@@ -415,6 +428,7 @@ class ConfigTask(TaskView, ConfigChange):
             instance.created = self.changeId
 
     def finished(self, result: ConfiguratorResult) -> Self:
+        self._time_elapsed = time.time() - self.startTime.timestamp()
         assert result
         self.restore_envvars()
         if self.generator:
@@ -745,7 +759,6 @@ class Job(ConfigChange):
         self.jobRequestQueue: List[JobRequest] = []
         self.unexpectedAbort: Optional[UnfurlError] = None
         self.workDone: Dict[int, ConfigTask] = collections.OrderedDict()
-        self.timeElapsed: float = 0
         self.plan_requests: Optional[List[Union[TaskRequest, TaskRequestGroup]]] = None
         self.task_count = 0
         self.external_requests: Optional[List[Tuple[Any, List[JobRequest]]]] = None
@@ -941,7 +954,7 @@ class Job(ConfigChange):
 
     def run(self, rendered: RenderRequests) -> None:
         manifest = self.manifest
-        startTime = perf_counter()
+        start_counter = perf_counter()
         jobOptions = self.jobOptions
         with change_cwd(manifest.get_base_dir()):
             try:
@@ -974,7 +987,7 @@ class Job(ConfigChange):
                 if not jobOptions.skip_save or jobOptions.skip_save == "never":
                     manifest.commit_job(self)
             finally:
-                self.timeElapsed = perf_counter() - startTime
+                self._time_elapsed = perf_counter() - start_counter
                 manifest.unlock()
 
     def _apply_workfolders(self) -> None:
@@ -1560,11 +1573,6 @@ class Job(ConfigChange):
     def format_stats(stats: Dict[str, int]) -> str:
         return JobReporter.format_stats(stats)
 
-    def get_end_time(self) -> str:
-        return (self.startTime + timedelta(seconds=self.timeElapsed)).strftime(
-            self.DateTimeFormat
-        )
-
     def print_summary_table(self) -> str:
         try:
             return JobReporter.summary_table(self)
@@ -1601,7 +1609,7 @@ class Job(ConfigChange):
         job: Dict[str, Any] = dict(id=self.changeId, status=self.status.name)
         job.update(self.stats())
         if not self.startTime:  # skip if startTime was explicitly set
-            job["timeElapsed"] = self.timeElapsed
+            job["timeElapsed"] = self.time_elapsed
         summary = dict(
             job=job,
             outputs=serialize_value(self.get_outputs()),
@@ -1633,7 +1641,7 @@ class Job(ConfigChange):
 
         line1 = "Job %s completed in %.3fs: %s. %s:\n    " % (
             self.changeId,
-            self.timeElapsed,
+            self.time_elapsed,
             self.status.name,
             self.stats(asMessage=True),
         )
