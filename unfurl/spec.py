@@ -402,16 +402,24 @@ class ToscaSpec:
     def import_resolver(self) -> Optional["ImportResolver"]:
         return self.template.import_resolver
 
-    def _get_project_dir(self, home=False):
+    def _get_project_dir(self, home=False) -> Optional[str]:
         # hacky
         if self.import_resolver:
             manifest = self.import_resolver.manifest
-            if manifest.localEnv:
+            if manifest and manifest.localEnv:
                 if home:
                     if manifest.localEnv.homeProject:
                         return manifest.localEnv.homeProject.projectRoot
                 elif manifest.localEnv.project:
                     return manifest.localEnv.project.projectRoot
+        return None
+
+    def _get_local_env(self):
+        """
+        Returns the LocalEnv instance for this spec.
+        """
+        if self.template.import_resolver and self.template.import_resolver.manifest:
+            return self.template.import_resolver.manifest.localEnv
         return None
 
     def load_decorators(self) -> CommentedMap:

@@ -145,9 +145,11 @@ def move_dirs(root_dir, subdir):
     subdir = Path(subdir)
     if os.path.exists(subdir_path):
         if len(subdir.parts) > 1:
-            subdir_path = os.path.join(root_dir, subdir.parts[0], unique_name(
-                subdir.parts[-1], os.listdir(os.path.dirname(subdir_path))
-            ))
+            subdir_path = os.path.join(
+                root_dir,
+                subdir.parts[0],
+                unique_name(subdir.parts[-1], os.listdir(os.path.dirname(subdir_path))),
+            )
         else:
             rmtree(subdir_path)
     assert subdir.parts
@@ -621,7 +623,8 @@ def _get_base_dir(ctx, name=None):
     """
     Returns an absolute path based on the given folder name:
 
-    :.:   directory that contains the current instance's ensemble
+    :ensemble: directory that contains the current instance's ensemble
+    :ensemble.secrets: The "secrets" directory for the current instance's ensemble (files written there are vault encrypted)
     :src: directory of the source file this expression appears in
     :artifacts: directory for the current instance (committed to repository).
     :local: The "local" directory for the current instance (excluded from repository)
@@ -643,9 +646,20 @@ def _get_base_dir(ctx, name=None):
 
     instance = ctx.currentResource
     spec = cast(Optional["ToscaSpec"], instance.template and instance.template.spec)
-    if not name or name == ".":
+    if not name or name == "." or name == "ensemble":
         # the folder of the current resource's ensemble
         return instance.base_dir
+    elif name == "ensemble.secrets":
+        if spec:
+            local_env = spec._get_local_env()
+            if local_env and (project := local_env.project):
+                # check ensemble project first
+                ensemble_project = local_env.get_ensemble_project()
+                if ensemble_project and ensemble_project.is_vault_encrypted():
+                    return os.path.join(ensemble_project.projectRoot, "secrets")
+                if project.is_vault_encrypted():
+                    return os.path.join(project.projectRoot, "secrets")
+        return os.path.join(instance.base_dir, "secrets")
     elif name == "src":
         # folder of the source file
         # base_dir will be set if the yaml was loaded via YamlConfig (which adds base_dir via expand_dict)
@@ -680,8 +694,17 @@ def _get_base_dir(ctx, name=None):
     elif name == "project":
         return spec and spec._get_project_dir() or instance.base_dir
     elif name == "project.secrets":
-        project_root = spec and spec._get_project_dir() or instance.base_dir
-        return os.path.join(project_root, "secrets")
+        if spec:
+            local_env = spec._get_local_env()
+            if local_env and (project := local_env.project):
+                # check outer project first
+                if project.is_vault_encrypted():
+                    return os.path.join(project.projectRoot, "secrets")
+                ensemble_project = local_env.get_ensemble_project()
+                if ensemble_project and ensemble_project.is_vault_encrypted():
+                    return os.path.join(ensemble_project.projectRoot, "secrets")
+                return os.path.join(project.projectRoot, "secrets")
+        return os.path.join(instance.base_dir, "secrets")
     elif name == "unfurl.home":
         return spec and spec._get_project_dir(True) or instance.base_dir
     else:
