@@ -275,7 +275,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         Tests nested imports and url fragment resolution.
         """
         path = __file__ + "/../examples/import/testimport-ensemble.yaml"
-        local_env = LocalEnv(path)
+        local_env = LocalEnv(path, homePath="")
         manifest = local_env.get_manifest()
         self.assertEqual(
             2,

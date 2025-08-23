@@ -247,6 +247,8 @@ class PackageSpec:
     @staticmethod
     def update_package(package_specs: List["PackageSpec"], package: "Package") -> bool:
         """
+        Apply package rules to the given package.
+
         Args:
             package_specs (PackageSpec): Rules to apply to the package.
             package (Package): Package will be updated in-place if there are rules that apply to it.
@@ -359,6 +361,7 @@ def get_package_id_from_url(url: str) -> Package_Url_Info:
     # follow Go's convention for including the path part of git url fragment in package_ids:
     if repopath:
         package_id += ".git/" + repopath
+        url += "#:" + repopath
 
     # don't set url if url was just a package_id (so it didn't have a scheme)
     return Package_Url_Info(package_id, url if parts.scheme else None, revision)
