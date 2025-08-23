@@ -489,11 +489,13 @@ class RepoView:
     def as_git_url(self, sanitize=False) -> str:
         hard = 2 if sanitize else 0
         url, path, revision = split_git_url(self.url)
+        return normalize_git_url(url, hard) + "#" + self.revision_tag + ":" + self.path
+
+    @property
+    def revision_tag(self):
         if self.package:
-            revision = self.package.revision_tag
-        else:
-            revision = self.revision or ""
-        return normalize_git_url(url, hard) + "#" + revision + ":" + self.path
+            return self.package.revision_tag
+        return self.revision or ""
 
     def is_local_only(self):
         # if it doesn't have a repo then it most be local

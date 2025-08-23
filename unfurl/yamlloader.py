@@ -564,7 +564,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return Repository(name, tpl)
 
     def _compare_repository_urls(self, r_url: str, url: str) -> Tuple[bool, str, str]:
-        # raise error if a different repository with the same name already exists
+        # return True if urls are equivalent, False otherwise
         if r_url != url:
             r_url = normalize_url(r_url)
             url = normalize_url(url)
@@ -729,31 +729,25 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     ) -> str:
         # XXX lock_to_commit not implemented, currently used to indicate the lock have a tag
         # commit = repo_view.package.lock_to_commit if repo_view.package else ""
+        bare = False  # not supported yet
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             # XXX coalesce repoviews
-            locked = repo_view.package and repo_view.package.locked or False
-            repo, file_path, revision, bare = self.manifest.find_repo_from_git_url(
-                repo_view.as_git_url(), base, locked
-            )
+            repo, created = self.manifest.find_or_clone_repo(repo_view, base)
             if repo:
                 repo_view.repo = repo
             else:
                 raise UnfurlError(
                     "Could not resolve git URL: " + repo_view.as_git_url(True)
                 )
-        else:
-            repo = repo_view.repo
-            file_path = repo_view.path
-            revision = repo.revision
-            bare = False  # XXX if commit
-
+        assert repo_view.repo
+        file_path = repo_view.path
         if bare:
-            path = self._get_bare_path(repo, file_path, revision)
+            path = self._get_bare_path(repo_view.repo, file_path, repo_view.revision)
         else:
-            path = os.path.join(repo.working_dir, file_path, file_name or "").rstrip(
-                "/"
-            )
+            path = os.path.join(
+                repo_view.repo.working_dir, file_path, file_name or ""
+            ).rstrip("/")
         return path
 
     def get_remote_tags(self, url, pattern="*") -> List[str]:
@@ -899,33 +893,27 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return url, (True, None, base, file_name)
 
     def _resolve_repoview(self, repo_view: RepoView) -> None:
-        if repo_view.package is None:
-            package = extract_package(repo_view)
-            if not package:
-                return
-            locked = self.config.get("lock")  # top-level section of ensemble
-            if locked:
-                lock_dict = Lock.find_package(locked, self.manifest, package)
-            else:
-                lock_dict = None
-            if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK") or (
-                self.manifest.localEnv
-                and self.manifest.localEnv.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
-            ):
-                remote_tags_check = None
-            else:
-                remote_tags_check = self.get_remote_tags
-            # need to resolve if its a package
-            # if repoview.repository references a package, set the repository's url
-            # and register this reference with the package
-            # might raise error if version conflict
-            resolve_package(
-                repo_view,
-                self.manifest.packages,
-                self.manifest.package_specs,
-                remote_tags_check,
-                lock_dict,
-            )
+        if repo_view.package:
+            return
+        package = extract_package(repo_view)
+        if not package:
+            return
+        locked = self.config.get("lock")  # top-level section of ensemble
+        if locked:
+            lock_dict = Lock.find_package(locked, self.manifest, package)
+        else:
+            lock_dict = None
+        # need to resolve if its a package
+        # if repoview.repository references a package, set the repository's url
+        # and register this reference with the package
+        # might raise error if version conflict
+        resolve_package(
+            repo_view,
+            self.manifest.packages,
+            self.manifest.package_specs,
+            self.get_remote_tags,
+            lock_dict,
+        )
 
     def resolve_to_local_path(
         self, base_dir, file_name, repository_name, repositories=None

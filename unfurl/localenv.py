@@ -65,7 +65,8 @@ from ruamel.yaml.comments import CommentedMap
 from toscaparser.repositories import Repository
 
 if TYPE_CHECKING:
-    from unfurl.yamlmanifest import YamlManifest
+    from .yamlmanifest import YamlManifest
+    from .packages import Package
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
@@ -1588,9 +1589,11 @@ class LocalEnv:
         revision: Optional[str] = None,
         basepath: Optional[str] = None,
         checkout_args: dict = {},
-        locked: bool = False,
+        package: Optional["Package"] = None,
     ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
         repoview_or_url = self._find_git_repo(repoURL, revision)
+        created = False
+        locked = package and package.locked or False
         if isinstance(repoview_or_url, RepoView):
             repo = repoview_or_url.repo
             assert repo
@@ -1605,15 +1608,15 @@ class LocalEnv:
             ):
                 repo.pull(revision=revision)
         else:
-            assert isinstance(repoview_or_url, str), (
-                repoview_or_url
-            )  # it's the repoUrl (possibly rewritten) at this point
+            # it's the repoUrl (possibly rewritten) at this point
+            assert isinstance(repoview_or_url, str), repoview_or_url
             url = repoview_or_url
             # git-local repos must already exist locally
             if url.startswith("git-local://"):
                 return None, None, None
 
             repo = self._create_working_dir(url, revision, basepath)
+            created = True
             if not repo:
                 return None, None, None
 
@@ -1626,9 +1629,9 @@ class LocalEnv:
                     )
                 else:
                     repo.checkout(revision, **checkout_args)
-            return repo, repo.revision, False
+            return repo, repo.revision, created
         else:
-            return repo, repo.revision, False
+            return repo, repo.revision, created
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
