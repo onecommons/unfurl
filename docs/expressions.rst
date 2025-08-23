@@ -354,7 +354,8 @@ get_dir
 
   Return an absolute path to the given named folder where ``name`` is one of:
 
-  :.:   Directory that contains the current instance's ensemble
+  :ensemble:   Directory that contains the current instance's ensemble
+  :ensemble.secrets: The "secrets" directory for the current instance's ensemble (files written there are vault encrypted)
   :src: Directory of the source file this expression appears in
   :artifacts: Directory for the current instance (committed to repository).
   :local: The "local" directory for the current instance (excluded from repository)

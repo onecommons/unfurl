@@ -328,6 +328,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         # .: <ensemble>/
         base = _get_base_dir(ctx, ".")
         self.assertEqual(base, os.path.normpath(os.path.dirname(path)))
+        assert base == _get_base_dir(ctx, "ensemble")
 
         # testPrefix appeared in the same source file so it will be the same
         src = _get_base_dir(ctx, "src")
@@ -368,10 +369,12 @@ class ToscaSyntaxTest(unittest.TestCase):
             base,
             f"{repoPath} vs {base} vs {os.path.abspath('./')}",
         )
+        assert repoPath == _get_base_dir(ctx, "repository.nested-imported-repo")
 
         # look for spec repo which will be the project root in "examples"
         spec = _get_base_dir(ctx, "spec") 
         self.assertEqual(os.path.normpath(spec), os.path.dirname(base))
+        # see AbstractTemplateTest.test_import for more tests of _get_base_dir
 
     @unittest.skipIf("k8s" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
     def test_workflows(self):
@@ -671,6 +674,19 @@ spec:
                 assert rel.name == "connection"
                 assert manifest2.get_root_resource().default_relationships[0].name == "_default_provider"
                 assert manifest2.get_root_resource().default_relationships[1] is rel
+
+                ctx = RefContext(manifest2.get_root_resource())
+                project_dir = os.path.abspath(os.getcwd())
+                # note: ensemble and project are the same directory
+                dir = _get_base_dir(ctx, "project")
+                assert dir == project_dir
+                dir = _get_base_dir(ctx, "ensemble")
+                assert dir == project_dir
+                dir = _get_base_dir(ctx, "project.secrets")
+                assert dir == os.path.join(project_dir, "secrets")
+                dir = _get_base_dir(ctx, "ensemble.secrets")
+                assert dir == os.path.join(project_dir, "secrets")
+
         finally:
             if UNFURL_HOME is not None:
                 os.environ["UNFURL_HOME"] = UNFURL_HOME

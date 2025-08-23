@@ -110,6 +110,7 @@ class Project:
             self._set_parent_project(homeProject, register)
         else:
             self.parentProject: Optional[Project] = None
+            self._set_contexts()
 
     def _set_parent_project(
         self,
@@ -520,6 +521,19 @@ class Project:
         if secret:
             return secret
         return context.get("variables", {}).get(env_var, default)
+
+    def is_vault_encrypted(self, contextName: Optional[str] = None):
+        expanded = cast(dict, self.localConfig.config.expanded)
+        contexts = expanded.get("environments") or {}
+        context = contexts.get("defaults") or {}
+        secrets = context.get("secrets", {}).get("vault_secrets")
+        if secrets:
+            return True
+        if contextName:
+            context = contexts.get("defaults")
+            if context:
+                return bool(context.get("secrets", {}).get("vault_secrets"))
+        return False
 
     def get_vault_password(
         self, contextName: Optional[str] = None, vaultId: str = "default"
@@ -1512,6 +1526,13 @@ class LocalEnv:
             self.config.create_local_instance(name.rstrip("s"), attributes),
             spec,
         )
+
+    def get_ensemble_project(self) -> Optional[Project]:
+        if self.project:
+            parent = self.project.parentProject
+            if parent and parent is not self.homeProject:
+                return parent
+        return self.project
 
     def __getstate__(self):
         state = self.__dict__.copy()
