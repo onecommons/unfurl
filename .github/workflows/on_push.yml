@@ -85,7 +85,7 @@ jobs:
           fi
           .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
       - name: Run cargo clippy and cargo test
-        if: matrix.python == 3.14
+        if: matrix.python == '3.14.0-rc.2'
         run: |
           cargo clippy --manifest-path rust/Cargo.toml
           cargo test --no-default-features --manifest-path rust/Cargo.toml
