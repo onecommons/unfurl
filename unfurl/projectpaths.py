@@ -650,16 +650,18 @@ def _get_base_dir(ctx, name=None):
         # the folder of the current resource's ensemble
         return instance.base_dir
     elif name == "ensemble.secrets":
+        secrets_dir = os.path.join(instance.base_dir, "secrets")
         if spec:
             local_env = spec._get_local_env()
-            if local_env and (project := local_env.project):
-                # check ensemble project first
-                ensemble_project = local_env.get_ensemble_project()
-                if ensemble_project and ensemble_project.is_vault_encrypted():
-                    return os.path.join(ensemble_project.projectRoot, "secrets")
-                if project.is_vault_encrypted():
-                    return os.path.join(project.projectRoot, "secrets")
-        return os.path.join(instance.base_dir, "secrets")
+            if local_env and (ensemble_project := local_env.get_ensemble_project()):
+                # if the ensemble is in an ensemble project that isn't vault encrypted,
+                # but the root project is, return the project's secrets dir instead
+                if (
+                    not ensemble_project.is_vault_encrypted()
+                    and local_env.project.is_vault_encrypted()
+                ):
+                    return os.path.join(local_env.project.projectRoot, "secrets")
+        return secrets_dir
     elif name == "src":
         # folder of the source file
         # base_dir will be set if the yaml was loaded via YamlConfig (which adds base_dir via expand_dict)
