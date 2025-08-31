@@ -7,28 +7,28 @@
 #![allow(clippy::type_complexity)] // ignore for ascent!
 
 use ascent::{ascent, lattice::set::Set};
-use std::convert::{From, Into};
+use std::convert::From;
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
-pub type Symbol = String;
+pub type Symbol<'a> = &'a str;
 
-type EntityName = Symbol;
-type NodeName = EntityName;
-// type AnonEntityId = EntityName;
-type CapabilityName = Symbol;
-type PropName = Symbol;
-type ReqName = Symbol;
-pub type TypeName = Symbol;
+type EntityName<'a> = Symbol<'a>;
+type NodeName<'a> = EntityName<'a>;
+// type AnonEntityId<'a> = EntityName<'a>;
+type CapabilityName<'a> = Symbol<'a>;
+type PropName<'a> = Symbol<'a>;
+type ReqName<'a> = Symbol<'a>;
+pub type TypeName<'a> = Symbol<'a>;
 type QueryId = usize;
-type Query = Vec<(QueryType, Symbol, Symbol)>;
+type Query = Vec<(QueryType, String, String)>;
 
 #[inline]
-pub(crate) fn sym(s: &str) -> Symbol {
-    // XXX make Symbol a real symbol, e.g. maybe use https://github.com/CAD97/strena/blob/main/src/lib.rs#L329C12-L329C25
-    s.to_string()
+pub(crate) fn sym(s: &str) -> &str {
+    // Now we can use string slices directly
+    s
 }
 
 /// Represents the match criteria for a requirement.
@@ -40,25 +40,25 @@ pub(crate) fn sym(s: &str) -> Symbol {
 
 pub enum CriteriaTerm {
     NodeName {
-        n: Symbol,
+        n: String,
     },
     NodeType {
-        n: Symbol,
+        n: String,
     },
     CapabilityName {
-        n: Symbol,
+        n: String,
     },
     CapabilityTypeGroup {
-        names: Vec<Symbol>,
+        names: Vec<String>,
     },
     PropFilter {
-        n: Symbol,
-        capability: Option<Symbol>,
+        n: String,
+        capability: Option<String>,
         constraints: Vec<Constraint>,
     },
     NodeMatch {
-        start_node: Symbol,
-        query: Query,
+        start_node: String,
+        query: Vec<(QueryType, String, String)>,
     },
 }
 
@@ -224,7 +224,6 @@ impl Ord for Constraint {
 
 /// Set of CriteriaTerms
 pub type Criteria = Set<CriteriaTerm>;
-pub type Restrictions = Vec<Field>;
 
 #[inline]
 fn match_criteria(full: &Criteria, current: &Criteria) -> bool {
@@ -333,10 +332,10 @@ sv_from!(BTreeMap<String, ToscaValue>, map);
 pub struct ToscaValue {
     #[cfg(feature = "python")]
     #[pyo3(get, set)]
-    pub type_name: Option<Symbol>,
+    pub type_name: Option<String>,
 
     #[cfg(not(feature = "python"))]
-    pub type_name: Option<Symbol>,
+    pub type_name: Option<String>,
 
     #[cfg(feature = "python")]
     #[pyo3(get)]
@@ -353,7 +352,7 @@ impl ToscaValue {
     #[pyo3(signature = (value, name=None))]
     fn new(value: SimpleValue, name: Option<String>) -> Self {
         ToscaValue {
-            type_name: name.map(|n| sym(&n)),
+            type_name: name,
             v: value,
         }
     }
@@ -392,7 +391,7 @@ tv_from!(BTreeMap<String, ToscaValue>);
 pub enum FieldValue {
     Property {
         value: Option<ToscaValue>,
-        computed: Option<(Symbol, Query)>,
+        computed: Option<(String, Query)>,
     },
     Capability {
         tosca_type: String, // the capability type
@@ -442,42 +441,42 @@ impl Field {
 }
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub enum EntityRef {
-    Node(NodeName),
-    Capability(NodeName, CapabilityName),
-    Relationship(NodeName, ReqName),
-    Property(NodeName, CapabilityName, PropName),
-    // DataEntity(AnonEntityId),
+pub enum EntityRef<'a> {
+    Node(NodeName<'a>),
+    Capability(NodeName<'a>, CapabilityName<'a>),
+    Relationship(NodeName<'a>, ReqName<'a>),
+    Property(NodeName<'a>, CapabilityName<'a>, PropName<'a>),
+    // DataEntity(AnonEntityId<'a>),
 }
 
-impl EntityRef {
-    pub fn is_relationship(&self, node_name: &NodeName, req_name: &ReqName) -> bool {
+impl<'a> EntityRef<'a> {
+    pub fn is_relationship(&self, node_name: &NodeName<'a>, req_name: &ReqName<'a>) -> bool {
         matches!(self, Self::Relationship(n, r) if *n == *node_name && *r == *req_name)
     }
 
-    pub fn is_capability(&self, node_name: &NodeName, cap_name: &CapabilityName) -> bool {
+    pub fn is_capability(&self, node_name: &NodeName<'a>, cap_name: &CapabilityName<'a>) -> bool {
         matches!(self, Self::Capability(n, cap) if *n == *node_name && *cap == *cap_name)
     }
 
     /// Extract the node name
-    pub fn node_name(&self) -> NodeName {
+    pub fn node_name(&self) -> NodeName<'a> {
         match self {
-            Self::Node(n) => n.clone(),
-            Self::Capability(n, _) => n.clone(),
-            Self::Relationship(n, _) => n.clone(),
-            Self::Property(n, ..) => n.clone(),
+            Self::Node(n) => *n,
+            Self::Capability(n, _) => *n,
+            Self::Relationship(n, _) => *n,
+            Self::Property(n, ..) => *n,
         }
     }
 
-    pub fn req_name(&self) -> Option<ReqName> {
+    pub fn req_name(&self) -> Option<ReqName<'a>> {
         match self {
-            Self::Relationship(_, r) => Some(r.clone()),
+            Self::Relationship(_, r) => Some(*r),
             _ => None,
         }
     }
 }
 
-fn choose_cap(a: Option<CapabilityName>, b: Option<CapabilityName>) -> Option<CapabilityName> {
+fn choose_cap<'a>(a: Option<CapabilityName<'a>>, b: Option<CapabilityName<'a>>) -> Option<CapabilityName<'a>> {
     match (a, b) {
         (Some(x), Some(y)) => {
             if x == "feature" {
@@ -494,68 +493,71 @@ fn choose_cap(a: Option<CapabilityName>, b: Option<CapabilityName>) -> Option<Ca
 
 ascent! {
     #![generate_run_timeout]
-    pub(crate) struct Topology;
+    pub(crate) struct Topology<'a>;
 
-    relation entity(EntityRef, TypeName);
-    relation node(NodeName, TypeName);
+    relation entity(EntityRef<'a>, TypeName<'a>);
+    relation node(NodeName<'a>, TypeName<'a>);
 
     // reqname is set if property is on a relationship template
     // final bool is true when set by property_expr match
-    relation property_value (NodeName, CapabilityName, ReqName, PropName, ToscaValue, bool);
+    relation property_value (NodeName<'a>, CapabilityName<'a>, ReqName<'a>, PropName<'a>, ToscaValue, bool);
     // if property is referenced in a node_filter match:
     // translate computed property's eval expression into a query
-    relation property_expr (NodeName, CapabilityName, ReqName, PropName, EntityRef);
+    relation property_expr (NodeName<'a>, CapabilityName<'a>, ReqName<'a>, PropName<'a>, EntityRef<'a>);
     // otherwise if property is not computed, add property_source(current, cap, prop_name, current)
-    relation property_source (NodeName, CapabilityName, PropName, NodeName);
+    relation property_source (NodeName<'a>, CapabilityName<'a>, PropName<'a>, NodeName<'a>);
 
     // node_template definition
-    relation capability (NodeName, CapabilityName, EntityRef);
-    relation requirement(NodeName, ReqName, Criteria, Restrictions);
-    relation relationship(NodeName, ReqName, TypeName);
-    relation req_term_node_name(NodeName, ReqName, CriteriaTerm, NodeName);
-    relation req_term_node_type(NodeName, ReqName, CriteriaTerm, TypeName);
-    relation req_term_cap_type(NodeName, ReqName, CriteriaTerm, TypeName);
-    relation req_term_cap_name(NodeName, ReqName, CriteriaTerm, CapabilityName);
-    relation req_term_prop_filter(NodeName, ReqName, CriteriaTerm, CapabilityName, PropName);
-    relation req_term_query(NodeName, ReqName, CriteriaTerm, QueryId);
-    relation term_match(NodeName, ReqName, Criteria, CriteriaTerm, NodeName, Option<CapabilityName>);
-    lattice filtered(NodeName, ReqName, NodeName, Option<CapabilityName>, Criteria, Criteria);
-    relation requirement_match(NodeName, ReqName, NodeName, CapabilityName);
+    relation capability (NodeName<'a>, CapabilityName<'a>, EntityRef<'a>);
+    relation requirement(NodeName<'a>, ReqName<'a>, Criteria);
+    relation relationship(NodeName<'a>, ReqName<'a>, TypeName<'a>);
+    relation req_term_node_name(NodeName<'a>, ReqName<'a>, CriteriaTerm, NodeName<'a>);
+    relation req_term_node_type(NodeName<'a>, ReqName<'a>, CriteriaTerm, TypeName<'a>);
+    relation req_term_cap_type(NodeName<'a>, ReqName<'a>, CriteriaTerm, TypeName<'a>);
+    relation req_term_cap_name(NodeName<'a>, ReqName<'a>, CriteriaTerm, CapabilityName<'a>);
+    relation req_term_prop_filter(NodeName<'a>, ReqName<'a>, CriteriaTerm, CapabilityName<'a>, PropName<'a>);
+    relation req_term_query(NodeName<'a>, ReqName<'a>, CriteriaTerm, QueryId);
+    relation term_match(NodeName<'a>, ReqName<'a>, Criteria, CriteriaTerm, NodeName<'a>, Option<CapabilityName<'a>>);
+    lattice filtered(NodeName<'a>, ReqName<'a>, NodeName<'a>, Option<CapabilityName<'a>>, Criteria, Criteria);
+    relation requirement_match(NodeName<'a>, ReqName<'a>, NodeName<'a>, CapabilityName<'a>);
 
     term_match(source, req, criteria, ct, target, None) <--
-        node(target, typename), requirement(source, req, criteria, restrictions),
+        node(target, typename), requirement(source, req, criteria),
         req_term_node_name(source, req, ct, target) if source != target;
 
     term_match(source, req, criteria, ct, target, None) <--
-        node(target, typename), requirement(source, req, criteria, restrictions),
+        node(target, typename), requirement(source, req, criteria),
         req_term_node_type(source, req, ct, typename) if source != target;
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, cap_id), entity(cap_id, typename),
-        requirement(source, req, criteria, restrictions),
+        requirement(source, req, criteria),
         req_term_cap_type(source, req, ct, typename) if source != target;
+        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
-        capability(target, cap_name, _), requirement(source, req, criteria, restrictions),
+        capability(target, cap_name, _), requirement(source, req, criteria),
         term_match(source, req, criteria, _, target, _),  // only match req_term_capname after we found candidate target nodes
         req_term_cap_name(source, req, ct, cap_name);
+        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, None) <--
         property_value(target, capname, sym(""), propname, value, ?computed),
-        requirement(source, req, criteria, _),
+        requirement(source, req, criteria),
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
     // for node filters with capability typename instead of capability name:
     term_match(source, req, criteria, ct, target, None) <--
         property_value(target, capname, sym(""), propname, value, ?computed),
-        requirement(source, req, criteria, _),
+        requirement(source, req, criteria),
         capability(target, capname, cap_id), entity(cap_id, typename),
         req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
+        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, None) <--
         result(entity_ref, q_id, target, true),
         req_term_query(source, req, ct, q_id) if entity_ref.is_relationship(source, req),
-        requirement(source, req, criteria, _);
+        requirement(source, req, criteria);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
         term_match(name, req_name, criteria, term, target, cn);
@@ -569,9 +571,11 @@ ascent! {
     requirement_match(name, req_name, target, fcn.clone().unwrap_or("feature".into())) <--
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
+    // live(extract_node(source), extract_cap(source), true)) <-- requirement_match(source, sym("~DYNCAP"), target, target_cap);
+
     // graph navigation
-    relation required_by(NodeName, ReqName, NodeName);
-    relation transitive_match(NodeName, ReqName, NodeName);
+    relation required_by(NodeName<'a>, ReqName<'a>, NodeName<'a>);
+    relation transitive_match(NodeName<'a>, ReqName<'a>, NodeName<'a>);
 
     required_by(y, r, x) <-- requirement_match(x, r, y, c);
     required_by(x, r, z) <-- requirement_match(y, r, x, c), required_by(y, r, z);
@@ -582,8 +586,8 @@ ascent! {
     // querying
     // bool indicates whether the query or result is last in the query chain
     // entityref is a relationship or a property
-    relation query(EntityRef, QueryId, QueryType, ReqName, Symbol, bool);
-    relation result(EntityRef, QueryId, NodeName, bool);
+    relation query(EntityRef<'a>, QueryId, QueryType, ReqName<'a>, Symbol<'a>, bool);
+    relation result(EntityRef<'a>, QueryId, NodeName<'a>, bool);
 
     // rules for generating for each query type:
 
@@ -646,7 +650,7 @@ mod tests {
     use super::*;
 
     #[allow(clippy::field_reassign_with_default)]
-    pub fn make_topology() -> Topology {
+    pub fn make_topology() -> Topology<'static> {
         let mut prog = Topology::default();
         prog.node = vec![("n1".into(), "Root".into())];
         prog.requirement_match = vec![

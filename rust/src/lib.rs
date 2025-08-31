@@ -42,37 +42,45 @@ pub struct Node {
 /// HashMap mapping tosca type names to a list of ancestor types it inherits (including itsself)
 pub type ToscaTypes = HashMap<String, Vec<String>>;
 
-fn get_types(tosca_type: &String, type_parents: &ToscaTypes) -> Vec<String> {
+fn get_types<'a>(tosca_type: &'a String, type_parents: &'a ToscaTypes) -> &'a [String] {
     match type_parents.get(tosca_type) {
-        Some(parents) => parents.clone(),
-        None => vec![tosca_type.clone()],
+        Some(parents) => parents.as_slice(),
+        None => std::slice::from_ref(tosca_type),
     }
 }
 
-fn add_field_to_topology(
-    f: Field,
-    topology: &mut Topology,
-    node_name: &str,
-    type_parents: &HashMap<String, Vec<String>>,
+fn add_field_to_topology<'a>(
+    field_name: &'a str,
+    field_value: &'a FieldValue,
+    topology: &mut Topology<'a>,
+    node_name: &'a str,
+    type_parents: &'a HashMap<String, Vec<String>>,
+    extra_terms: Option<&'a Vec<CriteriaTerm>>
 ) -> Result<(), PyErr> {
-    match f.value {
-        FieldValue::Property { .. } => add_property_to_topology(topology, node_name, "", &f),
+    match field_value {
+        FieldValue::Property { .. } => {
+            add_property_to_topology(topology, node_name, "", field_name, field_value)
+        }
         FieldValue::Capability {
             tosca_type,
             properties,
         } => {
-            let entityref = EntityRef::Capability(sym(node_name), sym(&f.name));
+            let entityref = EntityRef::Capability(sym(node_name), sym(field_name));
             topology
                 .capability
-                .push((sym(node_name), sym(&f.name), entityref.clone()));
+                .push((sym(node_name), sym(field_name), entityref.clone()));
             for tosca_type in get_types(&tosca_type, type_parents) {
-                topology.entity.push((entityref.clone(), tosca_type));
+                topology.entity.push((entityref.clone(), sym(tosca_type)));
             }
             for field in properties {
                 match field.value {
-                    FieldValue::Property { .. } => {
-                        add_property_to_topology(topology, node_name, &f.name, &field)
-                    }
+                    FieldValue::Property { .. } => add_property_to_topology(
+                        topology,
+                        node_name,
+                        field_name,
+                        &field.name,
+                        &field.value,
+                    ),
                     _ => {
                         return Err(PyErr::new::<PyTypeError, _>(
                             "This field must be a TOSCA property",
@@ -84,16 +92,16 @@ fn add_field_to_topology(
         FieldValue::Requirement {
             terms,
             tosca_type,
-            restrictions,
+            restrictions: _,
         } => {
             let mut criteria = Criteria::default();
-            for term in terms.iter() {
+            for term in terms.iter().chain(extra_terms.map_or([].iter(), |x| x.iter())) {
                 criteria.0.insert(term.clone());
                 match term {
                     CriteriaTerm::NodeName { n } => {
                         topology.req_term_node_name.push((
                             sym(node_name),
-                            sym(&f.name),
+                            sym(field_name),
                             term.clone(),
                             sym(n),
                         ));
@@ -101,7 +109,7 @@ fn add_field_to_topology(
                     CriteriaTerm::NodeType { n } => {
                         topology.req_term_node_type.push((
                             sym(node_name),
-                            sym(&f.name),
+                            sym(field_name),
                             term.clone(),
                             sym(n),
                         ));
@@ -109,7 +117,7 @@ fn add_field_to_topology(
                     CriteriaTerm::CapabilityName { n } => {
                         topology.req_term_cap_name.push((
                             sym(node_name),
-                            sym(&f.name),
+                            sym(field_name),
                             term.clone(),
                             sym(n),
                         ));
@@ -119,7 +127,7 @@ fn add_field_to_topology(
                         for n in names {
                             topology.req_term_cap_type.push((
                                 sym(node_name),
-                                sym(&f.name),
+                                sym(field_name),
                                 term.clone(),
                                 sym(n),
                             ));
@@ -128,36 +136,36 @@ fn add_field_to_topology(
                     CriteriaTerm::PropFilter { n, capability, .. } => {
                         topology.req_term_prop_filter.push((
                             sym(node_name),
-                            sym(&f.name),
+                            sym(field_name),
                             term.clone(),
-                            capability.clone().unwrap_or("".into()),
+                            match capability {
+                                Some(c) => &c,
+                                None => "",
+                            },
                             sym(n),
                         ));
                     }
                     CriteriaTerm::NodeMatch { start_node, query } => {
-                        let entityref = EntityRef::Relationship(sym(node_name), sym(&f.name));
+                        let entityref = EntityRef::Relationship(sym(node_name), sym(field_name));
                         add_query_to_topology(topology, &entityref, start_node, query);
                         topology.req_term_query.push((
                             sym(node_name),
-                            sym(&f.name),
+                            sym(field_name),
                             term.clone(),
                             query.len(), // match the last result
                         ));
                     }
                 }
             }
-            topology.requirement.push((
-                node_name.to_string(),
-                f.name.clone(),
-                criteria,
-                restrictions,
-            ));
+            topology
+                .requirement
+                .push((sym(node_name), sym(field_name), criteria));
 
             if let Some(rel_type) = tosca_type {
                 for tosca_type in get_types(&rel_type, type_parents) {
                     topology
                         .relationship
-                        .push((node_name.to_string(), f.name.clone(), tosca_type));
+                        .push((sym(node_name), sym(field_name), sym(tosca_type)));
                 }
             }
         } // _ => continue,
@@ -165,11 +173,11 @@ fn add_field_to_topology(
     Ok(())
 }
 
-fn add_query_to_topology(
-    topology: &mut Topology,
-    entityref: &EntityRef,
-    start_node: &str,
-    query: &[(QueryType, String, String)],
+fn add_query_to_topology<'a>(
+    topology: &mut Topology<'a>,
+    entityref: &EntityRef<'a>,
+    start_node: &'a str,
+    query: &'a [(QueryType, String, String)],
 ) {
     topology
         .result
@@ -187,44 +195,42 @@ fn add_query_to_topology(
     }
 }
 
-fn add_property_to_topology(
-    topology: &mut Topology,
-    node_name: &str,
-    cap_name: &str,
-    field: &Field,
+fn add_property_to_topology<'a>(
+    topology: &mut Topology<'a>,
+    node_name: &'a str,
+    cap_name: &'a str,
+    field_name: &'a str,
+    field_value: &'a FieldValue,
 ) {
-    let prop_name = sym(&field.name);
+    let prop_name = sym(field_name);
     if let FieldValue::Property {
         value: Some(v),
         computed: None,
-    } = &field.value
+    } = field_value
     {
         topology.property_value.push((
             sym(node_name),
             sym(cap_name),
             sym(""),
-            prop_name.clone(),
+            prop_name,
             v.clone(),
             false,
         ));
-        topology.property_source.push((
-            sym(node_name),
-            sym(cap_name),
-            prop_name.clone(),
-            sym(node_name),
-        ));
+        topology
+            .property_source
+            .push((sym(node_name), sym(cap_name), prop_name, sym(node_name)));
     } else if let FieldValue::Property {
         computed: Some((start_node, query)),
         ..
-    } = &field.value
+    } = field_value
     {
-        let entityref = EntityRef::Property(sym(node_name), sym(cap_name), prop_name.clone());
-        add_query_to_topology(topology, &entityref, &sym(start_node), query);
+        let entityref = EntityRef::Property(sym(node_name), sym(cap_name), prop_name);
+        add_query_to_topology(topology, &entityref, sym(start_node), query);
         topology.property_expr.push((
             sym(node_name),
             sym(cap_name),
             sym(""),
-            prop_name.clone(),
+            prop_name,
             entityref.clone(),
         ));
     }
@@ -235,19 +241,19 @@ fn add_property_to_topology(
 /// # Errors
 ///
 /// This function will return a PyTypeError if a field is of an unexpected tosca type.
-fn add_node_to_topology(
-    node: &Node,
-    topology: &mut Topology,
-    type_parents: &ToscaTypes,
+fn add_node_to_topology<'a>(
+    node: &'a Node,
+    topology: &mut Topology<'a>,
+    type_parents: &'a ToscaTypes,
     req_only: bool,
     include_restrictions: bool,
 ) -> Result<(), PyErr> {
     let name = sym(&node.name);
     for tosca_type in get_types(&node.tosca_type, type_parents) {
-        topology.node.push((sym(&name), sym(&tosca_type)));
+        topology.node.push((name, sym(tosca_type)));
         topology
             .entity
-            .push((EntityRef::Node(sym(&name)), sym(&tosca_type)));
+            .push((EntityRef::Node(name), sym(tosca_type)));
     }
     for f in node.fields.iter() {
         if let FieldValue::Requirement { restrictions, .. } = &f.value {
@@ -258,9 +264,30 @@ fn add_node_to_topology(
         } else if req_only {
             continue; // not a requirement, skip
         }
-        add_field_to_topology(f.clone(), topology, &name, type_parents)?;
+        add_field_to_topology(&f.name, &f.value, topology, name, type_parents, None)?;
     }
     Ok(())
+}
+
+fn get_restrictions_map<'a>(
+    nodes: &'a HashMap<String, Node>,
+) -> HashMap<(String, String), Vec<&'a Field>> {
+    let mut restrictions_map = HashMap::new();
+    for node in nodes.values() {
+        let name = sym(&node.name);
+        for f in node.fields.iter() {
+            if let FieldValue::Requirement { restrictions, .. } = &f.value {
+                let has_restrictions = !restrictions.is_empty();
+                if has_restrictions {
+                    restrictions_map.insert(
+                        (name.to_string(), f.name.to_string()),
+                        restrictions.iter().collect(),
+                    );
+                }
+            }
+        }
+    }
+    restrictions_map
 }
 
 /// Given a set of nodes that have requirements with restrictions,
@@ -282,84 +309,78 @@ fn add_node_to_topology(
 ///
 /// # Returns
 /// A tuple containing the updated `topology` and the new index after the last requirement_match.
-fn apply_restrictions_to_matched_nodes(
-    nodes: &HashMap<String, Node>,
-    mut topology: Topology,
-    type_parents: &ToscaTypes,
+fn apply_restrictions_to_matched_nodes<'a>(
+    nodes: &'a HashMap<String, Node>,
+    mut topology: Topology<'a>,
+    type_parents: &'a ToscaTypes,
     start: usize,
-) -> (Topology, usize) {
+    restrictions_map: &mut HashMap<(String, String), Vec<&'a Field>>,
+) -> (Topology<'a>, usize) {
     let mut index = start;
     let matches = topology.requirement_match.clone();
-    let requirements = topology.requirement_indices_0_1.0.clone();
-
     // for each matched target node, add fields that are constrained by the restrictions
     // note: we can ignore target_capability_name because we don't support placing constraints on matching capabilities, just nodes
     for (source_node_name, req_name, target_node_name, _target_capability_name) in
         matches.iter().skip(start)
     {
         index += 1;
-        let requirement_values = requirements
-            .get(&(source_node_name.clone(), req_name.clone()))
-            .expect("missing requirement");
-        let (_, restrictions) = &requirement_values[0];
-        let target_node = nodes.get(target_node_name).expect("node not found!");
-        for restriction_field in restrictions {
-            if let FieldValue::Requirement {
-                terms: restricted_terms,
-                tosca_type,
-                restrictions: restricted_restrictions,
-            } = &restriction_field.value
-            {
-                let req_field = target_node
-                    .fields
-                    .iter()
-                    .find(|f| f.name == restriction_field.name);
-                let (existing_terms, existing_restrictions) = match req_field {
-                    Some(Field {
-                        value:
-                            FieldValue::Requirement {
-                                terms,
-                                restrictions,
-                                ..
-                            },
-                        ..
-                    }) => (terms, restrictions),
-                    _ => (&vec![], &vec![]),
-                };
-                // requirement shouldn't have been added to the topology yet
-                // add req_field with the extra terms and nested restrictions from restriction added
-                add_field_to_topology(
-                    Field {
-                        name: restriction_field.name.clone(),
-                        value: FieldValue::Requirement {
-                            terms: [existing_terms.clone(), restricted_terms.clone()].concat(),
-                            tosca_type: tosca_type.clone(), // restrict type
-                            restrictions: [
-                                existing_restrictions.clone(),
-                                restricted_restrictions.clone(),
-                            ]
-                            .concat(),
-                        },
-                    },
-                    &mut topology,
-                    &target_node.name,
-                    type_parents,
-                )
-                .expect("bad field");
-            } else if let FieldValue::Property { value, computed } = &restriction_field.value {
-                add_field_to_topology(
-                    Field {
-                        name: restriction_field.name.clone(),
-                        value: FieldValue::Property {
-                            value: value.clone(),
-                            computed: computed.clone(),
-                        },
-                    },
-                    &mut topology,
-                    &target_node.name,
-                    type_parents,
-                )
-                .expect("bad field");
+        let key = (source_node_name.to_string(), req_name.to_string());
+        if let Some(current_restrictions) = restrictions_map.get_mut(&key) {
+            let target_node = nodes
+                .get(&target_node_name.to_string())
+                .expect("node not found!");
+            for restriction_field in current_restrictions.clone() {
+                if let FieldValue::Requirement {
+                    terms: restricted_terms,
+                    restrictions: restricted_restrictions,
+                    ..
+                } = &restriction_field.value
+                {
+                    // if restriction is a requirement, the requirement its being applied to shouldn't have been added to the topology yet
+                    // add it now adding with the extra terms from the restriction added
+                    if let Some(req_field) = target_node
+                        .fields
+                        .iter()
+                        .find(|f| f.name == restriction_field.name)
+                    {
+                        if let Field {
+                            value:
+                                FieldValue::Requirement {
+                                    restrictions,
+                                    ..
+                                },
+                            ..
+                        } = req_field
+                        {
+                            *current_restrictions = restrictions
+                                .iter()
+                                .chain(restricted_restrictions.iter())
+                                .collect();
+                        } else {
+                            panic!("field type mismatch");
+                        }
+                        add_field_to_topology(
+                            &restriction_field.name,
+                            &req_field.value,
+                            &mut topology,
+                            &target_node.name,
+                            type_parents,
+                            Some(restricted_terms)
+                        )
+                        .expect("bad field");
+                    }
+                } else if let FieldValue::Property { .. } = &restriction_field.value {
+                    // if the restriction is a property value add it
+                    add_field_to_topology(
+                        &restriction_field.name,
+                        &restriction_field.value,
+                        &mut topology,
+                        &target_node.name,
+                        type_parents,
+                        None
+                    )
+                    .expect("bad field");
+                }
             }
         }
     }
@@ -379,7 +400,7 @@ pub type RequirementMatches = HashMap<(String, String), Vec<(String, String)>>;
 /// # Returns
 ///
 /// This function returns a `PyResult` containing a `()` if the computation succeeded and a `PyTimeoutError` if the computation timed out
-fn run_program(prog: &mut Topology, timeout: u64) -> PyResult<()> {
+fn run_program(prog: &mut Topology<'_>, timeout: u64) -> PyResult<()> {
     let run_timeout_res = prog.run_timeout(Duration::from_millis(timeout));
     if !run_timeout_res {
         return Err(pyo3::exceptions::PyTimeoutError::new_err(
@@ -406,6 +427,7 @@ pub fn solve(
     nodes: HashMap<String, Node>,
     type_parents: ToscaTypes,
 ) -> PyResult<RequirementMatches> {
+    let mut restrictions_map = get_restrictions_map(&nodes);
     let mut prog = Topology::default();
 
     // Requirements can project additional terms on the matching node's requirements
@@ -433,7 +455,13 @@ pub fn solve(
     run_program(&mut prog, timeout)?;
     // update matched requirements
     let mut index = 0;
-    (prog, index) = apply_restrictions_to_matched_nodes(&nodes, prog, &type_parents, index);
+    (prog, index) = apply_restrictions_to_matched_nodes(
+        &nodes,
+        prog,
+        &type_parents,
+        index,
+        &mut restrictions_map,
+    );
 
     // add remaining nodes but omit all requirements and req_term_*
     for node in nodes.values() {
@@ -446,7 +474,13 @@ pub fn solve(
     loop {
         run_program(&mut prog, timeout)?;
         let start = index;
-        (prog, index) = apply_restrictions_to_matched_nodes(&nodes, prog, &type_parents, index);
+        (prog, index) = apply_restrictions_to_matched_nodes(
+            &nodes,
+            prog,
+            &type_parents,
+            index,
+            &mut restrictions_map,
+        );
         if index == start {
             break;
         }
@@ -467,12 +501,19 @@ pub fn solve(
     for (source_node_name, req_name, target_node_name, target_capability_name) in
         prog.requirement_match.clone()
     {
-        if let Some(x) = requirements.get_mut(&(source_node_name.clone(), req_name.clone())) {
-            x.push((target_node_name, target_capability_name));
+        if let Some(x) = requirements.get_mut(&(source_node_name.to_string(), req_name.to_string()))
+        {
+            x.push((
+                target_node_name.to_string(),
+                target_capability_name.to_string(),
+            ));
         } else {
             requirements.insert(
-                (source_node_name, req_name),
-                vec![(target_node_name, target_capability_name)],
+                (source_node_name.to_string(), req_name.to_string()),
+                vec![(
+                    target_node_name.to_string(),
+                    target_capability_name.to_string(),
+                )],
             );
         }
     }
@@ -481,7 +522,7 @@ pub fn solve(
     Ok(requirements)
 }
 
-fn dump_solution(prog: &Topology) {
+fn dump_solution(prog: &Topology<'_>) {
     let dump_env = std::env::var("UNFURL_TEST_DUMP_SOLVER");
     if !dump_env.as_ref().is_ok_and(|x| !x.is_empty()) {
         return;
@@ -682,7 +723,7 @@ mod tests {
         let mut nodes = HashMap::<String, Node>::default();
         nodes.extend([
             (
-                sym("1"),
+                "1".to_string(),
                 Node {
                     name: "1".into(),
                     tosca_type: "Service".into(),
@@ -697,7 +738,7 @@ mod tests {
                 },
             ),
             (
-                sym("2"),
+                "2".to_string(),
                 Node {
                     name: "2".into(),
                     tosca_type: "Service".into(),
@@ -706,7 +747,7 @@ mod tests {
                         name: "req".into(),
                         value: FieldValue::Requirement {
                             terms: vec![CriteriaTerm::CapabilityTypeGroup {
-                                names: vec![sym("captype1"), sym("captype2")],
+                                names: vec!["captype1".to_string(), "captype2".to_string()],
                             }],
                             tosca_type: None,
                             restrictions: vec![],
