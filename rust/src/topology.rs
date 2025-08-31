@@ -25,11 +25,6 @@ pub type TypeName<'a> = Symbol<'a>;
 type QueryId = usize;
 type Query = Vec<(QueryType, String, String)>;
 
-#[inline]
-pub(crate) fn sym(s: &str) -> &str {
-    // Now we can use string slices directly
-    s
-}
 
 /// Represents the match criteria for a requirement.
 ///
@@ -542,13 +537,13 @@ ascent! {
         // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, None) <--
-        property_value(target, capname, sym(""), propname, value, ?computed),
+        property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
     // for node filters with capability typename instead of capability name:
     term_match(source, req, criteria, ct, target, None) <--
-        property_value(target, capname, sym(""), propname, value, ?computed),
+        property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
         capability(target, capname, cap_id), entity(cap_id, typename),
         req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
@@ -593,7 +588,7 @@ ascent! {
 
     // include self in result
     result(r, q_id + 1, s, last) <--
-        query(r, q_id, qt, _, sym("SELF"), last) if *qt != QueryType::PropSource,
+        query(r, q_id, qt, _, "SELF", last) if *qt != QueryType::PropSource,
         result(r, q_id, s, false);
 
     result(r, q_id + 1, s, last) <-- node(s, t),
@@ -634,15 +629,15 @@ ascent! {
     // when property_expr query finishes with a target node, update property_value and property_source
     // property_expr found a result, set property_source to the target
     property_source(node_name, cap, prop_name, target) <--
-       property_expr(node_name, cap, sym(""), prop_name, query_key),
+       property_expr(node_name, cap, "", prop_name, query_key),
        result(query_key, _, target, true);
 
     // in this context (a property expression with a PropSource as last term), PropSource selects the property value from target
-    property_value(node_name, cap, sym(""), prop_name, value, true) <--
-      property_expr(node_name, cap, sym(""), prop_name, query_key),
+    property_value(node_name, cap, "", prop_name, value, true) <--
+      property_expr(node_name, cap, "", prop_name, query_key),
       query(query_key, q_id, QueryType::PropSource, target_prop, target_cap, true),
       result(query_key, q_id + 1, target, true),
-      property_value(target, target_cap, sym(""), target_prop, value, ?computed);
+      property_value(target, target_cap, "", target_prop, value, ?computed);
 }
 
 #[cfg(test)]
@@ -654,9 +649,9 @@ mod tests {
         let mut prog = Topology::default();
         prog.node = vec![("n1".into(), "Root".into())];
         prog.requirement_match = vec![
-            (sym("n1"), sym("host"), sym("n2"), sym("feature")),
-            (sym("n2"), sym("host"), sym("n3"), sym("feature")),
-            (sym("n3"), sym("connect"), sym("n4"), sym("feature")),
+            ("n1", "host", "n2", "feature"),
+            ("n2", "host", "n3", "feature"),
+            ("n3", "connect", "n4", "feature"),
         ];
         prog.run();
         prog
@@ -692,10 +687,10 @@ mod tests {
         assert_eq!(
             prog.transitive_match,
             [
-                (sym("n1"), sym("host"), sym("n2")),
-                (sym("n2"), sym("host"), sym("n3")),
-                (sym("n3"), sym("connect"), sym("n4")),
-                (sym("n1"), sym("host"), sym("n3")),
+                ("n1", "host", "n2"),
+                ("n2", "host", "n3"),
+                ("n3", "connect", "n4"),
+                ("n1", "host", "n3"),
             ]
         );
 
@@ -703,10 +698,10 @@ mod tests {
         assert_eq!(
             prog.required_by,
             [
-                (sym("n2"), sym("host"), sym("n1")),
-                (sym("n3"), sym("host"), sym("n2")),
-                (sym("n4"), sym("connect"), sym("n3")),
-                (sym("n3"), sym("host"), sym("n1")),
+                ("n2", "host", "n1"),
+                ("n3", "host", "n2"),
+                ("n4", "connect", "n3"),
+                ("n3", "host", "n1"),
             ]
         );
     }

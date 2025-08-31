@@ -23,7 +23,7 @@ pub use topology::{
     ToscaValue,
 };
 
-use topology::{sym, Topology};
+use topology::Topology;
 
 /// A partial representations of a TOSCA node template (enough for [solve()])
 #[cfg_attr(feature = "python", derive(FromPyObject))]
@@ -65,12 +65,12 @@ fn add_field_to_topology<'a>(
             tosca_type,
             properties,
         } => {
-            let entityref = EntityRef::Capability(sym(node_name), sym(field_name));
+            let entityref = EntityRef::Capability(node_name, field_name);
             topology
                 .capability
-                .push((sym(node_name), sym(field_name), entityref.clone()));
+                .push((node_name, field_name, entityref.clone()));
             for tosca_type in get_types(&tosca_type, type_parents) {
-                topology.entity.push((entityref.clone(), sym(tosca_type)));
+                topology.entity.push((entityref.clone(), tosca_type));
             }
             for field in properties {
                 match field.value {
@@ -100,57 +100,57 @@ fn add_field_to_topology<'a>(
                 match term {
                     CriteriaTerm::NodeName { n } => {
                         topology.req_term_node_name.push((
-                            sym(node_name),
-                            sym(field_name),
+                            node_name,
+                            field_name,
                             term.clone(),
-                            sym(n),
+                            n,
                         ));
                     }
                     CriteriaTerm::NodeType { n } => {
                         topology.req_term_node_type.push((
-                            sym(node_name),
-                            sym(field_name),
+                            node_name,
+                            field_name,
                             term.clone(),
-                            sym(n),
+                            n,
                         ));
                     }
                     CriteriaTerm::CapabilityName { n } => {
                         topology.req_term_cap_name.push((
-                            sym(node_name),
-                            sym(field_name),
+                            node_name,
+                            field_name,
                             term.clone(),
-                            sym(n),
+                            n,
                         ));
                     }
                     CriteriaTerm::CapabilityTypeGroup { names } => {
                         // if any of these match, this CriteriaTerm will be added to the filtered lattice
                         for n in names {
                             topology.req_term_cap_type.push((
-                                sym(node_name),
-                                sym(field_name),
+                                node_name,
+                                field_name,
                                 term.clone(),
-                                sym(n),
+                                n,
                             ));
                         }
                     }
                     CriteriaTerm::PropFilter { n, capability, .. } => {
                         topology.req_term_prop_filter.push((
-                            sym(node_name),
-                            sym(field_name),
+                            node_name,
+                            field_name,
                             term.clone(),
                             match capability {
                                 Some(c) => &c,
                                 None => "",
                             },
-                            sym(n),
+                            n,
                         ));
                     }
                     CriteriaTerm::NodeMatch { start_node, query } => {
-                        let entityref = EntityRef::Relationship(sym(node_name), sym(field_name));
+                        let entityref = EntityRef::Relationship(node_name, field_name);
                         add_query_to_topology(topology, &entityref, start_node, query);
                         topology.req_term_query.push((
-                            sym(node_name),
-                            sym(field_name),
+                            node_name,
+                            field_name,
                             term.clone(),
                             query.len(), // match the last result
                         ));
@@ -159,13 +159,13 @@ fn add_field_to_topology<'a>(
             }
             topology
                 .requirement
-                .push((sym(node_name), sym(field_name), criteria));
+                .push((node_name, field_name, criteria));
 
             if let Some(rel_type) = tosca_type {
                 for tosca_type in get_types(&rel_type, type_parents) {
                     topology
                         .relationship
-                        .push((sym(node_name), sym(field_name), sym(tosca_type)));
+                        .push((node_name, field_name, tosca_type));
                 }
             }
         } // _ => continue,
@@ -181,15 +181,15 @@ fn add_query_to_topology<'a>(
 ) {
     topology
         .result
-        .push((entityref.clone(), 0, sym(start_node), false));
+        .push((entityref.clone(), 0, start_node, false));
 
     for (index, (q, n, param)) in query.iter().enumerate() {
         topology.query.push((
             entityref.clone(),
             index,
             *q,
-            sym(n),
-            sym(param),
+            n,
+            param,
             index + 1 == query.len(),
         ));
     }
@@ -202,34 +202,34 @@ fn add_property_to_topology<'a>(
     field_name: &'a str,
     field_value: &'a FieldValue,
 ) {
-    let prop_name = sym(field_name);
+    let prop_name = field_name;
     if let FieldValue::Property {
         value: Some(v),
         computed: None,
     } = field_value
     {
         topology.property_value.push((
-            sym(node_name),
-            sym(cap_name),
-            sym(""),
+            node_name,
+            cap_name,
+            "",
             prop_name,
             v.clone(),
             false,
         ));
         topology
             .property_source
-            .push((sym(node_name), sym(cap_name), prop_name, sym(node_name)));
+            .push((node_name, cap_name, prop_name, node_name));
     } else if let FieldValue::Property {
         computed: Some((start_node, query)),
         ..
     } = field_value
     {
-        let entityref = EntityRef::Property(sym(node_name), sym(cap_name), prop_name);
-        add_query_to_topology(topology, &entityref, sym(start_node), query);
+        let entityref = EntityRef::Property(node_name, cap_name, prop_name);
+        add_query_to_topology(topology, &entityref, start_node, query);
         topology.property_expr.push((
-            sym(node_name),
-            sym(cap_name),
-            sym(""),
+            node_name,
+            cap_name,
+            "",
             prop_name,
             entityref.clone(),
         ));
@@ -248,12 +248,12 @@ fn add_node_to_topology<'a>(
     req_only: bool,
     include_restrictions: bool,
 ) -> Result<(), PyErr> {
-    let name = sym(&node.name);
+    let name = &node.name;
     for tosca_type in get_types(&node.tosca_type, type_parents) {
-        topology.node.push((name, sym(tosca_type)));
+        topology.node.push((name, tosca_type));
         topology
             .entity
-            .push((EntityRef::Node(name), sym(tosca_type)));
+            .push((EntityRef::Node(name), tosca_type));
     }
     for f in node.fields.iter() {
         if let FieldValue::Requirement { restrictions, .. } = &f.value {
@@ -274,7 +274,7 @@ fn get_restrictions_map<'a>(
 ) -> HashMap<(String, String), Vec<&'a Field>> {
     let mut restrictions_map = HashMap::new();
     for node in nodes.values() {
-        let name = sym(&node.name);
+        let name = &node.name;
         for f in node.fields.iter() {
             if let FieldValue::Requirement { restrictions, .. } = &f.value {
                 let has_restrictions = !restrictions.is_empty();
