@@ -55,7 +55,7 @@ fn add_field_to_topology<'a>(
     topology: &mut Topology<'a>,
     node_name: &'a str,
     type_parents: &'a HashMap<String, Vec<String>>,
-    extra_terms: Option<&'a Vec<CriteriaTerm>>
+    extra_terms: Option<&'a Vec<CriteriaTerm>>,
 ) -> Result<(), PyErr> {
     match field_value {
         FieldValue::Property { .. } => {
@@ -95,32 +95,26 @@ fn add_field_to_topology<'a>(
             restrictions: _,
         } => {
             let mut criteria = Criteria::default();
-            for term in terms.iter().chain(extra_terms.map_or([].iter(), |x| x.iter())) {
+            for term in terms
+                .iter()
+                .chain(extra_terms.map_or([].iter(), |x| x.iter()))
+            {
                 criteria.0.insert(term.clone());
                 match term {
                     CriteriaTerm::NodeName { n } => {
-                        topology.req_term_node_name.push((
-                            node_name,
-                            field_name,
-                            term.clone(),
-                            n,
-                        ));
+                        topology
+                            .req_term_node_name
+                            .push((node_name, field_name, term.clone(), n));
                     }
                     CriteriaTerm::NodeType { n } => {
-                        topology.req_term_node_type.push((
-                            node_name,
-                            field_name,
-                            term.clone(),
-                            n,
-                        ));
+                        topology
+                            .req_term_node_type
+                            .push((node_name, field_name, term.clone(), n));
                     }
                     CriteriaTerm::CapabilityName { n } => {
-                        topology.req_term_cap_name.push((
-                            node_name,
-                            field_name,
-                            term.clone(),
-                            n,
-                        ));
+                        topology
+                            .req_term_cap_name
+                            .push((node_name, field_name, term.clone(), n));
                     }
                     CriteriaTerm::CapabilityTypeGroup { names } => {
                         // if any of these match, this CriteriaTerm will be added to the filtered lattice
@@ -157,9 +151,7 @@ fn add_field_to_topology<'a>(
                     }
                 }
             }
-            topology
-                .requirement
-                .push((node_name, field_name, criteria));
+            topology.requirement.push((node_name, field_name, criteria));
 
             if let Some(rel_type) = tosca_type {
                 for tosca_type in get_types(&rel_type, type_parents) {
@@ -208,14 +200,9 @@ fn add_property_to_topology<'a>(
         computed: None,
     } = field_value
     {
-        topology.property_value.push((
-            node_name,
-            cap_name,
-            "",
-            prop_name,
-            v.clone(),
-            false,
-        ));
+        topology
+            .property_value
+            .push((node_name, cap_name, "", prop_name, v.clone(), false));
         topology
             .property_source
             .push((node_name, cap_name, prop_name, node_name));
@@ -226,13 +213,9 @@ fn add_property_to_topology<'a>(
     {
         let entityref = EntityRef::Property(node_name, cap_name, prop_name);
         add_query_to_topology(topology, &entityref, start_node, query);
-        topology.property_expr.push((
-            node_name,
-            cap_name,
-            "",
-            prop_name,
-            entityref.clone(),
-        ));
+        topology
+            .property_expr
+            .push((node_name, cap_name, "", prop_name, entityref.clone()));
     }
 }
 
@@ -251,9 +234,7 @@ fn add_node_to_topology<'a>(
     let name = &node.name;
     for tosca_type in get_types(&node.tosca_type, type_parents) {
         topology.node.push((name, tosca_type));
-        topology
-            .entity
-            .push((EntityRef::Node(name), tosca_type));
+        topology.entity.push((EntityRef::Node(name), tosca_type));
     }
     for f in node.fields.iter() {
         if let FieldValue::Requirement { restrictions, .. } = &f.value {
@@ -325,7 +306,7 @@ fn apply_restrictions_to_matched_nodes<'a>(
     {
         index += 1;
         let key = (source_node_name.to_string(), req_name.to_string());
-        if let Some(current_restrictions) = restrictions_map.get_mut(&key) {
+        if let Some(current_restrictions) = restrictions_map.get(&key).clone() {
             let target_node = nodes
                 .get(&target_node_name.to_string())
                 .expect("node not found!");
@@ -336,36 +317,34 @@ fn apply_restrictions_to_matched_nodes<'a>(
                     ..
                 } = &restriction_field.value
                 {
-                    // if restriction is a requirement, the requirement its being applied to shouldn't have been added to the topology yet
-                    // add it now adding with the extra terms from the restriction added
-                    if let Some(req_field) = target_node
-                        .fields
-                        .iter()
-                        .find(|f| f.name == restriction_field.name)
-                    {
-                        if let Field {
-                            value:
-                                FieldValue::Requirement {
-                                    restrictions,
-                                    ..
-                                },
-                            ..
-                        } = req_field
-                        {
-                            *current_restrictions = restrictions
-                                .iter()
-                                .chain(restricted_restrictions.iter())
-                                .collect();
-                        } else {
-                            panic!("field type mismatch");
+                    // if restriction is a requirement, the target node's matching requirement
+                    // will not have been added to the topology yet, so add it now,
+                    // including the extra terms imposed by the restriction
+                    if let Some(Field { value, .. }) = target_node.fields.iter().find(|f| {
+                        f.name == restriction_field.name
+                            && f.has_field_type(&restriction_field.value)
+                    }) {
+                        if !restricted_restrictions.is_empty() {
+                            if let Some(target_restrictions) = restrictions_map
+                                .get_mut(&(target_node_name.to_string(), req_name.to_string()))
+                            {
+                                target_restrictions.extend::<std::vec::Vec<&'a Field>>(
+                                    restricted_restrictions.iter().collect(),
+                                );
+                            } else {
+                                restrictions_map.insert(
+                                    (target_node_name.to_string(), req_name.to_string()),
+                                    restricted_restrictions.iter().collect(),
+                                );
+                            }
                         }
                         add_field_to_topology(
                             &restriction_field.name,
-                            &req_field.value,
+                            &value,
                             &mut topology,
                             &target_node.name,
                             type_parents,
-                            Some(restricted_terms)
+                            Some(restricted_terms),
                         )
                         .expect("bad field");
                     }
@@ -377,7 +356,7 @@ fn apply_restrictions_to_matched_nodes<'a>(
                         &mut topology,
                         &target_node.name,
                         type_parents,
-                        None
+                        None,
                     )
                     .expect("bad field");
                 }

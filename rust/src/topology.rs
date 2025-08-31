@@ -25,7 +25,6 @@ pub type TypeName<'a> = Symbol<'a>;
 type QueryId = usize;
 type Query = Vec<(QueryType, String, String)>;
 
-
 /// Represents the match criteria for a requirement.
 ///
 /// Corresponds to "node", "capability", and "node_filter"
@@ -416,14 +415,15 @@ pub struct Field {
     pub value: FieldValue,
 }
 
-#[cfg(feature = "python")]
-#[pymethods]
+#[cfg_attr(feature = "python", pymethods)]
 impl Field {
+    #[cfg(feature = "python")]
     #[new]
     fn new(name: String, value: FieldValue) -> Self {
         Field { name, value }
     }
 
+    #[cfg(feature = "python")]
     #[setter]
     fn set_value(&mut self, value: FieldValue) -> PyResult<()> {
         self.value = value;
@@ -432,6 +432,15 @@ impl Field {
 
     fn __repr__(&self) -> String {
         format!("{self:?}")
+    }
+
+    pub fn has_field_type(&self, value: &FieldValue) -> bool {
+        match (&self.value, value) {
+            (FieldValue::Property { .. }, FieldValue::Property { .. }) => true,
+            (FieldValue::Capability { .. }, FieldValue::Capability { .. }) => true,
+            (FieldValue::Requirement { .. }, FieldValue::Requirement { .. }) => true,
+            _ => false,
+        }
     }
 }
 
@@ -471,7 +480,10 @@ impl<'a> EntityRef<'a> {
     }
 }
 
-fn choose_cap<'a>(a: Option<CapabilityName<'a>>, b: Option<CapabilityName<'a>>) -> Option<CapabilityName<'a>> {
+fn choose_cap<'a>(
+    a: Option<CapabilityName<'a>>,
+    b: Option<CapabilityName<'a>>,
+) -> Option<CapabilityName<'a>> {
     match (a, b) {
         (Some(x), Some(y)) => {
             if x == "feature" {
