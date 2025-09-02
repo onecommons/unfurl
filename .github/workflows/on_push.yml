@@ -65,7 +65,9 @@ jobs:
           k3d kubeconfig merge --all -d
           kubectl config view
       - name: Install valkey
-        run: sudo apt install -y valkey
+        run: |
+            sudo apt-get update -y
+            sudo apt install -y valkey
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
       - name: Run mypy and Tox
