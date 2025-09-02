@@ -37,6 +37,10 @@ Solution = Dict[Tuple[str, str], List[Tuple[str, str]]]
 _ARTIFACT_PREFIX = "a~"
 
 
+def intern(s: str) -> str:
+    return sys.intern(str(s))
+
+
 # note: make sure Node in rust/lib.rs staying in sync
 class Node:
     """A partial representations of a TOSCA node template (enough for [solve()])"""
@@ -153,13 +157,15 @@ def tosca_to_rust(prop: Property) -> ToscaValue:
             if not schema.entry_schema:
                 schema.schema["entry_schema"] = dict(type="any")
             return ToscaValue(
-                ctor({
-                    k: tosca_to_rust(
-                        Property(prop.name, v, schema.entry_schema, prop.custom_def)
-                    )
-                    for k, v in value.items()
-                    if include_value(v)
-                }),
+                ctor(
+                    {
+                        k: tosca_to_rust(
+                            Property(prop.name, v, schema.entry_schema, prop.custom_def)
+                        )
+                        for k, v in value.items()
+                        if include_value(v)
+                    }
+                ),
                 typename,
             )
         else:
@@ -200,7 +206,7 @@ def prop2field(
         value = tosca_to_rust(prop)
     else:
         return None
-    return Field(prop.name, FieldValue.Property(value, query))
+    return Field(intern(prop.name), FieldValue.Property(value, query))
 
 
 def filter2term(
@@ -236,7 +242,13 @@ def filter2term(
                 # XXX node_filter needs to be evaluated in ToscaSpec.find_matching_node()
                 return False
             constraints.append(c_ctor(value))
-        terms.append(CriteriaTerm.PropFilter(condition.name, cap_name, constraints))
+        terms.append(
+            CriteriaTerm.PropFilter(
+                intern(condition.name),
+                intern(cap_name) if cap_name else cap_name,
+                constraints,
+            )
+        )
     return True
 
 
@@ -247,8 +259,9 @@ def add_fields(
     entity: Node,
     prefix: str,
 ):
-    types[cap.type_definition.global_name] = [
-        p.global_name for p in cap.type_definition.ancestors()
+    assert cap.type_definition
+    types[intern(cap.type_definition.global_name)] = [
+        intern(p.global_name) for p in cap.type_definition.ancestors()
     ]
     cap_fields: List[Field] = list(
         filter(
@@ -266,8 +279,8 @@ def add_fields(
 
     entity.fields.append(
         Field(
-            prefix + cap.name,
-            FieldValue.Capability(cap.type_definition.global_name, cap_fields),
+            intern(prefix + cap.name),
+            FieldValue.Capability(intern(cap.type_definition.global_name), cap_fields),
         )
     )
 
@@ -289,11 +302,14 @@ def convert(
 ) -> Node:
     # XXX if node_template is in nested topology and replaced, partially convert the outer node instead
     if not node_template.type_definition:
-        return Node(node_template.name, "tosca.nodes.Root")
-    entity = Node(node_template.name, node_template.type_definition.global_name)
+        return Node(intern(node_template.name), intern("tosca.nodes.Root"))
+    entity = Node(
+        intern(node_template.name),
+        intern(node_template.type_definition.global_name),
+    )
     has_restrictions = False
-    types[node_template.type_definition.global_name] = [
-        p.global_name for p in node_template.type_definition.ancestors()
+    types[intern(node_template.type_definition.global_name)] = [
+        intern(p.global_name) for p in node_template.type_definition.ancestors()
     ]
     for cap in node_template.get_capabilities_objects():
         # if cap.name == "feature":
@@ -407,7 +423,7 @@ def expr2query(
                     typedef = find_type(key, node_template.custom_def)
                     if typedef:
                         key = typedef.global_name
-                query.append((query_type, key, ""))
+                query.append((query_type, intern(key), ""))
                 query_type = None
             else:
                 if key.startswith("::"):
@@ -424,23 +440,29 @@ def expr2query(
                     elif key == ".instances":
                         query.append((QueryType.Sources, "host", ""))
                     elif key == ".configured_by":
-                        query.append((
-                            QueryType.RequiredByType,
-                            "unfurl.relationships.Configures",
-                            "",
-                        ))
+                        query.append(
+                            (
+                                QueryType.RequiredByType,
+                                intern("unfurl.relationships.Configures"),
+                                "",
+                            )
+                        )
                     elif key == ".parents" or key == ".ancestors":
-                        query.append((
-                            QueryType.TransitiveRelation,
-                            "host",
-                            "SELF" if key == ".ancestors" else "",
-                        ))
+                        query.append(
+                            (
+                                QueryType.TransitiveRelation,
+                                "host",
+                                "SELF" if key == ".ancestors" else "",
+                            )
+                        )
                     elif key == ".hosted_on":
-                        query.append((
-                            QueryType.TransitiveRelationType,
-                            "tosca.relationships.HostedOn",
-                            "",
-                        ))
+                        query.append(
+                            (
+                                QueryType.TransitiveRelationType,
+                                intern("tosca.relationships.HostedOn"),
+                                "",
+                            )
+                        )
                     elif key == ".capabilities":
                         cap = ".capabilities"  # assume next key is capability name
                     elif key == ".artifacts":
@@ -453,7 +475,7 @@ def expr2query(
                         if query_type is None:
                             return "", []
                 else:  # key is prop
-                    query.append((QueryType.PropSource, key, cap))
+                    query.append((QueryType.PropSource, intern(key), intern(cap)))
                     cap = ""
     # logger.trace(f"{start_node} with {match}:\n {query=}")
     return start_node, query
@@ -475,10 +497,12 @@ def get_req_terms(
             capability, req_dict.get("!namespace-capability")
         )
         if not cap_type:
-            terms.append(CriteriaTerm.CapabilityName(capability))
+            terms.append(CriteriaTerm.CapabilityName(intern(capability)))
         elif match_type:
             # only match by type if the template has declared the requirement
-            terms.append(CriteriaTerm.CapabilityTypeGroup([cap_type.global_name]))
+            terms.append(
+                CriteriaTerm.CapabilityTypeGroup([intern(cap_type.global_name)])
+            )
     rel_type = None
     relationship = req_dict.get("relationship")
     if relationship and match_type:
@@ -507,7 +531,11 @@ def get_req_terms(
                         valid_target_types.append(
                             target_type.global_name if target_type else target_type_name
                         )
-                    terms.append(CriteriaTerm.CapabilityTypeGroup(valid_target_types))
+                    terms.append(
+                        CriteriaTerm.CapabilityTypeGroup(
+                            [t for t in valid_target_types]
+                        )
+                    )
     node = req_dict.get("node")
     node_namespace = req_dict.get("!namespace-node")
     if node:
@@ -518,7 +546,7 @@ def get_req_terms(
             node_type = topology_template.find_type(node, node_namespace)
             if node_type:
                 # only match by type if the template declared the requirement
-                terms.append(CriteriaTerm.NodeType(node_type.global_name))
+                terms.append(CriteriaTerm.NodeType(intern(node_type.global_name)))
             else:  # add missing node so we don't match
                 terms.append(CriteriaTerm.NodeName(node))
     node_filter = req_dict.get("node_filter")
@@ -537,7 +565,7 @@ def get_req_terms(
                     cap_name = cap_type.global_name
                     if cap_name not in types:
                         types[cap_name] = [p.global_name for p in cap_type.ancestors()]
-                    terms.append(CriteriaTerm.CapabilityTypeGroup([cap_name]))
+                    terms.append(CriteriaTerm.CapabilityTypeGroup([intern(cap_name)]))
                 elif key == "artifacts":
                     cap_name = _ARTIFACT_PREFIX + cap_name
                 if not filter2term(terms, cap_filter, cap_name):
@@ -562,7 +590,10 @@ def get_req_terms(
                     start_node, query = expr2query(node_template, value)
                     if query:
                         restrictions.append(
-                            Field(key, FieldValue.Property(None, (start_node, query)))
+                            Field(
+                                key,
+                                FieldValue.Property(None, (start_node, query)),
+                            )
                         )
                 elif "q" in value:
                     val = value["q"]
@@ -570,7 +601,10 @@ def get_req_terms(
                         tosca_type = value_to_type(val) or "any"
                         prop = Property(key, val, dict(type=tosca_type))
                         restrictions.append(
-                            Field(key, FieldValue.Property(tosca_to_rust(prop), None))
+                            Field(
+                                key,
+                                FieldValue.Property(tosca_to_rust(prop), None),
+                            )
                         )
     if terms or restrictions:
         return Field(name, FieldValue.Requirement(terms, rel_type, restrictions)), bool(
