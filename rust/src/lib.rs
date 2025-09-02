@@ -69,7 +69,7 @@ fn add_field_to_topology<'a>(
             topology
                 .capability
                 .push((node_name, field_name, entityref.clone()));
-            for tosca_type in get_types(&tosca_type, type_parents) {
+            for tosca_type in get_types(tosca_type, type_parents) {
                 topology.entity.push((entityref.clone(), tosca_type));
             }
             for field in properties {
@@ -133,7 +133,7 @@ fn add_field_to_topology<'a>(
                             field_name,
                             term.clone(),
                             match capability {
-                                Some(c) => &c,
+                                Some(c) => c,
                                 None => "",
                             },
                             n,
@@ -154,7 +154,7 @@ fn add_field_to_topology<'a>(
             topology.requirement.push((node_name, field_name, criteria));
 
             if let Some(rel_type) = tosca_type {
-                for tosca_type in get_types(&rel_type, type_parents) {
+                for tosca_type in get_types(rel_type, type_parents) {
                     topology
                         .relationship
                         .push((node_name, field_name, tosca_type));
@@ -250,9 +250,7 @@ fn add_node_to_topology<'a>(
     Ok(())
 }
 
-fn get_restrictions_map<'a>(
-    nodes: &'a HashMap<String, Node>,
-) -> HashMap<(String, String), Vec<&'a Field>> {
+fn get_restrictions_map(nodes: &HashMap<String, Node>) -> HashMap<(String, String), Vec<&Field>> {
     let mut restrictions_map = HashMap::new();
     for node in nodes.values() {
         let name = &node.name;
@@ -306,7 +304,7 @@ fn apply_restrictions_to_matched_nodes<'a>(
     {
         index += 1;
         let key = (source_node_name.to_string(), req_name.to_string());
-        if let Some(current_restrictions) = restrictions_map.get(&key).clone() {
+        if let Some(current_restrictions) = restrictions_map.get(&key) {
             let target_node = nodes
                 .get(&target_node_name.to_string())
                 .expect("node not found!");
@@ -340,7 +338,7 @@ fn apply_restrictions_to_matched_nodes<'a>(
                         }
                         add_field_to_topology(
                             &restriction_field.name,
-                            &value,
+                            value,
                             &mut topology,
                             &target_node.name,
                             type_parents,

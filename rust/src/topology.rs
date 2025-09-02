@@ -435,12 +435,7 @@ impl Field {
     }
 
     pub fn has_field_type(&self, value: &FieldValue) -> bool {
-        match (&self.value, value) {
-            (FieldValue::Property { .. }, FieldValue::Property { .. }) => true,
-            (FieldValue::Capability { .. }, FieldValue::Capability { .. }) => true,
-            (FieldValue::Requirement { .. }, FieldValue::Requirement { .. }) => true,
-            _ => false,
-        }
+        std::mem::discriminant(&self.value) == std::mem::discriminant(value)
     }
 }
 
@@ -465,10 +460,10 @@ impl<'a> EntityRef<'a> {
     /// Extract the node name
     pub fn node_name(&self) -> NodeName<'a> {
         match self {
-            Self::Node(n) => *n,
-            Self::Capability(n, _) => *n,
-            Self::Relationship(n, _) => *n,
-            Self::Property(n, ..) => *n,
+            Self::Node(n) => n,
+            Self::Capability(n, _) => n,
+            Self::Relationship(n, _) => n,
+            Self::Property(n, ..) => n,
         }
     }
 
@@ -575,7 +570,7 @@ ascent! {
         filtered(name, req_name, target, fcn, criteria, ?f);
 
     // if all the criteria have been found, create a requirement_match
-    requirement_match(name, req_name, target, fcn.clone().unwrap_or("feature".into())) <--
+    requirement_match(name, req_name, target, fcn.clone().unwrap_or("feature")) <--
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
     // live(extract_node(source), extract_cap(source), true)) <-- requirement_match(source, sym("~DYNCAP"), target, target_cap);
