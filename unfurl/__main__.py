@@ -32,7 +32,7 @@ _debugger_started = False
 
 def _try_debugger():
     global _debugger_started
-    debug = os.getenv("DEBUGPY")
+    debug = os.getenv("DEBUGPY") or os.getenv("UNFURL_DEBUGPY")
     if debug and not _debugger_started:
         import debugpy
 
