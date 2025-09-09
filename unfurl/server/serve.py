@@ -2285,63 +2285,32 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
     else:
         was_dirty = False
     starting_revision = parent_localenv.project.project_repoview.repo.revision
-    deployment_blueprint = body.get("deployment_blueprint")
-    current_working_dir = app.config.get(
+
+    current_working_dir: str = app.config.get(
         "UNFURL_CURRENT_WORKING_DIR",
         parent_localenv.project.project_repoview.repo.working_dir,
     )
     if current_working_dir == parent_localenv.project.project_repoview.repo.working_dir:
         # don't set as home if its current project
         current_working_dir = current_app.config["UNFURL_OPTIONS"].get("home")
+
     make_resolver = ServerCacheResolver.make_factory(
         None, dict(username=username, password=password)
     )
     parent_localenv.make_resolver = make_resolver
-    gui_mode = app.config.get("UNFURL_GUI_MODE")
+    gui_mode = bool(app.config.get("UNFURL_GUI_MODE"))
     if create:
-        # if current_working_dir is set, use it as the home project so clone uses the local repository if available
-        blueprint_url = body.get("blueprint_url")
-        mono = (
-            parent_localenv.instance_repoview
-            is parent_localenv.project.project_repoview
+        _create_ensemble(
+            environment,
+            deployment_path,
+            parent_localenv,
+            clone_location,
+            was_dirty,
+            body.get("deployment_blueprint"),
+            current_working_dir,
+            gui_mode,
+            body.get("blueprint_url"),
         )
-        skeleton = None if gui_mode else "dashboard"
-        if blueprint_url:
-            logger.info(
-                "creating deployment at %s for %s",
-                clone_location,
-                sanitize_url(blueprint_url, True),
-            )
-            msg = init.clone(
-                blueprint_url,
-                clone_location,
-                existing=True,
-                mono=mono,
-                render=was_dirty,  # don't commit if dirty
-                skeleton=skeleton,
-                use_environment=environment,
-                use_deployment_blueprint=deployment_blueprint,
-                home=current_working_dir,
-                parent_localenv=parent_localenv,
-            )
-        else:
-            logger.info("creating new deployment at %s", clone_location)
-            # this will clone the default ensemble if it exists or use ensemble-template
-            msg = init.clone(
-                parent_localenv.project.projectRoot,
-                parent_localenv.project.projectRoot,
-                deployment_path,
-                want_init=True,
-                existing=True,
-                mono=mono,
-                render=was_dirty,  # don't commit if dirty
-                skeleton=skeleton,
-                use_environment=environment,
-                use_deployment_blueprint=deployment_blueprint,
-                home=current_working_dir,
-                parent_localenv=parent_localenv,
-            )
-        logger.info(msg)
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
     # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
@@ -2375,25 +2344,92 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
         if committed or create:
             logger.info(f"committed to {committed} repositories")
             if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
-                try:
-                    if username and password:
-                        url = add_user_to_url(manifest.repo.url, username, password)
-                    else:
-                        url = None
-                    manifest.repo.push(url)
-                    logger.info("pushed")
-                except Exception as err:
-                    # discard the last commit that we couldn't push
-                    # this is mainly for security if we couldn't push because the user wasn't authorized
-                    manifest.repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
-                    logger.error("push failed", exc_info=True)
-                    return create_error_response(
-                        "INTERNAL_ERROR", "Could not push repository", err
-                    )
+                err = _push_changes(
+                    manifest.repo, username, password, starting_revision
+                )
+                if err:
+                    return err
         else:
-            logger.info(f"no changes where made, nothing commited")
+            logger.info("no changes where made, nothing committed")
     return _patch_response(manifest.repo)
 
+
+def _create_ensemble(
+    environment: str,
+    deployment_path: str,
+    parent_localenv: LocalEnv,
+    clone_location: str,
+    was_dirty: bool,
+    deployment_blueprint: Optional[str],
+    current_working_dir: str,
+    gui_mode: bool,
+    blueprint_url: Optional[str],
+):
+    assert parent_localenv.project
+    # if current_working_dir is set, use it as the home project so clone uses the local repository if available
+    mono = parent_localenv.instance_repoview is parent_localenv.project.project_repoview
+    skeleton = None if gui_mode else "dashboard"
+    if blueprint_url:
+        logger.info(
+            "creating deployment at %s for %s",
+            clone_location,
+            sanitize_url(blueprint_url, True),
+        )
+        msg = init.clone(
+            blueprint_url,
+            clone_location,
+            existing=True,
+            mono=mono,
+            render=was_dirty,  # don't commit if dirty
+            skeleton=skeleton,
+            use_environment=environment,
+            use_deployment_blueprint=deployment_blueprint,
+            home=current_working_dir,
+            parent_localenv=parent_localenv,
+        )
+    else:
+        logger.info("creating new deployment at %s", clone_location)
+            # this will clone the default ensemble if it exists or use ensemble-template
+        parent_localenv.project.projectRoot
+        msg = init.clone(
+            parent_localenv.project.projectRoot,
+            parent_localenv.project.projectRoot,
+            deployment_path,
+            want_init=True,
+            existing=True,
+            mono=mono,
+            render=was_dirty,  # don't commit if dirty
+            skeleton=skeleton,
+            use_environment=environment,
+            use_deployment_blueprint=deployment_blueprint,
+            home=current_working_dir,
+            parent_localenv=parent_localenv,
+        )
+    logger.info(msg)
+
+
+def _push_changes(
+    repo: GitRepo,
+    username: Optional[str],
+    password: Optional[str],
+    starting_revision: str,
+):
+    if password:
+        assert username is not None
+        url = add_user_to_url(repo.url, username, password)
+    else:
+        url = None
+    try:
+        repo.push(url)
+        logger.info("pushed")
+    except Exception as err:
+        # discard the last commit that we couldn't push
+        # this is mainly for security if we couldn't push because the user wasn't authorized
+        # XXX starting_revision wrong if not a mono repo
+        repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
+        logger.error("push failed", exc_info=True)
+        return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
+    return None
 
 # no longer used
 # def _do_patch(patch: List[dict], target: dict):
