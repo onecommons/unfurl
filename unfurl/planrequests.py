@@ -61,6 +61,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     primary: Optional["ArtifactSpec"]
     inputs: Optional[Dict[str, Any]]
     input_defs: Optional[Dict[str, Property]]
+    output_defs: Optional[Dict[str, Property]]
     base_dir: Optional[str]
     dependencies: Optional[List["ArtifactSpec"]]
     outputs: Optional[Dict[str, Any]]
@@ -97,6 +98,7 @@ class ConfigurationSpec:
         entry_state: Optional[str] = None,
         base_dir: Optional[str] = None,
         input_defs: Optional[Dict[str, Property]] = None,
+        output_defs: Optional[Dict[str, Property]] = None,
         arguments: Optional[List[str]] = None,
     ):
         assert name and className, "missing required arguments"
@@ -120,6 +122,7 @@ class ConfigurationSpec:
         self.entry_state = cast(NodeState, to_enum(NodeState, entry_state))
         self.base_dir = base_dir
         self.input_defs: Optional[Dict[str, Property]] = input_defs
+        self.output_defs: Optional[Dict[str, Property]] = output_defs
         self.arguments: Optional[List[str]] = arguments
 
     def find_invalidate_inputs(self, inputs):
@@ -1450,6 +1453,7 @@ def _get_config_spec_args_from_implementation(
         "operation_host": operation_host,
         "entry_state": iDef.entry_state,
         "input_defs": iDef.get_declared_inputs(),
+        "output_defs": iDef.get_declared_outputs(),
     }
     if iDef.metadata:
         kw["arguments"] = iDef.metadata.get("arguments")

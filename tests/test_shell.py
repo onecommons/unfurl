@@ -149,14 +149,22 @@ def test_lifecycle():
     for job in jobs:
         assert job.status == Status.ok, job.workflow
 
-def test_outputs():
-    runner = Runner(YamlManifest(ENSEMBLE_OUTPUTS))
+@pytest.mark.parametrize(
+    "input, output,status",
+    [
+        ["'\"S\"'", "S", Status.error],
+        [1, 1, Status.ok],
+    ],
+)
+def test_outputs(input, output, status):
+    runner = Runner(YamlManifest(ENSEMBLE_OUTPUTS % input))
 
     job = runner.run(JobOptions(skip_save=True))
+    # print(job.summary())
 
-    assert job.status == Status.ok
+    assert job.status == status
     task = list(job.workDone.values())[0]
-    assert task.outputs == {"a_output": 1}
+    assert task.outputs == {"a_output": output}
 
 
 ENSEMBLE_TIMEOUT = """
@@ -219,10 +227,14 @@ spec:
                       type: unfurl.artifacts.ShellExecutable
                       file: dummy.sh
                       contents: |
-                        echo '{"a_output": {{inputs.for_output}} }'
+                        echo '{"a_output": {{inputs.for_output }} }'
                       properties:
                         outputsTemplate: "{{ stdout | from_json }}"
                   inputs:
-                      for_output: 1
+                      for_output: %s
+                  outputs:
+                    a_output:
+                      type: integer
+                      description: Test output parameter
 """
 

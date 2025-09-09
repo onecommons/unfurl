@@ -1016,7 +1016,12 @@ class TaskView:
             exception = None
 
         if outputs:
-            self._set_outputs(outputs)
+            error_count = len(self._errors)
+            self._validate_outputs(outputs)
+            if len(self._errors) > error_count:
+                success = False  # new errors
+            else:
+                self._set_outputs(outputs)
         return ConfiguratorResult(
             success,
             modified,
@@ -1025,6 +1030,21 @@ class TaskView:
             outputs,
             exception,
         )
+
+    def _validate_outputs(self, outputs):
+        if self.configSpec.output_defs:
+            key = None
+            try:
+                for key, propDef in self.configSpec.output_defs.items():
+                    if key not in outputs:
+                        if propDef.required and "default" not in propDef.schema.schema:
+                            msg = f'Required output "{key}" is missing.'
+                            UnfurlTaskError(self, message=msg)
+                    else:
+                        propDef._validate(outputs[key])
+            except Exception as err:
+                msg = f"Validation failure while evaluating operation output '{key}': {err}"
+                UnfurlTaskError(self, msg)
 
     # updates can be marked as dependencies (changes to dependencies changed) or required (error if changed)
     # configuration has cumulative set of changes made it to resources
