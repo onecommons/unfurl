@@ -2152,6 +2152,10 @@ def convert_service_template(
             src += import_src
     imports_src = src
 
+    metadata = tpl.get("metadata")
+    if metadata:
+        src += "tosca_metadata=" + value2python_repr(metadata, True) + "\n"
+
     template_tpl = template.tpl
     assert template_tpl
     if (

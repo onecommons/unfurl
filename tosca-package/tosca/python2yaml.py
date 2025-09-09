@@ -375,8 +375,8 @@ class PythonToYaml:
             if isinstance(obj, type) and issubclass(obj, Namespace):
                 obj.to_yaml(self)
                 continue
-            if name == "dsl_definitions":
-                self.sections["dsl_definitions"] = obj
+            if name in ["dsl_definitions", "tosca_metadata"]:
+                self.sections[name.lstrip("tosca_")] = obj
                 continue
             module_name: str = getattr(obj, "__module__", "")
             if isinstance(obj, _DataclassType) and issubclass(obj, ToscaType):
