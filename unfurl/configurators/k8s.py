@@ -337,19 +337,26 @@ def mark_sensitive(task, resource):
 
 
 ClusterScoped_Kinds = [
+    "APIService",
+    "CertificateSigningRequest",
+    "ClusterIssuer",
     "ClusterRole",
     "ClusterRoleBinding",
+    "ComponentStatus",
     "CustomResourceDefinition",
+    "IngressClass",
     "MutatingWebhookConfiguration",
-    "ValidatingWebhookConfiguration",
+    "Namespace",
     "Node",
     "PersistentVolume",
     "PriorityClass",
-    "StorageClass",
-    "VolumeSnapshotClass",
     "RuntimeClass",
-    "APIService",
-    "ClusterIssuer",
+    "StorageClass",
+    "ValidatingAdmissionPolicy",
+    "ValidatingAdmissionPolicyBinding",
+    "ValidatingWebhookConfiguration",
+    "VolumeSnapshotClass",
+    "VolumeSnapshotContent",
 ]
 
 
