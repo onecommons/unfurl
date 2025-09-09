@@ -1382,8 +1382,8 @@ class YamlManifest(ReadOnlyManifest):
                 changelog["manifest"] = os.path.relpath(
                     self.manifest.path, os.path.dirname(fullPath)
                 )
-            changes = itertools.chain([jobRecord], newChanges)
-            changelog["changes"] = list(changes)
+            changelog["job"] = jobRecord
+            changelog["changes"] = list(newChanges)
             output = io.StringIO()
             (yaml or self.yaml).dump(changelog, output)
             if not os.path.isdir(os.path.dirname(fullPath)):

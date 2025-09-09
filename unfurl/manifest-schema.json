@@ -465,7 +465,10 @@
     },
     "job": {
       "title": "Job Record",
-      "$$target": "#/definitions/job",
+      "$$target": [
+        "#/definitions/job",
+        "./manifest-schema.json#/definitions/job"
+      ],
       "type": "object",
       "allOf": [
         {

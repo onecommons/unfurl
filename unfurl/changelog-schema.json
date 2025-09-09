@@ -1,10 +1,19 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "job.yaml",
-  "description": "List of jobs ran with changes applied",
+  "description": "Record of an Unfurl job",
   "type": "object",
   "properties": {
+    "apiVersion": {
+      "const": "unfurl/v1.0.0"
+    },
+    "kind": {
+      "const": "Job"
+    },
     "manifest": { "type": "string" },
+    "job": {
+      "$ref": "./manifest-schema.json#/definitions/job"
+    },
     "changes":  { "$ref": "./manifest-schema.json#/definitions/changes" }
   }
 }
