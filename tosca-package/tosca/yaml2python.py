@@ -2154,7 +2154,10 @@ def convert_service_template(
 
     template_tpl = template.tpl
     assert template_tpl
-    if convert_repositories:
+    if (
+        convert_repositories
+        or os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "include_repositories"
+    ):
         repositories = template_tpl.get("repositories")
         if repositories:
             for name, value in repositories.items():

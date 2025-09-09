@@ -1644,7 +1644,8 @@ node_types:
 test_repository_python = """
 import tosca
 from unfurl.tosca_plugins import expr
-std = tosca.Repository("https://unfurl.cloud/onecommons/std",
+std = tosca.Repository("std", "https://unfurl.cloud/onecommons/std")
+my_repo = tosca.Repository("git@example.com",
                           credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN", None)))
 """
 
@@ -1654,6 +1655,8 @@ topology_template: {}
 repositories:
   std:
     url: https://unfurl.cloud/onecommons/std
+  my_repo:
+    url: git@example.com
     credential:
       token:
         get_env: ["MY_TOKEN", null]

@@ -16,6 +16,7 @@ from typing import (
     Union,
     Callable,
     overload,
+    Dict,
 )
 from typing_extensions import Unpack, NotRequired
 from enum import Enum
@@ -143,14 +144,12 @@ class Repository(ToscaObject):
     Create a TOSCA  `Repository <tosca_repositories>` object. Repositories can represent, for example,
     a git repository, a container image or artifact registry or a file path to a local directory.
 
-    Repositories that contain the Python modules imported into a service template are typically declared in the YAML
+    Repositories need to be declared before any import statements that refer to them
     so an orchestrator like Unfurl can map them to ``tosca_repositories`` imports.
-    However you have a Python service template with code that references a repository (e.g. in a :std:ref:`abspath` eval expression)
-    and that service template is imported directly by other projects, you should declare the repository in the same Python file.
 
     Args:
+      name (str]): The name of the repository.
       url (str): The url of the repository.
-      name (Optional[str]): The name of the repository. If not set or None, the Python identifier assigned to the object will be used.
       revision (Optional[str]): The revision of the repository to use (e.g. a semantic version or git tag or branch). Defaults to None.
       description (Optional[str]): A human-readable description of the repository. Defaults to None.
       credential (Optional[tosca.datatypes.Credential]): The credential to use when accessing the repository. Defaults to None.
@@ -160,23 +159,29 @@ class Repository(ToscaObject):
 
     .. code-block:: python
 
-        std = tosca.Repository("https://unfurl.cloud/onecommons/std",
+        std = tosca.Repository("std", "https://unfurl.cloud/onecommons/std",
                     credential=tosca.datatypes.Credential(user="a_user", token=expr.get_env("MY_TOKEN")))
+        from tosca_repositories.std import Service
     """
 
     _template_section = "repositories"
 
     def __init__(
         self,
-        url: str,
+        name: str,
+        url: Optional[str] = None,
         *,
-        name: Optional[str] = None,
         revision: Optional[str] = None,
         credential: Optional[datatypes.Credential] = None,
         description: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None,
     ):
-        self._tosca_name = name or ""
+        if url is None:
+            # support old signature: if only one positional argument assume it was an url
+            url = name
+            self._tosca_name = ""
+        else:
+            self._tosca_name = name or ""
         self._name = ""  # set by python converter from its python name
         self._tpl: Dict[str, Any] = dict(url=url)
         if revision is not None:
@@ -188,8 +193,8 @@ class Repository(ToscaObject):
         self.credential = credential
         from .loader import import_resolver
 
-        if import_resolver:
-            import_resolver.add_repository(self._tosca_name or self._name, self._tpl)
+        if import_resolver and self._tosca_name:
+            import_resolver.add_repository(self._tosca_name, self._tpl)
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         tpl = dict_cls(**self._tpl)
