@@ -209,10 +209,7 @@ type_reference_yaml = {
             "properties": {"settings": {"type": "map"}},
         },
     },
-    "topology_template": {
-        "inputs": {},
-        "outputs": {},
-    },
+    "topology_template": {},
 }
 
 
@@ -439,8 +436,6 @@ def test_example_helloworld():
     }
     assert src_tpl == tosca_tpl
     tosca_tpl2 = _to_yaml(example_helloworld_python, True)
-    src_tpl["topology_template"]["inputs"] = {}
-    src_tpl["topology_template"]["outputs"] = {}
     assert src_tpl == tosca_tpl2
 
 

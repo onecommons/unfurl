@@ -3210,7 +3210,10 @@ class _TopologyParameter(ToscaType):
                 field.description = f_cls._docstrings.get(field.name)
             item = field.to_yaml(converter)
             body.update(item)
-        return {cls._type_name: body}
+        if body:
+            return {cls._type_name: body}
+        else:
+            return {}
 
     def to_yaml(self, dict_cls=dict):
         body = dict_cls()
