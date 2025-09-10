@@ -683,6 +683,26 @@ class TypeInfo(NamedTuple):
 
         return tuple(get_simple_type(t) for t in self.types)
 
+    @property
+    def type(self) -> type:
+        types = self.types
+        if not types:
+            return object
+
+        if len(types) == 1:
+            return types[0]
+
+        # Get the MRO (Method Resolution Order) of the first type
+        common_bases = list((get_origin(types[0]) or types[0]).__mro__)
+
+        # For each subsequent type, keep only bases that are also in its MRO
+        for type_cls in types[1:]:
+            type_mro = (get_origin(type_cls) or type_cls).__mro__
+            common_bases = [base for base in common_bases if base in type_mro]
+
+        # Return the most specific common base (first in the filtered MRO)
+        return common_bases[0] if common_bases else object
+
     def instance_check(self, value: Any) -> bool:
         if self.optional and value is None:
             return True
@@ -1014,12 +1034,12 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             )
             return
         # XXX ti.types[0] might not be a node type!
-        field = ti.types[0].__dataclass_fields__.get(name)
+        field = ti.type.__dataclass_fields__.get(name)
         if not field:
             # in _class_init() __dataclass_fields__ aren't set yet and the class attribute is the field
-            field = getattr(ti.types[0], name, None)
+            field = getattr(ti.type, name, None)
             if not isinstance(field, _Tosca_Field):
-                logger.warning(f"Property {name} is not present on {ti.types[0]}")
+                logger.warning(f"Property {name} is not present on {ti.type}")
                 return
         if field.tosca_field_type not in [
             ToscaFieldType.property,
@@ -1180,7 +1200,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if factory is dataclasses.MISSING:
             if self.has_explicit_default_value():
                 return self.default
-            factory = self.get_type_info().collection or self.get_type_info().types[0]
+            factory = self.get_type_info().collection or self.get_type_info().type
         elif hasattr(factory, "_is_template_function"):
             return factory(_DataclassTypeProxy(self.owner, obj))  # type: ignore
         return factory()
@@ -1281,7 +1301,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                         req_def["node"] = _type.tosca_type_name()
             if target_typeinfo and "node" not in req_def and set_node_type:
                 # fallback to the relationship's target's type if it's not just "Node"
-                node_type_name = target_typeinfo.types[0].tosca_type_name()
+                node_type_name = target_typeinfo.type.tosca_type_name()
                 if node_type_name != Node.__name__:
                     req_def["node"] = node_type_name
         if self.node_filter:
@@ -1327,9 +1347,8 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
-        assert len(info.types) == 1
-        _type = info.types[0]
-        assert issubclass(_type, _ToscaType), (self, _type)
+        _type = info.type
+        assert issubclass(_type, _ToscaType), (self, info.type)
         cap_def: dict = yaml_cls(type=_type.tosca_type_name())
         if self.super_field:
             default_occurrences = self.super_field._get_occurrences()
@@ -1360,24 +1379,22 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         info = self.get_type_info_checked()
         if not info:
             return yaml_cls()
-        assert len(info.types) == 1
-        _type = info.types[0]
-        assert issubclass(_type, _ToscaType), (self, _type)
+        _type = info.type
+        assert issubclass(_type, _ToscaType), (self, type)
         type_only_def: dict = yaml_cls(type=_type.tosca_type_name())
         return type_only_def
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
         # dict[str, list[int, constraint], constraint]
         info = pytype_to_tosca_type(_type)
-        assert len(info.types) == 1, info
-        _type = info.types[0]
+        _type = info.type
         schema: Dict[str, Any] = {}
         if info.collection is dict:
             tosca_type = "map"
         elif info.collection is list:
             tosca_type = "list"
         else:
-            _type = self._resolve_class(_type)
+            _type = self._resolve_class(info.type)
             tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
                 if not issubclass(_type, _BaseDataType):
@@ -1746,10 +1763,10 @@ class FieldProjection(EvalData):
             raise AttributeError(
                 f'Can\'t project "{name}" from "{self}": Could not resolve {self.type}'
             )
-        if not ti.types[0] or not issubclass(ti.types[0], ToscaType):
+        cls = ti.type
+        if not issubclass(cls, ToscaType):
             # we're a regular value, project as EvalData
             return super().__getattr__(name)
-        cls = ti.types[0]
         if global_state._type_proxy:
             proxied = global_state._type_proxy.handleattr(self, name)
             if proxied is not MISSING:  # handled
@@ -2214,9 +2231,9 @@ def field(
 class _ToscaType(ToscaObject, metaclass=_DataclassType):
     # we need this intermediate type because the base class with the @dataclass_transform can't specify fields
     # NB: _name needs to come first for python < 3.10, so we can't set any non-classvars here
-    explicit_tosca_fields = (
-        _Tosca_Fields_Getter()
-    )  # list of _ToscaFields explicitly declared on the class or object (not inherited)
+
+    # list of _ToscaFields explicitly declared on the class or object (not inherited)
+    explicit_tosca_fields = _Tosca_Fields_Getter()
 
     # see RestrictedPython/Guards.py
     _guarded_writes: ClassVar[bool] = True

@@ -163,9 +163,10 @@ class PythonToYaml:
                     ):
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
-                            if ti and ti.types and issubclass(ti.types[0], ToscaType):
-                                if ti.types[0].__name__ not in self.globals:
-                                    self._add_type(ti.types[0], types_used)
+                            if ti and issubclass(ti.type, ToscaType):
+                                _type = ti.type
+                                if _type.__name__ not in self.globals:
+                                    self._add_type(_type, types_used)
                 for module_name, classes in types_used.items():
                     if module_name == self.globals["__name__"]:
                         self._namespace2yaml(classes)
@@ -649,7 +650,7 @@ class PythonToYaml:
         interfaces,
     ) -> None:
         cls_or_self = obj or cls
-        for methodname, operation in cls_or_self.__dict__.items():
+        for methodname, operation in cls_or_self.__dict__.copy().items():
             if methodname[0] == "_":
                 continue
             if self.is_operation(operation):

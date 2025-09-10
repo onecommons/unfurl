@@ -482,7 +482,7 @@ class ProxyCollection(CollectionProxy):
         if key in self._cache:
             return self._cache[key]
         val = self._values[key]
-        prop_type = self._type_info.types[0]
+        prop_type = self._type_info.type
         if issubclass(prop_type, tosca.DataEntity):
             proxy = get_proxy_class(prop_type, DataTypeProxyBase)(val)
             self._cache[key] = proxy
@@ -532,10 +532,15 @@ def _proxy_prop(
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
     if value is None:
         return value
-    prop_type = type_info.types[0]
-    if type_info.collection is dict or dict in type_info.types:
+    prop_type = type_info.type
+    # the "or ..." expressions handle union types
+    if type_info.collection is dict or (
+        dict in type_info.types and isinstance(value, MutableMapping)
+    ):
         return ProxyMap(value, type_info)
-    elif type_info.collection is list or list in type_info.types:
+    elif type_info.collection is list or (
+        dict in type_info.types and isinstance(value, MutableSequence)
+    ):
         return ProxyList(value, type_info)
     elif issubclass(prop_type, tosca.DataEntity):
         if isinstance(value, MutableMapping):
@@ -557,7 +562,7 @@ def _proxy_eval_result(
         if not Expected:
             ExpectedToscaType = tosca.ToscaType
         elif isinstance(Expected, tosca.TypeInfo):
-            ExpectedToscaType = Expected.types[0]
+            ExpectedToscaType = cast(Type[ToscaType], Expected.type)
         elif issubclass(Expected, tosca.ToscaType):
             ExpectedToscaType = Expected
         else:
@@ -707,7 +712,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         if _type and _type.is_sequence():
             return cast(
                 T,
-                self._execute_resolve_all(cast(EvalData, ref), _type.types[0]),
+                self._execute_resolve_all(cast(EvalData, ref), _type.type),
             )
         else:
             return cast(T, self._execute_resolve_one(cast(EvalData, ref), _type))
@@ -887,7 +892,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 )
                 if artifact:
                     proxy = proxy_instance(
-                        artifact, field.get_type_info().types[0], self._context
+                        artifact, field.get_type_info().type, self._context
                     )
                     self._cache[field.name] = proxy
                     return proxy
@@ -898,7 +903,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     field.tosca_name
                 )
                 proxies = [
-                    proxy_instance(cap, type_info.types[0], self._context)
+                    proxy_instance(cap, type_info.type, self._context)
                     for cap in capabilities
                 ]
                 if len(proxies) <= 1 and not type_info.collection:
