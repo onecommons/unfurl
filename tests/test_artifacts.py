@@ -3,7 +3,7 @@ import os
 import sys
 from pathlib import Path
 from click.testing import CliRunner, Result
-
+import pytest
 from .utils import DEFAULT_STEPS, isolated_lifecycle, lifecycle
 from unfurl.yamlmanifest import YamlManifest, save_task
 from unfurl.job import Runner, run_job, JobOptions
@@ -201,10 +201,12 @@ def _to_yaml(python_src: str):
     return tosca_tpl
 
 
-def _get_python_manifest(pyfile, yamlfile=None):
+def _get_python_manifest(pyfile, yamlfile=None, command=None):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     with open(os.path.join(basepath, pyfile)) as f:
         python_src = f.read()
+        if command is not None:
+            python_src = python_src % command
         manifest_tpl = get_manifest_tpl(python_src)
         yaml.dump(manifest_tpl, sys.stdout)
         if yamlfile:
@@ -306,3 +308,17 @@ def test_artifact_syntax():
         manifest.rootResource.find_instance("test").attributes["output_attribute"]
         == "test node hello:1"
     )
+
+@pytest.mark.parametrize(
+    "command", ["self.command = command", "self.set_inputs(command=command)"]
+)
+def test_artifact_execute(command):
+    # both commands should generate the same yaml
+    manifest_tpl = _get_python_manifest("artifact2.py", "artifact2.yaml", command)
+    manifest = YamlManifest(manifest_tpl)
+    job = Runner(manifest)
+    job = job.run(JobOptions(skip_save=True))
+    assert job
+    assert len(job.workDone) == 1, len(job.workDone)
+    task = list(job.workDone.values())[0]
+    assert task.outputs == {"a_output": "hello1"}

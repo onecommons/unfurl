@@ -28,8 +28,9 @@ class CustomClusterOp(ClusterOp):
     # this means you can't change existing parameters, only add new ones with default values
 
     # only add new inputs definitions to this types interface, since the base types inputs will be merged with these
-    def execute(self, inputs: KubernetesClusterInputs, more_inputs: MoreInputs = MoreInputs()) -> KubernetesClusterOutputs:
-        self.set_inputs(inputs, more_inputs)
+    def execute(
+        self, inputs: KubernetesClusterInputs, more_inputs: MoreInputs = MoreInputs()
+    ) -> KubernetesClusterOutputs:
         return placeholder(KubernetesClusterOutputs)
 
 class ClusterTerraform(unfurl.artifacts.TerraformModule, ClusterOp):

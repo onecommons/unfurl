@@ -1,0 +1,74 @@
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    tosca_definitions_version: tosca_simple_unfurl_1_0_0
+    topology_template:
+      node_templates:
+        my_node:
+          type: MyNode
+          properties:
+            prop1: foo
+            prop2: 1
+          metadata:
+            module: service_template
+    artifact_types:
+      MyArtifact:
+        derived_from: unfurl.artifacts.ShellExecutable
+        properties:
+          outputsTemplate:
+            type: any
+            required: false
+            default: '{{ stdout | from_json }}'
+          contrived_key:
+            type: string
+        interfaces:
+          Executable:
+            type: unfurl.interfaces.Executable
+            operations:
+              execute:
+                metadata:
+                  output_match:
+                  - Outputs
+                inputs:
+                  arg1:
+                    type: string
+                  arg2:
+                    type: integer
+                outputs:
+                  a_output:
+                    type: string
+                implementation:
+                  className: service_template:MyArtifact.execute:parse
+    node_types:
+      MyNode:
+        derived_from: tosca.nodes.Root
+        properties:
+          prop1:
+            type: string
+          prop2:
+            type: integer
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                metadata:
+                  output_match:
+                  - Outputs
+                  arguments:
+                  - arg1
+                  - arg2
+                inputs:
+                  arg1: hello
+                  arg2:
+                    eval: .::prop2
+                outputs:
+                  a_output:
+                    type: string
+                implementation:
+                  primary:
+                    type: MyArtifact
+                    properties:
+                      contrived_key:
+                        eval: .owner::.::prop1
+                    file: myscript.sh

@@ -1359,7 +1359,17 @@ def _set_config_spec_args(
                 )
             return None
         if artifact:
-            className = artifact.properties.get("className")
+            execute_op = _find_implementation(
+                "unfurl.interfaces.Executable", "execute", artifact, True
+            )
+            if execute_op and isinstance(execute_op.implementation, dict):
+                execute_class = execute_op.implementation.get("className", "")
+                if ":" in execute_class:
+                    # the artifact has an execute operation that needs to run at runtime
+                    # set className so the DSLConfigurator can handle it
+                    className = execute_class.rpartition(":")[0] + ":execute"
+            if not className:
+                className = artifact.properties.get("className")
             if not className and artifact.type != "tosca.artifacts.Root":
                 # don't assume typed artifacts are shell commands
                 tname = template and template.name or ""
@@ -1392,6 +1402,7 @@ def _set_config_spec_args(
                         template,
                         kw.get("operation_host"),
                     )
+            kw["className"] = className
             return kw
         else:
             klass = lookup_class(className)

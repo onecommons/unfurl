@@ -18,8 +18,7 @@ def _make_terraform() -> unfurl.artifacts.TerraformModule:
         resultTemplate=Eval(
             {
                 "attributes": {
-                    "output_attribute": "{{ '.name' | eval }} node "
-                    "{{arguments.foo}}:{{arguments.bar}}"
+                    "output_attribute": "{{ '.name' | eval }} node {{arguments.foo}}:{{arguments.bar}}"
                 }
             }
         ),

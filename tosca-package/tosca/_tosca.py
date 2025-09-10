@@ -18,6 +18,7 @@ from typing import (
     Dict,
     ForwardRef,
     Generic,
+    Iterable,
     Iterator,
     Mapping,
     MutableMapping,
@@ -82,7 +83,7 @@ class _LocalState(threading.local):
         self.safe_mode = False
         self.context: Any = None  # orchestrator specific runtime state
         self.modules = {}
-        self._type_proxy = None
+        self._operation_proxy: Any = None
         # by default, defer field validation to TOSCA parser:
         self._enforce_required_fields = False
         # subtypes can registry themselves, so we can map TOSCA template names to instances
@@ -1767,8 +1768,8 @@ class FieldProjection(EvalData):
         if not issubclass(cls, ToscaType):
             # we're a regular value, project as EvalData
             return super().__getattr__(name)
-        if global_state._type_proxy:
-            proxied = global_state._type_proxy.handleattr(self, name)
+        if global_state._operation_proxy:
+            proxied = global_state._operation_proxy.handleattr(self, name)
             if proxied is not MISSING:  # handled
                 return proxied
         field = cls.__dataclass_fields__.get(name)
@@ -2628,28 +2629,32 @@ class ToscaInputs(_ToscaType):
         field.owner_type = ToscaInputs
         return field
 
+    @classmethod
+    def get_input_fields(cls) -> Iterable[_Tosca_Field]:
+        for field in cls.__dataclass_fields__.values():
+            # only include fields declared on a ToscaInput subtype, not inherited
+            if (
+                isinstance(field, _Tosca_Field)
+                and field.owner
+                and field.owner_type is ToscaInputs
+            ):
+                yield field
+
     @staticmethod
     def _get_inputs(*args: "ToscaInputs", **kw):
         inputs = yaml_cls()
         for arg in args:
             assert isinstance(arg, ToscaInputs), arg
             # XXX only get fields on tosca input classes
-            for field in arg.__dataclass_fields__.values():
-                # only include fields declared on a ToscaInput subtype, not inherited
-                if (
-                    isinstance(field, _Tosca_Field)
-                    and field.owner
-                    and field.owner_type is ToscaInputs
-                ):
-                    val = getattr(arg, field.name, dataclasses.MISSING)
-                    if (
-                        val != dataclasses.MISSING and val != REQUIRED
-                    ):  # XXX what about constrained or default?
-                        if val is not None or field.default is REQUIRED:
-                            # only set field with None if the field is required
-                            if val != field.default:
-                                # don't set if matches default
-                                inputs[field.tosca_name] = val
+            for field in arg.get_input_fields():
+                val = getattr(arg, field.name, dataclasses.MISSING)
+                if val != dataclasses.MISSING and val != REQUIRED:
+                    # XXX what about constrained or default?
+                    if val is not None or field.default is REQUIRED:
+                        # only set field with None if the field is required
+                        if val != field.default:
+                            # don't set if matches default
+                            inputs[field.tosca_name] = val
         inputs.update(kw)
         return inputs
 
@@ -2900,6 +2905,25 @@ class ToscaType(_ToscaType):
         # declare this again so ToscaInput and ToscaOutput._post_field_init is not called on ToscaType subclasses subtype those classes via multiple inheritance
         return field
 
+    def set_inputs(self, *args: "ToscaInputs", **kw: Dict[str, Any]):
+        """
+        Set the inputs for the current operation.
+        Call this inside of an operation method if the operations inputs need to be set at runtime time.
+        """
+        self._inputs = ToscaInputs._get_inputs(*args, **kw)
+
+    def clear_inputs(self) -> Optional[Dict[str, Any]]:
+        """
+        Clear the inputs for the current operation.
+
+        Returns the inputs that were set before clearing them.
+        """
+        if hasattr(self, "_inputs"):
+            inputs = self._inputs
+            self._inputs = None
+            return inputs
+        return None
+
     def _enforce_required_fields(self):
         if "__templateref" in self._metadata:
             return False
@@ -2921,8 +2945,8 @@ class ToscaType(_ToscaType):
             return object.__getattribute__(self, "_ToscaType__getattr")(name)
 
     def __getattr(self, name):
-        if global_state._type_proxy:
-            proxied = global_state._type_proxy.handleattr(self, name)
+        if global_state._operation_proxy:
+            proxied = global_state._operation_proxy.handleattr(self, name)
             if proxied is not MISSING:  # not handled
                 return proxied
         val = object.__getattribute__(self, name)
@@ -3780,13 +3804,6 @@ class ArtifactEntity(_OwnedToscaType):
     contents: Optional[str] = field(default=None)
     dependencies: Optional[List[Union[str, Dict[str, str]]]] = field(default=None)
 
-    def execute(self, *args, **kwargs) -> Optional["ToscaOutputs"]:
-        self.set_inputs(*args)
-        return None
-
-    def set_inputs(self, *args: "ToscaInputs", **kw):
-        self._inputs = ToscaInputs._get_inputs(*args, **kw)
-
     @classmethod
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
@@ -3850,6 +3867,10 @@ class ArtifactEntity(_OwnedToscaType):
             return f"{self._node._name}::.artifacts::{self._local_name}"
         return self._name
 
+    def execute(self, *args, **kwargs) -> Optional["ToscaOutputs"]:
+        # add a catch all here so if a subtype doesn't define an execute method,
+        # we can treat that as untyped, allowing any input to be set
+        return None
 
 ArtifactType = ArtifactEntity  # deprecated
 

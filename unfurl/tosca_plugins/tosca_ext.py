@@ -62,7 +62,7 @@ class artifacts(Namespace):
 
         _type_name = "unfurl.artifacts.Executable"
 
-    class HasConfigurator(tosca.artifacts.Implementation, interfaces.Executable):
+    class HasConfigurator(tosca.artifacts.Implementation, Executable):
         _type_name = "unfurl.artifacts.HasConfigurator"
         className: str
         """Name of the python class that implements the configurator interface"""

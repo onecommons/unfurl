@@ -744,7 +744,7 @@ class PythonToYaml:
         poxy = _OperationProxy()
         try:
             args, kwargs = _get_parameters(obj, cls, sig)
-            global_state._type_proxy = poxy
+            global_state._operation_proxy = poxy
             result = operation(*list(args.values()), **kwargs)
         except Exception:
             logger.debug(
@@ -759,8 +759,13 @@ class PythonToYaml:
             implementation = dict_cls(className=className)
         else:
             implementation = dict_cls()
+            type_proxy = args.get("self")
+            if type_proxy and type_proxy._needs_runtime:
+                implementation["className"] = (
+                    f"{operation.__module__}:{operation.__qualname__}:parse"
+                )
         finally:
-            global_state._type_proxy = None
+            global_state._operation_proxy = None
         if result is NotImplemented:
             return "not_implemented"
 
@@ -848,6 +853,7 @@ def _get_parameters(
         elif parameter.annotation is not inspect.Parameter.empty:
             param_cls = cls_or_self._resolve_class(parameter.annotation)
             if isinstance(param_cls, type) and issubclass(param_cls, _ToscaType):
+                # set to ToscaType class so attribute access returns FieldProjections
                 args[name] = param_cls
             else:
                 args[name] = None  # EvalData(dict(eval="$inputs::" + name))
@@ -930,14 +936,14 @@ class _ArtifactProxy:
         self.named = named
 
     def execute(self, *args: ToscaInputs, **kw) -> Self:
-        assert global_state._type_proxy
-        global_state._type_proxy._artifact_executed = self
-        return global_state._type_proxy.execute(*args, **kw)
+        assert global_state._operation_proxy
+        global_state._operation_proxy._artifact_executed = self
+        return global_state._operation_proxy.execute(*args, **kw)
 
     def set_inputs(self, *args: "ToscaInputs", **kw):
-        assert global_state._type_proxy
-        global_state._type_proxy._artifact_executed = self
-        return global_state._type_proxy.execute(*args, **kw)
+        assert global_state._operation_proxy
+        global_state._operation_proxy._artifact_executed = self
+        return global_state._operation_proxy.execute(*args, **kw)
 
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         if not self.named:
@@ -947,12 +953,15 @@ class _ArtifactProxy:
 
 class _ToscaTypeProxy(InstanceProxy):
     """
-    Stand-in for ToscaTypes when generating yaml
+    Stand-in for ToscaTypes when generating yaml.
     """
+
+    # Only used as a substitution for self when invoking an operation method.
 
     def __init__(self, obj: Optional["ToscaObject"], cls: Type["ToscaObject"]):
         self._cls_or_self = obj or cls
         self._cls = cls
+        self._needs_runtime = None
 
     def __getattr__(self, name):
         return self.getattr(self._cls_or_self, name)
@@ -963,8 +972,16 @@ class _ToscaTypeProxy(InstanceProxy):
             attr._path = [".", attr.field.as_ref_expr()]
         return attr
 
+    def __setattr__(self, name, val):
+        if name not in ("_cls_or_self", "_cls", "_needs_runtime"):
+            self._needs_runtime = True
+        object.__setattr__(self, name, val)
+
     def find_artifact(self, name_or_tpl):
         return _ArtifactProxy(name_or_tpl, False)
+
+    def set_inputs(self, *args, **kw):
+        self._needs_runtime = True
 
 
 class _OperationProxy:
@@ -1014,12 +1031,12 @@ class _OperationProxy:
             obj = self._artifact_executed.field.owner
         if obj:
             # disable method interception
-            saved = global_state._type_proxy
-            global_state._type_proxy = None
+            saved = global_state._operation_proxy
+            global_state._operation_proxy = None
             try:
                 execute = getattr(obj, "execute", None)
             finally:
-                global_state._type_proxy = saved
+                global_state._operation_proxy = saved
             if execute:
                 return inspect.signature(execute)
         return None
@@ -1027,7 +1044,7 @@ class _OperationProxy:
     def handleattr(
         self, field_or_obj: Union[_ArtifactProxy, FieldProjection, ToscaType], name
     ):
-        if name in ["execute"]:
+        if name in ["execute", "set_inputs"]:
             self._artifact_executed = field_or_obj
             return self.execute
         return dataclasses.MISSING

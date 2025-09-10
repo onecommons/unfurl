@@ -47,15 +47,20 @@ from typing import (
     Union,
     cast,
     TYPE_CHECKING,
-    Tuple,
 )
-
 import tosca
-from tosca import InstanceProxy, ToscaType, DataEntity, ToscaFieldType, TypeInfo
+from tosca import (
+    InstanceProxy,
+    ToscaInputs,
+    ToscaType,
+    DataEntity,
+    ToscaFieldType,
+    TypeInfo,
+)
 import tosca.loader
 from tosca._tosca import (
     _Tosca_Field,
-    _ToscaType,
+    ArtifactEntity,
     Node,
     global_state,
     FieldProjection,
@@ -306,17 +311,58 @@ class DslMethodConfigurator(Configurator):
         self.configurator: Optional[Configurator] = None
         self._generator: Optional[Generator] = None
 
+    def _execute_artifact(self, task: TaskView):
+        assert task._artifact
+        artifact = proxy_instance(
+            task._artifact, self.cls, task._artifact.attributes.context
+        )
+        assert artifact
+        assert issubclass(self.cls, ArtifactEntity)
+        sig = inspect.signature(self.cls.execute)
+        args = []
+        kwargs = {}
+        arguments = task.inputs["arguments"]
+        for name, parameter in sig.parameters.items():
+            if name == "self":
+                continue
+            if (
+                parameter.annotation is not inspect.Parameter.empty
+                and (param_cls := self.cls._resolve_class(parameter.annotation))
+                and isinstance(param_cls, type)
+                and issubclass(param_cls, ToscaInputs)
+            ):  # execute() can have ToscaInputs parameters
+                ctor_args = {}
+                for field in param_cls.get_input_fields():
+                    if field.name in arguments:
+                        ctor_args[field.name] = arguments[field.name]
+                ti_input = param_cls(**ctor_args)
+                if parameter.kind == inspect.Parameter.POSITIONAL_ONLY:
+                    args.append(ti_input)
+                else:
+                    kwargs[name] = ti_input
+            elif name in arguments:
+                if parameter.kind == inspect.Parameter.POSITIONAL_ONLY:
+                    args.append(arguments[name])
+                else:
+                    kwargs[name] = arguments[name]
+        artifact._invoke(self.cls.execute, *args, **kwargs)
+        self._set_artifact(task, getattr(artifact, "_inputs", None), task._artifact)
+        assert self.configurator
+        return self.configurator.render(task)
+
     def render(self, task: TaskView) -> Any:
+        if self.action == "execute":  # execute the implementation artifact
+            return self._execute_artifact(task)
         if self.action == "render" or self.action == "parse":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
             execute_proxy = _OperationProxy()
             try:
-                global_state._type_proxy = execute_proxy
+                global_state._operation_proxy = execute_proxy
                 # XXX pass task
                 result = obj._invoke(self.func)
             finally:
-                global_state._type_proxy = None
+                global_state._operation_proxy = None
 
             if isinstance(result, Generator):
                 self._generator = result
@@ -336,7 +382,7 @@ class DslMethodConfigurator(Configurator):
                 if not self._generator:
                     return self.configurator.render(task)
             elif callable(result):
-                self.func = result
+                self.func = result  # invoke during run()
             elif execute_proxy._artifact_executed:
                 name = execute_proxy.get_artifact_name()
                 artifact = task.target.artifacts.get(name)
@@ -345,23 +391,30 @@ class DslMethodConfigurator(Configurator):
                         task,
                         f"Implementation artifacts set during render must be declared on node template: {execute_proxy._artifact_executed}",
                     )
-                task.configSpec.artifact = artifact.template
-                task.configSpec.className = artifact.template.properties.get(
-                    "className"
-                )
-                if execute_proxy._inputs:
-                    task.configSpec.inputs.update(execute_proxy._inputs)
-                    task.configSpec.arguments = list(execute_proxy._inputs)
-                self.configurator = task.configSpec.create()
-                # regenerate task.inputs:
-                task._inputs = None
-                task.inputs
+                self._set_artifact(task, execute_proxy._inputs, artifact)
+                assert self.configurator
                 return self.configurator.render(task)
-            else:
+            elif result is not None:
                 raise UnfurlError(
                     f"unsupported configurator type: {type(result)} {result and result._obj} {result and result._cls}"
                 )
+            if obj and getattr(obj, "_inputs", None):
+                task.configSpec.inputs.update(obj.clear_inputs())
+                # regenerate task.inputs:
+                task._inputs = None
+                task.inputs
         return super().render(task)
+
+    def _set_artifact(self, task: TaskView, _inputs, artifact):
+        task.configSpec.artifact = artifact.template
+        task.configSpec.className = artifact.attributes.get("className")
+        if _inputs:
+            task.configSpec.inputs.update(_inputs)
+            task.configSpec.arguments = list(_inputs)
+        self.configurator = task.configSpec.create()
+        # regenerate task.inputs
+        task._inputs = None
+        task.inputs
 
     def _is_generator(self) -> bool:
         # Note: this needs to called after configurator is set in render()
