@@ -153,6 +153,7 @@ class WordPress(tosca.nodes.WebApplication):
     """
     Description of the Wordpress type
     """
+    _version = "1.0"
     admin_user: str
     admin_password: str
     db_host: str
@@ -175,6 +176,7 @@ type_reference_yaml = {
         "WordPress": {
             "derived_from": "tosca.nodes.WebApplication",
             "description": "Description of the Wordpress type",
+            "version": "1.0",
             "properties": {
                 "admin_password": {"type": "string"},
                 "admin_user": {"type": "string"},

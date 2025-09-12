@@ -537,9 +537,10 @@ class PythonToYaml:
         doc = cls.__doc__ and cls.__doc__.strip()
         if doc:
             body["description"] = doc
+        if cls._version:
+            body["version"] = str(cls._version)
         if cls._type_metadata:
             body["metadata"] = metadata_to_yaml(cls._type_metadata)
-
         for f_cls, field in cls._get_parameter_and_explicit_fields():
             assert field.name, field
             if f_cls._docstrings:

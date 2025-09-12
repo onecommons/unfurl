@@ -1013,6 +1013,11 @@ class Convert:
             )
             src += f"{indent}_type_metadata = {formatted}\n"
 
+        version = toscatype.defs and toscatype.defs.get("version") or None
+        if version is not None:
+            self.imports.from_tosca.add("tosca_version")
+            src += f'{indent}_version = "tosca_version({self.value2python_repr(str(version), True)})\n'
+
         src += self.add_properties_decl(toscatype, "properties", indent)
         src += self.add_properties_decl(toscatype, "attributes", indent)
 
