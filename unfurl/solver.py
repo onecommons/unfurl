@@ -321,6 +321,10 @@ def convert(
         field = prop2field(node_template, None, prop)
         if field:
             entity.fields.append(field)
+    for prop in node_template.builtin_properties().values():
+        field = prop2field(node_template, None, prop)
+        if field:
+            entity.fields.append(field)
 
     type_requirements: Dict[str, Dict[str, Any]] = (
         node_template.type_definition.requirement_definitions
