@@ -130,7 +130,9 @@ def test_solve():
 
     assert solved == {("app", "host"): [("db_server", "host")]}
     app = tosca.topology_template.node_templates["app"]
-    assert app.missing_requirements == {'connection': {'relationship': {'type': 'tosca.relationship.ConnectsTo'}}}
+    assert app.missing_requirements == {
+        "connection": {"relationship": {"type": "tosca.relationship.ConnectsTo"}}
+    }
     for rel_template, original_tpl, requires_tpl_dict in app.relationships:
         assert (
             rel_template.target == tosca.topology_template.node_templates["db_server"]
@@ -183,9 +185,9 @@ def test_node_filter():
     # add an unsupported pattern, match should be skipped
     t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node_filter"
-    ]["capabilities"][0]["host"]["properties"].append({
-        "distribution": {"pattern": "u*"}
-    })
+    ]["capabilities"][0]["host"]["properties"].append(
+        {"distribution": {"pattern": "u*"}}
+    )
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
     assert not t2.topology_template.node_templates["test"].relationships
@@ -272,3 +274,238 @@ def test_node_filter_computed_properties(caplog: pytest.LogCaptureFixture):
         # topology = runtime_test(test)
         topology, runner = create_runner(test)
         # runner.job.rootResource.find_resource("test1").validate()
+
+
+def test_caret_semver_constraint():
+    """Test version constraint in node filters"""
+    semver_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:
+  SoftwareComponent:
+    derived_from: tosca.nodes.Root
+    properties:
+      version:
+        type: string
+        required: true
+  
+  Application:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - depends_on:
+        capability: tosca.capabilities.Node
+        node: SoftwareComponent
+
+topology_template:
+  node_templates:
+    app:
+      type: Application
+      requirements:
+      - depends_on:
+          node_filter:
+            properties:
+            - version: 
+                version: "^1.2.0"
+    
+    compatible_component:
+      type: SoftwareComponent
+      properties:
+        version: "1.2.5"
+    
+    incompatible_component:
+      type: SoftwareComponent 
+      properties:
+        version: "2.0.0"
+    
+    another_compatible:
+      type: SoftwareComponent
+      properties:
+        version: "1.9.1"
+"""
+    tosca = make_tpl(semver_yaml)
+    solved = solve_topology(tosca.topology_template)
+
+    # Should match compatible components but not incompatible ones
+    app_matches = solved.get(("app", "depends_on"), [])
+    matched_targets = {target for target, _ in app_matches}
+
+    # Should match components with compatible versions (1.2.5, 1.9.1) but not 2.0.0
+    assert "compatible_component" in matched_targets
+    assert "another_compatible" in matched_targets
+    assert "incompatible_component" not in matched_targets
+
+
+def test_tilde_semver_constraint():
+    """Test tilde (~) semver requirements in node filters on artifact templates"""
+    tilde_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:
+  SoftwareComponent:
+    derived_from: tosca.nodes.Root
+  
+  Application:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - depends_on:
+        capability: tosca.capabilities.Node
+        node: SoftwareComponent
+
+topology_template:
+  node_templates:
+    app:
+      type: Application
+      requirements:
+      - depends_on:
+          node_filter:
+            artifacts:
+            - tosca.artifacts.Implementation:
+                properties:
+                - version: 
+                    version: "~1.2.3"
+    
+    patch_compatible:
+      type: SoftwareComponent
+      artifacts:
+        image:
+          type: tosca.artifacts.Implementation
+          file: patch_compatible.jar
+          version: "1.2.5"
+    
+    minor_incompatible:
+      type: SoftwareComponent 
+      artifacts:
+        image:
+          type: tosca.artifacts.Implementation
+          file: minor_incompatible.jar
+          version: "1.3.0"
+    
+    below_requirement:
+      type: SoftwareComponent
+      artifacts:
+        image:
+          type: tosca.artifacts.Implementation
+          file: below_requirement.jar
+          version: "1.2.2"
+"""
+    tosca = make_tpl(tilde_yaml)
+    solved = solve_topology(tosca.topology_template)
+
+    # Should match patch-compatible but not minor version changes or lower versions
+    app_matches = solved.get(("app", "depends_on"), [])
+    matched_targets = {target for target, _ in app_matches}
+
+    # ~1.2.3 should match 1.2.5 (patch level) but not 1.3.0 (minor) or 1.2.2 (below requirement)
+    assert "patch_compatible" in matched_targets
+    assert "minor_incompatible" not in matched_targets
+    assert "below_requirement" not in matched_targets
+
+
+def test_comparison_version_constraint():
+    """Test comparison operators (>=, >, <, <=, =) in version requirements"""
+    comparison_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:
+  MeetsRequirement:
+    derived_from: tosca.nodes.Root
+    version: "1.2.0"
+  
+  ExceedsRequirement:
+    derived_from: tosca.nodes.Root
+    version: "2.0.0"
+    
+  BelowRequirement:
+    derived_from: tosca.nodes.Root
+    version: "1.1.9"
+  
+  Application:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - depends_on:
+        capability: tosca.capabilities.Node
+        node: tosca.nodes.Root # XXX this shouldn't be needed
+
+topology_template:
+  node_templates:
+    app:
+      type: Application
+      requirements:
+      - depends_on:
+          node_filter:
+            properties:
+            - version:
+                version: ">=1.2.0"
+
+    meets_requirement:
+      type: MeetsRequirement
+
+    exceeds_requirement:
+      type: ExceedsRequirement
+
+    below_requirement:
+      type: BelowRequirement
+"""
+    tosca = make_tpl(comparison_yaml)
+    solved = solve_topology(tosca.topology_template)
+
+    # Should match versions >= 1.2.0 but not lower versions
+    app_matches = solved.get(("app", "depends_on"), [])
+    matched_targets = {target for target, _ in app_matches}
+
+    # >=1.2.0 should match 1.2.0 and 2.0.0 but not 1.1.9
+    assert "meets_requirement" in matched_targets
+    assert "exceeds_requirement" in matched_targets
+    assert "below_requirement" not in matched_targets
+
+
+def test_multiple_version_constraints():
+    """Test multiple version requirements (">= 1.2.0, < 1.5.0") in version constraints"""
+    multiple_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+
+node_types:  
+  Application:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - depends_on:
+        capability: tosca.capabilities.Node
+        node: tosca.nodes.Root
+
+topology_template:
+  node_templates:
+    app:
+      type: Application
+      requirements:
+      - depends_on:
+          node_filter:
+            properties:
+            - component_version: 
+                version: ">= 1.2.0, < 1.5.0"
+
+    in_range:
+      type: tosca.nodes.SoftwareComponent
+      properties:
+        component_version: "1.3.5"
+
+    too_high:
+      type: tosca.nodes.SoftwareComponent 
+      properties:
+        component_version: "1.5.0"
+
+    too_low:
+      type: tosca.nodes.SoftwareComponent
+      properties:
+        component_version: "1.1.9"
+"""
+    tosca = make_tpl(multiple_yaml)
+    solved = solve_topology(tosca.topology_template)
+
+    # Should match versions in range [1.2.0, 1.5.0)
+    app_matches = solved.get(("app", "depends_on"), [])
+    matched_targets = {target for target, _ in app_matches}
+
+    # >= 1.2.0, < 1.5.0 should match 1.3.5 but not 1.5.0 or 1.1.9
+    assert "in_range" in matched_targets
+    assert "too_high" not in matched_targets
+    assert "too_low" not in matched_targets

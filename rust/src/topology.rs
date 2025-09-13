@@ -7,6 +7,7 @@
 #![allow(clippy::type_complexity)] // ignore for ascent!
 
 use ascent::{ascent, lattice::set::Set};
+use semver::{Version, VersionReq};
 use std::convert::From;
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
 
@@ -111,6 +112,7 @@ pub enum Constraint {
     length { v: ToscaValue },
     min_length { v: ToscaValue },
     max_length { v: ToscaValue },
+    version { v: ToscaValue },
     // pattern, // XXX
     // schema,  // XXX
 }
@@ -128,6 +130,7 @@ impl Constraint {
             Constraint::length { v } => v,
             Constraint::min_length { v } => v,
             Constraint::max_length { v } => v,
+            Constraint::version { v } => v,
         }
     }
 
@@ -189,6 +192,37 @@ impl Constraint {
             } => {
                 let len = t.v.len()?;
                 Some(*vv <= len as i128)
+            }
+            Constraint::version {
+                v:
+                    ToscaValue {
+                        v: SimpleValue::string { v: req_str },
+                        ..
+                    },
+            } => {
+                let version_str = match &t.v {
+                    SimpleValue::string { v } => v.clone(),
+                    SimpleValue::integer { v } => v.to_string(),
+                    SimpleValue::float { v } => v.to_string(),
+                    _ => return Some(false), // other types can't be semver compatible
+                };
+
+                // Strip leading "v" if present (e.g., "v1.2.0" -> "1.2.0")
+                let version_str = version_str.strip_prefix('v').unwrap_or(&version_str);
+
+                // Pad partial versions to full semver format (e.g., "1" -> "1.0.0")
+                let full_version = if version_str.matches('.').count() == 0 {
+                    format!("{}.0.0", version_str)
+                } else if version_str.matches('.').count() == 1 {
+                    format!("{}.0", version_str)
+                } else {
+                    version_str.to_string()
+                };
+
+                match (VersionReq::parse(req_str), Version::parse(&full_version)) {
+                    (Ok(version_req), Ok(version)) => Some(version_req.matches(&version)),
+                    _ => Some(req_str == version_str), // non-semver version strings must match exactly
+                }
             }
             _ => None, // type mismatch
         }
@@ -684,6 +718,120 @@ mod tests {
         };
         assert!(range.matches(&ToscaValue::from(1)).unwrap());
         assert!(!range.matches(&ToscaValue::from(6)).unwrap());
+    }
+
+    #[test]
+    fn test_semver_compatible() {
+        // Test version constraint with caret requirement "^1.2.0"
+        let semver_constraint = Constraint::version {
+            v: ToscaValue::from("^1.2.0".to_string()),
+        };
+
+        // Should match compatible versions within same major version
+        assert!(semver_constraint
+            .matches(&ToscaValue::from("1.2.0".to_string()))
+            .unwrap());
+        assert!(semver_constraint
+            .matches(&ToscaValue::from("1.2.5".to_string()))
+            .unwrap());
+        assert!(semver_constraint
+            .matches(&ToscaValue::from("1.9.1".to_string()))
+            .unwrap());
+
+        // Should not match different major versions
+        assert!(!semver_constraint
+            .matches(&ToscaValue::from("2.0.0".to_string()))
+            .unwrap());
+        assert!(!semver_constraint
+            .matches(&ToscaValue::from("0.9.0".to_string()))
+            .unwrap());
+
+        // Should not match versions below the requirement
+        assert!(!semver_constraint
+            .matches(&ToscaValue::from("1.1.9".to_string()))
+            .unwrap());
+
+        // Test with integer and float values converted to strings
+        // "1" -> "1.0.0" which is < "1.2.0", so should NOT match ^1.2.0
+        assert!(!semver_constraint.matches(&ToscaValue::from(1)).unwrap()); // "1.0.0" < "1.2.0"
+        assert!(!semver_constraint.matches(&ToscaValue::from(2)).unwrap()); // "2.0.0" is different major version
+
+        // Test with float values
+        assert!(semver_constraint.matches(&ToscaValue::from(1.3)).unwrap()); // "1.3" -> "1.3.0" matches ^1.2.0
+        assert!(!semver_constraint.matches(&ToscaValue::from(1.1)).unwrap()); // "1.1" -> "1.1.0" < 1.2.0
+
+        // Test with "v" prefix
+        assert!(semver_constraint
+            .matches(&ToscaValue::from("v1.2.5".to_string()))
+            .unwrap());
+        assert!(!semver_constraint
+            .matches(&ToscaValue::from("v2.0.0".to_string()))
+            .unwrap());
+
+        // Test exact version requirement (no caret)
+        let exact_constraint = Constraint::version {
+            v: ToscaValue::from("= 1.2.0".to_string()),
+        };
+
+        assert!(exact_constraint
+            .matches(&ToscaValue::from("1.2.0".to_string()))
+            .unwrap());
+        assert!(!exact_constraint
+            .matches(&ToscaValue::from("1.2.5".to_string()))
+            .unwrap());
+        assert!(!exact_constraint
+            .matches(&ToscaValue::from("1.9.1".to_string()))
+            .unwrap());
+        assert!(!exact_constraint
+            .matches(&ToscaValue::from("2.0.0".to_string()))
+            .unwrap());
+
+        // Test tilde requirements
+        let tilde_constraint = Constraint::version {
+            v: ToscaValue::from("~1.2.3".to_string()),
+        };
+
+        // ~1.2.3 allows >=1.2.3, <1.3.0 (patch-level changes only)
+        assert!(tilde_constraint
+            .matches(&ToscaValue::from("1.2.3".to_string()))
+            .unwrap());
+        assert!(tilde_constraint
+            .matches(&ToscaValue::from("1.2.9".to_string()))
+            .unwrap());
+        assert!(!tilde_constraint
+            .matches(&ToscaValue::from("1.3.0".to_string()))
+            .unwrap());
+        assert!(!tilde_constraint
+            .matches(&ToscaValue::from("1.1.9".to_string()))
+            .unwrap());
+
+        // Test tilde with major.minor (~1.2)
+        let tilde_minor_constraint = Constraint::version {
+            v: ToscaValue::from("~1.2".to_string()),
+        };
+
+        // ~1.2 allows >=1.2.0, <1.3.0
+        assert!(tilde_minor_constraint
+            .matches(&ToscaValue::from("1.2.0".to_string()))
+            .unwrap());
+        assert!(tilde_minor_constraint
+            .matches(&ToscaValue::from("1.2.9".to_string()))
+            .unwrap());
+        assert!(!tilde_minor_constraint
+            .matches(&ToscaValue::from("1.3.0".to_string()))
+            .unwrap());
+
+        let unsemver_constraint = Constraint::version {
+            v: ToscaValue::from("branch".to_string()),
+        };
+
+        assert!(unsemver_constraint
+            .matches(&ToscaValue::from("branch".to_string()))
+            .unwrap());
+        assert!(!unsemver_constraint
+            .matches(&ToscaValue::from("1.2.9".to_string()))
+            .unwrap());
+
     }
 
     #[test]

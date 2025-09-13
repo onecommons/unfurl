@@ -2891,6 +2891,7 @@ class ToscaType(_ToscaType):
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
+    _version: ClassVar[Optional[tosca_version]] = None
 
     @property
     def tosca_name(self) -> str:

@@ -20,7 +20,8 @@ crate-type = ["cdylib"]
 pyo3 = { version = "0.25.1", features = ["hashbrown"] }
 pyo3-log = "0.12.4"
 ascent = "0.8.0"
-log = "0.4.27"
+log = "0.4.28"
+semver = "1.0"
 # ascent-byods-rels = "0.7.0"
 
 [features]
