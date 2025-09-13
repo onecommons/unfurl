@@ -180,14 +180,13 @@ class ServerCacheResolver(SimpleCacheResolver):
         credentials: Optional[dict] = None,
     ):
         def ctor(*args, **kw):
-            assert root_cache_request or credentials
             resolver = cls(*args, **kw)
             resolver.root_cache_request = root_cache_request
-            resolver.args = (
-                credentials
-                if credentials is not None
-                else root_cache_request and root_cache_request.args
-            )
+            if credentials:
+                resolver.args = credentials
+            else:
+                assert root_cache_request
+                resolver.args = root_cache_request.args
             return resolver
 
         return ctor
