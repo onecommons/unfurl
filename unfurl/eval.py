@@ -10,6 +10,7 @@ from typing import (
     Dict,
     Iterator,
     List,
+    NamedTuple,
     Tuple,
     Optional,
     Union,
@@ -198,7 +199,7 @@ class RefContext:
         # the last resource encountered while evaluating:
         self._lastResource = currentResource
         # current segment is the final segment:
-        self._rest = None
+        self._rest: Optional[List[Segment]] = None
         self.wantList = wantList
         self.resolveExternal = resolveExternal
         self._trace = self.DefaultTraceLevel if trace is None else trace
@@ -359,7 +360,7 @@ class RefContext:
 
 
 class Expr:
-    def __init__(self, exp, vars=None):
+    def __init__(self, exp: str, vars: Optional[dict] = None):
         self.vars = {"true": True, "false": False, "null": None}
 
         if vars:
@@ -582,11 +583,20 @@ class Ref:
             first = next(iter(value))
 
             if "ref" in value or "eval" in value:
-                return len([
-                    x
-                    for x in ["vars", "trace", "foreach", "select", "strict", "base_dir"]
-                    if x in value
-                ]) + 1 == len(value)
+                return len(
+                    [
+                        x
+                        for x in [
+                            "vars",
+                            "trace",
+                            "foreach",
+                            "select",
+                            "strict",
+                            "base_dir",
+                        ]
+                        if x in value
+                    ]
+                ) + 1 == len(value)
             if len(value) == 1 and first in _FuncsTop:
                 return True
             return False
@@ -644,6 +654,7 @@ def and_func(arg, ctx):
 
 def quote_func(arg, ctx):
     return wrap_var(arg)
+
 
 def func_defined_func(arg, ctx):
     return map_value(arg, ctx) in ctx._Funcs
@@ -881,14 +892,14 @@ def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"
     return ctx.currentResource  # type: ignore
 
 
-def get_eval_func(name):
-    return RefContext._Funcs.get(name)
-
-
 EvalFunc = Callable[[Any, RefContext], Any]
 
 
-def set_eval_func(name, val: EvalFunc, topLevel=False, safe=False):
+def get_eval_func(name: str) -> Optional[EvalFunc]:
+    return RefContext._Funcs.get(name)
+
+
+def set_eval_func(name: str, val: EvalFunc, topLevel=False, safe=False) -> None:
     RefContext._Funcs[name] = val
     if topLevel:
         _FuncsTop.append(name)
@@ -984,12 +995,17 @@ def eval_for_func(val, ctx) -> Any:
         return [r.resolved for r in results]
 
 
-# return a segment
-Segment = collections.namedtuple("Segment", ["key", "test", "modifier", "filters"])
+class Segment(NamedTuple):
+    key: str  # The key to lookup
+    test: List[Any]  # Test conditions
+    modifier: str  # '?' or '!'
+    filters: List[List["Segment"]]  # Filter expressions
+
+
 defaultSegment = Segment("", [], "", [])
 
 
-def eval_test(value, test, context) -> bool:
+def eval_test(value, test, context: RefContext) -> bool:
     comparor = test[0]
     key = test[1]
     try:
@@ -1008,12 +1024,15 @@ def eval_test(value, test, context) -> bool:
     return False
 
 
-def lookup(result: Result, key: Any, context: RefContext) -> Optional[Result]:
+def lookup(result: Result, key_: str, context: RefContext) -> Optional[Result]:
+    key: Any = key_
     try:
         # if key == '.':
         #   key = context.currentKey
-        if context and isinstance(key, str) and key.startswith("$"):
-            key = context.resolve_var(key)
+        if context and key_.startswith("$"):
+            key = context.resolve_var(key_)
+        else:
+            key = _make_key(key_)
 
         if isinstance(result.resolved, ResourceRef):
             context._lastResource = result.resolved
@@ -1041,14 +1060,15 @@ def lookup(result: Result, key: Any, context: RefContext) -> Optional[Result]:
 
 
 # given a Result, yields the result
-def eval_item(result, seg, context):
+def eval_item(result: Result, seg: Segment, context: RefContext) -> Iterator[Result]:
     """
     apply current item to current segment, return [] or [value]
     """
     if seg.key != "":
-        result = lookup(result, seg.key, context)
-        if not result:
+        _result = lookup(result, seg.key, context)
+        if not _result:
             return
+        result = _result
 
     value = result.resolved
     for filter in seg.filters:
@@ -1069,19 +1089,21 @@ def eval_item(result, seg, context):
     yield result
 
 
-def _treat_as_singular(result, seg):
+def _treat_as_singular(result: Result, seg: Segment) -> bool:
     if seg.key == "*":
         return False
     # treat external values as single item even if they resolve to a list
     # treat lists as a single item if indexing into it
-    return (
+    return bool(
         result.external
         or not isinstance(result.resolved, MutableSequence)
-        or isinstance(seg.key, int)
+        or isinstance(_make_key(seg.key), int)
     )
 
 
-def recursive_eval(v, exp, context):
+def recursive_eval(
+    v: Iterator[Result], exp: List[Segment], context: RefContext
+) -> Iterator[Result]:
     """
     given a iterator of (previous) Result,
     yields Result
@@ -1132,21 +1154,23 @@ def recursive_eval(v, exp, context):
                     return
 
 
-def eval_exp(start, paths, context) -> List[Result]:
+def eval_exp(
+    start: List[Any], paths: List[Segment], context: RefContext
+) -> List[Result]:
     "Returns a list of Result"
     context.trace("evalexp", start, paths)
     assert_form(start, MutableSequence)
     return list(recursive_eval((Result(i) for i in start), paths, context))
 
 
-def _make_key(key):
+def _make_key(key: str) -> Union[str, int]:
     try:
         return int(key)
     except ValueError:
         return key
 
 
-def parse_path_key(segment):
+def parse_path_key(segment: str) -> Segment:
     # key, negation, test, matchFirst
     if not segment:
         return defaultSegment
@@ -1163,12 +1187,12 @@ def parse_path_key(segment):
     if len(parts) == 3:
         key = parts[0]
         op = operator.eq if parts[1] == "=" else operator.ne
-        return Segment(_make_key(key), [op, parts[2]], modifier, [])
+        return Segment(key, [op, parts[2]], modifier, [])
     else:
-        return Segment(_make_key(segment), [], modifier, [])
+        return Segment(segment, [], modifier, [])
 
 
-def parse_path(path, start):
+def parse_path(path: str, start: Optional[Segment]) -> List[Segment]:
     paths = path.split("::")
     segments = [parse_path_key(k.strip()) for k in paths]
     if start:
@@ -1184,7 +1208,7 @@ def parse_path(path, start):
     return segments
 
 
-def parse_exp(exp):
+def parse_exp(exp: str) -> Iterator[Segment]:
     # return list of steps
     rest = exp
     last = None
@@ -1202,7 +1226,7 @@ def parse_exp(exp):
         yield last
 
 
-def parse_step(exp, start=None):
+def parse_step(exp: str, start: Optional[Segment] = None) -> Tuple[List[Segment], str]:
     split = re.split(r"(\[|\])", exp, maxsplit=1)
     if len(split) == 1:  # not found
         return parse_path(split[0], start), ""
@@ -1211,7 +1235,7 @@ def parse_step(exp, start=None):
 
     paths = parse_path(path, start)
 
-    filterExps = []
+    filterExps: List[List[Segment]] = []
     while sep == "[":
         filterExp, rest = parse_step(rest)
         filterExps.append(filterExp)
