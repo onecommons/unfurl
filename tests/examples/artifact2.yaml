@@ -39,7 +39,7 @@ spec:
                   a_output:
                     type: string
                 implementation:
-                  className: service_template:MyArtifact.execute:parse
+                  className: service_template:MyArtifact.%s
     node_types:
       MyNode:
         derived_from: tosca.nodes.Root

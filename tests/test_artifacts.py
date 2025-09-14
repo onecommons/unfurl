@@ -134,7 +134,8 @@ def test_target_and_intent():
     )
 
 
-collection_ensemble = """
+collection_ensemble = (
+    """
 apiVersion: %s
 kind: Ensemble
 spec:
@@ -165,7 +166,9 @@ spec:
                       done:
                         status: ok
 changes: []
-""" % API_VERSION
+"""
+    % API_VERSION
+)
 
 
 def test_collection_artifact():
@@ -201,7 +204,7 @@ def _to_yaml(python_src: str):
     return tosca_tpl
 
 
-def _get_python_manifest(pyfile, yamlfile=None, command=None):
+def _get_python_manifest(pyfile, yamlfile=None, command=None, action=None):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
     with open(os.path.join(basepath, pyfile)) as f:
         python_src = f.read()
@@ -212,20 +215,24 @@ def _get_python_manifest(pyfile, yamlfile=None, command=None):
         if yamlfile:
             with open(os.path.join(basepath, yamlfile)) as f:
                 yaml_src = f.read()
+                if action is not None:
+                    yaml_src = yaml_src % action
                 yaml_tpl = yaml.load(yaml_src)
                 assert yaml_tpl == manifest_tpl
 
     return manifest_tpl
 
+
 def get_manifest_tpl(python_src):
     py_tpl = _to_yaml(python_src)
-    print( py_tpl )
+    print(py_tpl)
     manifest_tpl = dict(
-            apiVersion=API_VERSION,
-            kind="Ensemble",
-            spec=dict(service_template=py_tpl),
-        )
+        apiVersion=API_VERSION,
+        kind="Ensemble",
+        spec=dict(service_template=py_tpl),
+    )
     return manifest_tpl
+
 
 service_template = """
 import unfurl
@@ -259,6 +266,8 @@ class Cluster(tosca.nodes.Root):
 
 cluster = Cluster(node_pool=NodePool(name="node_pool"))
 """
+
+
 def test_render_operation():
     # test non-declarative TOSCA operations that execute an artifact at render time
     manifest_tpl = get_manifest_tpl(service_template)
@@ -272,6 +281,7 @@ def test_render_operation():
     assert task.outputs["name"] == "node_pool-1"
     # make sure we serialized custom attribute on the default_connection:
     assert "node_pool_name: node_pool-1" in job.out.getvalue()
+
 
 def test_artifact_dsl():
     manifest_tpl = _get_python_manifest("dsl_artifacts.py", "dsl_artifacts.yaml")
@@ -309,12 +319,19 @@ def test_artifact_syntax():
         == "test node hello:1"
     )
 
+command1 = "self.command = command"
 @pytest.mark.parametrize(
-    "command", ["self.command = command", "self.set_inputs(command=command)"]
-)
-def test_artifact_execute(command):
-    # both commands should generate the same yaml
-    manifest_tpl = _get_python_manifest("artifact2.py", "artifact2.yaml", command)
+    "command,action",
+    [
+        (command1, "execute:parse"),
+        ("self.set_inputs(command=command)", "execute:parse"),
+        ("return self.run", "run:run"),
+    ],
+)  # self.prop2
+def test_artifact_execute(command, action):
+    manifest_tpl = _get_python_manifest(
+        "artifact2.py", "artifact2.yaml", (command, "self.prop2"), action
+    )
     manifest = YamlManifest(manifest_tpl)
     job = Runner(manifest)
     job = job.run(JobOptions(skip_save=True))

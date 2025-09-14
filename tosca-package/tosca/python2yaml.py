@@ -775,16 +775,20 @@ class PythonToYaml:
         # the outputs come either the return value or the signature return annotation
         # implementation is the return value or from the proxy
 
-        if not result:  # no return value
+        if isinstance(result, ToscaOutputs):
+            _set_outputs(outputs, self, op_def, result)
+            result = poxy._artifact_executed
+        else:
             ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
             if ret_cls:
                 _set_outputs(outputs, self, op_def, ret_cls)
-            if not implementation:  # if not already set
-                result = poxy._artifact_executed
-        elif isinstance(result, ToscaOutputs):
-            _set_outputs(outputs, self, op_def, result)
-            result = poxy._artifact_executed
-        if isinstance(result, ArtifactEntity):
+            if not result:  # no return value
+                if not implementation:  # if not already set
+                    result = poxy._artifact_executed
+
+        if implementation:
+            pass  # already set, we're going to rerun the operation again and process the result then
+        elif isinstance(result, ArtifactEntity):
             primary = result.to_template_yaml(self)
             implementation = dict_cls(primary=primary)
         elif isinstance(result, FieldProjection):
@@ -792,9 +796,6 @@ class PythonToYaml:
             implementation = dict_cls(primary=result.field.name)
         elif isinstance(result, _ArtifactProxy):
             implementation = dict_cls(primary=result.name_or_tpl)
-            ret_cls = _get_toscaoutputs(cls_or_self, sig.return_annotation)
-            if ret_cls:
-                _set_outputs(outputs, self, op_def, ret_cls)
         elif isinstance(result, types.FunctionType):
             if inspect.isgeneratorfunction(result):
                 action = "render"

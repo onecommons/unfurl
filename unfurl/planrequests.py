@@ -1365,9 +1365,12 @@ def _set_config_spec_args(
             if execute_op and isinstance(execute_op.implementation, dict):
                 execute_class = execute_op.implementation.get("className", "")
                 if ":" in execute_class:
-                    # the artifact has an execute operation that needs to run at runtime
+                    # the artifact has an execute operation that needs to run
                     # set className so the DSLConfigurator can handle it
-                    className = execute_class.rpartition(":")[0] + ":execute"
+                    if not execute_class.endswith(":run"):
+                        # change render-time actions to "execute"
+                        execute_class = execute_class.rpartition(":")[0] + ":execute"
+                    className = execute_class
             if not className:
                 className = artifact.properties.get("className")
             if not className and artifact.type != "tosca.artifacts.Root":

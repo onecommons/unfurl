@@ -52,6 +52,7 @@ import tosca
 from tosca import (
     InstanceProxy,
     ToscaInputs,
+    ToscaOutputs,
     ToscaType,
     DataEntity,
     ToscaFieldType,
@@ -345,6 +346,8 @@ class DslMethodConfigurator(Configurator):
                     args.append(arguments[name])
                 else:
                     kwargs[name] = arguments[name]
+        # updates the artifact and sets inputs
+        # XXX: handle return value, in particular a callable
         artifact._invoke(self.cls.execute, *args, **kwargs)
         self._set_artifact(task, getattr(artifact, "_inputs", None), task._artifact)
         assert self.configurator
@@ -426,7 +429,7 @@ class DslMethodConfigurator(Configurator):
 
     def run(
         self, task: "TaskView"
-    ) -> Union[Generator, ConfiguratorResult, "Status", bool]:
+    ) -> Union[Generator, ConfiguratorResult, "Status", bool, ToscaOutputs]:
         # XXX
         # if self._generator:
         #     # XXX render in render() with subtask, assign subtask to yield'd TaskRequest
@@ -438,7 +441,14 @@ class DslMethodConfigurator(Configurator):
         # XXX live artifact.execute() should return a configurator with _inputs set
         if self.configurator:
             return self.configurator.run(task)
-        obj = proxy_instance(task.target, self.cls, task.inputs.context)
+        if issubclass(self.cls, ArtifactEntity):
+            # self.func is method on the implementation artifact
+            assert task._artifact
+            obj = proxy_instance(
+                task._artifact, self.cls, task._artifact.attributes.context
+            )
+        else:
+            obj = proxy_instance(task.target, self.cls, task.inputs.context)
         return obj._invoke(self.func, task)
 
     def can_dry_run(self, task: "TaskView") -> bool:
