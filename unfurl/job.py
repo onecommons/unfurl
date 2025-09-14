@@ -853,6 +853,7 @@ class Job(ConfigChange):
             logger.error(
                 "Aborting job: there were errors during rendering: %s", serious_errors
             )
+            self.local_status = Status.error
             return self.rootResource
 
         while ready or notReady or self.jobRequestQueue:
