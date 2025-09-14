@@ -197,7 +197,7 @@ class Configurator(metaclass=AutoRegisterClass):
         elif isinstance(result, (bool, type(None))):
             yield task.done(result)
         elif isinstance(result, ToscaOutputs):
-            yield task.done(True, outputs=result.to_yaml())
+            yield task.done(None, outputs=result.to_yaml())
         else:
             raise UnfurlTaskError(task, "configurator.run() returned a bad value")
 
@@ -227,7 +227,7 @@ class Configurator(metaclass=AutoRegisterClass):
     # yields a JobRequest, TaskRequest or a ConfiguratorResult
     def run(
         self, task: "TaskView"
-    ) -> Union[Generator, ConfiguratorResult, Status, bool]:
+    ) -> Union[Generator, ConfiguratorResult, Status, bool, ToscaOutputs]:
         """
         Subclasses of Configurator need to implement this method.
         It should perform the operation specified in the :class:`ConfigurationSpec`
@@ -534,6 +534,11 @@ class TaskView:
 
     @property
     def environ(self) -> Dict[str, str]:
+        """The environment variables for this task.
+
+        Returns:
+            Dict[str, str]: cached copy of `self.get_environment(False) <TaskView.get_environment>`
+        """
         if self._inputs is None or self._environ is _initializing_environ:
             # not ready yet
             return self.target.environ
@@ -651,19 +656,17 @@ class TaskView:
             # copy the ChainMap and insert inputs at the beginning
             attributes = artifact.attributes
             defs = artifact.template.propertyDefs.copy()
-            self._execute_op = executeOp = _find_implementation(
+            self._execute_op = _find_implementation(
                 "unfurl.interfaces.Executable", "execute", artifact.template, True
             )
-            if executeOp and executeOp.input_defs:
-                # add defs to provide validation for operation inputs with the same name
-                for name, prop in executeOp.get_declared_inputs().items():
-                    defs[name] = prop
             if self.configSpec.input_defs:
                 defs.update(self.configSpec.input_defs)
             inputs = ChainMap(inputs, attributes)
         else:
             defs = self.configSpec.input_defs or {}
-        rm = ResultsMap(inputs, ctx, defs=defs)
+        mode = os.getenv("UNFURL_VALIDATION_MODE")
+        validate = not (mode is not None and "nopropcheck" in mode)
+        rm = ResultsMap(inputs, ctx, validate, defs)
         if "arguments" not in rm:
             # add to inputs as lazily evaluated expression function
             # this way "arguments" is recorded as a input digest key when accessed
@@ -705,7 +708,7 @@ class TaskView:
             if p.schema.get("metadata", {}).get(name)
         }
 
-    def _arguments(self) -> Dict[str, Any]:
+    def _arguments(self) -> MutableMapping[str, Any]:
         """
         Return the "arguments" variable.
 
@@ -730,12 +733,15 @@ class TaskView:
         else:
             op_inputs = self.inputs
         # full match
-        execute_inputs.update({
-            p.name: self.target.attributes[p.name]
-            for p in self.target.attributes.defs.values()
-            if self._match_metadata_key(key, p.schema.get("metadata", {}).get(key))
-        })
+        execute_inputs.update(
+            {
+                p.name: self.target.attributes[p.name]
+                for p in self.target.attributes.defs.values()
+                if self._match_metadata_key(key, p.schema.get("metadata", {}).get(key))
+            }
+        )
         if self.configSpec.arguments is not None:
+            # these are from input names listed in the operation's "arguments" metadata
             execute_names = set(self.configSpec.arguments)
         else:
             input_defs = self._execute_op and self._execute_op.input_defs
@@ -744,6 +750,15 @@ class TaskView:
         for name in execute_names:
             if name in op_inputs:
                 execute_inputs[name] = self.inputs[name]
+        if self._inputs and self._execute_op:
+            # create a ResultsMap now to enable validation
+            # otherwise _eval_ref_results() will create one without validation
+            return ResultsMap(
+                execute_inputs,
+                self._inputs.context,
+                self._inputs.validate,
+                self._execute_op.get_declared_inputs(),
+            )
         return execute_inputs
 
     @property
@@ -819,10 +834,7 @@ class TaskView:
         Returns:
            :dict:
 
-        Variable sources (by order of preference, lowest to highest):
-        1. The ensemble's environment
-        2. Variables set by the connections that are available to this operation.
-        3. Variables declared in the operation's ``environment`` section.
+        See `Environment Variables` for a description of how the environment variables are determined.
         """
         if env is None:
             env = self.target.environ
@@ -864,13 +876,15 @@ class TaskView:
                 )
             )
             if self.target.source:
-                SOURCES = ",".join([
-                    r.tosca_id
-                    for r in self.target.source.get_requirements(
-                        self.target.template.name
-                    )
-                ])
-                SOURCE = self.target.source.tosca_id
+                env["SOURCES"] = ",".join(
+                    [
+                        r.tosca_id
+                        for r in self.target.source.get_requirements(
+                            self.target.template.name
+                        )
+                    ]
+                )
+                env["SOURCE"] = self.target.source.tosca_id
         return env
 
     def get_settings(self) -> dict:

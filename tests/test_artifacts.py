@@ -4,6 +4,8 @@ import sys
 from pathlib import Path
 from click.testing import CliRunner, Result
 import pytest
+
+from unfurl.configurator import Status
 from .utils import DEFAULT_STEPS, isolated_lifecycle, lifecycle
 from unfurl.yamlmanifest import YamlManifest, save_task
 from unfurl.job import Runner, run_job, JobOptions
@@ -339,3 +341,29 @@ def test_artifact_execute(command, action):
     assert len(job.workDone) == 1, len(job.workDone)
     task = list(job.workDone.values())[0]
     assert task.outputs == {"a_output": "hello1"}
+    assert job.status == Status.ok, job.status
+
+
+@pytest.mark.parametrize(
+    "command,arg2",
+    [
+        (command1, '"wrong type"'),
+        ("return self.run", '"wrong type"'),
+    ],
+)
+def test_artifact_validate_arguments(command, arg2):
+    manifest_tpl = _get_python_manifest("artifact2.py", None, (command, arg2))
+    manifest = YamlManifest(manifest_tpl)
+    job = Runner(manifest)
+    job = job.run(JobOptions(skip_save=True))
+    assert job
+    # print(job.json_summary())
+    assert job.status == Status.error, job.status
+    if command == command1:
+        # render time validation failure, so the task never got executed
+        assert len(job.workDone) == 0, len(job.workDone)
+    else:
+        # runtime validation failure
+        assert len(job.workDone) == 1, len(job.workDone)
+        task = list(job.workDone.values())[0]
+        assert task.outputs == {"a_output": "hellowrong type"}
