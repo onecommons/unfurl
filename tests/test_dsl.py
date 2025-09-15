@@ -732,6 +732,67 @@ node_types:
     )
 
 
+@pytest.mark.parametrize(
+    "prop,node_filter",
+    [
+        ("_version", ""),
+        (
+            "image.version",
+            """artifacts:
+          - image:
+""",
+        ),
+    ],
+)
+def test_version_node_filter(prop, node_filter):
+    python_src = (
+        """
+import unfurl
+import tosca
+
+class WithArtifact(tosca.nodes.Root):
+    image: tosca.artifacts.Root
+
+class Example(tosca.nodes.Root):
+    host: WithArtifact
+
+    @classmethod
+    def _class_init(cls) -> None:
+        tosca.version("~1.2").apply_constraint(cls.host.%s)
+"""
+        % prop
+    )
+    yaml_src = (
+        """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+node_types:
+  WithArtifact:
+    derived_from: tosca.nodes.Root
+    artifacts:
+      image:
+        type: tosca.artifacts.Root
+  Example:
+    derived_from: tosca.nodes.Root
+    requirements:
+    - host:
+        node: WithArtifact
+        node_filter:
+          %s
+              properties:
+              - version:
+                  version: ~1.2
+"""
+        % node_filter
+    )
+    # make sure that the node_filter is only on the template not the node type
+    yaml_dict = _to_yaml(python_src, False)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
 def test_generator_operation():
     import unfurl.configurators.shell
     from unfurl.configurator import TaskView
@@ -2090,8 +2151,10 @@ def test_dsl_definitions():
     # yaml.dump(test_yaml, sys.stdout)
     assert parsed_yaml == test_yaml
 
+
 class TypedDictTest(typing.TypedDict):
     test: str
+
 
 def test_typeinfo():
     t = tosca.pytype_to_tosca_type(Optional[Dict[str, Dict[str, typing.Any]]])

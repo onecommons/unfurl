@@ -332,6 +332,8 @@ class max_length(DataConstraint[int]):
     def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
         return super().apply_constraint(val)  # type: ignore[arg-type]
 
+class version(DataConstraint[T]):
+    pass
 
 class pattern(DataConstraint[T]):
     pass
@@ -1035,7 +1037,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             )
             return
         # XXX ti.types[0] might not be a node type!
-        field = ti.type.__dataclass_fields__.get(name)
+        field = ti.type.__dataclass_fields__.get(name)  # type: ignore
         if not field:
             # in _class_init() __dataclass_fields__ aren't set yet and the class attribute is the field
             field = getattr(ti.type, name, None)
@@ -1045,40 +1047,49 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if field.tosca_field_type not in [
             ToscaFieldType.property,
             ToscaFieldType.attribute,
+            ToscaFieldType.builtin,
         ]:
             raise ValueError(
                 f'{ti.types} Can not set "{name}" on {self}: "{name}" is a {field.tosca_field_type.name}, not a TOSCA property'
             )
 
     def add_node_filter(
-        self, val, prop_name: Optional[str] = None, capability: Optional[str] = None
+        self,
+        val,
+        prop_name: Optional[str] = None,
+        embedded: Optional[str] = None,
+        artifact: bool = False,
     ):
         assert self._tosca_field_type == ToscaFieldType.requirement
         if self.node_filter is None:
             self.node_filter = {}
-        self._set_node_filter_constraint(self.node_filter, val, prop_name, capability)
+        self._set_node_filter_constraint(
+            self.node_filter, val, prop_name, embedded, artifact
+        )
 
     def _set_node_filter_constraint(
         self,
         root_node_filter: dict,
         val,
         prop_name: Optional[str] = None,
-        capability: Optional[str] = None,
+        embedded: Optional[str] = None,
+        artifact: bool = False,
     ):
-        if capability:
+        if embedded:
             assert prop_name
-            cap_filters = root_node_filter.setdefault("capabilities", [])
+            key = "artifacts" if artifact else "capabilities"
+            cap_filters = root_node_filter.setdefault(key, [])
             for cap_filter in cap_filters:
-                if list(cap_filter)[0] == capability:
-                    node_filter = cap_filter[capability]
+                if list(cap_filter)[0] == embedded:
+                    node_filter = cap_filter[embedded]
                     break
             else:
                 node_filter = {}
-                cap_filters.append({capability: node_filter})
+                cap_filters.append({embedded: node_filter})
         else:
             node_filter = root_node_filter
         if prop_name is not None:
-            if not capability:
+            if not embedded:
                 self._validate_name_is_property(prop_name)
             prop_filters = node_filter.setdefault("properties", [])
             if isinstance(val, EvalData):
@@ -1223,14 +1234,19 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             field_def = self._to_artifact_yaml(converter)
         elif self.name == "_target":  # _target handled in _to_requirement_yaml
             return {}
-        elif self.tosca_field_type == ToscaFieldType.builtin:
+        elif self.name in [
+            "_targets",
+            "_members",
+        ]:
             return {
                 self.tosca_name: [
                     t.tosca_type_name() for t in self.get_type_info().types
                 ]
             }
+        elif self.tosca_field_type == ToscaFieldType.builtin:
+            return {}
         else:
-            assert False
+            assert False, self
         # note: description needs to be set when parsing ast
         if self.description:
             field_def["description"] = self.description
@@ -1302,7 +1318,7 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
                         req_def["node"] = _type.tosca_type_name()
             if target_typeinfo and "node" not in req_def and set_node_type:
                 # fallback to the relationship's target's type if it's not just "Node"
-                node_type_name = target_typeinfo.type.tosca_type_name()
+                node_type_name = target_typeinfo.type.tosca_type_name()  # type: ignore
                 if node_type_name != Node.__name__:
                     req_def["node"] = node_type_name
         if self.node_filter:
@@ -1800,7 +1816,7 @@ class FieldProjection(EvalData):
 
         if self.parent:
             if self.parent.field.tosca_field_type == ToscaFieldType.requirement:
-                self.set_requirement_constraint(val, name, None)
+                self.set_requirement_constraint(val, name, None, False)
             else:
                 raise ValueError(
                     f"Can't set {name} on {self}: Only one level of field projection currently supported"
@@ -1841,37 +1857,47 @@ class FieldProjection(EvalData):
     def tosca_name(self):
         return self.field.tosca_name
 
-    def set_requirement_constraint(self, val, name, capability):
+    def set_requirement_constraint(
+        self, val, name, embedded: Optional[str], artifact: bool
+    ):
         assert self.field.tosca_field_type == ToscaFieldType.requirement
         if self.parent:
             node_filter = self.parent.get_requirement_filter(self.field.tosca_name)
             self.field._set_node_filter_constraint(node_filter, val, name)
         else:
-            self.field.add_node_filter(val, name, capability)
+            self.field.add_node_filter(val, name, embedded, artifact)
 
     def apply_constraint(self, c: DataConstraint):
         if self.field.tosca_field_type in [
             ToscaFieldType.property,
             ToscaFieldType.attribute,
+            ToscaFieldType.builtin,
         ]:
-            if (
-                self.parent
-                and self.parent.field.tosca_field_type == ToscaFieldType.capability
+            if self.parent and self.parent.field.tosca_field_type in (
+                ToscaFieldType.capability,
+                ToscaFieldType.artifact,
             ):
-                capability = self.parent.field.tosca_name
+                embedded = self.parent.field.tosca_name
                 parent = self.parent.parent
+                embedded_type = self.parent.field.tosca_field_type
                 if (
                     not parent
                     or parent.field.tosca_field_type != ToscaFieldType.requirement
                 ):
                     raise ValueError(
-                        "Can not create node filter on capability '{capability}', expression doesn't reference a requirement."
+                        f"Can not create node filter with {embedded_type.name} '{embedded}', expression doesn't reference a requirement."
                     )
             else:
                 parent = self.parent
-                capability = None
+                embedded = None
+                embedded_type = None
             if parent and parent.field.tosca_field_type == ToscaFieldType.requirement:
-                parent.set_requirement_constraint(c, self.field.tosca_name, capability)
+                parent.set_requirement_constraint(
+                    c,
+                    self.field.tosca_name,
+                    embedded,
+                    embedded_type == ToscaFieldType.artifact,
+                )
             else:
                 self.field.constraints.append(c)
         else:
@@ -1975,7 +2001,12 @@ def _make_dataclass(cls):
             for name, annotation in annotations.items():
                 if annotation is Callable or annotation == "Callable":
                     continue
-                if name[0] != "_" or name in ["_target", "_targets", "_members"]:
+                if name[0] != "_" or name in [
+                    "_target",
+                    "_targets",
+                    "_members",
+                    "_version",
+                ]:
                     field = None
                     default = getattr(cls, name, REQUIRED)
                     if cls._handle_builtin_field(name, default, annotation):
@@ -2195,8 +2226,10 @@ def field(
     default_factory=dataclasses.MISSING,
     kw_only=dataclasses.MISSING,
     name="",
-    builtin=False,
+    builtin=True,
     compare=True,
+    owner: Optional[Type["_ToscaType"]] = None,
+    ClassVar=False,
 ) -> Any:
     kw: Dict[str, Any] = dict(
         default=default, default_factory=default_factory, compare=compare
@@ -2211,7 +2244,12 @@ def field(
         # and this parameter probably will come after one without a default value
         kw["default"] = REQUIRED
     if builtin:
-        return _Tosca_Field(ToscaFieldType.builtin, default, default_factory, name)
+        field = _Tosca_Field(
+            ToscaFieldType.builtin, default, default_factory, name, owner=owner
+        )
+        if ClassVar:
+            field.kw_only = MISSING
+        return field
     return dataclasses.field(**kw)
 
 
@@ -2246,7 +2284,10 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
     _instance_fields: Dict[str, _Tosca_Field] = dataclasses.field(
         default_factory=dict, init=False
     )
-    _builtin_fields: ClassVar[Sequence[str]] = ()
+    _builtin_fields: ClassVar[Sequence[str]] = ("_version",)
+    _version: ClassVar[Optional[tosca_version]] = field(
+        default=None, kw_only=MISSING, name="version", ClassVar=True
+    )
     _initialized: bool = dataclasses.field(
         default=False, init=False, repr=False, compare=False
     )
@@ -2885,13 +2926,27 @@ class ToscaType(_ToscaType):
     """
 
     # NB: _name needs to come first for python < 3.10
-    _name: str = field(default="", kw_only=False)
+    _name: str = field(default="", kw_only=False, builtin=False)
     _type_name: ClassVar[str] = ""
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
-    _version: ClassVar[Optional[tosca_version]] = None
+
+    @classmethod
+    def _handle_builtin_field(
+        cls, name: str, default: Any, annotation: Optional[Any]
+    ) -> Optional[dataclasses.Field]:
+        if name == "_version":
+            assert name in cls.__dataclass_fields__, (
+                name,
+                cls,
+                list(cls.__dataclass_fields__),
+            )
+            field = cls.__dataclass_fields__[name]
+            field.owner = cls
+            return field
+        return None
 
     @property
     def tosca_name(self) -> str:
@@ -3456,7 +3511,7 @@ class Node(ToscaType):
     _type_section: ClassVar[str] = "node_types"
     _template_section: ClassVar[str] = "node_templates"
 
-    _directives: List[str] = field(default_factory=list)
+    _directives: List[str] = field(default_factory=list, builtin=False)
     "List of this node template's TOSCA directives"
 
     _node_filter: Optional[Dict[str, Any]] = None
@@ -3533,7 +3588,7 @@ NodeType = Node
 
 
 class _OwnedToscaType(ToscaType):
-    _local_name: Optional[str] = field(default=None, compare=False)
+    _local_name: Optional[str] = field(default=None, compare=False, builtin=False)
     _node: Optional[Node] = dataclasses.field(default=None, compare=False, repr=False)
 
     def _set_parent(self, parent: "_ToscaType", name: str):
@@ -3676,7 +3731,7 @@ class Relationship(_OwnedToscaType):
     _valid_target_types: ClassVar[Optional[List[Type[CapabilityEntity]]]] = None
     _default_for: Optional[
         Union[str, CapabilityEntity, Node, Type[CapabilityEntity], Type[Node]]
-    ] = field(default=None)
+    ] = field(default=None, builtin=False)
     _target: Node = field(default=None, builtin=True)
 
     @classmethod
@@ -3809,6 +3864,9 @@ class ArtifactEntity(_OwnedToscaType):
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
     ) -> Optional[dataclasses.Field]:
+        bfield = super()._handle_builtin_field(name, default, annotation)
+        if bfield:
+            return bfield
         if name in cls._builtin_fields:
             if cls.__module__ != __name__:  # this is a derived class
                 if isinstance(default, _Tosca_Field):
@@ -3839,6 +3897,8 @@ class ArtifactEntity(_OwnedToscaType):
                     assert field_type
                 _field.name = name
                 _field.type = field_type
+                if isinstance(_field, _Tosca_Field):
+                    _field.owner = cls
                 setattr(cls, name, _field)
                 return _field
         return None

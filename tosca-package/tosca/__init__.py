@@ -493,6 +493,7 @@ __all__ = [
     "us",
     "unit",
     "valid_values",
+    "version",
 ]
 
 __safe__ = __all__

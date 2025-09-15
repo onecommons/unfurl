@@ -908,15 +908,6 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                 # return getattr(self.instance, name.lstrip("_")) or getattr(
                 #     self.instance.template.type_definition, name.lstrip("_")
                 # )
-            elif name in self._cls._builtin_fields:
-                assert field
-                val = _proxy_prop(
-                    _Tosca_Field.find_type_info(self._cls, field.type),
-                    self._instance.attributes[name],
-                    getattr(self._obj, name) if self._obj else None,
-                )
-                self._cache[name] = val
-                return val
             elif hasattr(self._obj or self._cls, name):
                 return super()._getattr(name)
             elif name in self._instance.attributes:  # untyped properties
@@ -973,6 +964,15 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     proxies = proxies[0] if proxies else None  # type: ignore
                 self._cache[field.name] = proxies
                 return proxies
+            elif name in self._cls._builtin_fields:
+                assert field
+                val = _proxy_prop(
+                    _Tosca_Field.find_type_info(self._cls, field.type),
+                    self._instance.attributes[name],
+                    getattr(self._obj, name) if self._obj else None,
+                )
+                self._cache[name] = val
+                return val
         raise AttributeError(name)
 
 

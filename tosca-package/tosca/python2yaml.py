@@ -963,7 +963,7 @@ class _ToscaTypeProxy(InstanceProxy):
     def __init__(self, obj: Optional["ToscaObject"], cls: Type["ToscaObject"]):
         self._cls_or_self = obj or cls
         self._cls = cls
-        self._needs_runtime = None
+        self._needs_runtime: Optional[bool] = None
 
     def __getattr__(self, name):
         return self.getattr(self._cls_or_self, name)
