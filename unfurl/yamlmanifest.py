@@ -46,7 +46,6 @@ from .support import ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
-from .packages import is_semver_compatible_with, is_semver
 from .spec import (
     ArtifactSpec,
     NodeSpec,
@@ -70,6 +69,7 @@ from .init import get_input_vars
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from ansible.parsing.dataloader import DataLoader
+from toscaparser.utils.validateutils import validate_version
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask
@@ -779,11 +779,7 @@ class YamlManifest(ReadOnlyManifest):
                     f"Can not import external ensemble '{name}': requires version '{version}' and ensemble doesn't specify a version."
                 )
             else:
-                has_semver = is_semver(imported_version)
-                if (not has_semver and imported_version != version) or (
-                    has_semver
-                    and not is_semver_compatible_with(version, imported_version)
-                ):
+                if not validate_version(version, imported_version):
                     raise UnfurlError(
                         f"Can not import external ensemble '{name}': ensemble's version '{imported_version}' isn't compatible with '{version}'"
                     )
