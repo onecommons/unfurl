@@ -428,7 +428,8 @@ pub fn solve(
             add_node_to_topology(node, &mut prog, &type_parents, false, true)?;
         }
     }
-    let timeout = nodes.len() as u64 * 100;
+
+    let timeout = get_int_env_var("UNFURL_SOLVER_TIMEOUT").unwrap_or(nodes.len() as u64 * 100);
     run_program(&mut prog, timeout)?;
     // update matched requirements
     let mut index = 0;
@@ -500,14 +501,10 @@ pub fn solve(
 }
 
 fn dump_solution(prog: &Topology<'_>) {
-    let dump_env = std::env::var("UNFURL_TEST_DUMP_SOLVER");
-    if !dump_env.as_ref().is_ok_and(|x| !x.is_empty()) {
-        return;
-    }
-    let dump: u32 = dump_env.unwrap().parse().unwrap();
-    if dump == 0 {
-        return;
-    }
+    let dump = match get_int_env_var("UNFURL_TEST_DUMP_SOLVER") {
+        Some(value) => value,
+        None => return,
+    };
 
     println!("nodes: {:#?}", prog.node.iter().collect::<Vec<_>>());
 
@@ -590,6 +587,23 @@ fn dump_solution(prog: &Topology<'_>) {
             prog.transitive_match.iter().collect::<Vec<_>>()
         );
     }
+}
+
+/// Returns an integer value from the environment variable named by `key`.
+///
+/// If the variable does not exist or is empty, returns `None`.
+///
+/// If the variable exists and is not equal to 0, returns `Some(value)`.
+fn get_int_env_var(key: &str) -> Option<u64> {
+    let dump_env = std::env::var(key);
+    if !dump_env.as_ref().is_ok_and(|x| !x.is_empty()) {
+        return None;
+    }
+    let dump: u64 = dump_env.unwrap().parse().unwrap();
+    if dump == 0 {
+        return None;
+    }
+    Some(dump)
 }
 /// A Python module implemented in Rust.
 #[cfg(feature = "python")]

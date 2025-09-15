@@ -724,7 +724,7 @@ mod tests {
     fn test_semver_compatible() {
         // Test version constraint with caret requirement "^1.2.0"
         let semver_constraint = Constraint::version {
-            v: ToscaValue::from("^1.2.0".to_string()),
+            v: ToscaValue::from("^1.2".to_string()),
         };
 
         // Should match compatible versions within same major version
@@ -831,7 +831,6 @@ mod tests {
         assert!(!unsemver_constraint
             .matches(&ToscaValue::from("1.2.9".to_string()))
             .unwrap());
-
     }
 
     #[test]
