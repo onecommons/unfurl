@@ -1,4 +1,4 @@
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:

@@ -1,0 +1,31 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0 # or use the standard tosca_simple_yaml_1_3
+description: An illustrative TOSCA service template
+metadata: # the following metadata keys are defined in the TOSCA specification:
+  template_name: hello world
+  template_author: onecommons
+  template_version: 1.0.0
+
+repositories:
+   tosca-community-contributions:
+     url: https://github.com/oasis-open/tosca-community-contributions.git
+
+imports:
+
+ - file: my-shared-types.yaml
+   namespace_prefix: base # optional 
+ - file: profiles/orchestration/profile.yaml
+   repository: tosca-community-contributions
+
+node_types:
+   # ... see the "types” section below
+
+topology_template:
+  # ... see the “topology_templates” section below
+  node_templates:
+  # ... see the node_templates section below
+  relationship_templates:
+  # ... see the relationship_templates section below
+  groups:
+  # ... see the groups section below
+
+  

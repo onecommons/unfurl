@@ -30,7 +30,7 @@ https://github.com/oasis-open/tosca-community-contributions/tree/master/examples
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
         service_template:
@@ -93,7 +93,7 @@ We'll start with "delete" to make the
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -125,7 +125,7 @@ Creates a little more verbose and illustrates how to pass input parameters and s
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -220,7 +220,7 @@ We'll see it when we finish off the implementation by defining the "check" opera
 
   .. code-block:: YAML
     
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -311,7 +311,7 @@ All together we have created
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:

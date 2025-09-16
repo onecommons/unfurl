@@ -49,6 +49,7 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
                 "*/inputs.py",
                 "*node-types-2.py",
                 "*tosca-node-template.py",
+                "*tosca-outline.py",  # has invalid imports
             ]:
                 if fnmatch.fnmatch(py_file, skip):
                     print(f"Skipping {py_file}")

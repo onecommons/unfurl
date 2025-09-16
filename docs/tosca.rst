@@ -52,36 +52,13 @@ A service template has the following sections:
 Example
 -------
 
-.. code:: yaml
+.. tab-set-code::
 
-  tosca_definitions_version: tosca_simple_unfurl_1_0_0 # or use the standard tosca_simple_yaml_1_3
-  description: An illustrative TOSCA service template 
-  metadata: # the following metadata keys are defined in the TOSCA specification:
-    template_name: hello world
-    template_author: onecommons
-    template_version: 1.0.0
+  .. literalinclude:: ./examples/tosca-outline.yaml
+    :language: yaml
 
-  repositories:
-     tosca-community-contributions:
-       url: https://github.com/oasis-open/tosca-community-contributions.git
-   
-   imports:
-   
-   - file: my-shared-types.yaml
-     namespace_prefix: base # optional
-   - file: profiles/orchestration/1.0/profile.yaml
-     repository: tosca-community-contributions
-   
-  node_types:
-     # ... see the "types” section below
-
-  topology_template:    
-     # ... see the “topology_templates” section below
-     node_templates:
-     # ... see the node_templates section below
-     relationship_templates:
-     # ... see the relationship_templates section below
-
+  .. literalinclude:: ./examples/tosca-outline.py
+    :language: python
 
 Types
 ^^^^^
@@ -212,7 +189,7 @@ Artifacts can be used in the following ways:
 
 Artifacts that are referenced in an operation's implementation will be installed on the operation's :tosca_spec:`operation_host<_Toc50125294>` (by default, where Unfurl is running) as part of the `Job Lifecycle` if the artifact has ``Standard`` operations (``create`` or ``configure``) defined for it.
 
-.. seealso:: For more information, refer to :tosca_spec:`TOSCA Artifact Section <_Toc50125252>`
+.. seealso:: For more information, see the :ref:`configurators-artifacts` chapter and the :tosca_spec:`TOSCA Artifact Specification <_Toc50125252>`
 
 Interfaces and Operations
 ^^^^^^^^^^^^^^^^^^^^^^^^^
