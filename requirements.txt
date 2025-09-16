@@ -7,7 +7,7 @@ ruamel.yaml==0.17.21
 ansible-core >= 2.13.13, <= 2.16.14 # gpl 3
 GitPython==3.1.41 # BSD
 rich==12.4.4  # MIT
-rich-click>=1.8.0 # MIT
+rich-click==v1.8.9 # MIT
 MarkupSafe<=2.1.1 # Apache 2. newer version broken with jinja2
 jinja2==3.1.6 # BSD 3-clause
 typing_extensions>=4.13
