@@ -206,7 +206,13 @@ You can use `tox` to run the unit tests inside the supported python environments
 Install tox `pip install tox==3.28.0` and then run `tox` in source root. To install the dependencies you may need header files installed by the following OS packages: `python-dev`, `libcrypt-dev`, `openssl-dev`. (Note: if installation of a dependency fails, reinvoke `tox` with `-r` to recreate the test environment.)
 If you use `asdf` to manage multiple versions of Python, also install `tox-asdf`: `pip install tox-asdf`.
 
-Arguments after `--` are passed to the test runner, e.g. to run an individual test: `tox -- tests/test_runtime.py`.
+`./smoketest.sh` runs a subset of the tests. To run a specific test file, use the following command, for example:
+
+```
+tox -e py313 tests/test_runtime.py
+```
+
+Where `-e` specifies one of the environments defined in `tox.ini` (e.g. `py313`, `py39`, etc.) Arguments after `--` are passed to the test runner, e.g. to pass arguments to pytest: `tox -e py313 tests/test_runtime.py -- -s `.
 
 When running unit tests, `tox` it will try to build the Rust extension first. To skip building and running associated tests, set the UNFURL_TEST_SKIP_BUILD_RUST=1 environment variable.
 

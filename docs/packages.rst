@@ -86,6 +86,31 @@ If the package references to a path in a git repository we follow Go's conventio
 
 Package identifiers resolve to a git repository following the algorthims for `Go modules <https://go.dev/ref/mod>`_ Repository declarations can include required version either by including a ``revision`` field or by including it as a URL fragment in the package identifier (e.g ``#v1.1.0``).
 
+Version Requirements
+====================
+
+In addition to repositories and packages, you can assign versions to the following items: 
+
+* On service templates, using the :tosca_spec:`template_version <_Toc50125480>` metadata field
+* On TOSCA type definitions, using the :tosca_spec:`version <_Toc50125343>` field  
+* On artifacts, using the built-in ``version``  field on artifact templates.
+* You can also use the :tosca_spec:`version<_Toc50125187>` TOSCA simple data type when declaring properties, inputs, etc. 
+
+You can use version requirements to check the version compatibility of these items in the following ways:
+
+* When importing `External ensembles`, you can validate the service template's version.
+* When selecting and matching node templates, version requirements can be checked using a ``node_filter`` with a ``version`` constraint.
+
+Version requirements can have the following syntax:
+
+  - Semver (caret) requirements: ^1.2.0 matches 1.2.5, 1.9.1 but not 2.0.0 (the default if no operator is specified)
+  - Minimum (tilde) requirements: ~1.2.3 matches 1.2.5 but not 1.3.0 or 1.1.9
+  - Comparison requirements (>=, >, <, <=, =)
+  - Multiple requirements (">= 1.2.0, < 1.5.0")
+  - Exact matches: If the value doesn't match version requirement syntax, versions must match exactly.
+
+See `Rust's cargo's documentation <https://doc.rust-lang.org/cargo/reference/specifying-dependencies.html#version-requirement-syntax>`_ for full discussion of their syntax and semantics.
+
 Locked ensembles
 ================
 

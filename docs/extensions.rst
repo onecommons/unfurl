@@ -8,7 +8,7 @@ Extensions
 
 * add 'any' schema type for properties and attributes definitions
 * 'additionalProperties' field in type and template metadata
-* allow metadata field on inputs, outputs, artifacts, and repositories
+* allow metadata field on inputs, outputs, artifacts, operations, and repositories
 * metadata values can be JSON (instead only strings)
 * add "sensitive" property and datatype metadata field
 * add "immutable" property metadata field
@@ -46,6 +46,9 @@ Extensions
 * add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
 * add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
 * add ``input_values`` section to service templates (see `Topology Inputs`).
+* 'implementation' section on interface can declare a full artifact definition
+* interface output definitions can now include a full parameter definitions and an optional ``mapping`` field to define the mapping.
+* add a ``version`` property constraint for matching `version requirements`
 
 Not yet implemented
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

@@ -163,6 +163,7 @@ Expression Functions
   :std:ref:`tempfile`              (see below)
   :std:ref:`template`              contents
   :std:ref:`to_dns_label`          string or map or lists
+  :std:ref:`to_env`                map
   :std:ref:`to_googlecloud_label`  string or map or list
   :std:ref:`to_kubernetes_label`   string or map or list
   :std:ref:`to_label`              string or map or list
@@ -253,7 +254,7 @@ sub
 external
 ^^^^^^^^
 
-  Return `external instance<External ensembles>` as a value.
+  Return the `external instance<External ensembles>` with that matching name as an `external value <External values>`.
 
 file
 ^^^^
@@ -355,7 +356,7 @@ get_dir
   Return an absolute path to the given named folder where ``name`` is one of:
 
   :ensemble:   Directory that contains the current instance's ensemble
-  :ensemble.secrets: The "secrets" directory for the current instance's ensemble (files written there are vault encrypted)
+  :ensemble.secrets: The "secrets" directory for the current instance's ensemble or the nearest vault encrypted parent directory
   :src: Directory of the source file this expression appears in
   :artifacts: Directory for the current instance (committed to repository).
   :local: The "local" directory for the current instance (excluded from repository)
@@ -368,9 +369,9 @@ get_dir
   :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
   :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
-  :project.secrets: The "secrets" directory for the current project (files written there are vault encrypted when committed to the repository).
-  :unfurl.home: The location of home project (UNFURL_HOME).
-  :repository.<name>: The location of the repository with the given name.
+  :project.secrets: The "secrets" directory in the outermost project that is vault encrypted.
+  :unfurl.home: The directory of the `home project<unfurl home>`.
+  :repository.<name>: The directory of the repository with the given name.
 
   Otherwise look for a `repository <tosca_repositories>` with the given name and return its path or None if not found.
 
@@ -597,6 +598,30 @@ The maximum length of each label is 63 characters and can include
 alphanumeric characters and hyphens but a domain name must not commence or end with a hyphen.
 
 Invalid characters are replaced with "--".
+
+to_env
+^^^^^^
+
+Update the environment variables for the current operation.
+with the rules described in `Environment Variables`.
+
+==================  ====================================
+  Key               Value
+==================  ====================================
+to_env              map
+update_os_environ?  boolean
+==================  ====================================
+
+If ``update_os_environ`` is true update the environment variables for the current process,
+(and those changes will persist after the operation completes).  For example:
+
+.. code-block:: YAML
+
+  eval:
+    to_env:
+      FOO: bar  # set FOO = bar
+      -BAZ:     # delete BAZ
+    update_os_environ: true
 
 to_googlecloud_label
 ^^^^^^^^^^^^^^^^^^^^
