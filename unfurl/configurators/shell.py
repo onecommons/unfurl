@@ -50,9 +50,13 @@ if TYPE_CHECKING:
 # logging to file doesn't call logging.truncate(), so manually truncate potentially huge output
 FILELOG_TRUNCATE_LENGTH = DEFAULT_TRUNCATE_LENGTH
 
-def _log_output(task, result, attr: str):
+def _log_output(task: TaskView, result, attr: str):
     data = getattr(result, attr)
-    if len(data) > FILELOG_TRUNCATE_LENGTH:
+    if (
+        task.job
+        and not task.job.jobOptions.skip_save
+        and len(data) > FILELOG_TRUNCATE_LENGTH
+    ):
         log_path = task.job.log_path(ext=f"-{task.target.name}-{attr}.log")
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):

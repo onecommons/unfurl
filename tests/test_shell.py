@@ -90,7 +90,7 @@ class TestDryRun:
         ensemble = ENSEMBLE_DRY_RUN.format(command=command, dryrun=dryrun)
         runner = Runner(YamlManifest(ensemble))
 
-        job = runner.run(JobOptions(instance="test_node", dryrun=False))
+        job = runner.run(JobOptions(instance="test_node", dryrun=False, skip_save=True))
 
         assert job.status == Status.ok
         task = list(job.workDone.values())[0]
@@ -125,7 +125,7 @@ class TestDryRun:
         ensemble = ENSEMBLE_DRY_RUN.format(command=command, dryrun=dryrun)
         runner = Runner(YamlManifest(ensemble))
 
-        job = runner.run(JobOptions(instance="test_node", dryrun=True))
+        job = runner.run(JobOptions(instance="test_node", dryrun=True, skip_save=True))
 
         assert job.status == Status.ok
         task = list(job.workDone.values())[0]
@@ -138,7 +138,7 @@ class TestDryRun:
         )
         runner = Runner(YamlManifest(ensemble))
 
-        job = runner.run(JobOptions(instance="test_node", dryrun=True))
+        job = runner.run(JobOptions(instance="test_node", dryrun=True, skip_save=True))
         assert not job.workDone
         assert "Skipping task: it doesn't support dry run" in caplog.text
 
