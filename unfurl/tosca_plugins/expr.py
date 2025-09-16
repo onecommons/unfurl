@@ -58,6 +58,18 @@ sensitive = tosca.Options(dict(sensitive=True))
 
 
 def validate(factory: Callable) -> tosca.Options:
+    """
+    Return a `tosca.Options` that adds custom validation to the property or attribute definition.
+    For example:
+
+    .. code-block:: python
+
+        def validate_pw(password: str) -> bool:
+          return len(password) > 4
+
+        class Test(Node):
+          password: str = tosca.Property(options=expr.validate(validate_pw) | expr.sensitive)
+    """
     return tosca.Options(
         dict(
             validation={
@@ -200,6 +212,7 @@ __all__ = [
     "get_instance_maybe",
     "get_context",
     "super",
+    "validate",
 ]
 
 F = TypeVar("F", bound=Callable[..., Any])
@@ -211,6 +224,9 @@ def find_connection(
     target: Optional[Node],
     rel_type: Type[RI] = tosca.relationships.ConnectsTo,  # type: ignore[assignment]
 ) -> Optional[RI]:
+    """
+    Type-safe wrapper around the :std:ref:`find_connection` eval expression function.
+    """
     rel_type_name = rel_type.tosca_type_name()
     if global_state_mode() == "runtime":
         ctx = global_state_context()
@@ -320,12 +336,26 @@ def as_bool(val) -> bool:
     else:
         return cast(bool, EvalData(dict(eval={"not": {"not": val, "map_value": 1}})))
 
-def read(path: str, encoding: Optional[str]=None) -> Union[str, bytes]:
-    """Equivalent to an `file` eval expression using ``contents`` to read the file."""
+
+def read(path: str, encoding: Optional[str] = None) -> Union[str, bytes]:
+    """Equivalent to an `file` eval expression like:
+
+    .. code-block:: YAML
+
+        eval:
+          file: $path
+          encoding: $encoding
+        select: contents
+    """
     if global_state_mode() == "runtime":
         ctx = global_state_context()
-        return File(path, encoding=encoding, loader=ctx.templar and ctx.templar._loader).get_contents()
-    return cast(str, EvalData(dict(eval={"file": path, "encoding": encoding}, select="contents")))
+        return File(
+            path, encoding=encoding, loader=ctx.templar and ctx.templar._loader
+        ).get_contents()
+    return cast(
+        str,
+        EvalData(dict(eval={"file": path, "encoding": encoding}, select="contents")),
+    )
 
 
 TI = TypeVar("TI")
@@ -428,9 +458,9 @@ def if_expr(if_cond, then: T, otherwise: U = None) -> Union[T, U]:
             "'if_expr()' can not be valuate in runtime mode, instead just use a Python 'if' statement or expression."
         )
     else:
-        return EvalData({
-            "eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}
-        })  # type: ignore
+        return EvalData(
+            {"eval": {"if": if_cond, "then": then, "else": otherwise, "map_value": 1}}
+        )  # type: ignore
 
 
 def or_expr(left: T, right: U) -> Union[T, U]:
@@ -517,9 +547,9 @@ def tempfile(contents: Any, suffix="", encoding=None):
         )
         return TempFile(contents, suffix, yaml, encoding)
     else:
-        return EvalData({
-            "eval": {"tempfile": contents, "suffix": suffix, "encoding": encoding}
-        })
+        return EvalData(
+            {"eval": {"tempfile": contents, "suffix": suffix, "encoding": encoding}}
+        )
 
 
 def template(

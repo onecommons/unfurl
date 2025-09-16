@@ -20,6 +20,7 @@ release = unfurl.semver_prerelease()
 extensions = [
     "myst_parser",
     "sphinx.ext.autodoc",
+    "sphinx.ext.autosummary",
     "sphinx.ext.napoleon",
     "sphinx.ext.githubpages",
     "sphinx_click.ext",

@@ -305,7 +305,7 @@ def is_newer_than(output_path, input_path):
 def patch_template(
     module: ModuleType, template_name: str, patch: "ToscaType"
 ) -> Optional["ToscaType"]:
-    """Apply the give patch object to the template found in the given module.
+    """Apply the give `patch object <template customization and patching>` to the template found in the given module.
 
     Must be called before yaml generation, so care must be taken to make sure the module that calls this method is imported before a TOSCA import or include of the patched template.
     """

@@ -15,7 +15,7 @@ When a plan is being generated, a directory named "planned" will be created whic
 
 When a task runs, its configurator has access to these directories that it can use
 to store artifacts in the ensemble's repository or for generating local configuration files.
-For this, each deployed instance can have its own set of directories (see `_get_base_dir()`).
+For this, each deployed instance can have its own set of directories (see :std:ref:`get_dir`).
 
 Because generating a plan should not impact what is currently deployed, during the
 during planning and rendering phase, a configurator can use the `WorkFolder` interface to read and write from temporary copies of those folders in the "planned" directory. They will either be discarded or moved to "active" if the task fails or succeeds.
@@ -621,27 +621,7 @@ def _get_instance_dir_name(instance):
 
 def _get_base_dir(ctx, name=None):
     """
-    Returns an absolute path based on the given folder name:
-
-    :ensemble: directory that contains the current instance's ensemble
-    :ensemble.secrets: The "secrets" directory for the current instance's ensemble (files written there are vault encrypted)
-    :src: directory of the source file this expression appears in
-    :artifacts: directory for the current instance (committed to repository).
-    :local: The "local" directory for the current instance (excluded from repository)
-    :secrets: The "secrets" directory for the current instance (files written there are vault encrypted)
-    :tmp:   A temporary directory for the current instance (removed after unfurl exits)
-    :tasks: Job specific directory for the current instance (excluded from repository).
-    :operation: Operation specific directory for the current instance (excluded from repository).
-    :workflow: Workflow specific directory for the current instance (excluded from repository).
-    :spec.src: The directory of the source file the current instance's template appears in.
-    :spec.home: Directory unique to the current instance's TOSCA template (committed to the spec repository).
-    :spec.local: Local directory unique to the current instance's TOSCA template (excluded from repository).
-    :project: The root directory of the current project.
-    :project.secrets: The "secrets" directory for the current project (files written there are vault encrypted)
-    :unfurl.home: The location of home project (UNFURL_HOME).
-    :repository.<name>: The location of the repository with the given name
-
-    Otherwise look for a repository with the given name and return its path or None if not found.
+    Returns an absolute path based on the given folder name. See :std:ref:`get_dir` for the list of supported names.
     """
 
     instance = ctx.currentResource

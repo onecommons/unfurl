@@ -253,9 +253,6 @@ class PackageSpec:
             package_specs (PackageSpec): Rules to apply to the package.
             package (Package): Package will be updated in-place if there are rules that apply to it.
 
-        Raises:
-            UnfurlError: If applying the rules creates a circular reference.
-
         Returns:
             bool: True if the package was updated
         """

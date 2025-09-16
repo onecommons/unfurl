@@ -101,6 +101,7 @@ class Options:
 
 
 class PropertyOptions(Options):
+    "An option that only applies to TOSCA properties."
     def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
         return (
             field.tosca_field_type == ToscaFieldType.property,
@@ -109,6 +110,7 @@ class PropertyOptions(Options):
 
 
 class AttributeOptions(Options):
+    "An option that only applies to TOSCA attributes."
     def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
         return (
             field.tosca_field_type == ToscaFieldType.attribute,
@@ -628,6 +630,9 @@ def _strip_expr(expr) -> str:
 def jinja_template(
     _func: Optional[_F] = None, *, convert_to: Literal["yaml", "json", None] = None
 ) -> Any:
+    """Use this decorator on methods or functions passed to `Computed` properties. They should return a Python f-string, which the decorator converts to a jinja2 template at runtime.
+    This allows you to create a template with conditionals and loops while taking advantage of static type checking and IDE support for f-strings.
+    """
     from unfurl.eval import Ref
     from tosca import global_state_mode, global_state_context
 
@@ -671,6 +676,7 @@ class TagWriter:
         return cast(_T, f"{{% {op} {_strip_expr(expr)} %}}")
 
     def if_(self, expr: _T) -> _T:
+        """Convert to {{if expr }}"""
         return self._cond("if", expr)
 
     def elif_(self, expr: _T) -> _T:

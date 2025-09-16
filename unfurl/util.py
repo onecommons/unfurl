@@ -759,6 +759,7 @@ def filter_env(
           Defaults to None.
         addOnly (bool, optional): If addOnly is False (the default) all variables in ``env`` will be included
           in the returned dict, otherwise only variables added by ``rules`` will be included
+        sub (dict, optional): A dictionary of substitutions to apply to the environment variable values.
 
     Rules applied in the order they are declared in the ``rules`` dictionary. The following examples show the different patterns for the rules:
 

@@ -914,7 +914,7 @@ class RelationshipInstance(EntityInstance):
         return env
 
     def matches_target(self, capability: "CapabilityInstance") -> bool:
-        # does this relationship be apply to the capability we are trying to connect to (target)?
+        """Does this relationship be apply to the capability we are trying to connect to (target)?"""
         rel_template = cast(RelationshipTemplate, self.template.toscaEntityTemplate)
         default_for = rel_template.default_for
         if not default_for:

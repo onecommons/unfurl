@@ -2898,7 +2898,7 @@ class ToscaType(_ToscaType):
     ToscaTypes are Python `dataclasses <https://docs.python.org/3/library/dataclasses.html>`_ with custom `fields <https://docs.python.org/3/library/dataclasses.html#dataclasses.field>`_ that
     correspond to TOSCA's field types including `properties <tosca.Property>`, `requirements <tosca.Requirement>`, `capabilities <tosca.Capability>`, and `artifacts <tosca.Artifact>`. You don't need to use Python's dataclass decorators or functions directly.
 
-    Any public field (i.e. not starting with ``_``) will be included in the TOSCA YAML for the template, using the field's type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using `TOSCA Field Specifiers`.
+    Any public field (i.e. not starting with a "_") will be included in the TOSCA YAML for the template, using the field's type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using `TOSCA Field Specifiers`.
 
     .. code-block:: python
 
@@ -3030,10 +3030,9 @@ class ToscaType(_ToscaType):
                 val._set_parent(self, name)
         return val
 
-    # XXX version (type and template?)
-
-    def patch(self, override: Self) -> None:
-        self._merge(self, override, False)
+    def patch(self, patch: Self) -> None:
+        """Update this template with the given `patch object <template customization and patching>`."""
+        self._merge(self, patch, False)
 
     def register_template(self, current_module: str, name: str) -> Self:
         # _all_templates is used unfurl.dsl.find_template()
@@ -3515,7 +3514,7 @@ class Node(ToscaType):
     "List of this node template's TOSCA directives"
 
     _node_filter: Optional[Dict[str, Any]] = None
-    "Optional node_filter to use with 'select' directive"
+    "Optional node_filter to use when 'select' directive is set."
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:
@@ -3630,7 +3629,7 @@ class ValueType(_BaseDataType):
 
     @classmethod
     def simple_type(cls) -> type:
-        "The Python type that this data types is derived from."
+        "The Python type that this data type is derived from."
         for c in cls.__mro__:
             if c.__name__ in PYTHON_TO_TOSCA_TYPES:
                 return c
@@ -3662,6 +3661,8 @@ class ValueType(_BaseDataType):
 
 
 class DataEntity(_BaseDataType, _OwnedToscaType):
+    "A complex TOSCA data type."
+
     _type_section: ClassVar[str] = "data_types"
 
     @classmethod
@@ -3704,6 +3705,7 @@ OpenDataType = OpenDataEntity  # deprecated
 
 
 class CapabilityEntity(_OwnedToscaType):
+    """A TOSCA capability template."""
     _type_section: ClassVar[str] = "capability_types"
 
     @classmethod
@@ -3725,6 +3727,7 @@ CapabilityType = CapabilityEntity
 
 
 class Relationship(_OwnedToscaType):
+    """A TOSCA relationship template."""
     # the "owner" of the relationship is its source node
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
@@ -3830,6 +3833,7 @@ InterfaceType = Interface  # deprecated
 
 
 class ArtifactEntity(_OwnedToscaType):
+    """A TOSCA artifact template."""
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
@@ -3937,6 +3941,7 @@ ArtifactType = ArtifactEntity  # deprecated
 
 
 class Policy(ToscaType):
+    """A TOSCA policy template."""
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
     _targets: Sequence[Union[Node, "Group"]] = field(
@@ -3958,6 +3963,7 @@ PolicyType = Policy  # deprecated
 
 
 class Group(ToscaType):
+    """A TOSCA group template."""
     _type_section: ClassVar[str] = "group_types"
     _template_section: ClassVar[str] = "groups"
     _members: Sequence[Union[Node, "Group"]] = field(

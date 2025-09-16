@@ -527,6 +527,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return self._create_repository(name, tpl)
 
     def _create_repository(self, name: str, tpl: dict) -> Repository:
+        if not name:
+            raise UnfurlError(
+                f'invalid repository "{name}": definition {tpl} is type {type(tpl)}, not a map or string'
+            )
         if isinstance(tpl, dict):
             if "url" in tpl:
                 url = tpl["url"]
