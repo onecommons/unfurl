@@ -63,7 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -477,12 +477,26 @@
 <col style="width: 33%" />
 </colgroup>
 <tbody>
-<tr class="row-odd"><td colspan="3"><p>List of jobs ran with changes applied</p></td>
+<tr class="row-odd"><td colspan="3"><p>Record of an Unfurl job</p></td>
 </tr>
 <tr class="row-even"><td><p>type</p></td>
 <td colspan="2"><p><em>object</em></p></td>
 </tr>
 <tr class="row-odd"><td colspan="3"><p>properties</p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>apiVersion</p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td><p>“unfurl/v1.0.0”</p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>kind</p></li>
+</ul>
+</td>
+<td><p>const</p></td>
+<td><p>“Job”</p></td>
 </tr>
 <tr class="row-even"><td><ul class="simple">
 <li><p>manifest</p></li>
@@ -492,6 +506,12 @@
 <td><p><em>string</em></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
+<li><p>job</p></li>
+</ul>
+</td>
+<td colspan="2"><p><a class="reference internal" href="##/definitions/job"><span class="std std-ref">Job Record</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
 <li><p>changes</p></li>
 </ul>
 </td>
@@ -825,7 +845,7 @@
 <section id="cloudmap-yaml">
 <h3>cloudmap.yaml<a class="headerlink" href="#cloudmap-yaml" title="Permalink to this headline"></a></h3>
 <p>Example (from <a class="reference external" href="https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml">https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml</a>):</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1alpha1</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">apiVersion</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">unfurl/v1.0.0</span>
 <span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">CloudMap</span>
 <span class="nt">repositories</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">unfurl.cloud/onecommons/blueprints/mediawiki</span><span class="p">:</span>
@@ -1865,7 +1885,7 @@
 </table>
 </section>
 <section id="job-record">
-<span id="#/definitions/job"></span><h3>Job Record<a class="headerlink" href="#job-record" title="Permalink to this headline"></a></h3>
+<span id="#/definitions/job"></span><span id="./manifest-schema.json#/definitions/job"></span><h3>Job Record<a class="headerlink" href="#job-record" title="Permalink to this headline"></a></h3>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 20%" />
@@ -1878,14 +1898,14 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td colspan="4"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="14"><p>allOf</p></td>
+<tr class="row-even"><td rowspan="17"><p>allOf</p></td>
 <td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td colspan="3"><p><a class="reference internal" href="##/definitions/status"><span class="std std-ref">Status</span></a></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="13"><ul class="simple">
+<tr class="row-odd"><td rowspan="16"><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -1929,41 +1949,52 @@
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-even"><td rowspan="2"><ul class="simple">
 <li><p>options</p></li>
 </ul>
 </td>
-<td><p>type</p></td>
+<td colspan="2"><p>job options set by the user</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
 <td><p><em>object</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>summary</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
+<li><p>changed</p></li>
+</ul>
+</td>
+<td colspan="2"><p>number of tasks that made changes to the target</p></td>
+</tr>
+<tr class="row-even"><td><p>type</p></td>
+<td><p><em>integer</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
 <li><p>specDigest</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>endCommit</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>changelog</p></li>
 </ul>
 </td>
 <td colspan="2"><p>path to the full job record</p></td>
 </tr>
-<tr class="row-odd"><td><p>type</p></td>
+<tr class="row-even"><td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
 </tbody>
@@ -1985,8 +2016,8 @@
 <tr class="row-odd"><td><p>type</p></td>
 <td colspan="6"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="23"><p>allOf</p></td>
-<td rowspan="22"><ul class="simple">
+<tr class="row-even"><td rowspan="26"><p>allOf</p></td>
+<td rowspan="25"><ul class="simple">
 <li></li>
 </ul>
 </td>
@@ -2004,6 +2035,18 @@
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>string</em></p></td>
+</tr>
+<tr class="row-odd"><td><ul class="simple">
+<li><p>startTime</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/timestamp"><span class="std std-ref">Timestamp</span></a></p></td>
+</tr>
+<tr class="row-even"><td><ul class="simple">
+<li><p>endTime</p></li>
+</ul>
+</td>
+<td colspan="4"><p><a class="reference internal" href="##/definitions/timestamp"><span class="std std-ref">Timestamp</span></a></p></td>
 </tr>
 <tr class="row-odd"><td><ul class="simple">
 <li><p>implementation</p></li>
@@ -2024,92 +2067,95 @@
 </td>
 <td colspan="4"><p><a class="reference internal" href="##/definitions/attributes"><span class="std std-ref">attributes</span></a></p></td>
 </tr>
-<tr class="row-even"><td rowspan="3"><ul class="simple">
+<tr class="row-even"><td rowspan="2"><ul class="simple">
 <li><p>changes</p></li>
 </ul>
 </td>
 <td><p>default</p></td>
 <td colspan="3"><p>{}</p></td>
 </tr>
-<tr class="row-odd"><td rowspan="2"><p>allOf</p></td>
+<tr class="row-odd"><td><p>allOf</p></td>
 <td><ul class="simple">
-<li></li>
-</ul>
-</td>
-<td colspan="2"><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
-</tr>
-<tr class="row-even"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>additionalProperties</p></td>
 <td><p><a class="reference internal" href="##/definitions/namedobjects"><span class="std std-ref">namedObject</span></a></p></td>
 </tr>
-<tr class="row-odd"><td rowspan="10"><ul class="simple">
+<tr class="row-even"><td rowspan="2"><ul class="simple">
+<li><p>changed</p></li>
+</ul>
+</td>
+<td colspan="4"><p>true if the task made changes to the target</p></td>
+</tr>
+<tr class="row-odd"><td><p>type</p></td>
+<td colspan="3"><p><em>boolean</em></p></td>
+</tr>
+<tr class="row-even"><td rowspan="10"><ul class="simple">
 <li><p>dependencies</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>array</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="4"><p>items</p></td>
+<tr class="row-odd"><td colspan="4"><p>items</p></td>
 </tr>
-<tr class="row-odd"><td rowspan="8"><ul class="simple">
+<tr class="row-even"><td rowspan="8"><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="2"><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td colspan="3"><p>properties</p></td>
+<tr class="row-odd"><td colspan="3"><p>properties</p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>name</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>ref</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>string</em></p></td>
 </tr>
-<tr class="row-odd"><td colspan="3"><ul class="simple">
+<tr class="row-even"><td colspan="3"><ul class="simple">
 <li><p>expected</p></li>
 </ul>
 </td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>schema</p></li>
 </ul>
 </td>
 <td colspan="2"><p><a class="reference internal" href="##/definitions/schema"><span class="std std-ref">schema</span></a></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>required</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>boolean</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li><p>writeOnly</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>boolean</em></p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li><p>messages</p></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td colspan="3"><p><em>array</em></p></td>
 </tr>
-<tr class="row-even"><td rowspan="2"><ul class="simple">
+<tr class="row-odd"><td rowspan="2"><ul class="simple">
 <li><p>result</p></li>
 </ul>
 </td>
@@ -2121,14 +2167,14 @@
 <td><p>enum</p></td>
 <td><p>skipped</p></td>
 </tr>
-<tr class="row-odd"><td><ul class="simple">
+<tr class="row-even"><td><ul class="simple">
 <li></li>
 </ul>
 </td>
 <td><p>type</p></td>
 <td><p><em>object</em></p></td>
 </tr>
-<tr class="row-even"><td><ul class="simple">
+<tr class="row-odd"><td><ul class="simple">
 <li></li>
 </ul>
 </td>

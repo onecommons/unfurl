@@ -2,7 +2,7 @@ Python API
 ===================================
 
 .. contents::
-    :depth: 3
+    :depth: 4
 
 
 API for writing service templates
@@ -13,7 +13,20 @@ See `here <dsl>` for an overview of the TOSCA Python DSL.
 TOSCA Types
 ~~~~~~~~~~~~~~~~~~~~~~
 
-The classes in this section are used to define TOSCA types, such as `Nodes <tosca.Node>`, `Relationships <tosca.Relationship>`, `Capabilities <tosca.Capability>`, `Artifacts <tosca.ArtifactEntity>`, and `Data Types <tosca.DataEntity>`. TOSCA Type objects correspond to a template (such as a node template or relationship template) defined in TOSCA service template.
+The classes in this section are used to define TOSCA types corresponding to a TOSCA template (such as a node template or relationship template), including:
+
+.. currentmodule:: tosca
+
+.. autosummary::
+    :nosignatures:
+
+    Node
+    Relationship
+    CapabilityEntity
+    DataEntity
+    ArtifactEntity
+    Group
+    Policy
 
 .. autoclass:: tosca.ToscaType
 
@@ -59,26 +72,43 @@ The classes in this section are used to define TOSCA types, such as `Nodes <tosc
 
   .. automethod:: has_default
 
+  .. automethod:: patch
+
   .. automethod:: set_to_property_source
 
   .. automethod:: set_operation
 
+  .. automethod:: set_inputs
+
+  .. automethod:: clear_inputs
+
 .. autoclass:: tosca.Node
+  :show-inheritance:
+  :members: _directives, _node_filter
   
   .. automethod:: find_required_by
 
   .. automethod:: find_all_required_by
 
+  .. automethod:: substitute
+
 .. autoclass:: tosca.Relationship
+  :show-inheritance:
 
 .. autoclass:: tosca.CapabilityEntity
+   :show-inheritance:
 
 .. autoclass:: tosca.DataEntity
+  :show-inheritance:
 
 .. autoclass:: tosca.ArtifactEntity
+  :show-inheritance:
 
 .. autoclass:: tosca.Group
+  :show-inheritance:
+
 .. autoclass:: tosca.Policy
+  :show-inheritance:
 
 TOSCA Field Specifiers
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -96,6 +126,28 @@ Note that these functions all take keyword-only parameters (this is needed for I
 .. automodule:: tosca
   :imported-members: true
   :members: Property, Attribute, Requirement, Capability, Artifact, operation, Computed
+
+Other Tosca Objects
+~~~~~~~~~~~~~~~~~~~
+
+The following classes represent TOSCA entities that are not derived from `ToscaType` but correspond to TOSCA YAML constructs.
+
+.. autoclass:: Interface
+   :members: _type_name, _type_metadata, _interface_requirements
+
+.. autoclass:: Repository
+   :members:
+
+.. autoclass:: ToscaInputs
+
+.. autoclass:: ToscaOutputs
+
+.. autoclass:: TopologyInputs
+
+.. autoclass:: TopologyOutputs
+
+.. autoclass:: ValueType
+   :members: simple_tosca_type, simple_type
 
 Property Constraints
 ~~~~~~~~~~~~~~~~~~~~
@@ -134,21 +186,13 @@ Other Module Items
 .. autoclass:: EvalData
    :members:
 
+.. autoclass:: Options
+
+.. autoclass:: AttributeOptions
+
+.. autoclass:: PropertyOptions
+
 .. autoclass:: FieldProjection
-
-.. autoclass:: Interface
-   :members: _type_name, _type_metadata, _interface_requirements
-
-.. autoclass:: Repository
-   :members:
-
-.. autoclass:: ToscaInputs
-
-.. autoclass:: ToscaOutputs
-
-.. autoclass:: TopologyInputs
-
-.. autoclass:: TopologyOutputs
 
 .. autoclass:: StandardOperationsKeywords
 
@@ -158,6 +202,14 @@ Other Module Items
    :show-inheritance: 
    :members:
 
+.. autofunction:: find_node
+
+.. autofunction:: find_relationship
+
+.. autofunction:: jinja_template
+
+.. autofunction:: patch_template
+
 .. autofunction:: set_evaluation_mode
 
 .. autofunction:: safe_mode
@@ -165,6 +217,9 @@ Other Module Items
 .. autofunction:: global_state_mode
 
 .. autofunction:: global_state_context
+
+.. autofunction:: reset_safe_mode
+
 
 Scalars
 ~~~~~~~
@@ -209,7 +264,7 @@ Project folders
 ~~~~~~~~~~~~~~~
 
 .. automodule:: unfurl.projectpaths
-  :members: WorkFolder, _get_base_dir
+  :members: WorkFolder
   :undoc-members:
 
 Runtime module

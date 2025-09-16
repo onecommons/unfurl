@@ -68,11 +68,12 @@
 <li class="toctree-l2"><a class="reference internal" href="#connections">Connections</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#environment-variables">Environment Variables</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#topology-inputs">Topology Inputs</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#debugging-unfurl">Debugging Unfurl</a></li>
 </ul>
 </li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -109,6 +110,7 @@
              
   <section id="runtime-environment">
 <h1>Runtime Environment<a class="headerlink" href="#runtime-environment" title="Permalink to this headline"></a></h1>
+<p>The following sections describe the runtime environment when Unfurl is executing an operation in a job.</p>
 <section id="job-variables">
 <h2>Job Variables<a class="headerlink" href="#job-variables" title="Permalink to this headline"></a></h2>
 <p>When a <a class="reference internal" href="glossary.html#tasks"><span class="std std-ref">task</span></a> is being evaluated the following variables are available as an <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">expression</span></a> variable or a jinja2 template variable.
@@ -157,32 +159,32 @@ Instances are represented as a dictionary containing its properties and attribut
 <h3><code class="docutils literal notranslate"><span class="pre">task</span></code> Keys<a class="headerlink" href="#task-keys" title="Permalink to this headline"></a></h3>
 <blockquote>
 <div><dl class="field-list simple">
+<dt class="field-odd">cwd</dt>
+<dd class="field-odd"><p>The current working directory the task process is executing in.</p>
+</dd>
+<dt class="field-even">dryrun</dt>
+<dd class="field-even"><p>(boolean) Whether the current job has the <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> flag set.</p>
+</dd>
 <dt class="field-odd">name</dt>
 <dd class="field-odd"><p>Name of the current task</p>
-</dd>
-<dt class="field-even">workflow</dt>
-<dd class="field-even"><p>The current workflow (e.g. <code class="docutils literal notranslate"><span class="pre">deploy</span></code>, <code class="docutils literal notranslate"><span class="pre">undeploy</span></code>, or <code class="docutils literal notranslate"><span class="pre">discover</span></code>)</p>
-</dd>
-<dt class="field-odd">target</dt>
-<dd class="field-odd"><p>The name of the instance that the task is operating on.</p>
 </dd>
 <dt class="field-even">operation</dt>
 <dd class="field-even"><p>The name of the operation the task is running.</p>
 </dd>
-<dt class="field-odd">dryrun</dt>
-<dd class="field-odd"><p>(boolean) Whether the current job has the <code class="docutils literal notranslate"><span class="pre">--dryrun</span></code> flag set.</p>
+<dt class="field-odd">reason</dt>
+<dd class="field-odd"><p><a class="reference internal" href="api.html#unfurl.support.Reason" title="unfurl.support.Reason"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Reason</span></code></a> the current task was selected, e.g. “add”, “update”, “prune”, “repair”</p>
 </dd>
-<dt class="field-even">reason</dt>
-<dd class="field-even"><p><a class="reference internal" href="api.html#unfurl.support.Reason" title="unfurl.support.Reason"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Reason</span></code></a> the current task was selected, e.g. “add”, “update”, “prune”, “repair”</p>
+<dt class="field-even">target</dt>
+<dd class="field-even"><p>The name of the instance that the task is operating on.</p>
 </dd>
-<dt class="field-odd">cwd</dt>
-<dd class="field-odd"><p>The current working directory the task process is executing in.</p>
+<dt class="field-odd">timeout</dt>
+<dd class="field-odd"><p>The task’s timeout value if set,</p>
 </dd>
 <dt class="field-even">verbose</dt>
 <dd class="field-even"><p>An integer indicating log verbosity level: 0 (INFO) (the default), -1 CRITICAL (set by <code class="docutils literal notranslate"><span class="pre">--quiet</span></code>), &gt;= 1 DEBUG (set by <code class="docutils literal notranslate"><span class="pre">-v</span></code>, <code class="docutils literal notranslate"><span class="pre">-vv</span></code>, or <code class="docutils literal notranslate"><span class="pre">-vvv</span></code>)</p>
 </dd>
-<dt class="field-odd">timeout</dt>
-<dd class="field-odd"><p>The task’s timeout value if set,</p>
+<dt class="field-odd">workflow</dt>
+<dd class="field-odd"><p>The current workflow (e.g. <code class="docutils literal notranslate"><span class="pre">deploy</span></code>, <code class="docutils literal notranslate"><span class="pre">undeploy</span></code>, or <code class="docutils literal notranslate"><span class="pre">discover</span></code>)</p>
 </dd>
 </dl>
 </div></blockquote>
@@ -192,53 +194,62 @@ Instances are represented as a dictionary containing its properties and attribut
 <h2>Connections<a class="headerlink" href="#connections" title="Permalink to this headline"></a></h2>
 <p>In order to execute operations on a resource Unfurl often needs connection settings,
 in particular credentials for authorization. These settings could be
-passed as inputs to each operation that needs them but this can be repetitive and inflexible.
-TOSCA provides <a class="reference internal" href="toscaref/spec-relationship-templates.html#relationship-templates"><span class="std std-ref">Relationship Templates</span></a> which describe the properties of a relationship between
-two nodes. Unfurl uses relationship templates as a mechanism to specify the connection settings
-it need to connect to resources. It does so by adding a <code class="docutils literal notranslate"><span class="pre">default_for</span></code> key which indicates that the relationship template
-doesn’t need to be explicitly referenced in the <code class="docutils literal notranslate"><span class="pre">requirements</span></code> section of a node template as regular relationship templates
+passed as inputs to each operation that needs them but this can be repetitive and inflexible. Instead you can define <a class="reference internal" href="toscaref/spec-relationship-templates.html#relationship-templates"><span class="std std-ref">Relationship Templates</span></a> that are globally available to operations. Their properties can be accessed through <code class="docutils literal notranslate"><span class="pre">connections</span></code> job variable or automatically exposed as <a class="reference internal" href="#environment-variables"><span class="std std-ref">Environment Variables</span></a> as described in that section.
+They can also be accessed through the <a class="reference internal" href="expressions.html#find-connection"><span class="std std-ref">find_connection</span></a> expression function or <a class="reference internal" href="api.html#unfurl.tosca_plugins.expr.find_connection" title="unfurl.tosca_plugins.expr.find_connection"><code class="xref py py-func docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.expr.find_connection()</span></code></a>.</p>
+<p>You can define connections in the following ways:</p>
+<ul class="simple">
+<li><p>In the <a class="reference internal" href="toscaref/spec-relationship-templates.html#relationship-templates"><span class="std std-ref">Relationship Templates</span></a> section of your TOSCA service template.</p></li>
+<li><p>In the <a class="reference internal" href="#connections"><span class="std std-ref">Connections</span></a> section of the ensemble’s environment.</p></li>
+<li><p>On the source node template by defining a requirement with inline relationship with <code class="docutils literal notranslate"><span class="pre">default_for</span></code> set to “SELF”.</p></li>
+<li><p>Imported from an external ensemble by setting the <code class="docutils literal notranslate"><span class="pre">connections</span></code> key in the <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">External ensembles</span></a> section. The imported connections are added to the main ensemble’s default connections. This allows the main ensemble to connect to resources in the imported ensemble, For example, a Kubernetes cluster. Its value is a list of names of the relationship templates to import from the external ensemble. To import connections defined inline in a requirement on a node template use <code class="docutils literal notranslate"><span class="pre">&lt;instance_name&gt;::&lt;requirement_name&gt;</span></code> as the name.</p></li>
+<li><p>Added by a operation at runtime via a <a class="reference internal" href="configurators.html#resulttemplate"><span class="std std-ref">resultTemplate</span></a> or the <a class="reference internal" href="api.html#unfurl.configurator.TaskView.update_instances" title="unfurl.configurator.TaskView.update_instances"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">TaskView.update_instances()</span></code></a> method.</p></li>
+</ul>
+<p>A relationship template is treated as a connection when it has the <code class="docutils literal notranslate"><span class="pre">default_for</span></code> key set. If this key is present, it indicates that the relationship template doesn’t need to be explicitly referenced in the <code class="docutils literal notranslate"><span class="pre">requirements</span></code> section of a node template as regular relationship templates
 must be, but instead is applied to any target node that matches the relationship type’s specification.</p>
-<p>Because credentials likely are specific to the user or machine running Unfurl
-you can define them with the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble in <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">.unfurl_home</span></a> and by default they will be imported into the current ensemble. This can be explicitly specified when importing an external ensemble using the <a class="reference internal" href="#connections"><span class="std std-ref">Connections</span></a> key as described in the <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">External ensembles</span></a> section.</p>
-<p>As described in <a class="reference internal" href="get-started-step-by-step.html#getting-started"><span class="std std-ref">Getting Started</span></a>, the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble provides several connection relationship templates for connecting to the the most common cloud providers.</p>
-<p>When Unfurl executes an operation it looks for relationship templates between the <code class="docutils literal notranslate"><span class="pre">OPERATION_HOST</span></code> and the node that the operation is targeting, including any connection relationship templates that apply. If those templates contain any environment variables they will be set otherwise they can be accessed through to variables:</p>
-<dl class="field-list simple">
-<dt class="field-odd">$connections</dt>
-<dd class="field-odd"><p>the current connections between the OPERATION_HOST and the target or the target’s HOSTs as a dictionary.
-The keys are the name of the relationship template or the name of the type of the relationship.</p>
-</dd>
-</dl>
+<p>To determine if a connection is available to a task, the <code class="docutils literal notranslate"><span class="pre">default_for</span></code> value is evaluated against the task’s target node and capability and all of the target node’s HOST ancestors. The <code class="docutils literal notranslate"><span class="pre">default_for</span></code> key can be set to one of the following values:</p>
+<ul class="simple">
+<li><p>“ANY”</p></li>
+<li><p>“SELF” (when set inline in a requirement)</p></li>
+<li><p>the name of a node template</p></li>
+<li><p>the name of a node type</p></li>
+<li><p>the name of a capability</p></li>
+<li><p>the name of a capability type</p></li>
+</ul>
+<p>In additions to these global connections, if an <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125294">OPERATION_HOST</a> or <a class="reference internal" href="projects.html#the-localhost-ensemble"><span class="std std-ref">The Localhost Ensemble</span></a> is defined, any explicit relationship templates defined between that node and the target node or the target node’s HOST nodes will be added.</p>
+<p>The connections available to a task are exposed though the <code class="docutils literal notranslate"><span class="pre">connections</span></code> job variable as a map where the keys are the name of the relationship template or the name of the type of the relationship.</p>
 <p>For example, these expressions all evaluate to the same value:</p>
 <blockquote>
-<div><p><code class="docutils literal notranslate"><span class="pre">access_key:</span> <span class="pre">{{</span> <span class="pre">&quot;$connections::aws::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
-<p><code class="docutils literal notranslate"><span class="pre">access_key:</span> <span class="pre">{{</span> <span class="pre">&quot;$connections::AWSAccount::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
-<p><code class="docutils literal notranslate"><span class="pre">access_key:</span> <span class="pre">{{</span> <span class="pre">&quot;$connections::*::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
+<div><p><code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">&quot;$connections::aws::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">&quot;$connections::AWSAccount::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
+<p><code class="docutils literal notranslate"><span class="pre">{{</span> <span class="pre">&quot;$connections::*::AWS_ACCESS_KEY_ID&quot;</span> <span class="pre">|</span> <span class="pre">eval</span> <span class="pre">}}</span></code></p>
 </div></blockquote>
-<dl class="simple">
-<dt>In addition, because environment value because that properties</dt><dd><p><code class="docutils literal notranslate"><span class="pre">AWS_ACCESS_KEY_ID</span></code> is marked as an environment variable in the relationship’s type definition, it will also be added to the environment when the operation executed.</p>
-</dd>
-</dl>
+<p>In addition, because the property <code class="docutils literal notranslate"><span class="pre">AWS_ACCESS_KEY_ID</span></code> is marked as an environment variable in the relationship’s type definition, it will also be added to the environment when the operation executed.</p>
 </section>
 <section id="environment-variables">
 <h2>Environment Variables<a class="headerlink" href="#environment-variables" title="Permalink to this headline"></a></h2>
-<p>You can set the environment variables that are available while Unfurl is running
-in the <code class="docutils literal notranslate"><span class="pre">variables</span></code> section when declaring an <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a>.
-These global directives can be overridden when executing an individual operation by
-by adding an <code class="docutils literal notranslate"><span class="pre">environment</span></code> section to an operation’s <a class="reference internal" href="tosca.html#implementation"><span class="std std-ref">Implementation</span></a> declaration.
-This environment is used when an operation invokes a external process such as a shell command.</p>
-<p>When applying these directives, Unfurl makes a copy of the current environment and applied each of its keys
+<p>Each task has its own isolated set of environment variables that can be access via the <a class="reference internal" href="expressions.html#get-env"><span class="std std-ref">get_env</span></a> expression function or the <a class="reference internal" href="api.html#unfurl.configurator.TaskView.environ" title="unfurl.configurator.TaskView.environ"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">TaskView.environ</span></code></a> property.
+Configurators that spawn processes like <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell</span></a> will use this to set the process’s environment.</p>
+<p>The environment is set as follows:</p>
+<ol class="arabic simple">
+<li><p>Copy the environment variables associated with the Unfurl process.</p></li>
+<li><p>Apply the rules in the <code class="docutils literal notranslate"><span class="pre">variables</span></code> section in the ensemble’s <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a>.</p></li>
+<li><p>Add variables set by the connections that are available to this operation. Any property whose definition has <code class="docutils literal notranslate"><span class="pre">env_var</span></code> metadata set are added as environment variables. Unfurl’s type definitions sets the common environment variables for cloud providers, for example <code class="docutils literal notranslate"><span class="pre">KUBECONFIG</span></code> or <code class="docutils literal notranslate"><span class="pre">GOOGLE_APPLICATION_CREDENTIALS</span></code>.</p></li>
+<li><p>Apply the rules declared in the <code class="docutils literal notranslate"><span class="pre">environment</span></code> section of the operation’s <a class="reference internal" href="tosca.html#implementation"><span class="std std-ref">Implementation</span></a> definition.</p></li>
+<li><p>The operation can invoke the <a class="reference internal" href="expressions.html#to-env"><span class="std std-ref">to_env</span></a> expression function (or <a class="reference internal" href="api.html#unfurl.tosca_plugins.expr.to_env" title="unfurl.tosca_plugins.expr.to_env"><code class="xref py py-func docutils literal notranslate"><span class="pre">unfurl.tosca_plugins.expr.to_env()</span></code></a>) to update environment variables.</p></li>
+</ol>
+<p>When applying rules, Unfurl makes a copy of the current environment and applied each of its keys
 in the order they are declared, adding the given key and value as
 environment variables except keys starting with “+” and “-”
 will copy or remove the variable from the current into environment
 into the new one. In that case “*” and “?” are treated like filename wildcards and “!” negates the match:</p>
-<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">value</span><span class="w">    </span><span class="c1"># add name=value</span>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">value</span><span class="w">    </span><span class="c1"># set name=value</span>
 <span class="nt">+name</span><span class="p">:</span><span class="w">         </span><span class="c1"># copy name into the enviroment</span>
 <span class="nt">+name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span><span class="w"> </span><span class="c1"># copy value, set it to &quot;default&quot; if not present</span>
 <span class="nt">+prefix*</span><span class="p">:</span><span class="w">      </span><span class="c1"># copy all variables matching &quot;prefix*&quot;</span>
 <span class="nt">+!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># copy all except variables matching &quot;prefix*&quot;</span>
 <span class="nt">-!name</span><span class="p">:</span><span class="w">        </span><span class="c1"># remove all except name</span>
 <span class="nt">-!prefix*</span><span class="p">:</span><span class="w">     </span><span class="c1"># remove all except variables matching &quot;prefix*&quot;</span>
-<span class="nt">^name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/bin</span><span class="w">    </span><span class="c1"># treat name like a PATH and prepend value: e.g. /bin:$name</span>
+<span class="nt">^name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">value</span><span class="w">   </span><span class="c1"># treat name like a PATH and prepend value: e.g. /bin:$name</span>
 </pre></div>
 </div>
 <p>For example:</p>
@@ -246,8 +257,14 @@ into the new one. In that case “*” and “?” are treated like filename wil
 <span class="w">   </span><span class="nt">-*</span><span class="p">:</span><span class="w">       </span><span class="c1"># this will remove all environment variables</span>
 <span class="w">   </span><span class="nt">+HOME</span><span class="p">:</span><span class="w">    </span><span class="c1"># add HOME back</span>
 <span class="w">   </span><span class="nt">FOO</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bar</span><span class="w">  </span><span class="c1"># set FOO = bar</span>
+<span class="w">   </span><span class="nt">^PATH</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/bin</span><span class="w"> </span><span class="c1"># set PATH to /bin:$PATH</span>
 </pre></div>
 </div>
+<p>Values are converted to strings as follows:
+If the value is null the rule is skipped.
+If the value is a boolean, it is converted to “true” or “” if false.
+Otherwise, it is converted to a string.
+Patterns like <code class="docutils literal notranslate"><span class="pre">${NAME}</span></code> or <code class="docutils literal notranslate"><span class="pre">${NAME:default</span> <span class="pre">value}</span></code> in the value will be substituted with the value of the environment variable <code class="docutils literal notranslate"><span class="pre">$NAME</span></code>. Use <code class="docutils literal notranslate"><span class="pre">\${NAME}</span></code> to ignore.</p>
 <p>The following environment variables will always be copied from the parent environment unless explicitly removed or set:</p>
 <table class="docutils align-default">
 <colgroup>
@@ -302,33 +319,35 @@ into the new one. In that case “*” and “?” are treated like filename wil
 </tr>
 <tr class="row-odd"><td><p>UNFURL_LOGFILE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_SKIP_VAULT_DECRYPT</p></td>
+<tr class="row-even"><td><p>UNFURL_CHECK_UPSTREAM</p></td>
 </tr>
 <tr class="row-odd"><td><p>UNFURL_SKIP_UPSTREAM_CHECK</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_SKIP_SAVE</p></td>
+<tr class="row-even"><td><p>UNFURL_SKIP_VAULT_DECRYPT</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_SEARCH_ROOT</p></td>
+<tr class="row-odd"><td><p>UNFURL_SKIP_SAVE</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_CLOUD_SERVER</p></td>
+<tr class="row-even"><td><p>UNFURL_SEARCH_ROOT</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_VALIDATION_MODE</p></td>
+<tr class="row-odd"><td><p>UNFURL_CLOUD_SERVER</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_PACKAGE_RULES</p></td>
+<tr class="row-even"><td><p>UNFURL_VALIDATION_MODE</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_LOG_FORMAT</p></td>
+<tr class="row-odd"><td><p>UNFURL_PACKAGE_RULES</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_LOG_TRUNCATE</p></td>
+<tr class="row-even"><td><p>UNFURL_LOG_FORMAT</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_RAISE_LOGGING_EXCEPTIONS</p></td>
+<tr class="row-odd"><td><p>UNFURL_LOG_TRUNCATE</p></td>
 </tr>
-<tr class="row-even"><td><p>PY_COLORS</p></td>
+<tr class="row-even"><td><p>UNFURL_RAISE_LOGGING_EXCEPTIONS</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_OVERWRITE_POLICY</p></td>
+<tr class="row-odd"><td><p>PY_COLORS</p></td>
 </tr>
-<tr class="row-even"><td><p>UNFURL_EXPORT_LOCALNAMES</p></td>
+<tr class="row-even"><td><p>UNFURL_OVERWRITE_POLICY</p></td>
 </tr>
-<tr class="row-odd"><td><p>UNFURL_GLOBAL_NAMESPACE_PACKAGES</p></td>
+<tr class="row-odd"><td><p>UNFURL_EXPORT_LOCALNAMES</p></td>
+</tr>
+<tr class="row-even"><td><p>UNFURL_GLOBAL_NAMESPACE_PACKAGES</p></td>
 </tr>
 </tbody>
 </table>
@@ -371,6 +390,28 @@ and a <code class="docutils literal notranslate"><span class="pre">.tool-version
 </div>
 <p>will set <code class="docutils literal notranslate"><span class="pre">foo</span></code> to 1, overriding <code class="docutils literal notranslate"><span class="pre">spec\inputs</span></code>.</p>
 <p>Note that inputs passed via <code class="docutils literal notranslate"><span class="pre">--var</span></code> on the command line as parsed as YAML strings, as if they were embedded in the ensemble’s YAML file.</p>
+</section>
+<section id="debugging-unfurl">
+<h2>Debugging Unfurl<a class="headerlink" href="#debugging-unfurl" title="Permalink to this headline"></a></h2>
+<p>The following environment variables can be set to enable debugging features and diagnostic output:</p>
+<dl class="simple">
+<dt><strong>UNFURL_DEBUGPY</strong></dt><dd><p>Set to a port number (or “1” to use default port 5678) to wait for a remote debugger (like VS-Code) to attach on startup. Requires <a class="reference external" href="https://pypi.org/project/debugpy/">debugpy</a> to be installed.</p>
+</dd>
+<dt><strong>UNFURL_TEST_PRINT_YAML_SRC</strong></dt><dd><p>Prints the YAML source generated when DSL Python is converted to TOSCA YAML.</p>
+</dd>
+<dt><strong>UNFURL_TEST_PRINT_AST_SRC</strong></dt><dd><p>When the TOSCA DSL imports loader executes Python code, convert the processed Python Abstract Syntax Tree (AST) back to Python source code and  print it. Helpful to debug exceptions raised from user-defined Python DSL templates, which might not have the source code reported in the exception stack trace.</p>
+</dd>
+<dt><strong>UNFURL_TEST_DUMP_SOLVER</strong></dt><dd><p>Set to “1” or “2” to enable diagnostic output from the TOSCA solver when performs model inference.</p>
+<ul class="simple">
+<li><p>“1”: Prints nodes, requirements, requirement matches, property expressions, property matches, term matches, queries (final), and query results</p></li>
+<li><p>“2”: Additionally prints relationships, queries (intermediate), results (intermediate), and transitive matches</p></li>
+</ul>
+</dd>
+<dt><strong>UNFURL_TEST_SAFE_LOADER</strong></dt><dd><p>When set to “never”, disable the safe mode sandbox unconditionally. Any other non-empty value enables safe mode unconditionally.</p>
+</dd>
+<dt><strong>UNFURL_TEST_SKIP_LOADER</strong></dt><dd><p>If set, disable the TOSCA DSL imports loader. The imports loader can sometimes confuse an interactive Python debugger, only use this in those scenarios.</p>
+</dd>
+</dl>
 </section>
 </section>
 

@@ -16,7 +16,7 @@ it will use the ``Ansible`` configurator and generate a playbook that invokes it
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -54,7 +54,7 @@ Example
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -161,7 +161,7 @@ In this example, ``operation_host`` is set to a remote instance so the command i
 
   .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: Ensemble
     spec:
       service_template:
@@ -211,7 +211,7 @@ This example executes an inline shell script and uses the ``cwd`` and ``shell`` 
 
   .. code-block:: YAML
 
-      apiVersion: unfurl/v1alpha1
+      apiVersion: unfurl/v1.0.0
       kind: Ensemble
       spec:
         service_template:
@@ -286,7 +286,7 @@ All values will be either string or null unless otherwise noted.
   :error: Set if an exception was raised
   :timeout: (Null unless a timeout occurred)
 
-The processing the ``resultsTemplate`` is equivalent to passing its resulting YAML to `update_instances`.
+The processing of the ``resultTemplate`` is equivalent to passing its resulting YAML to `update_instances`.
 
 Outputs
 -------
@@ -747,6 +747,8 @@ properties
   :program: (map) A map of `settings <http://supervisord.org/configuration.html#program-x-section-values>`_ for this program.
 
 
+.. _configurators-artifacts:
+
 =============
 Artifacts
 =============
@@ -766,13 +768,16 @@ The example below declares an artifact that represents a shell script and shows 
   .. literalinclude:: ./examples/artifact2.yaml
     :language: yaml
 
+Like other TOSCA operations, when generating TOSCA YAML, Unfurl looks at the execute method's signature to determine its TOSCA inputs and outputs. So in simple cases the method can be a no-op. In more complex cases, you can use the method to validate or transform the inputs before they are passed to the configurator. In that case, you can a call `set_inputs` in the method body, which will force the method to be invoked at runtime when the operation's task is created in a job's `planning stage <Job Lifecycle>`.
+Or you could implement completely custom behavior by having the execute method return a run method using the pattern shown in this `example <Orchestrator Integration>`.
+
 Arguments
 =========
 
-When node operation invokes its artifact's ``execute`` operation, Unfurl looks for a operation input named ``arguments`` to pass as the ``execute`` operation's inputs.
+When a node operation invokes its implementation artifact's ``execute`` operation, Unfurl looks for a operation input named ``arguments`` to pass as the ``execute`` operation's inputs.
 This should be dictionary whose keys and values corresponds to the ``execute`` operation's input specification.
 
-If ``arguments`` isn't explicitly declared, it will be synthesized from the following sources (listed here from lowest to highest merge order):
+If an ``arguments`` input isn't explicitly declared, it will be synthesized from the following sources (listed here from lowest to highest merge order):
 
 * Default input values defined for the execution operation.
 * Properties on the node template and on the implementation artifact if they have matching ``input_match`` metadata keys in their definitions (see `Shared Properties`).
@@ -782,9 +787,9 @@ If ``arguments`` isn't explicitly declared, it will be synthesized from the foll
 Shared Properties
 =================
 
-In the Python DSL, TOSCA types can inherit from :py:class:`tosca.ToscaInputs` and  :py:class:`tosca.ToscaOutputs` classes using multiple inheritance and their fields will be inherited as TOSCA properties and attributes respectively. If an execute operation uses ToscaInputs as an argument in its method signature, any node or artifact that inherit that ToscaInputs class will have those properties passed as arguments. This way implementation definitions stay in sync with the nodes that use them.
+In the Python DSL, TOSCA types can inherit from :py:class:`tosca.ToscaInputs` and  :py:class:`tosca.ToscaOutputs` classes using multiple inheritance and their inherited fields will be will be treated as TOSCA properties and attributes respectively. If an execute operation declares ToscaInputs subclass as a parameter in its method signature, any node or artifact that inherited that ToscaInputs class will have those properties automatically passed as arguments. This way implementation definitions stay in sync with the nodes that use them.
 
-In YAML, you can do the equivalent by adding a ``input_match`` metadata key to those properties to indicate they should be treated as arguments to operations. When invoking an operation, any property on the node or on the implementation artifact has that set will be added arguments. Its value can be a boolean or the name of an artifact to indicate that it should only be passed as arguments to operations that use that artifact. You can also control with properties are passed as arguments by adding an ``input_match`` metadata key to the artifact ``execute`` interface's metadata -- if set, only properties with matching ``input_match`` values will be set.  The YAML generated by the Python DSL uses that mechanism as the example below shows:
+In YAML, you can do the equivalent by adding a ``input_match`` metadata key to those properties to indicate they should be treated as arguments to operations. When invoking an operation, any property on the node or on the implementation artifact has that set will be added arguments. Its value can be a boolean or the name of an artifact to indicate that it should only be passed as arguments to operations that use that artifact. You can also control with properties are passed as arguments by adding an ``input_match`` metadata key to the artifact ``execute`` interface's metadata -- if set, only properties with matching ``input_match`` values will be set. Similarly, you can set the ``output_match`` metadata key to map operation outputs to node attributes, as an alternative to declaring an :tosca_spec:`attribute mapping<_Toc50125291>` on an operation. The YAML generated by the Python DSL uses that mechanism as the example below shows:
 
 .. tab-set-code::
 

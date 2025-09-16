@@ -84,7 +84,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -190,10 +190,6 @@
 <p>Operation can implemented as templatized <a class="reference internal" href="configurators.html#terraform"><span class="std std-ref">Terraform</span></a> modules, <a class="reference internal" href="configurators.html#ansible"><span class="std std-ref">Ansible</span></a> playbooks, or Python or <a class="reference internal" href="configurators.html#shell"><span class="std std-ref">Shell</span></a> scripts.  Or Unfurl can be taught to understand domain-specific configuration files using Unfurl’s <a class="reference internal" href="api.html#module-unfurl.configurator" title="unfurl.configurator"><code class="xref any py py-mod docutils literal notranslate"><span class="pre">configurator</span></code></a> plugin system – built-in configurators include <a class="reference internal" href="projects.html#docker"><span class="std std-ref">Docker</span></a>, <a class="reference internal" href="configurators.html#kubernetes"><span class="std std-ref">Kubernetes</span></a>, <a class="reference internal" href="configurators.html#helm"><span class="std std-ref">Helm</span></a> and <a class="reference internal" href="configurators.html#sup"><span class="std std-ref">Supervisor</span></a>.</p>
 <p>You can customize the blueprint’s resource templates per environment with a <a class="reference internal" href="glossary.html#deployment-blueprint"><span class="std std-ref">Deployment blueprint</span></a>. A deployment blueprint extends your blueprint with templates that are only applied when they match the deployment environment.</p>
 <p>When you’re ready to deploy, you can preview the deployment plan by running <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a>, which will output the plan and output (“render”) any configuration files and scripts that will be used for deployment in <a class="reference internal" href="jobs.html#generated-files"><span class="std std-ref">directory structure</span></a>.</p>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<p>To learn more about implementing your model using TOSCA, refer to the <a class="reference internal" href="get-started-step-by-step.html#implement-operation"><span class="std std-ref">Implementing an operation</span></a> section.</p>
-</div>
 </section>
 <section id="step-4-deploy-and-manage">
 <span id="step4"></span><h2><a class="toc-backref" href="#id5">Step 4: Deploy and Manage</a><a class="headerlink" href="#step-4-deploy-and-manage" title="Permalink to this headline"></a></h2>

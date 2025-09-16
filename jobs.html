@@ -82,7 +82,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -155,10 +155,10 @@ a job is created and run. Running a job entails these steps:</p>
 <li><p>YAML parsed and <a class="reference internal" href="processing.html#yaml-merge-directives"><span class="std std-ref">merge directives</span></a> are processed, including converting <a class="reference internal" href="dsl.html#a-tosca-python-based-dsl"><span class="std std-ref">Python DSL</span></a> code to TOSCA YAML.</p></li>
 <li><p>Schema is validated and model instantiated. The command will exit if there are errors.</p></li>
 <li><p>A plan is constructed based on the selected workflow and job options (use <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command to preview) and the job begins.</p></li>
-<li><p>For each operation a task is generated and the operation’s <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> are lazily evaluated
-if referenced, including Unfurl expressions, TOSCA functions, and template strings.</p></li>
-<li><p>If planned tasks require local dependencies to be installed, such as tool artifacts, run an external job to install them.</p></li>
-<li><p>Render the plan and print a plan summary. Render operations that depend on live attributes that will be deferred until those attributes are set when the task is executed. The command will exit if there are unrecoverable errors or if you are running the <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command.</p></li>
+<li><p>If planned tasks require local dependencies to be installed, such as tool artifacts, install them by running an external job (in <a class="reference internal" href="projects.html#the-localhost-ensemble"><span class="std std-ref">The Localhost Ensemble</span></a>, if defined).</p></li>
+<li><p>For each operation a task is generated and <a class="reference internal" href="api.html#unfurl.configurator.Configurator.render" title="unfurl.configurator.Configurator.render"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">rendered</span></code></a>. during which the operation’s <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">Inputs</span></a> are lazily evaluated
+and dependencies are tracked if referenced, including Unfurl expressions, TOSCA functions, and template strings.</p></li>
+<li><p>The plan is updated to reflect any new dependencies detected and a plan summary is printed. Any operations whose rendering depended on live attributes will be deferred until those attributes are set when the task is executed. The job will exit now if there are unrecoverable errors or if you are running the <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command.</p></li>
 <li><p>Execute the plan. You will be prompted to approve the plan summary unless the <code class="docutils literal notranslate"><span class="pre">--approve</span></code> flag was used. As it runs, it tracks dependencies and changes to resource attributes and status.</p></li>
 <li><p>Re-execute steps 5 and 6 to render and run any deferred operations if needed. Repeat until all operations complete.</p></li>
 <li><p>After the job completes, <a class="reference internal" href="jsonschema.html#id2"><span class="std std-ref">ensemble.yaml</span></a> is updated with any changes to its instances status. It’s <code class="docutils literal notranslate"><span class="pre">jobs</span></code> folder with have new <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file and associated log files.</p></li>
@@ -194,7 +194,7 @@ If the local status of the resource is different from its effective status, (ie.
 <dd class="field-even"><p>The resource <a class="reference internal" href="#node-state"><span class="std std-ref">state</span></a> after the task ran.</p>
 </dd>
 <dt class="field-odd">Changed</dt>
-<dd class="field-odd"><p>Whether the task modified the resource.</p>
+<dd class="field-odd"><p>Whether the task modified or recorded a change to a resource.</p>
 </dd>
 </dl>
 </div></blockquote>
@@ -238,16 +238,30 @@ If the local status of the resource is different from its effective status, (ie.
 <div class="line">│       │   ├── terraform.tfstate</div>
 <div class="line">│       │   └── vars.tmp.tfvars.json</div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code>: a tab separated file with a line for each task and job designed for fast loading and conflict free merging.</p>
+<p><code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code>: a tab separated file with a line for each task and job providing a history of . It is designed for fast loading and conflict free merging by git (the project skeleton’s <code class="docutils literal notranslate"><span class="pre">.gitattributes</span></code> file sets it merge strategy to “union”).</p>
 <p><code class="docutils literal notranslate"><span class="pre">job2024-01-31-23-33-37-A41VNXbB.yaml</span></code> is a <a class="reference internal" href="jsonschema.html#id3"><span class="std std-ref">job.yaml</span></a> file. The one is in <code class="docutils literal notranslate"><span class="pre">changes</span></code> is committed, while the one is <code class="docutils literal notranslate"><span class="pre">jobs</span></code> is not. The latter is more verbose and may contain content that is not safe to commit.</p>
 <blockquote>
-<div><p><code class="docutils literal notranslate"><span class="pre">jobs/job2024-01-31-23-33-37-A41VNXbB.log</span></code> is a copy of the log messages logged to console when the job was run.</p>
+<div><p><code class="docutils literal notranslate"><span class="pre">job2024-01-31-23-33-37-A41VNXbB.log</span></code> are a copy of the log messages logged to console when the job was run.</p>
 </div></blockquote>
 <p><code class="docutils literal notranslate"><span class="pre">active/secrets/ec2compute/terraform.tfstate.yaml</span></code> – the Terraform configurator needs to commit its Terraform state as a secret because it may contain confidential data.</p>
 <p>The files in <code class="docutils literal notranslate"><span class="pre">active/tasks/ec2compute</span></code> are used during deployment by Terraform and left in place for review even though they not committed and will be regenerated if missing.</p>
-<p>See <a class="reference internal" href="api.html#module-unfurl.projectpaths"><span class="std std-ref">Project folders</span></a> for the API configurators use to manage the files they need and <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a> and <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a> for expression functions that provide access to this directories.</p>
+<p>See <a class="reference internal" href="api.html#module-unfurl.projectpaths"><span class="std std-ref">Project folders</span></a> for the API that configurators use to manage the files they need and <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a> and <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a> for expression functions that provide access to this directories.</p>
 <p>Of the above files and directories only
 <code class="docutils literal notranslate"><span class="pre">ensemble.yaml</span></code>, <code class="docutils literal notranslate"><span class="pre">jobs.tsv</span></code>, <code class="docutils literal notranslate"><span class="pre">changes</span></code>, <code class="docutils literal notranslate"><span class="pre">active/artifacts</span></code> and <code class="docutils literal notranslate"><span class="pre">active/secrets</span></code> are committed to git, the rest are excluded in the project’s <code class="docutils literal notranslate"><span class="pre">.gitignore</span></code> file. Files excluded from git are safe to delete after the job completes.</p>
+<p>During the planning phase the files that will end up in the <code class="docutils literal notranslate"><span class="pre">active</span></code> directory are first written to the <code class="docutils literal notranslate"><span class="pre">planned</span></code>. You can review them before deployment using the <a class="reference external" href="cli.html#unfurl-plan">unfurl plan</a> command or by running a dry run job. The directory structure will look like this:</p>
+<div class="line-block">
+<div class="line">├── planned</div>
+<div class="line">│   ├── previous/…</div>
+<div class="line">│   └── tasks</div>
+<div class="line">│       ├── …</div>
+<div class="line">│   ├── job2020-01-01-02-00-00-A0112000.ensemble.yaml</div>
+<div class="line">│   ├── job2020-01-01-02-00-00-A0112000.yaml</div>
+<div class="line">│   ├── job2020-01-01-02-00-00-A0112000.log</div>
+<div class="line">├── failed</div>
+<div class="line">│   ├── A41VNXbB/…</div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">job2020-01-01-02-00-00-A0112000.ensemble.yaml</span></code> – when running a dry run job <code class="docutils literal notranslate"><span class="pre">ensemble.yaml</span></code> will not be modified (because those any changes aren’t real), instead a copy will be saved to the planned directory.</p>
+<p><code class="docutils literal notranslate"><span class="pre">failed/A41VNXbB</span></code> If a task fails to deploy, its directory in <code class="docutils literal notranslate"><span class="pre">planned/tasks</span></code> is moved to <code class="docutils literal notranslate"><span class="pre">failed/&lt;&lt;task</span> <span class="pre">id&gt;&gt;</span></code> for examination (if it created artifacts).</p>
 </section>
 <section id="updating-a-deployment">
 <h2><a class="toc-backref" href="#id4">Updating a deployment</a><a class="headerlink" href="#updating-a-deployment" title="Permalink to this headline"></a></h2>
@@ -343,7 +357,7 @@ By setting this you can set the scope to be coarser (or narrower) than each indi
 </dl>
 <p>As these settings are <a class="reference internal" href="jsonschema.html#environment"><span class="std std-ref">environment</span></a> settings, they will be merged with the current project, home project, and the ensemble’s environment sections. Unlike most other environment settings, the ensemble’s settings takes priority and overrides the project’s settings.</p>
 <p>Use <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">lfs</span> <span class="pre">locks</span></code> to see existing locks in a git repository and <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">lfs</span> <span class="pre">unlock</span></code> to manually remove a lock.</p>
-<p>In additional to locking, to ensure local deployments are in sync with each, when Unfurl starts and loads an ensemble it checks the project and ensemble’s upstream repositories for changes. The <a class="reference external" href="cli.html#unfurl">–skip-upstream-check</a> global option and the <code class="docutils literal notranslate"><span class="pre">UNFURL_SKIP_UPSTREAM_CHECK</span></code> environment variable disables this behavior.</p>
+<p>In additional to locking, you can ensure local deployments are in sync with each by using the <a class="reference external" href="cli.html#unfurl">–check-upstream</a> global option (or the equivalent <code class="docutils literal notranslate"><span class="pre">UNFURL_CHECK_UPSTREAM</span></code> environment variable). If set, when Unfurl starts it will pull the latest upstream changes for the git repositories the ensemble depends on.</p>
 </section>
 <section id="operational-status-and-state">
 <h2><a class="toc-backref" href="#id11">Operational status and state</a><a class="headerlink" href="#operational-status-and-state" title="Permalink to this headline"></a></h2>

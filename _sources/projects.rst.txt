@@ -254,12 +254,28 @@ External ensembles
 
 Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.
 
-The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the "select" directive (see "3.4.3 Directives"). Two, they can be explicitly referenced using the `external <external_func>` expression function.
+The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: 
+either through the `external <external_func>` expression function or by declaring a node template with a `"select" node template directive<tosca.NodeTemplateDirective.select>`. If that node template declares a ``node_filter`` on the body of the template the filter is used to select a matching external instance. Otherwise the name of the template will be used to match the external instance.
 
-Resources can be imported by name or dynamically selected given a criteria using TOSCA's `"select" node template directive<tosca.NodeTemplateDirective.select>`.
+A external ensemble declaration can have the following fields:
+
+:connections: List of names of :std:ref:`connections` in the external ensemble to import.
+:instance: (default: "*") The name of the instance within the ensemble to make available.
+  If ``*`` all instances in the ensemble will be available.
+
+:manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
+
+:``schema``: If present, a JSON schema ``properties`` object that describes the schema for the instance's attributes. Schema validation only occurs when accessing the instance through the `external <external_func>` expression function
+
+:uri: The `uri <URIs>` of the ensemble. If present and it doesn't match the retrieved ensemble's URI a validation error will occur.
+
+:version: If present, a `version requirement <Version requirements>` to validate that the imported ensemble declared a compatible :tosca_spec:`template_version<_Toc50125480>` in its service templates's metadata section.
+
+The Localhost Ensemble
+----------------------
 
 An external instance with the name ``localhost`` is treated specially. It is assumed to represent the machine Unfurl is currently executing on. This instance is accessed through the ``ORCHESTRATOR`` keyword in TOSCA.
-The default project skeleton for unfurl home is defined in the home manifest that resides in your Unfurl home folder like this:
+The project skeleton for `unfurl home` includes a ``localhost`` ensemble in its environment defaults with this definition:
 
 .. code-block:: yaml
 
@@ -269,14 +285,7 @@ The default project skeleton for unfurl home is defined in the home manifest tha
           file: ensemble/ensemble.yaml
         instance: localhost
 
-
-:manifest: A map specifying the location of the manifest. It must contain a ``file`` key with the path to the ensemble and optionally either a ``repository`` key indicating the name of the repository where the file is located or a ``project`` key to indicate the project the ensemble is in.
-:instance: (default: "*") The name of the instance within the ensemble to make available.
-  If ``*`` all instances in the ensemble will be available.
-
-:uri: The `uri <URIs>` of the ensemble. If it is set and it doesn't match the retrieved ensemble's URI a validation error will occur.
-
-:``schema``: a JSON schema ``properties`` object describing the schema for the map. If missing, validation of the attributes will be skipped.
+By adding it to environment defaults, any project using that `unfurl home` will automatically import the ``localhost`` ensemble.
 
 Creating projects
 ==================

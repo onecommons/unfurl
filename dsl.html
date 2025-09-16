@@ -70,8 +70,10 @@
 <li class="toctree-l3"><a class="reference internal" href="#node-filters">Node Filters</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#names-and-identifiers">Names and Identifiers</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#imports-and-repositories">Imports and Repositories</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#other-yaml-sections">Other YAML sections</a></li>
 </ul>
 </li>
+<li class="toctree-l2"><a class="reference internal" href="#template-customization-and-patching">Template Customization and Patching</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#usage">Usage</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#yaml-to-python">YAML to Python</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#python-to-yaml">Python to YAML</a></li>
@@ -87,7 +89,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -149,7 +151,7 @@
 <section id="installation">
 <h2>Installation<a class="headerlink" href="#installation" title="Permalink to this headline"></a></h2>
 <p>If you want to use this as a Python library, <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tosca</span></code>. For a command line tool that converts between YAML and Python, or for a TOSCA orchestrator with native support, install <a class="reference external" href="https://github.com/onecommons/unfurl">unfurl</a>, which integrates this library.</p>
-<p>Requirements: Python versions 3.8 or later.</p>
+<p>Requirements: Python versions 3.9 or later.</p>
 </section>
 <section id="status">
 <h2>Status<a class="headerlink" href="#status" title="Permalink to this headline"></a></h2>
@@ -378,7 +380,7 @@ Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):</p>
 </section>
 <section id="node-filters">
 <h3>Node Filters<a class="headerlink" href="#node-filters" title="Permalink to this headline"></a></h3>
-<p>Tosca types can declared a special class-level method called <code class="docutils literal notranslate"><span class="pre">_class_init</span></code> that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where your Python type checker (such as the IDE’s) has the class definition available.</p>
+<p>Tosca types can declared a special class-level method called <a class="reference external" href="https://docs.unfurl.run/api.html#tosca.ToscaType._class_init">_class_init</a> that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where your Python type checker (such as the IDE’s) has the class definition available.</p>
 <p>This example creates sets the <code class="docutils literal notranslate"><span class="pre">node_filter</span></code> on the declared <code class="docutils literal notranslate"><span class="pre">host</span></code> requirement:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">in_range</span><span class="p">,</span> <span class="n">gb</span>
 
@@ -443,6 +445,40 @@ Consider this example from the TOSCA 1.3 Specification (in section 9.3.4.2):</p>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">unfurl</span> <span class="pre">export</span></code> will resolve imports from a repository by creating a<code class="docutils literal notranslate"><span class="pre">tosca_repositories</span></code> directory with a symlink to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.</p>
 </section>
+<section id="other-yaml-sections">
+<h3>Other YAML sections<a class="headerlink" href="#other-yaml-sections" title="Permalink to this headline"></a></h3>
+<p>A service template’s “dsl_definitions” and “metadata” YAML sections will be converted to and from a Python dict assigned to “dsl_definitions” and “tosca_metadata” global variables, respectively.</p>
+<p>This is useful when its convenient to maintain configuration blocks in YAML which can be accessed by importing the yaml as Python. For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="kn">from</span><span class="w"> </span><span class="nn">service_template.myimport</span><span class="w"> </span><span class="kn">import</span> <span class="n">dsl_definitions</span> <span class="k">as</span> <span class="n">some_yaml</span>
+
+    <span class="n">MyNode</span><span class="p">(</span><span class="n">some_configuration</span><span class="o">=</span><span class="n">some_yaml</span><span class="p">[</span><span class="s2">&quot;some_config&quot;</span><span class="p">])</span>
+</pre></div>
+</div>
+</section>
+</section>
+<section id="template-customization-and-patching">
+<h2>Template Customization and Patching<a class="headerlink" href="#template-customization-and-patching" title="Permalink to this headline"></a></h2>
+<p>You can customize ToscaType template objects when they are initialized
+by defining a <a class="reference external" href="https://docs.unfurl.run/api.html#tosca.ToscaType._template_init">_template_init()</a> method. You can customize them using PATCH objects.</p>
+<p>PATCH objects are partially initialized ToscaType objects. When assigned to the field of another ToscaType object they are merged with its existing or default value instead of replacing it. PATCH objects can nest, allowing customization of hard-to-reach configuration.</p>
+<p>Any ToscaType object is marked as a patch object by using tosca.PATCH as its name. Patches can be used when creating a TOSCA template object, as in this example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span>    <span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">PATCH</span>
+
+    <span class="n">App</span><span class="p">(</span>
+         <span class="n">service</span><span class="o">=</span><span class="n">Service</span><span class="p">(</span>
+            <span class="n">PATCH</span><span class="p">,</span>
+            <span class="n">container</span><span class="o">=</span><span class="n">Container</span><span class="p">(</span>
+                <span class="n">PATCH</span><span class="p">,</span>
+                <span class="n">environment</span><span class="o">=</span><span class="n">EnvironmentVariables</span><span class="p">(</span>
+                    <span class="n">PATCH</span><span class="p">,</span>
+                    <span class="n">P1</span><span class="o">=</span><span class="s2">&quot;p&quot;</span><span class="p">,</span> <span class="n">VAR2</span><span class="o">=</span><span class="kc">None</span>
+                <span class="p">),</span>
+            <span class="p">),</span>
+         <span class="p">),</span>
+        <span class="p">)</span>
+</pre></div>
+</div>
+<p>When used to initialize a ToscaType object they are applied after <a class="reference external" href="https://docs.unfurl.run/api.html#tosca.ToscaType._template_init">_template_init()</a> is invoked. You can also patch existing template objects using the <a class="reference external" href="https://docs.unfurl.run/api.html#tosca.patch_template">patch_template</a> function or the <a class="reference external" href="https://docs.unfurl.run/api.html#tosca.ToscaType.patch">patch</a> method.</p>
 </section>
 <section id="usage">
 <h2>Usage<a class="headerlink" href="#usage" title="Permalink to this headline"></a></h2>

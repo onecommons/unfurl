@@ -83,7 +83,10 @@
 </li>
 </ul>
 </li>
-<li class="toctree-l2"><a class="reference internal" href="#external-ensembles">External ensembles</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#external-ensembles">External ensembles</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#the-localhost-ensemble">The Localhost Ensemble</a></li>
+</ul>
+</li>
 <li class="toctree-l2"><a class="reference internal" href="#creating-projects">Creating projects</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#project-skeletons">Project Skeletons</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#cloning-projects-and-ensembles">Cloning projects and ensembles</a><ul>
@@ -118,7 +121,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -366,10 +369,34 @@ The properties for each connection type match the environments variables commonl
 <section id="external-ensembles">
 <h2><a class="toc-backref" href="#id5">External ensembles</a><a class="headerlink" href="#external-ensembles" title="Permalink to this headline"></a></h2>
 <p>Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.</p>
-<p>The <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: One, they will be implicitly used if they match a node template that is declared abstract using the “select” directive (see “3.4.3 Directives”). Two, they can be explicitly referenced using the <a class="reference internal" href="expressions.html#external-func"><span class="std std-ref">external</span></a> expression function.</p>
-<p>Resources can be imported by name or dynamically selected given a criteria using TOSCA’s <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.select" title="tosca.NodeTemplateDirective.select"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;select&quot;</span> <span class="pre">node</span> <span class="pre">template</span> <span class="pre">directive</span></code></a>.</p>
+<p>The <a class="reference internal" href="#external"><span class="std std-ref">External</span></a> section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways:
+either through the <a class="reference internal" href="expressions.html#external-func"><span class="std std-ref">external</span></a> expression function or by declaring a node template with a <a class="reference internal" href="api.html#tosca.NodeTemplateDirective.select" title="tosca.NodeTemplateDirective.select"><code class="xref any py py-attr docutils literal notranslate"><span class="pre">&quot;select&quot;</span> <span class="pre">node</span> <span class="pre">template</span> <span class="pre">directive</span></code></a>. If that node template declares a <code class="docutils literal notranslate"><span class="pre">node_filter</span></code> on the body of the template the filter is used to select a matching external instance. Otherwise the name of the template will be used to match the external instance.</p>
+<p>A external ensemble declaration can have the following fields:</p>
+<dl class="field-list simple">
+<dt class="field-odd">connections</dt>
+<dd class="field-odd"><p>List of names of <a class="reference internal" href="runtime.html#connections"><span class="std std-ref">Connections</span></a> in the external ensemble to import.</p>
+</dd>
+<dt class="field-even">instance</dt>
+<dd class="field-even"><p>(default: “*”) The name of the instance within the ensemble to make available.
+If <code class="docutils literal notranslate"><span class="pre">*</span></code> all instances in the ensemble will be available.</p>
+</dd>
+<dt class="field-odd">manifest</dt>
+<dd class="field-odd"><p>A map specifying the location of the manifest. It must contain a <code class="docutils literal notranslate"><span class="pre">file</span></code> key with the path to the ensemble and optionally either a <code class="docutils literal notranslate"><span class="pre">repository</span></code> key indicating the name of the repository where the file is located or a <code class="docutils literal notranslate"><span class="pre">project</span></code> key to indicate the project the ensemble is in.</p>
+</dd>
+<dt class="field-even"><code class="docutils literal notranslate"><span class="pre">schema</span></code></dt>
+<dd class="field-even"><p>If present, a JSON schema <code class="docutils literal notranslate"><span class="pre">properties</span></code> object that describes the schema for the instance’s attributes. Schema validation only occurs when accessing the instance through the <a class="reference internal" href="expressions.html#external-func"><span class="std std-ref">external</span></a> expression function</p>
+</dd>
+<dt class="field-odd">uri</dt>
+<dd class="field-odd"><p>The <a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">uri</span></a> of the ensemble. If present and it doesn’t match the retrieved ensemble’s URI a validation error will occur.</p>
+</dd>
+<dt class="field-even">version</dt>
+<dd class="field-even"><p>If present, a <a class="reference internal" href="packages.html#version-requirements"><span class="std std-ref">version requirement</span></a> to validate that the imported ensemble declared a compatible <a class="reference external" href="_static/TOSCA-Simple-Profile-YAML-v1.3-os-toc.html#_Toc50125480">template_version</a> in its service templates’s metadata section.</p>
+</dd>
+</dl>
+<section id="the-localhost-ensemble">
+<h3>The Localhost Ensemble<a class="headerlink" href="#the-localhost-ensemble" title="Permalink to this headline"></a></h3>
 <p>An external instance with the name <code class="docutils literal notranslate"><span class="pre">localhost</span></code> is treated specially. It is assumed to represent the machine Unfurl is currently executing on. This instance is accessed through the <code class="docutils literal notranslate"><span class="pre">ORCHESTRATOR</span></code> keyword in TOSCA.
-The default project skeleton for unfurl home is defined in the home manifest that resides in your Unfurl home folder like this:</p>
+The project skeleton for <a class="reference internal" href="#unfurl-home"><span class="std std-ref">Unfurl Home</span></a> includes a <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble in its environment defaults with this definition:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">external</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">localhost</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">manifest</span><span class="p">:</span>
@@ -377,21 +404,8 @@ The default project skeleton for unfurl home is defined in the home manifest tha
 <span class="w">    </span><span class="nt">instance</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
 </pre></div>
 </div>
-<dl class="field-list simple">
-<dt class="field-odd">manifest</dt>
-<dd class="field-odd"><p>A map specifying the location of the manifest. It must contain a <code class="docutils literal notranslate"><span class="pre">file</span></code> key with the path to the ensemble and optionally either a <code class="docutils literal notranslate"><span class="pre">repository</span></code> key indicating the name of the repository where the file is located or a <code class="docutils literal notranslate"><span class="pre">project</span></code> key to indicate the project the ensemble is in.</p>
-</dd>
-<dt class="field-even">instance</dt>
-<dd class="field-even"><p>(default: “*”) The name of the instance within the ensemble to make available.
-If <code class="docutils literal notranslate"><span class="pre">*</span></code> all instances in the ensemble will be available.</p>
-</dd>
-<dt class="field-odd">uri</dt>
-<dd class="field-odd"><p>The <a class="reference internal" href="ensembles.html#uris"><span class="std std-ref">uri</span></a> of the ensemble. If it is set and it doesn’t match the retrieved ensemble’s URI a validation error will occur.</p>
-</dd>
-<dt class="field-even"><code class="docutils literal notranslate"><span class="pre">schema</span></code></dt>
-<dd class="field-even"><p>a JSON schema <code class="docutils literal notranslate"><span class="pre">properties</span></code> object describing the schema for the map. If missing, validation of the attributes will be skipped.</p>
-</dd>
-</dl>
+<p>By adding it to environment defaults, any project using that <a class="reference internal" href="#unfurl-home"><span class="std std-ref">Unfurl Home</span></a> will automatically import the <code class="docutils literal notranslate"><span class="pre">localhost</span></code> ensemble.</p>
+</section>
 </section>
 <section id="creating-projects">
 <h2><a class="toc-backref" href="#id6">Creating projects</a><a class="headerlink" href="#creating-projects" title="Permalink to this headline"></a></h2>

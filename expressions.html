@@ -63,7 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Expression Functions</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#tosca-functions-and-other-stand-alone-functions">TOSCA functions and other stand-alone functions</a><ul>
@@ -114,6 +114,7 @@
 <li class="toctree-l3"><a class="reference internal" href="#tempfile">tempfile</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#template">template</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-dns-label">to_dns_label</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#to-env">to_env</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-googlecloud-label">to_googlecloud_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-kubernetes-label">to_kubernetes_label</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#to-label">to_label</a></li>
@@ -423,19 +424,22 @@ For example:</p>
 <tr class="row-odd"><td><p><a class="reference internal" href="#to-dns-label"><span class="std std-ref">to_dns_label</span></a></p></td>
 <td><p>string or map or lists</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-env"><span class="std std-ref">to_env</span></a></p></td>
+<td><p>map</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-googlecloud-label"><span class="std std-ref">to_googlecloud_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#to-kubernetes-label"><span class="std std-ref">to_kubernetes_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#to-label"><span class="std std-ref">to_label</span></a></p></td>
 <td><p>string or map or list</p></td>
 </tr>
-<tr class="row-odd"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
+<tr class="row-even"><td><p><a class="reference internal" href="#urljoin"><span class="std std-ref">urljoin</span></a></p></td>
 <td><p>[scheme, host, port?, path?, query?, fragment?]</p></td>
 </tr>
-<tr class="row-even"><td><p><a class="reference internal" href="#validate-json"><span class="std std-ref">validate_json</span></a></p></td>
+<tr class="row-odd"><td><p><a class="reference internal" href="#validate-json"><span class="std std-ref">validate_json</span></a></p></td>
 <td><p>[contents, schema]</p></td>
 </tr>
 </tbody>
@@ -542,7 +546,7 @@ returns the result of the last expression evaluated.</p>
 <section id="external">
 <span id="external-func"></span><h3>external<a class="headerlink" href="#external" title="Permalink to this headline"></a></h3>
 <blockquote>
-<div><p>Return <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">external instance</span></a> as a value.</p>
+<div><p>Return the <a class="reference internal" href="projects.html#external-ensembles"><span class="std std-ref">external instance</span></a> with that matching name as an <a class="reference internal" href="glossary.html#external-values"><span class="std std-ref">external value</span></a>.</p>
 </div></blockquote>
 </section>
 <section id="file">
@@ -689,53 +693,56 @@ if no argument is given, return a map with all the metadata.</p>
 </dl>
 <p>Return an absolute path to the given named folder where <code class="docutils literal notranslate"><span class="pre">name</span></code> is one of:</p>
 <dl class="field-list simple">
-<dt class="field-odd">.</dt>
+<dt class="field-odd">ensemble</dt>
 <dd class="field-odd"><p>Directory that contains the current instance’s ensemble</p>
 </dd>
-<dt class="field-even">src</dt>
-<dd class="field-even"><p>Directory of the source file this expression appears in</p>
+<dt class="field-even">ensemble.secrets</dt>
+<dd class="field-even"><p>The “secrets” directory for the current instance’s ensemble or the nearest vault encrypted parent directory</p>
 </dd>
-<dt class="field-odd">artifacts</dt>
-<dd class="field-odd"><p>Directory for the current instance (committed to repository).</p>
+<dt class="field-odd">src</dt>
+<dd class="field-odd"><p>Directory of the source file this expression appears in</p>
 </dd>
-<dt class="field-even">local</dt>
-<dd class="field-even"><p>The “local” directory for the current instance (excluded from repository)</p>
+<dt class="field-even">artifacts</dt>
+<dd class="field-even"><p>Directory for the current instance (committed to repository).</p>
 </dd>
-<dt class="field-odd">secrets</dt>
-<dd class="field-odd"><p>The “secrets” directory for the current instance (files written there are vault encrypted when committed to the repository)</p>
+<dt class="field-odd">local</dt>
+<dd class="field-odd"><p>The “local” directory for the current instance (excluded from repository)</p>
 </dd>
-<dt class="field-even">tmp</dt>
-<dd class="field-even"><p>A temporary directory for the instance (removed after unfurl exits)</p>
+<dt class="field-even">secrets</dt>
+<dd class="field-even"><p>The “secrets” directory for the current instance (files written there are vault encrypted when committed to the repository)</p>
 </dd>
-<dt class="field-odd">tasks</dt>
-<dd class="field-odd"><p>Job specific directory for the current instance (excluded from repository).</p>
+<dt class="field-odd">tmp</dt>
+<dd class="field-odd"><p>A temporary directory for the instance (removed after unfurl exits)</p>
 </dd>
-<dt class="field-even">operation</dt>
-<dd class="field-even"><p>Operation specific directory for the current instance (excluded from repository).</p>
+<dt class="field-even">tasks</dt>
+<dd class="field-even"><p>Job specific directory for the current instance (excluded from repository).</p>
 </dd>
-<dt class="field-odd">workflow</dt>
-<dd class="field-odd"><p>Workflow specific directory for the current instance (excluded from repository).</p>
+<dt class="field-odd">operation</dt>
+<dd class="field-odd"><p>Operation specific directory for the current instance (excluded from repository).</p>
 </dd>
-<dt class="field-even">spec.src</dt>
-<dd class="field-even"><p>The directory of the source file the current instance’s template appears in.</p>
+<dt class="field-even">workflow</dt>
+<dd class="field-even"><p>Workflow specific directory for the current instance (excluded from repository).</p>
 </dd>
-<dt class="field-odd">spec.home</dt>
-<dd class="field-odd"><p>Directory unique to current instance’s TOSCA template (committed to the spec repository).</p>
+<dt class="field-odd">spec.src</dt>
+<dd class="field-odd"><p>The directory of the source file the current instance’s template appears in.</p>
 </dd>
-<dt class="field-even">spec.local</dt>
-<dd class="field-even"><p>Local directory unique to current instance’s TOSCA template (excluded from repository).</p>
+<dt class="field-even">spec.home</dt>
+<dd class="field-even"><p>Directory unique to current instance’s TOSCA template (committed to the spec repository).</p>
 </dd>
-<dt class="field-odd">project</dt>
-<dd class="field-odd"><p>The root directory of the current project.</p>
+<dt class="field-odd">spec.local</dt>
+<dd class="field-odd"><p>Local directory unique to current instance’s TOSCA template (excluded from repository).</p>
 </dd>
-<dt class="field-even">project.secrets</dt>
-<dd class="field-even"><p>The “secrets” directory for the current project (files written there are vault encrypted when committed to the repository).</p>
+<dt class="field-even">project</dt>
+<dd class="field-even"><p>The root directory of the current project.</p>
 </dd>
-<dt class="field-odd">unfurl.home</dt>
-<dd class="field-odd"><p>The location of home project (UNFURL_HOME).</p>
+<dt class="field-odd">project.secrets</dt>
+<dd class="field-odd"><p>The “secrets” directory in the outermost project that is vault encrypted.</p>
 </dd>
-<dt class="field-even">repository.&lt;name&gt;</dt>
-<dd class="field-even"><p>The location of the repository with the given name.</p>
+<dt class="field-even">unfurl.home</dt>
+<dd class="field-even"><p>The directory of the <a class="reference internal" href="projects.html#unfurl-home"><span class="std std-ref">home project</span></a>.</p>
+</dd>
+<dt class="field-odd">repository.&lt;name&gt;</dt>
+<dd class="field-odd"><p>The directory of the repository with the given name.</p>
 </dd>
 </dl>
 <p>Otherwise look for a <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">repository</span></a> with the given name and return its path or None if not found.</p>
@@ -1026,6 +1033,39 @@ if neither is specified, the encoding will be determined by the content, either 
 The maximum length of each label is 63 characters and can include
 alphanumeric characters and hyphens but a domain name must not commence or end with a hyphen.</p>
 <p>Invalid characters are replaced with “–“.</p>
+</section>
+<section id="to-env">
+<h3>to_env<a class="headerlink" href="#to-env" title="Permalink to this headline"></a></h3>
+<p>Update the environment variables for the current operation.
+with the rules described in <a class="reference internal" href="runtime.html#environment-variables"><span class="std std-ref">Environment Variables</span></a>.</p>
+<table class="docutils align-default">
+<colgroup>
+<col style="width: 33%" />
+<col style="width: 67%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Value</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>to_env</p></td>
+<td><p>map</p></td>
+</tr>
+<tr class="row-odd"><td><p>update_os_environ?</p></td>
+<td><p>boolean</p></td>
+</tr>
+</tbody>
+</table>
+<p>If <code class="docutils literal notranslate"><span class="pre">update_os_environ</span></code> is true update the environment variables for the current process,
+(and those changes will persist after the operation completes).  For example:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">to_env</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">FOO</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">bar</span><span class="w">  </span><span class="c1"># set FOO = bar</span>
+<span class="w">    </span><span class="nt">-BAZ</span><span class="p">:</span><span class="w">     </span><span class="c1"># delete BAZ</span>
+<span class="w">  </span><span class="nt">update_os_environ</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</pre></div>
+</div>
 </section>
 <section id="to-googlecloud-label">
 <h3>to_googlecloud_label<a class="headerlink" href="#to-googlecloud-label" title="Permalink to this headline"></a></h3>

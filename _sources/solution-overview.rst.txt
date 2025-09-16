@@ -97,8 +97,6 @@ You can customize the blueprint's resource templates per environment with a `dep
 
 When you're ready to deploy, you can preview the deployment plan by running :cli:`unfurl plan<unfurl-plan>`, which will output the plan and output ("render") any configuration files and scripts that will be used for deployment in `directory structure<Generated Files>`.
 
-.. seealso:: To learn more about implementing your model using TOSCA, refer to the :ref:`Implementing an operation<implement_operation>` section.
-
 .. _step4:
 
 Step 4: Deploy and Manage

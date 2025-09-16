@@ -56,7 +56,7 @@ Example (from https://github.com/onecommons/cloudmap/blob/main/cloudmap.yaml):
 
 .. code-block:: YAML
 
-    apiVersion: unfurl/v1alpha1
+    apiVersion: unfurl/v1.0.0
     kind: CloudMap
     repositories:
       unfurl.cloud/onecommons/blueprints/mediawiki:

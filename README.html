@@ -87,7 +87,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -277,7 +277,7 @@
 <ul class="simple">
 <li><p>Linux or MacOS</p></li>
 <li><p>Git</p></li>
-<li><p>Python (3.8 - 3.13)</p></li>
+<li><p>Python (3.9 - 3.14)</p></li>
 </ul>
 <p>Optional: Docker or Podman</p>
 </section>
@@ -349,7 +349,11 @@
 <p>You can use <code class="docutils literal notranslate"><span class="pre">tox</span></code> to run the unit tests inside the supported python environments with the latest source installed.
 Install tox <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox==3.28.0</span></code> and then run <code class="docutils literal notranslate"><span class="pre">tox</span></code> in source root. To install the dependencies you may need header files installed by the following OS packages: <code class="docutils literal notranslate"><span class="pre">python-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">libcrypt-dev</span></code>, <code class="docutils literal notranslate"><span class="pre">openssl-dev</span></code>. (Note: if installation of a dependency fails, reinvoke <code class="docutils literal notranslate"><span class="pre">tox</span></code> with <code class="docutils literal notranslate"><span class="pre">-r</span></code> to recreate the test environment.)
 If you use <code class="docutils literal notranslate"><span class="pre">asdf</span></code> to manage multiple versions of Python, also install <code class="docutils literal notranslate"><span class="pre">tox-asdf</span></code>: <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">tox-asdf</span></code>.</p>
-<p>Arguments after <code class="docutils literal notranslate"><span class="pre">--</span></code> are passed to the test runner, e.g. to run an individual test: <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">--</span> <span class="pre">tests/test_runtime.py</span></code>.</p>
+<p><code class="docutils literal notranslate"><span class="pre">./smoketest.sh</span></code> runs a subset of the tests. To run a specific test file, use the following command, for example:</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tox</span> <span class="o">-</span><span class="n">e</span> <span class="n">py313</span> <span class="n">tests</span><span class="o">/</span><span class="n">test_runtime</span><span class="o">.</span><span class="n">py</span>
+</pre></div>
+</div>
+<p>Where <code class="docutils literal notranslate"><span class="pre">-e</span></code> specifies one of the environments defined in <code class="docutils literal notranslate"><span class="pre">tox.ini</span></code> (e.g. <code class="docutils literal notranslate"><span class="pre">py313</span></code>, <code class="docutils literal notranslate"><span class="pre">py39</span></code>, etc.) Arguments after <code class="docutils literal notranslate"><span class="pre">--</span></code> are passed to the test runner, e.g. to pass arguments to pytest: <code class="docutils literal notranslate"><span class="pre">tox</span> <span class="pre">-e</span> <span class="pre">py313</span> <span class="pre">tests/test_runtime.py</span> <span class="pre">--</span> <span class="pre">-s</span> </code>.</p>
 <p>When running unit tests, <code class="docutils literal notranslate"><span class="pre">tox</span></code> it will try to build the Rust extension first. To skip building and running associated tests, set the UNFURL_TEST_SKIP_BUILD_RUST=1 environment variable.</p>
 </section>
 <section id="status-and-caveats">

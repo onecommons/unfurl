@@ -63,7 +63,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -74,6 +74,7 @@
 <li class="toctree-l2"><a class="reference internal" href="#api-for-writing-service-templates">API for writing service templates</a><ul>
 <li class="toctree-l3"><a class="reference internal" href="#tosca-types">TOSCA Types</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#tosca-field-specifiers">TOSCA Field Specifiers</a></li>
+<li class="toctree-l3"><a class="reference internal" href="#other-tosca-objects">Other Tosca Objects</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#property-constraints">Property Constraints</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#other-module-items">Other Module Items</a></li>
 <li class="toctree-l3"><a class="reference internal" href="#module-tosca.scalars">Scalars</a></li>
@@ -138,31 +139,32 @@
 <ul>
 <li><p><a class="reference internal" href="#tosca-types" id="id5">TOSCA Types</a></p></li>
 <li><p><a class="reference internal" href="#tosca-field-specifiers" id="id6">TOSCA Field Specifiers</a></p></li>
-<li><p><a class="reference internal" href="#property-constraints" id="id7">Property Constraints</a></p></li>
-<li><p><a class="reference internal" href="#other-module-items" id="id8">Other Module Items</a></p></li>
-<li><p><a class="reference internal" href="#module-tosca.scalars" id="id9">Scalars</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.tosca_plugins.functions" id="id10">Utility Functions</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.tosca_plugins.expr" id="id11">Eval Expression Functions</a></p></li>
+<li><p><a class="reference internal" href="#other-tosca-objects" id="id7">Other Tosca Objects</a></p></li>
+<li><p><a class="reference internal" href="#property-constraints" id="id8">Property Constraints</a></p></li>
+<li><p><a class="reference internal" href="#other-module-items" id="id9">Other Module Items</a></p></li>
+<li><p><a class="reference internal" href="#module-tosca.scalars" id="id10">Scalars</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.tosca_plugins.functions" id="id11">Utility Functions</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.tosca_plugins.expr" id="id12">Eval Expression Functions</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#api-for-writing-configurators" id="id12">API for writing configurators</a></p>
+<li><p><a class="reference internal" href="#api-for-writing-configurators" id="id13">API for writing configurators</a></p>
 <ul>
-<li><p><a class="reference internal" href="#module-unfurl.configurator" id="id13">Configurators</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.projectpaths" id="id14">Project folders</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.runtime" id="id15">Runtime module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.configurator" id="id14">Configurators</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.projectpaths" id="id15">Project folders</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.runtime" id="id16">Runtime module</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#apis-for-controlling-unfurl" id="id16">APIs for controlling Unfurl</a></p>
+<li><p><a class="reference internal" href="#apis-for-controlling-unfurl" id="id17">APIs for controlling Unfurl</a></p>
 <ul>
-<li><p><a class="reference internal" href="#module-unfurl.localenv" id="id17">Localenv module</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.job" id="id18">Job module</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.init" id="id19">Init module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.localenv" id="id18">Localenv module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.job" id="id19">Job module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.init" id="id20">Init module</a></p></li>
 </ul>
 </li>
-<li><p><a class="reference internal" href="#module-unfurl.logs" id="id20">Utility classes and functions</a></p>
+<li><p><a class="reference internal" href="#module-unfurl.logs" id="id21">Utility classes and functions</a></p>
 <ul>
-<li><p><a class="reference internal" href="#module-unfurl.eval" id="id21">Eval Expression API</a></p></li>
-<li><p><a class="reference internal" href="#module-unfurl.graphql" id="id22">Graphql module</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.eval" id="id22">Eval Expression API</a></p></li>
+<li><p><a class="reference internal" href="#module-unfurl.graphql" id="id23">Graphql module</a></p></li>
 </ul>
 </li>
 </ul>
@@ -174,14 +176,43 @@
 <p>See <a class="reference internal" href="dsl.html"><span class="doc">here</span></a> for an overview of the TOSCA Python DSL.</p>
 <section id="tosca-types">
 <h3><a class="toc-backref" href="#id5">TOSCA Types</a><a class="headerlink" href="#tosca-types" title="Permalink to this headline"></a></h3>
-<p>The classes in this section are used to define TOSCA types, such as <a class="reference internal" href="#tosca.Node" title="tosca.Node"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Nodes</span></code></a>, <a class="reference internal" href="#tosca.Relationship" title="tosca.Relationship"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Relationships</span></code></a>, <a class="reference internal" href="#tosca.Capability" title="tosca.Capability"><code class="xref any py py-func docutils literal notranslate"><span class="pre">Capabilities</span></code></a>, <a class="reference internal" href="#tosca.ArtifactEntity" title="tosca.ArtifactEntity"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Artifacts</span></code></a>, and <a class="reference internal" href="#tosca.DataEntity" title="tosca.DataEntity"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Data</span> <span class="pre">Types</span></code></a>. TOSCA Type objects correspond to a template (such as a node template or relationship template) defined in TOSCA service template.</p>
+<p>The classes in this section are used to define TOSCA types corresponding to a TOSCA template (such as a node template or relationship template), including:</p>
+<table class="autosummary longtable docutils align-default">
+<colgroup>
+<col style="width: 10%" />
+<col style="width: 90%" />
+</colgroup>
+<tbody>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tosca.Node" title="tosca.Node"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Node</span></code></a></p></td>
+<td><p>A TOSCA node template.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#tosca.Relationship" title="tosca.Relationship"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Relationship</span></code></a></p></td>
+<td><p>A TOSCA relationship template.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tosca.CapabilityEntity" title="tosca.CapabilityEntity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">CapabilityEntity</span></code></a></p></td>
+<td><p>A TOSCA capability template.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#tosca.DataEntity" title="tosca.DataEntity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">DataEntity</span></code></a></p></td>
+<td><p>A complex TOSCA data type.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tosca.ArtifactEntity" title="tosca.ArtifactEntity"><code class="xref py py-obj docutils literal notranslate"><span class="pre">ArtifactEntity</span></code></a></p></td>
+<td><p>A TOSCA artifact template.</p></td>
+</tr>
+<tr class="row-even"><td><p><a class="reference internal" href="#tosca.Group" title="tosca.Group"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Group</span></code></a></p></td>
+<td><p>A TOSCA group template.</p></td>
+</tr>
+<tr class="row-odd"><td><p><a class="reference internal" href="#tosca.Policy" title="tosca.Policy"><code class="xref py py-obj docutils literal notranslate"><span class="pre">Policy</span></code></a></p></td>
+<td><p>A TOSCA policy template.</p></td>
+</tr>
+</tbody>
+</table>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.ToscaType">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ToscaType</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType" title="Permalink to this definition"></a></dt>
 <dd><p>Base class for TOSCA type definitions.</p>
 <p>ToscaTypes are Python <a class="reference external" href="https://docs.python.org/3/library/dataclasses.html">dataclasses</a> with custom <a class="reference external" href="https://docs.python.org/3/library/dataclasses.html#dataclasses.field">fields</a> that
 correspond to TOSCA’s field types including <a class="reference internal" href="#tosca.Property" title="tosca.Property"><code class="xref any py py-func docutils literal notranslate"><span class="pre">properties</span></code></a>, <a class="reference internal" href="#tosca.Requirement" title="tosca.Requirement"><code class="xref any py py-func docutils literal notranslate"><span class="pre">requirements</span></code></a>, <a class="reference internal" href="#tosca.Capability" title="tosca.Capability"><code class="xref any py py-func docutils literal notranslate"><span class="pre">capabilities</span></code></a>, and <a class="reference internal" href="#tosca.Artifact" title="tosca.Artifact"><code class="xref any py py-func docutils literal notranslate"><span class="pre">artifacts</span></code></a>. You don’t need to use Python’s dataclass decorators or functions directly.</p>
-<p>Any public field (i.e. not starting with <code class="docutils literal notranslate"><span class="pre">_</span></code>) will be included in the TOSCA YAML for the template, using the field’s type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using <a class="reference internal" href="#tosca-field-specifiers"><span class="std std-ref">TOSCA Field Specifiers</span></a>.</p>
+<p>Any public field (i.e. not starting with a “_”) will be included in the TOSCA YAML for the template, using the field’s type annotation to deduce which TOSCA (e.g. Nodes are treated as requirements, Artifacts are treated as artifacts, etc. defaulting to TOSCA properties). This can be customized using <a class="reference internal" href="#tosca-field-specifiers"><span class="std std-ref">TOSCA Field Specifiers</span></a>.</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">Example</span><span class="p">(</span><span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Root</span><span class="p">):</span>
     <span class="c1"># Node type, so it&#39;s a TOSCA requirement</span>
     <span class="n">host</span><span class="p">:</span> <span class="n">tosca</span><span class="o">.</span><span class="n">nodes</span><span class="o">.</span><span class="n">Compute</span>
@@ -418,6 +449,20 @@ the field will be evaluated on the node template the template is embedded in, ot
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="tosca.ToscaType.patch">
+<span class="sig-name descname"><span class="pre">patch</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">patch</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.patch" title="Permalink to this definition"></a></dt>
+<dd><p>Update this template with the given <a class="reference internal" href="dsl.html#template-customization-and-patching"><span class="std std-ref">patch object</span></a>.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>patch</strong> (<em>Self</em>) – </p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="tosca.ToscaType.set_to_property_source">
 <em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">set_to_property_source</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">requirement</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">property</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.set_to_property_source" title="Permalink to this definition"></a></dt>
 <dd><p>Sets the given requirement to the TOSCA template that provided the value of “property”.</p>
@@ -456,9 +501,9 @@ TOSCA allows operations to be defined directly on templates.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
-<li><p><strong>op</strong> (<em>Callable</em><em>[</em><em>[</em><em>Concatenate</em><em>[</em><a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><em>tosca._tosca.ToscaType</em></a><em>, </em><em>...</em><em>]</em><em>]</em><em>, </em><em>Any</em><em>]</em>) – A function implements the operation. It should looks like a method, i.e. accepts <code class="docutils literal notranslate"><span class="pre">Self</span></code> as the first argument.
+<li><p><strong>op</strong> (<em>Callable</em><em>[</em><em>[</em><em>Concatenate</em><em>[</em><em>Self</em><em>, </em><em>...</em><em>]</em><em>]</em><em>, </em><em>Any</em><em>]</em>) – A function implements the operation. It should looks like a method, i.e. accepts <code class="docutils literal notranslate"><span class="pre">Self</span></code> as the first argument.
 Using the <a class="reference internal" href="#tosca.operation" title="tosca.operation"><code class="xref any py py-func docutils literal notranslate"><span class="pre">tosca.operation</span></code></a> function decorator is recommended but not required.</p></li>
-<li><p><strong>name</strong> (<em>Optional</em><em>[</em><em>Union</em><em>[</em><em>str</em><em>, </em><em>Callable</em><em>[</em><em>[</em><em>Concatenate</em><em>[</em><a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><em>tosca._tosca.ToscaType</em></a><em>, </em><em>...</em><em>]</em><em>]</em><em>, </em><em>Any</em><em>]</em><em>]</em><em>]</em>) – The TOSCA operation name. If omitted, <code class="docutils literal notranslate"><span class="pre">op</span></code>’s <a class="reference internal" href="#tosca.operation" title="tosca.operation"><code class="xref py py-func docutils literal notranslate"><span class="pre">operation_name</span></code></a> or the op’s function name is used.</p></li>
+<li><p><strong>name</strong> (<em>Optional</em><em>[</em><em>Union</em><em>[</em><em>str</em><em>, </em><em>Callable</em><em>[</em><em>[</em><em>Concatenate</em><em>[</em><em>Self</em><em>, </em><em>...</em><em>]</em><em>]</em><em>, </em><em>Any</em><em>]</em><em>]</em><em>]</em>) – The TOSCA operation name. If omitted, <code class="docutils literal notranslate"><span class="pre">op</span></code>’s <a class="reference internal" href="#tosca.operation" title="tosca.operation"><code class="xref py py-func docutils literal notranslate"><span class="pre">operation_name</span></code></a> or the op’s function name is used.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -468,12 +513,40 @@ Using the <a class="reference internal" href="#tosca.operation" title="tosca.ope
 <p>Returns Self to allow chaining.</p>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.ToscaType.set_inputs">
+<span class="sig-name descname"><span class="pre">set_inputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.set_inputs" title="Permalink to this definition"></a></dt>
+<dd><p>Set the inputs for the current operation.
+Call this inside of an operation method if the operations inputs need to be set at runtime time.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>args</strong> (<a class="reference internal" href="#tosca.ToscaInputs" title="tosca._tosca.ToscaInputs"><em>tosca._tosca.ToscaInputs</em></a>) – </p></li>
+<li><p><strong>kw</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.ToscaType.clear_inputs">
+<span class="sig-name descname"><span class="pre">clear_inputs</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ToscaType.clear_inputs" title="Permalink to this definition"></a></dt>
+<dd><p>Clear the inputs for the current operation.</p>
+<p>Returns the inputs that were set before clearing them.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><em>Optional</em>[<em>Dict</em>[str, <em>Any</em>]]</p>
+</dd>
+</dl>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.Node">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_directives=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_node_filter=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Node" title="Permalink to this definition"></a></dt>
-<dd><p>A TOSCA node template.</p>
+<dd><p>Bases: <a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca.ToscaType</span></code></a></p>
+<p>A TOSCA node template.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
@@ -549,12 +622,46 @@ If no match is found, return an empty list.</p>
 </dl>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.Node.substitute">
+<span class="sig-name descname"><span class="pre">substitute</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">''</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">overrides</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Node.substitute" title="Permalink to this definition"></a></dt>
+<dd><p>Create a new node template with a “substitute” directive.</p>
+<p>For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories</span><span class="w"> </span><span class="kn">import</span> <span class="n">nested</span>
+
+<span class="n">substitution_node</span> <span class="o">=</span> <span class="n">nested</span><span class="o">.</span><span class="n">__root__</span><span class="o">.</span><span class="n">substitute</span><span class="p">(</span><span class="nb">property</span><span class="o">=</span><span class="s2">&quot;override&quot;</span><span class="p">,</span> <span class="n">db</span><span class="o">=</span><span class="n">DB</span><span class="p">())</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>_name</strong> (<em>str</em>) – </p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Self</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tosca.Node._directives">
+<span class="sig-name descname"><span class="pre">_directives</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#tosca.Node._directives" title="Permalink to this definition"></a></dt>
+<dd><p>List of this node template’s TOSCA directives</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tosca.Node._node_filter">
+<span class="sig-name descname"><span class="pre">_node_filter</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Any</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tosca.Node._node_filter" title="Permalink to this definition"></a></dt>
+<dd><p>Optional node_filter to use when ‘select’ directive is set.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.Relationship">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Relationship</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_local_name=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_node=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_default_for=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_target=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Relationship" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca._OwnedToscaType</span></code></p>
+<p>A TOSCA relationship template.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -574,7 +681,9 @@ If no match is found, return an empty list.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.CapabilityEntity">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">CapabilityEntity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_local_name=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_node=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.CapabilityEntity" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca._OwnedToscaType</span></code></p>
+<p>A TOSCA capability template.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -592,7 +701,9 @@ If no match is found, return an empty list.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.DataEntity">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">DataEntity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_local_name=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_node=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.DataEntity" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca._BaseDataType</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca._OwnedToscaType</span></code></p>
+<p>A complex TOSCA data type.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -610,7 +721,9 @@ If no match is found, return an empty list.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.ArtifactEntity">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ArtifactEntity</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_local_name=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_node=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">file=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">repository=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">deploy_path=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">version=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">checksum=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">checksum_algorithm=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">permissions=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">intent=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">order=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">contents=None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">dependencies=None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ArtifactEntity" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca._OwnedToscaType</span></code></p>
+<p>A TOSCA artifact template.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -640,7 +753,9 @@ If no match is found, return an empty list.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.Group">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Group</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_members=()</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Group" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca.ToscaType</span></code></a></p>
+<p>A TOSCA group template.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -657,7 +772,9 @@ If no match is found, return an empty list.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.Policy">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Policy</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_targets=()</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Policy" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Bases: <a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><code class="xref py py-class docutils literal notranslate"><span class="pre">tosca._tosca.ToscaType</span></code></a></p>
+<p>A TOSCA policy template.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>_name</strong> (<em>str</em>) – </p></li>
@@ -691,7 +808,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the artifact with a unique value per template. Defaults to MISSING.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the artifact’s name when generating YAML. Defaults to “”.</p></li>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the artifact.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -711,7 +828,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the attribute with a unique value per template. Defaults to MISSING.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the attribute’s name when generating YAML. Defaults to “”.</p></li>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the attribute.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
 <li><p><strong>constraints</strong> (List[<a class="reference internal" href="#tosca.DataConstraint" title="tosca.DataConstraint"><code class="xref any py py-class docutils literal notranslate"><span class="pre">DataConstraint</span></code></a>], optional) – List of TOSCA property constraints to apply to the attribute.</p></li>
 <li><p><strong>title</strong> (<em>str</em><em>, </em><em>optional</em>) – Human-friendly alternative name of the attribute.</p></li>
 <li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the attribute.</p></li>
@@ -735,7 +852,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the capability with a unique value per template. Defaults to MISSING.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the capability’s name when generating YAML. Defaults to “”.</p></li>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the capability.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
 <li><p><strong>valid_source_types</strong> (<em>List</em><em>[</em><em>str</em><em>]</em><em>, </em><em>optional</em>) – List of TOSCA type names to set as the capability’s valid_source_types</p></li>
 </ul>
 </dd>
@@ -757,7 +874,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the property.</p></li>
 <li><p><strong>title</strong> (<em>str</em><em>, </em><em>optional</em>) – Human-friendly alternative name of the property.</p></li>
 <li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the property.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Typed metadata to apply.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Typed metadata to apply.</p></li>
 <li><p><strong>attribute</strong> (<em>bool</em><em>, </em><em>optional</em>) – Indicate that the property is also a TOSCA attribute.</p></li>
 </ul>
 </dd>
@@ -782,7 +899,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the property with a unique value per template. Defaults to MISSING.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the property’s name when generating YAML. Defaults to “”.</p></li>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the property.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
 <li><p><strong>constraints</strong> (List[<a class="reference internal" href="#tosca.DataConstraint" title="tosca.DataConstraint"><code class="xref any py py-class docutils literal notranslate"><span class="pre">DataConstraint</span></code></a>], optional) – List of TOSCA property constraints to apply to the property.</p></li>
 <li><p><strong>title</strong> (<em>str</em><em>, </em><em>optional</em>) – Human-friendly alternative name of the property.</p></li>
 <li><p><strong>status</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA status of the property.</p></li>
@@ -806,7 +923,7 @@ If no match is found, return an empty list.</p>
 <li><p><strong>factory</strong> (<em>Callable</em><em>, </em><em>optional</em>) – Factory function to initialize the requirement with a unique value per template. Defaults to MISSING.</p></li>
 <li><p><strong>name</strong> (<em>str</em><em>, </em><em>optional</em>) – TOSCA name of the field, overrides the requirement’s name when generating YAML. Defaults to “”.</p></li>
 <li><p><strong>metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>JSON</em><em>]</em><em>, </em><em>optional</em>) – Dictionary of metadata to associate with the requirement.</p></li>
-<li><p><strong>options</strong> (<em>Options</em><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
+<li><p><strong>options</strong> (<a class="reference internal" href="#tosca.Options" title="tosca.Options"><em>Options</em></a><em>, </em><em>optional</em>) – Additional typed metadata to merge into metadata.</p></li>
 <li><p><strong>relationship</strong> (<em>str</em><em> | </em><em>Type</em><em>[</em><a class="reference internal" href="#tosca.Relationship" title="tosca.Relationship"><em>Relationship</em></a><em>]</em><em>, </em><em>optional</em>) – The requirement’s <code class="docutils literal notranslate"><span class="pre">relationship</span></code> specified by TOSCA type name or Relationship class.</p></li>
 <li><p><strong>capability</strong> (<em>str</em><em> | </em><em>Type</em><em>[</em><a class="reference internal" href="#tosca.CapabilityEntity" title="tosca.CapabilityEntity"><em>CapabilityEntity</em></a><em>]</em><em>, </em><em>optional</em>) – The requirement’s <code class="docutils literal notranslate"><span class="pre">capability</span></code> specified by TOSCA type name or CapabilityEntity class.</p></li>
 <li><p><strong>node</strong> (<em>str</em><em>, </em><em>| </em><em>Type</em><em>[</em><a class="reference internal" href="#tosca.Node" title="tosca.Node"><em>Node</em></a><em>]</em><em>, </em><em>optional</em>) – The requirement’s <code class="docutils literal notranslate"><span class="pre">node</span></code> specified by TOSCA type name or Node class.</p></li>
@@ -864,8 +981,150 @@ If no match is found, return an empty list.</p>
 </dd></dl>
 
 </section>
+<section id="other-tosca-objects">
+<h3><a class="toc-backref" href="#id7">Other Tosca Objects</a><a class="headerlink" href="#other-tosca-objects" title="Permalink to this headline"></a></h3>
+<p>The following classes represent TOSCA entities that are not derived from <a class="reference internal" href="#tosca.ToscaType" title="tosca.ToscaType"><code class="xref any py py-class docutils literal notranslate"><span class="pre">ToscaType</span></code></a> but correspond to TOSCA YAML constructs.</p>
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.Interface">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Interface</span></span><a class="headerlink" href="#tosca.Interface" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for defining custom TOSCA <a class="reference internal" href="toscaref/spec-other-types.html#interface-types"><span class="std std-ref">Interface Types</span></a>. Each public method (without a leading “_”) corresponds to a TOSCA <a class="reference internal" href="#tosca.operation" title="tosca.operation"><code class="xref any py py-func docutils literal notranslate"><span class="pre">tosca.operation</span></code></a>.  TOSCA types such as <a class="reference internal" href="#tosca.Node" title="tosca.Node"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Nodes</span></code></a> use multiple inheritance to implement interface operations.</p>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tosca.Interface._interface_requirements">
+<span class="sig-name descname"><span class="pre">_interface_requirements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tosca.Interface._interface_requirements" title="Permalink to this definition"></a></dt>
+<dd><p>Set this in the class definition to include as the <a class="reference internal" href="extensions.html#extensions"><span class="std std-ref">requirements</span></a> key on the TOSCA YAML <code class="docutils literal notranslate"><span class="pre">interface</span></code> declarations (an Unfurl extension for specifying the <a class="reference internal" href="runtime.html#connections"><span class="std std-ref">Connections</span></a> that its operations need to function).</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tosca.Interface._type_metadata">
+<span class="sig-name descname"><span class="pre">_type_metadata</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tosca.Interface._type_metadata" title="Permalink to this definition"></a></dt>
+<dd><p>Set this in the class definition to set metadata for the TOSCA interface type.</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tosca.Interface._type_name">
+<span class="sig-name descname"><span class="pre">_type_name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#tosca.Interface._type_name" title="Permalink to this definition"></a></dt>
+<dd><p>Set this in the class definition if the TOSCA type name is different from the class name.</p>
+</dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.Repository">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Repository</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">url</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">credential</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Repository" title="Permalink to this definition"></a></dt>
+<dd><p>Create a TOSCA  <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">Repository</span></a> object. Repositories can represent, for example,
+a git repository, a container image or artifact registry or a file path to a local directory.</p>
+<p>Repositories need to be declared before any import statements that refer to them
+so an orchestrator like Unfurl can map them to <code class="docutils literal notranslate"><span class="pre">tosca_repositories</span></code> imports.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>name</strong> (<em>str</em><em>]</em>) – The name of the repository.</p></li>
+<li><p><strong>url</strong> (<em>str</em>) – The url of the repository.</p></li>
+<li><p><strong>revision</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – The revision of the repository to use (e.g. a semantic version or git tag or branch). Defaults to None.</p></li>
+<li><p><strong>description</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – A human-readable description of the repository. Defaults to None.</p></li>
+<li><p><strong>credential</strong> (<em>Optional</em><em>[</em><em>tosca.datatypes.Credential</em><em>]</em>) – The credential to use when accessing the repository. Defaults to None.</p></li>
+<li><p><strong>metadata</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Additional metadata about the repository. Defaults to None.</p></li>
+</ul>
+</dd>
+</dl>
+<p>Example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">std</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Repository</span><span class="p">(</span><span class="s2">&quot;std&quot;</span><span class="p">,</span> <span class="s2">&quot;https://unfurl.cloud/onecommons/std&quot;</span><span class="p">,</span>
+            <span class="n">credential</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span><span class="p">(</span><span class="n">user</span><span class="o">=</span><span class="s2">&quot;a_user&quot;</span><span class="p">,</span> <span class="n">token</span><span class="o">=</span><span class="n">expr</span><span class="o">.</span><span class="n">get_env</span><span class="p">(</span><span class="s2">&quot;MY_TOKEN&quot;</span><span class="p">)))</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tosca_repositories.std</span><span class="w"> </span><span class="kn">import</span> <span class="n">Service</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.ToscaInputs">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ToscaInputs</span></span><a class="headerlink" href="#tosca.ToscaInputs" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for defining TOSCA operation inputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.ToscaOutputs">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ToscaOutputs</span></span><a class="headerlink" href="#tosca.ToscaOutputs" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for defining TOSCA operation outputs.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.TopologyInputs">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">TopologyInputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.TopologyInputs" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for defining topology template inputs.
+When converting to YAML, TopologyInputs subclass definitions will be rendered as the <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">inputs section</span></a> of the topology template.
+TopologyInputs subclass objects will be rendered as the <a class="reference internal" href="runtime.html#topology-inputs"><span class="std std-ref">input_values section</span></a> of the service template.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_name</strong> (<em>str</em>) – </p></li>
+<li><p><strong>_metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>]</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.TopologyOutputs">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">TopologyOutputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.TopologyOutputs" title="Permalink to this definition"></a></dt>
+<dd><p>Base class for defining topology template outputs.
+When converting to YAML, TopologyOutputs subclass definitions will be rendered asthe <a class="reference internal" href="toscaref/spec-outputs.html#topology-outputs"><span class="std std-ref">outputs section</span></a> of the topology template.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_name</strong> (<em>str</em>) – </p></li>
+<li><p><strong>_metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>]</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>None</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.ValueType">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ValueType</span></span><a class="headerlink" href="#tosca.ValueType" title="Permalink to this definition"></a></dt>
+<dd><p>ValueTypes are user-defined TOSCA data types that are derived from simple TOSCA datatypes, as opposed to complex TOSCA data types.</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.ValueType.simple_tosca_type">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">simple_tosca_type</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ValueType.simple_tosca_type" title="Permalink to this definition"></a></dt>
+<dd><p>The TOSCA simple type that this data types is derived from.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>str</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tosca.ValueType.simple_type">
+<em class="property"><span class="pre">classmethod</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">simple_type</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#tosca.ValueType.simple_type" title="Permalink to this definition"></a></dt>
+<dd><p>The Python type that this data type is derived from.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p>type</p>
+</dd>
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
 <section id="property-constraints">
-<h3><a class="toc-backref" href="#id7">Property Constraints</a><a class="headerlink" href="#property-constraints" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id8">Property Constraints</a><a class="headerlink" href="#property-constraints" title="Permalink to this headline"></a></h3>
 <dl class="py class">
 <dt class="sig sig-object py" id="tosca.DataConstraint">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">DataConstraint</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">constraint</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.DataConstraint" title="Permalink to this definition"></a></dt>
@@ -1003,7 +1262,7 @@ If no match is found, return an empty list.</p>
 
 </section>
 <section id="other-module-items">
-<h3><a class="toc-backref" href="#id8">Other Module Items</a><a class="headerlink" href="#other-module-items" title="Permalink to this headline"></a></h3>
+<h3><a class="toc-backref" href="#id9">Other Module Items</a><a class="headerlink" href="#other-module-items" title="Permalink to this headline"></a></h3>
 <dl class="py function">
 <dt class="sig sig-object py" id="tosca.Eval">
 <span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Eval</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">value</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Eval" title="Permalink to this definition"></a></dt>
@@ -1033,6 +1292,41 @@ If no match is found, return an empty list.</p>
 </dd></dl>
 
 <dl class="py class">
+<dt class="sig sig-object py" id="tosca.Options">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Options</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Options" title="Permalink to this definition"></a></dt>
+<dd><p>A utility class to enable structured and validated metadata on TOSCA fields.
+Options are passed to the field specifier functions and merged with unstructured metadata.
+The user can use the | operator to merge Options together.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>data</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.AttributeOptions">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">AttributeOptions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.AttributeOptions" title="Permalink to this definition"></a></dt>
+<dd><p>An option that only applies to TOSCA attributes.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>data</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="tosca.PropertyOptions">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">PropertyOptions</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.PropertyOptions" title="Permalink to this definition"></a></dt>
+<dd><p>An option that only applies to TOSCA properties.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>data</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py class">
 <dt class="sig sig-object py" id="tosca.FieldProjection">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">FieldProjection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">field</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">parent</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">obj</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.FieldProjection" title="Permalink to this definition"></a></dt>
 <dd><p>An <a class="reference internal" href="#tosca.EvalData" title="tosca.EvalData"><code class="xref any py py-class docutils literal notranslate"><span class="pre">EvalData</span></code></a> subclass that references a TOSCA field or a projection off a tosca field (i.e. a field reference from a field reference). These are generally invisible to user code but during “parse” mode, <a class="reference internal" href="#tosca.ToscaType" title="tosca.ToscaType"><code class="xref any py py-class docutils literal notranslate"><span class="pre">ToscaType</span></code></a> attribute references return these “under the hood” but we use <a class="reference external" href="https://en.wikipedia.org/wiki/Type_punning">type punning</a> so that a Python static type checker won’t know this, allowing user code to operate on them as if they were the concrete values declared on the class. Since field projections are used to generate the YAML that a TOSCA orchestrator consumes, a Python type checker can catch validation errors before a blueprint is deployed.</p>
@@ -1043,117 +1337,6 @@ If no match is found, return an empty list.</p>
 <li><p><strong>field</strong> (<em>tosca._tosca._Tosca_Field</em>) – </p></li>
 <li><p><strong>parent</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="#tosca.FieldProjection" title="tosca.FieldProjection"><em>FieldProjection</em></a><em>]</em>) – </p></li>
 </ul>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.Interface">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Interface</span></span><a class="headerlink" href="#tosca.Interface" title="Permalink to this definition"></a></dt>
-<dd><p>Base class for defining custom TOSCA <a class="reference internal" href="toscaref/spec-other-types.html#interface-types"><span class="std std-ref">Interface Types</span></a>. Each public method (without a leading “_”) corresponds to a TOSCA <a class="reference internal" href="#tosca.operation" title="tosca.operation"><code class="xref any py py-func docutils literal notranslate"><span class="pre">tosca.operation</span></code></a>.  TOSCA types such as <a class="reference internal" href="#tosca.Node" title="tosca.Node"><code class="xref any py py-class docutils literal notranslate"><span class="pre">Nodes</span></code></a> use multiple inheritance to implement interface operations.</p>
-<dl class="py attribute">
-<dt class="sig sig-object py" id="tosca.Interface._interface_requirements">
-<span class="sig-name descname"><span class="pre">_interface_requirements</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">List</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tosca.Interface._interface_requirements" title="Permalink to this definition"></a></dt>
-<dd><p>Set this in the class definition to include as the <a class="reference internal" href="extensions.html#extensions"><span class="std std-ref">requirements</span></a> key on the TOSCA YAML <code class="docutils literal notranslate"><span class="pre">interface</span></code> declarations (an Unfurl extension for specifying the <a class="reference internal" href="runtime.html#connections"><span class="std std-ref">Connections</span></a> that its operations need to function).</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="tosca.Interface._type_metadata">
-<span class="sig-name descname"><span class="pre">_type_metadata</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">Optional</span><span class="p"><span class="pre">[</span></span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Union</span><span class="p"><span class="pre">[</span></span><span class="pre">None</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">int</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">float</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">bool</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Sequence</span><span class="p"><span class="pre">[</span></span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">JsonType</span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#tosca.Interface._type_metadata" title="Permalink to this definition"></a></dt>
-<dd><p>Set this in the class definition to set metadata for the TOSCA interface type.</p>
-</dd></dl>
-
-<dl class="py attribute">
-<dt class="sig sig-object py" id="tosca.Interface._type_name">
-<span class="sig-name descname"><span class="pre">_type_name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">ClassVar</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">''</span></em><a class="headerlink" href="#tosca.Interface._type_name" title="Permalink to this definition"></a></dt>
-<dd><p>Set this in the class definition if the TOSCA type name is different from the class name.</p>
-</dd></dl>
-
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.Repository">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">Repository</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">url</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">credential</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">description</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.Repository" title="Permalink to this definition"></a></dt>
-<dd><p>Create a TOSCA  <a class="reference internal" href="toscaref/spec-repositories.html#tosca-repositories"><span class="std std-ref">Repository</span></a> object. Repositories can represent, for example,
-a git repository, a container image or artifact registry or a file path to a local directory.</p>
-<p>Repositories that contain the Python modules imported into a service template are typically declared in the YAML
-so an orchestrator like Unfurl can map them to <code class="docutils literal notranslate"><span class="pre">tosca_repositories</span></code> imports.
-However you have a Python service template with code that references a repository (e.g. in a <a class="reference internal" href="expressions.html#abspath"><span class="std std-ref">abspath</span></a> eval expression)
-and that service template is imported directly by other projects, you should declare the repository in the same Python file.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>url</strong> (<em>str</em>) – The url of the repository.</p></li>
-<li><p><strong>name</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – The name of the repository. If not set or None, the Python identifier assigned to the object will be used.</p></li>
-<li><p><strong>revision</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – The revision of the repository to use (e.g. a semantic version or git tag or branch). Defaults to None.</p></li>
-<li><p><strong>description</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – A human-readable description of the repository. Defaults to None.</p></li>
-<li><p><strong>credential</strong> (<em>Optional</em><em>[</em><em>tosca.datatypes.Credential</em><em>]</em>) – The credential to use when accessing the repository. Defaults to None.</p></li>
-<li><p><strong>metadata</strong> (<em>Optional</em><em>[</em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Any</em><em>]</em><em>]</em>) – Additional metadata about the repository. Defaults to None.</p></li>
-</ul>
-</dd>
-</dl>
-<p>Example:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">std</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Repository</span><span class="p">(</span><span class="s2">&quot;https://unfurl.cloud/onecommons/std&quot;</span><span class="p">,</span>
-            <span class="n">credential</span><span class="o">=</span><span class="n">tosca</span><span class="o">.</span><span class="n">datatypes</span><span class="o">.</span><span class="n">Credential</span><span class="p">(</span><span class="n">user</span><span class="o">=</span><span class="s2">&quot;a_user&quot;</span><span class="p">,</span> <span class="n">token</span><span class="o">=</span><span class="n">expr</span><span class="o">.</span><span class="n">get_env</span><span class="p">(</span><span class="s2">&quot;MY_TOKEN&quot;</span><span class="p">)))</span>
-</pre></div>
-</div>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.ToscaInputs">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ToscaInputs</span></span><a class="headerlink" href="#tosca.ToscaInputs" title="Permalink to this definition"></a></dt>
-<dd><p>Base class for defining TOSCA operation inputs.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p>None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.ToscaOutputs">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">ToscaOutputs</span></span><a class="headerlink" href="#tosca.ToscaOutputs" title="Permalink to this definition"></a></dt>
-<dd><p>Base class for defining TOSCA operation outputs.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Return type</dt>
-<dd class="field-odd"><p>None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.TopologyInputs">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">TopologyInputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.TopologyInputs" title="Permalink to this definition"></a></dt>
-<dd><p>Base class for defining topology template inputs.
-When converting to YAML, TopologyInputs subclass definitions will be rendered as the <a class="reference internal" href="toscaref/spec-inputs.html#inputs"><span class="std std-ref">inputs section</span></a> of the topology template.
-TopologyInputs subclass objects will be rendered as the <a class="reference internal" href="runtime.html#topology-inputs"><span class="std std-ref">input_values section</span></a> of the service template.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>_name</strong> (<em>str</em>) – </p></li>
-<li><p><strong>_metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>]</em><em>]</em>) – </p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p>None</p>
-</dd>
-</dl>
-</dd></dl>
-
-<dl class="py class">
-<dt class="sig sig-object py" id="tosca.TopologyOutputs">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">TopologyOutputs</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_name=''</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">_metadata=&lt;factory&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.TopologyOutputs" title="Permalink to this definition"></a></dt>
-<dd><p>Base class for defining topology template outputs.
-When converting to YAML, TopologyOutputs subclass definitions will be rendered asthe <a class="reference internal" href="toscaref/spec-outputs.html#topology-outputs"><span class="std std-ref">outputs section</span></a> of the topology template.</p>
-<dl class="field-list simple">
-<dt class="field-odd">Parameters</dt>
-<dd class="field-odd"><ul class="simple">
-<li><p><strong>_name</strong> (<em>str</em>) – </p></li>
-<li><p><strong>_metadata</strong> (<em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>Union</em><em>[</em><em>None</em><em>, </em><em>int</em><em>, </em><em>float</em><em>, </em><em>str</em><em>, </em><em>bool</em><em>, </em><em>Sequence</em><em>[</em><em>JsonType</em><em>]</em><em>, </em><em>Dict</em><em>[</em><em>str</em><em>, </em><em>JsonType</em><em>]</em><em>]</em><em>]</em><em>]</em><em>]</em>) – </p></li>
-</ul>
-</dd>
-<dt class="field-even">Return type</dt>
-<dd class="field-even"><p>None</p>
 </dd>
 </dl>
 </dd></dl>
@@ -1250,6 +1433,59 @@ When converting to YAML, TopologyOutputs subclass definitions will be rendered a
 </dd></dl>
 
 <dl class="py function">
+<dt class="sig sig-object py" id="tosca.find_node">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">find_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">nodes.Root</span></span></span><a class="headerlink" href="#tosca.find_node" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">find_node</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">node_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Type</span><span class="p"><span class="pre">[</span></span><span class="pre">_PT</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">_PT</span></span></span></dt>
+<dd><p>Use this to refer to TOSCA node templates that are not visible to your Python code.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.find_relationship">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">find_relationship</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relationship_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">None</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">relationships.Root</span></span></span><a class="headerlink" href="#tosca.find_relationship" title="Permalink to this definition"></a></dt>
+<dt class="sig sig-object py">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">find_relationship</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">relationship_type</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Type</span><span class="p"><span class="pre">[</span></span><span class="pre">_PT</span><span class="p"><span class="pre">]</span></span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">_PT</span></span></span></dt>
+<dd><p>Use this to refer to TOSCA relationship templates are not visible to your Python code</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.jinja_template">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">jinja_template</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">_func</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">*</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">convert_to</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.jinja_template" title="Permalink to this definition"></a></dt>
+<dd><p>Use this decorator on methods or functions passed to <a class="reference internal" href="#tosca.Computed" title="tosca.Computed"><code class="xref any py py-func docutils literal notranslate"><span class="pre">Computed</span></code></a> properties. They should return a Python f-string, which the decorator converts to a jinja2 template at runtime.
+This allows you to create a template with conditionals and loops while taking advantage of static type checking and IDE support for f-strings.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>_func</strong> (<em>Optional</em><em>[</em><em>tosca._fields._F</em><em>]</em>) – </p></li>
+<li><p><strong>convert_to</strong> (<em>Literal</em><em>[</em><em>'yaml'</em><em>, </em><em>'json'</em><em>, </em><em>None</em><em>]</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Any</em></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.patch_template">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">patch_template</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">template_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">patch</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.patch_template" title="Permalink to this definition"></a></dt>
+<dd><p>Apply the give <a class="reference internal" href="dsl.html#template-customization-and-patching"><span class="std std-ref">patch object</span></a> to the template found in the given module.</p>
+<p>Must be called before yaml generation, so care must be taken to make sure the module that calls this method is imported before a TOSCA import or include of the patched template.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>module</strong> (<em>module</em>) – </p></li>
+<li><p><strong>template_name</strong> (<em>str</em>) – </p></li>
+<li><p><strong>patch</strong> (<a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType"><em>tosca._tosca.ToscaType</em></a>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><em>Optional</em>[<a class="reference internal" href="#tosca.ToscaType" title="tosca._tosca.ToscaType">tosca._tosca.ToscaType</a>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py function">
 <dt class="sig sig-object py" id="tosca.set_evaluation_mode">
 <span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">set_evaluation_mode</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mode</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tosca.set_evaluation_mode" title="Permalink to this definition"></a></dt>
 <dd><p>A context manager that sets the global (per-thread) tosca evaluation mode and restores the previous mode upon exit.
@@ -1302,9 +1538,15 @@ This is only needed for testing or other special contexts.</p>
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="tosca.reset_safe_mode">
+<span class="sig-prename descclassname"><span class="pre">tosca.</span></span><span class="sig-name descname"><span class="pre">reset_safe_mode</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#tosca.reset_safe_mode" title="Permalink to this definition"></a></dt>
+<dd><p>If currently in safe mode, reset any global state as needed to maintain isolation.</p>
+</dd></dl>
+
 </section>
 <section id="module-tosca.scalars">
-<span id="scalars"></span><h3><a class="toc-backref" href="#id9">Scalars</a><a class="headerlink" href="#module-tosca.scalars" title="Permalink to this headline"></a></h3>
+<span id="scalars"></span><h3><a class="toc-backref" href="#id10">Scalars</a><a class="headerlink" href="#module-tosca.scalars" title="Permalink to this headline"></a></h3>
 <p>This modules exposes TOSCA scalar units as Python <a class="reference internal" href="#tosca.scalars._Unit" title="tosca.scalars._Unit"><code class="xref any py py-class docutils literal notranslate"><span class="pre">_Unit</span></code></a> objects.</p>
 <p>Each unit name listed in <code class="docutils literal notranslate"><span class="pre">SCALAR_UNIT_DICT</span></code> can be imported from this module, e.g.:</p>
 <div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="kn">from</span><span class="w"> </span><span class="nn">tosca</span><span class="w"> </span><span class="kn">import</span> <span class="n">mb</span>
@@ -1611,7 +1853,7 @@ If round is omitted or null, round to the nearest integer unless its absolute va
 
 </section>
 <section id="module-unfurl.tosca_plugins.functions">
-<span id="utility-functions"></span><h3><a class="toc-backref" href="#id10">Utility Functions</a><a class="headerlink" href="#module-unfurl.tosca_plugins.functions" title="Permalink to this headline"></a></h3>
+<span id="utility-functions"></span><h3><a class="toc-backref" href="#id11">Utility Functions</a><a class="headerlink" href="#module-unfurl.tosca_plugins.functions" title="Permalink to this headline"></a></h3>
 <p>This module contains utility functions that can be executed in <a class="reference internal" href="#tosca.global_state_mode" title="tosca.global_state_mode"><code class="xref any py py-func docutils literal notranslate"><span class="pre">&quot;parse&quot;</span> <span class="pre">mode</span></code></a> (e.g. as part of a class definition or in <code class="docutils literal notranslate"><span class="pre">_class_init_</span></code>)
 and in the safe mode Python sandbox.
 Each of these are also available as Eval <a class="reference internal" href="expressions.html#id2"><span class="std std-ref">Expression Functions</span></a>.</p>
@@ -1678,7 +1920,7 @@ Default: 3 or 2 if max &lt; 32</p></li>
 
 </section>
 <section id="module-unfurl.tosca_plugins.expr">
-<span id="eval-expression-functions"></span><h3><a class="toc-backref" href="#id11">Eval Expression Functions</a><a class="headerlink" href="#module-unfurl.tosca_plugins.expr" title="Permalink to this headline"></a></h3>
+<span id="eval-expression-functions"></span><h3><a class="toc-backref" href="#id12">Eval Expression Functions</a><a class="headerlink" href="#module-unfurl.tosca_plugins.expr" title="Permalink to this headline"></a></h3>
 <p>Type-safe equivalents to Unfurl’s Eval <a class="reference internal" href="expressions.html#id2"><span class="std std-ref">Expression Functions</span></a>.</p>
 <p>When called in <a class="reference internal" href="#tosca.global_state_mode" title="tosca.global_state_mode"><code class="xref any py py-func docutils literal notranslate"><span class="pre">&quot;parse&quot;</span> <span class="pre">mode</span></code></a> (e.g. as part of a class definition or in <code class="docutils literal notranslate"><span class="pre">_class_init_</span></code>) they will return eval expression
 that will get executed. But note that the type signature will match the result of the expression, not the eval expression itself.
@@ -1740,7 +1982,8 @@ will be evaluated using the current context’s instance.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.find_connection">
 <span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">find_connection</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rel_type=&lt;class</span> <span class="pre">'tosca.builtin_types.relationships.ConnectsTo'&gt;</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.find_connection" title="Permalink to this definition"></a></dt>
-<dd><dl class="field-list simple">
+<dd><p>Type-safe wrapper around the <a class="reference internal" href="expressions.html#find-connection"><span class="std std-ref">find_connection</span></a> eval expression function.</p>
+<dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
 <li><p><strong>target</strong> (<em>Optional</em><em>[</em><a class="reference internal" href="#tosca.Node" title="tosca._tosca.Node"><em>tosca._tosca.Node</em></a><em>]</em>) – </p></li>
@@ -1916,7 +2159,13 @@ Instead just use a Python ‘if’ statement or expression.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.read">
 <span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">read</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">encoding</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.read" title="Permalink to this definition"></a></dt>
-<dd><p>Equivalent to an <a class="reference internal" href="expressions.html#file"><span class="std std-ref">file</span></a> eval expression using <code class="docutils literal notranslate"><span class="pre">contents</span></code> to read the file.</p>
+<dd><p>Equivalent to an <a class="reference internal" href="expressions.html#file"><span class="std std-ref">file</span></a> eval expression like:</p>
+<div class="highlight-YAML notranslate"><div class="highlight"><pre><span></span><span class="nt">eval</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">file</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$path</span>
+<span class="w">  </span><span class="nt">encoding</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">$encoding</span>
+<span class="nt">select</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">contents</span>
+</pre></div>
+</div>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
@@ -2037,12 +2286,34 @@ Returns a map of the current instances’s attributes as a view of its nearest i
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="unfurl.tosca_plugins.expr.validate">
+<span class="sig-prename descclassname"><span class="pre">unfurl.tosca_plugins.expr.</span></span><span class="sig-name descname"><span class="pre">validate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">factory</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.tosca_plugins.expr.validate" title="Permalink to this definition"></a></dt>
+<dd><p>Return a <a class="reference internal" href="#tosca.Options" title="tosca.Options"><code class="xref any py py-class docutils literal notranslate"><span class="pre">tosca.Options</span></code></a> that adds custom validation to the property or attribute definition.
+For example:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">def</span><span class="w"> </span><span class="nf">validate_pw</span><span class="p">(</span><span class="n">password</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+  <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="n">password</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">4</span>
+
+<span class="k">class</span><span class="w"> </span><span class="nc">Test</span><span class="p">(</span><span class="n">Node</span><span class="p">):</span>
+  <span class="n">password</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="n">tosca</span><span class="o">.</span><span class="n">Property</span><span class="p">(</span><span class="n">options</span><span class="o">=</span><span class="n">expr</span><span class="o">.</span><span class="n">validate</span><span class="p">(</span><span class="n">validate_pw</span><span class="p">)</span> <span class="o">|</span> <span class="n">expr</span><span class="o">.</span><span class="n">sensitive</span><span class="p">)</span>
+</pre></div>
+</div>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>factory</strong> (<em>Callable</em>) – </p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p><a class="reference internal" href="#tosca.Options" title="tosca._fields.Options">tosca._fields.Options</a></p>
+</dd>
+</dl>
+</dd></dl>
+
 </section>
 </section>
 <section id="api-for-writing-configurators">
-<h2><a class="toc-backref" href="#id12">API for writing configurators</a><a class="headerlink" href="#api-for-writing-configurators" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id13">API for writing configurators</a><a class="headerlink" href="#api-for-writing-configurators" title="Permalink to this headline"></a></h2>
 <section id="module-unfurl.configurator">
-<span id="configurators"></span><h3><a class="toc-backref" href="#id13">Configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h3>
+<span id="configurators"></span><h3><a class="toc-backref" href="#id14">Configurators</a><a class="headerlink" href="#module-unfurl.configurator" title="Permalink to this headline"></a></h3>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.configurator.</span></span><span class="sig-name descname"><span class="pre">Configurator</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">*</span></span><span class="n"><span class="pre">args</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kw</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator" title="Permalink to this definition"></a></dt>
@@ -2090,7 +2361,8 @@ Subclasses should at least implement a <a class="reference internal" href="#unfu
 <span class="sig-name descname"><span class="pre">can_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.can_run" title="Permalink to this definition"></a></dt>
 <dd><p>Return whether or not the configurator can execute the given task
 depending on if this configurator support the requested action and parameters
-and given the current state of the target instance?</p>
+and given the current state of the target instance?
+Called right before running the task, so the task will have already been rendered.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><code class="xref py py-class docutils literal notranslate"><span class="pre">TaskView</span></code></a>) – The task that is about to be run.</p>
@@ -2196,7 +2468,7 @@ and finally a <a class="reference internal" href="#unfurl.configurator.Configura
 <dd class="field-odd"><p>If <code class="docutils literal notranslate"><span class="pre">run</span></code> is not defined as a generator it must return either a <a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status"><code class="xref py py-class docutils literal notranslate"><span class="pre">Status</span></code></a>, a <code class="docutils literal notranslate"><span class="pre">bool</span></code> or a <a class="reference internal" href="#unfurl.configurator.ConfiguratorResult" title="unfurl.configurator.ConfiguratorResult"><code class="xref py py-class docutils literal notranslate"><span class="pre">ConfiguratorResult</span></code></a> to indicate if the task succeeded and any changes to the target’s state.</p>
 </dd>
 <dt class="field-even">Return type</dt>
-<dd class="field-even"><p><em>Union</em>[<em>Generator</em>, <a class="reference internal" href="#unfurl.configurator.ConfiguratorResult" title="unfurl.configurator.ConfiguratorResult">unfurl.configurator.ConfiguratorResult</a>, <a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status">unfurl.support.Status</a>, bool]</p>
+<dd class="field-even"><p><em>Union</em>[<em>Generator</em>, <a class="reference internal" href="#unfurl.configurator.ConfiguratorResult" title="unfurl.configurator.ConfiguratorResult">unfurl.configurator.ConfiguratorResult</a>, <a class="reference internal" href="#unfurl.support.Status" title="unfurl.support.Status">unfurl.support.Status</a>, bool, <a class="reference internal" href="#tosca.ToscaOutputs" title="tosca._tosca.ToscaOutputs">tosca._tosca.ToscaOutputs</a>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -2250,7 +2522,7 @@ as an alternative to using the full name (“module.class”) when setting the i
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.Configurator.should_run">
 <span class="sig-name descname"><span class="pre">should_run</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">task</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.configurator.Configurator.should_run" title="Permalink to this definition"></a></dt>
-<dd><p>Does this configuration need to be run?</p>
+<dd><p>Does this configuration need to be run? Called before rendering the task.</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><p><strong>task</strong> (<a class="reference internal" href="#unfurl.configurator.TaskView" title="unfurl.configurator.TaskView"><em>unfurl.configurator.TaskView</em></a>) – </p>
@@ -2588,7 +2860,16 @@ the operation preformed and observed changes to the instance (attributes changed
 <dl class="py property">
 <dt class="sig sig-object py" id="unfurl.configurator.TaskView.environ">
 <em class="property"><span class="pre">property</span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">environ</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">Dict</span><span class="p"><span class="pre">[</span></span><span class="pre">str</span><span class="p"><span class="pre">,</span></span><span class="w"> </span><span class="pre">str</span><span class="p"><span class="pre">]</span></span></em><a class="headerlink" href="#unfurl.configurator.TaskView.environ" title="Permalink to this definition"></a></dt>
-<dd></dd></dl>
+<dd><p>The environment variables for this task.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>cached copy of <a class="reference internal" href="#unfurl.configurator.TaskView.get_environment" title="unfurl.configurator.TaskView.get_environment"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">self.get_environment(False)</span></code></a></p>
+</dd>
+<dt class="field-even">Return type</dt>
+<dd class="field-even"><p>Dict[str, str]</p>
+</dd>
+</dl>
+</dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.configurator.TaskView.fail_work_folders">
@@ -2655,10 +2936,7 @@ otherwise only variables added will be included.</p></li>
 <dd class="field-odd"><p>dict</p>
 </dd>
 </dl>
-<p>Variable sources (by order of preference, lowest to highest):
-1. The ensemble’s environment
-2. Variables set by the connections that are available to this operation.
-3. Variables declared in the operation’s <code class="docutils literal notranslate"><span class="pre">environment</span></code> section.</p>
+<p>See <a class="reference internal" href="runtime.html#environment-variables"><span class="std std-ref">Environment Variables</span></a> for a description of how the environment variables are determined.</p>
 </dd></dl>
 
 <dl class="py method">
@@ -3112,7 +3390,7 @@ It consists of a change ID and named attributes.</p>
 
 </section>
 <section id="module-unfurl.projectpaths">
-<span id="project-folders"></span><h3><a class="toc-backref" href="#id14">Project folders</a><a class="headerlink" href="#module-unfurl.projectpaths" title="Permalink to this headline"></a></h3>
+<span id="project-folders"></span><h3><a class="toc-backref" href="#id15">Project folders</a><a class="headerlink" href="#module-unfurl.projectpaths" title="Permalink to this headline"></a></h3>
 <p>An ensemble may contain create the following directories when a job runs:</p>
 <dl class="field-list simple">
 <dt class="field-odd">artifacts</dt>
@@ -3132,7 +3410,7 @@ It consists of a change ID and named attributes.</p>
 <p>When a plan is being generated, a directory named “planned” will be created which will have the same directory structure as above. When the job executes the plan those files will be moved to the corresponding directory if the task successfully deployed, otherwise it will be moved to a directory named <code class="docutils literal notranslate"><span class="pre">failed/&lt;changeid&gt;</span></code>.</p>
 <p>When a task runs, its configurator has access to these directories that it can use
 to store artifacts in the ensemble’s repository or for generating local configuration files.
-For this, each deployed instance can have its own set of directories (see <a class="reference internal" href="#unfurl.projectpaths._get_base_dir" title="unfurl.projectpaths._get_base_dir"><code class="xref any py py-func docutils literal notranslate"><span class="pre">_get_base_dir()</span></code></a>).</p>
+For this, each deployed instance can have its own set of directories (see <a class="reference internal" href="expressions.html#get-dir"><span class="std std-ref">get_dir</span></a>).</p>
 <p>Because generating a plan should not impact what is currently deployed, during the
 during planning and rendering phase, a configurator can use the <a class="reference internal" href="#unfurl.projectpaths.WorkFolder" title="unfurl.projectpaths.WorkFolder"><code class="xref any py py-class docutils literal notranslate"><span class="pre">WorkFolder</span></code></a> interface to read and write from temporary copies of those folders in the “planned” directory. They will either be discarded or moved to “active” if the task fails or succeeds.</p>
 <p>This also enables the files generated by the plan to be manually examined – useful for development, error diagnosis and user intervention, or as part of a git-based approval process.</p>
@@ -3252,66 +3530,9 @@ or an encoding registered with the Python codec registry.</p></li>
 
 </dd></dl>
 
-<dl class="py function">
-<dt class="sig sig-object py" id="unfurl.projectpaths._get_base_dir">
-<span class="sig-prename descclassname"><span class="pre">unfurl.projectpaths.</span></span><span class="sig-name descname"><span class="pre">_get_base_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ctx</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.projectpaths._get_base_dir" title="Permalink to this definition"></a></dt>
-<dd><p>Returns an absolute path based on the given folder name:</p>
-<dl class="field-list simple">
-<dt class="field-odd">.</dt>
-<dd class="field-odd"><p>directory that contains the current instance’s ensemble</p>
-</dd>
-<dt class="field-even">Src</dt>
-<dd class="field-even"><p>directory of the source file this expression appears in</p>
-</dd>
-<dt class="field-odd">Artifacts</dt>
-<dd class="field-odd"><p>directory for the current instance (committed to repository).</p>
-</dd>
-<dt class="field-even">Local</dt>
-<dd class="field-even"><p>The “local” directory for the current instance (excluded from repository)</p>
-</dd>
-<dt class="field-odd">Secrets</dt>
-<dd class="field-odd"><p>The “secrets” directory for the current instance (files written there are vault encrypted)</p>
-</dd>
-<dt class="field-even">Tmp</dt>
-<dd class="field-even"><p>A temporary directory for the current instance (removed after unfurl exits)</p>
-</dd>
-<dt class="field-odd">Tasks</dt>
-<dd class="field-odd"><p>Job specific directory for the current instance (excluded from repository).</p>
-</dd>
-<dt class="field-even">Operation</dt>
-<dd class="field-even"><p>Operation specific directory for the current instance (excluded from repository).</p>
-</dd>
-<dt class="field-odd">Workflow</dt>
-<dd class="field-odd"><p>Workflow specific directory for the current instance (excluded from repository).</p>
-</dd>
-<dt class="field-even">Spec.src</dt>
-<dd class="field-even"><p>The directory of the source file the current instance’s template appears in.</p>
-</dd>
-<dt class="field-odd">Spec.home</dt>
-<dd class="field-odd"><p>Directory unique to the current instance’s TOSCA template (committed to the spec repository).</p>
-</dd>
-<dt class="field-even">Spec.local</dt>
-<dd class="field-even"><p>Local directory unique to the current instance’s TOSCA template (excluded from repository).</p>
-</dd>
-<dt class="field-odd">Project</dt>
-<dd class="field-odd"><p>The root directory of the current project.</p>
-</dd>
-<dt class="field-even">Project.secrets</dt>
-<dd class="field-even"><p>The “secrets” directory for the current project (files written there are vault encrypted)</p>
-</dd>
-<dt class="field-odd">Unfurl.home</dt>
-<dd class="field-odd"><p>The location of home project (UNFURL_HOME).</p>
-</dd>
-<dt class="field-even">Repository.&lt;name&gt;</dt>
-<dd class="field-even"><p>The location of the repository with the given name</p>
-</dd>
-</dl>
-<p>Otherwise look for a repository with the given name and return its path or None if not found.</p>
-</dd></dl>
-
 </section>
 <section id="module-unfurl.runtime">
-<span id="runtime-module"></span><h3><a class="toc-backref" href="#id15">Runtime module</a><a class="headerlink" href="#module-unfurl.runtime" title="Permalink to this headline"></a></h3>
+<span id="runtime-module"></span><h3><a class="toc-backref" href="#id16">Runtime module</a><a class="headerlink" href="#module-unfurl.runtime" title="Permalink to this headline"></a></h3>
 <p>This module defines the core model and implements the runtime operations of the model.</p>
 <p>The state of the system is represented as a collection of Instances.
 Each instance have a status; attributes that describe its state; and a TOSCA template
@@ -3440,9 +3661,9 @@ Otherwise return ok.
 </section>
 </section>
 <section id="apis-for-controlling-unfurl">
-<h2><a class="toc-backref" href="#id16">APIs for controlling Unfurl</a><a class="headerlink" href="#apis-for-controlling-unfurl" title="Permalink to this headline"></a></h2>
+<h2><a class="toc-backref" href="#id17">APIs for controlling Unfurl</a><a class="headerlink" href="#apis-for-controlling-unfurl" title="Permalink to this headline"></a></h2>
 <section id="module-unfurl.localenv">
-<span id="localenv-module"></span><h3><a class="toc-backref" href="#id17">Localenv module</a><a class="headerlink" href="#module-unfurl.localenv" title="Permalink to this headline"></a></h3>
+<span id="localenv-module"></span><h3><a class="toc-backref" href="#id18">Localenv module</a><a class="headerlink" href="#module-unfurl.localenv" title="Permalink to this headline"></a></h3>
 <p>Classes for managing the local environment.</p>
 <p>Repositories can optionally be organized into projects that have a local configuration.</p>
 <p>By convention, the “home” project defines a localhost instance and adds it to its context.</p>
@@ -3486,7 +3707,7 @@ the local project it is part of and the home project.</p>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.find_or_create_working_dir">
-<span class="sig-name descname"><span class="pre">find_or_create_working_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoURL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basepath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">checkout_args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">locked</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_or_create_working_dir" title="Permalink to this definition"></a></dt>
+<span class="sig-name descname"><span class="pre">find_or_create_working_dir</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">repoURL</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">revision</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">basepath</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">checkout_args</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">{}</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">package</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.find_or_create_working_dir" title="Permalink to this definition"></a></dt>
 <dd><dl class="field-list simple">
 <dt class="field-odd">Parameters</dt>
 <dd class="field-odd"><ul class="simple">
@@ -3494,7 +3715,7 @@ the local project it is part of and the home project.</p>
 <li><p><strong>revision</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – </p></li>
 <li><p><strong>basepath</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – </p></li>
 <li><p><strong>checkout_args</strong> (<em>dict</em>) – </p></li>
-<li><p><strong>locked</strong> (<em>bool</em>) – </p></li>
+<li><p><strong>package</strong> (<em>Optional</em><em>[</em><em>Package</em><em>]</em>) – </p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -3548,6 +3769,16 @@ return that repository and a path relative to it</p>
 </dd>
 <dt class="field-even">Return type</dt>
 <dd class="field-even"><p><em>Dict</em>[str, <em>Any</em>]</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.LocalEnv.get_ensemble_project">
+<span class="sig-name descname"><span class="pre">get_ensemble_project</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.LocalEnv.get_ensemble_project" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Return type</dt>
+<dd class="field-odd"><p><em>Optional</em>[<a class="reference internal" href="#unfurl.localenv.Project" title="unfurl.localenv.Project">unfurl.localenv.Project</a>]</p>
 </dd>
 </dl>
 </dd></dl>
@@ -4050,6 +4281,16 @@ return that repository and a path relative to it</p>
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="unfurl.localenv.Project.is_vault_encrypted">
+<span class="sig-name descname"><span class="pre">is_vault_encrypted</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">contextName</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.is_vault_encrypted" title="Permalink to this definition"></a></dt>
+<dd><dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>contextName</strong> (<em>Optional</em><em>[</em><em>str</em><em>]</em>) – </p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="unfurl.localenv.Project.load_yaml_include">
 <span class="sig-name descname"><span class="pre">load_yaml_include</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">yamlConfig</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">templatePath</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">baseDir</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">warnWhenNotFound</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">expanded</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">action</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#unfurl.localenv.Project.load_yaml_include" title="Permalink to this definition"></a></dt>
 <dd><p>This is called while the YAML config is being loaded.
@@ -4176,7 +4417,7 @@ Return True if this project’s config file was updated and saved to disk.</p>
 
 </section>
 <section id="module-unfurl.job">
-<span id="job-module"></span><h3><a class="toc-backref" href="#id18">Job module</a><a class="headerlink" href="#module-unfurl.job" title="Permalink to this headline"></a></h3>
+<span id="job-module"></span><h3><a class="toc-backref" href="#id19">Job module</a><a class="headerlink" href="#module-unfurl.job" title="Permalink to this headline"></a></h3>
 <p>A Job is generated by comparing a list of specs with the last known state of the system.
 Job runs tasks, each of which has a configuration spec that is executed on the running system
 Each task tracks and records its modifications to the system’s state</p>
@@ -4332,7 +4573,7 @@ There are two kinds of dependencies:</p>
 
 </section>
 <section id="module-unfurl.init">
-<span id="init-module"></span><h3><a class="toc-backref" href="#id19">Init module</a><a class="headerlink" href="#module-unfurl.init" title="Permalink to this headline"></a></h3>
+<span id="init-module"></span><h3><a class="toc-backref" href="#id20">Init module</a><a class="headerlink" href="#module-unfurl.init" title="Permalink to this headline"></a></h3>
 <p>This module implements creating and cloning project and ensembles as well Unfurl runtimes.</p>
 <dl class="py function">
 <dt class="sig sig-object py" id="unfurl.init.clone">
@@ -4396,7 +4637,7 @@ You can use cloudmap url like <code class="docutils literal notranslate"><span c
 </section>
 </section>
 <section id="module-unfurl.logs">
-<span id="utility-classes-and-functions"></span><h2><a class="toc-backref" href="#id20">Utility classes and functions</a><a class="headerlink" href="#module-unfurl.logs" title="Permalink to this headline"></a></h2>
+<span id="utility-classes-and-functions"></span><h2><a class="toc-backref" href="#id21">Utility classes and functions</a><a class="headerlink" href="#module-unfurl.logs" title="Permalink to this headline"></a></h2>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.logs.sensitive">
 <em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">unfurl.logs.</span></span><span class="sig-name descname"><span class="pre">sensitive</span></span><a class="headerlink" href="#unfurl.logs.sensitive" title="Permalink to this definition"></a></dt>
@@ -4447,7 +4688,7 @@ sensitive values will either be encrypted or redacted when outputed.</p>
 Defaults to None.</p></li>
 <li><p><strong>addOnly</strong> (<em>bool</em><em>, </em><em>optional</em>) – If addOnly is False (the default) all variables in <code class="docutils literal notranslate"><span class="pre">env</span></code> will be included
 in the returned dict, otherwise only variables added by <code class="docutils literal notranslate"><span class="pre">rules</span></code> will be included</p></li>
-<li><p><strong>sub</strong> (<em>Optional</em><em>[</em><em>MutableMapping</em><em>]</em>) – </p></li>
+<li><p><strong>sub</strong> (<em>dict</em><em>, </em><em>optional</em>) – A dictionary of substitutions to apply to the environment variable values.</p></li>
 </ul>
 </dd>
 <dt class="field-even">Return type</dt>
@@ -4541,7 +4782,7 @@ in the returned dict, otherwise only variables added by <code class="docutils li
 </dd></dl>
 
 <section id="module-unfurl.eval">
-<span id="eval-expression-api"></span><h3><a class="toc-backref" href="#id21">Eval Expression API</a><a class="headerlink" href="#module-unfurl.eval" title="Permalink to this headline"></a></h3>
+<span id="eval-expression-api"></span><h3><a class="toc-backref" href="#id22">Eval Expression API</a><a class="headerlink" href="#module-unfurl.eval" title="Permalink to this headline"></a></h3>
 <p>API for evaluating <a class="reference internal" href="processing.html#eval-expressions"><span class="std std-ref">Eval Expressions</span></a>. See also <a class="reference internal" href="#unfurl.configurator.TaskView.query" title="unfurl.configurator.TaskView.query"><code class="xref any py py-meth docutils literal notranslate"><span class="pre">unfurl.configurator.TaskView.query</span></code></a>.</p>
 <dl class="py class">
 <dt class="sig sig-object py" id="unfurl.eval.Ref">
@@ -4685,7 +4926,7 @@ use <a class="reference internal" href="#unfurl.eval.Ref.resolve" title="unfurl.
 
 </section>
 <section id="module-unfurl.graphql">
-<span id="graphql-module"></span><h3><a class="toc-backref" href="#id22">Graphql module</a><a class="headerlink" href="#module-unfurl.graphql" title="Permalink to this headline"></a></h3>
+<span id="graphql-module"></span><h3><a class="toc-backref" href="#id23">Graphql module</a><a class="headerlink" href="#module-unfurl.graphql" title="Permalink to this headline"></a></h3>
 <p>This module defines GraphQL representations of ensembles and Unfurl environments,
 including simplified representations of TOSCA types and node templates as documented by the GraphQL schema below.</p>
 <p>These objects are exported as JSON by the <a class="reference internal" href="cli.html#unfurl-export"><span class="std std-ref">export</span></a> command and by unfurl server API endpoints.</p>

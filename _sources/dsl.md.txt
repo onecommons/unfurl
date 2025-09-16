@@ -30,7 +30,7 @@ Using our TOSCA DSL, VS-Code will detect missing or invalid node template proper
 
 If you want to use this as a Python library, `pip install tosca`. For a command line tool that converts between YAML and Python, or for a TOSCA orchestrator with native support, install [unfurl](https://github.com/onecommons/unfurl), which integrates this library.
 
-Requirements: Python versions 3.8 or later.
+Requirements: Python versions 3.9 or later.
 
 ## Status
 
@@ -286,7 +286,7 @@ Unfurl provides this integration and other orchestrators can implement a callbac
 
 ### Node Filters
 
-Tosca types can declared a special class-level method called `_class_init` that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where your Python type checker (such as the IDE's) has the class definition available.
+Tosca types can declared a special class-level method called [_class_init](https://docs.unfurl.run/api.html#tosca.ToscaType._class_init) that is called when the class definition is being initialized. Inside this method, expressions that reference fields return references to the field definition, not its value, allowing you to customize the class definition in a context where your Python type checker (such as the IDE's) has the class definition available.
 
 This example creates sets the `node_filter` on the declared `host` requirement:
 
@@ -360,6 +360,47 @@ from tosca_repositories.my_repo.bar import foo
 ```
 
 `unfurl export` will resolve imports from a repository by creating a`tosca_repositories` directory with a symlink to the location of the repository. This enables compatibility with IDEs that rely on simple file system path mapping to resolve Python imports.
+
+### Other YAML sections
+
+A service template's "dsl_definitions" and "metadata" YAML sections will be converted to and from a Python dict assigned to "dsl_definitions" and "tosca_metadata" global variables, respectively.
+
+This is useful when its convenient to maintain configuration blocks in YAML which can be accessed by importing the yaml as Python. For example:
+
+```python
+    from service_template.myimport import dsl_definitions as some_yaml
+
+    MyNode(some_configuration=some_yaml["some_config"])
+```
+
+## Template Customization and Patching 
+
+You can customize ToscaType template objects when they are initialized
+by defining a [_template_init()](https://docs.unfurl.run/api.html#tosca.ToscaType._template_init) method. You can customize them using PATCH objects.
+
+PATCH objects are partially initialized ToscaType objects. When assigned to the field of another ToscaType object they are merged with its existing or default value instead of replacing it. PATCH objects can nest, allowing customization of hard-to-reach configuration.
+
+Any ToscaType object is marked as a patch object by using tosca.PATCH as its name. Patches can be used when creating a TOSCA template object, as in this example:
+
+```python
+    from tosca import PATCH
+
+    App(
+         service=Service(
+            PATCH,
+            container=Container(
+                PATCH,
+                environment=EnvironmentVariables(
+                    PATCH,
+                    P1="p", VAR2=None
+                ),
+            ),
+         ),
+        )
+```
+
+When used to initialize a ToscaType object they are applied after [_template_init()](https://docs.unfurl.run/api.html#tosca.ToscaType._template_init) is invoked. You can also patch existing template objects using the [patch_template](https://docs.unfurl.run/api.html#tosca.patch_template) function or the [patch](https://docs.unfurl.run/api.html#tosca.ToscaType.patch) method.
+
 
 ## Usage
 

@@ -78,7 +78,7 @@
 <li class="toctree-l1"><a class="reference internal" href="runtime.html">Runtime Environment</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html">Configurators</a></li>
 <li class="toctree-l1"><a class="reference internal" href="configurators.html#installers">Installers</a></li>
-<li class="toctree-l1"><a class="reference internal" href="configurators.html#id38">Artifacts</a></li>
+<li class="toctree-l1"><a class="reference internal" href="configurators.html#configurators-artifacts">Artifacts</a></li>
 <li class="toctree-l1"><a class="reference internal" href="processing.html">Template Processing</a></li>
 <li class="toctree-l1"><a class="reference internal" href="expressions.html">Expression Functions</a></li>
 <li class="toctree-l1"><a class="reference internal" href="cloudmap.html">Cloud Maps</a></li>
@@ -122,7 +122,7 @@
 <ul class="simple">
 <li><p>add ‘any’ schema type for properties and attributes definitions</p></li>
 <li><p>‘additionalProperties’ field in type and template metadata</p></li>
-<li><p>allow metadata field on inputs, outputs, artifacts, and repositories</p></li>
+<li><p>allow metadata field on inputs, outputs, artifacts, operations, and repositories</p></li>
 <li><p>metadata values can be JSON (instead only strings)</p></li>
 <li><p>add “sensitive” property and datatype metadata field</p></li>
 <li><p>add “immutable” property metadata field</p></li>
@@ -160,6 +160,9 @@
 <li><p>add <code class="docutils literal notranslate"><span class="pre">dependencies</span></code> keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.</p></li>
 <li><p>add <code class="docutils literal notranslate"><span class="pre">artifacts</span></code> keyword to node_filters to match on artifact properties (syntax matches “capabilities” keyword)</p></li>
 <li><p>add <code class="docutils literal notranslate"><span class="pre">input_values</span></code> section to service templates (see <a class="reference internal" href="runtime.html#topology-inputs"><span class="std std-ref">Topology Inputs</span></a>).</p></li>
+<li><p>‘implementation’ section on interface can declare a full artifact definition</p></li>
+<li><p>interface output definitions can now include a full parameter definitions and an optional <code class="docutils literal notranslate"><span class="pre">mapping</span></code> field to define the mapping.</p></li>
+<li><p>add a <code class="docutils literal notranslate"><span class="pre">version</span></code> property constraint for matching <a class="reference internal" href="packages.html#version-requirements"><span class="std std-ref">Version Requirements</span></a></p></li>
 </ul>
 </section>
 <section id="not-yet-implemented">
