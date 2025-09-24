@@ -738,7 +738,7 @@ def find_project(source: str, home_path: Optional[str], register: bool = False):
     return None
 
 
-def _get_context_and_shared_repo(project: Project, options):
+def _get_environment_and_shared_repo(project: Project, options):
     # when creating ensemble, get the default project for the given context if set
     shared_repo = None
     shared = options.get("shared_repository")
@@ -1139,16 +1139,17 @@ class EnsembleBuilder:
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
-        (self.environment, self.shared_repo) = _get_context_and_shared_repo(
+        (self.environment, self.shared_repo) = _get_environment_and_shared_repo(
             self.dest_project, self.options
         )
-        if (
-            existingDestProject
-            and not self.shared_repo
-            and (self.options.get("empty") or self.mono)
-        ):
-            # ensemble will be created in the same repo as existingDestProject, add environment too
-            self.add_missing_environment(existingDestProject)
+        if existingDestProject and not self.shared_repo:
+            shared_env = self.options.get("as_shared_environment")
+            if shared_env and not relDestDir:
+                # don't create ensemble if it wasn't specified (see create_project)
+                self.options["empty"] = True
+            if shared_env or self.options.get("empty") or self.mono:
+                # ensemble will be created in the same repo as existingDestProject, add environment too
+                self.add_missing_environment(existingDestProject)
 
     def has_existing_ensemble(self, sourceProject: Optional[Project]) -> bool:
         if self.source_project is not sourceProject and not self.shared_repo:
@@ -1170,12 +1171,17 @@ class EnsembleBuilder:
 
     def add_missing_environment(self, existing_project: Project) -> bool:
         kw = self.options
-        use_context = cast(Optional[str], kw.get("use_environment"))
-        if use_context and use_context not in existing_project.contexts:
+        env_name = cast(Optional[str], kw.get("use_environment"))
+        shared_env = kw.get("as_shared_environment")
+        if shared_env:
+            env_name = os.path.basename(existing_project.projectRoot)
+        if env_name and env_name not in existing_project.contexts:
             skeleton_vars = dict(kw.get("var", []))
             if "api_version" not in skeleton_vars:
                 skeleton_vars["api_version"] = API_VERSION
-            skeleton_vars["default_context"] = use_context
+            skeleton_vars["default_context"] = env_name
+            if shared_env:
+                skeleton_vars["defaultProject"] = env_name
             content = write_project_config(
                 None,
                 "",
@@ -1184,13 +1190,16 @@ class EnsembleBuilder:
                 kw.get("skeleton"),
             )
             existing_project.add_context(
-                use_context, yaml.load(content)["environments"][use_context]
+                env_name, yaml.load(content)["environments"][env_name]
             )
             logger.info(
-                f"Added new environment {use_context} to project {existing_project.projectRoot}"
+                f"Added new environment {env_name} to project {existing_project.projectRoot}"
             )
             if not self.mono:  # save now, not gonna be saved later
                 existing_project.localConfig.config.save()
+            if shared_env and existing_project.parentProject:
+                # make sure the home project knows about the new shared environment
+                existing_project.parentProject.register_project(existing_project, True)
             return True
         return False
 
