@@ -129,39 +129,41 @@ Environments
 **Environments** are used to create isolated contexts that deployment process runs in. For example, you might create different context for different projects or different deployment environments such as **production** or **staging**.
 
 Ensembles are meant to be self-contained and independent of their environment with any environment-dependent values and settings placed in the Ensemble's environment.
-Ensembles are reproducible and location-independent while Unfurl projects manage the environment and dependencies. 
+The goal is for ensembles to be reproducible and location-independent while Unfurl projects manage the local environment and dependencies.
 
-It can also associate ensembles with a named environment (using the ``environment`` field in the ``ensembles`` section of `unfurl.yaml`).
+Projects can also associate ensembles with a named environment (using the ``environment`` field in the ``ensembles`` section of `unfurl.yaml`).
 
 Default environments
 --------------------
 
-When creating a new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
+When creating a new project, the ``--use-environment`` option will set the ``default_environment`` field in the project's `unfurl.yaml`. This environment is used when deploying if the ensemble doesn't have an environment specified in its configuration or on the command line.
 
-When creating a new ensemble ``--use-environment`` sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
+When creating a new ensemble, ``--use-environment`` will set the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
 
 Shared Environments
 -------------------
 
-Create an Unfurl project that will manage your deployment environments and record changes to your cloud accounts, for example:
+You can create a shared environment that is used by multiple projects. Ensembles associated with a shared environment can be inside one project but managed by another project. This enables scenarios where one project (and git repository) contains a history of all the resources created in a particular cloud account but separate projects can manage each application deployed into that account.
+
+To create shared environment create an project using the ``--shared-environment`` option, for example:
 
 .. code-block:: shell
 
     unfurl init --as-shared-environment aws-staging --skeleton aws
 
-Then any ensemble that uses that environment across projects will be added to the ```aws-staging`` project.
+Then any ensemble that uses that environment across projects will be added to this ```aws-staging`` project.
 
 For example:
 
 .. code-block:: shell
 
-    unfurl init --use-environment aws-staging my_app_project staging
+    unfurl init --use-environment --mono aws-staging my_app_project staging 
 
-This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option 
+This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option. 
 
-Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project".
+Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project". We used the ``--mono`` option so the ensemble add in the same git repository as the ``aws-staging`` project.
 
-The unfurl_home project coordinates between projects so both projects need to use the same unfurl_home.
+The `unfurl home` project coordinates between projects so both projects need to use the same unfurl home.
 
 Inheritance and precedence
 --------------------------
@@ -248,6 +250,11 @@ lfs_lock
 ++++++++
 
 See `locking`.
+
+defaultProject
+++++++++++++++
+
+A key whose value is either a project name or "SELF". Sets this environment as a `shared environment <Shared Environments>`.
 
 External ensembles
 ==================
@@ -469,7 +476,7 @@ Alternatively, you can create the home project manually:
 
     unfurl home --init
 
-This will create an Unfurl project located at ``~/.unfurl_home``, unless you specify otherwise using the ``--home`` global option. It will contain local configuration settings that will shared with your other projects and also creates an isolated environment to run Unfurl in.
+This will create an Unfurl project located at ``~/.unfurl_home``, unless you specify another path using the ``--home`` global option. It will contain local configuration settings that will be shared with your other projects, including `execution runtimes <execution runtime>`.
 
 By default it will create one git repository for the project and the ensemble -- you can override this using the ``--poly`` option.
 
@@ -477,8 +484,7 @@ Or, if you have an existing home project, you can just clone it like any other p
 
 To create a new `execution runtime` for the home project, use the ``runtime`` command, for example: ``unfurl runtime --init ~/.unfurl_home``.
 
-As Unfurl Home is a standard Unfurl project, you can customize it and deploy it like any other project.
-Resource deployed in your Unfurl project can be access by other projects by declaring the home project as an `external ensemble<external ensembles>`. See the :unfurl_github_tree:`home project skeleton<unfurl/skeletons/home>` for an example of how to configure this.
+As Unfurl Home is a standard Unfurl project, you can customize it and deploy ensembles in it like any other project. The home project typically have a `localhost ensemble <The Localhost Ensemble>` that you can use to manage locally installed artifacts.
 
 .. tip::
 
@@ -488,6 +494,11 @@ Resource deployed in your Unfurl project can be access by other projects by decl
 
       connections:
         primary_provider: home:k8s
+
+Registering projects
+--------------------
+
+The `unfurl home --register` command let's you register a project with the home project. Projects created with the `--as-shared-environment <shared environments>` option are automatically registered. Registered projects and their repositories are added to the ``projects`` and ``localRepositories`` sections of `unfurl.yaml`. If registered project's git repository doesn't have a remote url (ie. missing a git remote with an remote url), ``local/unfurl.yaml`` will be updated instead. Once a project registered, if another project references its repository, it will use the first project's local repository instead of cloning it. For example, you can maintain only one local copy of a blueprint project even if multiple project use it.  This is particularly useful during development when you have local modifications to a blueprint.
 
 Execution Runtime
 =================

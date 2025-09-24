@@ -2285,9 +2285,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         default_factory=dict, init=False
     )
     _builtin_fields: ClassVar[Sequence[str]] = ("_version",)
-    _version: ClassVar[Optional[tosca_version]] = field(
-        default=None, kw_only=MISSING, name="version", ClassVar=True
-    )
+
     _initialized: bool = dataclasses.field(
         default=False, init=False, repr=False, compare=False
     )
@@ -2931,13 +2929,20 @@ class ToscaType(_ToscaType):
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
+    """Metadata to add to the type definition."""
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
+    """Metadata to add to the template."""
+    _version: ClassVar[Optional[tosca_version]] = field(
+        default=None, kw_only=MISSING, name="version", ClassVar=True
+    )
+    """version of this TOSCA type"""
 
     @classmethod
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
     ) -> Optional[dataclasses.Field]:
-        if name == "_version":
+        # if this is a derived class
+        if cls.__module__ != __name__ and name == "_version":
             assert name in cls.__dataclass_fields__, (
                 name,
                 cls,
