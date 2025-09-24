@@ -455,7 +455,7 @@ class YamlManifest(ReadOnlyManifest):
             if (
                 not deployment_blueprint
                 and localEnv
-                and localEnv.manifest_context_name != "defaults"
+                and localEnv.manifest_environment_name != "defaults"
             ):
                 deployment_blueprint = _match_deployment_blueprints(
                     deployment_blueprints, self.context
@@ -491,7 +491,7 @@ class YamlManifest(ReadOnlyManifest):
         self._set_spec(spec, more_spec, skip_validation, "spec")
         assert self.tosca
         if self.localEnv:
-            msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_context_name}"'
+            msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_environment_name}"'
             if self.tosca.topology and self.tosca.topology.primary_provider:
                 msg += f' with a primary_provider of type "{self.tosca.topology.primary_provider.type}"'
             logger.info(msg)
@@ -745,7 +745,7 @@ class YamlManifest(ReadOnlyManifest):
             localEnv = LocalEnv(
                 path,
                 parent=self.localEnv,
-                override_context=location.get("environment", ""),
+                override_environment=location.get("environment", ""),
             )
             if self.is_path_to_self(localEnv.manifestPath):
                 # don't import self (might happen when context is shared)
@@ -835,7 +835,8 @@ class YamlManifest(ReadOnlyManifest):
         lfs_lock_path = lock.get("name")
         if lfs_lock_path and self.localEnv:
             lock_vars = dict(
-                environment=self.localEnv.manifest_context_name, ensemble_uri=self.uri
+                environment=self.localEnv.manifest_environment_name,
+                ensemble_uri=self.uri,
             )
             if self.repo:
                 lock_vars["local_lock_path"] = os.path.relpath(

@@ -1415,7 +1415,7 @@ def commit(
         project_or_ensemble_path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
     if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(
         localEnv.manifestPath
@@ -1594,7 +1594,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         local_env = LocalEnv(
             path,
             options.get("home"),
-            override_context=options.get("use_environment") or "",
+            override_environment=options.get("use_environment") or "",
             readonly=True,
         )
     except Exception:
@@ -1644,7 +1644,7 @@ def status(ctx, ensemble, **options):
     localEnv = LocalEnv(
         ensemble,
         options.get("home"),
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
         readonly=True,
     )
     logger = logging.getLogger("unfurl")
@@ -1684,7 +1684,7 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         project_or_ensemble_path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
         committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()

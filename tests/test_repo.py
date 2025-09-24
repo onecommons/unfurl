@@ -785,10 +785,10 @@ def test_clone_ensemble_repo():
         assert "ensemble1" in os.listdir("dst")
         assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
         local_env = LocalEnv("dst/ensemble1")
-        assert local_env.manifest_context_name == "inner"
+        assert local_env.manifest_environment_name == "inner"
         assert local_env.project.projectRoot.endswith("dst")
         local_env2 = LocalEnv("dst")
-        assert local_env2.manifest_context_name == "outer"
+        assert local_env2.manifest_environment_name == "outer"
         # print_config("dst/ensemble1")
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])
 

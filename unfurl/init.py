@@ -744,7 +744,7 @@ def _get_context_and_shared_repo(project: Project, options):
     shared = options.get("shared_repository")
     context = options.get("use_environment")
     if not context:
-        context = project.get_default_context()
+        context = project.get_default_environment()
     if not shared and context:
         shared = project.get_default_project_path(context)
     if shared:
@@ -905,7 +905,7 @@ class EnsembleBuilder:
         localEnv = LocalEnv(
             manifestPath,
             project=project,
-            override_context=use_environment,
+            override_environment=use_environment,
             parent=self.options.get("parent_localenv"),
         )
         manifest = yamlmanifest.ReadOnlyManifest(
@@ -1049,7 +1049,7 @@ class EnsembleBuilder:
                 can_be_empty=True,
                 homePath=self.home_path,
                 project=current_project,
-                override_context=self.options.get("use_environment"),
+                override_environment=self.options.get("use_environment"),
             )
             cloudmap = CloudMap.get_db(local_env)
             repo_key = self.input_source[len("cloudmap:") :]

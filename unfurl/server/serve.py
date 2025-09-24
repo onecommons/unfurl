@@ -1722,14 +1722,14 @@ def _do_export(
         )
     assert local_env
     if args.get("environment"):
-        local_env.manifest_context_name = args["environment"]
+        local_env.manifest_environment_name = args["environment"]
     elif args.get("implementation_requirements"):
         primary_provider = args["implementation_requirements"]
         if local_env.project:
             local_env.project.contexts["_export_types_placeholder"] = dict(
                 connections=dict(primary_provider=dict(type=primary_provider))
             )
-            local_env.manifest_context_name = "_export_types_placeholder"
+            local_env.manifest_environment_name = "_export_types_placeholder"
     if cache_entry:
         from .cache import ServerCacheResolver
 
@@ -2213,8 +2213,8 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                 )
     assert manifest.manifest and manifest.manifest.config and manifest.repo
     skip_prefixes = ["defaults"]
-    if manifest.localEnv and manifest.localEnv.manifest_context_name:
-        skip_prefixes.append(manifest.localEnv.manifest_context_name)
+    if manifest.localEnv and manifest.localEnv.manifest_environment_name:
+        skip_prefixes.append(manifest.localEnv.manifest_environment_name)
     _apply_imports(
         manifest.manifest.config["spec"]["service_template"],
         imports,

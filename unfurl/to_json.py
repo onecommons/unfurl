@@ -1802,7 +1802,7 @@ def to_environments(
             continue
         try:
             # reuse the localEnv and use the default manifest so environment instances don't clash with a real deployment
-            localEnv.manifest_context_name = name
+            localEnv.manifest_environment_name = name
             # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
             localEnv._manifests.pop(default_manifest_path, None)
             localEnv.manifestPath = default_manifest_path
@@ -1844,7 +1844,7 @@ def to_deployments(
                 localEnv.project.projectRoot, manifest_path, "ensemble.yaml"
             )
             environment = dp.get("environment") or "defaults"
-            localEnv.manifest_context_name = environment
+            localEnv.manifest_environment_name = environment
             deployments.append(to_deployment(localEnv))
         except Exception:
             logger.error("error exporting deployment %s", manifest_path, exc_info=True)

@@ -603,7 +603,7 @@ spec:
             # print_config(".", "../unfurl_home")
 
             localEnv = LocalEnv("new_ensemble_in_shared", homePath="../unfurl_home")
-            assert localEnv.manifest_context_name == "production"
+            assert localEnv.manifest_environment_name == "production"
             assert (
                 localEnv.project.localConfig.config.expanded["default_environment"]
                 == "production"
@@ -627,7 +627,7 @@ spec:
             run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
             # print_config("p1copy", "./unfurl_home")
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
-            assert localEnv.manifest_context_name == "production"
+            assert localEnv.manifest_environment_name == "production"
             # default context is set for the new
             ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
                 0

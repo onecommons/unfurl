@@ -1706,7 +1706,7 @@ def start_job(
     localEnv = LocalEnv(
         manifestPath,
         _opts.get("home"),
-        override_context=_opts.get("use_environment") or "",
+        override_environment=_opts.get("use_environment") or "",
         overrides=dict(opts.vars or {}),
         # XXX readonly=_opts.get("planOnly")
     )

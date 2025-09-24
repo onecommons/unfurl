@@ -953,7 +953,7 @@ def get_ensemble_metadata(arg, ctx: RefContext):
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
         metadata["revision"] = ensemble.repo.revision[:8]
-    environment = ensemble.localEnv and ensemble.localEnv.manifest_context_name
+    environment = ensemble.localEnv and ensemble.localEnv.manifest_environment_name
     if environment:
         metadata["environment"] = environment
     if arg:

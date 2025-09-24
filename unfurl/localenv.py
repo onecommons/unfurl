@@ -125,12 +125,7 @@ class Project:
         )
         self.parentProject = parentProject
         if parentProject:
-            saved = parentProject.register_project(self, save)
-            if saved:
-                logger.verbose(
-                    "Registered project with parent project at %s",
-                    parentProject.projectRoot,
-                )
+            parentProject.register_project(self, save)
         self._set_contexts()
         # depends on _set_contexts():
         self.project_repoview.yaml = make_yaml(self.make_vault_lib())
@@ -616,7 +611,7 @@ class Project:
             name = "_" + name
         return name
 
-    def get_default_context(self) -> Optional[str]:
+    def get_default_environment(self) -> Optional[str]:
         return self.localConfig.config.expanded.get("default_environment")
 
     def get_default_project_path(self, context_name: str) -> Optional[str]:
@@ -769,7 +764,7 @@ class Project:
             environment = url_vars.get("ENVIRONMENT")
             if not environment:
                 # find the name of the environment that the current ensemble's is using
-                # (we're still loading, so can't use manifest_context_name)
+                # (we're still loading, so can't use manifest_environment_name)
                 environment = expanded and expanded.get("default_environment")
                 ensembles = expanded and expanded.get("ensembles") or []
                 if "manifest_path" in url_vars:
@@ -922,13 +917,13 @@ class LocalConfig:
 
     def register_project(
         self,
-        project: Project,
+        external_project: Project,
         save: bool,
     ) -> bool:
         """
-        Register an external project with current project by updating the project's configuration files.
+        Register an external project with current project by updating the current project's configuration files.
         If the external project's git repository is local (ie. missing a git remote with an remote url) then save it in the local config ("local/unfurl.yaml") if it exists .
-        Otherwise, add it to the main config ("unfurl.yaml").
+        Otherwise, add it to the main config ("unfurl.yaml"). If the external project has shared environments they will be added here with the "defaultProject" key set.
 
         Args:
             project (Project): The project to register.
@@ -940,62 +935,76 @@ class LocalConfig:
         # update, if necessary, localRepositories and projects
         key, local = self.find_config(True)
 
-        repo = project.project_repoview
+        repo = external_project.project_repoview
         localRepositories = local.setdefault("localRepositories", {})
         lock = repo.lock()
-        name = self._get_project_name(project)
-        lock["project"] = name
+        external_name = self._get_project_name(external_project)
+        lock["project"] = external_name
         changed = False
         if localRepositories.get(repo.working_dir) != lock:
             localRepositories[repo.working_dir] = lock
             changed = True
 
         if repo.is_local_only():
-            projectConfig = local
+            current_project_config = local
         else:
-            projectConfig = self.config.config
+            current_project_config = self.config.config
 
         projects_changed = False
         externalProject = dict(
             url=normalize_git_url(repo.url, 1),
             initial=repo.get_initial_revision(),
         )
-        file = os.path.relpath(project.projectRoot, repo.working_dir)
+        file = os.path.relpath(external_project.projectRoot, repo.working_dir)
         if file and file != ".":
             externalProject["file"] = file
 
-        self.projects[name] = externalProject
-        project_tpl = projectConfig.setdefault("projects", {})
-        if project_tpl.get(name) != externalProject:
-            if name in project_tpl:
+        self.projects[external_name] = externalProject
+        project_tpl = current_project_config.setdefault("projects", {})
+        if project_tpl.get(external_name) != externalProject:
+            if external_name in project_tpl:
                 save = True  # force save if existing project needs updating
-            project_tpl[name] = externalProject
+            project_tpl[external_name] = externalProject
             projects_changed = True
 
-        # update that environments that the given project as its default project"
+        # set defaultProject to the external project in any environment
+        # that the external project claims as default
         environments_default_for = (
-            project.localConfig.environments_with_self_as_default()
+            external_project.localConfig.environments_with_self_as_default()
         )
         if environments_default_for:
             for env_name in environments_default_for:
-                environment = projectConfig.setdefault("environments", {}).setdefault(
-                    env_name, {}
-                )
-                if environment.get("defaultProject") != name:
-                    environment["defaultProject"] = name
+                environment = current_project_config.setdefault(
+                    "environments", {}
+                ).setdefault(env_name, {})
+                if environment.get("defaultProject") != external_name:
+                    environment["defaultProject"] = external_name
                     projects_changed = True
                     save = True  # force save
 
         if not save:
             return False
-        if projectConfig is self.config.config:
+        if current_project_config is self.config.config:
             local_changed = changed
             main_changed = projects_changed
         else:
             local_changed = changed or projects_changed
             main_changed = False
         if main_changed or local_changed:
-            return self.save_config(key if local_changed else None, main_changed)
+            local_path = key if local_changed else None
+            saved = self.save_config(local_path, main_changed)
+            if saved and self.config.path:
+                if local_path:
+                    config_path = os.path.join(
+                        os.path.dirname(self.config.path), local_path
+                    )
+                else:
+                    config_path = self.config.path
+                logger.verbose(
+                    "Registered project with parent project at %s",
+                    config_path,
+                )
+            return saved
         return False
 
     def save_config(self, key: Optional[str], main: bool) -> bool:
@@ -1064,7 +1073,7 @@ class LocalEnv:
         parent: Optional["LocalEnv"] = None,
         project: Optional[Project] = None,
         can_be_empty: bool = False,
-        override_context: Optional[str] = None,
+        override_environment: Optional[str] = None,
         overrides: Optional[Dict[str, Any]] = None,
         readonly: Optional[bool] = False,
     ) -> None:
@@ -1080,13 +1089,13 @@ class LocalEnv:
 
         logger = logging.getLogger("unfurl")
         self.logger = logger
-        self.manifest_context_name = None
+        self.manifest_environment_name = None
         self.overrides: dict = overrides or (parent and parent.overrides.copy()) or {}
         self.readonly = readonly
-        if override_context is not None:
+        if override_environment is not None:
             # aka the --use-environment option
             # hackishly, "" is a valid option used by load_yaml_include
-            self.overrides["ENVIRONMENT"] = override_context
+            self.overrides["ENVIRONMENT"] = override_environment
         if os.getenv("UNFURL_SKIP_VAULT_DECRYPT"):
             self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
         if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
@@ -1117,9 +1126,9 @@ class LocalEnv:
             can_be_empty,
             self.overrides.get("UNFURL_SEARCH_ROOT", os.sep),
         )
-        if override_context:
+        if override_environment:
             # set after _resolve_path_and_project() is called
-            self.manifest_context_name = override_context
+            self.manifest_environment_name = override_environment
         if project:
             # this arg is used in init.py when creating a project
             # overrides what was set by _resolve_path_and_project()
@@ -1145,17 +1154,17 @@ class LocalEnv:
                 raise UnfurlError(
                     f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
                 )
-        self._set_environment(override_context)
+        self._set_environment(override_environment)
 
-    def _set_environment(self, override_context: Optional[str]) -> None:
-        if override_context and override_context != "defaults":
-            assert override_context == self.manifest_context_name, (
-                self.manifest_context_name
+    def _set_environment(self, override_environment: Optional[str]) -> None:
+        if override_environment and override_environment != "defaults":
+            assert override_environment == self.manifest_environment_name, (
+                self.manifest_environment_name
             )
             project = self.project or self.homeProject
-            if not project or self.manifest_context_name not in project.contexts:
+            if not project or self.manifest_environment_name not in project.contexts:
                 raise UnfurlError(
-                    f'No environment named "{self.manifest_context_name}" found.'
+                    f'No environment named "{self.manifest_environment_name}" found.'
                 )
 
     def _resolve_path_and_project(
@@ -1201,16 +1210,16 @@ class LocalEnv:
                 manifest_path, can_be_empty, stop_at, project
             )
             self.project = project
-            if self.manifest_context_name is None:
+            if self.manifest_environment_name is None:
                 # don't set this if the nested project already set it
-                self.manifest_context_name = project.get_default_context()
+                self.manifest_environment_name = project.get_default_environment()
         else:
             self.project = None
 
     def _resolve_from_config(
         self, manifest_path: str, can_be_empty: bool, stop_at: str, project: Project
     ) -> Project:
-        self.manifest_context_name = project.get_default_context()
+        self.manifest_environment_name = project.get_default_environment()
         if self.manifestPath:
             # We're pointing directly at a manifest path,
             # look up project info to get its context
@@ -1230,8 +1239,8 @@ class LocalEnv:
                             f'Can not find an ensemble at a default location in "{project.projectRoot}"'
                         )
         if location:
-            self.manifest_context_name = location.get(
-                "environment", self.manifest_context_name
+            self.manifest_environment_name = location.get(
+                "environment", self.manifest_environment_name
             )
             self.manifestPath = project.adjust_manifest_path(location, self)
             if "managedBy" in location:
@@ -1283,13 +1292,13 @@ class LocalEnv:
         # used by __main__.vaultclient
         project = self.project or self.homeProject
         if project:
-            return project.get_vault_password(self.manifest_context_name, vaultId)
+            return project.get_vault_password(self.manifest_environment_name, vaultId)
         return None
 
     def get_vault(self):
         project = self.project or self.homeProject
         if project:
-            vault = project.make_vault_lib(self.manifest_context_name)
+            vault = project.make_vault_lib(self.manifest_environment_name)
             if vault:
                 self.logger.info(
                     "Vault password found, configuring vault ids: %s",
@@ -1299,8 +1308,8 @@ class LocalEnv:
             vault = None
         if not vault:
             msg = "No vault password found"
-            if self.manifest_context_name:
-                msg += f" for environment {self.manifest_context_name}"
+            if self.manifest_environment_name:
+                msg += f" for environment {self.manifest_environment_name}"
             self.logger.debug(msg)
         return vault
 
@@ -1496,7 +1505,7 @@ class LocalEnv:
         context = context or {}
         project = self.project or self.homeProject
         if project:
-            return project.get_context(self.manifest_context_name, context)
+            return project.get_context(self.manifest_environment_name, context)
         return context
 
     @staticmethod
