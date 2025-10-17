@@ -291,6 +291,10 @@ def _json_pointer_validate(pointer):
     return None
 
 
+def _is_raw(includeValue):
+    return isinstance(includeValue, str) and "raw" in includeValue
+
+
 def get_template(
     doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None, mergeStrategyKey=mergeStrategyKey
 ) -> Optional[Any]:
@@ -314,7 +318,7 @@ def get_template(
             templatePath = key.pointer
 
     try:
-        if value != "raw" and isinstance(
+        if not _is_raw(value) and isinstance(
             template, Mapping
         ):  # raw means no further processing
             # if the include path starts with the path to the template
@@ -484,6 +488,7 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
     cp = cls()
     # first merge any includes includes into cp
     templates: List[MutableMapping] = []
+    overlays: List[MutableMapping] = []
     assert isinstance(current, Mapping), current
     for key, value in current.items():
         if not isinstance(key, str):
@@ -509,7 +514,10 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
             includes.setdefault(path, []).append((mergeKey, value))
             template = get_template(doc, mergeKey, value, path, cls, includes, mergeStrategyKey)
             if isinstance(template, MutableMapping):
-                templates.append(template)
+                if isinstance(value, str) and "overlay" in value:
+                    overlays.append(template)
+                else:
+                    templates.append(template)
             elif mergeKey.include and template is None:
                 continue  # include path not found
             else:
@@ -528,15 +536,16 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
         else:
             cp[key] = value
 
-    if templates:
-        accum = templates.pop(0)
+    if templates or overlays:
         templates.append(cp)
+        templates.extend(overlays)
+        accum = templates.pop(0)
         while templates:
             cls = getattr(templates[0], "mapCtor", cls)
             accum = merge_dicts(accum, templates.pop(0), cls, mergeStrategyKey)
-        return accum
     else:
-        return cp
+        accum = cp
+    return accum
     # e,g, merge_dicts(merge_dicts(a, b), cp)
     # return includes, reduce(lambda accum, next: merge_dicts(accum, next, cls), templates, {}), cp
 
@@ -724,7 +733,8 @@ def replace_path(doc, key, value, cls=dict):
     path = key[:-1]
     last = key[-1]
     ref = lookup_path(doc, path, cls)
-    ref[last] = value
+    if ref is not None:
+        ref[last] = value
 
 
 def delete_path(doc, key):
@@ -732,7 +742,7 @@ def delete_path(doc, key):
         path = key[:-1]
         last = key[-1]
         ref = lookup_path(doc, path)
-        if ref:
+        if ref is not None:
             del ref[last]
 
 
@@ -742,6 +752,8 @@ def add_template(changedDoc, path, mergeKey, template, cls):
         if mergeKey.relative > 1:
             path = path[: (mergeKey.relative - 1) * -1]
         current = lookup_path(changedDoc, path, cls)
+        if current is None:
+            return
     else:
         current = changedDoc
 
@@ -804,7 +816,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyK
                 ref[includeKey.key] = includeValue
 
             if not stillHasTemplate:
-                if includeValue != "raw":
+                if not _is_raw(includeValue):
                     if has_template(originalDoc, includeKey, includeValue, key, cls):
                         template = get_template(
                             originalDoc, includeKey, "raw", key, cls

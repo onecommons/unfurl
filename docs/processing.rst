@@ -17,11 +17,11 @@ Merge keys can have the following components:
 
 .. productionlist::
      merge key      : merge_directive | merge_anchor | merge_strategy
-     merge_directive : "+"["?"][include][alias][relative_path][absolute_path]
+     merge_directive : "+"["?"][include][alias][relative_start][path]
      include        : "include"[ALPHNUM]*
      alias          : "*"[PCHAR]*[PCHAR except "."]
-     relative_path  : "."+
-     absolute_path  : ["/" PCHAR*]+
+     relative_start : "."+
+     path           : ["/" PCHAR*]+
      ALPHNUM        : a-z, A-Z, 0-9, _, -
      PCHAR          : any printable character except "/"
      merge_anchor   : "+&"
@@ -36,41 +36,49 @@ A leading '?' indicates that reference maybe missing, otherwise the processing w
 
 ``*alias``: a reference to merge anchor that appears in either the current document or, a file was specified, from that file.
 
-``relative path``: '.'+ The path starting at current location this key appears in.
+``relative start``: '.'+ The path is relative to the current location this key appears in.
 
-``absolute path``: [/path]+ A path that is resolved following <jsonpointer> RFC
+``path``: [/path]+ A path that is resolved following <jsonpointer> RFC
 
 If the directive contains "include", its value can be a map or a string. If it is a string, treat the value as a file path or a URL to a YAML or JSON file.
-If it is a map, it must have a ``file`` key whose value is file path or URL, and optionally a "repository" key.
+If it is a map, it must have a ``file`` key whose value is file path or URL, and optionally a "repository" key and a "merge" key whose value is a merge directive value.
 
 For other directives, if the value of the merge directive is empty, merge the result using algorithm described below.
-If the value is "raw", include the result without any further processing.
+If the value contains "raw", include the result without any further processing.
+If the value contains "overlay", set the merge algorithm to "overlay" mode as described below.
 
-The resolved value is merged into the directive's dictionary using the following rules\:
+The resolved value is merged into the map containing the directive using the following rules\:
 
   If the result of the lookup is not a JSON object or YAML map\:
 
-    If the map containing the merge key has no other keys\:
-      it will replaced by the result, otherwise abort processing with a merge error
+    If result of the lookup is a list and the map being replaced appears as an item in a list\:
+      The list is spliced in place. (If you don't want that behavior just wrap the include in another list, e.g ``[{+/list1: null}]``)
 
-    If the map being replaced appears as an item in a list and the result of the merge is also a list\:
-      the list is spliced in place.
+    Otherwise, if the map being replaced has no other keys\:
+      Replace the map by the result
 
-    (If you don't want that behavior just wrap the include in another list, e.g ``[{+/list1: null}]``
+    Otherwise abort processing with a merge error
 
-    Otherwise, recursively merge the maps\:
-      for each key in the result object
+  Otherwise, recursively merge the maps\:
+    for each key in the result object
         if the key doesn't exist in the target\:
-          add the key and value
-        if value of the target key is null treat it like an empty object
-          otherwise, if value of the target key is not an object\:
-            ignore this key
-        if value of the target key is an object with a merge directive with the value "whiteout" (``{+%: whiteout}``)\:
-          omit the target key from the result object
-        if value of the target key is an object with a merge directive with the value "nullout" (``{+%: nullout}``)\:
-          set the target key to null in the result object
+          Add the key and value
+        otherwise if the result value is not an object or array\:
+          Ignore this key or, if in "overlay" mode, replace the target value with the result value
+        otherwise, if value of the target key:
+            is null\:
+              Treat it like an empty object
+            is an object with a merge directive with the value "whiteout" (``{+%: whiteout}``)\:
+               Omit the target key from the result object
+            is an object with a merge directive with the value "nullout" (``{+%: nullout}``)\:
+              Set the target key to null in the result object
+            is a different type then the result value\:
+              Ignore this key or, if in "overlay" mode, replace the target value with the result value.
+            is an array \:
+              Append the target items is the result array if they aren't already found in the result array.
 
-        otherwise, merge two values following these rules.
+        otherwise, merge the result object value and target object value following these rules.
+
 
 
 Restoring merge directives
