@@ -12,6 +12,7 @@ import uuid
 import zipfile
 from jinja2.loaders import FileSystemLoader
 from pathlib import Path
+import json
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
@@ -276,6 +277,7 @@ def render_project(
         vaultpass = vars["VAULT_PASSWORD"] = ""
         vaultid = ""
 
+    merge = vars.get("merge_directive")
     localProjectConfig = write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
@@ -288,7 +290,10 @@ def render_project(
         if use_vault and (not skeleton_vars or not skeleton_vars.get("VAULT_PASSWORD")):
             _warn_about_new_password(localProjectConfig)
 
-        localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
+        value = os.path.join("local", localConfigFilename)
+        if merge:
+            value = json.dumps(dict(file=value, merge=merge))
+        localInclude = f"+?include-local: {value}"
     else:
         # no local config
         use_vault = False
@@ -302,9 +307,10 @@ def render_project(
             vars,
             templateDir,
         )
-        secretsInclude = "+?include-secrets: " + os.path.join(
-            "secrets", names.SecretsConfig
-        )
+        value = os.path.join("secrets", names.SecretsConfig)
+        if merge:
+            value = json.dumps(dict(file=value, merge=merge))
+        secretsInclude = f"+?include-secrets: {value}"
     else:
         secretsInclude = ""
 
