@@ -805,6 +805,21 @@ def test_clone_ensemble_repo():
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])
         # secrets folder should be decrypted now
         assert "secrets" in os.listdir("dst/ensemble1")
+        # test that unfurl commit updates repository urls:
+        remote_url = "git@unfurl.cloud:remote/blueprint.git"
+        os.system("git -C src remote add origin " + remote_url)
+        run_cmd(
+            runner,
+            [
+                "--home",
+                "local_home",
+                "commit",
+                "--update-repositories-only",
+                "dst/ensemble1",
+            ],
+        )
+        with open("dst/ensemble1/ensemble.yaml") as f:
+            assert remote_url in f.read()
 
 
 skeletons_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "unfurl", "skeletons")

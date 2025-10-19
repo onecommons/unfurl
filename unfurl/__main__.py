@@ -1397,7 +1397,13 @@ def get_commit_message(committer, default_message):
     "--save-secrets-only",
     default=False,
     is_flag=True,
-    help='Encrypt secret files to ".secrets" directories instead of committing.',
+    help='Only encrypt secret files to ".secrets" directories (skip commit).',
+)
+@click.option(
+    "--update-repositories-only",
+    default=False,
+    is_flag=True,
+    help="Only check git remotes and update repository YAML (skip commit).",
 )
 def commit(
     ctx,
@@ -1407,6 +1413,7 @@ def commit(
     no_edit,
     all_repositories,
     save_secrets_only,
+    update_repositories_only,
     **options,
 ):
     """Commit any changes to the given project or ensemble."""
@@ -1417,8 +1424,12 @@ def commit(
         can_be_empty=True,
         override_environment=options.get("use_environment") or "",
     )
-    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(
-        localEnv.manifestPath
+    logger = logging.getLogger("unfurl")
+    if localEnv.manifestPath and (
+        all_repositories
+        or not localEnv.project
+        or len(os.path.abspath(project_or_ensemble_path))
+        >= len(localEnv.project.projectRoot)
     ):
         ensemble = localEnv.get_manifest()
         default_commit_message = ensemble.get_default_commit_message()
@@ -1427,20 +1438,41 @@ def commit(
         else:
             committer = ensemble.repositories["self"]
     else:
+        # otherwise commit the project repository
+        ensemble = None
         default_commit_message = "Commit by Unfurl"
-        # otherwise commit the whole project
         if all_repositories:
             click.echo("aborting: --all-repositories requires an ensemble path")
             return
         else:
             assert localEnv.project
             committer = localEnv.project.project_repoview
+            if (
+                localEnv.manifestPath
+                and committer.repo
+                and committer.repo.find_repo_path(localEnv.manifestPath)
+            ):
+                # ensemble is in the project repository
+                ensemble = localEnv.get_manifest()
 
     # stage changes before invoking the commit editor
     saved = committer.save_secrets()  # saves but doesn't stage
-    if save_secrets_only:
+    if save_secrets_only and not update_repositories_only:
         click.echo(f"Updated {len(saved)} secret files.")
         return
+
+    if ensemble:
+        # update local repositories if a git remote url was added
+        changed = ensemble.update_repositories()
+        # should update lock too
+        if changed:
+            if "lock" in ensemble.manifest.config:
+                ensemble.save_lock()  # update the lock too
+            logger.info("Updated repositories with new git remote url")
+            ensemble.manifest.save()
+    if update_repositories_only:
+        return
+
     if not skip_add:
         committer.add_all()
 
