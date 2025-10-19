@@ -66,6 +66,7 @@ from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
+from .repo import normalize_git_url
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from ansible.parsing.dataloader import DataLoader
@@ -1126,6 +1127,34 @@ class YamlManifest(ReadOnlyManifest):
         output["specDigest"] = self.specDigest
         return save_status(job, output)
 
+    def update_repositories(self) -> bool:
+        # update repositories if a git remote url was added or changed
+        changed = False
+        repositories = self._get_repositories(self.manifest.config)
+        for name, tpl in repositories.items():
+            url = tpl.get("url")
+            repo_view = self.repositories.get(name)
+            if repo_view and repo_view.repo:
+                if not url or not repo_view.repo.find_remote(url=url):
+                    new_url = normalize_git_url(repo_view.repo.url)
+                    logger.verbose(
+                        "updating repository %s's url from %s to %s",
+                        name,
+                        url,
+                        new_url,
+                    )
+                    tpl["url"] = new_url
+                    changed = True
+        return changed
+
+    def save_lock(self):
+        # modify original to preserve structure and comments
+        lock = Lock(self).lock()
+        if not self.manifest.config.get("lock"):
+            self.manifest.config["lock"] = lock
+        else:
+            patch_dict(self.manifest.config["lock"], lock)
+
     def save_job(
         self, job: "Job"
     ) -> Tuple[CommentedMap, List[CommentedMap], List[CommentedMap]]:
@@ -1133,8 +1162,9 @@ class YamlManifest(ReadOnlyManifest):
         assert self.rootResource
         new_status = self.save_root_resource(self.rootResource, discovered)
         # update changed with includes, this may change objects with references to these objects
-        self.manifest.restore_includes(new_status)
+        # self.manifest.restore_includes(new_status) # FIXME
         assert self.manifest.config
+        self.update_repositories()
         # only saved discovered templates that are still referenced
         spec = self.manifest.config.setdefault("spec", {})
         old_discovered = spec.pop("discovered", None) or {}
@@ -1142,14 +1172,7 @@ class YamlManifest(ReadOnlyManifest):
         if discovered:
             spec["discovered"] = discovered
 
-        # modify original to preserve structure and comments
-        lock = Lock(self).lock()
-        if "lock" not in self.manifest.config:
-            self.manifest.config["lock"] = {}
-        if not self.manifest.config["lock"]:
-            self.manifest.config["lock"] = lock
-        else:
-            patch_dict(self.manifest.config["lock"], lock)
+        self.save_lock()
 
         # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
