@@ -753,35 +753,47 @@ def test_reified_repo(caplog):
 
 def test_clone_ensemble_repo():
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("saving to", test_dir)
+
         run_cmd(runner, ["--home", "local_home", "--no-runtime", "home", "--init"])
+        skeletons_vars = "--var vaultid e1 --var VAULT_PASSWORD uvdAr58vO0ZHo7".split()
         run_cmd(
             runner,
-            ["--home", "local_home", "init", "--use-environment", "inner", "src"],
+            ["--home", "local_home", "init", "--use-environment", "inner", "src"]
+            + skeletons_vars,
         )
         # use a home project so git-local: url resolve across projects
         # we need this because we are doing a remote clone of an ensemble repo with a git-local spec url
         run_cmd(
             runner, ["--home", "local_home", "home", "--register", "src"]
         )
-        ensemble_repo_files = set([
-            "unfurl.yaml",
-            ".gitignore",
-            ".gitattributes",
-            ".git",
-            "ensemble.yaml",
-            ".secrets",
-            ".unfurl-local-template.yaml",
-        ])
+        ensemble_repo_files = set(
+            [
+                "unfurl.yaml",
+                ".gitignore",
+                ".gitattributes",
+                ".git",
+                "ensemble.yaml",
+                ".secrets",
+                ".unfurl-local-template.yaml",
+                "local",
+            ]
+        )
         assert set(os.listdir("src/ensemble")) == (
-            ensemble_repo_files | set(["local", "secrets"])
+            ensemble_repo_files | set(["secrets"])
         )
         run_cmd(
             runner,
             ["--home", "local_home", "init", "--use-environment", "outer", "dst"],
         )
         # use URL with fragment instead of file path to induce remote cloning semantics
-        run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
+        run_cmd(
+            runner,
+            ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"]
+            + skeletons_vars,
+        )
         assert "ensemble1" in os.listdir("dst")
         assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
         local_env = LocalEnv("dst/ensemble1")
@@ -791,6 +803,8 @@ def test_clone_ensemble_repo():
         assert local_env2.manifest_environment_name == "outer"
         # print_config("dst/ensemble1")
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])
+        # secrets folder should be decrypted now
+        assert "secrets" in os.listdir("dst/ensemble1")
 
 
 skeletons_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "unfurl", "skeletons")

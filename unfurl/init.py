@@ -1101,7 +1101,9 @@ class EnsembleBuilder:
         return self.source_project
 
     def _needs_local_config(self, clonedProject: Project) -> bool:
-        return bool(self.skeleton_vars) and not os.path.exists(
+        return os.path.exists(
+            os.path.join(clonedProject.projectRoot, DefaultNames.LocalConfig)
+        ) and not os.path.exists(
             os.path.join(clonedProject.projectRoot, "local", DefaultNames.LocalConfig)
         )
 
@@ -1220,6 +1222,11 @@ class EnsembleBuilder:
         if not self.template_vars:
             if self.source_project.has_ensembles():
                 # XXX if not destIsNew and use_environment warn: that setting is ignored with existing deployments
+                if self._needs_local_config(self.source_project):
+                    # create local/unfurl.yaml in the new project
+                    _create_local_config(
+                        self.source_project, self.logger, self.skeleton_vars
+                    )
                 return (
                     "Cloned project with a pre-existing ensemble(s) to "
                     + self.dest_project.projectRoot
