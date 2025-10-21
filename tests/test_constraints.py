@@ -437,10 +437,10 @@ apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
-    +?include: ensemble.py
-# include blueprint after ensemble.py so it can patch templates before the include converts them to yaml
+    +?include: ensemble.py  # imports mytypes
+# include ensemble.py before the blueprint so it can patch the mytypes module before the blueprint imports it
 +include-blueprint:
-  file: ensemble-template.yaml
+  file: ensemble-template.yaml  # imports mytypes
   repository: spec
 """
 

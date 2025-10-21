@@ -14,7 +14,7 @@ from ..to_json import get_project_path
 
 from ..logs import getLogger
 
-from ..repo import GitRepo
+from ..repo import GitRepo, normalize_git_url
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
@@ -103,7 +103,7 @@ def serve_document(
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
     if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
-        parsed = urlparse(localrepo.remote.url)
+        parsed = urlparse(normalize_git_url(localrepo.remote.url))
         [user, _, *_] = re.split(r"[@:]", parsed.netloc)
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:

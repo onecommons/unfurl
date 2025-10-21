@@ -299,7 +299,7 @@ class Repo(abc.ABC):
 
     @staticmethod
     def get_path_for_git_repo(gitUrl: str, name_only=True) -> str:
-        parts = urlparse(gitUrl)
+        parts = urlparse(normalize_git_url(gitUrl))
         if parts.scheme == "git-local":
             # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
             name = parts.netloc.partition(":")[1]

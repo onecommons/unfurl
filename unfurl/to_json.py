@@ -1411,12 +1411,10 @@ def get_project_path(repo: GitRepo, server_host: str):
     if server_host:
         # only use the project path if remote matches the cloud server
         cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        # no remote (or remote is not for the cloud server), return local project path
-        project_path = get_local_project_path(repo)
-    return project_path
+        if cloud_remote:
+            return Repo.get_path_for_git_repo(cloud_remote.url, False)
+    # no remote (or remote is not for the cloud server), return local project path
+    return get_local_project_path(repo)
 
 
 def get_local_project_path(repo: GitRepo):
