@@ -476,7 +476,7 @@ class YamlManifest(ReadOnlyManifest):
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
         connections = []
         for name, value in importsSpec.items():
-            connections.extend(self.load_external_ensemble(name, value))
+            connections.extend(self.maybe_load_external_ensemble(name, value))
         self.imports.connections = connections
 
         if self.context.get("instances") and load_env_instances:
@@ -704,6 +704,15 @@ class YamlManifest(ReadOnlyManifest):
         if imports:
             tosca["imports"] = imports
         return tosca
+
+    def maybe_load_external_ensemble(
+        self, name: str, value: Dict[str, Any]
+    ) -> List["RelationshipInstance"]:
+        if not value.get("connections") and not value.get("instance"):
+            # if not explicitly referencing a connection or instance defer loading manifest until a template references it
+            self.imports.add_import(name, None, value)
+            return []
+        return self.load_external_ensemble(name, value)
 
     def load_external_ensemble(
         self, name: str, value: Dict[str, Any]

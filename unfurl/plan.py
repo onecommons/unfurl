@@ -22,10 +22,9 @@ if TYPE_CHECKING:
     from .job import JobOptions
 
 from .runtime import (
-    InstanceKey,
     NodeInstance,
     EntityInstance,
-    Operational,
+    HasInstancesInstance,
     TopologyInstance,
 )
 from .util import UnfurlError
@@ -109,7 +108,7 @@ class Plan:
         return None
 
     def create_shadow_instance(
-        self, external: EntityInstance, import_name: str, template: EntitySpec
+        self, external: HasInstancesInstance, import_name: str, template: EntitySpec
     ) -> EntityInstance:
         # create a local instance that "shadows" the external one we imported
         assert self.root.imports is not None

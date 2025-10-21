@@ -1294,9 +1294,9 @@ def get_import(arg: str, ctx: RefContext):
     """
     Returns the external resource associated with the named import
     """
-    try:
-        imported = ctx.currentResource.root.imports[arg]
-    except KeyError:
+    # use _find_import so we only find manifests declared in the "external" section
+    imported = ctx.currentResource.root.imports._find_import(arg)
+    if not imported:
         raise UnfurlError(f"Can't find import '{arg}'")
     if arg == "secret":
         return SecretResource(arg, imported)
@@ -1328,7 +1328,7 @@ def register_custom_constraint(key, func):
 class _Import:
     def __init__(
         self,
-        external_instance: "HasInstancesInstance",
+        external_instance: Optional["HasInstancesInstance"],
         spec: dict,
         local_instance: Optional["HasInstancesInstance"] = None,
     ):
@@ -1388,19 +1388,34 @@ class Imports(OrderedDict[str, _Import]):
         return None
 
     def _find_import(self, name: str) -> Optional[_Import]:
-        if name in self:
+        if name in self and self[name].external_instance:
             # fully qualified name already added
             return self[name]
         iName, sep, rName = name.partition(":")
         if not iName or iName not in self:
             return None
         # do a unqualified look up to find the declared import
-        imported = self[iName].external_instance.root.find_instance(rName or "root")
+        external = self[iName].external_instance
+        if not external:
+            assert self[iName].spec
+            cast("YamlManifest", self.manifest).load_external_ensemble(
+                iName, self[iName].spec
+            )
+            external = self[iName].external_instance
+        assert external
+        if not rName:
+            return self[iName]
+        imported = external.root.find_instance(rName)
         if imported:
             return self.add_import(iName, imported)
         return None
 
-    def set_shadow(self, key: str, local_instance, external_instance) -> _Import:
+    def set_shadow(
+        self,
+        key: str,
+        local_instance: "HasInstancesInstance",
+        external_instance: "HasInstancesInstance",
+    ) -> _Import:
         if key not in self:
             record = self.add_import(key, external_instance)
         else:
@@ -1422,9 +1437,11 @@ class ExternalResource(ExternalValue):
     Wraps a foreign resource
     """
 
-    def __init__(self, name, importSpec):
+    def __init__(self, name, importSpec: "_Import"):
         super().__init__("external", name)
-        self.resource = importSpec.external_instance
+        instance = importSpec.external_instance
+        assert instance
+        self.resource = instance
         self.schema = importSpec.spec.get("schema")
 
     def _validate(self, obj, schema, name):

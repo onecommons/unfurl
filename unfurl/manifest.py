@@ -627,6 +627,7 @@ class Manifest(AttributeManager):
         if imported:
             assert isinstance(importName, str)
             instance.imported = importName
+            assert isinstance(instance, NodeInstance)
             self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
         if isinstance(properties, dict):
@@ -1101,7 +1102,7 @@ class Manifest(AttributeManager):
         assert "select" in template.directives
         imported = template.entity_tpl.get("imported")
         assert self.imports is not None
-        logger.warning(f"searching for {imported} / {template.name}")
+        logger.debug(f"searching for {imported} / {template.name}")
         if imported:
             _import = self.imports.find_import(imported)
             if not _import:
@@ -1109,8 +1110,14 @@ class Manifest(AttributeManager):
             return cast(NodeInstance, _import.external_instance)
 
         searchAll = []
-        for name, record in self.imports.items():
+        for name, record in self.imports.copy().items():
             external = record.external_instance
+            if not external:
+                assert record.spec
+                # assume this is a YamlManifest
+                self.load_external_ensemble(name, record.spec)  # type: ignore
+                external = self.imports[name].external_instance
+            assert external
             if match(name, external.template, template):
                 template.entity_tpl["imported"] = name
                 self.imports.add_import(name, external)
