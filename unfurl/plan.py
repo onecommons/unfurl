@@ -766,7 +766,7 @@ class Plan:
                     if not flags:  # skip if already yielded as a operation host
                         yield nodespec
 
-    def include_not_found(self, template):
+    def include_not_found(self, template) -> bool:
         return True
 
     def is_last_workflow_op(self, taskrequest: TaskRequest) -> str:
@@ -828,10 +828,10 @@ class Plan:
 class DeployPlan(Plan):
     interface = "Standard"
 
-    def include_not_found(self, template):
+    def include_not_found(self, template) -> bool:
         if self.jobOptions.add or self.jobOptions.force:
-            return Reason.add
-        return None
+            return True
+        return False
 
     def include_instance(
         self, template: EntitySpec, instance: EntityInstance
@@ -879,14 +879,24 @@ class DeployPlan(Plan):
                 reason = Reason.check
             elif status == Status.pending and self.jobOptions.check:
                 reason = Reason.check
-            elif jobOptions.change_detection != "skip" and instance.last_config_change:
-                # customized is only set if created first!
-                # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
-                # discover would have to calculate digest for configure!
+            elif instance.last_config_change:
                 if (
-                    not instance.customized and not instance.is_managed()
-                ) or jobOptions.change_detection == "always":
+                    not instance.created
+                    and not instance.customized  # set when using discover workflow without template directive
+                    and "discover" not in instance.template.directives
+                ):  # was discovered, but now we want to create it
+                    if jobOptions.add:
+                        # creating a new, different instance, so reset status
+                        instance.local_status = Status.pending
+                        return Reason.add
+                elif jobOptions.change_detection == "always":
                     return Reason.reconfigure
+                elif jobOptions.change_detection != "skip":
+                    # customized is only set if created first
+                    # when should reconfigure run on discovered resources? (currently never runs because no config changeset is found)
+                    # discover would have to calculate digest for configure!
+                    if not instance.customized and not instance.is_managed():
+                        return Reason.reconfigure
         return reason
 
     def check_for_repair(self, instance) -> Optional[str]:

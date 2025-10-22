@@ -560,7 +560,7 @@ class Manifest(AttributeManager):
 
         return resource
 
-    def _get_last_config_changeset(self, operational):
+    def _get_last_config_job_record(self, operational) -> Optional[ChangeRecordRecord]:
         if not operational.last_config_change:
             return None
         if not self.changeSets:  # XXX load changesets if None
@@ -601,7 +601,7 @@ class Manifest(AttributeManager):
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:
-                changerecord = self._get_last_config_changeset(operational)
+                changerecord = self._get_last_config_job_record(operational)
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
         if template is None:

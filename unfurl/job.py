@@ -482,6 +482,15 @@ class ConfigTask(TaskView, ConfigChange):
             and self.configSpec.operation != "check"
             and self.target.customized is None
         ):
+            if (
+                self.configSpec.operation == "discover"
+                and "discover" not in self.target.template.directives
+            ):
+                # instantiated with discovery workflow instead of creating the resource as the template specified,
+                # so mark it as customized (otherwise the next plan will try to create this instance)
+                self.target.customized = self.changeId
+                self.logger.debug("customized by explicit discover workflow")
+                return True
             changeset = cast("YamlManifest", self._manifest).find_last_operation(
                 self.target.key, "configure"
             )
@@ -565,7 +574,7 @@ class ConfigTask(TaskView, ConfigChange):
             self.target.key, self.configSpec.operation
         )
         if not changeset:
-            # don't log exception if target was discovered, discovered resources without a job request won't have a digest
+            # don't log message if target was discovered, discovered resources without a job request won't have a digest
             if isinstance(self.target.created, str):
                 self.logger.debug(
                     'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
