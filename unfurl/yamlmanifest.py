@@ -521,7 +521,13 @@ class YamlManifest(ReadOnlyManifest):
                     instance_tpl["readyState"] = "ok"
                 create_instance_from_spec(self, rootResource, name, instance_tpl)
 
-        if self._load_errors and not skip_validation:
+        if (
+            self._load_errors
+            and not skip_validation
+            and (mode := os.getenv("UNFURL_VALIDATION_MODE"))
+            and mode is not None
+            and "strict_load" in mode
+        ):
             raise UnfurlValidationError(
                 "Error loading ensemble, see logs for errors",
             )

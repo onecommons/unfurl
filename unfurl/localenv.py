@@ -1324,7 +1324,7 @@ class LocalEnv:
         if path and path != self.manifestPath:
             # share projects and ensembles
             localEnv = LocalEnv(path, parent=self, readonly=self.readonly)
-            return localEnv.get_manifest()
+            return localEnv.get_manifest(skip_validation=skip_validation)
         else:
             assert self.manifestPath, "check manifestPath before calling get_manifest"
             manifest = self._manifests.get(self.manifestPath)

@@ -237,14 +237,14 @@ class Manifest(AttributeManager):
             if name not in repositoriesTpl:
                 repositoriesTpl[name] = value
 
-        validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
+        validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
         # make sure this is present
         if "tosca_definitions_version" not in toscaDef:
             toscaDef["tosca_definitions_version"] = TOSCA_VERSION
         api_version = self.apiVersion[len("unfurl/") :]
         if is_semver(api_version):  # old version with non-semver syntax is less strict
-            if validation_mode is None:
-                validation_mode = "types"
+            if "notypecheck" not in validation_mode:
+                validation_mode += " types"
 
             # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
             def replaceStrategy(key, old, new):
@@ -319,8 +319,8 @@ class Manifest(AttributeManager):
         pass
 
     def load_error(self, msg: str) -> None:
-        self._load_error = True
-        logger.error(msg, stack_info=get_console_log_level() < logging.INFO)
+        self._load_errors = True
+        logger.error(msg)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None

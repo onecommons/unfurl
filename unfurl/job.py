@@ -1721,12 +1721,12 @@ def start_job(
     )
     path = localEnv.manifestPath
     if not opts.planOnly:
-        logger.info("creating %s job for %s", opts.workflow, path)
+        logger.info("Creating %s job for %s", opts.workflow, path)
     try:
         manifest = localEnv.get_manifest()
     except Exception as e:
         logger.error(
-            "failed to load manifest at %s: %s",
+            "Failed to load manifest at %s: %s",
             path,
             str(e),
             exc_info=opts.verbose >= 2,
@@ -1739,7 +1739,7 @@ def start_job(
         errors = list(job._yield_serious_errors(rendered[2]))
     except Exception as e:
         logger.error(
-            "could not create job: %s",
+            "Could not create job: %s",
             str(e),
             exc_info=opts.verbose >= 2,
         )

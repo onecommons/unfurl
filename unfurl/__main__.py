@@ -428,7 +428,7 @@ allJobOptions = option_group(
         type=click.Tuple([str, str]),
         multiple=True,
         metavar="NAME VALUE",
-        help="name/value pair to pass to job (multiple times ok).",
+        help="Name/value pair to pass to job (multiple times ok).",
     ),
     rich_group="Generic Job Options",
 )
@@ -442,7 +442,7 @@ destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
     default=False,
     is_flag=True,
-    help="include unmanaged instances for consideration when destroying",
+    help="Include unmanaged instances for consideration when destroying",
 )
 
 
@@ -816,7 +816,7 @@ deployFilterOptions = option_group(
         "--check",
         default=False,
         is_flag=True,
-        help="check if new instances exist before deploying",
+        help="Check if new instances exist before deploying",
     ),
     rich_group=job_filter_group_label,
 )
@@ -910,7 +910,7 @@ def stop(ctx: Context, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @deployFilterOptions
-@click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
+@click.option("--workflow", default="deploy", help="Plan workflow (default: deploy)")
 @click.option(
     "--dryrun",
     default=False,
@@ -1301,16 +1301,18 @@ def _validate_var_option(vars):
     type=click.Path(exists=True),
     help='Path to project or ensemble (default: ".")',
 )
-@click.argument("gitargs", nargs=-1)
-def git(ctx, gitargs, dir="."):
+@click.argument("git_command", nargs=-1)
+def git(ctx, git_command, dir="."):
     """
-    unfurl git [git command] [git command arguments]: Run the given git command on each project repository.
+    Run the given git command line on each project repository.
     """
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
             os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.repo
-            for repo in localEnv.get_manifest().repositories.values()
+            for repo in localEnv.get_manifest(
+                skip_validation=True
+            ).repositories.values()
             if repo.repo
         }
     elif localEnv.project and localEnv.project.project_repoview.repo:
@@ -1327,8 +1329,8 @@ def git(ctx, gitargs, dir="."):
         repo = repos[working_dir]
         if working_dir != ".":
             working_dir = "./" + working_dir
-        click.echo(f"*** Running 'git {' '.join(gitargs)}' in '{working_dir}'")
-        _status, stdout, stderr = repo.run_cmd(gitargs)
+        click.echo(f"*** Running 'git {' '.join(git_command)}' in '{working_dir}'")
+        _status, stdout, stderr = repo.run_cmd(git_command)
         click.echo(stdout + "\n")
         if stderr.strip():
             click.secho(stderr + "\n", fg="red")
@@ -1368,7 +1370,7 @@ def get_commit_message(committer, default_message):
 @project_cli.command()
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
-@click.option("-m", "--message", help="commit message to use")
+@click.option("-m", "--message", help="Commit message to use")
 @click.option(
     "--no-edit",
     default=False,
@@ -1431,7 +1433,7 @@ def commit(
         or len(os.path.abspath(project_or_ensemble_path))
         >= len(localEnv.project.projectRoot)
     ):
-        ensemble = localEnv.get_manifest()
+        ensemble = localEnv.get_manifest(skip_validation=True)
         default_commit_message = ensemble.get_default_commit_message()
         if all_repositories:
             committer: Committer = ensemble
@@ -1453,7 +1455,7 @@ def commit(
                 and committer.repo.find_repo_path(localEnv.manifestPath)
             ):
                 # ensemble is in the project repository
-                ensemble = localEnv.get_manifest()
+                ensemble = localEnv.get_manifest(skip_validation=True)
 
     # stage changes before invoking the commit editor
     saved = committer.save_secrets()  # saves but doesn't stage
@@ -1719,7 +1721,9 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         override_environment=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest(
+            skip_validation=True
+        )
     else:
         assert localEnv.project
         committer = localEnv.project.project_repoview

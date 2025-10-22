@@ -219,7 +219,9 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Gi
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
     try:
-        repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+        repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
+            url
+        )
     except UnfurlError:  # we probably want to treat clone errors as not found
         logger.warning("could not find or clone %s", url, exc_info=True)
         repo_view = None
