@@ -839,11 +839,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 )
                 if new_url:
                     self.manifest.repositories[new_url] = repo_view
-                    logger.debug(
-                        "adding repository %s as %s to avoid replacing existing repository",
-                        repository_name,
-                        new_url,
-                    )
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
             if not toscaparser.imports.is_url(base):

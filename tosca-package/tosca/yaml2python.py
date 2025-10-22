@@ -451,6 +451,8 @@ class Convert:
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
             return name, ""
+        if name == "unfurl" and unfurl:
+            return "unfurl", unfurl.__path__[0]
         name, tosca_name = self._get_name(name)
         if name in self.repository_paths:
             return "tosca_repositories." + name, self.repository_paths[name]
@@ -2146,7 +2148,7 @@ def convert_service_template(
             try:
                 module = importlib.import_module(module_name, package)
                 imports.add_imports(ns, module.__dict__)
-            except:
+            except Exception:
                 if module_name[0] == ".":
                     logger.error(
                         f"error importing {module_name} in {package} {imp_def}",

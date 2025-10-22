@@ -1490,11 +1490,11 @@ def commit(
     click.echo(f"Committed to {committed} repositories.")
 
 
-def _stub_resolver(doc):
+def _stub_resolver(doc, local_env=None):
     from .manifest import Manifest
     from .yamlloader import ImportResolver
 
-    dummy_manifest = Manifest(None)
+    dummy_manifest = Manifest(None, local_env)
     # create package rules for importing built-in unfurl packages:
     dummy_manifest._set_builtin_repositories()
     repositories = dummy_manifest.repositories_as_tpl()
@@ -1780,7 +1780,9 @@ def validate(ctx, path, **options):
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
+            from tosca.loader import install
 
+            install(_stub_resolver({}, localEnv), os.path.dirname(path))
             with open(path) as f:
                 python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
         elif e.doc and "tosca_definitions_version" in e.doc:
