@@ -1779,7 +1779,9 @@ class AttributeManager:
             self._context_vars = {}
             set_context_vars(self._context_vars, resource.root)
         ctor = SafeRefContext if self.safe_mode else RefContext
-        ctx = ctor(resource, self._context_vars, task=self.task, strict=self.strict)
+        ctx = ctor(  # copy() because context vars are modified in place by eval
+            resource, self._context_vars.copy(), task=self.task, strict=self.strict
+        )
         ctx.referenced = self.tracker
         return ctx
 
