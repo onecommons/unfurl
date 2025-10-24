@@ -605,12 +605,77 @@ fn get_int_env_var(key: &str) -> Option<u64> {
     }
     Some(dump)
 }
+
+/// Tests whether a string exactly matches a given regular expression pattern constraint.
+/// The pattern must match the entire string from beginning to end.
+///
+/// # Arguments
+/// * `pattern` - A `Constraint::pattern` with the compiled regex
+/// * `text` - The string to test against the pattern
+///
+/// # Returns
+/// A `PyResult` containing `true` if the entire text matches the pattern, `false` otherwise.
+///
+/// # Errors
+/// Returns a `PyValueError` if the constraint is not a pattern constraint.
+///
+/// # Example
+/// ```python
+/// pattern = make_pattern_constraint(r"\d+")
+/// regex_match_exact(pattern, "123")  // true
+/// regex_match_exact(pattern, "abc123")  // false
+/// ```
+#[cfg_attr(feature = "python", pyfunction)]
+pub fn regex_match_exact(pattern: &Constraint, text: &str) -> PyResult<bool> {
+    if let Constraint::pattern { compiled, .. } = pattern {
+        // Check if there's a match and if it spans the entire string
+        match compiled.regex().find(text) {
+            Some(m) => Ok(m.start() == 0 && m.end() == text.len()),
+            None => Ok(false),
+        }
+    } else {
+        Err(pyo3::exceptions::PyValueError::new_err(
+            "Expected a pattern constraint",
+        ))
+    }
+}
+
+/// Creates a pattern constraint from a regular expression pattern string.
+///
+/// # Arguments
+/// * `pattern` - The regular expression pattern string
+///
+/// # Returns
+/// A `PyResult` containing a `Constraint::pattern` with the compiled regex.
+///
+/// # Errors
+/// Returns a `PyValueError` if the regex pattern is invalid.
+///
+/// # Example
+/// ```python
+/// constraint = make_pattern_constraint(r"^[a-z]+@[a-z]+\.[a-z]+$")
+/// # Now constraint can be used to match email addresses
+/// ```
+#[cfg_attr(feature = "python", pyfunction)]
+pub fn make_pattern_constraint(pattern: &str) -> PyResult<Constraint> {
+    let compiled = topology::CompiledPattern::new(pattern.to_string()).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err(format!("Invalid regex pattern: {}", e))
+    })?;
+
+    Ok(Constraint::pattern {
+        v: ToscaValue::from(pattern.to_string()),
+        compiled,
+    })
+}
+
 /// A Python module implemented in Rust.
 #[cfg(feature = "python")]
 #[pymodule]
 fn tosca_solver(m: &Bound<'_, PyModule>) -> PyResult<()> {
     pyo3_log::init();
     m.add_function(wrap_pyfunction!(solve, m)?)?;
+    m.add_function(wrap_pyfunction!(regex_match_exact, m)?)?;
+    m.add_function(wrap_pyfunction!(make_pattern_constraint, m)?)?;
     m.add_class::<CriteriaTerm>()?;
     m.add_class::<SimpleValue>()?;
     m.add_class::<ToscaValue>()?;
@@ -755,5 +820,111 @@ mod tests {
                 .cloned()
                 .collect();
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_regex_match_exact() {
+        // Test exact match - entire string matches
+        let digit_pattern = make_pattern_constraint(r"\d+").unwrap();
+        assert!(regex_match_exact(&digit_pattern, "123").unwrap());
+
+        let hello_pattern = make_pattern_constraint(r"hello").unwrap();
+        assert!(regex_match_exact(&hello_pattern, "hello").unwrap());
+
+        // Test partial match - pattern only matches part of string
+        assert!(!regex_match_exact(&digit_pattern, "abc123").unwrap());
+        assert!(!regex_match_exact(&digit_pattern, "123abc").unwrap());
+        assert!(
+            !regex_match_exact(&hello_pattern, "hello world").unwrap()
+        );
+
+        // Test with anchors (should still work)
+        let anchored_pattern = make_pattern_constraint(r"^hello$").unwrap();
+        assert!(regex_match_exact(&anchored_pattern, "hello").unwrap());
+        assert!(
+            !regex_match_exact(&anchored_pattern, "hello world").unwrap()
+        );
+
+        // Test complex patterns
+        let email_pattern = make_pattern_constraint(r"[a-z]+@[a-z]+\.[a-z]+").unwrap();
+        assert!(
+            regex_match_exact(&email_pattern, "user@example.com").unwrap()
+        );
+        assert!(
+            !regex_match_exact(&email_pattern, "user@example.com extra").unwrap()
+        );
+
+        // Test digit pattern
+        let phone_pattern = make_pattern_constraint(r"\d{3}-\d{3}-\d{4}").unwrap();
+        assert!(
+            regex_match_exact(&phone_pattern, "123-456-7890").unwrap()
+        );
+        assert!(
+            !regex_match_exact(&phone_pattern, "call 123-456-7890").unwrap()
+        );
+
+        // Test empty string
+        let empty_pattern = make_pattern_constraint(r"").unwrap();
+        assert!(regex_match_exact(&empty_pattern, "").unwrap());
+        assert!(!regex_match_exact(&empty_pattern, "text").unwrap());
+
+        // Test pattern that matches empty (like .*)
+        let any_pattern = make_pattern_constraint(r".*").unwrap();
+        assert!(regex_match_exact(&any_pattern, "anything").unwrap());
+
+        let optional_digits = make_pattern_constraint(r"[0-9]*").unwrap();
+        assert!(regex_match_exact(&optional_digits, "").unwrap());
+        assert!(regex_match_exact(&optional_digits, "123").unwrap());
+        assert!(!regex_match_exact(&optional_digits, "abc").unwrap());
+
+        // Test with non-pattern constraint
+        let non_pattern = Constraint::equal {
+            v: ToscaValue::from("test".to_string()),
+        };
+        let result = regex_match_exact(&non_pattern, "test");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_make_pattern_constraint() {
+        // Test creating a valid pattern constraint
+        let pattern = r"^[a-z]+@[a-z]+\.[a-z]+$";
+        let constraint = make_pattern_constraint(pattern).unwrap();
+
+        // Verify the constraint has the correct pattern value
+        if let Constraint::pattern { v, .. } = &constraint {
+            if let SimpleValue::string { v: pattern_str } = &v.v {
+                assert_eq!(pattern_str, pattern);
+            } else {
+                panic!("Expected string value in pattern constraint");
+            }
+        } else {
+            panic!("Expected pattern constraint");
+        }
+
+        // Test that the constraint can match strings
+        assert!(constraint
+            .matches(&ToscaValue::from("user@example.com".to_string()))
+            .unwrap());
+        assert!(!constraint
+            .matches(&ToscaValue::from("invalid-email".to_string()))
+            .unwrap());
+
+        // Test creating constraint with digit pattern
+        let digit_constraint = make_pattern_constraint(r"^\d{3}-\d{3}-\d{4}$").unwrap();
+        assert!(digit_constraint
+            .matches(&ToscaValue::from("123-456-7890".to_string()))
+            .unwrap());
+        assert!(!digit_constraint
+            .matches(&ToscaValue::from("123-45-6789".to_string()))
+            .unwrap());
+
+        // Test with non-string values
+        assert!(!constraint.matches(&ToscaValue::from(123)).unwrap());
+        assert!(!constraint.matches(&ToscaValue::from(true)).unwrap());
+
+        // Test creating constraint with invalid pattern
+        let result = make_pattern_constraint(r"[invalid(");
+        assert!(result.is_err());
     }
 }
