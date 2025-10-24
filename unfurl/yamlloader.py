@@ -108,6 +108,7 @@ except ImportError:
     logger.warning(
         "Failed to import tosca_solver extension, topology inference is disabled."
     )
+    logger.debug("solver import error:", exc_info=True)
 
 yaml_perf = 0.0
 
@@ -409,7 +410,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return cast(
             Optional[Dict[str, Any]],
             _get_config_spec_args_from_implementation(
-                op, inputs, node, None, False, self.get_safe_mode(), False
+                op,
+                inputs,
+                node,
+                None,
+                False,
+                self.get_safe_mode(),
+                False,
+                root=self.manifest.rootResource if self.manifest else None,
             ),
         )
 

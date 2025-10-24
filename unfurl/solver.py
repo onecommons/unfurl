@@ -13,6 +13,7 @@ from .tosca_solver import (  # type: ignore
     SimpleValue,
     Constraint,
     QueryType,
+    make_pattern_constraint,
 )
 from tosca import EvalData
 from tosca import has_function
@@ -35,7 +36,6 @@ Solution = Dict[Tuple[str, str], List[Tuple[str, str]]]
 
 # the solver treats artifacts just like capabilities, just use a prefix to disambiguate them
 _ARTIFACT_PREFIX = "a~"
-
 
 def intern(s: str) -> str:
     return sys.intern(str(s))
@@ -231,8 +231,17 @@ def filter2term(
                 cvalue,
                 dict(type=ctype),
             )
-            value = tosca_to_rust(prop)
-            c_ctor = getattr(Constraint, constraint.constraint_key, None)
+            if constraint.constraint_key == "pattern":
+                from unfurl import support
+
+                if support.pattern_constraint_class:
+                    obj = constraint.constraint_value
+                    constraints.append(obj)
+                    continue
+                c_ctor = None  # rust regex patterns are disabled
+            else:
+                value = tosca_to_rust(prop)
+                c_ctor = getattr(Constraint, constraint.constraint_key, None)
             if not c_ctor:
                 # unsupported constraint type (currently unsupported: pattern, schema)
                 # we don't want a false positive, so we need to skip solving for this requirement

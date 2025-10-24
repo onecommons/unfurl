@@ -123,7 +123,8 @@ def map_constraint(jsonType, constraint, schema):
     if key == "schema":
         return value
     elif key == "pattern":
-        return dict(pattern=value)
+        # value isn't a json type when using rust regex
+        return dict(pattern=constraint.constraint_value_msg)
     elif key == "equal" or (key == "valid_values" and len(value) == 1):
         return dict(const=value)
     elif key == "valid_values":

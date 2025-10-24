@@ -643,7 +643,7 @@ class ToscaSpec:
                     if prop:
                         prop.schema.schema = prop.schema.schema.copy()
                         prop.schema.schema.setdefault("constraints", []).append(value)
-                        prop.schema.constraints_list = None
+                        prop.schema._constraints_list = None
                     continue
             yield name, value
 

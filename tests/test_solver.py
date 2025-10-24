@@ -16,10 +16,13 @@ from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.common import exception
+from toscaparser.elements.constraints import Constraint
+from toscaparser.elements.constraints import Schema
 from ruamel.yaml.comments import CommentedMap
 import pytest
 import tosca
 from unfurl.testing import create_runner, runtime_test
+from unfurl import support
 
 if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
     pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
@@ -182,11 +185,11 @@ def test_node_filter():
     del t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node"
     ]
-    # add an unsupported pattern, match should be skipped
+    # add an unsupported constraint, match should be skipped
     t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node_filter"
     ]["capabilities"][0]["host"]["properties"].append(
-        {"distribution": {"pattern": "u*"}}
+        {"distribution": {"schema": "{}"}}
     )
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
@@ -509,3 +512,27 @@ topology_template:
     assert "in_range" in matched_targets
     assert "too_high" not in matched_targets
     assert "too_low" not in matched_targets
+
+
+def test_pattern_validate():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": "[0-9]*"}
+    constraint = Constraint("prop", Schema.STRING, schema)
+    assert constraint.validate("123") is None  # no exception, so valid
+
+
+def test_pattern_validate_fail():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": "[0-9]*"}
+    constraint = Constraint("prop", Schema.STRING, schema)
+    try:
+        constraint.validate("abc")
+    except exception.ValidationError as e:
+        assert (
+            str(e)
+            == 'The value "abc" of property "prop" does not match the pattern constraint "[0-9]*".'
+        )
+    else:
+        assert False

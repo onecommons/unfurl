@@ -32,6 +32,11 @@ from typing import (
 from typing_extensions import NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
+try:
+    # added in python 3.9
+    from functools import cache  # type: ignore
+except ImportError:
+    from functools import lru_cache as cache
 
 if TYPE_CHECKING:
     from .manifest import Manifest
@@ -75,6 +80,11 @@ from .util import (
     env_var_value,
 )
 from .merge import intersect_dict, merge_dicts
+try:
+    from .tosca_solver import regex_match_exact, make_pattern_constraint
+except ImportError:
+    regex_match_exact = None
+    make_pattern_constraint = None
 from .projectpaths import FilePath, get_path
 
 import ansible.template
@@ -85,6 +95,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
+from toscaparser.common.exception import ExceptionCollector, InvalidSchemaError
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -1307,23 +1318,63 @@ def get_import(arg: str, ctx: RefContext):
 set_eval_func("external", get_import)
 
 
-def register_custom_constraint(key, func):
+def register_custom_constraint(key, func, make_constraint=None):
     class CustomConstraint(constraints.Constraint):
         constraint_key = key
         valid_prop_types = constraints.Schema.PROPERTY_TYPES
+        valid_types: tuple = ()
 
         def __init__(self, property_name, property_type, constraint):
-            self.property_name = property_name
-            self.property_type = property_type
-            self.constraint_value = constraint[self.constraint_key]
-            self.constraint_value_msg = self.constraint_value
+            super(CustomConstraint, self).__init__(
+                property_name, property_type, constraint
+            )
+            if make_constraint:
+                self.constraint_value: Any = make_constraint(self.constraint_value)
 
-        def _is_valid(self, value):
-            return func(value)
+        def _is_valid(self, value) -> bool:
+            if self.valid_types and not isinstance(value, self.valid_types):
+                return False
+            return func(self.constraint_value, value)
+
+        def _err_msg(self, value):
+            return (
+                'The value "%(pvalue)s" of property "%(pname)s" does not '
+                'match the %(key)s constraint "%(cvalue)s".'
+            ) % dict(
+                pname=self.property_name,
+                pvalue=value,
+                cvalue=self.constraint_value_msg,
+                key=key,
+            )
 
     constraints.constraint_mapping[key] = CustomConstraint
     return CustomConstraint
 
+if (
+    regex_match_exact
+    and make_pattern_constraint
+    and (
+        not (mode := os.getenv("UNFURL_VALIDATION_MODE"))
+        or "python_patterns" not in mode
+    )
+):
+
+    @cache
+    def make_constraint(pattern):
+        if not isinstance(pattern, str):
+            ExceptionCollector.appendException(
+                InvalidSchemaError(message='The "pattern" constraint expects a string.')
+            )
+            return pattern
+        return make_pattern_constraint(pattern)
+
+    pattern_constraint_class = register_custom_constraint(
+        "pattern", regex_match_exact, make_constraint
+    )
+    pattern_constraint_class.valid_types = (str,)
+else:
+    pattern_constraint_class = None
+    logger.verbose("Rust pattern constraint disabled, falling back to python regex.")
 
 class _Import:
     def __init__(
