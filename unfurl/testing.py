@@ -32,6 +32,7 @@ from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
 from .util import API_VERSION
 import pprint
+import pytest
 
 try:
     from mypy import api
@@ -51,6 +52,7 @@ try:
 except ImportError:
     assert_no_mypy_errors = None  # type: ignore
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 @dataclass
 class Step:
@@ -156,6 +158,7 @@ def init_project(
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     args: Optional[Sequence[str]] = None,
+    path_dest="ensemble/ensemble.yaml",
 ):
     args = args or [
         "init",
@@ -172,7 +175,7 @@ def init_project(
     assert result.exit_code == 0, result
 
     if path and os.path.isfile(path):
-        return shutil.copy(path, "ensemble/ensemble.yaml")
+        return shutil.copy(path, path_dest)
     return path
 
 
@@ -309,3 +312,12 @@ def namespace2manifest(
     )
     manifest = YamlManifest(config)
     return manifest, doc
+
+@pytest.fixture()
+def fs_runner():
+    runner = CliRunner()
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("running in", test_dir)
+        runner.test_dir = test_dir  # type: ignore
+        yield runner
