@@ -3026,7 +3026,7 @@ class ToscaType(_ToscaType):
                     or (
                         t_field.default is val
                         and val is not None
-                        and t_field.tosca_field_type != ToscaFieldType.property
+                        and t_field.tosca_field_type not in (ToscaFieldType.property, ToscaFieldType.builtin)
                         and t_field not in self._instance_fields
                     )
                 ):
