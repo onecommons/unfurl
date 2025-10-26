@@ -3922,6 +3922,7 @@ class ArtifactEntity(_OwnedToscaType):
         return yaml
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        converter._global_artifacts.pop(id(self), None)
         tpl = super().to_template_yaml(converter)
         for field in self._builtin_fields:
             val = getattr(self, field, None)

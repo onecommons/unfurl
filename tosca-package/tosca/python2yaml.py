@@ -60,6 +60,7 @@ from . import PATCH, WritePolicy, Repository
 
 logger = logging.getLogger("tosca")
 
+GLOBAL_ARTIFACTS_TEMPLATE_NAME = "__global_artifacts"
 
 class PythonToYaml:
     def __init__(
@@ -92,6 +93,7 @@ class PythonToYaml:
         self.import_resolver = import_resolver
         self.templates: List[ToscaType] = []
         self.current_module = None
+        self._global_artifacts: Dict[int, ArtifactEntity] = {}
 
     def find_yaml_import(
         self, module_name: str
@@ -174,6 +176,7 @@ class PythonToYaml:
             global_state.mode = mode
             global_state.safe_mode = safe_mode
         self.add_repositories_and_imports()
+        self._add_global_artifacts()
         return self.sections
 
     def add_repositories_and_imports(self) -> None:
@@ -362,14 +365,15 @@ class PythonToYaml:
 
         seen: Set[int] = set()
         for name, obj in namespace.items():
-            if isinstance(obj, ModuleType):
+            if isinstance(obj, (ModuleType, InstanceProxy)):
                 continue
             if (
-                not isinstance(obj, InstanceProxy)
-                and isinstance(obj, (Node, Group, Policy, Repository))
+                isinstance(obj, (Node, Group, Policy, Repository, ArtifactEntity))
                 and not obj._name
             ):
                 obj._name = name
+            if isinstance(obj, ArtifactEntity):
+                self._global_artifacts[id(obj)] = obj
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
@@ -455,6 +459,19 @@ class PythonToYaml:
                             )
                         if obj._type_section == "topology_template":
                             self._type2yaml(obj.__class__.__name__, obj.__class__, seen)
+
+    def _add_global_artifacts(self) -> None:
+        if not self._global_artifacts:
+            return
+        try:
+            import unfurl
+        except ImportError:
+            return
+        obj = unfurl.nodes.LocalRepository(GLOBAL_ARTIFACTS_TEMPLATE_NAME)
+        for artifact in self._global_artifacts.values():
+            setattr(obj, artifact._name, artifact)
+        obj.__class__._globals = self.globals  # type: ignore
+        self.add_template(obj, "", False)
 
     def _import_module(self, module_path: Optional[str], module_name: str) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml
