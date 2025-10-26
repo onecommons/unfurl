@@ -512,6 +512,7 @@ class ToscaSpec:
         self, repositoryName, file
     ) -> Optional[Dict[str, Any]]:
         # see if this is declared in a repository node template with the same name
+        # copy the template because this is just like a reference to file in a repository, not an artifact owned by this node
         assert self.topology
         repository = self.topology.get_node_template(repositoryName)
         if repository:
@@ -1021,6 +1022,22 @@ class EntitySpec(ResourceRef):
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         return {}
 
+    def iter_all_artifacts(self) -> Iterator["ArtifactSpec"]:
+        """
+        Iterator that yields artifacts from this entity's artifacts,
+        then from all LocalRepository templates in the topology.
+        """
+        # First yield artifacts from self.artifacts
+        for artifact in self.artifacts.values():
+            yield artifact
+
+        # Then yield artifacts from each LocalRepository
+        for localStore in self.topology.find_matching_templates(
+            "unfurl.nodes.LocalRepository"
+        ):
+            for artifact in localStore.artifacts.values():
+                yield artifact
+
     def get_template(self, name) -> Optional["EntitySpec"]:
         return self.topology.get_template(name) or None
 
@@ -1041,11 +1058,13 @@ class EntitySpec(ResourceRef):
         path=None,
         predefined=False,
     ):
-        # if predefined is false, an anonymous, inline artifact will be created from nameOrTpl if none is found
+        # nameOrTpl can be a string, a dict with "file" and "repository" keys, or an Artifact
+        # if predefined is True only return an existing artifact, otherwise create an anonymous, inline artifact from nameOrTpl if none is found
         if not nameOrTpl:
             return None
         if isinstance(nameOrTpl, toscaparser.artifacts.Artifact):
             current = self.artifacts.get(nameOrTpl.name)
+            # add artifact to self if missing
             if current:
                 assert current.toscaEntityTemplate == nameOrTpl
                 return current

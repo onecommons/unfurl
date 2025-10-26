@@ -806,7 +806,11 @@ class PythonToYaml:
         if implementation:
             pass  # already set, we're going to rerun the operation again and process the result then
         elif isinstance(result, ArtifactEntity):
-            primary = result.to_template_yaml(self)
+            self._global_artifacts.pop(id(result), None)
+            if _is_abstract_executable_artifact(result):
+                primary = dict(type=result.tosca_type_name())
+            else:
+                primary = result.to_template_yaml(self)
             implementation = dict_cls(primary=primary)
         elif isinstance(result, FieldProjection):
             # assume it's to an artifact
@@ -837,6 +841,25 @@ class PythonToYaml:
         if args:
             _set_input_defs(op_def, sig, args, self)
         return implementation
+
+
+def _is_abstract_executable_artifact(a: ArtifactEntity) -> bool:
+    try:
+        import unfurl
+    except ImportError:
+        return False
+    if not isinstance(a, unfurl.interfaces.Executable):
+        return False
+    if getattr(a, "className", None):
+        return False
+    func = a.execute
+    if not callable(func):
+        return True
+    if func.__name__ == "decorator_operation":
+        return True  # = operation()
+    if hasattr(func, "__code__"):
+        return len(func.__code__.co_code) <= 6
+    return False
 
 
 def _get_toscaoutputs(

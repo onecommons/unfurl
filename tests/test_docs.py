@@ -15,7 +15,14 @@ from unfurl.yamlmanifest import YamlManifest, _basepath
 from unfurl.yamlloader import YamlConfig
 from unfurl.spec import ToscaSpec
 from tosca import global_state
-from unfurl.testing import CliRunner, assert_no_mypy_errors, run_cmd, run_job_cmd
+from unfurl.testing import (
+    CliRunner,
+    assert_no_mypy_errors,
+    run_cmd,
+    run_job_cmd,
+    fs_runner,
+    init_project,
+)
 
 basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
 
@@ -248,3 +255,46 @@ def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", path)
     assert_no_mypy_errors(basepath)  # , "--disable-error-code=override")
+
+unfurl_yaml = """\
+apiVersion: unfurl/v1.0.0
+kind: Project
+
+environments:
+  aws:
+    connections:
+      primary_provider:
+        type: unfurl.relationships.ConnectsTo.AWSAccount
+        properties:
+          AWS_DEFAULT_REGION: us-east-1
+"""
+
+
+@pytest.mark.parametrize("ext", ["py", "yaml"])
+def test_artifact4(fs_runner, ext):
+    artifact4_path = os.path.join(
+        os.path.dirname(__file__), "..", "docs", "examples", f"artifact4.{ext}"
+    )
+    if ext == "yaml":
+        args = "init --mono --var serviceTemplate service_template.yaml".split()
+    else:
+        args = None
+    init_project(
+        fs_runner, args=args, path=artifact4_path, path_dest=f"service_template.{ext}"
+    )
+    with open("unfurl.yaml", "w") as dst_file:
+        dst_file.write(unfurl_yaml)
+
+    result, job, summary = run_job_cmd(
+        fs_runner, "deploy --approve --jobexitcode error"
+    )
+    assert len(job.workDone) == 1
+    task = list(job.workDone.values())[0]
+    assert task._artifact.name == "default_implementation"
+
+    result, job, summary = run_job_cmd(
+        fs_runner, "deploy --use-environment aws -a --force --jobexitcode error"
+    )
+    assert len(job.workDone) == 1
+    task = list(job.workDone.values())[0]
+    assert task._artifact.name == "aws_implementation"

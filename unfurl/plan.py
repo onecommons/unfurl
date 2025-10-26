@@ -42,6 +42,7 @@ from .planrequests import (
     find_parent_resource,
     find_resources_from_template_name,
     _find_implementation,
+    interface_requirements_ok,
 )
 from .spec import (
     NodeSpec,
@@ -1200,26 +1201,6 @@ def find_explicit_operation_hosts(template, interface):
                 "SOURCE",
             ]:
                 yield operation_host
-
-
-def interface_requirements_ok(root: TopologyInstance, template: NodeSpec):
-    reqs = template.get_interface_requirements()
-    if reqs:
-        assert isinstance(reqs, list)
-        for req in reqs:
-            if not any(
-                [
-                    rel.template.is_compatible_type(req)
-                    for rel in root.default_relationships
-                ]
-            ):
-                logger.debug(
-                    'Skipping template "%s": could not find a connection for interface requirements: %s',
-                    template.name,
-                    reqs,
-                )
-                return False
-    return True
 
 
 def get_ancestor_templates(
