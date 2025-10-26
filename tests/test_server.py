@@ -125,7 +125,7 @@ def start_envvar_server(port):
 
         handler = partial(SimpleHTTPRequestHandler, directory=directory)
         httpd = HTTPServer(server_address, handler)
-    except:  # address might still be in use
+    except Exception:  # address might still be in use
         httpd = None
         return None, None
     t = threading.Thread(name="http_thread", target=httpd.serve_forever)
@@ -150,12 +150,13 @@ def runner():
             target=server.serve,
             args=("localhost", _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
         )
-        assert start_server_process(server_process, _static_server_port)
+        try:
+            assert start_server_process(server_process, _static_server_port)
 
-        yield server_process
-
-        server_process.terminate()   # Gracefully shutdown the server (SIGTERM)
-        server_process.join()   # Wait for the server to terminate
+            yield server_process
+        finally:
+            server_process.terminate()  # Gracefully shutdown the server (SIGTERM)
+            server_process.join()  # Wait for the server to terminate
 
 
 def commit_foo(val: str):
@@ -190,10 +191,15 @@ def set_up_deployment(runner, deployment):
         target=server.serve,
         args=("localhost", port, None, "server", ".", {"home": ""}, os.path.abspath("remote.git")),
     )
-    assert start_server_process(p, port)
+    try:
+        assert start_server_process(p, port)
 
-    assert repo.revision
-    return p, port, repo.revision
+        assert repo.revision
+        return p, port, repo.revision
+    except Exception:
+        p.terminate()
+        p.join()
+        raise
 
 
 def test_server_health(runner: Process):
@@ -246,9 +252,8 @@ def test_server_export_local():
             target=server.serve,
             args=("localhost", port, None, ".", f"{tmpdir}", {"home": ""}),
         )
-        assert start_server_process(p, port)
-
         try:
+            assert start_server_process(p, port)
             init_project(
                 runner,
                 args=["init", "--mono"],
@@ -290,8 +295,8 @@ def test_server_export_remote():
             target=server.serve,
             args=("localhost", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
         )
-        assert start_server_process(p, port)
         try:
+            assert start_server_process(p, port)
             run_cmd(
                 runner,
                 [
