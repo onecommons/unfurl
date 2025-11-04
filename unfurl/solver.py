@@ -236,8 +236,10 @@ def filter2term(
 
                 if support.pattern_constraint_class:
                     obj = constraint.constraint_value
-                    constraints.append(obj)
-                    continue
+                    if isinstance(obj, Constraint):
+                        constraints.append(obj)
+                        continue
+                    # otherwise the pattern wasn't a valid rust regex
                 c_ctor = None  # rust regex patterns are disabled
             else:
                 value = tosca_to_rust(prop)

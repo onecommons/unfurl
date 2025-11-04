@@ -1350,13 +1350,12 @@ def register_custom_constraint(key, func, make_constraint=None):
     constraints.constraint_mapping[key] = CustomConstraint
     return CustomConstraint
 
+_validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
+
 if (
     regex_match_exact
     and make_pattern_constraint
-    and (
-        not (mode := os.getenv("UNFURL_VALIDATION_MODE"))
-        or "python_patterns" not in mode
-    )
+    and (not _validation_mode or "python_patterns" not in _validation_mode)
 ):
 
     @cache
@@ -1366,10 +1365,27 @@ if (
                 InvalidSchemaError(message='The "pattern" constraint expects a string.')
             )
             return pattern
-        return make_pattern_constraint(pattern)
+        try:
+            return make_pattern_constraint(pattern)
+        except ValueError as e:
+            if not _validation_mode or "rust_patterns" not in _validation_mode:
+                try:
+                    return re.compile(pattern)  # try Python's regex engine
+                except Exception as e2:
+                    e = e2  # type:ignore
+            ExceptionCollector.appendException(
+                InvalidSchemaError(message="Invalid pattern " + str(e))
+            )
+            return pattern
+
+    def regex_match(pattern, value) -> bool:
+        if isinstance(pattern, re.Pattern):
+            return bool(pattern.fullmatch(value))
+        else:
+            return regex_match_exact(pattern, value)
 
     pattern_constraint_class = register_custom_constraint(
-        "pattern", regex_match_exact, make_constraint
+        "pattern", regex_match, make_constraint
     )
     pattern_constraint_class.valid_types = (str,)
 else:
@@ -1841,8 +1857,7 @@ class AttributeManager:
             if resource.shadow:
                 # shadow is the imported instance or the inner node of a substituted node
                 return resource.shadow.attributes
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
-            if mode is not None and "nopropcheck" in mode:
+            if _validation_mode and "nopropcheck" in _validation_mode:
                 self.validate = False
 
             if resource.template:
