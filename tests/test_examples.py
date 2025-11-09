@@ -13,7 +13,7 @@ from unfurl.configurators import TemplateConfigurator
 from unfurl.util import make_temp_dir
 from unfurl.support import Status
 from .utils import isolated_lifecycle, DEFAULT_STEPS, Step
-
+import pytest
 
 class HelmConfigurator(Configurator):
     def run(self, task):
@@ -319,9 +319,9 @@ class RunTest(unittest.TestCase):
             ],
         )
 
-# XXX
-@unittest.skipIf(os.getenv("CI"), reason="container started exiting with -1 on Git Actions for unknown reason")
-@unittest.skipIf("docker" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+@pytest.mark.skipif(
+    "docker" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
+)
 def test_unfurl_site_examples():
     steps = list(DEFAULT_STEPS[1:])  # XXX fix docker check and enable the first step
     list(
