@@ -881,16 +881,20 @@ class DeployPlan(Plan):
             elif status == Status.pending and self.jobOptions.check:
                 reason = Reason.check
             elif instance.last_config_change:
-                if (
-                    not instance.created
-                    and not instance.customized  # set when using discover workflow without template directive
-                    and "discover" not in instance.template.directives
-                ):  # was discovered, but now we want to create it
-                    if jobOptions.add:
-                        # creating a new, different instance, so reset status
-                        instance.local_status = Status.pending
-                        return Reason.add
-                elif jobOptions.change_detection == "always":
+                # XXX need to distinguish between check and discover before enabling
+                # if (
+                #     not instance.created
+                #     and not instance.customized  # set when using discover workflow without template directive
+                #     and "discover" not in instance.template.directives
+                # ):  # was discovered, but now we want to create it
+                #     if jobOptions.add:
+                #         # creating a new, different instance, so reset status
+                #         instance.local_status = Status.pending
+                #         instance.state = NodeState.initial
+                #         logger.debug(f"{instance} was discovered, now adding so reset to pending")
+                #         return Reason.add
+                # else:
+                if jobOptions.change_detection == "always":
                     return Reason.reconfigure
                 elif jobOptions.change_detection != "skip":
                     # customized is only set if created first
