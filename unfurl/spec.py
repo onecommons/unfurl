@@ -51,7 +51,7 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Sequence,
+    Mapping,
     Set,
     Tuple,
     Union,
@@ -502,10 +502,23 @@ class ToscaSpec:
     def get_topology(self, node_template: NodeTemplate):
         return self._topology_templates.get(id(node_template.topology_template))
 
-    def node_from_template(self, nodetemplate: NodeTemplate) -> Optional["NodeSpec"]:
-        topology = self.get_topology(nodetemplate)
+    def node_from_template(self, node_template: NodeTemplate) -> Optional["NodeSpec"]:
+        topology = self.get_topology(node_template)
         if topology:
-            return cast(NodeSpec, topology.get_template(nodetemplate.name))
+            return cast(NodeSpec, topology.get_template(node_template.name))
+        # create the missing topology if it is substituting a node
+        topology_template = node_template.topology_template
+        root_node_template = (
+            topology_template.substitution_mappings
+            and topology_template.substitution_mappings.sub_mapped_node_template
+        )
+        if root_node_template:
+            parent = self.node_from_template(root_node_template)
+            # creates a new TopologySpec
+            if parent and parent.substitution:
+                return cast(
+                    NodeSpec, parent.substitution.get_template(node_template.name)
+                )
         return None
 
     def _get_artifact_declared_tpl(
@@ -1570,7 +1583,7 @@ class NodeSpec(EntitySpec):
 
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
-            if is_function(c):
+            if is_function(c) or (isinstance(c, str) and ("::" in c or "$" in c)):
                 results = cast(
                     List[NodeSpec], Ref(c).resolve(SafeRefContext(self, trace=0))
                 )
@@ -1820,6 +1833,26 @@ class CapabilitySpec(EntitySpec):
     def metadata(self) -> Dict[str, Any]:
         return {}  # missing from Capability
 
+class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
+    """Allow navigation across topologies by mapped outer topology nodes."""
+
+    def __init__(self, topology: "TopologySpec"):
+        self.topology = topology
+
+    def __getitem__(self, key):
+        # if a node is mapped to an outer node, return the outer one.
+        outer = self.topology.get_outer_node_replaced_by_inner_node(key)
+        if outer:
+            return outer
+        return self.topology.node_templates[key]
+
+    def __iter__(self):
+        for name in self.topology.node_templates:
+            yield name
+
+    def __len__(self):
+        return len(self.topology.node_templates)
+
 
 class TopologySpec(EntitySpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
@@ -1863,6 +1896,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self._default_relationships: List[RelationshipSpec] = []
         self._isReferencedBy = {}
+        self._all = _TopologyNodeSpecs(self)
         self.add_discovered()
 
     def copy(self) -> "TopologySpec":
@@ -1940,6 +1974,16 @@ class TopologySpec(EntitySpec):
                 return self.get_node_template(inner_name)
         return None
 
+    def get_outer_node_replaced_by_inner_node(
+        self, inner_node_name: str
+    ) -> Optional[NodeSpec]:
+        substitution_mappings = self.topology_template.substitution_mappings
+        if substitution_mappings:
+            outer_node = substitution_mappings.get_outer_node(inner_node_name)
+            if outer_node:
+                return self.spec.node_from_template(outer_node)
+        return None
+
     @property
     def primary_provider(self) -> Optional[RelationshipSpec]:
         return self.relationship_templates.get("primary_provider")
@@ -1956,7 +2000,7 @@ class TopologySpec(EntitySpec):
 
     @property
     def all(self):
-        return self.node_templates
+        return self._all
 
     def _resolve(self, key):
         try:
