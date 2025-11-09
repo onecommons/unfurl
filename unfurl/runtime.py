@@ -386,11 +386,11 @@ class OperationalInstance(Operational):
 
 
 class _ChildResources(Mapping):
-    def __init__(self, resource):
+    def __init__(self, resource: "HasInstancesInstance"):
         self.resource = resource
 
     def __getitem__(self, key):
-        return self.resource.find_resource(key)
+        return self.resource.find_instance(key)
 
     def __iter__(self):
         return iter(r.name for r in self.resource.get_self_and_descendants())
@@ -926,29 +926,31 @@ class RelationshipInstance(EntityInstance):
             assert self.source
             default_for = self.source.name
 
+        check_name = True
         if self.root != capability.root:
             # This connection was either imported or the capability is in a nested topology.
             # Check if the default_for target node is visible, either because it was imported or because it was mapped to the nested topology
-            # If it isn't visible, treat as a generic default connection (ANY), this way a manifest or root topology can expose connections while maintaining encapsulation.
             # if the default_for target was a top-level import don't switch to ANY
             if not self.root.imports or default_for not in self.root.imports:
                 nested = cast(
                     TopologySpec, capability.root.template
                 ).get_inner_node_replaced_by_outer_node(default_for)
-                default_for = nested.name if nested else RelationshipSpec.ANY
+                if nested:
+                    default_for = nested.name
+                else:
+                    check_name = False
 
-        if default_for == RelationshipSpec.ANY and capability.name == "feature":
-            # XXX get_matching_capabilities() buggy in this case
-            return True  # optimization
         # XXX defaultFor might be type, resolve to global
         if (
             default_for == RelationshipSpec.ANY
-            or default_for == nodeTemplate.name
             or nodeTemplate.is_derived_from(default_for)
-            or default_for == capability.name
             or capability.template.toscaEntityTemplate.is_derived_from(default_for)
         ):
             return True
+
+        if check_name:
+            if default_for == nodeTemplate.name or default_for == capability.name:
+                return True
 
         return False
 

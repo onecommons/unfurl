@@ -67,7 +67,7 @@ spec:
             - defaultconnection:
                 relationship:
                   type: unfurl.relationships.ConnectsTo.Ansible
-                  default_for: SELF
+                  default_for: tosca.nodes.Root
 
 """
 
@@ -383,6 +383,8 @@ def test_substitution_with_node():
         nested_root_node = job.rootResource.find_instance("nested1:inner")
         assert nested_root_node
         assert nested_root_node.root is not job.rootResource
+        assert nested_root_node.query(".apex::.all::cluster")
+        assert not nested_root_node.query("::cluster")
         assert (
             len(
                 nested_root_node.get_default_relationships(
