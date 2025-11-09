@@ -430,6 +430,12 @@ allJobOptions = option_group(
         metavar="NAME VALUE",
         help="Name/value pair to pass to job (multiple times ok).",
     ),
+    click.option(
+        "--skip-local-install",
+        default=False,
+        is_flag=True,
+        help="Don't install local artifacts.",
+    ),
     rich_group="Generic Job Options",
 )
 commonJobOptions = option_group(

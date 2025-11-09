@@ -146,6 +146,7 @@ class JobOptions:
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
+        skip_local_install=False,
     )
 
     parentJob: Optional["Job"] = None
@@ -156,6 +157,7 @@ class JobOptions:
     verbose = 0
     message: Optional[str] = None
     commit: bool = False
+    skip_local_install: bool = False
     push = False
     template: Optional[str] = None
     add: bool = True
@@ -1037,11 +1039,12 @@ class Job(ConfigChange):
         plan_requests = list(plan.execute_plan())
 
         request_artifacts: List[JobRequest] = []
-        for r in plan_requests:
-            if r:
-                artifacts = r.get_operation_artifacts()
-                if artifacts:
-                    request_artifacts.extend(artifacts)
+        if not self.jobOptions.skip_local_install:
+            for r in plan_requests:
+                if r:
+                    artifacts = r.get_operation_artifacts()
+                    if artifacts:
+                        request_artifacts.extend(artifacts)
 
         # remove duplicates
         artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())

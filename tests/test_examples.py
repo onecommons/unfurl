@@ -319,6 +319,7 @@ class RunTest(unittest.TestCase):
             ],
         )
 
+@pytest.mark.skipif(bool(os.getenv("CI")), reason="CI needs local artifacts installed")
 @pytest.mark.skipif(
     "docker" in os.getenv("UNFURL_TEST_SKIP", ""), reason="UNFURL_TEST_SKIP set"
 )
@@ -329,5 +330,6 @@ def test_unfurl_site_examples():
             "unfurl_site",
             steps=steps,
             init_args="clone https://github.com/onecommons/unfurl_site.git".split(),
+            job_args=["--skip-local-install"],
         )
     )
