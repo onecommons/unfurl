@@ -211,7 +211,7 @@ class PythonToYaml:
         referenced: bool,
     ) -> str:
         name = obj._name or name
-        assert name != PATCH
+        assert not name.startswith(PATCH)
         if "__templateref" in obj._metadata:
             return name
         for topology_section in reversed(self.topology_templates):

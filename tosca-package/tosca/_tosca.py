@@ -2244,7 +2244,7 @@ def field(
         # and this parameter probably will come after one without a default value
         kw["default"] = REQUIRED
     if builtin:
-        field = _Tosca_Field(
+        field: _Tosca_Field = _Tosca_Field(
             ToscaFieldType.builtin, default, default_factory, name, owner=owner
         )
         if ClassVar:
@@ -2506,9 +2506,11 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         self._initialized = True
 
     def _new_from_patch(self, patch: "ToscaType") -> "ToscaType":
-        name = PATCH if self.is_patch else ""  # preserve as PATCH
+        assert patch.is_patch, patch
+        # preserve PATCH-ness or use patch name
+        p_name = PATCH if self.is_patch else patch._name[len(PATCH) :]
         return patch.__class__(
-            name, **{name: v[1] for name, v in patch._get_instance_field_values()}
+            p_name, **{name: v[1] for name, v in patch._get_instance_field_values()}
         )
 
     def _merge(
@@ -2517,8 +2519,9 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         # apply explicitly set attribute on override to val
         if shared:
             val = copy.copy(val)
-            if val._name != PATCH:
-                val._name = ""
+            if not val.is_patch:
+                # set name to "" or patch name
+                val._name = getattr(override, "_name", PATCH)[len(PATCH) :]
         # note: get_instance_field_values() skips fields with the default value, even if it was explicitly assigned
         for field, override_val in object.__getattribute__(
             override, "get_instance_field_values"
@@ -2959,7 +2962,7 @@ class ToscaType(_ToscaType):
 
     @property
     def is_patch(self) -> bool:
-        return self._name == PATCH
+        return self._name.startswith(PATCH)
 
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
