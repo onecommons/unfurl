@@ -54,8 +54,12 @@ node_types:
     interfaces:
       Install:
         operations:
-          check: unfurl.configurators.k8s.ClusterConfigurator
-          discover: unfurl.configurators.k8s.ClusterConfigurator
+          check:
+            implementation:
+              className: unfurl.configurators.k8s.ClusterConfigurator
+          discover:
+            implementation:
+              className: unfurl.configurators.k8s.ClusterConfigurator
 
   unfurl.nodes.K8sRawResource:
     derived_from: tosca.nodes.Root
@@ -92,14 +96,22 @@ node_types:
         # requirements:
         #  - unfurl.relationships.ConnectsTo.K8sCluster
         operations:
-          configure: unfurl.configurators.k8s.ResourceConfigurator
-          delete: unfurl.configurators.k8s.ResourceConfigurator
+          configure:
+            implementation:
+              className: unfurl.configurators.k8s.ResourceConfigurator
+          delete:
+            implementation:
+              className: unfurl.configurators.k8s.ResourceConfigurator
       Install:
         # requirements:
         #  - unfurl.relationships.ConnectsTo.K8sCluster
         operations:
-          check: unfurl.configurators.k8s.ResourceConfigurator
-          discover: unfurl.configurators.k8s.ResourceConfigurator
+          check:
+            implementation:
+              className: unfurl.configurators.k8s.ResourceConfigurator
+          discover:
+            implementation:
+              className: unfurl.configurators.k8s.ResourceConfigurator
 
   unfurl.nodes.K8sNamespace:
     derived_from: [unfurl.nodes._K8sResourceHost, unfurl.nodes.K8sRawResource]
