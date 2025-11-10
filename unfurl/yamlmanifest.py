@@ -443,7 +443,8 @@ class YamlManifest(ReadOnlyManifest):
         manifest = self.manifest.expanded
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
-        spec = manifest.get("spec", {})
+        spec_key = "spec"
+        spec = manifest.get(spec_key, {})
         # load_env_instances is only set when exporting environments
         # otherwise don't include environment instances in the environment
         load_env_instances = self.localEnv and self.localEnv.overrides.get(
@@ -489,7 +490,7 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-        self._set_spec(spec, more_spec, skip_validation, "spec")
+        self._set_spec(spec, more_spec, skip_validation, spec_key)
         assert self.tosca
         if self.localEnv:
             msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_environment_name}"'
@@ -1320,7 +1321,13 @@ class YamlManifest(ReadOnlyManifest):
         saved: List[Path] = []
         for repository in self.repositories.values():
             if not repository.read_only:
-                saved.extend(repository.save_secrets())
+                more = repository.save_secrets()
+                if more and not repository.repo:
+                    logger.warning(
+                        "encrypted secrets in %s which is not in a git repository",
+                        repository.working_dir,
+                    )
+                saved.extend(more)
         return saved
 
     def commit(
