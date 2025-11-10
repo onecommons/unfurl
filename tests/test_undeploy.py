@@ -447,9 +447,11 @@ def test_delete_failed_node():
     STEPS = (
         Step("deploy", Status.error, changed=1),
         Step("undeploy", Status.absent, changed=1),
+        Step("undeploy", Status.absent, changed=0, total=0),
     )
     manifest = YamlManifest(manifest_delete_failed_node)
-    list(lifecycle(manifest, STEPS))
+    steps = list(lifecycle(manifest, STEPS))
+    assert len(steps[-1]._json_plan_summary()) == 0
 
 
 manifest_dependent = """\

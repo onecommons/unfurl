@@ -470,6 +470,9 @@ class Plan:
         skip = None
         if resource is self.root:
             return None
+        reason = include(resource)  # returns a Reason to include
+        if not reason:
+            return None
         # NB: the order of these tests is important!
         virtual = False
         if resource.shadow or resource.template.abstract:
@@ -489,12 +492,9 @@ class Plan:
                 skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
             elif resource.is_managed():
                 skip = f"creation and deletion is managed by another instance {resource.created} (use --destroyunmanaged to override)"
-        elif resource.local_status in [Status.absent, Status.pending]:
+        if resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
 
-        reason = include(resource)  # returns a Reason to include
-        if not reason:
-            skip = "didn't meet removal criteria"
         if skip:
             cancelling = (
                 not virtual  # instance doesn't need to be preserved
