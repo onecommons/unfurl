@@ -271,7 +271,7 @@ node_types:
               dryrun: "--dry-run"
               # don't pass these as cmd arguments
               chart: ""
-              chart_values: ""
+              chart_values: {}
           discover:
             invoke: Helm.execute
             inputs:
@@ -279,7 +279,7 @@ node_types:
               dryrun: "--dry-run"
               # don't pass these as cmd arguments
               chart: ""
-              chart_values: ""
+              chart_values: {}
               resultTemplate: |
                 {%if returncode == 0 %}
                   {%for json in stdout | from_json %}

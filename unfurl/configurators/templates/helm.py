@@ -138,7 +138,7 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
             helmcmd="status",
             dryrun="--dry-run",
             chart="",
-            chart_values="",
+            chart_values={},
         )
 
     def discover(self, **kw: Any) -> Any:
@@ -146,7 +146,7 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
             helmcmd="list",
             dryrun="--dry-run",
             chart="",
-            chart_values="",
+            chart_values={},
             resultTemplate=Eval(
                 r"""\
 {%if returncode == 0 %}
