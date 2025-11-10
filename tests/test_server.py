@@ -101,6 +101,13 @@ def _next_port():
     return _server_port
 
 
+def serve_server(*args, **kw):
+    try:
+        return server.serve(*args, **kw)
+    except Exception:
+        logging.warning("server.serve unexpectedly failed", exc_info=True)
+
+
 def start_server_process(proc, port):
     proc.start()
     last_e = False
@@ -147,8 +154,16 @@ def runner():
         # "url": ,
         os.environ["UNFURL_LOGGING"] = "TRACE"
         server_process = Process(
-            target=server.serve,
-            args=("localhost", _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
+            target=serve_server,
+            args=(
+                "localhost",
+                _static_server_port,
+                "secret",
+                ".",
+                "",
+                {},
+                CLOUD_TEST_SERVER,
+            ),
         )
         try:
             assert start_server_process(server_process, _static_server_port)
@@ -188,8 +203,16 @@ def set_up_deployment(runner, deployment):
 
     os.makedirs("server")
     p = Process(
-        target=server.serve,
-        args=("localhost", port, None, "server", ".", {"home": ""}, os.path.abspath("remote.git")),
+        target=serve_server,
+        args=(
+            "localhost",
+            port,
+            None,
+            "server",
+            ".",
+            {"home": ""},
+            os.path.abspath("remote.git"),
+        ),
     )
     try:
         assert start_server_process(p, port)
@@ -249,7 +272,7 @@ def test_server_export_local():
     port = _next_port()
     with runner.isolated_filesystem() as tmpdir:
         p = Process(
-            target=server.serve,
+            target=serve_server,
             args=("localhost", port, None, ".", f"{tmpdir}", {"home": ""}),
         )
         try:
@@ -292,7 +315,7 @@ def test_server_export_remote():
     with runner.isolated_filesystem():
         port = _next_port()
         p = Process(
-            target=server.serve,
+            target=serve_server,
             args=("localhost", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
         )
         try:

@@ -1784,6 +1784,7 @@ class Runner:
         self.manifest = manifest
         assert self.manifest.tosca
         self.job = None
+        self.rendered = None
 
     def static_plan(self, jobOptions=None):
         if jobOptions is None:
@@ -1797,9 +1798,9 @@ class Runner:
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
         assert self.job
-        rendered, count = _render(self.job)
+        self.rendered, count = _render(self.job)
         if not jobOptions.planOnly:
-            self.job.run(rendered)
+            self.job.run(self.rendered)
         job = self.job
         # only use job once
         self.job = None

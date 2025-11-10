@@ -342,3 +342,17 @@ class HelmTest(unittest.TestCase):
                 },
                 summary2,
             )
+
+def test_helm_env_exists():
+    cli_runner = CliRunner()
+    with cli_runner.isolated_filesystem():
+        path = os.path.join(
+            os.path.dirname(__file__), "examples", "helm-simple-ensemble.yaml"
+        )
+        shutil.copy(path, ".")
+        runner = Runner(YamlManifest(path="helm-simple-ensemble.yaml"))
+        runner.run(JobOptions(planOnly=True, skip_local_install=True))
+        assert runner.rendered
+        config_task = [req.task for req in runner.rendered[0]][-1]
+        # check that the environment is set when forwarding operations with implementation "invoke" key
+        assert "+HELM_KUBECONTEXT" in config_task.configSpec.environment
