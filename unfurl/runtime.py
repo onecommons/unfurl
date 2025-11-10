@@ -768,7 +768,7 @@ class HasInstancesInstance(EntityInstance):
     def get_requirements(
         self,
         match: Union[
-            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance"
+            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance", "RelationshipInstance"
         ],
     ) -> List["RelationshipInstance"]:
         if match is None:
@@ -779,6 +779,8 @@ class HasInstancesInstance(EntityInstance):
             return [r for r in self.requirements if r.target == match]
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
+        elif isinstance(match, RelationshipInstance):
+            return [r for r in self.requirements if r == match]
         elif isinstance(match, ArtifactInstance):
             return []
         else:
@@ -1242,9 +1244,6 @@ class NodeInstance(HasInstancesInstance):
             for rel in cap.relationships:
                 if rel.source:
                     if id(rel.source) in seen:
-                        logger.debug(
-                            f"Circular operational dependency during configured_by in {seen}"
-                        )
                         continue
                     seen[id(rel.source)] = rel.source
 
@@ -1262,9 +1261,6 @@ class NodeInstance(HasInstancesInstance):
         for rel in self.requirements:
             if rel.target:
                 if id(rel.target) in seen:
-                    logger.debug(
-                        f"Circular operational dependency during hosting_on in {seen}"
-                    )
                     continue
                 seen[id(rel.target)] = rel.target
 

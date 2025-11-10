@@ -68,6 +68,7 @@ from .runtime import (
     HasInstancesInstance,
     NodeInstance,
     RelationshipInstance,
+    CapabilityInstance,
     Operational,
 )
 from .yamlloader import yaml
@@ -417,8 +418,8 @@ class MockConfigurator(Configurator):
         return True
 
 
-class _ConnectionsMap(dict):
-    def by_type(self) -> ValuesView:
+class _ConnectionsMap(Dict[str, RelationshipInstance]):
+    def by_type(self) -> ValuesView[RelationshipInstance]:
         # return unique connection by type
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
@@ -435,7 +436,7 @@ class _ConnectionsMap(dict):
     def copy(self):
         return self
 
-    def __missing__(self, key: object) -> object:
+    def __missing__(self, key: str) -> RelationshipInstance:
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
@@ -774,7 +775,9 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: HasInstancesInstance, target: NodeInstance, seen: dict
+        source: HasInstancesInstance,
+        target: Union["NodeInstance", "ArtifactInstance", "CapabilityInstance", "RelationshipInstance"],
+        seen: dict,
     ) -> None:
         if source is target:
             return None
@@ -791,21 +794,25 @@ class TaskView:
         (Connections that explicitly set a ``default_for`` key that matches those instances.)
         """
         seen: Dict[int, Any] = {}
-        for parent in self.target.ancestors:
-            if not isinstance(parent, NodeInstance):
-                continue
-            if parent is self.target.root:
-                break
+        target = self.target.owner
+        ancestors = [target]
+        if isinstance(target, NodeInstance):
+            # hosted_on navigates across topologies
+            ancestors.extend(target.hosted_on)
+        for parent in ancestors:
             # XXX include explicit relationships on host requirement too
             for rel in parent.get_default_relationships():
                 if id(rel) not in seen:
                     seen[id(rel)] = rel
             if self.operation_host:
+                assert isinstance(
+                    parent, (NodeInstance, ArtifactInstance, CapabilityInstance, RelationshipInstance)
+                ), parent
                 self._get_connection(self.operation_host, parent, seen)
 
         # reverse so nearest relationships replace less specific ones that have matching names
-        connections = _ConnectionsMap(  # the list() is for Python 3.7
-            (rel.name, rel) for rel in reversed(list(seen.values()))
+        connections = _ConnectionsMap(
+            (rel.name, rel) for rel in reversed(seen.values())
         )
         return connections
 
