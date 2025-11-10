@@ -318,9 +318,9 @@ class Manifest(AttributeManager):
     def save_job(self, job) -> Any:
         pass
 
-    def load_error(self, msg: str) -> None:
+    def load_error(self, msg: str, exc_info=None) -> None:
         self._load_errors = True
-        logger.error(msg)
+        logger.error(msg, exc_info=exc_info)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None
@@ -592,11 +592,22 @@ class Manifest(AttributeManager):
             operational = self.load_status(status)
         if isinstance(templateName, str):
             template = self.load_template(templateName, parent)
-        else:
+        elif templateName:
             # special case inline artifact template
             assert isinstance(templateName, dict)
             assert ctor is ArtifactInstance
-            template = ArtifactSpec(templateName, parent.template)
+            if not templateName.get("name"):
+                templateName["name"] = name
+            try:
+                template = ArtifactSpec(templateName, parent.template)
+            except Exception:
+                self.load_error(
+                    f"Error instantiating inline artifact template {name}",
+                    exc_info=True,
+                )
+                return None
+        else:
+            template = None
 
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
@@ -604,7 +615,7 @@ class Manifest(AttributeManager):
                 changerecord = self._get_last_config_job_record(operational)
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
-        if template is None:
+        if not template:
             self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
