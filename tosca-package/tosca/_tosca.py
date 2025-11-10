@@ -2340,6 +2340,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 field = self.get_instance_field(name)
                 if not field and is_data_field(value):
                     field = _Tosca_Field.infer_field(self.__class__, name, value)
+                    field.init = False
                     self._instance_fields[name] = self._post_field_init(field)
                 elif not isinstance(field, _Tosca_Field):
                     field = None
@@ -2509,9 +2510,16 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         assert patch.is_patch, patch
         # preserve PATCH-ness or use patch name
         p_name = PATCH if self.is_patch else patch._name[len(PATCH) :]
-        return patch.__class__(
-            p_name, **{name: v[1] for name, v in patch._get_instance_field_values()}
-        )
+        ctor, extra = {}, {}
+        for name, (field, v) in patch._get_instance_field_values():
+            if field.init:
+                ctor[name] = v
+            else:
+                extra[name] = v
+        obj = patch.__class__(p_name, **ctor)
+        for name, v in extra.items():
+            setattr(obj, name, v)
+        return obj
 
     def _merge(
         self, val: "ToscaType", override: "_ToscaType", shared: bool
@@ -2644,6 +2652,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
+                field.init = False
                 self._instance_fields[name] = self._post_field_init(field)
                 yield name, (field, value)
             elif field:
