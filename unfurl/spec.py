@@ -1020,7 +1020,16 @@ class EntitySpec(ResourceRef):
         return self.get_uri()
 
     def get_uri(self) -> str:
-        return self.name  # XXX
+        if (
+            not self.topology.parent_topology
+            or self.topology.substitute_of
+            or not isinstance(self.topology.topology_template.custom_defs, Namespace)
+        ):
+            # just return the name if we are in the root topology or a nested substituted topology
+            # (for the latter we could use nested_name except serialization and loading already knows the topology)
+            return self.name  # XXX
+        else:
+            return f"{self.name}@{self.topology.topology_template.custom_defs.namespace_id}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.nested_name}')"
@@ -1052,7 +1061,7 @@ class EntitySpec(ResourceRef):
                 yield artifact
 
     def get_template(self, name) -> Optional["EntitySpec"]:
-        return self.topology.get_template(name) or None
+        return self.topology.get_template(name)
 
     @staticmethod
     def get_name_from_artifact_spec(artifact_tpl: Dict[str, Any]) -> str:
@@ -1718,7 +1727,7 @@ class RelationshipSpec(EntitySpec):
 
     def get_uri(self):
         suffix = "~r~" + self.name
-        return self.source.name + suffix if self.source else suffix
+        return self.source.uri + suffix if self.source else suffix
 
 
 class RequirementSpec:
@@ -1758,7 +1767,7 @@ class RequirementSpec:
         return self.parentNode.artifacts
 
     def get_uri(self):
-        return self.parentNode.name + "~q~" + self.name
+        return self.parentNode.uri + "~q~" + self.name
 
     def get_interfaces(self) -> List[OperationDef]:
         return self.relationship.get_interfaces() if self.relationship else []
@@ -1815,7 +1824,7 @@ class CapabilitySpec(EntitySpec):
     def get_uri(self):
         # capabilities aren't standalone templates
         # this is demanagled by getTemplate()
-        return self.parentNode.name + "~c~" + self.name
+        return self.parentNode.uri + "~c~" + self.name
 
     @property
     def relationships(self):
@@ -2042,7 +2051,23 @@ class TopologySpec(EntitySpec):
                 if template.is_compatible_type(typeName):
                     yield template
 
-    def get_template(self, name: str) -> Optional[EntitySpec]:
+    def get_template(self, name: str) -> Optional["EntitySpec"]:
+        if "@" in name:
+            # extract namespace from localname@namespace[~rest]
+            local_name, sep, rest = name.partition("@")
+            namespace, sep, rest = rest.partition("~")
+            topology_template = self.spec.template.find_topology_by_namespace_id(namespace)
+            if not topology_template:
+                return None
+            topology = self.spec._topology_templates.get(
+                id(topology_template)
+            )
+            if not topology:
+                return None
+            return topology._get_template(local_name + sep + rest)
+        return self._get_template(name)
+
+    def _get_template(self, name: str) -> Optional[EntitySpec]:
         if name == "~topology" or name == "root":
             return self
         elif "~c~" in name:
@@ -2236,7 +2261,7 @@ class ArtifactSpec(EntitySpec):
 
     def get_uri(self) -> str:
         if self.parentNode:
-            return self.parentNode.name + "~a~" + self.name
+            return self.parentNode.uri + "~a~" + self.name
         else:
             return "~a~" + self.name
 
