@@ -1001,10 +1001,10 @@ class YamlManifest(ReadOnlyManifest):
         return {name: status}
 
     def _save_entity_if_instantiated(
-        self, resource, checkstatus=True
+        self, resource, checkstatus=True, check_referenced=False
     ) -> Optional[Tuple[str, Dict]]:
         try:
-            if not self.is_instantiated(resource, checkstatus):
+            if not self.is_instantiated(resource, checkstatus, check_referenced):
                 # no reason to serialize entities that haven't been instantiated
                 return None
             return self.save_entity_instance(resource)
@@ -1023,7 +1023,7 @@ class YamlManifest(ReadOnlyManifest):
             or "default" in resource.template.directives
             or resource.template.toscaEntityTemplate.is_replaced_by_outer()
         )
-        ret = self._save_entity_if_instantiated(resource, checkstatus)
+        ret = self._save_entity_if_instantiated(resource, checkstatus, True)
         if not ret:
             return ret
         name, status = ret

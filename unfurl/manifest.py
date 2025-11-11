@@ -646,9 +646,11 @@ class Manifest(AttributeManager):
         return instance
 
     @staticmethod
-    def is_instantiated(resource, checkstatus=True) -> bool:
+    def is_instantiated(resource, checkstatus=True, check_referenced=False) -> bool:
         if "virtual" in resource.template.directives:
             return False
+        if check_referenced and resource.template._isReferencedBy:
+            return True
         if not resource.last_change and (
             not resource.local_status
             or (
