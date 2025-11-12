@@ -640,6 +640,35 @@ topology_template:
     assert yaml_dict == tosca_yaml
 
 
+def test_interface_inputs():
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    task:
+      type: tosca.nodes.Root
+      metadata:
+        module: service_template
+      interfaces:
+        Install:
+          operations:
+            discover:
+              inputs:
+                arg: 1
+"""
+    src, src_tpl = _to_python(yaml_src)
+    # print(src)
+    yaml_dict = _to_yaml(src, False)
+    # yaml.dump(yaml_dict, sys.stdout)
+    # XXX fix missing inputs in conversion:
+    src_tpl["topology_template"]["node_templates"]["task"]["interfaces"]["Install"][
+        "operations"
+    ]["discover"] = None
+    assert yaml_dict == src_tpl, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
 def test_outputs():
     python_src = """
 import unfurl
