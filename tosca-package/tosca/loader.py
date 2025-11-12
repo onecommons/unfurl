@@ -915,13 +915,15 @@ def restricted_exec(
     except Exception as e:
         if not SKIP_LOADER and sys.version_info >= (3, 11) and e.__traceback__ and e.__traceback__.tb_next:
             logger.error(
-                f"Error executing module {full_name}: {e}\n%s",
-                "\n".join([
-                    f"{instr.opname:20} {instr.argrepr}"
-                    for instr in dis.get_instructions(code)  # type: ignore
-                    if instr.positions
-                    and instr.positions.lineno == e.__traceback__.tb_next.tb_lineno
-                ]),
+                f"Error executing module {full_name} ({namespace.get('__file__')}): {e}\n%s",
+                "\n".join(
+                    [
+                        f"{instr.opname:20} {instr.argrepr}"
+                        for instr in dis.get_instructions(code)  # type: ignore
+                        if instr.positions
+                        and instr.positions.lineno == e.__traceback__.tb_next.tb_lineno
+                    ]
+                ),
             )
         raise
     finally:

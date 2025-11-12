@@ -165,7 +165,11 @@ class PythonToYaml:
                     ):
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
-                            if ti and issubclass(ti.type, ToscaType):
+                            if (
+                                ti
+                                and isinstance(ti.type, type)
+                                and issubclass(ti.type, ToscaType)
+                            ):
                                 _type = ti.type
                                 if _type.__name__ not in self.globals:
                                     self._add_type(_type, types_used)

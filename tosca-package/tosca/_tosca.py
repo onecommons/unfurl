@@ -2170,7 +2170,7 @@ class _DataclassType(type):
         try:
             if issubclass(sub, InstanceProxy):
                 sub = sub._cls
-        except:  # sub is not a class
+        except Exception:  # sub is not a class
             logging.error(f"subclasscheck {sub} for {cls} failed: {type(sub)}")
             return False
         return type.__subclasscheck__(cls, sub)
