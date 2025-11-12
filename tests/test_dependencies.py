@@ -135,7 +135,7 @@ def test_digests(caplog):
     digestKeys = job.manifest.manifest.config["changes"][0]["digestKeys"]
     assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
     digest = job.manifest.manifest.config["changes"][0]["digestValue"]
-    assert digest == "ab13f005c0955b767d99e1fb46af9d9a895792d6"
+    assert digest == "12ef59eaa125c645d20dcb87f21eadab1c5ffdfa"
 
     filepath = FilePath(__file__ + "/../fixtures/helmrepo")
     digestContents = filepath.__digestable__(dict(manifest=manifest))
@@ -148,6 +148,8 @@ def test_digests(caplog):
         output2 = io.StringIO()  # so we don't save the file
         job2 = Runner(manifest2).run(JobOptions(startTime=2, out=output2))
         assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
+        digestKeys = job2.manifest.manifest.config["changes"][0]["digestKeys"]
+        assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
         # print(job2.out.getvalue())
         summary = job2.json_summary()
         # print(json.dumps(summary, indent=2))

@@ -228,7 +228,12 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
                 output["result"] = save_result(task.result.result)
         else:
             output["result"] = "skipped"
-        output.update(task.configurator.save_digest(task))
+        digest = task.configurator.save_digest(task)
+        for key in list(digest):
+            # save these at top level for backwards compatibility
+            if ChangeRecordRecord.is_digest_key(key):
+                output[key] = digest.pop(key)
+        output["digest"] = digest
     except Exception:
         logger.error("Error while saving task %s", task, exc_info=True)
     output["changed"] = task.modified_target
@@ -1373,6 +1378,7 @@ class YamlManifest(ReadOnlyManifest):
         return os.path.join(self.get_base_dir(), folder_name, fileName)
 
     def _append_log(self, job, jobRecord, changes, job_path, folder):
+        # append jobs.tsv
         if not changes:
             return
         log_path = self.get_change_log_path(folder)
@@ -1411,7 +1417,7 @@ class YamlManifest(ReadOnlyManifest):
                     changed=change["changed"],
                 )
                 for key in change.keys():
-                    if key.startswith("digest"):
+                    if ChangeRecordRecord.is_digest_key(key):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)

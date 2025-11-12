@@ -280,7 +280,7 @@ class Configurator(metaclass=AutoRegisterClass):
         """Does this configuration need to be run? Called before rendering the task."""
         return task.configSpec.should_run()
 
-    def save_digest(self, task: "TaskView") -> dict:
+    def save_digest(self, task: "TaskView") -> Dict[str, str]:
         """
         Generate a compact, deterministic representation of the current configuration.
         This is saved in the job log and used by `check_digest` in subsequent jobs to
@@ -294,7 +294,7 @@ class Configurator(metaclass=AutoRegisterClass):
             task (:class:`TaskView`) The task that executed this operation.
 
         Returns:
-            dict: A dictionary whose keys are strings that start with "digest"
+            Dict[str, str]: Any key that starts with "digest" are saved in the task log entry and passed back to `check_digest`.
         """
         # XXX user definition should be able to exclude inputs from digest
         # XXX might throw AttributeError
@@ -322,14 +322,17 @@ class Configurator(metaclass=AutoRegisterClass):
                 values.append(dep.expected)
 
         if keys:
-            inputdigest = get_digest(values, manifest=task._manifest)
+            digests = [get_digest(v, manifest=task._manifest) for v in values]
+            inputdigest = get_digest(digests) if len(digests) > 1 else digests[0]
         else:
             inputdigest = ""
+            digests = []
 
         digest = dict(
             digestKeys=",".join(keys),
             digestValue=inputdigest,
             digestPut=",".join(changed),
+            values=",".join(digests),
         )
         task.logger.debug(
             "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
@@ -355,7 +358,7 @@ class Configurator(metaclass=AutoRegisterClass):
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters: str = getattr(changeset, "digestKeys", "")
+        _parameters: str = changeset.digestKeys
         if not _parameters:
             task.logger.debug(
                 "skipping digest check for %s, previous task did not record any changes",
@@ -396,17 +399,19 @@ class Configurator(metaclass=AutoRegisterClass):
                 current_inputs,
             )
             return True
-        newDigest = get_digest(results, manifest=task._manifest)
+        digests = [get_digest(v, manifest=task._manifest) for v in results]
+        newDigest = get_digest(digests) if len(digests) > 1 else digests[0]
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
         if mismatch:
             task.logger.verbose(
-                "digests didn't match for %s with %s: old %s, new %s",
+                "Digests didn't match for %s with %s: old %s, new %s",
                 task.target.name,
                 _parameters,
                 changeset.digestValue,
                 newDigest,
             )
+            task.logger.debug("New digests were: %s", digests)
         return mismatch
 
 

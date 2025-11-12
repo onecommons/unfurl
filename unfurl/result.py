@@ -81,9 +81,9 @@ def _get_digest(value, kw):
             yield out.getvalue()
 
 
-def get_digest(tpl, **kw):
+def get_digest(value: Any, **kw) -> str:
     m = hashlib.sha1()  # use same digest function as git
-    for contents in _get_digest(tpl, kw):
+    for contents in _get_digest(value, kw):
         if not isinstance(contents, bytes):
             contents = str(contents).encode("utf-8")
         m.update(contents)

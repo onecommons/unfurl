@@ -125,6 +125,15 @@ class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     digestValue: str = ""
     digestKeys: str = ""
     digestPut: str = ""
+    digest_extras: Optional[Dict[str, str]] = None
+    inputs: Optional[Dict[str, Any]] = None
+    changes: Optional[ResourceChanges] = None
+    changed: Optional[bool] = None
+    summary: Optional[str] = None
+
+    @staticmethod
+    def is_digest_key(key: str) -> bool:
+        return key.startswith("digest") and key != "digest"
 
 
 class Manifest(AttributeManager):
@@ -397,11 +406,15 @@ class Manifest(AttributeManager):
         )
         assert isinstance(configChange.operation, str)
 
-        configChange.inputs = changeSet.get("inputs")  # type: ignore
-        # 'digestKeys', 'digestValue' but configurator can set more:
+        configChange.inputs = changeSet.get("inputs")
+        configChange.digest_extras = changeSet.get("digest")
         for key in changeSet.keys():
-            if key.startswith("digest"):
+            # 'digestKeys', 'digestValue', 'digestPut' but configurator can set more:
+            if configChange.is_digest_key(key):
                 setattr(configChange, key, changeSet[key])
+
+        configChange.changed = changeSet.get("changed")
+        configChange.summary = changeSet.get("summary")
 
         configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
@@ -418,9 +431,7 @@ class Manifest(AttributeManager):
             )
 
         if "changes" in changeSet:
-            configChange.resourceChanges = self.load_resource_changes(  # type: ignore
-                changeSet["changes"]
-            )
+            configChange.changes = self.load_resource_changes(changeSet["changes"])
 
         configChange.result = changeSet.get("result")  # type: ignore
         configChange.messages = changeSet.get("messages", [])  # type: ignore
