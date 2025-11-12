@@ -640,6 +640,54 @@ topology_template:
     assert yaml_dict == tosca_yaml
 
 
+def test_outputs():
+    python_src = """
+import unfurl
+import tosca
+
+class Outputs(tosca.ToscaOutputs):
+    token: str = tosca.Attribute()
+
+class Node(tosca.nodes.Root, Outputs):
+    def create(self) -> Outputs:
+        return unfurl.artifacts.ShellExecutable(
+            file="", command=""
+        ).execute()
+    """
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+node_types:
+  Node:
+    derived_from: tosca.nodes.Root
+    attributes:
+      token:
+        type: string
+        metadata:
+          output_match: Outputs
+    interfaces:
+      Standard:
+        operations:
+          create:
+            metadata:
+              output_match:
+              - Outputs
+            outputs:
+              token:
+                type: string
+            implementation:
+              primary:
+                type: unfurl.artifacts.ShellExecutable
+                properties:
+                  command: ''
+                file: ''
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml
+
+
 def test_node_filter():
     python_src = """
 import unfurl

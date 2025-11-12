@@ -92,6 +92,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     environment: Optional[Dict[str, str]]
     timeout: Optional[int]
     arguments: Optional[List[str]]
+    metadata: Optional[Dict[str, Any]]
 
 
 # we want ConfigurationSpec to be independent of our object model and easily serializable
@@ -120,6 +121,7 @@ class ConfigurationSpec:
         input_defs: Optional[Dict[str, Property]] = None,
         output_defs: Optional[Dict[str, Property]] = None,
         arguments: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -144,6 +146,7 @@ class ConfigurationSpec:
         self.input_defs: Optional[Dict[str, Property]] = input_defs
         self.output_defs: Optional[Dict[str, Property]] = output_defs
         self.arguments: Optional[List[str]] = arguments
+        self.metadata = metadata
 
     def find_invalidate_inputs(self, inputs):
         if not self.inputSchema:
@@ -1570,6 +1573,7 @@ def _get_config_spec_args_from_implementation(
         "entry_state": iDef.entry_state,
         "input_defs": iDef.get_declared_inputs(),
         "output_defs": iDef.get_declared_outputs(),
+        "metadata": iDef.metadata,
     }
     if iDef.metadata:
         kw["arguments"] = iDef.metadata.get("arguments")

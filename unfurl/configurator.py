@@ -683,7 +683,7 @@ class TaskView:
         # check this metadata should be applied to this task's operation
         # if its value is a bool return that
         # if its value is a string or a list of strings, compare with the artifact name
-        # and matching metadata on the artifact's execute operation if it set
+        # and matching metadata on the operation or the artifact's execute operation if it set
         if not val:
             return False
         if isinstance(val, bool):
@@ -692,17 +692,25 @@ class TaskView:
             val = [val]
         if self._artifact and self._artifact.name in val:
             return True
-        keys = (
+
+        def match_keys(keys):
+            if keys:
+                if isinstance(keys, str):
+                    return keys in val
+                for key in keys:
+                    if key in val:
+                        return True
+            return False
+
+        if self.configSpec.metadata:
+            if match_keys(self.configSpec.metadata.get(name)):
+                return True
+        if match_keys(
             self._execute_op
             and self._execute_op.metadata
             and self._execute_op.metadata.get(name)
-        )
-        if keys:
-            if isinstance(keys, str):
-                return keys in val
-            for key in keys:
-                if key in val:
-                    return True
+        ):
+            return True
         return False
 
     def _get_inputs_from_properties(
@@ -1057,7 +1065,10 @@ class TaskView:
             exception,
         )
 
-    def _validate_outputs(self, outputs):
+    def _validate_outputs(self, outputs: Dict[str, Any]):
+        if not isinstance(outputs, Mapping):
+            UnfurlTaskError(self, f"outputs must be a dict, not a {type(outputs)}")
+            return
         if self.configSpec.output_defs:
             key = None
             try:
