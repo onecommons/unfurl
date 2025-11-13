@@ -937,7 +937,7 @@ def test_class_init() -> None:
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
             cls.set_to_property_source(cls.host, cls.prop1)
-            cls.prop2 = cls.host._name  # XXX tosca_name is shadowed
+            cls.prop2 = cls.host._name
             cls.prop3 = cls._name
 
         def create(self, **kw) -> tosca.artifacts.Root:

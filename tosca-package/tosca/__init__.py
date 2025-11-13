@@ -196,13 +196,16 @@ class Repository(ToscaObject):
         if import_resolver and self._tosca_name:
             import_resolver.add_repository(self._tosca_name, self._tpl)
 
+    @property
+    def name(self) -> str:
+        return self._tosca_name or self._name
+
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         tpl = dict_cls(**self._tpl)
         if self.credential is not None:
             tpl["credential"] = self.credential.to_yaml(dict_cls)
-        name = self._tosca_name or self._name
-        assert name
-        return dict_cls({name: tpl})
+        assert self.name
+        return dict_cls({self.name: tpl})
 
 
 class WritePolicy(Enum):

@@ -170,10 +170,6 @@ class ToscaObject:
     _type_section: ClassVar[str] = ""
     _docstrings: ClassVar[Optional[Dict[str, str]]] = None
 
-    @property
-    def tosca_name(self) -> str:
-        return self._tosca_name
-
     @classmethod
     def tosca_type_name(cls) -> str:
         # "_type_name" if set on the class or the Python class name
