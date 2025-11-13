@@ -181,6 +181,7 @@ class RefContext:
     DefaultTraceLevel = 0
     _Funcs: Dict = {}
     currentFunc: Optional[str] = None
+    deep: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
@@ -235,6 +236,7 @@ class RefContext:
         trace: int = 0,
         strict: Optional[bool] = None,
         tosca_type: Optional[StatefulEntityType] = None,
+        deep: Optional[dict] = None,
     ) -> "RefContext":
         """
         Create a copy of the current RefContext with optional modifications.
@@ -262,9 +264,10 @@ class RefContext:
             max(self._trace, trace),
             self._strict if strict is None else strict,
         )
-        if vars:
+        if vars or deep:
             copy.vars = copy.vars.copy()
-            copy.vars.update(vars)
+            assert not (vars and deep)  # can't have both
+            copy.vars.update(vars or deep)  # type: ignore
         if wantList is not None:
             copy.wantList = wantList
         base_dir = getattr(self.kw, "base_dir", None)
@@ -275,6 +278,13 @@ class RefContext:
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+        if deep:
+            if self.deep:
+                copy.deep = dict(self.deep, **deep)
+            else:
+                copy.deep = deep.copy()
+        else:
+            copy.deep = self.deep
 
         if tosca_type:
             copy.tosca_type = tosca_type

@@ -92,14 +92,14 @@ class TemplateConfigurator(Configurator):
                     trace = 2
                 else:
                     trace = 0
+                # to accommodate navigation through computed properties to reach the template
+                # (e.g from the artifact to node owning it) set the result vars to be deep vars.
+                ctx = task.inputs.context.copy(deep=result, trace=trace)
                 if Ref.is_ref(resultTemplate):
-                    results = task.query(resultTemplate, vars=result, throw=True)
+                    results = Ref(resultTemplate).resolve_one(ctx)
                 else:
                     # lazily evaluated by update_instances() below
-                    results = Results._map_value(
-                        resultTemplate,
-                        task.inputs.context.copy(vars=result, trace=trace),
-                    )
+                    results = Results._map_value(resultTemplate, ctx)
             except Exception as e:
                 results = None
                 errors = [e]

@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from .spec import EntitySpec
     from .support import Templar
     from .runtime import EntityInstance
+    from .eval import RefContext
 
 from .merge import diff_dicts
 from .util import (
@@ -469,7 +470,19 @@ class Result(ChangeAware):
                 raise KeyError(key)
             return Result(result)
 
-        value = self._resolve_key(key, ctx._lastResource)
+        if (
+            ctx.deep
+            and not self.external
+            and key
+            and key[0] != "."
+            and hasattr(self.resolved, "attributes")
+            and isinstance(self.resolved.attributes, Results)
+        ):
+            # pass deep vars through to the current resource's attribute context
+            cpy = self.resolved.attributes.context.copy(deep=ctx.deep)
+            value = self.resolved.attributes._getresult(key, ctx=cpy)
+        else:
+            value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
             result = value
         elif Ref.is_ref(value):
@@ -726,10 +739,10 @@ class Results(ABC, metaclass=ProxyableType):
 
     @staticmethod
     def _map_value(
-        val, context, applyTemplates=True, defs=None
+        val, context: "RefContext", applyTemplates=True, defs=None
     ) -> Union[Result, "Results", Any]:
         "Recursively and lazily resolves any references in a value"
-        from .eval import map_value, Ref
+        from .eval import Ref
 
         if isinstance(val, Results):
             return val
@@ -785,7 +798,7 @@ class Results(ABC, metaclass=ProxyableType):
     def _get(self, key):
         return self._getresult(key).resolved
 
-    def _getresult(self, key, validate: Optional[bool] = None) -> ResultsItem:
+    def _getresult(self, key, validate: Optional[bool] = None, ctx=None) -> ResultsItem:
         val = self._attributes[key]
         if val is _RecursionGuard:
             self.context.trace("Recursion guard set in Results, returning None", key)
@@ -800,13 +813,13 @@ class Results(ABC, metaclass=ProxyableType):
                         and val.original is not _Missing
                     ):
                         # need to re-evaluate
-                        result = self.resolve(key, val.original, validate)
+                        result = self.resolve(key, val.original, validate, ctx)
                         val.set_resolved(result, self.change_count)
                     elif val.last_computed == MAX_CHANGE_COUNT_SET:
                         val.last_computed = MAX_CHANGE_COUNT
                 else:
                     assert not isinstance(val, Result), val
-                    result = self.resolve(key, val, validate)
+                    result = self.resolve(key, val, validate, ctx)
                     if is_computed(val):
                         computed = self.change_count
                     else:  # marks as not computed:
@@ -859,11 +872,11 @@ class Results(ABC, metaclass=ProxyableType):
                 return scalar(val)
         return val
 
-    def resolve(self, key, val, validate: Optional[bool] = None) -> Result:
+    def resolve(self, key, val, validate: Optional[bool] = None, ctx=None) -> Result:
         # lazily evaluate lists and dicts
         self.context.trace("Results._mapValue", key, val)
         defs = self.get_datatype_defs(key)
-        resolved = self._map_value(val, self.context, self.applyTemplates, defs)
+        resolved = self._map_value(val, ctx or self.context, self.applyTemplates, defs)
         # will return a Result if it was val was an expression that was evaluated
         if isinstance(resolved, Result):
             result = resolved

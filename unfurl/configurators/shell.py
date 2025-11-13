@@ -155,7 +155,6 @@ def _run(
         assert isinstance(retcode, int)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
 
-
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
     exclude_from_digest = TemplateConfigurator.exclude_from_digest + ("cwd", "echo")
@@ -286,7 +285,12 @@ class ShellConfigurator(TemplateConfigurator):
         if tpl is None:
             return None, None
         try:
-            return None, map_value(tpl, task.inputs.context.copy(vars=result))
+            # to accommodate navigation through computed properties to reach the template
+            # (e.g from the artifact to node owning it) set the result vars to be deep vars.
+            ctx = task.inputs.context.copy(deep=result)
+            outputs = map_value(tpl, ctx)
+            task.logger.debug("processed outputsTemplate:\n %s\nto:\n%s", tpl, outputs)
+            return None, outputs
         except Exception as e:
             task.logger.warning("error processing outputsTemplate: %s", e)
             return e, None
