@@ -1795,6 +1795,8 @@ class Runner:
     def run(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()
+        else:
+            self.job = None
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
         assert self.job

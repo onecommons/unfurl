@@ -1230,6 +1230,8 @@ class LocalEnv:
                 location = project.find_ensemble_by_name(manifest_path)
                 if not location:
                     raise UnfurlError(f'Could not find ensemble "{manifest_path}"')
+            elif self.overrides.get("skip_default_ensemble"):
+                location = None
             else:
                 location = project.localConfig.get_default_manifest_tpl()
                 if not location:
