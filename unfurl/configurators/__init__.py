@@ -125,11 +125,11 @@ class TemplateConfigurator(Configurator):
 
     def render(self, task: "TaskView"):
         if task.dry_run:
-            runResult = task.inputs.get("dryrun")
+            runResult = task.inputs.get_copy("dryrun")
             if not isinstance(runResult, dict):
-                runResult = task.inputs.get("run")
+                runResult = task.inputs.get_copy("run")
         else:
-            runResult = task.inputs.get("run")
+            runResult = task.inputs.get_copy("run")
         if isinstance(runResult, Mapping):
             logResult: Any = list(runResult)
         else:
