@@ -819,6 +819,10 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance
             )
 
+    def save_as_dry_run(self):
+        # if skip_save is "never", save as a regular job
+        return self.dry_run and self.jobOptions.skip_save != "never"
+
     def render(self) -> RenderRequests:
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()

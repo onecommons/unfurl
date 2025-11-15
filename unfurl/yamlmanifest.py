@@ -1210,7 +1210,7 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.save_job_record(job)
         if job.workDone:
             # don't save result.results into this yaml, it might contain sensitive data
-            exclude_result = not self.changeLogPath and not job.dry_run
+            exclude_result = not self.changeLogPath and not job.save_as_dry_run()
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
@@ -1232,7 +1232,7 @@ class YamlManifest(ReadOnlyManifest):
         if output:
             self.dump(output)
         else:
-            if job.dry_run and job.jobOptions.skip_save != "never":
+            if job.save_as_dry_run():
                 dry_run_ensemble_path = job.log_path("planned", ".ensemble.yaml")
                 logger.info(
                     "saving copy of ensemble as modified by this dry run to %s",
@@ -1257,7 +1257,7 @@ class YamlManifest(ReadOnlyManifest):
         self, job: "Job", jobRecord: CommentedMap, changed: bool
     ) -> None:
         # only save lastJob in manifest if something changed or dryrun
-        if job.dry_run:
+        if job.save_as_dry_run():
             jobLogPath = job.log_path("planned", ".yaml")
             self.manifest.config["lastJob"] = jobRecord
         elif changed:
@@ -1276,7 +1276,7 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
-        not_modified = job.dry_run or not committed_changes
+        not_modified = job.save_as_dry_run() or not committed_changes
         if self.changeLogPath:
             jobLogPath = os.path.join(self.get_base_dir(), jobRecord["changelog"])
             if not_modified:
