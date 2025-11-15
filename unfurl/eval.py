@@ -970,7 +970,10 @@ def eval_ref(
                 raise UnfurlEvalError(msg)
     elif isinstance(val, str):
         if is_template(val, ctx):
-            return [Result(apply_template(val, ctx))]
+            resolved = apply_template(val, ctx)
+            if not isinstance(resolved, Result):
+                return [Result(resolved)]
+            return [resolved]
         else:
             expr = Expr(val, ctx.vars)
             results = expr.resolve(ctx)  # returns a list of Result

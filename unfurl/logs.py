@@ -178,6 +178,7 @@ class sensitive:
     """
 
     redacted_str = "<<REDACTED>>"
+    redacted_bytes = b"<<REDACTED>>"
 
     def __sensitive__(self) -> bool:
         return True

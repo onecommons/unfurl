@@ -54,19 +54,16 @@ logger = getLogger("unfurl")
 T = TypeVar("T")
 
 
-def _get_digest(value, kw):
+def _get_digest(value, kw, parents=()):
     getter = getattr(value, "__digestable__", None)
     if getter:
         value = getter(kw)
-    isSensitive = isinstance(value, sensitive)
-    if isSensitive:
-        yield sensitive.redacted_str
+    inc = kw.get("inc")
+    if inc and not inc(value, parents):
+        return  # skip this value
+    if isinstance(value, sensitive):
+        yield sensitive.redacted_bytes
     else:
-        if isinstance(value, Results):
-            # since we don't have a way to record which keys were resolved or not
-            # resolve them all now, otherwise we can't compare reliable compare digests
-            value.resolve_all()
-            value = value._attributes
         if isinstance(value, Mapping):
             for k in sorted(value.keys()):
                 yield k
@@ -76,6 +73,8 @@ def _get_digest(value, kw):
             for v in value:
                 for d in _get_digest(v, kw):
                     yield d
+        elif value is None:
+            yield b"null"  # dump skips None
         else:
             out = io.BytesIO()
             dump(serialize_value(value, redact=True), out)
@@ -145,7 +144,7 @@ class ResourceRef(ABC):
         # XXX3 use propmap
         return getattr(self, name)
 
-    def __reflookup__(self, key):
+    def __reflookup__(self, key) -> Union[Any, "Result"]:
         if not key:
             raise KeyError(key)
         if key[0] == ".":
@@ -379,7 +378,7 @@ class ExternalValue(ChangeAware):
             return self.get() == other.get()
         return self.get() == other
 
-    def resolve_key(self, key=None, currentResource=None):
+    def resolve_key(self, key=None, currentResource=None) -> Union[Any, "Result"]:
         if key:
             value = self.get()
             getter = getattr(value, "__reflookup__", None)
@@ -426,6 +425,9 @@ class Result(ChangeAware):
     def __digestable__(self, options):
         if self.external:
             return self.external.__digestable__(options)
+        getter = getattr(self.resolved, "__digestable__", None)
+        if getter:
+            return getter(options)
         return self.resolved
 
     def __sensitive__(self):
@@ -449,7 +451,7 @@ class Result(ChangeAware):
         else:
             return resolved
 
-    def _resolve_key(self, key, currentResource):
+    def _resolve_key(self, key, currentResource) -> Union[Any, "Result"]:
         # might return a Result
         if self.external:
             value = self.external.resolve_key(key, currentResource)
@@ -480,7 +482,7 @@ class Result(ChangeAware):
         ):
             # pass deep vars through to the current resource's attribute context
             cpy = self.resolved.attributes.context.copy(deep=ctx.deep)
-            value = self.resolved.attributes._getresult(key, ctx=cpy)
+            value: Any = self.resolved.attributes._getresult(key, ctx=cpy)
         else:
             value = self._resolve_key(key, ctx._lastResource)
         if isinstance(value, Result):
@@ -728,6 +730,16 @@ class Results(ABC, metaclass=ProxyableType):
 
         return map_value(self, self.context)
 
+    def as_ref(self, options=None):
+        self.resolve_all()
+        return serialize_value(self._attributes, **(options or {}))
+
+    def __digestable__(self, options):
+        # since we don't have a way to record which keys were resolved or not
+        # resolve them all now, otherwise we can't compare reliable compare digests
+        self.resolve_all()
+        return self._attributes
+
     @property
     def change_count(self) -> int:
         # change_count is at least shared across _map_values()
@@ -798,6 +810,9 @@ class Results(ABC, metaclass=ProxyableType):
     def _get(self, key):
         return self._getresult(key).resolved
 
+    def __reflookup__(self, key) -> Result:
+        return self._getresult(key)
+
     def _getresult(self, key, validate: Optional[bool] = None, ctx=None) -> ResultsItem:
         val = self._attributes[key]
         if val is _RecursionGuard:
@@ -866,7 +881,7 @@ class Results(ABC, metaclass=ProxyableType):
     def _resolve_from_defs(defs: Dict[str, Property], key: str, val: Any) -> Any:
         if is_sensitive_schema(defs, key):
             return wrap_sensitive_value(val)
-        elif isinstance(val, str):
+        if isinstance(val, str):
             defSchema = (key in defs and defs[key].schema) or {}
             if defSchema and defSchema.get("type", "").startswith("scalar-unit."):
                 return scalar(val)
