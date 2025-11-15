@@ -402,7 +402,7 @@ class ConfigTask(TaskView, ConfigChange):
             self.target._lastConfigChange = self.changeId
             return True
         if result.modified or self._resourceChanges.get_attribute_changes(
-            self.target.key
+            self.target.nested_key
         ):
             if self.target.last_change != self.changeId:
                 # save to create a linked list of tasks that modified the target
@@ -494,7 +494,7 @@ class ConfigTask(TaskView, ConfigChange):
                 self.logger.debug("customized by explicit discover workflow")
                 return True
             changeset = cast("YamlManifest", self._manifest).find_last_operation(
-                self.target.key, "configure"
+                self.target, "configure"
             )
             if changeset:
                 for expr in self._resourceChanges.get_changes_as_expr():
@@ -573,7 +573,7 @@ class ConfigTask(TaskView, ConfigChange):
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
         changeset = cast("YamlManifest", self._manifest).find_last_operation(
-            self.target.key, self.configSpec.operation
+            self.target, self.configSpec.operation
         )
         if not changeset:
             # don't log message if target was discovered, discovered resources without a job request won't have a digest

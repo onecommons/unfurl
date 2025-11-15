@@ -352,14 +352,14 @@ unfurl.yaml
 
             # check that these are the only recorded changes
             expected = {
-                "::testNode": {
+                ":::testNode": {
                     "access_key": "mockAWS_ACCESS_KEY_ID",
                     "access_key2": "mockAWS_ACCESS_KEY_ID",
                     "access_key3": "mockAWS_ACCESS_KEY_ID",
                 }
             }
             changes = job.manifest.manifest.config["changes"][0]["changes"]
-            self.assertEqual(expected, changes, changes)
+            assert expected == changes
 
             # changeLogPath = (
             #     "ensemble/" + job.manifest.manifest.config["lastJob"]["changes"]

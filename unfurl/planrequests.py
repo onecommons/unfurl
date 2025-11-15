@@ -705,7 +705,7 @@ class JobRequest:
 
     def __init__(
         self,
-        resources: List[EntityInstance],
+        resources: Sequence[EntityInstance],
         errors: Optional[Sequence[UnfurlError]] = None,
         update=None,
     ):

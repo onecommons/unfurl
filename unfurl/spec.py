@@ -1849,6 +1849,9 @@ class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
         self.topology = topology
 
     def __getitem__(self, key):
+        if key[:1] == ":":
+            assert self.topology.spec.topology
+            return self.topology.spec.topology.node_templates[key[1:]]
         # if a node is mapped to an outer node, return the outer one.
         outer = self.topology.get_outer_node_replaced_by_inner_node(key)
         if outer:

@@ -1389,7 +1389,7 @@ class TaskView:
             return None, [err]
 
         errors: List[UnfurlTaskError] = []
-        newResources = []
+        newResources: List[NodeInstance] = []
         newResourceSpecs = []
         updated_resources = []
         for resourceSpec in instances:
@@ -1447,7 +1447,7 @@ class TaskView:
                     newResources.append(newResource)
 
         if newResourceSpecs:
-            self._resourceChanges.add_resources(newResourceSpecs)
+            self._resourceChanges.add_resources(newResourceSpecs, newResources)
             self._addedResources.extend(newResources)
             self.logger.info("add resources %s", newResources)
         if newResourceSpecs:  # XXX or updated_resources:

@@ -61,6 +61,7 @@ from .runtime import (
     NodeInstance,
     TopologyInstance,
     RelationshipInstance,
+    InstanceKey,
 )
 from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
@@ -200,7 +201,7 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     if task.previousId:
         output["previousId"] = task.previousId
     if task.target:
-        output["target"] = task.target.key
+        output["target"] = task.target.nested_key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
     if task.reason:
@@ -394,7 +395,6 @@ class ReadOnlyManifest(Manifest):
 
     def dump(self, out=sys.stdout):
         self.manifest.dump(out)
-
 
 def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     clone = ReadOnlyManifest(localEnv=localEnv)
@@ -941,7 +941,9 @@ class YamlManifest(ReadOnlyManifest):
             return file_path + "#" + self.tosca.fragment
         return file_path
 
-    def find_last_operation(self, target, operation) -> Optional[ChangeRecordRecord]:
+    def find_last_operation(
+        self, target: EntityInstance, operation: str
+    ) -> Optional[ChangeRecordRecord]:
         if self._operationIndex is None:
             operationIndex: Dict[Tuple[str, str], str] = {}
             if self.changeSets:
@@ -954,7 +956,9 @@ class YamlManifest(ReadOnlyManifest):
                     if last < change.changeId:
                         operationIndex[key] = change.changeId
             self._operationIndex = operationIndex
-        changeId = self._operationIndex.get((target, operation))
+        changeId = self._operationIndex.get((target.nested_key, operation))
+        if changeId is None:  # backward compatibility
+            changeId = self._operationIndex.get((target.key, operation))
         if changeId is not None and self.changeSets:
             return self.changeSets[changeId]
         return None

@@ -184,12 +184,10 @@ class ConfigChangeTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             # print("result.output", result.exit_code, result.output)
-            changes = {"::node1": {"outputVar": "1"}}
+            changes = {":::node1": {"outputVar": "1"}}
             assert _latestJobs
             job = _latestJobs[-1]
-            self.assertEqual(
-                changes, job.manifest.manifest.config["changes"][2]["changes"]
-            )
+            assert changes == job.manifest.manifest.config["changes"][2]["changes"]
 
             assert _latestJobs
             job = _latestJobs[-1]
@@ -272,10 +270,8 @@ class ConfigChangeTest(unittest.TestCase):
                 summary["job"],
             )
             self.assertEqual("reconfigure", summary["tasks"][0]["reason"])
-            changes2 = {"::node1": {"outputVar": "2"}}
-            self.assertEqual(
-                changes2, job.manifest.manifest.config["changes"][-1]["changes"]
-            )
+            changes2 = {":::node1": {"outputVar": "2"}}
+            assert changes2 == job.manifest.manifest.config["changes"][-1]["changes"]
 
     def test_spec_change(self):
         """
@@ -307,12 +303,12 @@ class ConfigChangeTest(unittest.TestCase):
             )
             self.assertEqual(result.exit_code, 0, result)
             # print("result.output 1", result.exit_code, result.output)
-            changes = {"::node1": {"outputVar": "1"}}
+            # changes = {":::node1": {"outputVar": "1"}}
             assert _latestJobs
             job = _latestJobs[-1]
             changes = job.manifest.manifest.config["changes"][0]
             assert changes["outputs"]["prop"] == "A"
-            assert changes["digestKeys"] == "::node1::testProperty"
+            assert changes["digestKeys"] == ":::node1::testProperty"
             assert changes["digestValue"] == "6dcd4ce23d88e2ee9568ba546c007c63d9131c1b"
 
             assert _latestJobs
@@ -369,7 +365,7 @@ class ConfigChangeTest(unittest.TestCase):
             self.assertEqual("reconfigure", summary["tasks"][0]["reason"])
             changes = job.manifest.manifest.config["changes"][1]
             assert changes["outputs"]["prop"] == "B"
-            assert changes["digestKeys"] == "::node1::testProperty"
+            assert changes["digestKeys"] == ":::node1::testProperty"
             assert changes["digestValue"] == "ae4f281df5a5d0ff3cad6371f76d5c29b6d953ec"
 
             discover_args = [
@@ -379,7 +375,10 @@ class ConfigChangeTest(unittest.TestCase):
                 "discover",
             ]
             result, job, summary = run_job_cmd(runner, discover_args, starttime=2)
-            assert job.manifest.manifest.config["changes"][2]['digestPut'] == '::node1::testProperty'
+            assert (
+                job.manifest.manifest.config["changes"][2]["digestPut"]
+                == ":::node1::testProperty"
+            )
             assert job.manifest.rootResource.find_instance("node1").customized == 'A01120000001'
             # print("ddd", job.manifest.manifest.config["status"])
 

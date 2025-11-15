@@ -382,7 +382,7 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a="{{ SELF.url }}"),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert (
         expr.template(
@@ -390,7 +390,7 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a=topology.test_node.url),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"

@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         HasInstancesInstance,
         TopologyInstance,
         RelationshipInstance,
+        NodeInstance,
     )
     from .configurator import Dependency
     from .spec import EntitySpec
@@ -1731,12 +1732,14 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources: Iterable[Dict[str, Any]]) -> None:
-        for resource in resources:
-            self["::" + resource["name"]] = [None, resource, None]
+    def add_resources(
+        self, resource_specs: Iterable[Dict[str, Any]], instances: List["NodeInstance"]
+    ) -> None:
+        for spec, instance in zip(resource_specs, instances):
+            self[instance.nested_key] = [None, spec, None]
 
     def update_changes(
-        self, changes: AttributesChanges, statuses, resource, changeId=None
+        self, changes: AttributesChanges, statuses: StatusMap, resource, changeId=None
     ):
         self.add_changes(changes)
         self.add_statuses(statuses)
@@ -1821,15 +1824,15 @@ class AttributeManager:
     def get_status(self, resource: "EntityInstance") -> List[Optional[Status]]:
         if resource.key not in self.statuses:
             return [resource._localStatus, resource._localStatus]
-        return self.statuses[resource.key]
+        return self.statuses[resource.nested_key]
 
     def set_status(
         self, resource: "EntityInstance", newvalue: Optional[Status]
     ) -> None:
         if resource.key not in self.statuses:
-            self.statuses[resource.key] = [resource._localStatus, newvalue]
+            self.statuses[resource.nested_key] = [resource._localStatus, newvalue]
         else:
-            self.statuses[resource.key][1] = newvalue
+            self.statuses[resource.nested_key][1] = newvalue
 
     def mark_referenced_templates(self, template: "EntitySpec"):
         for resource, attr in self.attributes.values():
@@ -2013,7 +2016,7 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            touched: Dict[str, Any] = {}
+            touched: Dict[str, AttributeInfo] = {}
             # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, ResultsItem):
@@ -2046,7 +2049,7 @@ class AttributeManager:
             resource._attributes = _attributes
 
             if touched:
-                _dependencies[resource.key] = (resource, touched)
+                _dependencies[resource.nested_key] = (resource, touched)
             # save changes
             diff = attributes.get_diff()
             if not diff:
@@ -2054,7 +2057,7 @@ class AttributeManager:
             for key in foundSensitive:
                 if key in diff:
                     diff[key] = _attributes[key]
-            changes[resource.key] = diff
+            changes[resource.nested_key] = diff
 
         self._reset()
         return changes, _dependencies

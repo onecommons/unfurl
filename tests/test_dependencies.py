@@ -11,7 +11,7 @@ from unfurl.configurators import TemplateConfigurator
 from unfurl.projectpaths import FilePath
 
 _manifestTemplate = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
@@ -91,7 +91,7 @@ reorderManifest = (
 )
 
 static_dep_manifest = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
@@ -133,7 +133,7 @@ def test_digests(caplog):
     assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
     # print(job.out.getvalue())
     digestKeys = job.manifest.manifest.config["changes"][0]["digestKeys"]
-    assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
+    assert digestKeys == "run,cleartext_input,:::anInstance::cleartext_prop"
     digest = job.manifest.manifest.config["changes"][0]["digestValue"]
     assert digest == "12ef59eaa125c645d20dcb87f21eadab1c5ffdfa"
 
@@ -149,7 +149,10 @@ def test_digests(caplog):
         job2 = Runner(manifest2).run(JobOptions(startTime=2, out=output2))
         assert not job2.unexpectedAbort, job2.unexpectedAbort.get_stack_trace()
         digestKeys = job2.manifest.manifest.config["changes"][0]["digestKeys"]
-        assert digestKeys == "run,cleartext_input,::anInstance::cleartext_prop"
+        assert (
+            digestKeys
+            == "run,cleartext_input,:::anInstance::referenced,:::anInstance::cleartext_prop"
+        )
         # print(job2.out.getvalue())
         summary = job2.json_summary()
         # print(json.dumps(summary, indent=2))
@@ -195,7 +198,7 @@ class DependencyTest(unittest.TestCase):
         # print(json.dumps(summary, indent=2))
         # print(job.out.getvalue())
 
-        dependencies = [dict(ref="::nodeC::prop", expected="static", required=True)]
+        dependencies = [dict(ref=":::nodeC::prop", expected="static", required=True)]
         self.assertEqual(
             dependencies,
             job.manifest.manifest.config["changes"][0]["dependencies"],
@@ -281,7 +284,7 @@ class DependencyTest(unittest.TestCase):
         # print(job.out.getvalue())
 
         # dependencies detected during render should be saved
-        dependencies = [dict(ref="::nodeC::attr", required=True, expected="Default")]
+        dependencies = [dict(ref=":::nodeC::attr", required=True, expected="Default")]
         self.assertEqual(
             dependencies,
             job.manifest.manifest.config["changes"][2]["dependencies"],
@@ -439,7 +442,7 @@ def test_static_dependencies():
 
 
 unconditional_manifest = """
-apiVersion: unfurl/v1alpha1
+apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:

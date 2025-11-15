@@ -632,10 +632,15 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.name
 
     @property
-    def nested_key(self) -> str:
+    def nested_key(self) -> InstanceKey:
+        # key() is relative to a topology (starts with ::)
+        # nested_key() relative to the apex (starts with :::)
         if self.template.topology.substitute_of:
-            return self.template.topology.substitute_of.nested_name + ":" + self.key
-        return self.key
+            return cast(
+                InstanceKey,
+                f":::{self.template.topology.substitute_of.nested_name}:{self.key.lstrip(':')}",
+            )
+        return cast(InstanceKey, ":" + self.key)
 
     @property
     def readonly(self) -> bool:
@@ -644,8 +649,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def apex(self):
         if isinstance(self.root, TopologyInstance):
-            if self.root.parent_topology:  # type: ignore
-                return cast(TopologyInstance, self.root.parent_topology).apex  # type: ignore
+            if self.root.parent_topology:
+                return cast(TopologyInstance, self.root.parent_topology).apex
         return self.root
 
     def validate(self) -> None:
@@ -731,6 +736,10 @@ class HasInstancesInstance(EntityInstance):
 
     # XXX use find_instance instead and remove find_resource
     def find_resource(self, qualified_name) -> Optional["HasInstancesInstance"]:
+        if qualified_name[:1] == ":":
+            return cast(HasInstancesInstance, self.apex).find_resource(
+                qualified_name[1:]
+            )
         resourceid, sep, inner = qualified_name.partition(":")
         if self.name == resourceid:
             if inner:
