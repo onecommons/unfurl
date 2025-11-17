@@ -789,9 +789,6 @@ class Results(ABC, metaclass=ProxyableType):
         elif isinstance(val, list):
             # already validated
             # always explicitly set defs
-            if len(val) == 1 and isinstance(val[0], Result):
-                # XXX! see test_localConfig in test_cli.py
-                return val[0]
             items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
             return ResultsList(items, context, False, defs or {})
         else:
@@ -905,10 +902,6 @@ class Results(ABC, metaclass=ProxyableType):
         else:
             result = Result(resolved)
         resolved = result.resolved = self._transform(key, result.resolved)
-        if isinstance(resolved, MutableSequence) and resolved:
-            # make sure we don't have a List[Result]
-            assert not isinstance(resolved[0], Result), resolved[0]
-
         if self.validate if validate is None else validate:
             self._validate(key, resolved, val)
         if self.defs:

@@ -98,6 +98,7 @@ def _map_value(
     applyTemplates: bool = True,
     flatten=False,
 ) -> Any:
+    # embedded expressions are evaluated using wantList (not ctx.wantList)
     from .support import is_template, apply_template
 
     if isinstance(value, quoted_dict):
@@ -985,7 +986,9 @@ def eval_ref(
 def _eval_ref_results(val, ctx) -> List[Result]:
     mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, ResultsList):
-        return [r if isinstance(r, Result) else Result(r) for r in mappedVal]
+        return [
+            r if isinstance(r, Result) else Result(r) for r in mappedVal._attributes
+        ]
     if isinstance(mappedVal, Result):
         return [mappedVal]
     elif mappedVal is None:
