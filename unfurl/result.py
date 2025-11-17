@@ -395,6 +395,33 @@ class ExternalValue(ChangeAware):
         serialized = {self.type: self.key}
         return {"eval": serialized}
 
+class InertValue(ExternalValue):
+    __slots__ = "substitute"
+
+    default_str = "<<REPLACED>>"
+
+    def __init__(self, value: Any, substitute):
+        self.type = "inert"
+        self.key = value
+        if not isinstance(substitute, str):
+            self.substitute = self.default_str
+        else:
+            self.substitute = substitute
+
+    def __digestable__(self, options):
+        return self.substitute
+
+    def as_ref(self, options=None):
+        if options:
+            if options.get("redact"):
+                return self.substitute
+            elif options.get("resolveExternal"):
+                return serialize_value(self.get(), **options)
+        ref = dict(inert=self.key)
+        if self.substitute != self.default_str:
+            ref["substitute"] = serialize_value(self.substitute)
+        return dict(eval=ref)
+
 
 class Result(ChangeAware):
     # Result optionally maintains a shadow "external" value
@@ -522,10 +549,15 @@ class Result(ChangeAware):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
+def metadata_from_schema(defs: Dict[str, Property], name: str, key: str) -> Any:
+    metadata = name in defs and defs[name].schema.metadata
+    if metadata:
+        return metadata.get(key)
+    return None
+
+
 def is_sensitive_schema(defs: Dict[str, Property], key: str) -> bool:
-    defSchema = (key in defs and defs[key].schema) or {}
-    defMeta = defSchema.get("metadata", {})  # Schema has __getitem__
-    return bool(defMeta.get("sensitive"))
+    return bool(metadata_from_schema(defs, key, "sensitive"))
 
 
 def _validation_error(src, context, prop_def, msg):
@@ -893,9 +925,10 @@ class Results(ABC, metaclass=ProxyableType):
 
     def resolve(self, key, val, validate: Optional[bool] = None, ctx=None) -> Result:
         # lazily evaluate lists and dicts
-        self.context.trace("Results._mapValue", key, val)
+        ctx = ctx or self.context
+        ctx.trace("Results._mapValue", key, val)
         defs = self.get_datatype_defs(key)
-        resolved = self._map_value(val, ctx or self.context, self.applyTemplates, defs)
+        resolved = self._map_value(val, ctx, self.applyTemplates, defs)
         # will return a Result if it was val was an expression that was evaluated
         if isinstance(resolved, Result):
             result = resolved
@@ -905,7 +938,12 @@ class Results(ABC, metaclass=ProxyableType):
         if self.validate if validate is None else validate:
             self._validate(key, resolved, val)
         if self.defs:
-            result.resolved = self._resolve_from_defs(self.defs, key, resolved)
+            resolved = self._resolve_from_defs(self.defs, key, resolved)
+            transient = metadata_from_schema(self.defs, key, "inert")
+            if transient is not None:
+                result = Result(InertValue(resolved, transient))
+            else:
+                result.resolved = resolved
 
         assert not isinstance(result.resolved, Result)
         ctx.referenced.add_result_reference(key, result)

@@ -157,7 +157,11 @@ def _run(
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
-    exclude_from_digest = TemplateConfigurator.exclude_from_digest + ("cwd", "echo")
+    exclude_from_digest = TemplateConfigurator.exclude_from_digest + (
+        "cwd",  # depends on local configuration
+        "echo",  # only affects output
+        "outputsTemplate",  # only affects output
+    )
     _default_cmd: Optional[str] = None
     _default_dryrun_arg: Optional[str] = None
 

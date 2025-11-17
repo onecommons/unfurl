@@ -61,8 +61,10 @@ from .result import (
     ResultsItem,
     Result,
     ExternalValue,
+    InertValue,
     serialize_value,
     is_sensitive_schema,
+    metadata_from_schema,
     wrap_var,
 )
 from .util import (
@@ -249,6 +251,23 @@ set_eval_func(
     "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
+def inert(val, ctx):
+    kw = ctx.kw
+    val = map_value(val, ctx)
+    if "substitute" in kw:
+        sub = map_value(kw["substitute"], ctx.copy(vars=dict(value=val)))
+    else:
+        sub = True
+    external = InertValue(val, sub)
+    ctx.add_external_reference(external)
+    return external.get()
+
+
+set_eval_func(
+    "inert",
+    lambda arg, ctx: inert(arg, ctx),
+    safe=True,
+)
 
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
@@ -624,6 +643,23 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
 
 
 def _handle_external(external_results: List[Result], value: Any, logger) -> Any:
+    if isinstance(value, str):
+        canonical = value
+        inert = False
+        for result in external_results:
+            if isinstance(result.external, InertValue):
+                e = result.external
+                canonical = canonical.replace(e.key, e.substitute)
+                inert = True
+        if inert:
+            if value != canonical:
+                return InertValue(value, canonical)
+            else:
+                logger.warning(
+                    "could not find transient %s in %s, use the transient filter if needed",
+                    canonical,
+                    value,
+                )
     if (
         external_results
         and external_results[-1].external
@@ -966,11 +1002,11 @@ def get_ensemble_metadata(arg, ctx: RefContext):
     ensemble = ctx.task._manifest
     metadata = dict(
         deployment=ensemble.deployment,
-        job=ctx.task.job.changeId,
+        job=InertValue(ctx.task.job.changeId, "<<A00JOBID>>"),  # 12 characters
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
-        metadata["revision"] = ensemble.repo.revision[:8]
+        metadata["revision"] = InertValue(ensemble.repo.revision[:8], "REVISION")
     environment = ensemble.localEnv and ensemble.localEnv.manifest_environment_name
     if environment:
         metadata["environment"] = environment
@@ -1550,8 +1586,6 @@ class ExternalResource(ExternalValue):
         if schema:
             if isinstance(value, Result):
                 value = value.resolved
-            if isinstance(value, Result):
-                value = value.resolved
             self._validate(value, schema, name)
         # we don't want to return a result across boundaries
         return value
@@ -1792,6 +1826,12 @@ _Dependencies = NewType(
     ],
 )
 
+def should_wrap_sensitive(defs, key: str, value: Result):
+    # external values like "secret" don't need to be wrapped
+    return is_sensitive_schema(defs, key) and (
+        not value.external or value.external.type == "inert"
+    )
+
 
 class AttributeManager:
     """
@@ -1968,15 +2008,10 @@ class AttributeManager:
     #   #   resource._localStatus = old
 
     @staticmethod
-    def _save_sensitive(defs, key: str, value: Result):
-        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-        # but externalvalues are ok since they don't reveal much
-        sensitive = is_sensitive_schema(defs, key) and not value.external
-        if sensitive:
-            savedValue = wrap_sensitive_value(value.resolved)
-        else:
-            savedValue = value.as_ref()  # serialize Result
-        return savedValue
+    def _save_and_ensure_sensitive(defs, key: str, value: Result):
+        if should_wrap_sensitive(defs, key, value):
+            return wrap_sensitive_value(value.resolved)
+        return value.as_ref()  # serialize Result
 
     @staticmethod
     def _check_attribute(
@@ -2036,7 +2071,7 @@ class AttributeManager:
                     changed, isLive, accessed = self._check_attribute(
                         specd, key, value, resource
                     )
-                    savedValue = self._save_sensitive(defs, key, value)
+                    savedValue = self._save_and_ensure_sensitive(defs, key, value)
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
                     touched[key] = (

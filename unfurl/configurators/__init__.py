@@ -62,7 +62,8 @@ class TemplateInputs(ToscaInputs):
 
 
 class TemplateConfigurator(Configurator):
-    exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
+    # these inputs only apply to output or dryruns
+    exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done", "dryrun")
 
     def process_result_template(self, task: "TaskView", result: Dict[str, Any]):
         """

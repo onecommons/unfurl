@@ -97,6 +97,8 @@ def test_options():
     assert field.metadata == dict(tfvar=True, my_option="foo")
     field2 = tosca.Property(options=expr.tfvar)
     assert field2.metadata == dict(tfvar=True)
+    field3 = tosca.Property(options=expr.sensitive | expr.set_inert())
+    assert field3.metadata == dict(inert=True, sensitive=True)
 
 
 @pytest.mark.parametrize(
@@ -286,13 +288,17 @@ expressions_yaml = {
                     "type": "string",
                     "default": {
                         "eval": {
-                            "allowed": "[a-zA-Z0-9-]",
-                            "start": "[a-zA-Z]",
-                            "replace": "--",
-                            "case": "lower",
-                            "end": "[a-zA-Z0-9]",
-                            "max": 63,
-                            "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                            "inert": {
+                                "eval": {
+                                    "allowed": "[a-zA-Z0-9-]",
+                                    "start": "[a-zA-Z]",
+                                    "replace": "--",
+                                    "case": "lower",
+                                    "end": "[a-zA-Z0-9]",
+                                    "max": 63,
+                                    "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                                }
+                            }
                         }
                     },
                 },
@@ -338,7 +344,9 @@ def test_expressions():
         path1: str = expr.get_dir(None, "src")
         default_expr: str = expr.fallback(None, "foo")
         or_expr: str = expr.or_expr(default_expr, "ignored")
-        label: str = functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        label: str = expr.inert(
+            functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        )
         password: str = tosca.Property(
             options=expr.sensitive | expr.validate(validate_pw), default="default"
         )
@@ -397,7 +405,9 @@ def test_expressions():
     assert topology.test_node.label == "fo--o"
     assert (
         "to_dns_label"
-        in topology.test_node._instance.attributes.defs["label"].default["eval"]
+        in topology.test_node._instance.attributes.defs["label"].default["eval"][
+            "inert"
+        ]["eval"]
     )
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):

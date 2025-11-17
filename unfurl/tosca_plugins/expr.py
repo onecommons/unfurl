@@ -26,6 +26,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     MutableMapping,
     Optional,
     Type,
@@ -57,6 +58,10 @@ tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
 sensitive = tosca.Options(dict(sensitive=True))
 
 
+def set_inert(sub: Union[str, Literal[True]] = True):
+    return tosca.Options(dict(inert=sub))
+
+
 def validate(factory: Callable) -> tosca.Options:
     """
     Return a `tosca.Options` that adds custom validation to the property or attribute definition.
@@ -82,7 +87,7 @@ def validate(factory: Callable) -> tosca.Options:
 if TYPE_CHECKING or not safe_mode():
     # these imports aren't safe
     from .. import support
-    from ..result import ResultsMap
+    from ..result import InertValue
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
@@ -163,6 +168,14 @@ if TYPE_CHECKING or not safe_mode():
             raise UnfurlError(msg)
         return instance
 
+    def inert(val, substitute=True):
+        if global_state_mode() == "runtime":
+            ctx = global_state_context().copy()
+            ctx.kw = dict(substitute=substitute)
+            return support.inert(val, ctx)
+        else:
+            return EvalData(cast(dict, InertValue(val, substitute).as_ref()))
+
 else:
     # if this module is loaded in safe_mode these will never by referenced:
     support = object()
@@ -179,6 +192,8 @@ __all__ = [
     "tfoutput",
     "tfvar",
     "sensitive",
+    "inert",
+    "set_inert",
     "has_env",
     "get_env",
     "get_input",
