@@ -1273,7 +1273,7 @@ class Job(ConfigChange):
                     task.blocked = True
                 else:
                     task.blocked = False
-                    errors = task.configSpec.find_invalidate_inputs(task.inputs)
+                    errors = task.configSpec.find_invalid_inputs(task.inputs)
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
                     else:

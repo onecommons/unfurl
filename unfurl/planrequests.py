@@ -148,7 +148,7 @@ class ConfigurationSpec:
         self.arguments: Optional[List[str]] = arguments
         self.metadata = metadata
 
-    def find_invalidate_inputs(self, inputs):
+    def find_invalid_inputs(self, inputs):
         if not self.inputSchema:
             return []
         return find_schema_errors(serialize_value(inputs), self.inputSchema)
