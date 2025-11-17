@@ -1542,6 +1542,10 @@ class ExternalResource(ExternalValue):
             raise
 
         if schema:
+            if isinstance(value, Result):
+                value = value.resolved
+            if isinstance(value, Result):
+                value = value.resolved
             self._validate(value, schema, name)
         # we don't want to return a result across boundaries
         return value

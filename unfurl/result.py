@@ -375,7 +375,7 @@ class ExternalValue(ChangeAware):
 
     def __eq__(self, other):
         if isinstance(other, ExternalValue):
-            return self.get() == other.get()
+            return self.type == other.type and self.get() == other.get()
         return self.get() == other
 
     def resolve_key(self, key=None, currentResource=None) -> Union[Any, "Result"]:
@@ -400,8 +400,8 @@ class Result(ChangeAware):
     # Result optionally maintains a shadow "external" value
     __slots__ = ("resolved", "external", "select")
 
-    def __init__(self, resolved: Any):
-        self.select: Tuple = ()
+    def __init__(self, resolved: Any, select=()):
+        self.select: Tuple = select
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -413,10 +413,13 @@ class Result(ChangeAware):
 
     def as_ref(self, options=None):
         options = options or {}
-        if self.external:
+        if self.external and not options.get("resolveExternal"):
             ref = self.external.as_ref(options)
-            if self.select and not options.get("resolveExternal"):
-                ref["select"] = "." + "::".join(self.select)
+            if self.select:
+                if len(self.select) > 1:
+                    ref["select"] = ".::" + "::".join(self.select)
+                else:
+                    ref["select"] = self.select[0]
             return ref
         else:
             val = serialize_value(self.resolved, **options)
@@ -431,10 +434,7 @@ class Result(ChangeAware):
         return self.resolved
 
     def __sensitive__(self):
-        if self.external:
-            return is_sensitive(self.external)
-        else:
-            return is_sensitive(self.resolved)
+        return is_sensitive(self.external or self.resolved)
 
     def _values(self):
         resolved = self.resolved
@@ -509,10 +509,14 @@ class Result(ChangeAware):
             return False
 
     def __eq__(self, other):
+        if self is other:
+            return True
         if isinstance(other, Result):
+            if self.external:
+                return self.external == other.external
             return self.resolved == other.resolved
         else:
-            return self.resolved == other
+            return self == Result(other)
 
     def __repr__(self):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
@@ -567,9 +571,8 @@ class ResultsItem(Result):
         self, resolved: Any, original: Any = _Missing, seen: int = MAX_CHANGE_COUNT
     ):
         if isinstance(resolved, Result):
-            self.select: Tuple = ()
+            self.select = resolved.select
             self.external = resolved.external
-            assert not isinstance(resolved.resolved, Result)
             resolved = self.resolved = resolved.resolved
             assert not isinstance(resolved, Result)
         else:
@@ -753,7 +756,11 @@ class Results(ABC, metaclass=ProxyableType):
     def _map_value(
         val, context: "RefContext", applyTemplates=True, defs=None
     ) -> Union[Result, "Results", Any]:
-        "Recursively and lazily resolves any references in a value"
+        "Recursively and lazily resolve any expressions in a value"
+        # lists and maps are returned as Results, expressions resolve to a Result, None or ResultsList[ResultsItem]
+        # otherwise the value returned as is, including ExternalValues (which maybe returned by apply_template)
+        # since ResultsMap and ResultsList resolve Result and ExternalValue objects,
+        # those embedded objects will never be observed when accessing them like regular dicts and lists.
         from .eval import Ref
 
         if isinstance(val, Results):
