@@ -908,6 +908,7 @@ class Results(ABC, metaclass=ProxyableType):
             result.resolved = self._resolve_from_defs(self.defs, key, resolved)
 
         assert not isinstance(result.resolved, Result)
+        ctx.referenced.add_result_reference(key, result)
         return result
 
     def get_datatype_defs(self, key: str) -> Optional[Dict[str, Property]]:

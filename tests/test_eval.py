@@ -735,10 +735,16 @@ foo
 
         ctx2 = ctx.copy(wantList="result")
         result = map_value(asTemplate, ctx2)
-        self.assertIs(result.external, singleton)
+        self.assertIs(result[0].external, singleton)
 
         result = map_value("transformed " + asTemplate, ctx2)
-        self.assertEqual(result, "transformed test")
+        self.assertEqual(result[0], "transformed test")
+
+        result = map_value(dict(eval=expr.source), ctx2)
+        self.assertIs(result[0].external, singleton)
+
+        mapped = ResultsMap._map_value(dict(eval=".::b"), ctx)
+        assert mapped == [1, 2, 3]
 
     def test_to_env(self):
         from unfurl.yamlloader import make_yaml

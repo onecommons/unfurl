@@ -407,7 +407,8 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
     return env.from_string(value).render(vars)
 
 
-def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Result]:
+def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
+    # if ctx.wantList == "result", may return an ExternalValue
     if not isinstance(value, str):
         msg = f"Error rendering template: source must be a string, not {type(value)}"  # type: ignore[unreachable]
         if ctx.strict:
@@ -597,7 +598,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
-                external_result = None
+                external_results: List[Result] = []
                 for result in ctx.referenced.getReferencedResults(index):
                     if is_sensitive(result):
                         # note: even if the template rendered a list or dict
@@ -607,16 +608,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                         # mark the template result as sensitive
                         return wrap_sensitive_value(value)
                     if result.external:
-                        external_result = result
-
-                if (
-                    external_result
-                    and want_result
-                    and external_result.external
-                    and value == external_result.external.get()
-                ):
-                    # return a Result with the external value instead
-                    return external_result
+                        external_results.append(result)
+                if want_result and external_results:
+                    return _handle_external(external_results, value, log)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
@@ -627,6 +621,18 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             templar._apply_templar_overrides(overrides)
     # wrap result as AnsibleUnsafe so it isn't evaluated again
     return wrap_var(value)
+
+
+def _handle_external(external_results: List[Result], value: Any, logger) -> Any:
+    if (
+        external_results
+        and external_results[-1].external
+        and value == external_results[-1].external.get()
+    ):
+        # return a Result with the external value instead
+        return external_results[-1].external
+    else:
+        return wrap_var(value)
 
 
 def _template_func(args, ctx: RefContext):

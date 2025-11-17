@@ -133,7 +133,9 @@ def _map_value(
         else:
             return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
-        return apply_template(value, ctx.copy(wantList=wantList))
+        value = apply_template(value, ctx.copy(wantList=wantList))
+        if wantList == "result":
+            return [Result(value)]
     return value
 
 
@@ -189,7 +191,6 @@ class RefContext:
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
         wantList: Optional[Union[bool, Literal["result"]]] = False,
-        resolveExternal: bool = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
         task: Optional["TaskView"] = None,
@@ -203,7 +204,6 @@ class RefContext:
         # current segment is the final segment:
         self._rest: Optional[List[Segment]] = None
         self.wantList = wantList
-        self.resolveExternal = resolveExternal
         self._trace = self.DefaultTraceLevel if trace is None else trace
         self._strict = strict
         self.base_dir = currentResource.base_dir
@@ -261,7 +261,6 @@ class RefContext:
             resource or self.currentResource,
             self.vars,
             self.wantList,
-            self.resolveExternal,
             max(self._trace, trace),
             self._strict if strict is None else strict,
         )
@@ -1060,8 +1059,12 @@ def lookup(result: Result, key_: str, context: RefContext) -> Optional[Result]:
 
         if not context._rest:
             assert not Ref.is_ref(value)
-            result.resolved = Results._map_value(value, ctx)
-            assert not isinstance(result.resolved, (ExternalValue, Result))
+            results = Results._map_value(value, ctx)
+            if isinstance(results, ExternalValue):
+                return Result(results)
+            else:
+                assert not isinstance(results, Result)
+                result.resolved = results
 
         return result
     except (KeyError, IndexError, TypeError, ValueError):
