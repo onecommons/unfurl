@@ -527,11 +527,11 @@ class Result(ChangeAware):
             result.select = self.select + (key,)
         return result
 
-    def has_changed(self, changeset):
+    def has_changed(self, changeRecord) -> bool:
         if self.external:
-            return self.external.has_changed(changeset)
+            return self.external.has_changed(changeRecord)
         elif isinstance(self.resolved, ChangeAware):
-            return self.resolved.has_changed(changeset)
+            return self.resolved.has_changed(changeRecord)
         else:
             return False
 

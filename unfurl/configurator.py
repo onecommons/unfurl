@@ -21,7 +21,14 @@ import copy
 from tosca import ToscaInputs, ToscaOutputs
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
-from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncate
+from .logs import (
+    UnfurlLogger,
+    Levels,
+    LogExtraLevels,
+    SensitiveFilter,
+    is_sensitive,
+    truncate,
+)
 
 if TYPE_CHECKING:
     from .manifest import Manifest, ChangeRecordRecord
@@ -41,7 +48,8 @@ from .support import (
 )
 from .result import (
     ChangeRecord,
-    ResultsList,
+    _Missing,
+    InertValue,
     serialize_value,
     ChangeAware,
     Results,
@@ -61,7 +69,7 @@ from .util import (
     sensitive,
 )
 from . import merge
-from .eval import Ref, map_value, RefContext
+from .eval import Ref, _map_value, map_value, RefContext
 from .runtime import (
     ArtifactInstance,
     EntityInstance,
@@ -789,7 +797,12 @@ class TaskView:
     @staticmethod
     def _get_connection(
         source: HasInstancesInstance,
-        target: Union["NodeInstance", "ArtifactInstance", "CapabilityInstance", "RelationshipInstance"],
+        target: Union[
+            "NodeInstance",
+            "ArtifactInstance",
+            "CapabilityInstance",
+            "RelationshipInstance",
+        ],
         seen: dict,
     ) -> None:
         if source is target:
@@ -819,7 +832,13 @@ class TaskView:
                     seen[id(rel)] = rel
             if self.operation_host:
                 assert isinstance(
-                    parent, (NodeInstance, ArtifactInstance, CapabilityInstance, RelationshipInstance)
+                    parent,
+                    (
+                        NodeInstance,
+                        ArtifactInstance,
+                        CapabilityInstance,
+                        RelationshipInstance,
+                    ),
                 ), parent
                 self._get_connection(self.operation_host, parent, seen)
 
@@ -1120,7 +1139,6 @@ class TaskView:
         Raises:
           Exception: If an error occurs during query evaluation and throw is True.
         """
-        # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars, trace=trace).resolve(
                 self.inputs.context, wantList, strict
@@ -1135,14 +1153,14 @@ class TaskView:
 
         if dependency:
             self.add_dependency(
-                query, result, name=name, required=required, wantList=wantList
+                query, Result(result), name=name, required=required, wantList=wantList
             )
         return result
 
     def add_dependency(
         self,
         expr: Union[str, Mapping],
-        expected: Optional[Union[list, ResultsList, Result]] = None,
+        expected: Union[Result, Any, None] = None,
         schema: Optional[Mapping] = None,
         name: Optional[str] = None,
         required: bool = True,
@@ -1155,8 +1173,18 @@ class TaskView:
             # expr is a configuration or resource or ExternalValue
             expr = Ref(getter()).source
 
+        if expected is not None and not isinstance(expected, Result):
+            expected = Result(expected)
+
         dependency = Dependency(
-            expr, expected, schema, name, required, wantList, target, write_only
+            expr,
+            schema,
+            name,
+            required,
+            write_only,
+            wantList=wantList,
+            target=target,
+            expected=expected,
         )
         for i, dep in enumerate(self.dependencies):
             assert isinstance(dep, Dependency)
@@ -1516,20 +1544,23 @@ class Dependency(Operational):
 
     Dependencies are used to determine if a configuration needs re-run.
     They are automatically created when configurator accesses live attributes
-    while handling a task. They also can be created when the configurator
-    invokes these apis: `create_sub_task, `update_instances`, query`, `add_dependency`.
+    while handling a task. They also can be created using these apis: `query`, `add_dependency`.
     """
+
+    # XXX enable in `create_sub_task, `update_instances`,
 
     def __init__(
         self,
         expr: Union[str, Mapping],
-        expected: Optional[Union[ResultsList, list, Result, None]] = None,
         schema: Optional[Mapping] = None,
         name: Optional[str] = None,
         required: bool = False,
+        write_only: Optional[bool] = None,
+        *,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
-        write_only: Optional[bool] = None,
+        expected: Optional[Result] = None,
+        expected_expr: Any = _Missing,
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -1538,8 +1569,9 @@ class Dependency(Operational):
         """
         assert not (expected and schema)
         self.expr = expr
-
-        self.expected = expected
+        self._expected: Optional[Result] = expected
+        # serialized result, needs to be evaluated for ExternalValues
+        self._expected_expr = expected_expr
         self.schema = schema
         self._required = required
         if name:
@@ -1550,9 +1582,34 @@ class Dependency(Operational):
             self.name = f"{target.name}:{dict(expr)}"
         else:
             self.name = f"{dict(expr)}"
-        self.wantList = wantList
+        self.wantList = wantList  # unused
         self.target = target
         self.write_only = write_only
+
+    def _set_expected(self, ctx):
+        if self._expected_expr is _Missing:
+            return
+        results = _map_value(self._expected_expr, ctx, wantList="result")
+        # resolve_one semantics but with a Result (in order to preserve external values)
+        if results is None:
+            self._expected = Result(None)
+        elif isinstance(results, list) and results and isinstance(results[0], Result):
+            if len(results) == 1:
+                self._expected = results[0]
+            else:
+                self._expected = Result(results)
+        else:  # XXX distinguish between empty list and empty result
+            self._expected = Result(results)
+
+    @property
+    def expected(self) -> Optional[Result]:
+        if (
+            self._expected is None
+            and self._expected_expr is not _Missing
+            and self.target
+        ):
+            self._set_expected(RefContext(self.target, wantList="result"))
+        return self._expected
 
     def __repr__(self) -> str:
         return f"Dependency('{self.name}')"
@@ -1577,26 +1634,31 @@ class Dependency(Operational):
     def _is_unexpected(self) -> bool:
         if self.target is None:
             return True
-        if isinstance(self.expected, Result):
-            result = Ref(self.expr).resolve(RefContext(self.target), "result")
-            if not result:
-                return True
-            return result[0] != self.expected
-        else:
-            return self.expected != Ref(self.expr).resolve(
-                RefContext(self.target), self.wantList
-            )
+        if not self.expected:
+            return True
+        results = Ref(self.expr).resolve(RefContext(self.target), "result")
+        return not self.compare_results(results)
 
-    def refresh(self, config: "ConfigTask") -> None:
-        if self.expected is not None:
-            changeId = config.changeId
-            context = RefContext(
-                config.target, dict(val=self.expected, changeId=changeId)
-            )
-            result = Ref(self.expr).resolve(context, wantList=self.wantList)
-            assert isinstance(context._lastResource, EntityInstance)
-            self.target = context._lastResource
-            self.expected = result
+    def compare_results(self, results: List[Result]) -> bool:
+        if not self.expected:
+            return False
+        if not results:
+            return self.expected.resolved is None
+        elif len(results) > 1:
+            return self.expected == results
+        else:
+            return self.expected != results[0]
+
+    # def refresh(self, config: "ConfigTask") -> None:
+    #     if self.expected is not None:
+    #         changeId = config.changeId
+    #         context = RefContext(
+    #             config.target, dict(val=self.expected, changeId=changeId)
+    #         )
+    #         result = Ref(self.expr).resolve(context, wantList=self.wantList)
+    #         assert isinstance(context._lastResource, EntityInstance)
+    #         self.target = context._lastResource
+    #         self.expected = result
 
     def validate(self):
         if not self.schema or not self.target:
@@ -1626,6 +1688,7 @@ class Dependency(Operational):
             if any(Dependency.has_value_changed(v, changeset) for v in value):
                 return True
         elif isinstance(value, ChangeAware):
+            # XXX all implementations return False
             return value.has_changed(changeset)
         else:
             return False
@@ -1643,17 +1706,16 @@ class Dependency(Operational):
             context = RefContext(
                 target_instance, dict(val=self.expected, changeId=changeId)
             )
-            result = Ref(self.expr).resolve_one(context)
-
             if self.schema:
+                result = Ref(self.expr).resolve_one(context)
                 # result isn't as expected, something changed
                 if not validate_schema(result, self.schema):
                     return False
             else:
+                result = Ref(self.expr).resolve(context, wantList="result")
                 if self.expected is not None:
-                    expected = map_value(self.expected, context)
-                    if result != expected:
-                        logger.debug("has_changed: %s != %s", result, expected)
+                    if not self.compare_results(result):
+                        logger.debug("has_changed: %s != %s", result, self.expected)
                         return True
                 elif not result:
                     # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
@@ -1661,5 +1723,4 @@ class Dependency(Operational):
 
             if self.has_value_changed(result, config):
                 return True
-
         return False

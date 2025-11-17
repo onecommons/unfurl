@@ -75,6 +75,7 @@ from toscaparser.utils.validateutils import validate_version
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask
+    from .configurator import Dependency
 
 logger = getLogger("unfurl")
 
@@ -98,7 +99,7 @@ def save_config_spec(spec):
     return saved
 
 
-def save_dependency(dep):
+def save_dependency(dep: "Dependency"):
     saved = CommentedMap()
     if dep.name and dep.name != dep.expr:
         saved["name"] = dep.name
@@ -218,7 +219,9 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
         output["changes"] = changes
     if task.messages:
         output["messages"] = task.messages
-    dependencies = [save_dependency(val) for val in task.dependencies]
+    dependencies = [
+        save_dependency(cast("Dependency", val)) for val in task.dependencies
+    ]
     if dependencies:
         output["dependencies"] = dependencies
     try:

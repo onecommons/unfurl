@@ -64,7 +64,7 @@ from .packages import (
     is_semver,
 )
 from .merge import merge_dicts
-from .result import ChangeRecord, ResourceRef
+from .result import ChangeRecord, ResourceRef, _Missing
 from .yamlloader import (
     LoadIncludeAction,
     YamlConfig,
@@ -418,15 +418,18 @@ class Manifest(AttributeManager):
 
         configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
+            if "expected" in val:
+                value = val["expected"]
+            else:
+                value = _Missing
             configChange.dependencies.append(
                 Dependency(
                     val["ref"],
-                    val.get("expected"),
                     val.get("schema"),
                     val.get("name"),
                     val.get("required"),
-                    val.get("wantList", False),
                     val.get("writeOnly"),
+                    expected_expr=value,
                 )
             )
 

@@ -1817,7 +1817,7 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendants()))
 
 
-AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
+AttributeInfo = Tuple[bool, ResultsItem, bool]  # live, value, accessed
 _Dependencies = NewType(
     "_Dependencies",
     Dict[
@@ -2008,12 +2008,6 @@ class AttributeManager:
     #   #   resource._localStatus = old
 
     @staticmethod
-    def _save_and_ensure_sensitive(defs, key: str, value: Result):
-        if should_wrap_sensitive(defs, key, value):
-            return wrap_sensitive_value(value.resolved)
-        return value.as_ref()  # serialize Result
-
-    @staticmethod
     def _check_attribute(
         specd, key: str, value: ResultsItem, instance: "EntityInstance"
     ):
@@ -2045,7 +2039,7 @@ class AttributeManager:
                     )
                     if isLive:
                         dep = Dependency(
-                            resource.key + "::" + key, value, target=resource
+                            resource.key + "::" + key, expected=value, target=resource
                         )
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
@@ -2071,12 +2065,14 @@ class AttributeManager:
                     changed, isLive, accessed = self._check_attribute(
                         specd, key, value, resource
                     )
-                    savedValue = self._save_and_ensure_sensitive(defs, key, value)
+                    if should_wrap_sensitive(defs, key, value):
+                        value.resolved = wrap_sensitive_value(value.resolved)
+                    savedValue = value.as_ref()  # serialize Result
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
                     touched[key] = (
                         isLive,
-                        savedValue if is_sensitive else value,
+                        value,
                         accessed,
                     )
                     if not isLive:
@@ -2100,7 +2096,7 @@ class AttributeManager:
             if not diff:
                 continue
             for key in foundSensitive:
-                if key in diff:
+                if key in diff:  # replace value diff with sensitive wrapped value
                     diff[key] = _attributes[key]
             changes[resource.nested_key] = diff
 
