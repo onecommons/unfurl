@@ -314,7 +314,7 @@ def test_artifact_syntax():
     task = list(job.workDone.values())[0]
     assert (
         save_task(task)["digestKeys"]
-        == "arguments,main,:::test::.artifacts::configurator-artifacts--terraform::main,:::test::.artifacts::configurator-artifacts--terraform::contents"
+        == "main,:::test::.artifacts::configurator-artifacts--terraform::main,:::test::.artifacts::configurator-artifacts--terraform::contents"
     )
     assert (
         manifest.rootResource.find_instance("test").attributes["output_attribute"]

@@ -1,6 +1,6 @@
 import unittest
 import os
-import json
+import pprint
 import logging
 import io
 import pytest
@@ -9,6 +9,7 @@ from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Job, Runner, JobOptions
 from unfurl.configurators import TemplateConfigurator
 from unfurl.projectpaths import FilePath
+from unfurl.result import serialize_value
 
 _manifestTemplate = """
 apiVersion: unfurl/v1.0.0
@@ -256,7 +257,7 @@ class DependencyTest(unittest.TestCase):
                         "template": "nodeB",
                         "type": "tosca.nodes.Root",
                         "targetStatus": "pending",
-                        "targetState": None,  # never ran
+                        "targetState": "configuring",  # never ran
                         "changed": False,
                         "configurator": "unfurl.configurators.TemplateConfigurator",
                         "priority": "required",
@@ -539,3 +540,107 @@ def test_reorder(mocker):
         "nodeB",
         "nodeD",
     ]
+
+
+transientTemplate = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+changes: [] # add so changes are saved here
+spec:
+  service_template:
+    types:
+      # declare the attribute as a property in a base type to test that
+      # a property can be "promoted" to an attribute in a derived class
+      nodes.Test:
+        derived_from: tosca.nodes.Root
+        properties:
+          regular:
+            type: string
+            default: 
+              eval:
+                inert: regular
+                substitute: <<FOO>>
+          transient:
+            type: string
+            default: "t{{ now() }}" 
+            metadata:
+              inert: true
+
+    topology_template:
+      node_templates:
+        nodeB:
+          type: tosca:Root
+          interfaces:
+           Standard:
+            operations:
+              configure:
+                implementation: Template
+                inputs:
+                  run: 
+                    A:
+                      eval:
+                        get_ensemble_metadata: job
+                    B: 
+                      eval: :::nodeC::prop
+                    C:
+                      eval: $inputs::transient
+                  done:
+                    status: ok
+                  transient:
+                    type: string
+                    default: "{{ range(1,100) | random }}"
+                    metadata:
+                      inert: <<RANDOM>>
+
+        nodeC:
+          type: nodes.Test
+          properties:
+            prop: >
+              embedded {{ SELF.regular }} {{ SELF.transient | upper | inert }}
+"""
+
+
+def _run(template, expected_digest, ok, reason):
+    manifest = YamlManifest(template)
+    runner = Runner(manifest)
+    output = io.StringIO()  # so we don't save the file
+    job = runner.run(JobOptions(out=output))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    plans = job._json_plan_summary()
+    assert summary["job"]["status"] == "ok"
+    assert summary["job"]["ok"] == ok
+    plan = plans[0]["plan"][0]
+    if "sequence" in plan:
+        plan = plan["sequence"][0]
+    assert plan["reason"] == reason, plan
+    # pprint.pprint(job.manifest.manifest.config["changes"])
+    # assert digest list
+    digestKeys = job.manifest.manifest.config["changes"][-1]["digestKeys"]
+    expectedKeys = "run,transient,:::nodeC::prop,:::nodeC::regular,:::nodeC::transient"
+    assert digestKeys == expectedKeys
+    digest = job.manifest.manifest.config["changes"][-1]["digestValue"]
+    assert digest == expected_digest
+    # print(job.out.getvalue())
+    return job
+
+
+def test_transient():
+    digest = "94cbbf1056963f084efc0f584843095774cb50f9"
+    job = _run(transientTemplate, digest, 1, "add")
+    assert (
+        serialize_value(
+            job.rootResource.query(":::nodeC::prop", wantList="result")[0], redact=True
+        )
+        == "embedded <<FOO>> <<REPLACED>>"
+    )
+    # no changes when run again:
+    job2 = _run(job.out.getvalue(), digest, 0, "reconfigure")
+
+    # modified  # change dict and template, assert task reruns
+    template = job2.out.getvalue().replace("inert: regular", "inert: modified")
+    digest = "3c505df64b107ebd7f8765e5161ab22ecdf405bf"
+    job3 = _run(template, digest, 1, "reconfigure")
+
+    # no changes when run again:
+    _run(job3.out.getvalue(), digest, 0, "reconfigure")

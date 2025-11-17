@@ -66,12 +66,13 @@ def _get_digest(value, kw, parents=()):
     else:
         if isinstance(value, Mapping):
             for k in sorted(value.keys()):
+                v = value[k]
                 yield k
-                for d in _get_digest(value[k], kw):
+                for d in _get_digest(v, kw, parents + (k,)):
                     yield d
         elif isinstance(value, (MutableSequence, tuple)):
             for v in value:
-                for d in _get_digest(v, kw):
+                for d in _get_digest(v, kw, parents):
                     yield d
         elif value is None:
             yield b"null"  # dump skips None
@@ -97,7 +98,7 @@ yaml11_hell = re.compile(
 )
 
 
-def serialize_value(value, **kw):
+def serialize_value(value, parents=(), **kw):
     getter = getattr(value, "as_ref", None)
     if getter:
         return getter(kw)
@@ -106,7 +107,10 @@ def serialize_value(value, **kw):
         return sensitive.redacted_str
     if isinstance(value, Mapping):
         d_ctor = sensitive_dict if isSensitive else dict
-        return d_ctor((key, serialize_value(v, **kw)) for key, v in value.items())
+        return d_ctor(
+            (key, serialize_value(v, parents=parents + (key,), **kw))
+            for key, v in value.items()
+        )
     if isinstance(value, (MutableSequence, tuple)):
         l_ctor = sensitive_list if isSensitive else list
         return l_ctor(serialize_value(item, **kw) for item in value)

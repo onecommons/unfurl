@@ -288,6 +288,21 @@ class Configurator(metaclass=AutoRegisterClass):
         """Does this configuration need to be run? Called before rendering the task."""
         return task.configSpec.should_run()
 
+    def _exclude_input(self, name: str, task: "TaskView"):
+        if name == "arguments":
+            return True
+        if name in self.exclude_from_digest:
+            return True
+        defs = task.configSpec.input_defs
+        if not defs:
+            return False
+        prop = defs.get(name)
+        if not prop:
+            return False
+        if prop.schema.metadata.get("sensitive"):
+            return True
+        return False
+
     def save_digest(self, task: "TaskView") -> Dict[str, str]:
         """
         Generate a compact, deterministic representation of the current configuration.
@@ -304,7 +319,6 @@ class Configurator(metaclass=AutoRegisterClass):
         Returns:
             Dict[str, str]: Any key that starts with "digest" are saved in the task log entry and passed back to `check_digest`.
         """
-        # XXX user definition should be able to exclude inputs from digest
         # XXX might throw AttributeError
         inputs = cast("ConfigTask", task)._resolved_inputs
 
@@ -313,21 +327,22 @@ class Configurator(metaclass=AutoRegisterClass):
         keys: List[str] = [
             k
             for k in inputs.keys()
-            if k not in self.exclude_from_digest
-            and not isinstance(inputs[k].resolved, sensitive)
+            if not is_sensitive(inputs[k].resolved) and not self._exclude_input(k, task)
         ]
         values: List[Any] = [inputs[key] for key in keys]
-
         changed = set(task._resourceChanges.get_changes_as_expr())
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
-            if (
-                dep.write_only
-            ):  # include values that were set but might not have changed
-                changed.add(str(dep.expr))
-            elif not isinstance(dep.expected, sensitive):
-                keys.append(str(dep.expr))
-                values.append(dep.expected)
+            if not isinstance(dep.expr, str):
+                continue
+            if dep.write_only:
+                # include values that were set but might not have changed
+                changed.add(dep.expr)
+            elif dep.expected:
+                result = dep.expected
+                if not is_sensitive(result):
+                    keys.append(dep.expr)
+                    values.append(result)
 
         if keys:
             digests = [get_digest(v, manifest=task._manifest) for v in values]
@@ -374,35 +389,47 @@ class Configurator(metaclass=AutoRegisterClass):
             )
             return False
         current_inputs = {
-            k for k in task.inputs.keys() if k not in self.exclude_from_digest
+            k: v
+            for k, v in [(k, self._exclude_input(k, task)) for k in task.inputs.keys()]
+            if v is not True
         }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         old_keys = _parameters.split(",")
-        old_inputs = {key for key in old_keys if "::" not in key}
-        if old_inputs - current_inputs:
+        old_inputs = {
+            key
+            for key in old_keys
+            if "::" not in key and self._exclude_input(key, task) is not True
+        }
+        if old_inputs - current_inputs.keys():
             # an old input was removed
             task.logger.verbose(
                 "digest keys changed for %s: these inputs were removed: %s",
                 task.target.name,
-                old_inputs - current_inputs,
+                old_inputs - current_inputs.keys(),
             )
             return True
         # only resolve the inputs and dependencies that were resolved before
         # inputs should be lazily resolved by the task, so we need to avoid resolving them all now
         # (we also won't know if there are new dependencies until the task runs)
         results: List[Result] = []
+        ctx = task.inputs.context
         for key in old_keys:
             if "::" in key:
-                results.extend(Ref(key).resolve(task.inputs.context, wantList="result"))
+                result = Ref(key).resolve(ctx, wantList="result")
+                # resolve_one semantics but with a Result (in order to preserve external values)
+                if len(result) == 1:
+                    results.append(result[0])
+                else:
+                    results.append(Result(result if result else None))
             else:
                 results.append(task.inputs._getresult(key))
-        new_inputs = current_inputs - old_inputs
-        if new_inputs and new_inputs.intersection(task.inputs.get_resolved()):
+        new_inputs = current_inputs.keys() - old_inputs
+        resolved = task.inputs.get_resolved()
+        if new_inputs and new_inputs.intersection(resolved):
             # a new input was added and accessed while resolving old inputs and dependencies
             # XXX this check is incomplete if another new input is accessed while the task runs
             task.logger.verbose(
-                "digest keys changed for %s: old %s, new %s",
-                task.target.name,
+                "Digest keys changed: old %s, new %s",
                 old_inputs,
                 current_inputs,
             )
@@ -413,8 +440,7 @@ class Configurator(metaclass=AutoRegisterClass):
         mismatch = changeset.digestValue != newDigest
         if mismatch:
             task.logger.verbose(
-                "Digests didn't match for %s with %s: old %s, new %s",
-                task.target.name,
+                "Digests didn't match for %s: old %s, new %s",
                 _parameters,
                 changeset.digestValue,
                 newDigest,
