@@ -1393,12 +1393,12 @@ def register_custom_constraint(key, func, make_constraint=None):
     constraints.constraint_mapping[key] = CustomConstraint
     return CustomConstraint
 
-_validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
+_validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
 
 if (
     regex_match_exact
     and make_pattern_constraint
-    and (not _validation_mode or "python_patterns" not in _validation_mode)
+    and "python_patterns" not in _validation_mode
 ):
 
     @cache
@@ -1411,7 +1411,7 @@ if (
         try:
             return make_pattern_constraint(pattern)
         except ValueError as e:
-            if not _validation_mode or "rust_patterns" not in _validation_mode:
+            if "rust_patterns" not in _validation_mode:
                 try:
                     return re.compile(pattern)  # try Python's regex engine
                 except Exception as e2:
@@ -1910,7 +1910,7 @@ class AttributeManager:
             if resource.shadow:
                 # shadow is the imported instance or the inner node of a substituted node
                 return resource.shadow.attributes
-            if _validation_mode and "nopropcheck" in _validation_mode:
+            if "nopropcheck" in _validation_mode:
                 self.validate = False
 
             if resource.template:

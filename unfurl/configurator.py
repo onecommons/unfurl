@@ -45,6 +45,7 @@ from .support import (
     find_connection,
     set_context_vars,
     get_Self,
+    _validation_mode,
 )
 from .result import (
     ChangeRecord,
@@ -438,6 +439,13 @@ class Configurator(metaclass=AutoRegisterClass):
         newDigest = get_digest(digests) if len(digests) > 1 else digests[0]
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
+        values_mismatch = None
+        if mismatch and "use_changelog" in _validation_mode:
+            values_mismatch = self._check_values(task, changeset, old_keys, results)
+            if values_mismatch is None:
+                task.logger.debug("could not load changeset")
+            else:
+                mismatch = values_mismatch
         if mismatch:
             task.logger.verbose(
                 "Digests didn't match for %s: old %s, new %s",
@@ -446,7 +454,66 @@ class Configurator(metaclass=AutoRegisterClass):
                 newDigest,
             )
             task.logger.debug("New digests were: %s", digests)
+        elif values_mismatch is None:
+            task.logger.debug("Digests matched, no change detected")
         return mismatch
+
+    def _check_values(
+        self,
+        task: "TaskView",
+        changeset: "ChangeRecordRecord",
+        old_keys: List[str],
+        results: List[Result],
+    ) -> Optional[bool]:
+        """
+        Load changes from a job file and compare them with the task's current values.
+
+        Returns:
+          bool: True if changes were detected, False otherwise.
+        """
+        from .yamlmanifest import YamlManifest
+
+        if not isinstance(task._manifest, YamlManifest):
+            return None
+        # NB: we depend on loading from vault encrypted yaml to see which values are sensitive
+        job_changes = task._manifest.load_full_change_record(changeset)
+        if not job_changes:
+            return None
+        old_val: Any = None
+        changed = False
+        for key, new_val in zip(old_keys, results):
+            match = ""
+            if "::" in key:
+                for dep in job_changes.dependencies:
+                    dep = cast(Dependency, dep)
+                    if dep.expr == key:
+                        old_val = dep.expected
+                        match = "dependency"
+                        break
+                else:
+                    task.logger.debug("Couldn't find dependency %s", key)
+                    changed = True
+            elif job_changes.inputs:
+                old_val = job_changes.inputs[key]
+                match = "input"
+
+            if match:
+                new_data = serialize_value(new_val, redact=True)
+                old_data = serialize_value(old_val, redact=True)
+                if old_data != new_data:
+                    changed = True
+                    task.logger.debug(
+                        f"{match} changed: %s\nold: %s\nnew: %s",
+                        key,
+                        old_data,
+                        new_data,
+                    )
+        if not changed:
+            msg = "Digest was wrong, no changed detected."
+            task.logger.verbose(msg)
+            if "use_changelog_error" in _validation_mode:
+                raise UnfurlTaskError(task, msg)
+        return changed
 
 
 class MockConfigurator(Configurator):
