@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     Dict,
     List,
@@ -683,24 +684,36 @@ class Manifest(AttributeManager):
 
     def status_summary(self, verbose=False):
         def summary(instance, indent, show_all=True):
-            computed = instance.is_computed()
-            virtual = "virtual" in instance.template.directives
-            concrete = not virtual and not computed
-            status = "" if instance.status is None else instance.status.name
+            obj = SimpleNamespace()
+            obj.computed = instance.is_computed()
+            obj.virtual = "virtual" in instance.template.directives
+            concrete = not obj.virtual and not obj.computed
+            obj.status = "" if instance.status is None else instance.status.name
+            obj.local_status = (
+                "" if instance.local_status is None else instance.local_status.name
+            )
             state = instance.state and instance.state.name or ""
+            obj.created_on = None
+            obj.created_by = None
             if instance.created:
                 if isinstance(instance.created, bool):
                     created = "managed"
                 else:
                     prep = "by" if instance.created.startswith("::") else "on"
                     created = f"created {prep} {instance.created}"
+                    setattr(obj, "created_" + prep, instance.created)
             else:
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
+            setattr(obj, "class", instance.__class__.__name__)
+            obj.name = instance.nested_name
+            obj.key = instance.nested_key
             if verbose:
                 instance_label += f"({instance.template.global_type})"
-            computed_label = " computed " if computed else ""
-            vlabel = " virtual" if virtual else ""
+            obj.type = instance.template.global_type
+            obj.template = instance.template.uri
+            computed_label = " computed " if obj.computed else ""
+            vlabel = " virtual" if obj.virtual else ""
             status = self._show_task_status(instance)
             if concrete or verbose:
                 output.append(
@@ -713,19 +726,21 @@ class Manifest(AttributeManager):
                 )
                 indent += 4
             if isinstance(instance, HasInstancesInstance):
+                obj.children = []
                 for rel in instance.requirements:
-                    summary(rel, indent, False)
+                    obj.children.append(summary(rel, indent, False).__dict__)
                 if getattr(instance.template, "substitution", None) and instance.shadow:
-                    summary(instance.shadow.root, indent)
+                    obj.children.append(summary(instance.shadow.root, indent).__dict__)
                 for child in instance.instances:
-                    summary(child, indent)
+                    obj.children.append(summary(child, indent).__dict__)
                 if verbose:
                     for child in instance.artifacts.values():
-                        summary(child, indent)
+                        obj.children.append(summary(child, indent).__dict__)
+            return obj
 
         output: List[str] = []
-        summary(self.rootResource, 0)
-        return "\n".join(output)
+        obj = summary(self.rootResource, 0)
+        return "\n".join(output), obj.__dict__
 
     def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)

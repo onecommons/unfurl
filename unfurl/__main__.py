@@ -1677,7 +1677,13 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     help="Use this environment.",
     metavar="NAME",
 )
-def status(ctx, ensemble, **options):
+@click.option(
+    "--output",
+    type=click.Choice(["text", "json", "none"]),
+    default="text",
+    help="Format of status output (default: text)",
+)
+def status(ctx, ensemble, output="text", **options):
     """Show the status of deployed resources in the given ensemble.\n
     (Use global -v for verbose display.)"""
     options.update(ctx.obj)
@@ -1691,9 +1697,15 @@ def status(ctx, ensemble, **options):
     # report validation errors instead of aborting
     manifest = localEnv.get_manifest(skip_validation=True)
     verbose = ctx.obj["verbose"] > 0
-    summary = manifest.status_summary(verbose)
-    vstr = " (verbose) " if verbose else ""
-    logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+    if output != "none":
+        as_json = output == "json"
+        summary, summary_json = manifest.status_summary(verbose or as_json)
+        vstr = " (verbose) " if verbose else ""
+        if output == "text":
+            logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+        if as_json:
+            text = json.dumps(summary_json, indent=2)
+            click.echo(text)
     query = options.get("query")
     if query:
         trace = options.get("trace")
