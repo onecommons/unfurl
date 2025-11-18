@@ -1569,10 +1569,7 @@ class Job(ConfigChange):
         return self.task_count
 
     def log_path(self, folder="jobs", ext=".log") -> str:
-        log_name = (
-            self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
-        )
-        return self.manifest.get_job_log_path(log_name, folder, ext)
+        return self.manifest.get_job_log_path(self.log_name(), folder, ext)
 
     ###########################################################################
     # Job Reporting methods

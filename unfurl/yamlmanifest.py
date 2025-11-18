@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Loads and saves a ensemble manifest."""
 
+import glob
 import io
 import json
 from typing import (
@@ -1383,6 +1384,29 @@ class YamlManifest(ReadOnlyManifest):
         prefix, _, suffix = currentName.partition(defaultName)
         fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.get_base_dir(), folder_name, fileName)
+
+    @cache
+    def _load_job(self, changeId, folder, ext):
+        pattern = self.get_job_log_path("*-" + changeId, folder, ext)
+        paths = glob.glob(pattern)
+        if not paths:
+            logger.warning("job.yaml not found %s", pattern)
+            return None
+        logger.warning("loading job.yaml %s", paths[0])
+        with open(paths[0]) as job_file:
+            return load_yaml(self.manifest.yaml, job_file.read(), None, True)
+
+    def load_full_change_record(
+        self, c: ChangeRecordRecord, folder="changes", ext=".yaml"
+    ) -> Optional[ChangeRecordRecord]:
+        if self.manifest.expanded.get("changes"):
+            return c  # yaml already has the full change record
+        job_yaml = self._load_job(c.changeId[:-4], folder, ext)
+        if job_yaml:
+            for changeSet in job_yaml["changes"]:
+                if changeSet["changeId"] == c.changeId:
+                    return self.load_config_change(changeSet)
+        return None
 
     def _append_log(self, job, jobRecord, changes, job_path, folder):
         # append jobs.tsv

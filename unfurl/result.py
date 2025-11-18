@@ -259,6 +259,9 @@ class ChangeRecord:
         self.taskId = taskId
         self.changeId = self.update_change_id(self.changeId, taskId)
 
+    def log_name(self) -> str:
+        return self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
+
     @staticmethod
     def get_job_id(changeId: str) -> str:
         return ChangeRecord.update_change_id(changeId, 0)
