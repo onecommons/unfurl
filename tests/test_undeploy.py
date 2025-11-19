@@ -62,6 +62,7 @@ manifestContent = """\
                     resultTemplate:
                       - name: managed
                         template: discovered
+                        parent: .self
                         # status is set, so create and delete operations won't be invoked
                         readyState: ok
                       - name: unmanaged
@@ -207,8 +208,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01140000000",
                 "status": "ok",
-                "total": 5,
-                "ok": 5,
+                "total": 4,
+                "ok": 4,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,

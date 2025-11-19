@@ -29,7 +29,7 @@ from .runtime import (
 )
 from .util import UnfurlError
 from .result import ChangeRecord
-from .support import Status, NodeState, Reason
+from .support import Priority, Status, NodeState, Reason
 from .planrequests import (
     TaskRequest,
     TaskRequestGroup,
@@ -450,7 +450,7 @@ class Plan:
         self, include_test: Callable[[EntityInstance], Optional[str]]
     ) -> Iterator[Union[TaskRequest, TaskRequestGroup]]:
         # called by prune and the undeploy plan
-        seen: Set[int] = set()
+        seen: Dict[int, str] = {}
         test = partial(self.should_delete, include_test)
         for child, reason in select_dependents(self.root, test, seen):
             if reason != "cancelled":
@@ -461,6 +461,7 @@ class Plan:
         self,
         include: Callable[[EntityInstance], Optional[str]],
         resource: EntityInstance,
+        seen: Dict[int, str],
     ) -> Optional[str]:
         # If the resource
         """
@@ -474,10 +475,8 @@ class Plan:
         if not reason:
             return None
         # NB: the order of these tests is important!
-        virtual = False
-        if resource.shadow or resource.template.abstract:
-            skip = "read-only instance"
-        elif "protected" in resource.template.directives:
+        no_cancel = False
+        if "protected" in resource.template.directives:
             skip = 'instance with "protected" directive'
         elif resource.protected:
             skip = "protected instance"
@@ -486,25 +485,51 @@ class Plan:
             or "virtual" in resource.template.directives
         ):
             skip = "virtual instance"
-            virtual = True
-        elif not self.jobOptions.destroyunmanaged:
-            if not resource.created:
-                skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
-            elif resource.is_managed():
-                skip = f"creation and deletion is managed by another instance {resource.created} (use --destroyunmanaged to override)"
-        if resource.local_status in [Status.absent, Status.pending]:
+            no_cancel = True  # virtual instances don't need to be preserved
+        elif resource.shadow or resource.template.abstract:
+            # XXX substitution nodes should only cancel if an instance in the nested topology cancelled
+            skip = "read-only instance"
+        elif resource.local_status in [Status.absent, Status.pending]:
             skip = "instance doesn't exist"
+        elif not resource.created:
+            # discovered resources are ignored by the plan (to override, mark instance as protected or add protected directive)
+            no_cancel = True
+            if not self.jobOptions.destroyunmanaged:
+                skip = "instance wasn't created by this ensemble (use --destroyunmanaged to override)"
+            else:
+                logger.warning(
+                    "planning to delete instance '%s' not managed by this ensemble because --destroyunmanaged is set.",
+                    resource.nested_name,
+                )
+        elif resource.is_managed():
+            if not self.jobOptions.destroyunmanaged:
+                manager = resource.query(resource.created)  # "created" should be a key
+                if manager and manager.local_status in [Status.absent, Status.pending]:
+                    # if the manager resource was deleted assume it deleted this instance too
+                    skip = f"the instance ({resource.created}) that managed this one no longer exist"
+                    no_cancel = True
+                else:
+                    # if the resource managing this one is going to be deleted too then don't cancel
+                    if resource.created in seen.values():
+                        no_cancel = True
+                    skip = f"creation and deletion is managed by another instance '{resource.created}' (use --destroyunmanaged to override)"
+            else:
+                logger.warning(
+                    "planning to delete instance '%s' managed by another instance '%s' because --destroyunmanaged is set.",
+                    resource.created,
+                    resource.nested_name,
+                )
 
         if skip:
             cancelling = (
-                not virtual  # instance doesn't need to be preserved
+                not no_cancel
                 and not self.jobOptions.force
                 and resource.operational
                 and resource.required
             )
             logger.verbose(
                 "skip instance '%s' for removal: '%s' %s",
-                resource.name,
+                resource.nested_name,
                 skip,
                 "(cancelling)" if cancelling else "",
             )
@@ -1238,16 +1263,21 @@ def get_operational_dependents(
 
 
 def select_dependents(
-    resource: EntityInstance, include_test, seen: Set[int]
+    resource: EntityInstance, include_test, seen: Dict[int, str]
 ) -> Iterator[Tuple[EntityInstance, str]]:
     # yields resource, include_reason
     cancelled = []
-    root_include_reason = include_test(resource)
+    root_include_reason = include_test(resource, seen)
+    seen[id(resource)] = (
+        resource.key
+        if root_include_reason and root_include_reason != "cancelled"
+        else "(skipped)"
+    )
+    logger.trace("checking for deletion %s: %s", resource.key, root_include_reason)
     for dep in resource.get_operational_dependents():
         assert isinstance(dep, EntityInstance)
         if id(dep) in seen:
             continue
-        seen.add(id(dep))
         for child, include_reason in select_dependents(dep, include_test, seen):
             if include_reason != "cancelled":
                 yield child, include_reason
@@ -1256,8 +1286,8 @@ def select_dependents(
     if cancelled:
         # this resource has a dependent we don't want to delete, so cancel deleting the resource
         if root_include_reason and root_include_reason != "cancelled":
-            logger.verbose(
-                "skip instance '%s' for removal: required instances depend on it: %s (use --force to override)",
+            logger.info(
+                'skip instance "%s" for removal: required instances depend on it: %s (use --force to override)',
                 resource.name,
                 [c.nested_name for c in cancelled],
             )
