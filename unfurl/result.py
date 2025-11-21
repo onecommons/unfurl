@@ -497,28 +497,36 @@ class Result(ChangeAware):
                 value = self.resolved[key]
         return value
 
-    def project(self, key: Any, ctx) -> "Result":
+    def project(self, key: Any, ctx: "RefContext") -> "Result":
         from .eval import Ref
 
         if key == ".super":
-            result = ctx._lastResource.get_attribute_manager().get_super(ctx)
-            if result is None:
+            results = (
+                cast("EntityInstance", ctx._lastResource)
+                .get_attribute_manager()
+                .get_super(ctx)
+            )
+            if results is None:
                 raise KeyError(key)
-            return Result(result)
+            return Result(results)
 
-        if (
-            ctx.deep
-            and not self.external
-            and key
-            and key[0] != "."
+        attribute_lookup = (
+            not self.external
+            and (
+                not isinstance(key, str) or not key.startswith(".")
+            )  # key can be an int
             and hasattr(self.resolved, "attributes")
             and isinstance(self.resolved.attributes, Results)
-        ):
+        )
+        if attribute_lookup and ctx.deep:
             # pass deep vars through to the current resource's attribute context
             cpy = self.resolved.attributes.context.copy(deep=ctx.deep)
             value: Any = self.resolved.attributes._getresult(key, ctx=cpy)
+        elif attribute_lookup and ctx.wantList == "instance":
+            value = self.resolved  # short circuit evaluation
         else:
             value = self._resolve_key(key, ctx._lastResource)
+
         if isinstance(value, Result):
             result = value
         elif Ref.is_ref(value):

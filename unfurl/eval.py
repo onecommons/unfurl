@@ -94,10 +94,10 @@ def map_value(
 def _map_value(
     value: Any,
     ctx: "RefContext",
-    wantList: Union[bool, Literal["result"]] = False,
+    wantList: Union[bool, Literal["result"], Literal["instance"]] = False,
     applyTemplates: bool = True,
     flatten=False,
-) -> Any:
+) -> Union[Any, List[Result]]:
     # embedded expressions are evaluated using wantList (not ctx.wantList)
     from .support import is_template, apply_template
 
@@ -122,7 +122,7 @@ def _map_value(
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
         if flatten:
-            result = []
+            result: List[Any] = []
             for item in value:
                 item_val = _map_value(item, ctx, wantList, applyTemplates)
                 if isinstance(item_val, list):
@@ -190,7 +190,7 @@ class RefContext:
         self,
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = False,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
         task: Optional["TaskView"] = None,
@@ -233,7 +233,7 @@ class RefContext:
         self,
         resource: Optional["ResourceRef"] = None,
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = None,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = None,
         trace: int = 0,
         strict: Optional[bool] = None,
         tosca_type: Optional[StatefulEntityType] = None,
@@ -465,7 +465,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Literal[True] = True,
+        wantList: Union[Literal[True], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> List[Any]: ...
 
@@ -496,7 +496,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, Literal["result"]] = True,
+        wantList: Union[bool, Literal["result"], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
@@ -927,7 +927,10 @@ def eval_ref(
     if top:
         vars = ctx.vars.copy()
         vars["start"] = ctx.currentResource
-        ctx = ctx.copy(ctx.currentResource, vars, wantList=False)
+        wantList = ctx.wantList
+        if wantList != "instance":
+            wantList = False
+        ctx = ctx.copy(ctx.currentResource, vars, wantList=wantList)
 
     if isinstance(val, Mapping):
         for key in val:
