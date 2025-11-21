@@ -995,7 +995,10 @@ class DeployPlan(Plan):
             status == Status.pending and self.jobOptions.check
         ):
             installOp = "check"
-        elif "discover" in instance.template.directives and not instance.operational:
+        elif "discover" in instance.template.directives and status not in [
+            Status.ok,
+            Status.degraded,
+        ]:
             installOp = "discover"
         else:
             installOp = None
