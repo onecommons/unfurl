@@ -50,6 +50,7 @@ if TYPE_CHECKING:
 # logging to file doesn't call logging.truncate(), so manually truncate potentially huge output
 FILELOG_TRUNCATE_LENGTH = DEFAULT_TRUNCATE_LENGTH
 
+
 def _log_output(task: TaskView, result, attr: str):
     data = getattr(result, attr)
     if (
@@ -61,7 +62,7 @@ def _log_output(task: TaskView, result, attr: str):
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):
             os.makedirs(dir)
-        with open(log_path, 'a') as f:
+        with open(log_path, "a") as f:
             f.write(data)
         return f"{attr} {data[: FILELOG_TRUNCATE_LENGTH // 2]}... full output logged to {log_path}"
     else:
@@ -154,6 +155,7 @@ def _run(
         retcode = process.poll()
         assert isinstance(retcode, int)
     return subprocess.CompletedProcess(process.args, retcode, stdout, stderr)
+
 
 # XXX we should know if cmd if not os.access(implementation, os.X):
 class ShellConfigurator(TemplateConfigurator):
@@ -270,14 +272,18 @@ class ShellConfigurator(TemplateConfigurator):
             task.logger.warning('shell task run failure: "%s" in %s', result.cmd, cwd)
             if result.error:
                 task.logger.info("shell task error", exc_info=result.error)
+            elif result.timeout:
+                task.logger.info("task timed out in %s", result.timeout)
             else:
-                task.logger.info(
-                    "shell task return code: %s, stderr: %s",
-                    result.returncode,
-                    _log_output(task, result, "stderr"),
-                )
+                task.logger.info("shell task return code: %s", result.returncode)
         else:
             task.logger.info("shell task run success: %s", result.cmd)
+        if result.stderr:
+            task.logger.info(
+                "shell task stderr: %s",
+                _log_output(task, result, "stderr"),
+            )
+        if result.stdout:
             task.logger.debug(
                 "shell task output: %s",
                 _log_output(task, result, "stdout"),
@@ -350,6 +356,12 @@ class ShellConfigurator(TemplateConfigurator):
                     cmd.extend(args)
         # try this now to catch errors early:
         script, _ = self._cmd(cmd, task.inputs.get("keeplines", False))
+        input = task.inputs.get("input")
+        if input is not None:
+            eof = "UEOF"
+            while eof in input:
+                eof += "X"
+            script += f" <<'{eof}'\n{input}\n{eof}"
         # save as script just for troubleshooting
         task.set_work_folder().write_file(script, "rendered.sh")
         return [cmd, cwd]
