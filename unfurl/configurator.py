@@ -70,7 +70,7 @@ from .util import (
     sensitive,
 )
 from . import merge
-from .eval import Ref, _map_value, map_value, RefContext
+from .eval import Ref, SafeRefContext, _map_value, map_value, RefContext
 from .runtime import (
     ArtifactInstance,
     EntityInstance,
@@ -341,7 +341,10 @@ class Configurator(metaclass=AutoRegisterClass):
                 changed.add(dep.expr)
             elif dep.expected:
                 result = dep.expected
-                if not is_sensitive(result):
+                # make sure the instance in the expression is persisted
+                if not is_sensitive(result) and Ref(dep.expr).resolve(
+                    SafeRefContext(task.target), wantList="instance"
+                ):
                     keys.append(dep.expr)
                     values.append(result)
 
@@ -435,7 +438,10 @@ class Configurator(metaclass=AutoRegisterClass):
                 current_inputs,
             )
             return True
-        digests = [get_digest(v, manifest=task._manifest) for v in results]
+        digests = [
+            get_digest(v, manifest=task._manifest, redact=False, inert=True)
+            for v in results
+        ]
         newDigest = get_digest(digests) if len(digests) > 1 else digests[0]
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
@@ -486,6 +492,7 @@ class Configurator(metaclass=AutoRegisterClass):
             if "::" in key:
                 for dep in job_changes.dependencies:
                     dep = cast(Dependency, dep)
+                    dep.target = task.target
                     if dep.expr == key:
                         old_val = dep.expected
                         match = "dependency"
@@ -498,8 +505,8 @@ class Configurator(metaclass=AutoRegisterClass):
                 match = "input"
 
             if match:
-                new_data = serialize_value(new_val, redact=True)
-                old_data = serialize_value(old_val, redact=True)
+                new_data = serialize_value(new_val, redact=False, inert=True)
+                old_data = serialize_value(old_val, redact=False, inert=True)
                 if old_data != new_data:
                     changed = True
                     task.logger.debug(

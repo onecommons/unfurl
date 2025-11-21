@@ -78,7 +78,12 @@ def _get_digest(value, kw, parents=()):
             yield b"null"  # dump skips None
         else:
             out = io.BytesIO()
-            dump(serialize_value(value, redact=True), out)
+            dump(
+                serialize_value(
+                    value, redact=kw.get("redact", True), inert=kw.get("inert", True)
+                ),
+                out,
+            )
             yield out.getvalue()
 
 
@@ -420,7 +425,7 @@ class InertValue(ExternalValue):
 
     def as_ref(self, options=None):
         if options:
-            if options.get("redact"):
+            if options.get("redact") or options.get("inert"):
                 return self.substitute
             elif options.get("resolveExternal"):
                 return serialize_value(self.get(), **options)

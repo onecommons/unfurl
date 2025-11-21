@@ -106,7 +106,7 @@ def save_dependency(dep: "Dependency"):
         saved["name"] = dep.name
     saved["ref"] = dep.expr
     if dep.expected is not None:
-        saved["expected"] = serialize_value(dep.expected)
+        saved["expected"] = serialize_value(dep.expected, inert=True)
     if dep.schema is not None:
         saved["schema"] = dep.schema
     if dep.required:
@@ -1392,7 +1392,7 @@ class YamlManifest(ReadOnlyManifest):
         if not paths:
             logger.warning("job.yaml not found %s", pattern)
             return None
-        logger.warning("loading job.yaml %s", paths[0])
+        logger.verbose("loading job.yaml %s", paths[0])
         with open(paths[0]) as job_file:
             return load_yaml(self.manifest.yaml, job_file.read(), None, True)
 

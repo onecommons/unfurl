@@ -312,10 +312,7 @@ def test_artifact_syntax():
     assert job
     assert len(job.workDone) == 1, len(job.workDone)
     task = list(job.workDone.values())[0]
-    assert (
-        save_task(task)["digestKeys"]
-        == "main,:::test::.artifacts::configurator-artifacts--terraform::main,:::test::.artifacts::configurator-artifacts--terraform::contents"
-    )
+    assert save_task(task)["digestKeys"] == "main"
     assert (
         manifest.rootResource.find_instance("test").attributes["output_attribute"]
         == "test node hello:1"
