@@ -63,13 +63,14 @@ from typing import (
     List,
     Dict,
     Sequence,
-    Set,
     Tuple,
     Type,
     TypeVar,
+    TypedDict,
     cast,
+    Union,
 )
-import logging
+from typing_extensions import Required, Literal
 from urllib.parse import urljoin, urlparse
 import git
 import git.cmd
@@ -79,10 +80,13 @@ from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.nodetemplate import NodeTemplate
+from .projectpaths import FilePath, _getdir
 from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
+from .configurator import Configurator, Result, TaskView
+
 
 from .to_json import node_type_to_graphql
 from .repo import (
@@ -248,7 +252,12 @@ def find_git_repos(rootDir, gitDir=".git") -> Iterator[str]:
 
 
 def force_merge_local_and_push_to_remote(
-    repo: GitRepo, remote_name: str, dest_branch: str, merge=False, force=False
+    repo: GitRepo,
+    remote_name: str,
+    dest_branch: str,
+    merge=False,
+    force=False,
+    logger=logger,
 ) -> None:
     """Make the remote repo match the local repo using force push or merge "ours" strategy."""
     if merge:
@@ -293,14 +302,22 @@ class Notable:
     folders: Sequence[str] = ()
     artifact_type = EntitySchema.GenericFile
 
-    def __init__(self, repo_info: Repository, root_path: str, folder: str, file: str):
+    def __init__(
+        self,
+        repo_info: Repository,
+        root_path: str,
+        folder: str,
+        file: str,
+        logger=logger,
+    ):
+        self.logger = logger
         self.root_path = root_path
         self.folder = folder
         self.file = file
         self.fragment = ""
         self.metadata: Dict[str, Any] = {}
         self.artifacts: List[ArtifactDict] = []
-        logger.verbose("analyzing %s with %s", file, self)
+        self.logger.verbose("analyzing %s with %s", file, self)
 
     @property
     def path(self) -> str:
@@ -325,9 +342,14 @@ class Notable:
 
     @classmethod
     def init(
-        cls: Type[T], repo_info: Repository, root_path: str, folder: str, file: str
+        cls: Type[T],
+        repo_info: Repository,
+        root_path: str,
+        folder: str,
+        file: str,
+        logger=None,
     ) -> Optional[T]:
-        return cls(repo_info, root_path, folder, file)
+        return cls(repo_info, root_path, folder, file, logger)
 
     def asdict(self) -> Dict[str, Any]:
         metadata = dict(artifact_type=self.artifact_type)
@@ -339,8 +361,15 @@ class ContainerBuilderNotable(Notable):
     files = ("Containerfile", "Dockerfile")
     artifact_type = EntitySchema.ContainerFile
 
-    def __init__(self, repo_info: Repository, root_path: str, folder: str, file: str):
-        super().__init__(repo_info, root_path, folder, file)
+    def __init__(
+        self,
+        repo_info: Repository,
+        root_path: str,
+        folder: str,
+        file: str,
+        logger=logger,
+    ) -> None:
+        super().__init__(repo_info, root_path, folder, file, logger)
 
 
 class UnfurlNotable(Notable):
@@ -353,9 +382,14 @@ class UnfurlNotable(Notable):
     folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
 
     def __init__(
-        self, repo_info: Repository, root_path: str, folder: str, file: str
+        self,
+        repo_info: Repository,
+        root_path: str,
+        folder: str,
+        file: str,
+        logger=logger,
     ) -> None:
-        super().__init__(repo_info, root_path, folder, file)
+        super().__init__(repo_info, root_path, folder, file, logger)
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
         localenv = LocalEnv(
             self.full_path,
@@ -372,11 +406,13 @@ class UnfurlNotable(Notable):
             self.fragment = spec.fragment
             metadata = cast(dict, spec.template.tpl).get("metadata") or {}
             self.metadata.update(
-                filter_dict(dict(
-                    name=metadata.get("template_name"),
-                    version=metadata.get("template_version"),
-                    description=spec.template.description,
-                ))
+                filter_dict(
+                    dict(
+                        name=metadata.get("template_name"),
+                        version=metadata.get("template_version"),
+                        description=spec.template.description,
+                    )
+                )
             )
             node = self._get_root_node(spec)
             schema_repo = manifest.repositories.get("types")
@@ -416,10 +452,15 @@ class UnfurlNotable(Notable):
 
     @classmethod
     def init(
-        cls, repo_info: Repository, root_path: str, folder: str, file: str
+        cls,
+        repo_info: Repository,
+        root_path: str,
+        folder: str,
+        file: str,
+        logger=logger,
     ) -> Optional["UnfurlNotable"]:
         try:
-            return UnfurlNotable(repo_info, root_path, folder, file)
+            return UnfurlNotable(repo_info, root_path, folder, file, logger)
         except UnfurlError:
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
@@ -464,7 +505,8 @@ class UnfurlNotable(Notable):
 class Analyzer:
     max_analyze_depth = 4
 
-    def __init__(self, notables: List[Type[Notable]]):
+    def __init__(self, notables: List[Type[Notable]], logger=logger):
+        self.logger = logger
         self.files: Dict[str, Type[Notable]] = {}
         self.folders: Dict[str, Type[Notable]] = {}
         for n in notables:
@@ -488,13 +530,17 @@ class Analyzer:
                 notable_cls = self.folders.get(folder)
                 if notable_cls:
                     if notable_cls not in notables_found:
-                        notable = notable_cls.init(repo_info, rootDir, rel_root, "")
+                        notable = notable_cls.init(
+                            repo_info, rootDir, rel_root, "", self.logger
+                        )
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
                 notable_cls = self.files.get(filename)
                 if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(repo_info, rootDir, rel_root, filename)
+                    notable = notable_cls.init(
+                        repo_info, rootDir, rel_root, filename, self.logger
+                    )
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -522,14 +568,16 @@ class Analyzer:
                 if notable_cls:
                     if notable_cls not in notables_found:
                         notable = notable_cls.init(
-                            repo_info, root_path, cast(str, item.path), ""
+                            repo_info, root_path, cast(str, item.path), "", self.logger
                         )
                 else:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
                 if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(repo_info, root_path, dirname, filename)
+                    notable = notable_cls.init(
+                        repo_info, root_path, dirname, filename, self.logger
+                    )
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -538,21 +586,22 @@ class Analyzer:
 
 
 class _LocalGitRepos:
-    def __init__(self, local_repo_root: str = "") -> None:
+    def __init__(self, local_repo_root: str = "", logger=logger) -> None:
+        self.logger = logger
         self._set_repos(os.path.expanduser(local_repo_root))
 
     def _add_repo(self, working_dir: str) -> Optional[GitRepo]:
         gitrepo = git.Repo(working_dir)
         repo = GitRepo(gitrepo)
         if not repo.remote:
-            logger.debug(f"skipping git repo in {working_dir}: no remote set")
+            self.logger.debug(f"skipping git repo in {working_dir}: no remote set")
         else:
             for remote in gitrepo.remotes:
                 if not remote.url:
                     continue
                 url = get_remote_git_url(remote.url)
                 self.remotes.setdefault(url, []).append(remote)
-                logger.trace(f"found git repo {url} in {working_dir}")
+                self.logger.trace(f"found git repo {url} in {working_dir}")
             self.repos[working_dir] = repo
         return None
 
@@ -562,7 +611,7 @@ class _LocalGitRepos:
         self.remotes: Dict[str, List[git.Remote]] = {}
         # working_dir => repo
         self.repos: Dict[str, GitRepo] = {}
-        logger.debug(f"looking for repos in {root}")
+        self.logger.debug(f"looking for repos in {root}")
         if root:
             for working_dir in find_git_repos(root):
                 self._add_repo(working_dir)
@@ -645,13 +694,17 @@ class Directory(_LocalGitRepos):
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(
-        self, path=".", local_repo_root: str = "", skip_analysis=False
+        self,
+        path=".",
+        local_repo_root: str = "",
+        skip_analysis=False,
+        logger=None,
     ) -> None:
         self.db = CloudMapDB(path)
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
-        _LocalGitRepos.__init__(self, local_repo_root)
+        _LocalGitRepos.__init__(self, local_repo_root, logger)
         self.do_analysis = not skip_analysis
-        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable])
+        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable], logger)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
@@ -684,7 +737,7 @@ class Directory(_LocalGitRepos):
         if not self.repos_root:
             self.tmp_dir = tempfile.TemporaryDirectory(prefix="oc-repo-update-")
             self.repos_root = self.tmp_dir.name
-            logger.debug(f"setting {self.tmp_dir.name} as repo_root")
+            self.logger.debug(f"setting {self.tmp_dir.name} as repo_root")
 
     def cleanup_local(self):
         if self.tmp_dir:
@@ -727,7 +780,7 @@ class Directory(_LocalGitRepos):
             except Exception:
                 # restore previous
                 repo_info.notable = previous_notables
-                logger.error(
+                self.logger.error(
                     "Unexpected error analyzing %s.", repo_info.key, exc_info=True
                 )
         # no analysis happened, preserve previous analysis
@@ -736,7 +789,7 @@ class Directory(_LocalGitRepos):
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
         notables = self.analyze_repo(repo_info, repo)
-        logger.verbose("analyzing %s", repo_info.key)
+        self.logger.verbose("analyzing %s", repo_info.key)
         repo_info.add_notables(notables)
         for n in notables:
             for a in n.artifacts:
@@ -762,6 +815,9 @@ class RepositoryHost:
     canonical_url: str = ""
     dryrun: bool = False
     repo_filter: str = ""
+
+    def __init__(self) -> None:
+        self.logger = logger
 
     def has_repository(self, repo_info: Repository) -> bool:
         return False
@@ -808,7 +864,7 @@ class RepositoryHost:
             if normalize_git_url(dest_remote.url, hard=3) != normalize_git_url(
                 dest.git_url(), hard=3
             ):
-                logger.warning(
+                self.logger.warning(
                     f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
                 )
                 # XXX should we set the url?
@@ -818,7 +874,7 @@ class RepositoryHost:
             try:
                 canonical_remote = repo.repo.remote(canonical_remote_name)
                 if canonical_remote.url != dest.git_url():
-                    logger.warning(
+                    self.logger.warning(
                         f"{canonical_remote.url} doesn't match {dest.git_url()} for remote {canonical_remote_name} in {repo.working_dir}"
                     )
             except ValueError:
@@ -842,8 +898,10 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         local_repo_root: str = "",
         namespace: str = "",
         repo_filter: str = "",
+        logger=None,
     ) -> None:
-        _LocalGitRepos.__init__(self, local_repo_root)
+        RepositoryHost.__init__(self)
+        _LocalGitRepos.__init__(self, local_repo_root, logger)
         self.name = name
         self.path = namespace
         self.repo_filter = repo_filter
@@ -930,14 +988,32 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         return record
 
 
+class HostConfig(TypedDict, total=False):
+    type: Union[Literal["local"], Literal["gitlab"], Literal["unfurl.cloud"]]
+    # not used by local:
+    url: Required[str]
+    user: str
+    password: str
+    visibility: str  # "public", "private", "any"
+    save_internal: bool  # save repository host internals
+    canonical_url: str
+
+class LocalHostConfig(HostConfig):
+    # use when type = local (LocalRepositoryHost)
+    clone_root: str  # directory containing the repositories
+
+
 class GitlabManager(RepositoryHost):
     def __init__(
         self,
         name: str,
-        config: Dict[str, str],
+        config: HostConfig,
         namespace: str = "",
         repo_filter: str = "",
+        logger=logger,
     ) -> None:
+        RepositoryHost.__init__(self)
+        self.logger = logger
         self.name = name
         self.visibility = config.get("visibility", "any")
         self.repo_filter = repo_filter
@@ -959,8 +1035,11 @@ class GitlabManager(RepositoryHost):
             self.hostname = host
         url = parts._replace(netloc=host, path="").geturl()
         self.gitlab = gitlab.Gitlab(url, private_token=self.token)
-        logger.info(f"connecting to {self.gitlab.url} namespace {self.path}")
+        self.logger.info(f"connecting to {self.gitlab.url} namespace {self.path}")
         if self.token:
+            self.logger.debug(
+                "authenticating with user %s token=%s", self.user, self.token
+            )
             self.gitlab.auth()
 
     def _get_project_visibility(self, project: Project):
@@ -995,7 +1074,7 @@ class GitlabManager(RepositoryHost):
     def _import_group_from_host(self, group: Group, directory: Directory):
         # XXX add/update namespace in cloudmap
         projects = group.projects.list(iterator=True)
-        logger.info(f"importing group {group.full_path}")
+        self.logger.info(f"importing group {group.full_path}")
         self._import_projects_from_host(projects, directory)
         for subgroup in group.subgroups.list(iterator=True):
             self._import_group_from_host(self.gitlab.groups.get(subgroup.id), directory)
@@ -1007,7 +1086,7 @@ class GitlabManager(RepositoryHost):
             if self.repo_filter:
                 git_url, scheme = self._git_url(p)
                 if not self.match_repo_filter(git_url):  # git_url is r.key
-                    logger.trace(
+                    self.logger.trace(
                         "skipping %s, doesn't match %s", git_url, self.repo_filter
                     )
                     continue
@@ -1021,7 +1100,7 @@ class GitlabManager(RepositoryHost):
                 dest_proj.default_branch
             except AttributeError:
                 # project without repositories will throw error, skip those
-                logger.warning(
+                self.logger.warning(
                     f"skipping project {dest_proj.web_url}, it doesn't have a git repository"
                 )
                 continue
@@ -1036,7 +1115,7 @@ class GitlabManager(RepositoryHost):
                 try:
                     repo = self.fetch_repo(remote_url, r, directory)
                 except Exception:
-                    logger.error(
+                    self.logger.error(
                         "Error retrieving content for %s", r.key, exc_info=True
                     )
                 else:
@@ -1066,14 +1145,15 @@ class GitlabManager(RepositoryHost):
         ]
 
         dest_path = self.path
-        logger.info(f"syncing to {dest_path}")
+        op_name = "sync" if merge else "export"
+        self.logger.info(f"{op_name}ing to {dest_path or self.hostname}")
         if not repositories:
-            logger.info("no matches")
+            self.logger.info("no matching repositories to " + op_name)
             return False
 
         dest_group = self.ensure_group(dest_path)
         if not dest_group:
-            logger.info("%s doesn't exist", dest_path)
+            self.logger.info("%s doesn't exist", dest_path)
             return False
         # XXX look up Namespace and sync it?
 
@@ -1091,7 +1171,7 @@ class GitlabManager(RepositoryHost):
                 if dest:
                     # if both exist, update any changed metadata
                     if self.dryrun:
-                        logger.info(
+                        self.logger.info(
                             "dry run: skipping creating updating project %s", name
                         )
                     else:
@@ -1099,7 +1179,7 @@ class GitlabManager(RepositoryHost):
                     do_merge = not force and merge
                 else:
                     if self.dryrun:
-                        logger.info("dry run: skipping creating project %s", name)
+                        self.logger.info("dry run: skipping creating project %s", name)
                         continue
                     # create the project
                     dest = self.create_project(repo_info, dest_group)
@@ -1125,12 +1205,12 @@ class GitlabManager(RepositoryHost):
                                 or commit != repo.repo.references[dest_branch].commit
                             ):
                                 # now update project repository
-                                logger.info(
+                                self.logger.info(
                                     f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
                                 )
                                 if self.dryrun:
                                     summary = cast(str, commit.summary)
-                                    logger.info(
+                                    self.logger.info(
                                         f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
                                     )
                                 else:
@@ -1140,23 +1220,24 @@ class GitlabManager(RepositoryHost):
                                         dest_branch,
                                         merge=branch_exists and do_merge,
                                         force=force,
+                                        logger=self.logger,
                                     )
                                 if do_merge:
                                     # we might have create a merge commit, update the directory
                                     repo_info.update_branch(repo, "main")
                             else:
-                                logger.debug(
+                                self.logger.debug(
                                     f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
                                 )
                         except Exception:
-                            logger.error(
+                            self.logger.error(
                                 f"Unexpected error updating upstream git for {repo_info.git}",
                                 exc_info=True,
                             )
             # delete any extra projects
             # XXX: enable when ready
             if not repo_info and dest:
-                logger.info(f"would delete {dest_path}")
+                self.logger.info(f"would delete {dest_path}")
                 # full_proj = staging_gitlab.projects.get(staging.id)
                 # full_proj.delete()
         return True
@@ -1175,7 +1256,8 @@ class GitlabManager(RepositoryHost):
     def ensure_group(self, path: str) -> Optional[Group]:
         """Get or create the given group in the Gitlab instance"""
         gitlab = self.gitlab
-        logger.info(f"ensuring group {path} on {gitlab.url}")
+        assert path
+        self.logger.info(f"ensuring group {path} on {gitlab.url}")
 
         # see if group exists first
         group = self._get_group(path)
@@ -1194,7 +1276,7 @@ class GitlabManager(RepositoryHost):
                 # create group if missing
                 if group is None:
                     full_path = "/".join(path_so_far)
-                    logger.info(f"creating group {full_path}")
+                    self.logger.info(f"creating group {full_path}")
                     params = {"name": name, "path": name, "visibility": "public"}
                     if parent:
                         params["parent_id"] = parent.id
@@ -1208,7 +1290,7 @@ class GitlabManager(RepositoryHost):
         return group
 
     def create_project(self, repo_info: Repository, dest_group: Group) -> Project:
-        logger.info(f"creating project {repo_info.path}")
+        self.logger.info(f"creating project {repo_info.path}")
 
         namespace, project_path = os.path.split(repo_info.path)
         if namespace != self.path:
@@ -1250,7 +1332,7 @@ class GitlabManager(RepositoryHost):
         try:
             dest_proj.save()
         except Exception:
-            logger.error("failed to save", dest_proj.path, exc_info=True)
+            self.logger.error("failed to save", dest_proj.path, exc_info=True)
             return False
         return True
 
@@ -1268,7 +1350,7 @@ class GitlabManager(RepositoryHost):
         return git_url, parts.scheme
 
     def gitlab_project_to_repository(self, project: Project) -> Repository:
-        logger.verbose("getting %s", project.http_url_to_repo)
+        self.logger.verbose("getting %s", project.http_url_to_repo)
         kw = {}
         # XXX
         # if project.license:
@@ -1324,13 +1406,16 @@ class CloudMap:
         localrepo_root: str = "",
         path: str = "",
         skip_analysis: bool = False,
+        logger=logger,
     ):
+        self.logger = logger
         self.repo = repo
         self.branch = host_branch
         self.directory = Directory(
             str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
             localrepo_root,
             skip_analysis,
+            logger,
         )
 
     @classmethod
@@ -1355,6 +1440,7 @@ class CloudMap:
         host_name: str,
         namespace: str,
         skip_analysis: bool,
+        logger=logger,
     ) -> "CloudMap":
         url, path, revision, repository = cls.get_config(local_env, name)
         local_repo_root = clone_root or repository.get("clone_root") or ""
@@ -1388,7 +1474,7 @@ class CloudMap:
             )
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
-        return CloudMap(repo, branch, local_repo_root, path, skip_analysis)
+        return CloudMap(repo, branch, local_repo_root, path, skip_analysis, logger)
 
     @classmethod
     def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
@@ -1427,31 +1513,53 @@ class CloudMap:
     ) -> RepositoryHost:
         environment = local_env.get_context().get("cloudmaps", {})
         hosts = environment.get("hosts", {})
-        host_config: Optional[dict] = hosts.get(name)
-        clone_root = repos_root
+        host_config: Optional[HostConfig] = hosts.get(name)
         if host_config is None:
             if name == "local":
-                host_config = dict(type="local", clone_root=clone_root)
+                host_config = LocalHostConfig(
+                    type="local", clone_root=repos_root, url=""
+                )
             elif ":" in name:
                 # assume it's an url pointing to gitlab or unfurl cloud instance
                 hostname = urlparse(name).hostname
                 if not hostname:
                     raise UnfurlError(f"invalid url for host: {name}")
-                host_config = dict(type="gitlab", url=name)
+                host_config = HostConfig(type="gitlab", url=name)
                 # name has to be useable as part of a branch name so just use the hostname
                 name = unique_name(hostname, list(hosts))
             else:
                 raise UnfurlError(f"no repository host named {name} found")
+        host_config = local_env.map_value(
+            host_config, local_env.get_context().get("variables")
+        )
+        assert host_config
+        if visibility:
+            host_config["visibility"] = visibility
+        return cls.make_host(host_config, name, namespace, repo_filter, repos_root)
+
+    @classmethod
+    def make_host(
+        cls,
+        host_config: HostConfig,
+        name: str = "",
+        namespace: str = "",
+        repo_filter: str = "",
+        clone_root="",
+        logger=logger,
+    ) -> RepositoryHost:
         if host_config["type"] == "local":
             return LocalRepositoryHost(
-                name, clone_root or host_config.get("clone_root") or "", namespace, repo_filter
+                name,
+                clone_root or host_config.get("clone_root") or "",
+                namespace,
+                repo_filter,
+                logger,
             )
-
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]
-        config = local_env.map_value(host_config, environment.get("variables"))
-        if visibility:
-            config["visibility"] = visibility
-        return GitlabManager(name, config, namespace, repo_filter)
+        if not name:
+            name = urlparse(host_config["url"]).hostname or ""
+            assert name
+        return GitlabManager(name, host_config, namespace, repo_filter, logger)
 
     def from_host(self, host: RepositoryHost) -> bool:
         host.from_host(self.directory)
@@ -1460,7 +1568,7 @@ class CloudMap:
         )
         return changed
 
-    def sync(self, host: RepositoryHost, force=False) -> None:
+    def sync(self, host: RepositoryHost, force=False) -> bool:
         """
         Synchronize the cloudmap with the given the repository host.
 
@@ -1476,9 +1584,12 @@ class CloudMap:
         The user is responsible for pushing changes to cloudmap repository back upstream.
         """
         changed = self.from_host(host)
-        return self.to_host(host, changed, force)
+        return self.to_host(host, changed, force, True)
 
-    def to_host(self, host: RepositoryHost, merge_host: bool, force=False) -> None:
+    def to_host(
+        self, host: RepositoryHost, merge_host: bool, force: bool, sync: bool
+    ) -> bool:
+        op_name = "sync" if sync else "export"
         if self.branch != "main":
             self.repo.checkout("main")
             self.directory.db.reload()  # map may have changed, reload the directory
@@ -1486,7 +1597,7 @@ class CloudMap:
             mismatched = self.directory.find_mismatched_repo(host)
             if mismatched:
                 raise UnfurlError(
-                    f"Aborting sync, cloudmap is out of sync with {mismatched.working_dir}"
+                    f"Aborting {op_name}, cloudmap is out of sync with {mismatched.working_dir}"
                 )
             # merge the host branch into main
             # there will be a merge conflict if a repository branch or tags was changed in both branches
@@ -1506,10 +1617,11 @@ class CloudMap:
         host.to_host(self.directory, True, force=force)
 
         # if force we might have created merge commits, update the cloudmap with those
-        self.save(f"synced {host.name}")
+        changed = self.save(f"{op_name}ed to {host.name}")
         if self.branch != "main":
             # set host branch head to match to main because we are even now
             self.repo.repo.git.branch(self.branch, f=True)
+        return changed
 
     def save(self, msg: str) -> bool:
         self.directory.db.save()
@@ -1517,8 +1629,71 @@ class CloudMap:
             assert self.directory.db.config.path
             self.repo.commit_files([self.directory.db.config.path], msg)
             self.repo.repo.index.commit(msg)
-            logger.debug(f"committed: {msg}")
+            self.logger.debug(f"committed: {msg}")
             return True
         else:
-            logger.debug(f"nothing to commit for: {msg}")
+            self.logger.debug(f"nothing to commit for: {msg}")
             return False
+
+
+class CloudMapInputs(TypedDict, total=False):
+    host: Required[HostConfig]
+    cloudmap: str  # name of cloudmap in the environment
+    namespace: str
+    repository: str
+    clone_root: str
+    skip_analysis: bool
+    force: bool
+
+
+class CloudMapConfigurator(Configurator):
+    """
+    Exports the cloudmap to the given host.
+    You need to configure a cloudmap in your environment
+    """
+
+    def can_dry_run(self, task: TaskView) -> bool:
+        return True
+
+    def check_digest(self, task: "TaskView", changeset) -> bool:
+        # set this now we see can compare with previous version
+        task.inputs["cloudmap_path"] = _getdir(
+            task.inputs.context, task.inputs.get("cloudmap", "cloudmap")
+        )
+        return super().check_digest(task, changeset)
+
+    def render(self, task: TaskView):
+        # set this so we can track changes to it
+        localEnv = task._manifest.localEnv
+        assert localEnv
+        inputs = cast(CloudMapInputs, task.inputs)
+        namespace = inputs.get("namespace") or ""
+        host = CloudMap.make_host(
+            HostConfig(type="unfurl.cloud", **inputs["host"]),
+            "",
+            namespace,
+            inputs.get("repository") or "",
+            logger=task.logger,
+        )
+        host.dryrun = bool(task.dry_run)
+        cloudmap_name = task.inputs.get("cloudmap", "cloudmap")
+        cloud_map = CloudMap.from_name(
+            localEnv,
+            cloudmap_name,
+            inputs.get("clone_root") or "",
+            host.name,
+            namespace,
+            bool(inputs.get("skip_analysis")),
+            task.logger,
+        )
+        # set this so we can track changes to the repo
+        task.inputs["cloudmap_path"] = _getdir(task.inputs.context, cloudmap_name)
+        return cloud_map, host
+
+    def run(
+        self,
+        task: TaskView,
+    ):
+        cloud_map, host = task.rendered
+        changed = cloud_map.to_host(host, False, bool(task.inputs.get("force")), False)
+        return task.done(True, changed)

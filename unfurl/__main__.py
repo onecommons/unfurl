@@ -2054,7 +2054,7 @@ def cloudmap(
     else:
         changed = False
     if options.get("export") or sync:
-        cloud_map.to_host(host, changed, force)
+        cloud_map.to_host(host, changed, force, bool(sync))
 
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")
