@@ -735,7 +735,13 @@ class PythonToYaml:
         for key in ("operation_host", "environment", "timeout", "dependencies"):
             impl_val = getattr(operation, key, None)
             if impl_val is not None:
-                implementation[key] = impl_val
+                if key == "dependencies":
+                    implementation["dependencies"] = [
+                        d._name if isinstance(d, ArtifactEntity) else d
+                        for d in impl_val
+                    ]
+                else:
+                    implementation[key] = impl_val
         if implementation:
             op_def["implementation"] = to_tosca_value(implementation, dict_cls)
         description = getattr(operation, "__doc__", "")
