@@ -7,6 +7,7 @@ from tosca import List, Size, MB, EvalData, operation
 from unfurl.eval import Ref
 from unfurl.job import JobOptions
 from unfurl.logs import is_sensitive, getLogger
+from unfurl.result import serialize_value
 from unfurl.support import Status
 from unfurl.testing import runtime_test, create_runner
 from unfurl.tosca_plugins import expr, functions
@@ -377,10 +378,11 @@ def test_expressions():
     assert topology.inputs.domain == "example.com"
     assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
-    assert (
-        expr.abspath(topology.service, "test_dsl_integration.py", "src").get()
-        == __file__
-    )
+    fp = expr.abspath(topology.service, "test_dsl_integration.py", "src")
+    assert fp.get() == __file__
+    assert serialize_value(fp) == {
+        "eval": {"abspath": ["tests/test_dsl_integration.py", "self"]}
+    }
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
     assert functions.to_label("fo!oo", replace="_") == "fo_oo"

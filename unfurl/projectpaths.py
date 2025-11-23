@@ -68,6 +68,7 @@ if typing.TYPE_CHECKING:
     from .manifest import Manifest
     from .configurator import TaskView, TaskLoggerAdapter
     from .spec import EntitySpec, ToscaSpec
+    from .runtime import EntityInstance
 
 
 class ClassProperty:
@@ -97,6 +98,10 @@ class Folders(str, Enum):
 
     def __str__(self) -> str:
         return str(self.value)
+
+    @classmethod
+    def is_target_relative(cls, name) -> bool:
+        return name in cls.Persistent or name in cls.Job or name == "src"
 
 
 def rename_dir(
@@ -355,11 +360,15 @@ class _ArtifactExternalValue(ExternalValue):
     def get_full_path(self):
         return self.get()
 
-    def as_artifact_tpl(self, instance) -> Dict[str, str]:
+    def as_artifact_tpl(self, instance: "EntityInstance") -> Dict[str, str]:
         assert instance.template.spec.import_resolver
         repo_view = instance.template.spec.import_resolver.manifest.repositories["self"]
+        if os.path.isabs(repo_view.working_dir):
+            root_path = repo_view.working_dir
+        else:
+            root_path = os.path.abspath(".")  # should only happen in unit tests
         tpl = dict(
-            file=str(Path(self.get_full_path()).relative_to(repo_view.working_dir)),
+            file=str(Path(self.get_full_path()).relative_to(root_path)),
             repository="self",
         )
         return tpl
@@ -502,11 +511,25 @@ set_eval_func(
 
 
 class FilePath(_ArtifactExternalValue):
-    def __init__(self, abspath, base_dir="", rel_to=""):
+    def __init__(self, abspath, base_dir="", rel_to="", rel_path=None):
         abspath = str(abspath)  # in case is a pathlib.Path
         super().__init__("abspath", os.path.normpath(abspath))
         self.path = abspath[len(base_dir) + 1 :]
-        self.rel_to = rel_to
+        self.rel_to = rel_to or ""
+        self.rel_path = rel_path
+
+    def as_ref(self, options=None):
+        if options and options.get("resolveExternal"):
+            return super().as_ref(options)
+        if self.rel_to and self.rel_path is not None:
+            args = [self.rel_path, self.rel_to]
+        else:
+            args = self.key
+        return {"eval": {self.type: args}}
+
+    def _from_artifact(self, file="", repository=""):
+        self.rel_path = file
+        self.rel_to = repository
 
     MAX_DIGEST_FILE_SIZE = 1024 * 1024
 
@@ -579,7 +602,14 @@ def get_path(ctx, path, relativeTo=None, mkdir=False):
 
 def _abspath(ctx, path, relativeTo=None, mkdir=False):
     abspath, basedir = _get_path(ctx, path, relativeTo, mkdir)
-    return FilePath(abspath, basedir, relativeTo)
+    fp = FilePath(abspath, basedir, relativeTo, path)
+    if not relativeTo or Folders.is_target_relative(relativeTo):
+        # we want to be save a representation relative to a repository, the ensemble or project,
+        # but not to the current resource or an absolute path
+        # and do it now while we have the context
+        if ctx.currentResource.template.spec.import_resolver:
+            fp._from_artifact(**fp.as_artifact_tpl(ctx.currentResource))
+    return fp
 
 
 def _getdir(ctx, folder, mkdir=False):
