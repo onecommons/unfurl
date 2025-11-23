@@ -121,15 +121,21 @@ def create_home(
     if exists and not replace:
         return None
 
-    skeleton = kw.pop("skeleton", "home")
+    skeleton: str = kw.pop("skeleton", "home")
     homedir, filename = os.path.split(homePath)
     if render:  # just render
         repo = Repo.find_containing_repo(homedir)
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
+        skeleton_vars = dict(kw.get("var", []))
         configPath, password_vault = render_project(
-            homedir, repo, ensembleRepo, ensembleDir, skeleton
+            homedir,
+            repo,
+            ensembleRepo,
+            ensembleDir,
+            skeleton,
+            skeleton_vars=skeleton_vars,
         )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
@@ -229,10 +235,10 @@ def render_project(
     projectrepo: Optional[GitRepo],
     ensembleRepo: Optional[GitRepo],
     ensembleDir: str = "",
-    templateDir: Optional[str] = None,
+    skeleton_dir: Optional[str] = None,
     names: Any = DefaultNames,
     use_context: Optional[str] = None,
-    use_vault=True,
+    use_vault: Optional[bool] = None,
     skeleton_vars: Optional[Dict[str, Any]] = None,
     ensemble_template=True,
     defaultProject: Optional[str] = None,
@@ -262,6 +268,11 @@ def render_project(
     if "api_version" not in vars:
         vars["api_version"] = API_VERSION
     vars["defaultProject"] = defaultProject
+    if use_vault is None:
+        if "vaultid" in vars:
+            use_vault = bool(vars["vaultid"])  # disable if vaultid is set but ""
+        else:
+            use_vault = True
     if use_vault:
         if not vars.get("VAULT_PASSWORD"):
             vars["VAULT_PASSWORD"] = get_random_password()
@@ -283,7 +294,7 @@ def render_project(
         localConfigFilename,
         "unfurl.local.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
 
     if localProjectConfig:
@@ -305,7 +316,7 @@ def render_project(
             names.SecretsConfig,
             "secrets.yaml.j2",
             vars,
-            templateDir,
+            skeleton_dir,
         )
         value = os.path.join("secrets", names.SecretsConfig)
         if merge:
@@ -333,14 +344,14 @@ def render_project(
         names.LocalConfig,
         "unfurl.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
     write_project_config(
         projectdir,
         names.LocalConfigTemplate,
         "local-unfurl-template.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
 
     if ensemble_template:
@@ -350,10 +361,10 @@ def render_project(
             names.EnsembleTemplate,
             "manifest-template.yaml.j2",
             vars,
-            templateDir,
+            skeleton_dir,
         )
         # write service_template.py
-        write_service_template(projectdir, templateDir, vars)
+        write_service_template(projectdir, skeleton_dir, vars)
 
     if ensembleRepo:
         extraVars = dict(
@@ -372,7 +383,7 @@ def render_project(
             projectrepo,
             projectdir,
             extraVars=extraVars,
-            templateDir=templateDir,
+            templateDir=skeleton_dir,
         )
     return projectConfigPath, make_vault_lib(vaultpass, vaultid)
 
@@ -475,7 +486,7 @@ def create_project(
     skeleton = kw.get("skeleton")
     create_context = kw.get("as_shared_environment") or kw.get("create_environment")
     use_context = kw.get("use_environment")
-    skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+    skeleton_vars = dict(kw.get("var", []))
     if existing:
         repo = _find_project_repo(projectdir)
     else:
@@ -523,7 +534,10 @@ def create_project(
         ensembleRepo = _create_ensemble_project(ensembleDir, kw)
 
     logger.info(f"Creating Unfurl project at {projectdir}")
-    if "VAULT_PASSWORD" in skeleton_vars or "vaultid" in skeleton_vars:
+    if "vaultid" in skeleton_vars:
+        # disable if vaultid is set but empty
+        use_vault = bool(skeleton_vars["vaultid"])
+    elif "VAULT_PASSWORD" in skeleton_vars:
         use_vault = True
     elif empty:
         use_vault = False
