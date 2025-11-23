@@ -9,7 +9,7 @@ import re
 import tempfile
 import time
 import types
-from typing import Any, Union, cast
+from typing import Any, Union, Set, List, Optional, cast
 
 import rich
 from rich.console import Console
@@ -28,9 +28,9 @@ sensitive_params = (
     "secret",
     "password",
 )  # note: matches private_token etc too
-sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=[^&\s]+")
-sensitive_args_regex = (
-    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))\S+"""
+sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=([^&\s]+)")
+sensitive_args_regex = re.compile(
+    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))(\S+)"""
 )
 
 
@@ -203,25 +203,77 @@ class SensitiveFilter(logging.Filter):
             # starting in 3.12, we can return a record instead of modifying it in-place,
             # allowing other handlers to receive the original record
             record = logging.makeLogRecord(record.__dict__)
+
+        # Sanitize the message and collect indices of format specifiers that need redaction
+        indices_to_redact: List[int] = []
+        if isinstance(record.msg, str):
+            record.msg = self.sanitize_urls(record.msg, indices_to_redact)
+
+        # Redact arguments based on collected indices or apply normal redaction
         if record.args is not None:
             if isinstance(record.args, tuple):
-                record.args = tuple(self.redact(a) for a in record.args)
+                record.args = tuple(
+                    "XXXXX" if idx in indices_to_redact else self.redact(a)
+                    for idx, a in enumerate(record.args)
+                )
             else:
                 record.args = self.redact(record.args)  # type: ignore
-        if isinstance(record.msg, str):
-            record.msg = self.sanitize_urls(record.msg)
+
         return record
 
     @staticmethod
-    def sanitize_urls(value: str) -> str:
+    def sanitize_urls(value: str, format_spec_indices: Optional[List[int]] = None) -> str:
         value = re.sub(r"//(\S{1,100}):(\S{1,200})@", r"//\1:XXXXX@", value)
-        return re.sub(sensitive_params_regex, r"\1=XXXXX", value)
+
+        if format_spec_indices is not None:
+            # Combined regex that matches EITHER sensitive params OR bare format specifiers
+            # This processes left-to-right and counts all format specs
+            combined_pattern = rf"({'|'.join(sensitive_params)})=([^&\s]+)|(%[sdifr])"
+
+            spec_count = 0
+
+            def replace_match(match):
+                nonlocal spec_count
+                if match.group(3):  # group 3 is the bare format specifier
+                    # Just a format spec, count it
+                    spec_count += 1
+                    return match.group(0)  # Don't modify
+                else:
+                    # It's a sensitive param (groups 1 and 2)
+                    param_name = match.group(1)
+                    param_value = match.group(2)
+                    if param_value.startswith('%'):
+                        # It's a sensitive param with a format specifier
+                        format_spec_indices.append(spec_count)
+                        spec_count += 1
+                        return match.group(0)  # Don't modify the format spec
+                    else:
+                        # Regular sensitive value, redact it
+                        return f"{param_name}=XXXXX"
+
+            return re.sub(combined_pattern, replace_match, value)
+        else:
+            # When not tracking indices, use original behavior
+            def replace_sensitive_param(match):
+                param_name = match.group(1)
+                param_value = match.group(2)
+                if param_value.startswith('%'):
+                    return match.group(0)
+                return f"{param_name}=XXXXX"
+            return re.sub(sensitive_params_regex, replace_sensitive_param, value)
 
     @staticmethod
     def sanitize_str(value: str) -> str:
         "Look for suspicious urls and command args and redact them."
         value = SensitiveFilter.sanitize_urls(value)
-        return re.sub(sensitive_args_regex, r"\1XXXXX", value)
+        def replace_sensitive_arg(match):
+            prefix = match.group(1)
+            arg_value = match.group(5)
+            # Don't replace format specifiers
+            if arg_value.startswith('%'):
+                return match.group(0)
+            return f"{prefix}XXXXX"
+        return re.sub(sensitive_args_regex, replace_sensitive_arg, value)
 
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:

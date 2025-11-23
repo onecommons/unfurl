@@ -160,6 +160,65 @@ class TestSensitiveFilter:
             record.getMessage() == "foo --token=XXXXX  --kube-token XXXXX blah"
         )
 
+        record = logging.LogRecord(
+            msg="foo --token=%s",
+            args=("uc-4aefafdase8",),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "foo --token=%s"
+        assert record.args == ("XXXXX",)
+
+        # Test multiple format specifiers - only the sensitive one should be redacted
+        record = logging.LogRecord(
+            msg="user %s connecting with --token=%s to %s",
+            args=("alice", "secret-token-123", "server.example.com"),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "user %s connecting with --token=%s to %s"
+        assert record.args == ("alice", "XXXXX", "server.example.com")
+
+        # Test format specifier before sensitive position
+        record = logging.LogRecord(
+            msg="%s --password=%s",
+            args=("command", "my-password"),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "%s --password=%s"
+        assert record.args == ("command", "XXXXX")
+
+        # Test multiple sensitive positions
+        record = logging.LogRecord(
+            msg="--secret=%s and --token=%s for user %s",
+            args=("secret123", "token456", sensitive_str("bob")),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "--secret=%s and --token=%s for user %s"
+        assert record.args == ("XXXXX", "XXXXX", "<<REDACTED>>")
+
+        # Test non-sensitive arguments are not redacted
+        record = logging.LogRecord(
+            msg="normal arg %s and another %s",
+            args=(sensitive_str("value1"), "value2"),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "normal arg %s and another %s"
+        assert record.args == ("<<REDACTED>>", "value2")
+
+        record = logging.LogRecord(
+            msg="url '%s'",
+            args=("https://github:uc-DEADBEAF@unfurl.cloud/",),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.msg == "url '%s'"
+        assert record.args == ("https://github:XXXXX@unfurl.cloud/",)
+
+
 class TestColorHandler:
     def test_exception_is_printed(self, caplog):
         log = logging.getLogger("test_exception_is_printed")
