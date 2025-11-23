@@ -7,6 +7,7 @@ from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
 from ..result import Results, wrap_var
+from ..spec import EntitySpec
 from ..util import UnfurlTaskError, register_short_names
 from ..support import Status, DEBUG_EX
 from ..planrequests import (

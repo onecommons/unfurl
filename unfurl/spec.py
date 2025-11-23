@@ -2340,7 +2340,11 @@ class ArtifactSpec(EntitySpec):
                     # XXX get loader and yaml from self.spec.template.import_resolver
                     return File(path)
                 else:
-                    return FilePath(path)
+                    fp = FilePath(path)
+                    if self.spec.import_resolver and self.spec.import_resolver.manifest:
+                        file, repository = fp._rel_to(self)
+                        fp._set_from_artifact(file, repository)
+                    return fp
         return None
 
 

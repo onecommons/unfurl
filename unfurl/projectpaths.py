@@ -360,18 +360,33 @@ class _ArtifactExternalValue(ExternalValue):
     def get_full_path(self):
         return self.get()
 
-    def as_artifact_tpl(self, instance: "EntityInstance") -> Dict[str, str]:
-        assert instance.template.spec.import_resolver
-        repo_view = instance.template.spec.import_resolver.manifest.repositories["self"]
-        if os.path.isabs(repo_view.working_dir):
-            root_path = repo_view.working_dir
+    def _rel_to(self, template) -> Tuple[str, Optional[str]]:
+        # return a path relative to a repository
+        # returns absolute path and None if can't find a relative location
+        assert template.spec.import_resolver
+        manifest = template.spec.import_resolver.manifest
+        path = ""
+        repository = None
+        for name, repo_view in manifest.repositories.items():
+            if os.path.isabs(repo_view.working_dir):
+                root_path = repo_view.working_dir
+            else:
+                root_path = os.path.abspath(".")  # should only happen in unit tests
+            path = os.path.relpath(self.get_full_path(), root_path)
+            if not path.startswith(".."):
+                repository = name
+                break
+
+        if repository is not None:
+            return path, repository
         else:
-            root_path = os.path.abspath(".")  # should only happen in unit tests
-        tpl = dict(
-            file=str(Path(self.get_full_path()).relative_to(root_path)),
-            repository="self",
-        )
-        return tpl
+            return self.get_full_path(), None
+
+    def as_artifact_tpl(self, instance: "EntityInstance") -> Dict[str, str]:
+        file, repository = self._rel_to(instance.template)
+        if repository is None:
+            return dict(file=file)
+        return dict(file=file, repository=repository)
 
 
 class File(_ArtifactExternalValue):
@@ -522,14 +537,22 @@ class FilePath(_ArtifactExternalValue):
         if options and options.get("resolveExternal"):
             return super().as_ref(options)
         if self.rel_to and self.rel_path is not None:
-            args = [self.rel_path, self.rel_to]
+            if self.rel_path:
+                args = [self.rel_path, self.rel_to]
+            else:
+                return {"eval": dict(get_dir=self.rel_to)}
         else:
             args = self.key
         return {"eval": {self.type: args}}
 
-    def _from_artifact(self, file="", repository=""):
-        self.rel_path = file
-        self.rel_to = repository
+    def _set_from_artifact(self, file="", repository=""):
+        if repository:
+            self.rel_path = file
+            self.rel_to = repository
+        else:
+            self.path = file
+            self.rel_path = None
+            self.rel_to = ""
 
     MAX_DIGEST_FILE_SIZE = 1024 * 1024
 
@@ -608,7 +631,7 @@ def _abspath(ctx, path, relativeTo=None, mkdir=False):
         # but not to the current resource or an absolute path
         # and do it now while we have the context
         if ctx.currentResource.template.spec.import_resolver:
-            fp._from_artifact(**fp.as_artifact_tpl(ctx.currentResource))
+            fp._set_from_artifact(**fp.as_artifact_tpl(ctx.currentResource))
     return fp
 
 
@@ -617,6 +640,7 @@ def _getdir(ctx, folder, mkdir=False):
 
 
 def _map_args(args, ctx):
+    # always return a list
     args = map_value(args, ctx)
     if not isinstance(args, MutableSequence):
         return [args]

@@ -363,11 +363,13 @@ def test_expressions():
 
     topology = runtime_test(test)
     assert topology._yaml == expressions_yaml
+
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
     assert expr.get_instance(topology.test_node).status == Status.error
     assert topology.service.url_scheme == "https"
     assert topology.myService.url_scheme == "web+https"
+
     assert expr.get_env("MISSING", "default") == "default"
     assert not expr.has_env("MISSING")
     assert expr.get_env("PATH")
@@ -376,15 +378,20 @@ def test_expressions():
     with pytest.raises(UnfurlError):
         input: str = expr.get_input("MISSING")
     assert topology.inputs.domain == "example.com"
-    assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
+
+    dir_value = expr.get_dir(topology.service, "src")
+    assert dir_value.get() == os.path.dirname(__file__)
+    assert serialize_value(dir_value) == {"eval": {"abspath": ["tests", "self"]}}
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
     fp = expr.abspath(topology.service, "test_dsl_integration.py", "src")
     assert fp.get() == __file__
     assert serialize_value(fp) == {
         "eval": {"abspath": ["tests/test_dsl_integration.py", "self"]}
     }
+
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
+
     assert functions.to_label("fo!oo", replace="_") == "fo_oo"
     assert (
         expr.template(
@@ -411,9 +418,11 @@ def test_expressions():
             "inert"
         ]["eval"]
     )
+
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
+
     # XXX test:
     # "if_expr", and_expr
     # "lookup",

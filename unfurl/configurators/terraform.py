@@ -1,6 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Dict, Any, cast
 from typing_extensions import Literal
 
 from ..planrequests import ConfigurationSpecKeywords
@@ -10,7 +10,7 @@ from ..util import save_to_file, UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result, wrap_var
-from ..projectpaths import WorkFolder, get_path, FilePath, Folders
+from ..projectpaths import WorkFolder, get_path, _abspath, Folders
 import json
 import os
 import os.path
@@ -275,44 +275,24 @@ class TerraformConfigurator(ShellConfigurator):
         # generated tf.json get written to as main.unfurl.tmp.tf.json
         write_vars = True
         contents = None
-        main = task.inputs.get_copy("main")
-        if not main:
-            main = get_path(task.inputs.context, task.target.name, "src")
-            if not os.path.exists(main):
-                raise UnfurlTaskError(
-                    task,
-                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
-                )
+        main, main_path = self._get_main_path(task)
         if task._errors:
             main = None  # assume render failed
-        if isinstance(main, str):
-            if "\n" in main:
-                # assume its HCL and not a path
+        if main_path:
+            # it's a directory -- if difference from cwd, treat location as a module to call
+            relpath = cwd.relpath_to_current(main_path)
+            if relpath != ".":
+                write_vars = False
+                outputs = self._get_outputs(task)
+                tfvars = self._get_tfvars(task)
+                path, contents = generate_main(relpath, tfvars, outputs)
+        else:
+            if isinstance(main, str):  # assume its HCL
                 contents = main
                 path = "main.unfurl.tmp.tf"
-            else:
-                if not os.path.isabs(main):
-                    main = get_path(task.inputs.context, main, "src")
-                if os.path.exists(main):
-                    # it's a directory -- if difference from cwd, treat location as a module to call
-                    relpath = cwd.relpath_to_current(main)
-                    if relpath != ".":
-                        write_vars = False
-                        outputs = self._get_outputs(task)
-                        tfvars = self._get_tfvars(task)
-                        path, contents = generate_main(relpath, tfvars, outputs)
-
-                    # set this as FilePath so we can monitor changes to it
-                    result = task.inputs._attributes["main"]
-                    if not isinstance(result, Result) or not result.external:
-                        task.inputs["main"] = FilePath(main)
-                else:
-                    raise UnfurlTaskError(
-                        task, f'Terraform module directory "{main}" does not exist'
-                    )
-        else:  # assume it json
-            contents = main
-            path = "main.unfurl.tmp.tf.json"
+            else:  # assume it json
+                contents = main
+                path = "main.unfurl.tmp.tf.json"
 
         if write_vars:
             varpath = self._prepare_vars(task, cwd)
@@ -323,6 +303,35 @@ class TerraformConfigurator(ShellConfigurator):
         else:
             mainpath = None
         return mainpath, varpath
+
+    def _get_main_path(self, task: TaskView) -> Tuple[Any, Optional[str]]:
+        """Override to set main as FilePath before checking digest."""
+        main = task.inputs.get_copy("main")
+        if not main:
+            main = get_path(task.inputs.context, task.target.name, "src")
+            if not os.path.exists(main):
+                raise UnfurlTaskError(
+                    task,
+                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
+                )
+        if isinstance(main, str) and "\n" not in main:
+            # if one line, assume its a path string, not inline HCL
+            if not os.path.isabs(main):
+                main = get_path(task.inputs.context, main, "src")
+            if os.path.exists(main):
+                result = task.inputs._attributes["main"]
+                if not isinstance(result, Result) or not result.external:
+                    task.inputs["main"] = _abspath(task.inputs.context, main)
+                return None, main
+            else:
+                raise UnfurlTaskError(
+                    task, f'Terraform module directory "{main}" does not exist'
+                )
+        return main, None
+
+    def check_digest(self, task: TaskView, changeset) -> bool:
+        self._get_main_path(task)
+        return super().check_digest(task, changeset)
 
     def _prepare_vars(self, task: TaskView, cwd):
         # XXX .tfvars can be sensitive
