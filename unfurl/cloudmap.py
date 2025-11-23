@@ -1396,6 +1396,13 @@ class CloudMap:
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
         repository = environment.get("repositories", {}).get(name)
+        if not repository or "url" not in repository:
+            repositories, _ = local_env.get_repositories_and_package_specs()
+            env_repository = repositories.get(name)
+            if repository and env_repository:
+                repository.update(env_repository)
+            else:
+                repository = env_repository
         if repository:
             cloudmap_url = repository["url"]
         else:

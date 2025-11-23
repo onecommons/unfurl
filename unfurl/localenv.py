@@ -28,8 +28,7 @@ from typing import (
 )
 from ansible.parsing.vault import VaultLib
 from tosca import JsonObject
-from unfurl.runtime import NodeInstance
-
+from .packages import Package, PackageSpec
 from .repo import (
     GitRepo,
     Repo,
@@ -49,7 +48,7 @@ from .util import (
     substitute_env,
     wrap_sensitive_value,
     save_to_tempfile,
-    is_sensitive,
+    taketwo,
 )
 from .merge import merge_dicts
 from .yamlloader import (
@@ -66,7 +65,7 @@ from toscaparser.repositories import Repository
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
-    from .packages import Package
+    from .runtime import NodeInstance
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
@@ -1528,7 +1527,9 @@ class LocalEnv:
                 return "venv:" + venv_path
         return None
 
-    def get_local_instance(self, name: str, context: dict) -> Tuple[NodeInstance, dict]:
+    def get_local_instance(
+        self, name: str, context: dict
+    ) -> Tuple["NodeInstance", dict]:
         # returns NodeInstance, spec
         assert name in ["locals", "secrets", "local", "secret"]
         attributes = dict(context.get(name) or {})
@@ -1545,6 +1546,36 @@ class LocalEnv:
             if parent and parent is not self.homeProject:
                 return parent
         return self.project
+
+    def get_repositories_and_package_specs(
+        self,
+    ) -> Tuple[Dict[str, Any], List["PackageSpec"]]:
+        """
+        Extract repositories and package specs from the environment context.
+        Returns a tuple of (repositories dict, package_specs list).
+        """
+        from .manifest import relabel_dict
+
+        context = self.get_context()
+        repositories = {}
+        package_specs: List[PackageSpec] = []
+        for key, value in relabel_dict(context, self, "repositories").items():
+            if "." in key:  # assume it's a package not a repository name
+                assert isinstance(value, dict)
+                package_specs.append(
+                    PackageSpec(key, value.get("url"), value.get("revision"))
+                )
+            else:
+                repositories[key] = value
+        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
+            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
+        )
+        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
+            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
+        if env_package_spec:
+            for key, value in taketwo(env_package_spec.split()):
+                package_specs.append(PackageSpec(key, value, None))
+        return repositories, package_specs
 
     def __getstate__(self):
         state = self.__dict__.copy()

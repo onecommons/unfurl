@@ -181,24 +181,8 @@ class Manifest(AttributeManager):
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
-        context = self.localEnv.get_context()
-        repositories = {}
-        for key, value in relabel_dict(context, self.localEnv, "repositories").items():
-            if "." in key:  # assume it's a package not a repository name
-                assert isinstance(value, dict)
-                self.package_specs.append(
-                    PackageSpec(key, value.get("url"), value.get("revision"))
-                )
-            else:
-                repositories[key] = value
-        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
-        )
-        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
-            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
-        if env_package_spec:
-            for key, value in taketwo(env_package_spec.split()):
-                self.package_specs.append(PackageSpec(key, value, None))
+        repositories, package_specs = self.localEnv.get_repositories_and_package_specs()
+        self.package_specs.extend(package_specs)
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
