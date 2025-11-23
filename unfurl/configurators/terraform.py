@@ -3,7 +3,9 @@
 from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
 from typing_extensions import Literal
 
+from ..planrequests import ConfigurationSpecKeywords
 from ..configurator import TaskView
+from ..spec import EntitySpec
 from ..util import save_to_file, UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
@@ -166,11 +168,14 @@ class TerraformConfigurator(ShellConfigurator):
     ]
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template):
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         if not which("terraform"):
             artifact = template.find_or_create_artifact("terraform", predefined=True)
             if artifact:
-                kw["dependencies"].append(artifact)
+                kw.setdefault("dependencies", []).append(artifact)
+        # add_path_transform(kw, "main", template)
         return kw
 
     @classmethod

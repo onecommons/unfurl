@@ -83,6 +83,7 @@ from .runtime import (
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
+    ConfigurationSpecKeywords,
     TaskRequest,
     JobRequest,
     ConfigurationSpec,
@@ -186,7 +187,9 @@ class Configurator(metaclass=AutoRegisterClass):
     __is_generator: Optional[bool] = None
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template: EntitySpec) -> dict:
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         return kw
 
     @classmethod

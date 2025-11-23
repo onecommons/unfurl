@@ -30,8 +30,10 @@ register_short_names(
 
 class CmdConfigurator(Configurator):
     @classmethod
-    def set_config_spec_args(cls, kw: dict, target):
-        return set_default_command(cast(ConfigurationSpecKeywords, kw), "")
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
+        return set_default_command(kw, "")
 
 
 class PythonPackageCheckConfigurator(Configurator):

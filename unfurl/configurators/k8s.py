@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Mapping, Union, cast
 
 from ..projectpaths import get_path
 from ..configurator import Configurator, TaskView, ConfiguratorResult
+from ..planrequests import ConfigurationSpecKeywords
+from ..spec import EntitySpec
 from ..support import Status, Priority, to_dns_label, find_connection
 from ..runtime import (
     EntityInstance,
@@ -362,7 +364,9 @@ ClusterScoped_Kinds = [
 
 class ResourceConfigurator(AnsibleConfigurator):
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template):
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         artifact = template.find_or_create_artifact("kubernetes.core", predefined=True)
         if artifact:
             kw["dependencies"].append(artifact)
