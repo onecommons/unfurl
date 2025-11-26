@@ -80,6 +80,7 @@ from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.nodetemplate import NodeTemplate
+from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from .projectpaths import FilePath, _getdir
 from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
@@ -136,6 +137,7 @@ class RepositoryMetadata:
     issues_url: str = ""
     homepage_url: str = ""
     avatar_url: str = ""
+    ci_variables: Optional[dict] = None
     lastupdate_time: Optional[str] = None
     lastupdate_digest: Optional[str] = None
 
@@ -1003,6 +1005,13 @@ class LocalHostConfig(HostConfig):
     clone_root: str  # directory containing the repositories
 
 
+def _clean_ci_var(envvar):
+    envvar.pop("project_id")
+    envvar.pop("id")
+    envvar.pop("secret_value")
+    return envvar
+
+
 class GitlabManager(RepositoryHost):
     def __init__(
         self,
@@ -1309,10 +1318,20 @@ class GitlabManager(RepositoryHost):
         new_project = cast(Project, self.gitlab.projects.create(proj_data))
 
         if repo_info.metadata.avatar_url:
-            avatar = _urlopen(repo_info.metadata.avatar_url).read()
-            new_project.avatar = avatar
-            new_project.save()
+            try:
+                avatar = _urlopen(repo_info.metadata.avatar_url).read()
+            except Exception:
+                self.logger.error(
+                    f"Error retrieving avatar at %s",
+                    repo_info.metadata.avatar_url,
+                    exc_info=True,
+                )
+            else:
+                new_project.avatar = avatar
+                new_project.save()
 
+        if repo_info.metadata.ci_variables and self.save_internal:
+            set_ci_variables(new_project, repo_info.metadata.ci_variables.values())
         return new_project
 
     def update_project_metadata(
@@ -1327,6 +1346,17 @@ class GitlabManager(RepositoryHost):
             dest_proj.topics = repo_info.metadata.topics
             changed = True
         # XXX dest_proj.visibility = upstream_proj.visibility
+        if repo_info.metadata.ci_variables and self.save_internal:
+            # update or add ci vars recorded in the cloudmap
+            local_vars = repo_info.metadata.ci_variables.copy()
+            for envvar in yield_ci_variables(dest_proj):
+                local_var = local_vars.pop(envvar["key"], None)
+                # XXX if not local_var:  project.variables.delete(envvar)
+                if local_var and _clean_ci_var(envvar) != local_var:
+                    envvar.update(local_var)
+                    local_vars[envvar["key"]] = envvar  # add it back
+
+            set_ci_variables(dest_proj, local_vars.values())
         if not changed:
             return False
         try:
@@ -1368,6 +1398,11 @@ class GitlabManager(RepositoryHost):
             homepage_url=self.canonize(project.web_url),
             **kw,
         )
+        if self.visibility != "public" and self.save_internal:
+            metadata.ci_variables = {
+                envvar["key"]: _clean_ci_var(envvar)
+                for envvar in yield_ci_variables(project)
+            }
         metadata.set_lastupdate()
         git_url, scheme = self._git_url(project)
         protocols = [scheme]
