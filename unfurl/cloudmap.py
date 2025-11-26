@@ -229,7 +229,9 @@ class Repository:
     # def get_namespace(self, directory) -> Optional[Namespace]:
     #     path.split("/")
 
-    def update_branch(self, repo: GitRepo, branch: str = "main"):
+    def update_branch(self, repo: GitRepo, branch: str = ""):
+        if not branch:
+            branch = self.get_default_branch()
         self.branches[branch] = repo.revision
 
     def add_notables(self, notables: List["Notable"]) -> None:
@@ -849,7 +851,8 @@ class RepositoryHost:
 
     def fetch_repo(
         self, push_url: str, dest: Repository, local: "Directory"
-    ) -> GitRepo:
+    ) -> Tuple[GitRepo, bool]:
+        # return the repo and if it need to be cloned
         # add remote for target repo
         repo = local.find_repo(push_url, self.name)
         if not repo:
@@ -882,11 +885,8 @@ class RepositoryHost:
             except ValueError:
                 git.Remote.create(repo.repo, canonical_remote_name, dest.git_url())
         if not missing:  # if it wasn't just cloned
-            dest_remote.fetch()  # XXX use the revision in dest
-            repo.checkout(
-                f"{remote_name}/{dest.default_branch}"
-            )  # XXX use the revision in dest
-        return repo
+            dest_remote.fetch()
+        return repo, missing
 
 
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
@@ -1122,7 +1122,11 @@ class GitlabManager(RepositoryHost):
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(dest_proj)
                 try:
-                    repo = self.fetch_repo(remote_url, r, directory)
+                    repo, cloned = self.fetch_repo(remote_url, r, directory)
+                    remote_branch = f"{self.name or 'origin'}/{r.default_branch}"
+                    if remote_branch in repo.repo.references:
+                        # reset local main to remote's main
+                        repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
                 except Exception:
                     self.logger.error(
                         "Error retrieving content for %s", r.key, exc_info=True
@@ -1202,11 +1206,15 @@ class GitlabManager(RepositoryHost):
                     if repo:
                         # there's a local mirror that might have changed
                         try:
-                            repo = self.fetch_repo(remote_url, repo_info, directory)
-                            # clone source repo and push to dest
+                            # get the latest from the remote
+                            repo, cloned = self.fetch_repo(
+                                remote_url, repo_info, directory
+                            )
                             dest_branch = (
                                 f"{self.name}/{repo_info.get_default_branch()}"
                             )
+                            if not repo.active_branch:
+                                repo.checkout(repo_info.get_default_branch())
                             commit = repo.repo.head.commit
                             branch_exists = dest_branch in repo.repo.references
                             if (
@@ -1223,6 +1231,7 @@ class GitlabManager(RepositoryHost):
                                         f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
                                     )
                                 else:
+                                    # maybe merge and (maybe) force push the current branch into dest_branch
                                     force_merge_local_and_push_to_remote(
                                         repo,
                                         self.name,
@@ -1233,7 +1242,7 @@ class GitlabManager(RepositoryHost):
                                     )
                                 if do_merge:
                                     # we might have create a merge commit, update the directory
-                                    repo_info.update_branch(repo, "main")
+                                    repo_info.update_branch(repo)
                             else:
                                 self.logger.debug(
                                     f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
@@ -1438,6 +1447,7 @@ class CloudMap:
         self,
         repo: GitRepo,
         host_branch: str,
+        source_branch: str = "main",
         localrepo_root: str = "",
         path: str = "",
         skip_analysis: bool = False,
@@ -1445,7 +1455,8 @@ class CloudMap:
     ):
         self.logger = logger
         self.repo = repo
-        self.branch = host_branch
+        self.host_branch = host_branch
+        self.source_branch = source_branch
         self.directory = Directory(
             str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
             localrepo_root,
@@ -1459,7 +1470,7 @@ class CloudMap:
         local_env: "LocalEnv",
         name: str = "cloudmap",
     ) -> "CloudMapDB":
-        url, path, revision, _ = cls.get_config(local_env, name)
+        url, path, revision, repository = cls.get_config(local_env, name)
         repo, _, _ = local_env.find_or_create_working_dir(url, revision)
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
@@ -1505,11 +1516,13 @@ class CloudMap:
         else:
             # clone or checkout main and create branch
             repo, _, _ = local_env.find_or_create_working_dir(
-                url, "main", checkout_args=dict(b=branch)
+                url, revision, checkout_args=dict(b=branch)
             )
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
-        return CloudMap(repo, branch, local_repo_root, path, skip_analysis, logger)
+        return CloudMap(
+            repo, branch, revision, local_repo_root, path, skip_analysis, logger
+        )
 
     @classmethod
     def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
@@ -1534,7 +1547,12 @@ class CloudMap:
                 cloudmap_url = name
             repository = {}
         url, path, revision = split_git_url(cloudmap_url)
-        return normalize_git_url(url), path, revision or "main", repository
+        return (
+            normalize_git_url(url),
+            path,
+            revision or repository.get("revision", "main"),
+            repository,
+        )
 
     @classmethod
     def get_host(
@@ -1579,13 +1597,16 @@ class CloudMap:
         name: str = "",
         namespace: str = "",
         repo_filter: str = "",
-        clone_root="",
+        clone_root: str = "",
         logger=logger,
     ) -> RepositoryHost:
         if host_config["type"] == "local":
+            clone_root = (
+                clone_root or cast(LocalHostConfig, host_config).get("clone_root") or ""
+            )
             return LocalRepositoryHost(
                 name,
-                clone_root or host_config.get("clone_root") or "",
+                clone_root,
                 namespace,
                 repo_filter,
                 logger,
@@ -1599,7 +1620,7 @@ class CloudMap:
     def from_host(self, host: RepositoryHost) -> bool:
         host.from_host(self.directory)
         changed = self.save(
-            f"Update {self.branch} with latest from {'/'.join([host.name, host.path])}"
+            f"Update {self.host_branch} with latest from {'/'.join([host.name, host.path])}"
         )
         return changed
 
@@ -1625,8 +1646,8 @@ class CloudMap:
         self, host: RepositoryHost, merge_host: bool, force: bool, sync: bool
     ) -> bool:
         op_name = "sync" if sync else "export"
-        if self.branch != "main":
-            self.repo.checkout("main")
+        if self.host_branch != self.source_branch:
+            self.repo.checkout(self.source_branch)
             self.directory.db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
             mismatched = self.directory.find_mismatched_repo(host)
@@ -1639,7 +1660,7 @@ class CloudMap:
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
             if merge_host:
                 self.repo.repo.git.merge(
-                    self.branch, m=f"merge changes from syncing {self.branch}"
+                    self.host_branch, m=f"merge changes from syncing {self.host_branch}"
                 )
                 self.directory.db.reload()  # map changed, reload the directory
 
@@ -1653,9 +1674,9 @@ class CloudMap:
 
         # if force we might have created merge commits, update the cloudmap with those
         changed = self.save(f"{op_name}ed to {host.name}")
-        if self.branch != "main":
+        if self.host_branch != self.source_branch:
             # set host branch head to match to main because we are even now
-            self.repo.repo.git.branch(self.branch, f=True)
+            self.repo.repo.git.branch(self.host_branch, f=True)
         return changed
 
     def save(self, msg: str) -> bool:
