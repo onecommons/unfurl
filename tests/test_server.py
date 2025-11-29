@@ -63,7 +63,7 @@ def wait_for_status(url, params=None, headers=None, expected=304, timeout=10.0, 
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
-    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@localhost:6379/0
+    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@127.0.0.1:6379/0
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
@@ -206,14 +206,14 @@ def start_envvar_server(port):
 
         handler = partial(SimpleHTTPRequestHandler, directory=directory)
         httpd = HTTPServer(server_address, handler)
-    except:  # address might still be in use
+    except Exception:  # address might still be in use
         httpd = None
         return None, None
     t = threading.Thread(name="http_thread", target=httpd.serve_forever)
     t.daemon = True
     t.start()
 
-    env_var_url = "http://localhost:8011/envlist.json"
+    env_var_url = "http://127.0.0.1:8011/envlist.json"
     # make sure this works
     f = urllib.request.urlopen(env_var_url)
     f.close()
@@ -235,12 +235,13 @@ def runner():
             kwargs={"error_queue": error_queue},
         )
         server_process._error_queue = error_queue
-        start_server_process(server_process, _static_server_port)
+        try:
+            start_server_process(server_process, _static_server_port)
 
-        yield server_process
-
-        server_process.terminate()   # Gracefully shutdown the server (SIGTERM)
-        server_process.join()   # Wait for the server to terminate
+            yield server_process
+        finally:
+            server_process.terminate()  # Gracefully shutdown the server (SIGTERM)
+            server_process.join()  # Wait for the server to terminate
 
 
 def commit_foo(val: str):
@@ -279,10 +280,15 @@ def set_up_deployment(runner, deployment):
         kwargs={"error_queue": error_queue},
     )
     p._error_queue = error_queue
-    start_server_process(p, port)
+    try:
+        start_server_process(p, port)
 
-    assert repo.revision
-    return p, port, repo.revision
+        assert repo.revision
+        return p, port, repo.revision
+    except Exception:
+        p.terminate()
+        p.join()
+        raise
 
 
 def test_server_health(runner: Process):
@@ -339,9 +345,8 @@ def test_server_export_local():
             kwargs={"error_queue": error_queue},
         )
         p._error_queue = error_queue
-        start_server_process(p, port)
-
         try:
+            start_server_process(p, port)
             init_project(
                 runner,
                 args=["init", "--mono"],
@@ -387,8 +392,8 @@ def test_server_export_remote():
             kwargs={"error_queue": error_queue},
         )
         p._error_queue = error_queue
-        start_server_process(p, port)
         try:
+            start_server_process(p, port)
             run_cmd(
                 runner,
                 [
@@ -415,9 +420,9 @@ def test_server_export_remote():
                             "format": export_format,
                         },
                         headers={
-                          "If-None-Match": etag,
-                          "X-Git-Credentials": b64encode("username:token".encode())
-                        }
+                            "If-None-Match": etag,
+                            "X-Git-Credentials": b64encode("username:token".encode()),
+                        },
                     )
                     if res.status_code == 200:
                         etag = res.headers.get("Etag") or ""
@@ -479,7 +484,7 @@ def test_server_export_remote():
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
-                    "branch": "(MISSING)"
+                    "branch": "(MISSING)",
                 },
             )
             # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
@@ -552,10 +557,7 @@ def test_server_update_deployment():
             target_patch = patch.format("target")
             res = requests.post(
                 f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
-                json={
-                    "patch": json.loads(target_patch),
-                    "latest_commit": last_commit
-                },
+                json={"patch": json.loads(target_patch), "latest_commit": last_commit},
             )
             assert res.status_code == 200
             new_commit = res.json()["commit"]
@@ -610,7 +612,7 @@ def test_server_update_deployment():
                 json={
                     "patch": json.loads(delete_patch),
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             last_commit = res.json()["commit"]
@@ -642,11 +644,13 @@ def test_server_update_deployment():
             res = requests.post(
                 f"http://{HOST}:{port}/create_provider?auth_project=remote",
                 json={
-                    "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
+                    "environment": "gcp",
+                    "deployment_blueprint": None,
+                    "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
                     "commit_msg": "Create environment gcp",
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
