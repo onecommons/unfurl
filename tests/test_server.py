@@ -35,7 +35,7 @@ def wait_for_status(url, params=None, headers=None, expected=304, timeout=10.0, 
     while time.time() < deadline:
         try:
             last_res = requests.get(url, params=params, headers=headers, timeout=2.0)
-        except Exception:
+        except requests.RequestException:
             last_res = None
             time.sleep(poll_interval)
             continue
