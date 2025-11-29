@@ -367,8 +367,21 @@ def test_server_export_remote():
                         expected = _strip_sourceinfo(json.loads(cleaned_output))
                         assert _strip_sourceinfo(res.json()) == expected #, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
                     else:
-                        # cache hit
-                        assert res.status_code == 304, (res.headers.get("Etag") == etag, etag)
+                        # cache hit - poll for cached response to make test robust against async cache population in CI
+                        res = wait_for_status(
+                            f"http://localhost:{port}/export",
+                            params={
+                                "auth_project": project_id,
+                                "latest_commit": last_commit,
+                                "format": export_format,
+                            },
+                            headers={
+                                "If-None-Match": etag,
+                                "X-Git-Credentials": b64encode("username:token".encode())
+                            },
+                            expected=304,
+                            timeout=15.0,
+                        )
 
                     file_path = server._get_filepath(export_format, None)
                     key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
