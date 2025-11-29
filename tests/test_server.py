@@ -24,6 +24,33 @@ from unfurl.util import change_cwd, get_package_digest
 from base64 import b64encode
 import logging
 
+
+def wait_for_status(url, params=None, headers=None, expected=304, timeout=10.0, poll_interval=0.25):
+    """Poll `url` until it returns `expected` status or `timeout` elapses.
+
+    On timeout, fail the test with diagnostic information including last response headers.
+    """
+    deadline = time.time() + timeout
+    last_res = None
+    while time.time() < deadline:
+        try:
+            last_res = requests.get(url, params=params, headers=headers, timeout=2.0)
+        except Exception:
+            last_res = None
+            time.sleep(poll_interval)
+            continue
+        if last_res.status_code == expected:
+            return last_res
+        time.sleep(poll_interval)
+
+    if last_res is None:
+        pytest.fail(f"Timed out waiting for status {expected} from {url}: no successful response seen within {timeout}s")
+    else:
+        pytest.fail(
+            f"cache expected {expected} for {url} after {timeout}s, last status {last_res.status_code}, headers: {dict(last_res.headers)}"
+        )
+
+
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
 # (with -s only)
 # but fork doesn't inherit the environment so UNFURL_TEST_REDIS_URL breaks
@@ -392,19 +419,18 @@ def test_server_export_remote():
             etag = server._make_etag(hex(int(last_commit, 16) 
                                          ^ int(get_package_digest(), 16)
                                          ^ int(dep_commit, 16)))
-            # # check that this public project (no auth header sent) was cached
-            res = requests.get(
+            # Poll for cached response to make test robust against async cache population in CI
+            res = wait_for_status(
                 f"http://localhost:{port}/export",
                 params={
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
                 },
-                headers={
-                  "If-None-Match": etag,
-                }
+                headers={"If-None-Match": etag},
+                expected=304,
+                timeout=15.0,
             )
-            assert res.status_code == 304
         finally:
             p.terminate()
             p.join()
