@@ -60,6 +60,7 @@ from . import PATCH, WritePolicy, Repository
 
 logger = logging.getLogger("tosca")
 
+GLOBAL_ARTIFACTS_TEMPLATE_NAME = "__global_artifacts"
 
 class PythonToYaml:
     def __init__(
@@ -92,6 +93,7 @@ class PythonToYaml:
         self.import_resolver = import_resolver
         self.templates: List[ToscaType] = []
         self.current_module = None
+        self._global_artifacts: Dict[int, ArtifactEntity] = {}
 
     def find_yaml_import(
         self, module_name: str
@@ -163,7 +165,11 @@ class PythonToYaml:
                     ):
                         if isinstance(field, _Tosca_Field):
                             ti = field.get_type_info_checked()
-                            if ti and issubclass(ti.type, ToscaType):
+                            if (
+                                ti
+                                and isinstance(ti.type, type)
+                                and issubclass(ti.type, ToscaType)
+                            ):
                                 _type = ti.type
                                 if _type.__name__ not in self.globals:
                                     self._add_type(_type, types_used)
@@ -174,6 +180,7 @@ class PythonToYaml:
             global_state.mode = mode
             global_state.safe_mode = safe_mode
         self.add_repositories_and_imports()
+        self._add_global_artifacts()
         return self.sections
 
     def add_repositories_and_imports(self) -> None:
@@ -208,7 +215,7 @@ class PythonToYaml:
         referenced: bool,
     ) -> str:
         name = obj._name or name
-        assert name != PATCH
+        assert not name.startswith(PATCH)
         if "__templateref" in obj._metadata:
             return name
         for topology_section in reversed(self.topology_templates):
@@ -362,14 +369,15 @@ class PythonToYaml:
 
         seen: Set[int] = set()
         for name, obj in namespace.items():
-            if isinstance(obj, ModuleType):
+            if isinstance(obj, (ModuleType, InstanceProxy)):
                 continue
             if (
-                not isinstance(obj, InstanceProxy)
-                and isinstance(obj, (Node, Group, Policy, Repository))
+                isinstance(obj, (Node, Group, Policy, Repository, ArtifactEntity))
                 and not obj._name
             ):
                 obj._name = name
+            if isinstance(obj, ArtifactEntity):
+                self._global_artifacts[id(obj)] = obj
         for name, obj in namespace.items():
             if isinstance(obj, ModuleType):
                 continue
@@ -455,6 +463,19 @@ class PythonToYaml:
                             )
                         if obj._type_section == "topology_template":
                             self._type2yaml(obj.__class__.__name__, obj.__class__, seen)
+
+    def _add_global_artifacts(self) -> None:
+        if not self._global_artifacts:
+            return
+        try:
+            import unfurl
+        except ImportError:
+            return
+        obj = unfurl.nodes.LocalRepository(GLOBAL_ARTIFACTS_TEMPLATE_NAME)
+        for artifact in self._global_artifacts.values():
+            setattr(obj, artifact._name, artifact)
+        obj.__class__._globals = self.globals  # type: ignore
+        self.add_template(obj, "", False)
 
     def _import_module(self, module_path: Optional[str], module_name: str) -> None:
         # note: should only be called for modules with tosca objects we need to convert to yaml
@@ -714,7 +735,13 @@ class PythonToYaml:
         for key in ("operation_host", "environment", "timeout", "dependencies"):
             impl_val = getattr(operation, key, None)
             if impl_val is not None:
-                implementation[key] = impl_val
+                if key == "dependencies":
+                    implementation["dependencies"] = [
+                        d._name if isinstance(d, ArtifactEntity) else d
+                        for d in impl_val
+                    ]
+                else:
+                    implementation[key] = impl_val
         if implementation:
             op_def["implementation"] = to_tosca_value(implementation, dict_cls)
         description = getattr(operation, "__doc__", "")
@@ -789,7 +816,11 @@ class PythonToYaml:
         if implementation:
             pass  # already set, we're going to rerun the operation again and process the result then
         elif isinstance(result, ArtifactEntity):
-            primary = result.to_template_yaml(self)
+            self._global_artifacts.pop(id(result), None)
+            if _is_abstract_executable_artifact(result):
+                primary = dict(type=result.tosca_type_name())
+            else:
+                primary = result.to_template_yaml(self)
             implementation = dict_cls(primary=primary)
         elif isinstance(result, FieldProjection):
             # assume it's to an artifact
@@ -820,6 +851,25 @@ class PythonToYaml:
         if args:
             _set_input_defs(op_def, sig, args, self)
         return implementation
+
+
+def _is_abstract_executable_artifact(a: ArtifactEntity) -> bool:
+    try:
+        import unfurl
+    except ImportError:
+        return False
+    if not isinstance(a, unfurl.interfaces.Executable):
+        return False
+    if getattr(a, "className", None):
+        return False
+    func = a.execute
+    if not callable(func):
+        return True
+    if func.__name__ == "decorator_operation":
+        return True  # = operation()
+    if hasattr(func, "__code__"):
+        return len(func.__code__.co_code) <= 6
+    return False
 
 
 def _get_toscaoutputs(

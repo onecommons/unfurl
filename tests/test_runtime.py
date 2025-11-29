@@ -58,6 +58,7 @@ class ExpandDocTest(unittest.TestCase):
         "t2": {"a": {"b": 1}, "c": "c"},
         "t3": "val",
         "t4": ["a", "b"],
+        "t5": {"d": {"e": "val"}},
         "test1": CommentedMap(
             [("+/t2", None), ("a", {"+/t1": None}), ("d", {"+/t3": None}), ("e", "e")]
         ),
@@ -65,14 +66,19 @@ class ExpandDocTest(unittest.TestCase):
         "base": {"list": [1]},
         "test3": {"list": [2, 1, 3], "+/base": None},
         "test4": {"+/t2": None, "a": None},
+        "test5": {"+/t5": None, "d": {"e": None}},
+        "test6": {"d": {"e": None}, "+/t5": "overlay"},
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
         "test2": [1, "a", "b", "+t4", "a", "b"],
+        # items appended to base list if value wasn't present
         "test3": {"list": [1, 2, 3]},
         # "a" merged even though it was originally None
         "test4": {"a": {"b": 1}, "c": "c"},
+        "test5": {"d": {"e": None}},
+        "test6": {"d": {"e": "val"}},
     }
 
     def test_expandDoc(self):
@@ -87,12 +93,16 @@ class ExpandDocTest(unittest.TestCase):
                 ("test2", 3): [(parse_merge_key("+/t4"), None)],
                 ("test3",): [(parse_merge_key("+/base"), None)],
                 ("test4",): [(parse_merge_key("+/t2"), None)],
+                ("test5",): [(parse_merge_key("+/t5"), None)],
+                ("test6",): [(parse_merge_key("+/t5"), "overlay")],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
         self.assertEqual(expanded["test3"], self.expected["test3"])
         self.assertEqual(expanded["test4"], self.expected["test4"])
+        self.assertEqual(expanded["test5"], self.expected["test5"])
+        self.assertEqual(expanded["test6"], self.expected["test6"])
         restore_includes(includes, self.doc, expanded, CommentedMap)
         # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
@@ -152,7 +162,6 @@ class ExpandDocTest(unittest.TestCase):
         includes, expanded = expand_doc(doc3, cls=CommentedMap)
         # missing includes are removed
         assert expanded == {"b": {"c": {"d": 1}}}, expanded
-
 
     def test_recursion(self):
         doc = {"test3": {"a": {"recurse": {"+/test3": None}}}}
@@ -556,16 +565,16 @@ a:
             assert config.expanded.base_dir == "."
             assert config.expanded["a"].base_dir == "."
 
-    # XXX
-    # def test_change(self):
-    #     """
-    # config parameter: file.path
-    # run...
-    # touch file...
-    # run again...
-    # assert it triggers update
-    # """
-    #
+# XXX
+# def test_change(self):
+#     """
+# config parameter: file.path
+# run...
+# touch file...
+# run again...
+# assert it triggers update
+# """
+#
 
 
 class ImportTestConfigurator(Configurator):
@@ -652,8 +661,8 @@ spec:
             root = manifest.get_root_resource()
             importerResource = root.find_resource("importer")
             assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", manifest.uri
-            assert root.uri == manifest.uri + "?::root"
-            assert importerResource.uri == manifest.uri + "?::importer"
+            assert root.uri == manifest.uri + "?:::root"
+            assert importerResource.uri == manifest.uri + "?:::importer"
             # assert importing.attributes['test']
             assert root.imports["test"]
             self.assertEqual(importerResource.attributes["mapped1"], "ok")

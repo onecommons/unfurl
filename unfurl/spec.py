@@ -51,7 +51,7 @@ from typing import (
     Iterable,
     List,
     Optional,
-    Sequence,
+    Mapping,
     Set,
     Tuple,
     Union,
@@ -502,16 +502,30 @@ class ToscaSpec:
     def get_topology(self, node_template: NodeTemplate):
         return self._topology_templates.get(id(node_template.topology_template))
 
-    def node_from_template(self, nodetemplate: NodeTemplate) -> Optional["NodeSpec"]:
-        topology = self.get_topology(nodetemplate)
+    def node_from_template(self, node_template: NodeTemplate) -> Optional["NodeSpec"]:
+        topology = self.get_topology(node_template)
         if topology:
-            return cast(NodeSpec, topology.get_template(nodetemplate.name))
+            return cast(NodeSpec, topology.get_template(node_template.name))
+        # create the missing topology if it is substituting a node
+        topology_template = node_template.topology_template
+        root_node_template = (
+            topology_template.substitution_mappings
+            and topology_template.substitution_mappings.sub_mapped_node_template
+        )
+        if root_node_template:
+            parent = self.node_from_template(root_node_template)
+            # creates a new TopologySpec
+            if parent and parent.substitution:
+                return cast(
+                    NodeSpec, parent.substitution.get_template(node_template.name)
+                )
         return None
 
     def _get_artifact_declared_tpl(
         self, repositoryName, file
     ) -> Optional[Dict[str, Any]]:
         # see if this is declared in a repository node template with the same name
+        # copy the template because this is just like a reference to file in a repository, not an artifact owned by this node
         assert self.topology
         repository = self.topology.get_node_template(repositoryName)
         if repository:
@@ -643,7 +657,7 @@ class ToscaSpec:
                     if prop:
                         prop.schema.schema = prop.schema.schema.copy()
                         prop.schema.schema.setdefault("constraints", []).append(value)
-                        prop.schema.constraints_list = None
+                        prop.schema._constraints_list = None
                     continue
             yield name, value
 
@@ -1006,7 +1020,16 @@ class EntitySpec(ResourceRef):
         return self.get_uri()
 
     def get_uri(self) -> str:
-        return self.name  # XXX
+        if (
+            not self.topology.parent_topology
+            or self.topology.substitute_of
+            or not isinstance(self.topology.topology_template.custom_defs, Namespace)
+        ):
+            # just return the name if we are in the root topology or a nested substituted topology
+            # (for the latter we could use nested_name except serialization and loading already knows the topology)
+            return self.name  # XXX
+        else:
+            return f"{self.name}@{self.topology.topology_template.custom_defs.namespace_id}"
 
     def __repr__(self):
         return f"{self.__class__.__name__}('{self.nested_name}')"
@@ -1021,8 +1044,24 @@ class EntitySpec(ResourceRef):
     def artifacts(self) -> Dict[str, "ArtifactSpec"]:
         return {}
 
+    def iter_all_artifacts(self) -> Iterator["ArtifactSpec"]:
+        """
+        Iterator that yields artifacts from this entity's artifacts,
+        then from all LocalRepository templates in the topology.
+        """
+        # First yield artifacts from self.artifacts
+        for artifact in self.artifacts.values():
+            yield artifact
+
+        # Then yield artifacts from each LocalRepository
+        for localStore in self.topology.find_matching_templates(
+            "unfurl.nodes.LocalRepository"
+        ):
+            for artifact in localStore.artifacts.values():
+                yield artifact
+
     def get_template(self, name) -> Optional["EntitySpec"]:
-        return self.topology.get_template(name) or None
+        return self.topology.get_template(name)
 
     @staticmethod
     def get_name_from_artifact_spec(artifact_tpl: Dict[str, Any]) -> str:
@@ -1041,11 +1080,13 @@ class EntitySpec(ResourceRef):
         path=None,
         predefined=False,
     ):
-        # if predefined is false, an anonymous, inline artifact will be created from nameOrTpl if none is found
+        # nameOrTpl can be a string, a dict with "file" and "repository" keys, or an Artifact
+        # if predefined is True only return an existing artifact, otherwise create an anonymous, inline artifact from nameOrTpl if none is found
         if not nameOrTpl:
             return None
         if isinstance(nameOrTpl, toscaparser.artifacts.Artifact):
             current = self.artifacts.get(nameOrTpl.name)
+            # add artifact to self if missing
             if current:
                 assert current.toscaEntityTemplate == nameOrTpl
                 return current
@@ -1551,7 +1592,7 @@ class NodeSpec(EntitySpec):
 
         matches: Set[NodeSpec] = set()
         for c in get_nodefilter_matches(req_tpl):
-            if is_function(c):
+            if is_function(c) or (isinstance(c, str) and ("::" in c or "$" in c)):
                 results = cast(
                     List[NodeSpec], Ref(c).resolve(SafeRefContext(self, trace=0))
                 )
@@ -1686,7 +1727,7 @@ class RelationshipSpec(EntitySpec):
 
     def get_uri(self):
         suffix = "~r~" + self.name
-        return self.source.name + suffix if self.source else suffix
+        return self.source.uri + suffix if self.source else suffix
 
 
 class RequirementSpec:
@@ -1726,7 +1767,7 @@ class RequirementSpec:
         return self.parentNode.artifacts
 
     def get_uri(self):
-        return self.parentNode.name + "~q~" + self.name
+        return self.parentNode.uri + "~q~" + self.name
 
     def get_interfaces(self) -> List[OperationDef]:
         return self.relationship.get_interfaces() if self.relationship else []
@@ -1783,7 +1824,7 @@ class CapabilitySpec(EntitySpec):
     def get_uri(self):
         # capabilities aren't standalone templates
         # this is demanagled by getTemplate()
-        return self.parentNode.name + "~c~" + self.name
+        return self.parentNode.uri + "~c~" + self.name
 
     @property
     def relationships(self):
@@ -1800,6 +1841,29 @@ class CapabilitySpec(EntitySpec):
     @property
     def metadata(self) -> Dict[str, Any]:
         return {}  # missing from Capability
+
+class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
+    """Allow navigation across topologies by mapped outer topology nodes."""
+
+    def __init__(self, topology: "TopologySpec"):
+        self.topology = topology
+
+    def __getitem__(self, key):
+        if key[:1] == ":":
+            assert self.topology.spec.topology
+            return self.topology.spec.topology.node_templates[key[1:]]
+        # if a node is mapped to an outer node, return the outer one.
+        outer = self.topology.get_outer_node_replaced_by_inner_node(key)
+        if outer:
+            return outer
+        return self.topology.node_templates[key]
+
+    def __iter__(self):
+        for name in self.topology.node_templates:
+            yield name
+
+    def __len__(self):
+        return len(self.topology.node_templates)
 
 
 class TopologySpec(EntitySpec):
@@ -1844,6 +1908,7 @@ class TopologySpec(EntitySpec):
         self.attributeDefs = {}
         self._default_relationships: List[RelationshipSpec] = []
         self._isReferencedBy = {}
+        self._all = _TopologyNodeSpecs(self)
         self.add_discovered()
 
     def copy(self) -> "TopologySpec":
@@ -1921,6 +1986,16 @@ class TopologySpec(EntitySpec):
                 return self.get_node_template(inner_name)
         return None
 
+    def get_outer_node_replaced_by_inner_node(
+        self, inner_node_name: str
+    ) -> Optional[NodeSpec]:
+        substitution_mappings = self.topology_template.substitution_mappings
+        if substitution_mappings:
+            outer_node = substitution_mappings.get_outer_node(inner_node_name)
+            if outer_node:
+                return self.spec.node_from_template(outer_node)
+        return None
+
     @property
     def primary_provider(self) -> Optional[RelationshipSpec]:
         return self.relationship_templates.get("primary_provider")
@@ -1937,7 +2012,7 @@ class TopologySpec(EntitySpec):
 
     @property
     def all(self):
-        return self.node_templates
+        return self._all
 
     def _resolve(self, key):
         try:
@@ -1979,7 +2054,23 @@ class TopologySpec(EntitySpec):
                 if template.is_compatible_type(typeName):
                     yield template
 
-    def get_template(self, name: str) -> Optional[EntitySpec]:
+    def get_template(self, name: str) -> Optional["EntitySpec"]:
+        if "@" in name:
+            # extract namespace from localname@namespace[~rest]
+            local_name, sep, rest = name.partition("@")
+            namespace, sep, rest = rest.partition("~")
+            topology_template = self.spec.template.find_topology_by_namespace_id(namespace)
+            if not topology_template:
+                return None
+            topology = self.spec._topology_templates.get(
+                id(topology_template)
+            )
+            if not topology:
+                return None
+            return topology._get_template(local_name + sep + rest)
+        return self._get_template(name)
+
+    def _get_template(self, name: str) -> Optional[EntitySpec]:
         if name == "~topology" or name == "root":
             return self
         elif "~c~" in name:
@@ -2173,7 +2264,7 @@ class ArtifactSpec(EntitySpec):
 
     def get_uri(self) -> str:
         if self.parentNode:
-            return self.parentNode.name + "~a~" + self.name
+            return self.parentNode.uri + "~a~" + self.name
         else:
             return "~a~" + self.name
 
@@ -2249,7 +2340,11 @@ class ArtifactSpec(EntitySpec):
                     # XXX get loader and yaml from self.spec.template.import_resolver
                     return File(path)
                 else:
-                    return FilePath(path)
+                    fp = FilePath(path)
+                    if self.spec.import_resolver and self.spec.import_resolver.manifest:
+                        file, repository = fp._rel_to(self)
+                        fp._set_from_artifact(file, repository)
+                    return fp
         return None
 
 

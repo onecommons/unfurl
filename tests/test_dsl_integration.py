@@ -7,6 +7,7 @@ from tosca import List, Size, MB, EvalData, operation
 from unfurl.eval import Ref
 from unfurl.job import JobOptions
 from unfurl.logs import is_sensitive, getLogger
+from unfurl.result import serialize_value
 from unfurl.support import Status
 from unfurl.testing import runtime_test, create_runner
 from unfurl.tosca_plugins import expr, functions
@@ -97,6 +98,8 @@ def test_options():
     assert field.metadata == dict(tfvar=True, my_option="foo")
     field2 = tosca.Property(options=expr.tfvar)
     assert field2.metadata == dict(tfvar=True)
+    field3 = tosca.Property(options=expr.sensitive | expr.set_inert())
+    assert field3.metadata == dict(inert=True, sensitive=True)
 
 
 @pytest.mark.parametrize(
@@ -286,13 +289,17 @@ expressions_yaml = {
                     "type": "string",
                     "default": {
                         "eval": {
-                            "allowed": "[a-zA-Z0-9-]",
-                            "start": "[a-zA-Z]",
-                            "replace": "--",
-                            "case": "lower",
-                            "end": "[a-zA-Z0-9]",
-                            "max": 63,
-                            "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                            "inert": {
+                                "eval": {
+                                    "allowed": "[a-zA-Z0-9-]",
+                                    "start": "[a-zA-Z]",
+                                    "replace": "--",
+                                    "case": "lower",
+                                    "end": "[a-zA-Z0-9]",
+                                    "max": 63,
+                                    "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                                }
+                            }
                         }
                     },
                 },
@@ -338,7 +345,9 @@ def test_expressions():
         path1: str = expr.get_dir(None, "src")
         default_expr: str = expr.fallback(None, "foo")
         or_expr: str = expr.or_expr(default_expr, "ignored")
-        label: str = functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        label: str = expr.inert(
+            functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        )
         password: str = tosca.Property(
             options=expr.sensitive | expr.validate(validate_pw), default="default"
         )
@@ -354,11 +363,13 @@ def test_expressions():
 
     topology = runtime_test(test)
     assert topology._yaml == expressions_yaml
+
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
     assert expr.get_instance(topology.test_node).status == Status.error
     assert topology.service.url_scheme == "https"
     assert topology.myService.url_scheme == "web+https"
+
     assert expr.get_env("MISSING", "default") == "default"
     assert not expr.has_env("MISSING")
     assert expr.get_env("PATH")
@@ -367,14 +378,20 @@ def test_expressions():
     with pytest.raises(UnfurlError):
         input: str = expr.get_input("MISSING")
     assert topology.inputs.domain == "example.com"
-    assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
+
+    dir_value = expr.get_dir(topology.service, "src")
+    assert dir_value.get() == os.path.dirname(__file__)
+    assert serialize_value(dir_value) == {"eval": {"abspath": ["tests", "self"]}}
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
-    assert (
-        expr.abspath(topology.service, "test_dsl_integration.py", "src").get()
-        == __file__
-    )
+    fp = expr.abspath(topology.service, "test_dsl_integration.py", "src")
+    assert fp.get() == __file__
+    assert serialize_value(fp) == {
+        "eval": {"abspath": ["tests/test_dsl_integration.py", "self"]}
+    }
+
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
+
     assert functions.to_label("fo!oo", replace="_") == "fo_oo"
     assert (
         expr.template(
@@ -382,7 +399,7 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a="{{ SELF.url }}"),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert (
         expr.template(
@@ -390,18 +407,22 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a=topology.test_node.url),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
     assert topology.test_node.label == "fo--o"
     assert (
         "to_dns_label"
-        in topology.test_node._instance.attributes.defs["label"].default["eval"]
+        in topology.test_node._instance.attributes.defs["label"].default["eval"][
+            "inert"
+        ]["eval"]
     )
+
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
+
     # XXX test:
     # "if_expr", and_expr
     # "lookup",

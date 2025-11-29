@@ -799,12 +799,14 @@ In YAML, you can do the equivalent by adding a ``input_match`` metadata key to t
   .. literalinclude:: ./examples/shared-properties.yaml
     :language: yaml
 
-Abstract artifacts
+Abstract Artifacts
 ==================
 
-You can define abstract artifact types that just define the inputs and outputs it expects by defining an artifact type with an ``execute`` operation that doesn't have an implementation declared. Artifacts can implement that by, for example, by using multiple inheritance to inherit both the abstract artifact type and a concrete artifact type like ``unfurl.artifacts.TerraformModule``.
+An artifact type that has ``execute`` operation without defining its implementation is an abstract artifact.  This way you can define abstract artifact types that only define the inputs and outputs they expect when set as an operation implementation.
 
-This way a node type can declare operations with abstract artifacts and node templates or a node subclass can set a concrete artifact without having to reimplement the operations that use it -- with the assurance that the static type checker will check that operation signatures are compatible.
+Artifacts can provide a concrete implement of an abstract artifact type providing a "execute" operation or by using multiple inheritance to inherit both the abstract artifact type and a concrete artifact type like ``unfurl.artifacts.TerraformModule``.
+
+This way a node type can declare operations with abstract artifacts and node templates or a node subclass can set a concrete artifact without having to reimplement the operations that use it -- with the assurance that a Python static type checker will verify that the operation signatures are compatible.
 
 The example below defines a node type specifies the abstract artifact type its configuration operation will use and a node template that uses a concrete artifact that implements the abstract artifact type.
 
@@ -814,4 +816,22 @@ The example below defines a node type specifies the abstract artifact type its c
     :language: python
 
   .. literalinclude:: ./examples/artifact3.yaml
+    :language: yaml
+
+Abstract Operations
+===================
+
+Instead of setting the name of artifact to an operation's implementation, you can just declare an artifact type and the orchestrator will select an artifact that implements that type.
+If multiple artifacts match it is an error but you can interface requirements to filter out artifacts that are incompatible with the current environment.
+
+This way you can provide multiple implementations for a single operation and have the correct one selected based on the current environment.
+
+In the example below, if an aws :std:ref:`connection <connections>` is defined in the ensemble's `environment` then the ``aws_implementation`` artifact will be selected as ``configure`` operation's implementation. Otherwise the ``default_implementation`` artifact will be used.
+
+.. tab-set-code::
+
+  .. literalinclude:: ./examples/artifact4.py
+    :language: python
+
+  .. literalinclude:: ./examples/artifact4.yaml
     :language: yaml

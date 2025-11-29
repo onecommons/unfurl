@@ -451,6 +451,8 @@ class Convert:
     def find_repository(self, name) -> Tuple[str, str]:
         if name in ["self"]:
             return name, ""
+        if name == "unfurl" and unfurl:
+            return "unfurl", unfurl.__path__[0]
         name, tosca_name = self._get_name(name)
         if name in self.repository_paths:
             return "tosca_repositories." + name, self.repository_paths[name]
@@ -1099,7 +1101,7 @@ class Convert:
         indent: str,
         nodetype: Optional[StatefulEntityType],
         template: Optional[EntityTemplate],
-    ) -> Tuple[List[str], str]:
+    ) -> Tuple[List[Tuple[str, str]], str]:
         src = ""
         names = []
         default_ops = []
@@ -1157,7 +1159,7 @@ class Convert:
                     name, op_src = self.operation2func(
                         op, indent, default_ops, template and template.name
                     )
-                    names.append(name)
+                    names.append((name, op.name))
                     src += op_src + "\n"
                 elif op.name == "default" and not defaulted and default_ops:
                     # only add default operation if it was declared on this class
@@ -1168,7 +1170,7 @@ class Convert:
                             op, indent, default_ops, template and template.name
                         )
                         if name:
-                            names.append(name)
+                            names.append((name, op.name))
                         src += op_src + "\n"
         return names, src
 
@@ -1459,9 +1461,9 @@ class Convert:
                     decorator.append(f"{imp_key}={self.value2python_repr(imp_val)}")
         if not configurator_decl:
             self.imports.add_tosca_from("operation")
-            src += f"{indent}{op_name} = operation({', '.join(decorator)})\n"
+            src += f"{indent}{func_name} = operation({', '.join(decorator)})\n"
             src += add_description(op.value, indent)
-            return op_name, src
+            return func_name, src
 
         if decorator:  # add decorator
             self.imports.add_tosca_from("operation")
@@ -1487,7 +1489,7 @@ class Convert:
             src += f"{indent})\n"
         else:
             src += ")\n"
-        return op_name, src
+        return func_name, src
 
     def _get_prop_init_list(
         self,
@@ -1859,8 +1861,8 @@ class Convert:
         names, ops_src = self._add_operations(pending_indent, None, node_template)
         if names:
             self._pending_defs.append(ops_src)
-            for op_name in names:
-                src += f'{indent}{name}.set_operation({name}_{op_name}, "{op_name}")\n'
+            for op_name, op in names:
+                src += f'{indent}{name}.set_operation({op_name}, "{op}")\n'
         return src
 
     def _get_req_assignment(self, req):
@@ -2146,7 +2148,7 @@ def convert_service_template(
             try:
                 module = importlib.import_module(module_name, package)
                 imports.add_imports(ns, module.__dict__)
-            except:
+            except Exception:
                 if module_name[0] == ".":
                     logger.error(
                         f"error importing {module_name} in {package} {imp_def}",

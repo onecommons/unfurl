@@ -21,7 +21,14 @@ import copy
 from tosca import ToscaInputs, ToscaOutputs
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.properties import Property
-from .logs import UnfurlLogger, Levels, LogExtraLevels, SensitiveFilter, truncate
+from .logs import (
+    UnfurlLogger,
+    Levels,
+    LogExtraLevels,
+    SensitiveFilter,
+    is_sensitive,
+    truncate,
+)
 
 if TYPE_CHECKING:
     from .manifest import Manifest, ChangeRecordRecord
@@ -38,10 +45,12 @@ from .support import (
     find_connection,
     set_context_vars,
     get_Self,
+    _validation_mode,
 )
 from .result import (
     ChangeRecord,
-    ResultsList,
+    _Missing,
+    InertValue,
     serialize_value,
     ChangeAware,
     Results,
@@ -61,18 +70,20 @@ from .util import (
     sensitive,
 )
 from . import merge
-from .eval import Ref, map_value, RefContext
+from .eval import Ref, SafeRefContext, _map_value, map_value, RefContext
 from .runtime import (
     ArtifactInstance,
     EntityInstance,
     HasInstancesInstance,
     NodeInstance,
     RelationshipInstance,
+    CapabilityInstance,
     Operational,
 )
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
 from .planrequests import (
+    ConfigurationSpecKeywords,
     TaskRequest,
     JobRequest,
     ConfigurationSpec,
@@ -176,7 +187,9 @@ class Configurator(metaclass=AutoRegisterClass):
     __is_generator: Optional[bool] = None
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template: EntitySpec) -> dict:
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         return kw
 
     @classmethod
@@ -279,7 +292,22 @@ class Configurator(metaclass=AutoRegisterClass):
         """Does this configuration need to be run? Called before rendering the task."""
         return task.configSpec.should_run()
 
-    def save_digest(self, task: "TaskView") -> dict:
+    def _exclude_input(self, name: str, task: "TaskView"):
+        if name == "arguments":
+            return True
+        if name in self.exclude_from_digest:
+            return True
+        defs = task.configSpec.input_defs
+        if not defs:
+            return False
+        prop = defs.get(name)
+        if not prop:
+            return False
+        if prop.schema.metadata.get("sensitive"):
+            return True
+        return False
+
+    def save_digest(self, task: "TaskView") -> Dict[str, str]:
         """
         Generate a compact, deterministic representation of the current configuration.
         This is saved in the job log and used by `check_digest` in subsequent jobs to
@@ -293,9 +321,8 @@ class Configurator(metaclass=AutoRegisterClass):
             task (:class:`TaskView`) The task that executed this operation.
 
         Returns:
-            dict: A dictionary whose keys are strings that start with "digest"
+            Dict[str, str]: Any key that starts with "digest" are saved in the task log entry and passed back to `check_digest`.
         """
-        # XXX user definition should be able to exclude inputs from digest
         # XXX might throw AttributeError
         inputs = cast("ConfigTask", task)._resolved_inputs
 
@@ -304,31 +331,38 @@ class Configurator(metaclass=AutoRegisterClass):
         keys: List[str] = [
             k
             for k in inputs.keys()
-            if k not in self.exclude_from_digest
-            and not isinstance(inputs[k].resolved, sensitive)
+            if not is_sensitive(inputs[k].resolved) and not self._exclude_input(k, task)
         ]
         values: List[Any] = [inputs[key] for key in keys]
-
         changed = set(task._resourceChanges.get_changes_as_expr())
         for dep in task.dependencies:
             assert isinstance(dep, Dependency)
-            if (
-                dep.write_only
-            ):  # include values that were set but might not have changed
-                changed.add(str(dep.expr))
-            elif not isinstance(dep.expected, sensitive):
-                keys.append(str(dep.expr))
-                values.append(dep.expected)
+            if not isinstance(dep.expr, str):
+                continue
+            if dep.write_only:
+                # include values that were set but might not have changed
+                changed.add(dep.expr)
+            elif dep.expected:
+                result = dep.expected
+                # make sure the instance in the expression is persisted
+                if not is_sensitive(result) and Ref(dep.expr).resolve(
+                    SafeRefContext(task.target), wantList="instance"
+                ):
+                    keys.append(dep.expr)
+                    values.append(result)
 
         if keys:
-            inputdigest = get_digest(values, manifest=task._manifest)
+            digests = [get_digest(v, manifest=task._manifest) for v in values]
+            inputdigest = get_digest(digests) if len(digests) > 1 else digests[0]
         else:
             inputdigest = ""
+            digests = []
 
         digest = dict(
             digestKeys=",".join(keys),
             digestValue=inputdigest,
             digestPut=",".join(changed),
+            values=",".join(digests),
         )
         task.logger.debug(
             "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
@@ -354,7 +388,7 @@ class Configurator(metaclass=AutoRegisterClass):
         Returns:
             bool: True if configuration's digest has changed, False if it is the same.
         """
-        _parameters: str = getattr(changeset, "digestKeys", "")
+        _parameters: str = changeset.digestKeys
         if not _parameters:
             task.logger.debug(
                 "skipping digest check for %s, previous task did not record any changes",
@@ -362,51 +396,134 @@ class Configurator(metaclass=AutoRegisterClass):
             )
             return False
         current_inputs = {
-            k for k in task.inputs.keys() if k not in self.exclude_from_digest
+            k: v
+            for k, v in [(k, self._exclude_input(k, task)) for k in task.inputs.keys()]
+            if v is not True
         }
         task.logger.debug("checking digest for %s: %s", task.target.name, _parameters)
         old_keys = _parameters.split(",")
-        old_inputs = {key for key in old_keys if "::" not in key}
-        if old_inputs - current_inputs:
+        old_inputs = {
+            key
+            for key in old_keys
+            if "::" not in key and self._exclude_input(key, task) is not True
+        }
+        if old_inputs - current_inputs.keys():
             # an old input was removed
             task.logger.verbose(
                 "digest keys changed for %s: these inputs were removed: %s",
                 task.target.name,
-                old_inputs - current_inputs,
+                old_inputs - current_inputs.keys(),
             )
             return True
         # only resolve the inputs and dependencies that were resolved before
         # inputs should be lazily resolved by the task, so we need to avoid resolving them all now
         # (we also won't know if there are new dependencies until the task runs)
         results: List[Result] = []
+        ctx = task.inputs.context
         for key in old_keys:
             if "::" in key:
-                results.extend(Ref(key).resolve(task.inputs.context, wantList="result"))
+                result = Ref(key).resolve(ctx, wantList="result")
+                # resolve_one semantics but with a Result (in order to preserve external values)
+                if len(result) == 1:
+                    results.append(result[0])
+                else:
+                    results.append(Result(result if result else None))
             else:
                 results.append(task.inputs._getresult(key))
-        new_inputs = current_inputs - old_inputs
-        if new_inputs and new_inputs.intersection(task.inputs.get_resolved()):
+        new_inputs = current_inputs.keys() - old_inputs
+        resolved = task.inputs.get_resolved()
+        if new_inputs and new_inputs.intersection(resolved):
             # a new input was added and accessed while resolving old inputs and dependencies
             # XXX this check is incomplete if another new input is accessed while the task runs
             task.logger.verbose(
-                "digest keys changed for %s: old %s, new %s",
-                task.target.name,
+                "Digest keys changed: old %s, new %s",
                 old_inputs,
                 current_inputs,
             )
             return True
-        newDigest = get_digest(results, manifest=task._manifest)
+        digests = [
+            get_digest(v, manifest=task._manifest, redact=False, inert=True)
+            for v in results
+        ]
+        newDigest = get_digest(digests) if len(digests) > 1 else digests[0]
         # note: digestValue attribute is set in Manifest.load_config_change
         mismatch = changeset.digestValue != newDigest
+        values_mismatch = None
+        if mismatch and "use_changelog" in _validation_mode:
+            values_mismatch = self._check_values(task, changeset, old_keys, results)
+            if values_mismatch is None:
+                task.logger.debug("could not load changeset")
+            else:
+                mismatch = values_mismatch
         if mismatch:
             task.logger.verbose(
-                "digests didn't match for %s with %s: old %s, new %s",
-                task.target.name,
+                "Digests didn't match for %s: old %s, new %s",
                 _parameters,
                 changeset.digestValue,
                 newDigest,
             )
+            task.logger.debug("New digests were: %s", digests)
+        elif values_mismatch is None:
+            task.logger.debug("Digests matched, no change detected")
         return mismatch
+
+    def _check_values(
+        self,
+        task: "TaskView",
+        changeset: "ChangeRecordRecord",
+        old_keys: List[str],
+        results: List[Result],
+    ) -> Optional[bool]:
+        """
+        Load changes from a job file and compare them with the task's current values.
+
+        Returns:
+          bool: True if changes were detected, False otherwise.
+        """
+        from .yamlmanifest import YamlManifest
+
+        if not isinstance(task._manifest, YamlManifest):
+            return None
+        # NB: we depend on loading from vault encrypted yaml to see which values are sensitive
+        job_changes = task._manifest.load_full_change_record(changeset)
+        if not job_changes:
+            return None
+        old_val: Any = None
+        changed = False
+        for key, new_val in zip(old_keys, results):
+            match = ""
+            if "::" in key:
+                for dep in job_changes.dependencies:
+                    dep = cast(Dependency, dep)
+                    dep.target = task.target
+                    if dep.expr == key:
+                        old_val = dep.expected
+                        match = "dependency"
+                        break
+                else:
+                    task.logger.debug("Couldn't find dependency %s", key)
+                    changed = True
+            elif job_changes.inputs:
+                old_val = job_changes.inputs[key]
+                match = "input"
+
+            if match:
+                new_data = serialize_value(new_val, redact=False, inert=True)
+                old_data = serialize_value(old_val, redact=False, inert=True)
+                if old_data != new_data:
+                    changed = True
+                    task.logger.debug(
+                        f"{match} changed: %s\nold: %s\nnew: %s",
+                        key,
+                        old_data,
+                        new_data,
+                    )
+        if not changed:
+            msg = "Digest was wrong, no changed detected."
+            task.logger.verbose(msg)
+            if "use_changelog_error" in _validation_mode:
+                raise UnfurlTaskError(task, msg)
+        return changed
 
 
 class MockConfigurator(Configurator):
@@ -417,8 +534,8 @@ class MockConfigurator(Configurator):
         return True
 
 
-class _ConnectionsMap(dict):
-    def by_type(self) -> ValuesView:
+class _ConnectionsMap(Dict[str, RelationshipInstance]):
+    def by_type(self) -> ValuesView[RelationshipInstance]:
         # return unique connection by type
         # reverse so nearest relationships replace less specific ones that have matching names
         # XXX why is rel sometimes a Result?
@@ -435,7 +552,7 @@ class _ConnectionsMap(dict):
     def copy(self):
         return self
 
-    def __missing__(self, key: object) -> object:
+    def __missing__(self, key: str) -> RelationshipInstance:
         # the more specific connections are inserted first so this should find
         # the most relevant connection of the given type
         for value in self.values():
@@ -677,7 +794,7 @@ class TaskView:
         # check this metadata should be applied to this task's operation
         # if its value is a bool return that
         # if its value is a string or a list of strings, compare with the artifact name
-        # and matching metadata on the artifact's execute operation if it set
+        # and matching metadata on the operation or the artifact's execute operation if it set
         if not val:
             return False
         if isinstance(val, bool):
@@ -686,17 +803,25 @@ class TaskView:
             val = [val]
         if self._artifact and self._artifact.name in val:
             return True
-        keys = (
+
+        def match_keys(keys):
+            if keys:
+                if isinstance(keys, str):
+                    return keys in val
+                for key in keys:
+                    if key in val:
+                        return True
+            return False
+
+        if self.configSpec.metadata:
+            if match_keys(self.configSpec.metadata.get(name)):
+                return True
+        if match_keys(
             self._execute_op
             and self._execute_op.metadata
             and self._execute_op.metadata.get(name)
-        )
-        if keys:
-            if isinstance(keys, str):
-                return keys in val
-            for key in keys:
-                if key in val:
-                    return True
+        ):
+            return True
         return False
 
     def _get_inputs_from_properties(
@@ -774,7 +899,14 @@ class TaskView:
 
     @staticmethod
     def _get_connection(
-        source: HasInstancesInstance, target: NodeInstance, seen: dict
+        source: HasInstancesInstance,
+        target: Union[
+            "NodeInstance",
+            "ArtifactInstance",
+            "CapabilityInstance",
+            "RelationshipInstance",
+        ],
+        seen: dict,
     ) -> None:
         if source is target:
             return None
@@ -791,21 +923,31 @@ class TaskView:
         (Connections that explicitly set a ``default_for`` key that matches those instances.)
         """
         seen: Dict[int, Any] = {}
-        for parent in self.target.ancestors:
-            if not isinstance(parent, NodeInstance):
-                continue
-            if parent is self.target.root:
-                break
+        target = self.target.owner
+        ancestors = [target]
+        if isinstance(target, NodeInstance):
+            # hosted_on navigates across topologies
+            ancestors.extend(target.hosted_on)
+        for parent in ancestors:
             # XXX include explicit relationships on host requirement too
             for rel in parent.get_default_relationships():
                 if id(rel) not in seen:
                     seen[id(rel)] = rel
             if self.operation_host:
+                assert isinstance(
+                    parent,
+                    (
+                        NodeInstance,
+                        ArtifactInstance,
+                        CapabilityInstance,
+                        RelationshipInstance,
+                    ),
+                ), parent
                 self._get_connection(self.operation_host, parent, seen)
 
         # reverse so nearest relationships replace less specific ones that have matching names
-        connections = _ConnectionsMap(  # the list() is for Python 3.7
-            (rel.name, rel) for rel in reversed(list(seen.values()))
+        connections = _ConnectionsMap(
+            (rel.name, rel) for rel in reversed(seen.values())
         )
         return connections
 
@@ -1045,7 +1187,10 @@ class TaskView:
             exception,
         )
 
-    def _validate_outputs(self, outputs):
+    def _validate_outputs(self, outputs: Dict[str, Any]):
+        if not isinstance(outputs, Mapping):
+            UnfurlTaskError(self, f"outputs must be a dict, not a {type(outputs)}")
+            return
         if self.configSpec.output_defs:
             key = None
             try:
@@ -1097,7 +1242,6 @@ class TaskView:
         Raises:
           Exception: If an error occurs during query evaluation and throw is True.
         """
-        # XXX pass resolveExternal to context?
         try:
             result = Ref(query, vars=vars, trace=trace).resolve(
                 self.inputs.context, wantList, strict
@@ -1112,14 +1256,14 @@ class TaskView:
 
         if dependency:
             self.add_dependency(
-                query, result, name=name, required=required, wantList=wantList
+                query, Result(result), name=name, required=required, wantList=wantList
             )
         return result
 
     def add_dependency(
         self,
         expr: Union[str, Mapping],
-        expected: Optional[Union[list, ResultsList, Result]] = None,
+        expected: Union[Result, Any, None] = None,
         schema: Optional[Mapping] = None,
         name: Optional[str] = None,
         required: bool = True,
@@ -1132,8 +1276,18 @@ class TaskView:
             # expr is a configuration or resource or ExternalValue
             expr = Ref(getter()).source
 
+        if expected is not None and not isinstance(expected, Result):
+            expected = Result(expected)
+
         dependency = Dependency(
-            expr, expected, schema, name, required, wantList, target, write_only
+            expr,
+            schema,
+            name,
+            required,
+            write_only,
+            wantList=wantList,
+            target=target,
+            expected=expected,
         )
         for i, dep in enumerate(self.dependencies):
             assert isinstance(dep, Dependency)
@@ -1366,7 +1520,7 @@ class TaskView:
             return None, [err]
 
         errors: List[UnfurlTaskError] = []
-        newResources = []
+        newResources: List[NodeInstance] = []
         newResourceSpecs = []
         updated_resources = []
         for resourceSpec in instances:
@@ -1424,7 +1578,7 @@ class TaskView:
                     newResources.append(newResource)
 
         if newResourceSpecs:
-            self._resourceChanges.add_resources(newResourceSpecs)
+            self._resourceChanges.add_resources(newResourceSpecs, newResources)
             self._addedResources.extend(newResources)
             self.logger.info("add resources %s", newResources)
         if newResourceSpecs:  # XXX or updated_resources:
@@ -1493,20 +1647,23 @@ class Dependency(Operational):
 
     Dependencies are used to determine if a configuration needs re-run.
     They are automatically created when configurator accesses live attributes
-    while handling a task. They also can be created when the configurator
-    invokes these apis: `create_sub_task, `update_instances`, query`, `add_dependency`.
+    while handling a task. They also can be created using these apis: `query`, `add_dependency`.
     """
+
+    # XXX enable in `create_sub_task, `update_instances`,
 
     def __init__(
         self,
         expr: Union[str, Mapping],
-        expected: Optional[Union[ResultsList, list, Result, None]] = None,
         schema: Optional[Mapping] = None,
         name: Optional[str] = None,
         required: bool = False,
+        write_only: Optional[bool] = None,
+        *,
         wantList: bool = False,
         target: Optional[EntityInstance] = None,
-        write_only: Optional[bool] = None,
+        expected: Optional[Result] = None,
+        expected_expr: Any = _Missing,
     ) -> None:
         """
         if schema is not None, validate the result using schema
@@ -1515,8 +1672,9 @@ class Dependency(Operational):
         """
         assert not (expected and schema)
         self.expr = expr
-
-        self.expected = expected
+        self._expected: Optional[Result] = expected
+        # serialized result, needs to be evaluated for ExternalValues
+        self._expected_expr = expected_expr
         self.schema = schema
         self._required = required
         if name:
@@ -1527,9 +1685,34 @@ class Dependency(Operational):
             self.name = f"{target.name}:{dict(expr)}"
         else:
             self.name = f"{dict(expr)}"
-        self.wantList = wantList
+        self.wantList = wantList  # unused
         self.target = target
         self.write_only = write_only
+
+    def _set_expected(self, ctx):
+        if self._expected_expr is _Missing:
+            return
+        results = _map_value(self._expected_expr, ctx, wantList="result")
+        # resolve_one semantics but with a Result (in order to preserve external values)
+        if results is None:
+            self._expected = Result(None)
+        elif isinstance(results, list) and results and isinstance(results[0], Result):
+            if len(results) == 1:
+                self._expected = results[0]
+            else:
+                self._expected = Result(results)
+        else:  # XXX distinguish between empty list and empty result
+            self._expected = Result(results)
+
+    @property
+    def expected(self) -> Optional[Result]:
+        if (
+            self._expected is None
+            and self._expected_expr is not _Missing
+            and self.target
+        ):
+            self._set_expected(RefContext(self.target, wantList="result"))
+        return self._expected
 
     def __repr__(self) -> str:
         return f"Dependency('{self.name}')"
@@ -1554,26 +1737,31 @@ class Dependency(Operational):
     def _is_unexpected(self) -> bool:
         if self.target is None:
             return True
-        if isinstance(self.expected, Result):
-            result = Ref(self.expr).resolve(RefContext(self.target), "result")
-            if not result:
-                return True
-            return result[0] != self.expected
-        else:
-            return self.expected != Ref(self.expr).resolve(
-                RefContext(self.target), self.wantList
-            )
+        if not self.expected:
+            return True
+        results = Ref(self.expr).resolve(RefContext(self.target), "result")
+        return not self.compare_results(results)
 
-    def refresh(self, config: "ConfigTask") -> None:
-        if self.expected is not None:
-            changeId = config.changeId
-            context = RefContext(
-                config.target, dict(val=self.expected, changeId=changeId)
-            )
-            result = Ref(self.expr).resolve(context, wantList=self.wantList)
-            assert isinstance(context._lastResource, EntityInstance)
-            self.target = context._lastResource
-            self.expected = result
+    def compare_results(self, results: List[Result]) -> bool:
+        if not self.expected:
+            return False
+        if not results:
+            return self.expected.resolved is None
+        elif len(results) > 1:
+            return self.expected == results
+        else:
+            return self.expected != results[0]
+
+    # def refresh(self, config: "ConfigTask") -> None:
+    #     if self.expected is not None:
+    #         changeId = config.changeId
+    #         context = RefContext(
+    #             config.target, dict(val=self.expected, changeId=changeId)
+    #         )
+    #         result = Ref(self.expr).resolve(context, wantList=self.wantList)
+    #         assert isinstance(context._lastResource, EntityInstance)
+    #         self.target = context._lastResource
+    #         self.expected = result
 
     def validate(self):
         if not self.schema or not self.target:
@@ -1603,6 +1791,7 @@ class Dependency(Operational):
             if any(Dependency.has_value_changed(v, changeset) for v in value):
                 return True
         elif isinstance(value, ChangeAware):
+            # XXX all implementations return False
             return value.has_changed(changeset)
         else:
             return False
@@ -1620,17 +1809,16 @@ class Dependency(Operational):
             context = RefContext(
                 target_instance, dict(val=self.expected, changeId=changeId)
             )
-            result = Ref(self.expr).resolve_one(context)
-
             if self.schema:
+                result = Ref(self.expr).resolve_one(context)
                 # result isn't as expected, something changed
                 if not validate_schema(result, self.schema):
                     return False
             else:
+                result = Ref(self.expr).resolve(context, wantList="result")
                 if self.expected is not None:
-                    expected = map_value(self.expected, context)
-                    if result != expected:
-                        logger.debug("has_changed: %s != %s", result, expected)
+                    if not self.compare_results(result):
+                        logger.debug("has_changed: %s != %s", result, self.expected)
                         return True
                 elif not result:
                     # if expression no longer true (e.g. a resource wasn't found), then treat dependency as changed
@@ -1638,5 +1826,4 @@ class Dependency(Operational):
 
             if self.has_value_changed(result, config):
                 return True
-
         return False

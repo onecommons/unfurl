@@ -6,9 +6,10 @@ from collections.abc import MutableSequence
 import io
 import sys
 import unfurl
+from unfurl.result import serialize_value
 from click.testing import CliRunner
 from click.termui import unstyle
-from unfurl.__main__ import _args, cli, info_cli
+from unfurl.__main__ import _args, cli, _latestJobs
 from unfurl.configurator import Configurator
 from unfurl.configurators.shell import clean_output
 from unfurl.localenv import LocalEnv, Project
@@ -17,6 +18,7 @@ from unfurl.yamlloader import yaml
 from unfurl.yamlmanifest import YamlManifest
 from .utils import run_cmd, print_config
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 manifest_yaml = """
 apiVersion: unfurl/v1alpha1
@@ -344,7 +346,9 @@ spec:
         #    verify secret contents isn't saved in config
         os.environ["UNFURL_TESTAPIKEY"] = "secret"
         runner = CliRunner()
-        with runner.isolated_filesystem() as tempDir:
+        with runner.isolated_filesystem(SAVE_TMP) as tempDir:
+            if SAVE_TMP:
+                print(tempDir)
             with open("unfurl.yaml", "w") as local:
                 local.write(localConfig)
             repoDir = "git"
@@ -398,6 +402,25 @@ spec:
             )
             self.assertEqual(result.exit_code, 0, result.output)
             assert CliTestConfigurator.test_finished == 1
+            job = _latestJobs[-1]
+            props = job.rootResource.find_instance("test").attributes
+            assert serialize_value(props, redact=True) == {
+                "aListOfItems": "<<REDACTED>>",
+                "testApikey": {"eval": {"external": "secret"}, "select": "testApikey"},
+                "local1": {"eval": {"external": "local"}, "select": "prop1"},
+                "local2": {"eval": {"external": "local"}, "select": "prop2"},
+            }
+            resolved = serialize_value(props, resolveExternal=True)
+            assert resolved == {
+                "local2": 1,
+                "local1": "found",
+                "aListOfItems": [
+                    {"key": "key1", "value": "YSBzdHJpbmc="},
+                    {"key": "key2", "value": "Mg=="},
+                ],
+                "testApikey": "secret",
+            }
+            assert isinstance(resolved["aListOfItems"], sensitive_list)
 
     @unittest.skipIf(
         "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
@@ -603,7 +626,7 @@ spec:
             # print_config(".", "../unfurl_home")
 
             localEnv = LocalEnv("new_ensemble_in_shared", homePath="../unfurl_home")
-            assert localEnv.manifest_context_name == "production"
+            assert localEnv.manifest_environment_name == "production"
             assert (
                 localEnv.project.localConfig.config.expanded["default_environment"]
                 == "production"
@@ -627,7 +650,7 @@ spec:
             run_cmd(runner, ["--home", "./unfurl_home", "clone", "p1", "p1copy"])
             # print_config("p1copy", "./unfurl_home")
             localEnv = LocalEnv("p1copy", homePath="./unfurl_home")
-            assert localEnv.manifest_context_name == "production"
+            assert localEnv.manifest_environment_name == "production"
             # default context is set for the new
             ensemble_record = localEnv.project.localConfig.config.expanded["ensembles"][
                 0

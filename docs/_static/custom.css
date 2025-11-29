@@ -2,6 +2,10 @@ html, p {
   font-size: 18px;
 }
 
+#changelog-for-unfurl h4 {
+  text-decoration: underline;
+}
+
 table.align-default {
     margin-left: inherit;
     margin-right: inherit;

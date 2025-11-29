@@ -142,6 +142,7 @@ Expression Functions
   :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
   `gt`                             [a, b]
+  :std:ref:`inert`                 (see below)
   `is_function_defined`            function name
   `if`                             (see below)
   `le`                             [a, b]
@@ -280,7 +281,7 @@ file
   ========= ===============================
   file      path
   dir?      directory path
-  encoding? "binary" | "vault" | "json" | "yaml" | "env" | python_text_encoding
+  encoding? "binary" | "vault" | "json" | "yaml" | `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ | python_text_encoding
   contents? any
   ========= ===============================
 
@@ -288,7 +289,7 @@ file
 
   ``dir`` Base dir for ``file``
 
-  ``encoding`` can be "binary", "vault", "json", "yaml", "env" or an encoding registered with the Python codec registry
+  ``encoding`` can be "binary", "vault", "json", "yaml", `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ or an encoding registered with the Python codec registry
 
   ``contents`` If present, the contents will be written to the file, if missing the file will be read.
 
@@ -401,6 +402,32 @@ if
       else: unexpected
     vars:
       a: true
+
+inert
+^^^^^
+
+  ============   ====================================
+  Key            Value
+  ============   ====================================
+  inert          any
+  substitute?    string or boolean
+  ============   ====================================
+
+  Mark the given value as "inert", meaning it is treated as insignificant when Unfurl compares configuration to determine if it has changed or when calculating a digest of a configuration.
+  This function is transparent except for these internal operations.
+  You can use this to avoid false positives -- for example, a configuration script might add a unique timestamp every run so we need to exclude it during comparison.
+
+  The optional ``substitute`` keyword can be used to specify a substitute value to used instead of just ignoring the value. If ``substitute`` key is set to an eval expression it will applied to using the   (exposed as an expression variable named ``value``).
+
+  For example, this strips comments from the value of "my_property" for comparison:
+
+  .. code-block:: YAML
+
+    eval:
+      inert:
+        eval: my_property
+      substitute: "{{ value | regex_replace('(#.*)$', '', multiline=True) }}"
+
 
 is_function_defined
 ^^^^^^^^^^^^^^^^^^^
@@ -564,7 +591,7 @@ tempfile
   Key       Value
   ========= ===============================
   tempfile  contents
-  encoding? "binary" | "vault" | "json" | "yaml" | python_text_encoding
+  encoding? "binary" | "vault" | "json" | "yaml" | `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ | python_text_encoding
   suffix?
   ========= ===============================
 

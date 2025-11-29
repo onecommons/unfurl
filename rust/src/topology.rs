@@ -5,14 +5,63 @@
 #![allow(clippy::clone_on_copy)] // ignore for ascent!
 #![allow(clippy::unused_enumerate_index)] // ignore for ascent!
 #![allow(clippy::type_complexity)] // ignore for ascent!
+#![allow(clippy::mutable_key_type)] // ignore for ascent! (ok because Regex in constraint is ignored by hash and eq)
 
 use ascent::{ascent, lattice::set::Set};
+use regex::Regex;
 use semver::{Version, VersionReq};
 use std::convert::From;
 use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+/// Wrapper around Regex that can be used with PyO3
+/// The Regex field is not exposed to Python - only the pattern string is accessible
+#[cfg_attr(feature = "python", pyclass)]
+#[derive(Clone, Debug)]
+pub struct CompiledPattern {
+    pattern: String,
+    compiled: Regex,
+}
+
+impl CompiledPattern {
+    pub fn new(pattern: String) -> Result<Self, regex::Error> {
+        let compiled = Regex::new(&pattern)?;
+        Ok(CompiledPattern { pattern, compiled })
+    }
+
+    pub fn regex(&self) -> &Regex {
+        &self.compiled
+    }
+
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl CompiledPattern {
+    #[getter]
+    fn get_pattern(&self) -> &str {
+        &self.pattern
+    }
+}
+
+impl PartialEq for CompiledPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern
+    }
+}
+
+impl Eq for CompiledPattern {}
+
+impl Hash for CompiledPattern {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.pattern.hash(state);
+    }
+}
 
 pub type Symbol<'a> = &'a str;
 
@@ -100,21 +149,94 @@ pub enum QueryType {
 /// Constraints used in node filters
 #[allow(non_camel_case_types)]
 #[cfg_attr(feature = "python", pyclass)]
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Debug)]
 pub enum Constraint {
-    equal { v: ToscaValue },
-    greater_than { v: ToscaValue },
-    greater_or_equal { v: ToscaValue },
-    less_than { v: ToscaValue },
-    less_or_equal { v: ToscaValue },
-    in_range { v: ToscaValue },
-    valid_values { v: ToscaValue },
-    length { v: ToscaValue },
-    min_length { v: ToscaValue },
-    max_length { v: ToscaValue },
-    version { v: ToscaValue },
-    // pattern, // XXX
+    equal {
+        v: ToscaValue,
+    },
+    greater_than {
+        v: ToscaValue,
+    },
+    greater_or_equal {
+        v: ToscaValue,
+    },
+    less_than {
+        v: ToscaValue,
+    },
+    less_or_equal {
+        v: ToscaValue,
+    },
+    in_range {
+        v: ToscaValue,
+    },
+    valid_values {
+        v: ToscaValue,
+    },
+    length {
+        v: ToscaValue,
+    },
+    min_length {
+        v: ToscaValue,
+    },
+    max_length {
+        v: ToscaValue,
+    },
+    version {
+        v: ToscaValue,
+    },
+    pattern {
+        v: ToscaValue,
+        compiled: CompiledPattern,
+    },
     // schema,  // XXX
+}
+
+impl PartialEq for Constraint {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Constraint::equal { v: v1 }, Constraint::equal { v: v2 }) => v1 == v2,
+            (Constraint::greater_than { v: v1 }, Constraint::greater_than { v: v2 }) => v1 == v2,
+            (Constraint::greater_or_equal { v: v1 }, Constraint::greater_or_equal { v: v2 }) => {
+                v1 == v2
+            }
+            (Constraint::less_than { v: v1 }, Constraint::less_than { v: v2 }) => v1 == v2,
+            (Constraint::less_or_equal { v: v1 }, Constraint::less_or_equal { v: v2 }) => v1 == v2,
+            (Constraint::in_range { v: v1 }, Constraint::in_range { v: v2 }) => v1 == v2,
+            (Constraint::valid_values { v: v1 }, Constraint::valid_values { v: v2 }) => v1 == v2,
+            (Constraint::length { v: v1 }, Constraint::length { v: v2 }) => v1 == v2,
+            (Constraint::min_length { v: v1 }, Constraint::min_length { v: v2 }) => v1 == v2,
+            (Constraint::max_length { v: v1 }, Constraint::max_length { v: v2 }) => v1 == v2,
+            (Constraint::version { v: v1 }, Constraint::version { v: v2 }) => v1 == v2,
+            // For pattern, only compare the ToscaValue, ignore the compiled Regex
+            (Constraint::pattern { v: v1, .. }, Constraint::pattern { v: v2, .. }) => v1 == v2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Constraint {}
+
+impl Hash for Constraint {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash the discriminant first to distinguish between variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Constraint::equal { v } => v.hash(state),
+            Constraint::greater_than { v } => v.hash(state),
+            Constraint::greater_or_equal { v } => v.hash(state),
+            Constraint::less_than { v } => v.hash(state),
+            Constraint::less_or_equal { v } => v.hash(state),
+            Constraint::in_range { v } => v.hash(state),
+            Constraint::valid_values { v } => v.hash(state),
+            Constraint::length { v } => v.hash(state),
+            Constraint::min_length { v } => v.hash(state),
+            Constraint::max_length { v } => v.hash(state),
+            Constraint::version { v } => v.hash(state),
+            // For pattern, only hash the ToscaValue, ignore the compiled Regex
+            Constraint::pattern { v, .. } => v.hash(state),
+        }
+    }
 }
 
 impl Constraint {
@@ -131,10 +253,11 @@ impl Constraint {
             Constraint::min_length { v } => v,
             Constraint::max_length { v } => v,
             Constraint::version { v } => v,
+            Constraint::pattern { v, .. } => v,
         }
     }
 
-    fn matches(&self, t: &ToscaValue) -> Option<bool> {
+    pub fn matches(&self, t: &ToscaValue) -> Option<bool> {
         // XXX validate self.v is compatibility with v
         // let v = self.get_value();
         // let t = tc.v;
@@ -222,6 +345,19 @@ impl Constraint {
                 match (VersionReq::parse(req_str), Version::parse(&full_version)) {
                     (Ok(version_req), Ok(version)) => Some(version_req.matches(&version)),
                     _ => Some(req_str == version_str), // non-semver version strings must match exactly
+                }
+            }
+            Constraint::pattern { compiled, .. } => {
+                // Only match against string values, use compiled regex for exact matching
+                match &t.v {
+                    SimpleValue::string { v: text } => {
+                        // Use the compiled Regex to perform exact match
+                        match compiled.regex().find(text) {
+                            Some(m) => Some(m.start() == 0 && m.end() == text.len()),
+                            None => Some(false),
+                        }
+                    }
+                    _ => Some(false), // Non-string values don't match patterns
                 }
             }
             _ => None, // type mismatch
@@ -688,7 +824,7 @@ mod tests {
     #[allow(clippy::field_reassign_with_default)]
     pub fn make_topology() -> Topology<'static> {
         let mut prog = Topology::default();
-        prog.node = vec![("n1".into(), "Root".into())];
+        prog.node = vec![("n1", "Root")];
         prog.requirement_match = vec![
             ("n1", "host", "n2", "feature"),
             ("n2", "host", "n3", "feature"),
@@ -831,6 +967,41 @@ mod tests {
         assert!(!unsemver_constraint
             .matches(&ToscaValue::from("1.2.9".to_string()))
             .unwrap());
+    }
+
+    #[test]
+    fn test_pattern_constraint() {
+        // Test pattern matching with valid patterns
+        let email_pattern_str = r"^[a-z]+@[a-z]+\.[a-z]+$";
+        let email_pattern = Constraint::pattern {
+            v: ToscaValue::from(email_pattern_str.to_string()),
+            compiled: CompiledPattern::new(email_pattern_str.to_string()).unwrap(),
+        };
+
+        assert!(email_pattern
+            .matches(&ToscaValue::from("user@example.com".to_string()))
+            .unwrap());
+        assert!(!email_pattern
+            .matches(&ToscaValue::from("invalid-email".to_string()))
+            .unwrap());
+
+        // Test digit pattern
+        let digit_pattern_str = r"^\d{3}-\d{3}-\d{4}$";
+        let digit_pattern = Constraint::pattern {
+            v: ToscaValue::from(digit_pattern_str.to_string()),
+            compiled: CompiledPattern::new(digit_pattern_str.to_string()).unwrap(),
+        };
+
+        assert!(digit_pattern
+            .matches(&ToscaValue::from("123-456-7890".to_string()))
+            .unwrap());
+        assert!(!digit_pattern
+            .matches(&ToscaValue::from("123-45-6789".to_string()))
+            .unwrap());
+
+        // Test pattern with non-string value (should return false)
+        assert!(!email_pattern.matches(&ToscaValue::from(123)).unwrap());
+        assert!(!email_pattern.matches(&ToscaValue::from(true)).unwrap());
     }
 
     #[test]

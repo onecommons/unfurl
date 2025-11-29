@@ -115,7 +115,7 @@ class ConfiguratorTest(unittest.TestCase):
         # check that the modifications were recorded
         self.assertEqual(
             runner.manifest.manifest.config["changes"][0]["changes"],
-            {"::test1": {"copyOfMeetsTheRequirement": "copy"}},
+            {":::test1": {"copyOfMeetsTheRequirement": "copy"}},
         )
 
         test2 = runner.manifest.get_root_resource().find_resource("test2")
@@ -151,10 +151,10 @@ class ConfiguratorTest(unittest.TestCase):
 
         changes = runner.manifest.manifest.config["changes"][0]["changes"]
         added = {".added": {"name": "added1", "template": "test1"}}
-        self.assertEqual(changes["::added1"], added)
+        assert changes[":::added1"] == added
 
         # verify modified
-        self.assertEqual(changes["::test3"], {"copyOfMeetsTheRequirement": "copy"})
+        assert changes[":::test3"] == {"copyOfMeetsTheRequirement": "copy"}
 
         # print('test3', run.out.getvalue())
         jobOptions.repair = "none"

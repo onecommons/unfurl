@@ -153,6 +153,15 @@ setattr(
 )
 setattr(
     configurator_artifacts,
+    "rclone",
+    artifact_AsdfTool(
+        "rclone",
+        version="1.71.2",
+        file="rclone",
+    ),
+)
+setattr(
+    configurator_artifacts,
     "google_auth",
     artifact_PythonPackage(
         "google-auth",

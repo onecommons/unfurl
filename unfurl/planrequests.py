@@ -54,16 +54,36 @@ import logging
 logger = getLogger("unfurl")
 
 
+def interface_requirements_ok(root: TopologyInstance, template: EntitySpec):
+    reqs = template.get_interface_requirements()
+    if reqs:
+        assert isinstance(reqs, list)
+        for req in reqs:
+            if not any(
+                [
+                    rel.template.is_compatible_type(req)
+                    for rel in root.default_relationships
+                ]
+            ):
+                logger.debug(
+                    'Skipping template "%s": could not find a connection for interface requirements: %s',
+                    template.name,
+                    reqs,
+                )
+                return False
+    return True
+
+
 class ConfigurationSpecKeywords(TypedDict, total=False):
     operation: str
     className: Optional[str]
     preConditions: Optional[dict]
     primary: Optional["ArtifactSpec"]
     inputs: Optional[Dict[str, Any]]
-    input_defs: Optional[Dict[str, Property]]
-    output_defs: Optional[Dict[str, Property]]
+    input_defs: Dict[str, Property]
+    output_defs: Dict[str, Property]
     base_dir: Optional[str]
-    dependencies: Optional[List["ArtifactSpec"]]
+    dependencies: List["ArtifactSpec"]
     outputs: Optional[Dict[str, Any]]
     operation_host: Optional[str]
     entry_state: Optional[str]
@@ -72,6 +92,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     environment: Optional[Dict[str, str]]
     timeout: Optional[int]
     arguments: Optional[List[str]]
+    metadata: Optional[Dict[str, Any]]
 
 
 # we want ConfigurationSpec to be independent of our object model and easily serializable
@@ -100,6 +121,7 @@ class ConfigurationSpec:
         input_defs: Optional[Dict[str, Property]] = None,
         output_defs: Optional[Dict[str, Property]] = None,
         arguments: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -124,8 +146,9 @@ class ConfigurationSpec:
         self.input_defs: Optional[Dict[str, Property]] = input_defs
         self.output_defs: Optional[Dict[str, Property]] = output_defs
         self.arguments: Optional[List[str]] = arguments
+        self.metadata = metadata
 
-    def find_invalidate_inputs(self, inputs):
+    def find_invalid_inputs(self, inputs):
         if not self.inputSchema:
             return []
         return find_schema_errors(serialize_value(inputs), self.inputSchema)
@@ -682,7 +705,7 @@ class JobRequest:
 
     def __init__(
         self,
-        resources: List[EntityInstance],
+        resources: Sequence[EntityInstance],
         errors: Optional[Sequence[UnfurlError]] = None,
         update=None,
     ):
@@ -1259,7 +1282,12 @@ def create_task_request(
     if iDef:
         assert inputs is not None
         kw = _get_config_spec_args_from_implementation(
-            iDef, inputs, resource.template, operation_host, jobOptions.dryrun
+            iDef,
+            inputs,
+            resource.template,
+            operation_host,
+            jobOptions.dryrun,
+            root=resource.root,
         )
     if kw:
         kw["interface"] = interface
@@ -1344,6 +1372,7 @@ def _set_config_spec_args(
     template: Optional[EntitySpec],
     base_dir: str,
     dry_run: bool,
+    root: Optional[TopologyInstance] = None,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
     artifact = kw.get("primary")
@@ -1365,9 +1394,10 @@ def _set_config_spec_args(
             if execute_op and isinstance(execute_op.implementation, dict):
                 execute_class = execute_op.implementation.get("className", "")
                 if ":" in execute_class:
-                    # the artifact has an execute operation that needs to run
-                    # set className so the DSLConfigurator can handle it
+                    # the artifact has an execute operation that needs to be run
+                    # so set this as the className so the DSLConfigurator runs it
                     if not execute_class.endswith(":run"):
+                        # note: this can happen when converting the artifact's execute operation from python to yaml
                         # change render-time actions to "execute"
                         execute_class = execute_class.rpartition(":")[0] + ":execute"
                     className = execute_class
@@ -1404,6 +1434,7 @@ def _set_config_spec_args(
                         mock_op.inputs or {},
                         template,
                         kw.get("operation_host"),
+                        root=root,
                     )
             kw["className"] = className
             return kw
@@ -1434,6 +1465,7 @@ def _set_config_spec_args(
                         mock_op.inputs or {},
                         template,
                         kw.get("operation_host"),
+                        root=root,
                     )
             return klass.set_config_spec_args(kw, template)  # type: ignore
         else:
@@ -1447,6 +1479,78 @@ def _set_config_spec_args(
         logger.warning("could not find configurator class: %s", className)
         return None
 
+def _is_abstract_artifact(artifact: ArtifactSpec) -> bool:
+    if not artifact.is_compatible_type("unfurl.artifacts.Executable"):
+        return False
+    execute_op = _find_implementation(
+        "unfurl.interfaces.Executable", "execute", artifact, True
+    )
+    return bool(not execute_op or not execute_op.implementation)
+
+
+def _resolve_implementation_artifact(
+    template: EntitySpec,
+    artifact_tpl: Union[str, Dict[str, str], Artifact],
+    base_dir: str,
+    predefined: bool,
+    root: Optional[TopologyInstance],
+) -> Optional[ArtifactSpec]:
+    """
+    Helper function that first checks if artifactTpl is a dict with "type" key.
+    If it is, use iter_all_artifacts() to find an artifact with compatible type.
+    If none are found, then call find_or_create_artifact() as before.
+    """
+    if isinstance(artifact_tpl, Artifact):
+        artifact = ArtifactSpec(artifact_tpl, template)
+        if artifact_tpl.stub:  # only an artifact type was declared
+            artifact_type = artifact.type
+            # Search through all artifacts for one with compatible type
+            candidate: Optional[ArtifactSpec] = None
+            for artifact in template.iter_all_artifacts():
+                if artifact.is_compatible_type(artifact_type):
+                    if root is None:
+                        return artifact
+
+                    if interface_requirements_ok(root, artifact):
+                        if artifact.get_interface_requirements():  # more specific
+                            if (
+                                not candidate
+                                or not candidate.get_interface_requirements()
+                            ):
+                                candidate = artifact
+                            elif candidate:
+                                break  # conflict
+                        elif candidate:
+                            if not candidate.get_interface_requirements():
+                                break  # conflict
+                            # else less specific than candidate
+                        else:
+                            candidate = artifact
+            else:  # no break
+                if not candidate:
+                    return None
+                artifact = candidate
+                if artifact.parentNode is not template:
+                    # found in a LocalRepository, create copy for this template
+                    tpl = artifact.toscaEntityTemplate.entity_tpl.copy()
+                    tpl["name"] = artifact.name
+                    artifact = ArtifactSpec(tpl, template)
+                    template.artifacts[artifact.name] = artifact
+                return artifact
+            logger.error(
+                "Found multiple compatible artifacts for type %s: %s and %s",
+                artifact_type,
+                candidate.name,
+                artifact.name,
+            )
+            return None
+    else:
+        artifact = template.find_or_create_artifact(artifact_tpl, base_dir, predefined)
+    if artifact:
+        if root is not None and not interface_requirements_ok(root, artifact):
+            return None
+    return artifact
+
 
 def _get_config_spec_args_from_implementation(
     iDef: OperationDef,
@@ -1456,6 +1560,7 @@ def _get_config_spec_args_from_implementation(
     dry_run: bool = False,
     safe_mode: bool = False,
     parse_dependencies: bool = True,
+    root: Optional[TopologyInstance] = None,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
@@ -1468,6 +1573,7 @@ def _get_config_spec_args_from_implementation(
         "entry_state": iDef.entry_state,
         "input_defs": iDef.get_declared_inputs(),
         "output_defs": iDef.get_declared_outputs(),
+        "metadata": iDef.metadata,
     }
     if iDef.metadata:
         kw["arguments"] = iDef.metadata.get("arguments")
@@ -1508,8 +1614,8 @@ def _get_config_spec_args_from_implementation(
     artifact: Optional[ArtifactSpec] = None
     if artifactTpl:
         if template:
-            artifact = template.find_or_create_artifact(
-                artifactTpl, base_dir, predefined
+            artifact = _resolve_implementation_artifact(
+                template, artifactTpl, base_dir, predefined, root
             )
             if artifact:
                 guessing = artifact.file
@@ -1528,7 +1634,9 @@ def _get_config_spec_args_from_implementation(
             kw["dependencies"] = [
                 dep
                 for dep in [
-                    template.find_or_create_artifact(artifactTpl, base_dir, True)
+                    _resolve_implementation_artifact(
+                        template, artifactTpl, base_dir, True, root
+                    )
                     for artifactTpl in dependencies
                 ]
                 if dep
@@ -1540,4 +1648,4 @@ def _get_config_spec_args_from_implementation(
 
     if safe_mode:
         return kw
-    return _set_config_spec_args(kw, guessing, template, base_dir, dry_run)
+    return _set_config_spec_args(kw, guessing, template, base_dir, dry_run, root)

@@ -32,6 +32,11 @@ from typing import (
 from typing_extensions import NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
+try:
+    # added in python 3.9
+    from functools import cache  # type: ignore
+except ImportError:
+    from functools import lru_cache as cache
 
 if TYPE_CHECKING:
     from .manifest import Manifest
@@ -42,6 +47,7 @@ if TYPE_CHECKING:
         HasInstancesInstance,
         TopologyInstance,
         RelationshipInstance,
+        NodeInstance,
     )
     from .configurator import Dependency
     from .spec import EntitySpec
@@ -55,8 +61,10 @@ from .result import (
     ResultsItem,
     Result,
     ExternalValue,
+    InertValue,
     serialize_value,
     is_sensitive_schema,
+    metadata_from_schema,
     wrap_var,
 )
 from .util import (
@@ -75,6 +83,11 @@ from .util import (
     env_var_value,
 )
 from .merge import intersect_dict, merge_dicts
+try:
+    from .tosca_solver import regex_match_exact, make_pattern_constraint
+except ImportError:
+    regex_match_exact = None
+    make_pattern_constraint = None
 from .projectpaths import FilePath, get_path
 
 import ansible.template
@@ -85,6 +98,7 @@ from toscaparser.elements.portspectype import PortSpec
 from toscaparser.elements import constraints
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.properties import Property
+from toscaparser.common.exception import ExceptionCollector, InvalidSchemaError
 
 from .tosca_plugins.functions import (
     urljoin,
@@ -237,6 +251,23 @@ set_eval_func(
     "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
+def inert(val, ctx):
+    kw = ctx.kw
+    val = map_value(val, ctx)
+    if "substitute" in kw:
+        sub = map_value(kw["substitute"], ctx.copy(vars=dict(value=val)))
+    else:
+        sub = True
+    external = InertValue(val, sub)
+    ctx.add_external_reference(external)
+    return external.get()
+
+
+set_eval_func(
+    "inert",
+    lambda arg, ctx: inert(arg, ctx),
+    safe=True,
+)
 
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
@@ -395,7 +426,8 @@ def _sandboxed_template(value: str, ctx: SafeRefContext, vars, _UnfurlUndefined)
     return env.from_string(value).render(vars)
 
 
-def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Result]:
+def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
+    # if ctx.wantList == "result", may return an ExternalValue
     if not isinstance(value, str):
         msg = f"Error rendering template: source must be a string, not {type(value)}"  # type: ignore[unreachable]
         if ctx.strict:
@@ -585,7 +617,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
         else:
             if value != oldvalue:
                 ctx.trace("successfully processed template:", value)
-                external_result = None
+                external_results: List[Result] = []
                 for result in ctx.referenced.getReferencedResults(index):
                     if is_sensitive(result):
                         # note: even if the template rendered a list or dict
@@ -595,16 +627,9 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
                         # mark the template result as sensitive
                         return wrap_sensitive_value(value)
                     if result.external:
-                        external_result = result
-
-                if (
-                    external_result
-                    and want_result
-                    and external_result.external
-                    and value == external_result.external.get()
-                ):
-                    # return a Result with the external value instead
-                    return external_result
+                        external_results.append(result)
+                if want_result and external_results:
+                    return _handle_external(external_results, value, log)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
@@ -615,6 +640,35 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Union[Any, Re
             templar._apply_templar_overrides(overrides)
     # wrap result as AnsibleUnsafe so it isn't evaluated again
     return wrap_var(value)
+
+
+def _handle_external(external_results: List[Result], value: Any, logger) -> Any:
+    if isinstance(value, str):
+        canonical = value
+        inert = False
+        for result in external_results:
+            if isinstance(result.external, InertValue):
+                e = result.external
+                canonical = canonical.replace(e.key, e.substitute)
+                inert = True
+        if inert:
+            if value != canonical:
+                return InertValue(value, canonical)
+            else:
+                logger.warning(
+                    "could not find transient %s in %s, use the transient filter if needed",
+                    canonical,
+                    value,
+                )
+    if (
+        external_results
+        and external_results[-1].external
+        and value == external_results[-1].external.get()
+    ):
+        # return a Result with the external value instead
+        return external_results[-1].external
+    else:
+        return wrap_var(value)
 
 
 def _template_func(args, ctx: RefContext):
@@ -948,12 +1002,12 @@ def get_ensemble_metadata(arg, ctx: RefContext):
     ensemble = ctx.task._manifest
     metadata = dict(
         deployment=ensemble.deployment,
-        job=ctx.task.job.changeId,
+        job=InertValue(ctx.task.job.changeId, "<<A00JOBID>>"),  # 12 characters
     )
     if ensemble.repo:
         metadata["unfurlproject"] = ensemble.repo.project_path()
-        metadata["revision"] = ensemble.repo.revision[:8]
-    environment = ensemble.localEnv and ensemble.localEnv.manifest_context_name
+        metadata["revision"] = InertValue(ensemble.repo.revision[:8], "REVISION")
+    environment = ensemble.localEnv and ensemble.localEnv.manifest_environment_name
     if environment:
         metadata["environment"] = environment
     if arg:
@@ -1294,9 +1348,9 @@ def get_import(arg: str, ctx: RefContext):
     """
     Returns the external resource associated with the named import
     """
-    try:
-        imported = ctx.currentResource.root.imports[arg]
-    except KeyError:
+    # use _find_import so we only find manifests declared in the "external" section
+    imported = ctx.currentResource.root.imports._find_import(arg)
+    if not imported:
         raise UnfurlError(f"Can't find import '{arg}'")
     if arg == "secret":
         return SecretResource(arg, imported)
@@ -1307,28 +1361,84 @@ def get_import(arg: str, ctx: RefContext):
 set_eval_func("external", get_import)
 
 
-def register_custom_constraint(key, func):
+def register_custom_constraint(key, func, make_constraint=None):
     class CustomConstraint(constraints.Constraint):
         constraint_key = key
         valid_prop_types = constraints.Schema.PROPERTY_TYPES
+        valid_types: tuple = ()
 
         def __init__(self, property_name, property_type, constraint):
-            self.property_name = property_name
-            self.property_type = property_type
-            self.constraint_value = constraint[self.constraint_key]
-            self.constraint_value_msg = self.constraint_value
+            super(CustomConstraint, self).__init__(
+                property_name, property_type, constraint
+            )
+            if make_constraint:
+                self.constraint_value: Any = make_constraint(self.constraint_value)
 
-        def _is_valid(self, value):
-            return func(value)
+        def _is_valid(self, value) -> bool:
+            if self.valid_types and not isinstance(value, self.valid_types):
+                return False
+            return func(self.constraint_value, value)
+
+        def _err_msg(self, value):
+            return (
+                'The value "%(pvalue)s" of property "%(pname)s" does not '
+                'match the %(key)s constraint "%(cvalue)s".'
+            ) % dict(
+                pname=self.property_name,
+                pvalue=value,
+                cvalue=self.constraint_value_msg,
+                key=key,
+            )
 
     constraints.constraint_mapping[key] = CustomConstraint
     return CustomConstraint
 
+_validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
+
+if (
+    regex_match_exact
+    and make_pattern_constraint
+    and "python_patterns" not in _validation_mode
+):
+
+    @cache
+    def make_constraint(pattern):
+        if not isinstance(pattern, str):
+            ExceptionCollector.appendException(
+                InvalidSchemaError(message='The "pattern" constraint expects a string.')
+            )
+            return pattern
+        try:
+            return make_pattern_constraint(pattern)
+        except ValueError as e:
+            if "rust_patterns" not in _validation_mode:
+                try:
+                    return re.compile(pattern)  # try Python's regex engine
+                except Exception as e2:
+                    e = e2  # type:ignore
+            ExceptionCollector.appendException(
+                InvalidSchemaError(message="Invalid pattern " + str(e))
+            )
+            return pattern
+
+    def regex_match(pattern, value) -> bool:
+        if isinstance(pattern, re.Pattern):
+            return bool(pattern.fullmatch(value))
+        else:
+            return regex_match_exact(pattern, value)
+
+    pattern_constraint_class = register_custom_constraint(
+        "pattern", regex_match, make_constraint
+    )
+    pattern_constraint_class.valid_types = (str,)
+else:
+    pattern_constraint_class = None
+    logger.verbose("Rust pattern constraint disabled, falling back to python regex.")
 
 class _Import:
     def __init__(
         self,
-        external_instance: "HasInstancesInstance",
+        external_instance: Optional["HasInstancesInstance"],
         spec: dict,
         local_instance: Optional["HasInstancesInstance"] = None,
     ):
@@ -1388,19 +1498,34 @@ class Imports(OrderedDict[str, _Import]):
         return None
 
     def _find_import(self, name: str) -> Optional[_Import]:
-        if name in self:
+        if name in self and self[name].external_instance:
             # fully qualified name already added
             return self[name]
         iName, sep, rName = name.partition(":")
         if not iName or iName not in self:
             return None
         # do a unqualified look up to find the declared import
-        imported = self[iName].external_instance.root.find_instance(rName or "root")
+        external = self[iName].external_instance
+        if not external:
+            assert self[iName].spec
+            cast("YamlManifest", self.manifest).load_external_ensemble(
+                iName, self[iName].spec
+            )
+            external = self[iName].external_instance
+        assert external
+        if not rName:
+            return self[iName]
+        imported = external.root.find_instance(rName)
         if imported:
             return self.add_import(iName, imported)
         return None
 
-    def set_shadow(self, key: str, local_instance, external_instance) -> _Import:
+    def set_shadow(
+        self,
+        key: str,
+        local_instance: "HasInstancesInstance",
+        external_instance: "HasInstancesInstance",
+    ) -> _Import:
         if key not in self:
             record = self.add_import(key, external_instance)
         else:
@@ -1422,9 +1547,11 @@ class ExternalResource(ExternalValue):
     Wraps a foreign resource
     """
 
-    def __init__(self, name, importSpec):
+    def __init__(self, name, importSpec: "_Import"):
         super().__init__("external", name)
-        self.resource = importSpec.external_instance
+        instance = importSpec.external_instance
+        assert instance
+        self.resource = instance
         self.schema = importSpec.spec.get("schema")
 
     def _validate(self, obj, schema, name):
@@ -1457,6 +1584,8 @@ class ExternalResource(ExternalValue):
             raise
 
         if schema:
+            if isinstance(value, Result):
+                value = value.resolved
             self._validate(value, schema, name)
         # we don't want to return a result across boundaries
         return value
@@ -1647,12 +1776,14 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
             else:
                 self[name] = [change[1], None, {}]
 
-    def add_resources(self, resources: Iterable[Dict[str, Any]]) -> None:
-        for resource in resources:
-            self["::" + resource["name"]] = [None, resource, None]
+    def add_resources(
+        self, resource_specs: Iterable[Dict[str, Any]], instances: List["NodeInstance"]
+    ) -> None:
+        for spec, instance in zip(resource_specs, instances):
+            self[instance.nested_key] = [None, spec, None]
 
     def update_changes(
-        self, changes: AttributesChanges, statuses, resource, changeId=None
+        self, changes: AttributesChanges, statuses: StatusMap, resource, changeId=None
     ):
         self.add_changes(changes)
         self.add_statuses(statuses)
@@ -1686,7 +1817,7 @@ class TopologyMap(dict):
         return len(tuple(self.resource.get_self_and_descendants()))
 
 
-AttributeInfo = Tuple[bool, Union[ResultsItem, Any], bool]  # live, value, accessed
+AttributeInfo = Tuple[bool, ResultsItem, bool]  # live, value, accessed
 _Dependencies = NewType(
     "_Dependencies",
     Dict[
@@ -1694,6 +1825,12 @@ _Dependencies = NewType(
         Tuple["EntityInstance", Dict[str, AttributeInfo]],
     ],
 )
+
+def should_wrap_sensitive(defs, key: str, value: Result):
+    # external values like "secret" don't need to be wrapped
+    return is_sensitive_schema(defs, key) and (
+        not value.external or value.external.type == "inert"
+    )
 
 
 class AttributeManager:
@@ -1737,15 +1874,15 @@ class AttributeManager:
     def get_status(self, resource: "EntityInstance") -> List[Optional[Status]]:
         if resource.key not in self.statuses:
             return [resource._localStatus, resource._localStatus]
-        return self.statuses[resource.key]
+        return self.statuses[resource.nested_key]
 
     def set_status(
         self, resource: "EntityInstance", newvalue: Optional[Status]
     ) -> None:
         if resource.key not in self.statuses:
-            self.statuses[resource.key] = [resource._localStatus, newvalue]
+            self.statuses[resource.nested_key] = [resource._localStatus, newvalue]
         else:
-            self.statuses[resource.key][1] = newvalue
+            self.statuses[resource.nested_key][1] = newvalue
 
     def mark_referenced_templates(self, template: "EntitySpec"):
         for resource, attr in self.attributes.values():
@@ -1762,7 +1899,9 @@ class AttributeManager:
             self._context_vars = {}
             set_context_vars(self._context_vars, resource.root)
         ctor = SafeRefContext if self.safe_mode else RefContext
-        ctx = ctor(resource, self._context_vars, task=self.task, strict=self.strict)
+        ctx = ctor(  # copy() because context vars are modified in place by eval
+            resource, self._context_vars.copy(), task=self.task, strict=self.strict
+        )
         ctx.referenced = self.tracker
         return ctx
 
@@ -1771,8 +1910,7 @@ class AttributeManager:
             if resource.shadow:
                 # shadow is the imported instance or the inner node of a substituted node
                 return resource.shadow.attributes
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
-            if mode is not None and "nopropcheck" in mode:
+            if "nopropcheck" in _validation_mode:
                 self.validate = False
 
             if resource.template:
@@ -1870,17 +2008,6 @@ class AttributeManager:
     #   #   resource._localStatus = old
 
     @staticmethod
-    def _save_sensitive(defs, key: str, value: Result):
-        # attribute marked as sensitive and value isn't a secret so mark value as sensitive
-        # but externalvalues are ok since they don't reveal much
-        sensitive = is_sensitive_schema(defs, key) and not value.external
-        if sensitive:
-            savedValue = wrap_sensitive_value(value.resolved)
-        else:
-            savedValue = value.as_ref()  # serialize Result
-        return savedValue
-
-    @staticmethod
     def _check_attribute(
         specd, key: str, value: ResultsItem, instance: "EntityInstance"
     ):
@@ -1912,7 +2039,7 @@ class AttributeManager:
                     )
                     if isLive:
                         dep = Dependency(
-                            resource.key + "::" + key, value, target=resource
+                            resource.key + "::" + key, expected=value, target=resource
                         )
                         dependencies.setdefault(resource.key, []).append(dep)
         return dependencies
@@ -1928,7 +2055,7 @@ class AttributeManager:
             _attributes = {}
             defs = resource.template and resource.template.propertyDefs or {}
             foundSensitive = []
-            touched: Dict[str, Any] = {}
+            touched: Dict[str, AttributeInfo] = {}
             # items in overrides of type ResultsItem have been accessed during this transaction
             for key, value in list(overrides.items()):
                 if not isinstance(value, ResultsItem):
@@ -1938,12 +2065,14 @@ class AttributeManager:
                     changed, isLive, accessed = self._check_attribute(
                         specd, key, value, resource
                     )
-                    savedValue = self._save_sensitive(defs, key, value)
+                    if should_wrap_sensitive(defs, key, value):
+                        value.resolved = wrap_sensitive_value(value.resolved)
+                    savedValue = value.as_ref()  # serialize Result
                     is_sensitive = isinstance(savedValue, sensitive)
                     # save the ResultsItem not savedValue because we need the ExternalValue
                     touched[key] = (
                         isLive,
-                        savedValue if is_sensitive else value,
+                        value,
                         accessed,
                     )
                     if not isLive:
@@ -1961,15 +2090,15 @@ class AttributeManager:
             resource._attributes = _attributes
 
             if touched:
-                _dependencies[resource.key] = (resource, touched)
+                _dependencies[resource.nested_key] = (resource, touched)
             # save changes
             diff = attributes.get_diff()
             if not diff:
                 continue
             for key in foundSensitive:
-                if key in diff:
+                if key in diff:  # replace value diff with sensitive wrapped value
                     diff[key] = _attributes[key]
-            changes[resource.key] = diff
+            changes[resource.nested_key] = diff
 
         self._reset()
         return changes, _dependencies

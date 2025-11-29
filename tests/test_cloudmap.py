@@ -6,7 +6,8 @@ from unfurl.__main__ import cli
 import git
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
-from tests.utils import init_project, run_cmd
+from tests.utils import init_project, run_cmd, run_job_cmd
+from unfurl.cloudmap import CloudMapConfigurator
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
 if not UNFURL_TEST_CLOUDMAP_URL:
@@ -26,10 +27,13 @@ apiVersion: unfurl/v1alpha1
 kind: Project
 environments:
   defaults:
+    repositories:
+      cloudmap:
+        url: file:../cloudmap
     cloudmaps:
       repositories:
         cloudmap:
-          url: file:../cloudmap
+          # url: file:../cloudmap # configurator needs it to be a regular repository
           clone_root: ../repos
       hosts:
         testProvider:
@@ -37,6 +41,32 @@ environments:
           url:
             get_env: UNFURL_TEST_CLOUDMAP_URL
           canonical_url: https://unfurl.cloud
+"""
+
+ensemble_yaml = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      CloudMapExporter:
+        derived_from: tosca.nodes.Root
+        interfaces:
+          Standard:
+            operations:
+              configure:
+                implementation: CloudMap
+                inputs:
+                  host:
+                    url:
+                      get_env: UNFURL_TEST_CLOUDMAP_URL
+                  cloudmap: cloudmap
+                  namespace: feb20a
+
+    topology_template:
+      node_templates:
+        cloudmap_exporter:
+          type: CloudMapExporter
 """
 
 SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
@@ -59,7 +89,7 @@ def runner():
         os.makedirs("repos")
         init_project(
             runner,
-            args=["init", "--mono", "project"],
+            args=["init", "--mono", "--var", "vaultid", "", "project"],
             env=dict(UNFURL_HOME=""),
         )
         with change_cwd("project"):
@@ -111,7 +141,7 @@ def test_create(runner, caplog):
         "committed: Update hosts/testProvider with latest from testProvider/feb20a"
         in caplog.text
     )
-    assert "nothing to commit for: synced testProvider" in caplog.text
+    assert "nothing to commit for: synced to testProvider" in caplog.text
 
 
 def test_sync(runner, caplog):
@@ -127,6 +157,60 @@ def test_sync(runner, caplog):
         "nothing to commit for: Update hosts/testProvider with latest from testProvider/feb20a",
         "syncing to feb20a",
         f"skipping push: no change detected on branch testProvider/main for {sanitize_url(UNFURL_TEST_CLOUDMAP_URL)}/feb20a/dashboard.git",
-        "nothing to commit for: synced testProvider",
+        "nothing to commit for: synced to testProvider",
     ]:
         assert msg in caplog.text
+
+def test_configurator(runner, caplog):
+    """Test using CloudMapConfigurator from an ensemble"""
+    assert UNFURL_TEST_CLOUDMAP_URL
+    # run configurator (exports to cloud)
+    with open("ensemble.yaml", "w") as f:
+        f.write(ensemble_yaml)
+
+    result, job, summary = run_job_cmd(
+        runner,
+        ["--home", "", "deploy", "ensemble.yaml"],
+    )
+    expected = {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "ok",
+                "target": "cloudmap_exporter",
+                "operation": "configure",
+                "template": "cloudmap_exporter",
+                "type": "CloudMapExporter",
+                "targetStatus": "ok",
+                "targetState": "configured",
+                "changed": True,
+                "configurator": "unfurl.cloudmap.CloudMapConfigurator",
+                "priority": "required",
+                "reason": "add",
+            }
+        ],
+    }
+    assert summary == expected
+    result, job, summary = run_job_cmd(
+        runner,
+        ["--home", "", "deploy", "ensemble.yaml"],
+    )
+    # no change
+    expected["job"]["id"] = "A01110GC0000"
+    expected["job"]["changed"] = 0
+    expected["job"]["ok"] = 0
+    expected["job"]["skipped"] = 1
+    expected["tasks"][0]["reason"] = "reconfigure"
+    expected["tasks"][0]["status"] = None
+    expected["tasks"][0]["changed"] = False
+    assert summary == expected

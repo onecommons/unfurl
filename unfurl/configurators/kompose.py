@@ -40,6 +40,8 @@ from toscaparser.elements.portspectype import PortSpec
 from ..tosca_plugins.functions import to_dns_label
 from ..result import serialize_value
 from ..configurator import TaskView
+from ..planrequests import ConfigurationSpecKeywords
+from ..spec import EntitySpec
 from .shell import ShellConfigurator, ShellInputs
 from .k8s import make_pull_secret, mark_sensitive, ClusterScoped_Kinds
 from ..util import UnfurlTaskError, which
@@ -127,7 +129,9 @@ class KomposeConfigurator(ShellConfigurator):
     _output_dir = "kompose"
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template):
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         if not which("kompose"):
             artifact = template.find_or_create_artifact("kompose", predefined=True)
             if artifact:

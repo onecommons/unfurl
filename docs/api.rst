@@ -29,6 +29,7 @@ The classes in this section are used to define TOSCA types corresponding to a TO
     Policy
 
 .. autoclass:: tosca.ToscaType
+  :members: _metadata, _type_metadata, _version
 
   .. automethod:: _template_init
 
@@ -177,6 +178,8 @@ Property Constraints
 .. autoclass:: pattern
 
 .. autoclass:: schema
+
+.. autoclass:: version
 
 Other Module Items
 ~~~~~~~~~~~~~~~~~~~~~

@@ -146,6 +146,7 @@ class JobOptions:
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
+        skip_local_install=False,
     )
 
     parentJob: Optional["Job"] = None
@@ -156,6 +157,7 @@ class JobOptions:
     verbose = 0
     message: Optional[str] = None
     commit: bool = False
+    skip_local_install: bool = False
     push = False
     template: Optional[str] = None
     add: bool = True
@@ -400,7 +402,7 @@ class ConfigTask(TaskView, ConfigChange):
             self.target._lastConfigChange = self.changeId
             return True
         if result.modified or self._resourceChanges.get_attribute_changes(
-            self.target.key
+            self.target.nested_key
         ):
             if self.target.last_change != self.changeId:
                 # save to create a linked list of tasks that modified the target
@@ -482,8 +484,17 @@ class ConfigTask(TaskView, ConfigChange):
             and self.configSpec.operation != "check"
             and self.target.customized is None
         ):
+            if (
+                self.configSpec.operation == "discover"
+                and "discover" not in self.target.template.directives
+            ):
+                # instantiated with discovery workflow instead of creating the resource as the template specified,
+                # so mark it as customized (otherwise the next plan will try to create this instance)
+                self.target.customized = self.changeId
+                self.logger.debug("customized by explicit discover workflow")
+                return True
             changeset = cast("YamlManifest", self._manifest).find_last_operation(
-                self.target.key, "configure"
+                self.target, "configure"
             )
             if changeset:
                 for expr in self._resourceChanges.get_changes_as_expr():
@@ -562,10 +573,10 @@ class ConfigTask(TaskView, ConfigChange):
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
         changeset = cast("YamlManifest", self._manifest).find_last_operation(
-            self.target.key, self.configSpec.operation
+            self.target, self.configSpec.operation
         )
         if not changeset:
-            # don't log exception if target was discovered, discovered resources without a job request won't have a digest
+            # don't log message if target was discovered, discovered resources without a job request won't have a digest
             if isinstance(self.target.created, str):
                 self.logger.debug(
                     'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
@@ -808,6 +819,10 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance
             )
 
+    def save_as_dry_run(self):
+        # if skip_save is "never", save as a regular job
+        return self.dry_run and self.jobOptions.skip_save != "never"
+
     def render(self) -> RenderRequests:
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()
@@ -1028,11 +1043,12 @@ class Job(ConfigChange):
         plan_requests = list(plan.execute_plan())
 
         request_artifacts: List[JobRequest] = []
-        for r in plan_requests:
-            if r:
-                artifacts = r.get_operation_artifacts()
-                if artifacts:
-                    request_artifacts.extend(artifacts)
+        if not self.jobOptions.skip_local_install:
+            for r in plan_requests:
+                if r:
+                    artifacts = r.get_operation_artifacts()
+                    if artifacts:
+                        request_artifacts.extend(artifacts)
 
         # remove duplicates
         artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())
@@ -1257,7 +1273,7 @@ class Job(ConfigChange):
                     task.blocked = True
                 else:
                     task.blocked = False
-                    errors = task.configSpec.find_invalidate_inputs(task.inputs)
+                    errors = task.configSpec.find_invalid_inputs(task.inputs)
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
                     else:
@@ -1553,10 +1569,7 @@ class Job(ConfigChange):
         return self.task_count
 
     def log_path(self, folder="jobs", ext=".log") -> str:
-        log_name = (
-            self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
-        )
-        return self.manifest.get_job_log_path(log_name, folder, ext)
+        return self.manifest.get_job_log_path(self.log_name(), folder, ext)
 
     ###########################################################################
     # Job Reporting methods
@@ -1706,18 +1719,18 @@ def start_job(
     localEnv = LocalEnv(
         manifestPath,
         _opts.get("home"),
-        override_context=_opts.get("use_environment") or "",
+        override_environment=_opts.get("use_environment") or "",
         overrides=dict(opts.vars or {}),
         # XXX readonly=_opts.get("planOnly")
     )
     path = localEnv.manifestPath
     if not opts.planOnly:
-        logger.info("creating %s job for %s", opts.workflow, path)
+        logger.info("Creating %s job for %s", opts.workflow, path)
     try:
         manifest = localEnv.get_manifest()
     except Exception as e:
         logger.error(
-            "failed to load manifest at %s: %s",
+            "Failed to load manifest at %s: %s",
             path,
             str(e),
             exc_info=opts.verbose >= 2,
@@ -1730,7 +1743,7 @@ def start_job(
         errors = list(job._yield_serious_errors(rendered[2]))
     except Exception as e:
         logger.error(
-            "could not create job: %s",
+            "Could not create job: %s",
             str(e),
             exc_info=opts.verbose >= 2,
         )
@@ -1772,6 +1785,7 @@ class Runner:
         self.manifest = manifest
         assert self.manifest.tosca
         self.job = None
+        self.rendered = None
 
     def static_plan(self, jobOptions=None):
         if jobOptions is None:
@@ -1782,12 +1796,14 @@ class Runner:
     def run(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()
+        else:
+            self.job = None
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
         assert self.job
-        rendered, count = _render(self.job)
+        self.rendered, count = _render(self.job)
         if not jobOptions.planOnly:
-            self.job.run(rendered)
+            self.job.run(self.rendered)
         job = self.job
         # only use job once
         self.job = None

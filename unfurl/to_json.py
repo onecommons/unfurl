@@ -123,7 +123,8 @@ def map_constraint(jsonType, constraint, schema):
     if key == "schema":
         return value
     elif key == "pattern":
-        return dict(pattern=value)
+        # value isn't a json type when using rust regex
+        return dict(pattern=constraint.constraint_value_msg)
     elif key == "equal" or (key == "valid_values" and len(value) == 1):
         return dict(const=value)
     elif key == "valid_values":
@@ -1411,12 +1412,10 @@ def get_project_path(repo: GitRepo, server_host: str):
     if server_host:
         # only use the project path if remote matches the cloud server
         cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        # no remote (or remote is not for the cloud server), return local project path
-        project_path = get_local_project_path(repo)
-    return project_path
+        if cloud_remote:
+            return Repo.get_path_for_git_repo(cloud_remote.url, False)
+    # no remote (or remote is not for the cloud server), return local project path
+    return get_local_project_path(repo)
 
 
 def get_local_project_path(repo: GitRepo):
@@ -1802,7 +1801,7 @@ def to_environments(
             continue
         try:
             # reuse the localEnv and use the default manifest so environment instances don't clash with a real deployment
-            localEnv.manifest_context_name = name
+            localEnv.manifest_environment_name = name
             # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
             localEnv._manifests.pop(default_manifest_path, None)
             localEnv.manifestPath = default_manifest_path
@@ -1844,7 +1843,7 @@ def to_deployments(
                 localEnv.project.projectRoot, manifest_path, "ensemble.yaml"
             )
             environment = dp.get("environment") or "defaults"
-            localEnv.manifest_context_name = environment
+            localEnv.manifest_environment_name = environment
             deployments.append(to_deployment(localEnv))
         except Exception:
             logger.error("error exporting deployment %s", manifest_path, exc_info=True)

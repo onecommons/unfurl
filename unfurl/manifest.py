@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     Dict,
     List,
@@ -64,7 +65,7 @@ from .packages import (
     is_semver,
 )
 from .merge import merge_dicts
-from .result import ChangeRecord, ResourceRef
+from .result import ChangeRecord, ResourceRef, _Missing
 from .yamlloader import (
     LoadIncludeAction,
     YamlConfig,
@@ -125,6 +126,15 @@ class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     digestValue: str = ""
     digestKeys: str = ""
     digestPut: str = ""
+    digest_extras: Optional[Dict[str, str]] = None
+    inputs: Optional[Dict[str, Any]] = None
+    changes: Optional[ResourceChanges] = None
+    changed: Optional[bool] = None
+    summary: Optional[str] = None
+
+    @staticmethod
+    def is_digest_key(key: str) -> bool:
+        return key.startswith("digest") and key != "digest"
 
 
 class Manifest(AttributeManager):
@@ -171,24 +181,8 @@ class Manifest(AttributeManager):
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
-        context = self.localEnv.get_context()
-        repositories = {}
-        for key, value in relabel_dict(context, self.localEnv, "repositories").items():
-            if "." in key:  # assume it's a package not a repository name
-                assert isinstance(value, dict)
-                self.package_specs.append(
-                    PackageSpec(key, value.get("url"), value.get("revision"))
-                )
-            else:
-                repositories[key] = value
-        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
-        )
-        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
-            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
-        if env_package_spec:
-            for key, value in taketwo(env_package_spec.split()):
-                self.package_specs.append(PackageSpec(key, value, None))
+        repositories, package_specs = self.localEnv.get_repositories_and_package_specs()
+        self.package_specs.extend(package_specs)
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
@@ -237,14 +231,14 @@ class Manifest(AttributeManager):
             if name not in repositoriesTpl:
                 repositoriesTpl[name] = value
 
-        validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
+        validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
         # make sure this is present
         if "tosca_definitions_version" not in toscaDef:
             toscaDef["tosca_definitions_version"] = TOSCA_VERSION
         api_version = self.apiVersion[len("unfurl/") :]
         if is_semver(api_version):  # old version with non-semver syntax is less strict
-            if validation_mode is None:
-                validation_mode = "types"
+            if "notypecheck" not in validation_mode:
+                validation_mode += " types"
 
             # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
             def replaceStrategy(key, old, new):
@@ -318,9 +312,9 @@ class Manifest(AttributeManager):
     def save_job(self, job) -> Any:
         pass
 
-    def load_error(self, msg: str) -> None:
-        self._load_error = True
-        logger.error(msg, stack_info=get_console_log_level() < logging.INFO)
+    def load_error(self, msg: str, exc_info=None) -> None:
+        self._load_errors = True
+        logger.error(msg, exc_info=exc_info)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None
@@ -397,30 +391,35 @@ class Manifest(AttributeManager):
         )
         assert isinstance(configChange.operation, str)
 
-        configChange.inputs = changeSet.get("inputs")  # type: ignore
-        # 'digestKeys', 'digestValue' but configurator can set more:
+        configChange.inputs = changeSet.get("inputs")
+        configChange.digest_extras = changeSet.get("digest")
         for key in changeSet.keys():
-            if key.startswith("digest"):
+            # 'digestKeys', 'digestValue', 'digestPut' but configurator can set more:
+            if configChange.is_digest_key(key):
                 setattr(configChange, key, changeSet[key])
+
+        configChange.changed = changeSet.get("changed")
+        configChange.summary = changeSet.get("summary")
 
         configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
+            if "expected" in val:
+                value = val["expected"]
+            else:
+                value = _Missing
             configChange.dependencies.append(
                 Dependency(
                     val["ref"],
-                    val.get("expected"),
                     val.get("schema"),
                     val.get("name"),
                     val.get("required"),
-                    val.get("wantList", False),
                     val.get("writeOnly"),
+                    expected_expr=value,
                 )
             )
 
         if "changes" in changeSet:
-            configChange.resourceChanges = self.load_resource_changes(  # type: ignore
-                changeSet["changes"]
-            )
+            configChange.changes = self.load_resource_changes(changeSet["changes"])
 
         configChange.result = changeSet.get("result")  # type: ignore
         configChange.messages = changeSet.get("messages", [])  # type: ignore
@@ -560,7 +559,7 @@ class Manifest(AttributeManager):
 
         return resource
 
-    def _get_last_config_changeset(self, operational):
+    def _get_last_config_job_record(self, operational) -> Optional[ChangeRecordRecord]:
         if not operational.last_config_change:
             return None
         if not self.changeSets:  # XXX load changesets if None
@@ -592,19 +591,30 @@ class Manifest(AttributeManager):
             operational = self.load_status(status)
         if isinstance(templateName, str):
             template = self.load_template(templateName, parent)
-        else:
+        elif templateName:
             # special case inline artifact template
             assert isinstance(templateName, dict)
             assert ctor is ArtifactInstance
-            template = ArtifactSpec(templateName, parent.template)
+            if not templateName.get("name"):
+                templateName["name"] = name
+            try:
+                template = ArtifactSpec(templateName, parent.template)
+            except Exception:
+                self.load_error(
+                    f"Error instantiating inline artifact template {name}",
+                    exc_info=True,
+                )
+                return None
+        else:
+            template = None
 
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:
-                changerecord = self._get_last_config_changeset(operational)
+                changerecord = self._get_last_config_job_record(operational)
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
-        if template is None:
+        if not template:
             self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
@@ -627,6 +637,7 @@ class Manifest(AttributeManager):
         if imported:
             assert isinstance(importName, str)
             instance.imported = importName
+            assert isinstance(instance, NodeInstance)
             self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
         if isinstance(properties, dict):
@@ -634,9 +645,11 @@ class Manifest(AttributeManager):
         return instance
 
     @staticmethod
-    def is_instantiated(resource, checkstatus=True) -> bool:
+    def is_instantiated(resource, checkstatus=True, check_referenced=False) -> bool:
         if "virtual" in resource.template.directives:
             return False
+        if check_referenced and resource.template._isReferencedBy:
+            return True
         if not resource.last_change and (
             not resource.local_status
             or (
@@ -655,24 +668,36 @@ class Manifest(AttributeManager):
 
     def status_summary(self, verbose=False):
         def summary(instance, indent, show_all=True):
-            computed = instance.is_computed()
-            virtual = "virtual" in instance.template.directives
-            concrete = not virtual and not computed
-            status = "" if instance.status is None else instance.status.name
+            obj = SimpleNamespace()
+            obj.computed = instance.is_computed()
+            obj.virtual = "virtual" in instance.template.directives
+            concrete = not obj.virtual and not obj.computed
+            obj.status = "" if instance.status is None else instance.status.name
+            obj.local_status = (
+                "" if instance.local_status is None else instance.local_status.name
+            )
             state = instance.state and instance.state.name or ""
+            obj.created_on = None
+            obj.created_by = None
             if instance.created:
                 if isinstance(instance.created, bool):
                     created = "managed"
                 else:
                     prep = "by" if instance.created.startswith("::") else "on"
                     created = f"created {prep} {instance.created}"
+                    setattr(obj, "created_" + prep, instance.created)
             else:
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
+            setattr(obj, "class", instance.__class__.__name__)
+            obj.name = instance.nested_name
+            obj.key = instance.nested_key
             if verbose:
                 instance_label += f"({instance.template.global_type})"
-            computed_label = " computed " if computed else ""
-            vlabel = " virtual" if virtual else ""
+            obj.type = instance.template.global_type
+            obj.template = instance.template.uri
+            computed_label = " computed " if obj.computed else ""
+            vlabel = " virtual" if obj.virtual else ""
             status = self._show_task_status(instance)
             if concrete or verbose:
                 output.append(
@@ -685,19 +710,21 @@ class Manifest(AttributeManager):
                 )
                 indent += 4
             if isinstance(instance, HasInstancesInstance):
+                obj.children = []
                 for rel in instance.requirements:
-                    summary(rel, indent, False)
+                    obj.children.append(summary(rel, indent, False).__dict__)
                 if getattr(instance.template, "substitution", None) and instance.shadow:
-                    summary(instance.shadow.root, indent)
+                    obj.children.append(summary(instance.shadow.root, indent).__dict__)
                 for child in instance.instances:
-                    summary(child, indent)
+                    obj.children.append(summary(child, indent).__dict__)
                 if verbose:
                     for child in instance.artifacts.values():
-                        summary(child, indent)
+                        obj.children.append(summary(child, indent).__dict__)
+            return obj
 
         output: List[str] = []
-        summary(self.rootResource, 0)
-        return "\n".join(output)
+        obj = summary(self.rootResource, 0)
+        return "\n".join(output), obj.__dict__
 
     def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)
@@ -1101,7 +1128,7 @@ class Manifest(AttributeManager):
         assert "select" in template.directives
         imported = template.entity_tpl.get("imported")
         assert self.imports is not None
-        logger.warning(f"searching for {imported} / {template.name}")
+        logger.debug(f"searching for {imported} / {template.name}")
         if imported:
             _import = self.imports.find_import(imported)
             if not _import:
@@ -1109,8 +1136,14 @@ class Manifest(AttributeManager):
             return cast(NodeInstance, _import.external_instance)
 
         searchAll = []
-        for name, record in self.imports.items():
+        for name, record in self.imports.copy().items():
             external = record.external_instance
+            if not external:
+                assert record.spec
+                # assume this is a YamlManifest
+                self.load_external_ensemble(name, record.spec)  # type: ignore
+                external = self.imports[name].external_instance
+            assert external
             if match(name, external.template, template):
                 template.entity_tpl["imported"] = name
                 self.imports.add_import(name, external)

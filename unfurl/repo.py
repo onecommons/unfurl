@@ -299,7 +299,7 @@ class Repo(abc.ABC):
 
     @staticmethod
     def get_path_for_git_repo(gitUrl: str, name_only=True) -> str:
-        parts = urlparse(gitUrl)
+        parts = urlparse(normalize_git_url(gitUrl))
         if parts.scheme == "git-local":
             # e.g. extract spec from git-local://0cfeee6571c4276ce1a63dc37aa8cbf8b8085d60:spec
             name = parts.netloc.partition(":")[1]
@@ -374,7 +374,7 @@ class Repo(abc.ABC):
         return GitRepo(repo)
 
 
-def commit_secrets(working_dir, yaml, repo: "GitRepo") -> List[Path]:
+def commit_secrets(working_dir, yaml, repo: Optional["GitRepo"]) -> List[Path]:
     vault = yaml and getattr(yaml.representer, "vault", None)
     if not vault or not vault.secrets:
         return []
@@ -391,7 +391,7 @@ def commit_secrets(working_dir, yaml, repo: "GitRepo") -> List[Path]:
 
 
 def find_dirty_secrets(
-    working_dir: str, repo: "GitRepo"
+    working_dir: str, repo: Optional["GitRepo"]
 ) -> Iterator[Tuple[Path, Path]]:
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
@@ -400,7 +400,7 @@ def find_dirty_secrets(
             dotsecrets = Path(root.replace("secrets", ".secrets"))
             filepath = Path(root) / filename
             local_path = str((dotsecrets / filename).relative_to(working_dir))
-            if repo.is_path_excluded(local_path):
+            if repo and repo.is_path_excluded(local_path):
                 continue
             # compare .secrets with secrets
             if (
@@ -570,7 +570,7 @@ class RepoView:
         self._loaded_secrets = not failed
 
     def save_secrets(self) -> List[Path]:
-        return commit_secrets(self.working_dir, self.yaml, assert_not_none(self.repo))
+        return commit_secrets(self.working_dir, self.yaml, self.repo)
 
     def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
         assert not self.read_only

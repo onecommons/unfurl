@@ -68,6 +68,7 @@ if typing.TYPE_CHECKING:
     from .manifest import Manifest
     from .configurator import TaskView, TaskLoggerAdapter
     from .spec import EntitySpec, ToscaSpec
+    from .runtime import EntityInstance
 
 
 class ClassProperty:
@@ -97,6 +98,10 @@ class Folders(str, Enum):
 
     def __str__(self) -> str:
         return str(self.value)
+
+    @classmethod
+    def is_target_relative(cls, name) -> bool:
+        return name in cls.Persistent or name in cls.Job or name == "src"
 
 
 def rename_dir(
@@ -355,14 +360,33 @@ class _ArtifactExternalValue(ExternalValue):
     def get_full_path(self):
         return self.get()
 
-    def as_artifact_tpl(self, instance) -> Dict[str, str]:
-        assert instance.template.spec.import_resolver
-        repo_view = instance.template.spec.import_resolver.manifest.repositories["self"]
-        tpl = dict(
-            file=str(Path(self.get_full_path()).relative_to(repo_view.working_dir)),
-            repository="self",
-        )
-        return tpl
+    def _rel_to(self, template) -> Tuple[str, Optional[str]]:
+        # return a path relative to a repository
+        # returns absolute path and None if can't find a relative location
+        assert template.spec.import_resolver
+        manifest = template.spec.import_resolver.manifest
+        path = ""
+        repository = None
+        for name, repo_view in manifest.repositories.items():
+            if os.path.isabs(repo_view.working_dir):
+                root_path = repo_view.working_dir
+            else:
+                root_path = os.path.abspath(".")  # should only happen in unit tests
+            path = os.path.relpath(self.get_full_path(), root_path)
+            if not path.startswith(".."):
+                repository = name
+                break
+
+        if repository is not None:
+            return path, repository
+        else:
+            return self.get_full_path(), None
+
+    def as_artifact_tpl(self, instance: "EntityInstance") -> Dict[str, str]:
+        file, repository = self._rel_to(instance.template)
+        if repository is None:
+            return dict(file=file)
+        return dict(file=file, repository=repository)
 
 
 class File(_ArtifactExternalValue):
@@ -502,11 +526,33 @@ set_eval_func(
 
 
 class FilePath(_ArtifactExternalValue):
-    def __init__(self, abspath, base_dir="", rel_to=""):
+    def __init__(self, abspath, base_dir="", rel_to="", rel_path=None):
         abspath = str(abspath)  # in case is a pathlib.Path
-        super().__init__("path", os.path.normpath(abspath))
+        super().__init__("abspath", os.path.normpath(abspath))
         self.path = abspath[len(base_dir) + 1 :]
-        self.rel_to = rel_to
+        self.rel_to = rel_to or ""
+        self.rel_path = rel_path
+
+    def as_ref(self, options=None):
+        if options and options.get("resolveExternal"):
+            return super().as_ref(options)
+        if self.rel_to and self.rel_path is not None:
+            if self.rel_path:
+                args = [self.rel_path, self.rel_to]
+            else:
+                return {"eval": dict(get_dir=self.rel_to)}
+        else:
+            args = self.key
+        return {"eval": {self.type: args}}
+
+    def _set_from_artifact(self, file="", repository=""):
+        if repository:
+            self.rel_path = file
+            self.rel_to = repository
+        else:
+            self.path = file
+            self.rel_path = None
+            self.rel_to = ""
 
     MAX_DIGEST_FILE_SIZE = 1024 * 1024
 
@@ -579,7 +625,14 @@ def get_path(ctx, path, relativeTo=None, mkdir=False):
 
 def _abspath(ctx, path, relativeTo=None, mkdir=False):
     abspath, basedir = _get_path(ctx, path, relativeTo, mkdir)
-    return FilePath(abspath, basedir, relativeTo)
+    fp = FilePath(abspath, basedir, relativeTo, path)
+    if not relativeTo or Folders.is_target_relative(relativeTo):
+        # we want to be save a representation relative to a repository, the ensemble or project,
+        # but not to the current resource or an absolute path
+        # and do it now while we have the context
+        if ctx.currentResource.template.spec.import_resolver:
+            fp._set_from_artifact(**fp.as_artifact_tpl(ctx.currentResource))
+    return fp
 
 
 def _getdir(ctx, folder, mkdir=False):
@@ -587,6 +640,7 @@ def _getdir(ctx, folder, mkdir=False):
 
 
 def _map_args(args, ctx):
+    # always return a list
     args = map_value(args, ctx)
     if not isinstance(args, MutableSequence):
         return [args]

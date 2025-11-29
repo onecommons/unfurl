@@ -43,10 +43,11 @@ Extensions
 * artifacts can be declared on node types.
 * add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
 * support ``ANON`` keyword in `get_artifact`
-* add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
+* add ``dependencies`` keyword to artifacts
+* allow interfaces and attributes to be defined on artifact templates.
 * add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
 * add ``input_values`` section to service templates (see `Topology Inputs`).
-* 'implementation' section on interface can declare a full artifact definition
+* ``implementation`` section on interface can declare a full artifact definition or an artifact type.
 * interface output definitions can now include a full parameter definitions and an optional ``mapping`` field to define the mapping.
 * add a ``version`` property constraint for matching `version requirements`
 

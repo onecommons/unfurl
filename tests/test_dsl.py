@@ -640,6 +640,83 @@ topology_template:
     assert yaml_dict == tosca_yaml
 
 
+def test_interface_inputs():
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    task:
+      type: tosca.nodes.Root
+      metadata:
+        module: service_template
+      interfaces:
+        Install:
+          operations:
+            discover:
+              inputs:
+                arg: 1
+"""
+    src, src_tpl = _to_python(yaml_src)
+    # print(src)
+    yaml_dict = _to_yaml(src, False)
+    # yaml.dump(yaml_dict, sys.stdout)
+    # XXX fix missing inputs in conversion:
+    src_tpl["topology_template"]["node_templates"]["task"]["interfaces"]["Install"][
+        "operations"
+    ]["discover"] = None
+    assert yaml_dict == src_tpl, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
+def test_outputs():
+    python_src = """
+import unfurl
+import tosca
+
+class Outputs(tosca.ToscaOutputs):
+    token: str = tosca.Attribute()
+
+class Node(tosca.nodes.Root, Outputs):
+    def create(self) -> Outputs:
+        return unfurl.artifacts.ShellExecutable(
+            file="", command=""
+        ).execute()
+    """
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+node_types:
+  Node:
+    derived_from: tosca.nodes.Root
+    attributes:
+      token:
+        type: string
+        metadata:
+          output_match: Outputs
+    interfaces:
+      Standard:
+        operations:
+          create:
+            metadata:
+              output_match:
+              - Outputs
+            outputs:
+              token:
+                type: string
+            implementation:
+              primary:
+                type: unfurl.artifacts.ShellExecutable
+                properties:
+                  command: ''
+                file: ''
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml
+
+
 def test_node_filter():
     python_src = """
 import unfurl
@@ -860,7 +937,7 @@ def test_class_init() -> None:
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
             cls.set_to_property_source(cls.host, cls.prop1)
-            cls.prop2 = cls.host._name  # XXX tosca_name is shadowed
+            cls.prop2 = cls.host._name
             cls.prop3 = cls._name
 
         def create(self, **kw) -> tosca.artifacts.Root:
@@ -2178,6 +2255,57 @@ def test_typeinfo():
     assert t.simple_types == (dict,)
     assert t.instance_check({"D": {"a": {}}})
     assert not t.instance_check({"D": []})
+
+def test_typeddict():
+    python_src = """
+import unfurl
+import tosca
+import typing
+
+class TypedDictTest(typing.TypedDict):
+    test: str
+
+class Test(tosca.nodes.Root):
+    prop: TypedDictTest
+
+    def configure(self):
+        # ** desugars to self.prop.keys() and raises FieldProjection error
+        return unfurl.configurators.shell.ShellConfigurator(**self.prop)
+
+
+test = Test(prop=TypedDictTest(test="test"))
+    """
+    # XXX convert typeddicts to tosca datatypes?
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    test:
+      type: Test
+      properties:
+        prop:
+          test: test
+      metadata:
+        module: service_template
+node_types:
+  Test:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop:
+        type: map
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            implementation:
+              # this needs to be done at runtime because we don't convert TypedDict keys to TOSCA inputs
+              className: service_template:Test.configure:parse
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
 
 
 if __name__ == "__main__":

@@ -386,11 +386,11 @@ class OperationalInstance(Operational):
 
 
 class _ChildResources(Mapping):
-    def __init__(self, resource):
+    def __init__(self, resource: "HasInstancesInstance"):
         self.resource = resource
 
     def __getitem__(self, key):
-        return self.resource.find_resource(key)
+        return self.resource.find_instance(key)
 
     def __iter__(self):
         return iter(r.name for r in self.resource.get_self_and_descendants())
@@ -632,10 +632,15 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.name
 
     @property
-    def nested_key(self) -> str:
+    def nested_key(self) -> InstanceKey:
+        # key() is relative to a topology (starts with ::)
+        # nested_key() relative to the apex (starts with :::)
         if self.template.topology.substitute_of:
-            return self.template.topology.substitute_of.nested_name + ":" + self.key
-        return self.key
+            return cast(
+                InstanceKey,
+                f":::{self.template.topology.substitute_of.nested_name}:{self.key.lstrip(':')}",
+            )
+        return cast(InstanceKey, ":" + self.key)
 
     @property
     def readonly(self) -> bool:
@@ -644,8 +649,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
     @property
     def apex(self):
         if isinstance(self.root, TopologyInstance):
-            if self.root.parent_topology:  # type: ignore
-                return cast(TopologyInstance, self.root.parent_topology).apex  # type: ignore
+            if self.root.parent_topology:
+                return cast(TopologyInstance, self.root.parent_topology).apex
         return self.root
 
     def validate(self) -> None:
@@ -731,6 +736,10 @@ class HasInstancesInstance(EntityInstance):
 
     # XXX use find_instance instead and remove find_resource
     def find_resource(self, qualified_name) -> Optional["HasInstancesInstance"]:
+        if qualified_name[:1] == ":":
+            return cast(HasInstancesInstance, self.apex).find_resource(
+                qualified_name[1:]
+            )
         resourceid, sep, inner = qualified_name.partition(":")
         if self.name == resourceid:
             if inner:
@@ -768,7 +777,7 @@ class HasInstancesInstance(EntityInstance):
     def get_requirements(
         self,
         match: Union[
-            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance"
+            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance", "RelationshipInstance"
         ],
     ) -> List["RelationshipInstance"]:
         if match is None:
@@ -779,6 +788,8 @@ class HasInstancesInstance(EntityInstance):
             return [r for r in self.requirements if r.target == match]
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
+        elif isinstance(match, RelationshipInstance):
+            return [r for r in self.requirements if r == match]
         elif isinstance(match, ArtifactInstance):
             return []
         else:
@@ -926,29 +937,31 @@ class RelationshipInstance(EntityInstance):
             assert self.source
             default_for = self.source.name
 
+        check_name = True
         if self.root != capability.root:
             # This connection was either imported or the capability is in a nested topology.
             # Check if the default_for target node is visible, either because it was imported or because it was mapped to the nested topology
-            # If it isn't visible, treat as a generic default connection (ANY), this way a manifest or root topology can expose connections while maintaining encapsulation.
             # if the default_for target was a top-level import don't switch to ANY
             if not self.root.imports or default_for not in self.root.imports:
                 nested = cast(
                     TopologySpec, capability.root.template
                 ).get_inner_node_replaced_by_outer_node(default_for)
-                default_for = nested.name if nested else RelationshipSpec.ANY
+                if nested:
+                    default_for = nested.name
+                else:
+                    check_name = False
 
-        if default_for == RelationshipSpec.ANY and capability.name == "feature":
-            # XXX get_matching_capabilities() buggy in this case
-            return True  # optimization
         # XXX defaultFor might be type, resolve to global
         if (
             default_for == RelationshipSpec.ANY
-            or default_for == nodeTemplate.name
             or nodeTemplate.is_derived_from(default_for)
-            or default_for == capability.name
             or capability.template.toscaEntityTemplate.is_derived_from(default_for)
         ):
             return True
+
+        if check_name:
+            if default_for == nodeTemplate.name or default_for == capability.name:
+                return True
 
         return False
 
@@ -1240,9 +1253,6 @@ class NodeInstance(HasInstancesInstance):
             for rel in cap.relationships:
                 if rel.source:
                     if id(rel.source) in seen:
-                        logger.debug(
-                            f"Circular operational dependency during configured_by in {seen}"
-                        )
                         continue
                     seen[id(rel.source)] = rel.source
 
@@ -1260,9 +1270,6 @@ class NodeInstance(HasInstancesInstance):
         for rel in self.requirements:
             if rel.target:
                 if id(rel.target) in seen:
-                    logger.debug(
-                        f"Circular operational dependency during hosting_on in {seen}"
-                    )
                     continue
                 seen[id(rel.target)] = rel.target
 

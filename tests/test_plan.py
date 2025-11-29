@@ -207,7 +207,7 @@ def test_plan(local_storage_status, compute_status, total, expected_errors, mock
                 "template": "my_block_storage",
                 "type": "Volume",
                 "targetStatus": "pending" if compute_status == "error" else "ok",
-                "targetState": "creating" if compute_status == "error" else "created",
+                "targetState": None if compute_status == "error" else "created",
                 "changed": False if compute_status == "error" else True,
                 "configurator": "unfurl.configurators.shell.ShellConfigurator",
                 "priority": "required",

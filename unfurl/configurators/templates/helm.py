@@ -138,7 +138,7 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
             helmcmd="status",
             dryrun="--dry-run",
             chart="",
-            chart_values="",
+            chart_values={},
         )
 
     def discover(self, **kw: Any) -> Any:
@@ -146,7 +146,7 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
             helmcmd="list",
             dryrun="--dry-run",
             chart="",
-            chart_values="",
+            chart_values={},
             resultTemplate=Eval(
                 r"""\
 {%if returncode == 0 %}
@@ -218,8 +218,8 @@ class unfurl_nodes_HelmRelease(unfurl.nodes.Installation, unfurl_interfaces_Helm
                         "template": r"""\
 helm uninstall {{ "release_name" | eval }}
   {% if SELF.namespace %}--namespace {{ SELF.namespace }}{% endif -%}
-  {% if task.verbose > 0 %} --debug{%endif -%}
-  {% if task.timeout %} --timeout {{task.timeout}}{%endif -%}
+  {% if task.verbose > 0 %}{{" --debug" | inert}}{%endif -%}
+  {% if task.timeout %} --timeout {{task.timeout | inert}}{%endif -%}
   {% if inputs.flags is defined -%}
     {% for flag, value in inputs.flags.items() %}
       --{{flag}} {%if value is not none %}"{{ value | quote }}"{% endif %}
@@ -281,7 +281,7 @@ helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json
   {% if inputs.chart_values | default('', true) %}
   --values {{ valuesfile }}
   {% endif %}
-  {% if task.verbose > 0 %}--debug{%endif%}
+  {% if task.verbose > 0 %}{{" --debug" | inert}}{%endif%}
   {% if task.timeout %}--timeout {{task.timeout}}{%endif%}
   {% if 'upgrade' in inputs.helmcmd %}--reuse-values{%endif%}
   {% if inputs.flags is defined -%}
@@ -294,7 +294,7 @@ helm {{inputs.helmcmd}} {{inputs.release_name}} {{inputs.chart }} -o json
                     "vars": {
                         "valuesfile": {
                             "eval": {
-                                "file": '{{ "values.yaml" | ' 'abspath("tasks") }}',
+                                "file": '{{ "values.yaml" | abspath("tasks") }}',
                                 "contents": {"eval": "$inputs::chart_values"},
                             },
                             "select": "path",

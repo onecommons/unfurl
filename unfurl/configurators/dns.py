@@ -15,7 +15,9 @@ except ImportError:
     _natsort_key = None  # type: ignore
 
 from ..configurator import Configurator, TaskView
+from ..planrequests import ConfigurationSpecKeywords
 from ..projectpaths import WorkFolder
+from ..spec import EntitySpec
 from ..support import Status
 from ..runtime import NodeInstance
 
@@ -113,7 +115,9 @@ class DNSConfigurator(Configurator):
         return True
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template):
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         if _natsort_key is None:
             artifact = template.find_or_create_artifact("octodns", predefined=True)
             if artifact:

@@ -428,7 +428,13 @@ allJobOptions = option_group(
         type=click.Tuple([str, str]),
         multiple=True,
         metavar="NAME VALUE",
-        help="name/value pair to pass to job (multiple times ok).",
+        help="Name/value pair to pass to job (multiple times ok).",
+    ),
+    click.option(
+        "--skip-local-install",
+        default=False,
+        is_flag=True,
+        help="Don't install local artifacts.",
     ),
     rich_group="Generic Job Options",
 )
@@ -442,7 +448,7 @@ destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
     default=False,
     is_flag=True,
-    help="include unmanaged instances for consideration when destroying",
+    help="Include unmanaged instances for consideration when destroying",
 )
 
 
@@ -816,7 +822,7 @@ deployFilterOptions = option_group(
         "--check",
         default=False,
         is_flag=True,
-        help="check if new instances exist before deploying",
+        help="Check if new instances exist before deploying",
     ),
     rich_group=job_filter_group_label,
 )
@@ -910,7 +916,7 @@ def stop(ctx: Context, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @deployFilterOptions
-@click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
+@click.option("--workflow", default="deploy", help="Plan workflow (default: deploy)")
 @click.option(
     "--dryrun",
     default=False,
@@ -1301,16 +1307,18 @@ def _validate_var_option(vars):
     type=click.Path(exists=True),
     help='Path to project or ensemble (default: ".")',
 )
-@click.argument("gitargs", nargs=-1)
-def git(ctx, gitargs, dir="."):
+@click.argument("git_command", nargs=-1)
+def git(ctx, git_command, dir="."):
     """
-    unfurl git [git command] [git command arguments]: Run the given git command on each project repository.
+    Run the given git command line on each project repository.
     """
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
             os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.repo
-            for repo in localEnv.get_manifest().repositories.values()
+            for repo in localEnv.get_manifest(
+                skip_validation=True
+            ).repositories.values()
             if repo.repo
         }
     elif localEnv.project and localEnv.project.project_repoview.repo:
@@ -1327,8 +1335,8 @@ def git(ctx, gitargs, dir="."):
         repo = repos[working_dir]
         if working_dir != ".":
             working_dir = "./" + working_dir
-        click.echo(f"*** Running 'git {' '.join(gitargs)}' in '{working_dir}'")
-        _status, stdout, stderr = repo.run_cmd(gitargs)
+        click.echo(f"*** Running 'git {' '.join(git_command)}' in '{working_dir}'")
+        _status, stdout, stderr = repo.run_cmd(git_command)
         click.echo(stdout + "\n")
         if stderr.strip():
             click.secho(stderr + "\n", fg="red")
@@ -1368,7 +1376,7 @@ def get_commit_message(committer, default_message):
 @project_cli.command()
 @click.pass_context
 @click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
-@click.option("-m", "--message", help="commit message to use")
+@click.option("-m", "--message", help="Commit message to use")
 @click.option(
     "--no-edit",
     default=False,
@@ -1397,7 +1405,13 @@ def get_commit_message(committer, default_message):
     "--save-secrets-only",
     default=False,
     is_flag=True,
-    help='Encrypt secret files to ".secrets" directories instead of committing.',
+    help='Only encrypt secret files to ".secrets" directories (skip commit).',
+)
+@click.option(
+    "--update-repositories-only",
+    default=False,
+    is_flag=True,
+    help="Only check git remotes and update repository YAML (skip commit).",
 )
 def commit(
     ctx,
@@ -1407,6 +1421,7 @@ def commit(
     no_edit,
     all_repositories,
     save_secrets_only,
+    update_repositories_only,
     **options,
 ):
     """Commit any changes to the given project or ensemble."""
@@ -1415,32 +1430,57 @@ def commit(
         project_or_ensemble_path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
-    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(
-        localEnv.manifestPath
+    logger = logging.getLogger("unfurl")
+    if localEnv.manifestPath and (
+        all_repositories
+        or not localEnv.project
+        or len(os.path.abspath(project_or_ensemble_path))
+        >= len(localEnv.project.projectRoot)
     ):
-        ensemble = localEnv.get_manifest()
+        ensemble = localEnv.get_manifest(skip_validation=True)
         default_commit_message = ensemble.get_default_commit_message()
         if all_repositories:
             committer: Committer = ensemble
         else:
             committer = ensemble.repositories["self"]
     else:
+        # otherwise commit the project repository
+        ensemble = None
         default_commit_message = "Commit by Unfurl"
-        # otherwise commit the whole project
         if all_repositories:
             click.echo("aborting: --all-repositories requires an ensemble path")
             return
         else:
             assert localEnv.project
             committer = localEnv.project.project_repoview
+            if (
+                localEnv.manifestPath
+                and committer.repo
+                and committer.repo.find_repo_path(localEnv.manifestPath)
+            ):
+                # ensemble is in the project repository
+                ensemble = localEnv.get_manifest(skip_validation=True)
 
     # stage changes before invoking the commit editor
     saved = committer.save_secrets()  # saves but doesn't stage
-    if save_secrets_only:
+    if save_secrets_only and not update_repositories_only:
         click.echo(f"Updated {len(saved)} secret files.")
         return
+
+    if ensemble:
+        # update local repositories if a git remote url was added
+        changed = ensemble.update_repositories()
+        # should update lock too
+        if changed:
+            if "lock" in ensemble.manifest.config:
+                ensemble.save_lock()  # update the lock too
+            logger.info("Updated repositories with new git remote url")
+            ensemble.manifest.save()
+    if update_repositories_only:
+        return
+
     if not skip_add:
         committer.add_all()
 
@@ -1456,11 +1496,11 @@ def commit(
     click.echo(f"Committed to {committed} repositories.")
 
 
-def _stub_resolver(doc):
+def _stub_resolver(doc, local_env=None):
     from .manifest import Manifest
     from .yamlloader import ImportResolver
 
-    dummy_manifest = Manifest(None)
+    dummy_manifest = Manifest(None, local_env)
     # create package rules for importing built-in unfurl packages:
     dummy_manifest._set_builtin_repositories()
     repositories = dummy_manifest.repositories_as_tpl()
@@ -1594,7 +1634,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         local_env = LocalEnv(
             path,
             options.get("home"),
-            override_context=options.get("use_environment") or "",
+            override_environment=options.get("use_environment") or "",
             readonly=True,
         )
     except Exception:
@@ -1637,23 +1677,35 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     help="Use this environment.",
     metavar="NAME",
 )
-def status(ctx, ensemble, **options):
+@click.option(
+    "--output",
+    type=click.Choice(["text", "json", "none"]),
+    default="text",
+    help="Format of status output (default: text)",
+)
+def status(ctx, ensemble, output="text", **options):
     """Show the status of deployed resources in the given ensemble.\n
     (Use global -v for verbose display.)"""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         ensemble,
         options.get("home"),
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
         readonly=True,
     )
     logger = logging.getLogger("unfurl")
     # report validation errors instead of aborting
     manifest = localEnv.get_manifest(skip_validation=True)
     verbose = ctx.obj["verbose"] > 0
-    summary = manifest.status_summary(verbose)
-    vstr = " (verbose) " if verbose else ""
-    logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+    if output != "none":
+        as_json = output == "json"
+        summary, summary_json = manifest.status_summary(verbose or as_json)
+        vstr = " (verbose) " if verbose else ""
+        if output == "text":
+            logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+        if as_json:
+            text = json.dumps(summary_json, indent=2)
+            click.echo(text)
     query = options.get("query")
     if query:
         trace = options.get("trace")
@@ -1684,10 +1736,12 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         project_or_ensemble_path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest(
+            skip_validation=True
+        )
     else:
         assert localEnv.project
         committer = localEnv.project.project_repoview
@@ -1744,7 +1798,9 @@ def validate(ctx, path, **options):
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
             from tosca.python2yaml import python_src_to_yaml_obj
+            from tosca.loader import install
 
+            install(_stub_resolver({}, localEnv), os.path.dirname(path))
             with open(path) as f:
                 python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
         elif e.doc and "tosca_definitions_version" in e.doc:
@@ -1998,7 +2054,7 @@ def cloudmap(
     else:
         changed = False
     if options.get("export") or sync:
-        cloud_map.to_host(host, changed, force)
+        cloud_map.to_host(host, changed, force, bool(sync))
 
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")

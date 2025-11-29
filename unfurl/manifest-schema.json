@@ -80,7 +80,8 @@
           "$ref": "#/definitions/attributes"
         },
         "defaultProject": {
-          "type": "string"
+          "type": "string",
+          "description": "The name of the project to place ensembles using this environment in, or SELF to indicate this project"
         },
         "name": {
           "type": "string"

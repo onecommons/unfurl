@@ -1,0 +1,53 @@
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    my_template:
+      type: MyNode
+    __global_artifacts:  
+      # Artifacts defined in node templates of type unfurl.nodes.LocalRepository 
+      # can be set as the implementation of any operation in the service template.
+      # The Python DSL adds a __global_artifacts template when there are top-level artifacts 
+      # that are not referenced by a node template.
+      type: unfurl.nodes.LocalRepository
+      artifacts:
+        aws_implementation:
+          type: AWSArtifact
+          file: ''
+        default_implementation:
+          type: MyArtifact
+          file: ''
+artifact_types:
+  AbstractArtifact:
+    derived_from: unfurl.artifacts.Executable
+  MyArtifact:
+    derived_from: AbstractArtifact
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+        operations:
+          execute:
+            implementation:
+              className: docs.examples.artifact4:MyArtifact.do_default_stuff:run
+  AWSArtifact:
+    derived_from: AbstractArtifact
+    interfaces:
+      Executable:
+        type: unfurl.interfaces.Executable
+        requirements:
+        - unfurl.relationships.ConnectsTo.AWSAccount
+        operations:
+          execute:
+            implementation:
+              className: docs.examples.artifact4:AWSArtifact.do_aws_stuff:run
+node_types:
+  MyNode:
+    derived_from: tosca.nodes.Root
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            implementation:
+              primary:  
+                # setting only an artifact type in an implementation will match any available artifact of that type.
+                # it is an error if more than one artifact matches.                
+                type: AbstractArtifact

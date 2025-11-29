@@ -14,7 +14,7 @@ from ..to_json import get_project_path
 
 from ..logs import getLogger
 
-from ..repo import GitRepo
+from ..repo import GitRepo, normalize_git_url
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
@@ -103,7 +103,7 @@ def serve_document(
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
     if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
-        parsed = urlparse(localrepo.remote.url)
+        parsed = urlparse(normalize_git_url(localrepo.remote.url))
         [user, _, *_] = re.split(r"[@:]", parsed.netloc)
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:
@@ -219,7 +219,9 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Gi
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
     try:
-        repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+        repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
+            url
+        )
     except UnfurlError:  # we probably want to treat clone errors as not found
         logger.warning("could not find or clone %s", url, exc_info=True)
         repo_view = None

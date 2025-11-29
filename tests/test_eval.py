@@ -155,14 +155,22 @@ class EvalTest(unittest.TestCase):
 
     def test_last_resource(self):
         parent = NodeInstance("parent")
-        self._getTestResource(parent=parent)
-        NodeInstance("another_child", parent=parent)
+        test_instance = self._getTestResource(parent=parent)
+        child = NodeInstance("another_child", parent=parent)
         ref = Ref(".::.instances::x::c")
         ctx = RefContext(parent, trace=0)
-        # index = ctx.referenced.start()
         result = ref.resolve(ctx)
-        assert (ctx._lastResource.name) == "parent"
+        last = ctx._lastResource
+        assert last.name == "parent"
         assert result == [5, 6]
+
+        assert [test_instance, child] == ref.resolve(
+            RefContext(parent), wantList="instance"
+        )
+        assert parent.root is parent
+        assert [test_instance] == Ref(":::test::s::s::b::1").resolve(
+            SafeRefContext(parent, trace=2), wantList="instance"
+        )
 
     def test_funcs(self):
         resource = self._getTestResource()
@@ -735,10 +743,16 @@ foo
 
         ctx2 = ctx.copy(wantList="result")
         result = map_value(asTemplate, ctx2)
-        self.assertIs(result.external, singleton)
+        self.assertIs(result[0].external, singleton)
 
         result = map_value("transformed " + asTemplate, ctx2)
-        self.assertEqual(result, "transformed test")
+        self.assertEqual(result[0], "transformed test")
+
+        result = map_value(dict(eval=expr.source), ctx2)
+        self.assertIs(result[0].external, singleton)
+
+        mapped = ResultsMap._map_value(dict(eval=".::b"), ctx)
+        assert mapped == [1, 2, 3]
 
     def test_to_env(self):
         from unfurl.yamlloader import make_yaml

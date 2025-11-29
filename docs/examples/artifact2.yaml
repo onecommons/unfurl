@@ -6,8 +6,6 @@ topology_template:
       properties:
         prop1: foo
         prop2: 1
-      metadata:
-        module: docs.examples.artifact2
 artifact_types:
   MyArtifact:
     derived_from: unfurl.artifacts.ShellExecutable

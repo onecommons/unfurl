@@ -62,6 +62,7 @@ manifestContent = """\
                     resultTemplate:
                       - name: managed
                         template: discovered
+                        parent: .self
                         # status is set, so create and delete operations won't be invoked
                         readyState: ok
                       - name: unmanaged
@@ -207,8 +208,8 @@ class UndeployTest(unittest.TestCase):
             {
                 "id": "A01140000000",
                 "status": "ok",
-                "total": 5,
-                "ok": 5,
+                "total": 4,
+                "ok": 4,
                 "error": 0,
                 "unknown": 0,
                 "skipped": 0,
@@ -447,9 +448,11 @@ def test_delete_failed_node():
     STEPS = (
         Step("deploy", Status.error, changed=1),
         Step("undeploy", Status.absent, changed=1),
+        Step("undeploy", Status.absent, changed=0, total=0),
     )
     manifest = YamlManifest(manifest_delete_failed_node)
-    list(lifecycle(manifest, STEPS))
+    steps = list(lifecycle(manifest, STEPS))
+    assert len(steps[-1]._json_plan_summary()) == 0
 
 
 manifest_dependent = """\

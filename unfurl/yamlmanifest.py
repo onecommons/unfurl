@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 """Loads and saves a ensemble manifest."""
 
+import glob
 import io
 import json
 from typing import (
@@ -61,11 +62,13 @@ from .runtime import (
     NodeInstance,
     TopologyInstance,
     RelationshipInstance,
+    InstanceKey,
 )
 from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
+from .repo import normalize_git_url
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from ansible.parsing.dataloader import DataLoader
@@ -73,6 +76,7 @@ from toscaparser.utils.validateutils import validate_version
 
 if TYPE_CHECKING:
     from .job import Job, ConfigTask
+    from .configurator import Dependency
 
 logger = getLogger("unfurl")
 
@@ -96,13 +100,13 @@ def save_config_spec(spec):
     return saved
 
 
-def save_dependency(dep):
+def save_dependency(dep: "Dependency"):
     saved = CommentedMap()
     if dep.name and dep.name != dep.expr:
         saved["name"] = dep.name
     saved["ref"] = dep.expr
     if dep.expected is not None:
-        saved["expected"] = serialize_value(dep.expected)
+        saved["expected"] = serialize_value(dep.expected, inert=True)
     if dep.schema is not None:
         saved["schema"] = dep.schema
     if dep.required:
@@ -199,7 +203,7 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
     if task.previousId:
         output["previousId"] = task.previousId
     if task.target:
-        output["target"] = task.target.key
+        output["target"] = task.target.nested_key
     save_status(task, output)
     output["implementation"] = save_config_spec(task.configSpec)
     if task.reason:
@@ -216,7 +220,9 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
         output["changes"] = changes
     if task.messages:
         output["messages"] = task.messages
-    dependencies = [save_dependency(val) for val in task.dependencies]
+    dependencies = [
+        save_dependency(cast("Dependency", val)) for val in task.dependencies
+    ]
     if dependencies:
         output["dependencies"] = dependencies
     try:
@@ -227,7 +233,12 @@ def save_task(task: "ConfigTask", skip_result=False) -> CommentedMap:
                 output["result"] = save_result(task.result.result)
         else:
             output["result"] = "skipped"
-        output.update(task.configurator.save_digest(task))
+        digest = task.configurator.save_digest(task)
+        for key in list(digest):
+            # save these at top level for backwards compatibility
+            if ChangeRecordRecord.is_digest_key(key):
+                output[key] = digest.pop(key)
+        output["digest"] = digest
     except Exception:
         logger.error("Error while saving task %s", task, exc_info=True)
     output["changed"] = task.modified_target
@@ -389,7 +400,6 @@ class ReadOnlyManifest(Manifest):
     def dump(self, out=sys.stdout):
         self.manifest.dump(out)
 
-
 def clone(localEnv: LocalEnv, destPath) -> ReadOnlyManifest:
     clone = ReadOnlyManifest(localEnv=localEnv)
     config = cast(dict, clone.manifest.config)
@@ -442,7 +452,8 @@ class YamlManifest(ReadOnlyManifest):
         manifest = self.manifest.expanded
         if self.manifest.path:
             self.lockfilepath = self.manifest.path + ".lock"
-        spec = manifest.get("spec", {})
+        spec_key = "spec"
+        spec = manifest.get(spec_key, {})
         # load_env_instances is only set when exporting environments
         # otherwise don't include environment instances in the environment
         load_env_instances = self.localEnv and self.localEnv.overrides.get(
@@ -455,7 +466,7 @@ class YamlManifest(ReadOnlyManifest):
             if (
                 not deployment_blueprint
                 and localEnv
-                and localEnv.manifest_context_name != "defaults"
+                and localEnv.manifest_environment_name != "defaults"
             ):
                 deployment_blueprint = _match_deployment_blueprints(
                     deployment_blueprints, self.context
@@ -475,7 +486,7 @@ class YamlManifest(ReadOnlyManifest):
         # note: external "localhost" is defined in UNFURL_HOME's context by convention
         connections = []
         for name, value in importsSpec.items():
-            connections.extend(self.load_external_ensemble(name, value))
+            connections.extend(self.maybe_load_external_ensemble(name, value))
         self.imports.connections = connections
 
         if self.context.get("instances") and load_env_instances:
@@ -488,10 +499,10 @@ class YamlManifest(ReadOnlyManifest):
             self._load_resource_templates(
                 env_instances, spec.setdefault("instances", {}), True
             )
-        self._set_spec(spec, more_spec, skip_validation, "spec")
+        self._set_spec(spec, more_spec, skip_validation, spec_key)
         assert self.tosca
         if self.localEnv:
-            msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_context_name}"'
+            msg = f'Loading ensemble "{self.path}" in environment "{self.localEnv.manifest_environment_name}"'
             if self.tosca.topology and self.tosca.topology.primary_provider:
                 msg += f' with a primary_provider of type "{self.tosca.topology.primary_provider.type}"'
             logger.info(msg)
@@ -520,7 +531,13 @@ class YamlManifest(ReadOnlyManifest):
                     instance_tpl["readyState"] = "ok"
                 create_instance_from_spec(self, rootResource, name, instance_tpl)
 
-        if self._load_errors and not skip_validation:
+        if (
+            self._load_errors
+            and not skip_validation
+            and (mode := os.getenv("UNFURL_VALIDATION_MODE"))
+            and mode is not None
+            and "strict_load" in mode
+        ):
             raise UnfurlValidationError(
                 "Error loading ensemble, see logs for errors",
             )
@@ -704,6 +721,15 @@ class YamlManifest(ReadOnlyManifest):
             tosca["imports"] = imports
         return tosca
 
+    def maybe_load_external_ensemble(
+        self, name: str, value: Dict[str, Any]
+    ) -> List["RelationshipInstance"]:
+        if not value.get("connections") and not value.get("instance"):
+            # if not explicitly referencing a connection or instance defer loading manifest until a template references it
+            self.imports.add_import(name, None, value)
+            return []
+        return self.load_external_ensemble(name, value)
+
     def load_external_ensemble(
         self, name: str, value: Dict[str, Any]
     ) -> List["RelationshipInstance"]:
@@ -745,7 +771,7 @@ class YamlManifest(ReadOnlyManifest):
             localEnv = LocalEnv(
                 path,
                 parent=self.localEnv,
-                override_context=location.get("environment", ""),
+                override_environment=location.get("environment", ""),
             )
             if self.is_path_to_self(localEnv.manifestPath):
                 # don't import self (might happen when context is shared)
@@ -835,7 +861,8 @@ class YamlManifest(ReadOnlyManifest):
         lfs_lock_path = lock.get("name")
         if lfs_lock_path and self.localEnv:
             lock_vars = dict(
-                environment=self.localEnv.manifest_context_name, ensemble_uri=self.uri
+                environment=self.localEnv.manifest_environment_name,
+                ensemble_uri=self.uri,
             )
             if self.repo:
                 lock_vars["local_lock_path"] = os.path.relpath(
@@ -918,7 +945,9 @@ class YamlManifest(ReadOnlyManifest):
             return file_path + "#" + self.tosca.fragment
         return file_path
 
-    def find_last_operation(self, target, operation) -> Optional[ChangeRecordRecord]:
+    def find_last_operation(
+        self, target: EntityInstance, operation: str
+    ) -> Optional[ChangeRecordRecord]:
         if self._operationIndex is None:
             operationIndex: Dict[Tuple[str, str], str] = {}
             if self.changeSets:
@@ -931,7 +960,9 @@ class YamlManifest(ReadOnlyManifest):
                     if last < change.changeId:
                         operationIndex[key] = change.changeId
             self._operationIndex = operationIndex
-        changeId = self._operationIndex.get((target, operation))
+        changeId = self._operationIndex.get((target.nested_key, operation))
+        if changeId is None:  # backward compatibility
+            changeId = self._operationIndex.get((target.key, operation))
         if changeId is not None and self.changeSets:
             return self.changeSets[changeId]
         return None
@@ -983,10 +1014,10 @@ class YamlManifest(ReadOnlyManifest):
         return {name: status}
 
     def _save_entity_if_instantiated(
-        self, resource, checkstatus=True
+        self, resource, checkstatus=True, check_referenced=False
     ) -> Optional[Tuple[str, Dict]]:
         try:
-            if not self.is_instantiated(resource, checkstatus):
+            if not self.is_instantiated(resource, checkstatus, check_referenced):
                 # no reason to serialize entities that haven't been instantiated
                 return None
             return self.save_entity_instance(resource)
@@ -1005,7 +1036,7 @@ class YamlManifest(ReadOnlyManifest):
             or "default" in resource.template.directives
             or resource.template.toscaEntityTemplate.is_replaced_by_outer()
         )
-        ret = self._save_entity_if_instantiated(resource, checkstatus)
+        ret = self._save_entity_if_instantiated(resource, checkstatus, True)
         if not ret:
             return ret
         name, status = ret
@@ -1125,6 +1156,34 @@ class YamlManifest(ReadOnlyManifest):
         output["specDigest"] = self.specDigest
         return save_status(job, output)
 
+    def update_repositories(self) -> bool:
+        # update repositories if a git remote url was added or changed
+        changed = False
+        repositories = self._get_repositories(self.manifest.config)
+        for name, tpl in repositories.items():
+            url = tpl.get("url")
+            repo_view = self.repositories.get(name)
+            if repo_view and repo_view.repo:
+                if not url or not repo_view.repo.find_remote(url=url):
+                    new_url = normalize_git_url(repo_view.repo.url)
+                    logger.verbose(
+                        "updating repository %s's url from %s to %s",
+                        name,
+                        url,
+                        new_url,
+                    )
+                    tpl["url"] = new_url
+                    changed = True
+        return changed
+
+    def save_lock(self):
+        # modify original to preserve structure and comments
+        lock = Lock(self).lock()
+        if not self.manifest.config.get("lock"):
+            self.manifest.config["lock"] = lock
+        else:
+            patch_dict(self.manifest.config["lock"], lock)
+
     def save_job(
         self, job: "Job"
     ) -> Tuple[CommentedMap, List[CommentedMap], List[CommentedMap]]:
@@ -1132,8 +1191,9 @@ class YamlManifest(ReadOnlyManifest):
         assert self.rootResource
         new_status = self.save_root_resource(self.rootResource, discovered)
         # update changed with includes, this may change objects with references to these objects
-        self.manifest.restore_includes(new_status)
+        # self.manifest.restore_includes(new_status) # FIXME
         assert self.manifest.config
+        self.update_repositories()
         # only saved discovered templates that are still referenced
         spec = self.manifest.config.setdefault("spec", {})
         old_discovered = spec.pop("discovered", None) or {}
@@ -1141,14 +1201,7 @@ class YamlManifest(ReadOnlyManifest):
         if discovered:
             spec["discovered"] = discovered
 
-        # modify original to preserve structure and comments
-        lock = Lock(self).lock()
-        if "lock" not in self.manifest.config:
-            self.manifest.config["lock"] = {}
-        if not self.manifest.config["lock"]:
-            self.manifest.config["lock"] = lock
-        else:
-            patch_dict(self.manifest.config["lock"], lock)
+        self.save_lock()
 
         # modify original to preserve structure and comments
         if "status" not in self.manifest.config:
@@ -1161,7 +1214,7 @@ class YamlManifest(ReadOnlyManifest):
         jobRecord = self.save_job_record(job)
         if job.workDone:
             # don't save result.results into this yaml, it might contain sensitive data
-            exclude_result = not self.changeLogPath and not job.dry_run
+            exclude_result = not self.changeLogPath and not job.save_as_dry_run()
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
@@ -1183,7 +1236,7 @@ class YamlManifest(ReadOnlyManifest):
         if output:
             self.dump(output)
         else:
-            if job.dry_run and job.jobOptions.skip_save != "never":
+            if job.save_as_dry_run():
                 dry_run_ensemble_path = job.log_path("planned", ".ensemble.yaml")
                 logger.info(
                     "saving copy of ensemble as modified by this dry run to %s",
@@ -1208,7 +1261,7 @@ class YamlManifest(ReadOnlyManifest):
         self, job: "Job", jobRecord: CommentedMap, changed: bool
     ) -> None:
         # only save lastJob in manifest if something changed or dryrun
-        if job.dry_run:
+        if job.save_as_dry_run():
             jobLogPath = job.log_path("planned", ".yaml")
             self.manifest.config["lastJob"] = jobRecord
         elif changed:
@@ -1227,7 +1280,7 @@ class YamlManifest(ReadOnlyManifest):
             logger.info("job run didn't make any changes; nothing to commit")
             return
 
-        not_modified = job.dry_run or not committed_changes
+        not_modified = job.save_as_dry_run() or not committed_changes
         if self.changeLogPath:
             jobLogPath = os.path.join(self.get_base_dir(), jobRecord["changelog"])
             if not_modified:
@@ -1281,7 +1334,13 @@ class YamlManifest(ReadOnlyManifest):
         saved: List[Path] = []
         for repository in self.repositories.values():
             if not repository.read_only:
-                saved.extend(repository.save_secrets())
+                more = repository.save_secrets()
+                if more and not repository.repo:
+                    logger.warning(
+                        "encrypted secrets in %s which is not in a git repository",
+                        repository.working_dir,
+                    )
+                saved.extend(more)
         return saved
 
     def commit(
@@ -1326,7 +1385,31 @@ class YamlManifest(ReadOnlyManifest):
         fileName = prefix + "job" + startTime + suffix + ext
         return os.path.join(self.get_base_dir(), folder_name, fileName)
 
+    @cache
+    def _load_job(self, changeId, folder, ext):
+        pattern = self.get_job_log_path("*-" + changeId, folder, ext)
+        paths = glob.glob(pattern)
+        if not paths:
+            logger.warning("job.yaml not found %s", pattern)
+            return None
+        logger.verbose("loading job.yaml %s", paths[0])
+        with open(paths[0]) as job_file:
+            return load_yaml(self.manifest.yaml, job_file.read(), None, True)
+
+    def load_full_change_record(
+        self, c: ChangeRecordRecord, folder="changes", ext=".yaml"
+    ) -> Optional[ChangeRecordRecord]:
+        if self.manifest.expanded.get("changes"):
+            return c  # yaml already has the full change record
+        job_yaml = self._load_job(c.changeId[:-4], folder, ext)
+        if job_yaml:
+            for changeSet in job_yaml["changes"]:
+                if changeSet["changeId"] == c.changeId:
+                    return self.load_config_change(changeSet)
+        return None
+
     def _append_log(self, job, jobRecord, changes, job_path, folder):
+        # append jobs.tsv
         if not changes:
             return
         log_path = self.get_change_log_path(folder)
@@ -1365,7 +1448,7 @@ class YamlManifest(ReadOnlyManifest):
                     changed=change["changed"],
                 )
                 for key in change.keys():
-                    if key.startswith("digest"):
+                    if ChangeRecordRecord.is_digest_key(key):
                         attrs[key] = change[key]
                 attrs["summary"] = change["summary"]
                 line = ChangeRecordRecord.format_log(change["changeId"], attrs)

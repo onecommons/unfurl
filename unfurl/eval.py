@@ -94,10 +94,11 @@ def map_value(
 def _map_value(
     value: Any,
     ctx: "RefContext",
-    wantList: Union[bool, Literal["result"]] = False,
+    wantList: Union[bool, Literal["result"], Literal["instance"]] = False,
     applyTemplates: bool = True,
     flatten=False,
-) -> Any:
+) -> Union[Any, List[Result]]:
+    # embedded expressions are evaluated using wantList (not ctx.wantList)
     from .support import is_template, apply_template
 
     if isinstance(value, quoted_dict):
@@ -121,7 +122,7 @@ def _map_value(
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
         if flatten:
-            result = []
+            result: List[Any] = []
             for item in value:
                 item_val = _map_value(item, ctx, wantList, applyTemplates)
                 if isinstance(item_val, list):
@@ -132,7 +133,9 @@ def _map_value(
         else:
             return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
-        return apply_template(value, ctx.copy(wantList=wantList))
+        value = apply_template(value, ctx.copy(wantList=wantList))
+        if wantList == "result":
+            return [Result(value)]
     return value
 
 
@@ -181,13 +184,13 @@ class RefContext:
     DefaultTraceLevel = 0
     _Funcs: Dict = {}
     currentFunc: Optional[str] = None
+    deep: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = False,
-        resolveExternal: bool = False,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
         task: Optional["TaskView"] = None,
@@ -201,7 +204,6 @@ class RefContext:
         # current segment is the final segment:
         self._rest: Optional[List[Segment]] = None
         self.wantList = wantList
-        self.resolveExternal = resolveExternal
         self._trace = self.DefaultTraceLevel if trace is None else trace
         self._strict = strict
         self.base_dir = currentResource.base_dir
@@ -231,10 +233,11 @@ class RefContext:
         self,
         resource: Optional["ResourceRef"] = None,
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = None,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = None,
         trace: int = 0,
         strict: Optional[bool] = None,
         tosca_type: Optional[StatefulEntityType] = None,
+        deep: Optional[dict] = None,
     ) -> "RefContext":
         """
         Create a copy of the current RefContext with optional modifications.
@@ -258,13 +261,13 @@ class RefContext:
             resource or self.currentResource,
             self.vars,
             self.wantList,
-            self.resolveExternal,
             max(self._trace, trace),
             self._strict if strict is None else strict,
         )
-        if vars:
+        if vars or deep:
             copy.vars = copy.vars.copy()
-            copy.vars.update(vars)
+            assert not (vars and deep)  # can't have both
+            copy.vars.update(vars or deep)  # type: ignore
         if wantList is not None:
             copy.wantList = wantList
         base_dir = getattr(self.kw, "base_dir", None)
@@ -275,6 +278,13 @@ class RefContext:
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+        if deep:
+            if self.deep:
+                copy.deep = dict(self.deep, **deep)
+            else:
+                copy.deep = deep.copy()
+        else:
+            copy.deep = self.deep
 
         if tosca_type:
             copy.tosca_type = tosca_type
@@ -455,7 +465,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Literal[True] = True,
+        wantList: Union[Literal[True], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> List[Any]: ...
 
@@ -486,7 +496,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, Literal["result"]] = True,
+        wantList: Union[bool, Literal["result"], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
@@ -917,7 +927,10 @@ def eval_ref(
     if top:
         vars = ctx.vars.copy()
         vars["start"] = ctx.currentResource
-        ctx = ctx.copy(ctx.currentResource, vars, wantList=False)
+        wantList = ctx.wantList
+        if wantList != "instance":
+            wantList = False
+        ctx = ctx.copy(ctx.currentResource, vars, wantList=wantList)
 
     if isinstance(val, Mapping):
         for key in val:
@@ -960,7 +973,10 @@ def eval_ref(
                 raise UnfurlEvalError(msg)
     elif isinstance(val, str):
         if is_template(val, ctx):
-            return [Result(apply_template(val, ctx))]
+            resolved = apply_template(val, ctx)
+            if not isinstance(resolved, Result):
+                return [Result(resolved)]
+            return [resolved]
         else:
             expr = Expr(val, ctx.vars)
             results = expr.resolve(ctx)  # returns a list of Result
@@ -972,7 +988,9 @@ def eval_ref(
 def _eval_ref_results(val, ctx) -> List[Result]:
     mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, ResultsList):
-        return [r if isinstance(r, Result) else Result(r) for r in mappedVal]
+        return [
+            r if isinstance(r, Result) else Result(r) for r in mappedVal._attributes
+        ]
     if isinstance(mappedVal, Result):
         return [mappedVal]
     elif mappedVal is None:
@@ -1044,8 +1062,12 @@ def lookup(result: Result, key_: str, context: RefContext) -> Optional[Result]:
 
         if not context._rest:
             assert not Ref.is_ref(value)
-            result.resolved = Results._map_value(value, ctx)
-            assert not isinstance(result.resolved, (ExternalValue, Result))
+            results = Results._map_value(value, ctx)
+            if isinstance(results, ExternalValue):
+                return Result(results)
+            else:
+                assert not isinstance(results, Result)
+                result.resolved = results
 
         return result
     except (KeyError, IndexError, TypeError, ValueError):

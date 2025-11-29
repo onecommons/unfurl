@@ -96,5 +96,5 @@ myApp = MyApplication(
 myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
     "image",
     file="myapp:latest",
-    repository=docker_hub.tosca_name,
+    repository=docker_hub.name,
 )

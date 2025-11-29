@@ -445,14 +445,14 @@ class Package:
     def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
         prefix = self.version_tag_prefix()
         order = "earliest" if self.missing else "latest"
-        logger.debug(
-            f"Package {self.package_id} is looking for {order} remote tags {prefix}* on {self.safe_url}"
-        )
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
         remote_tags = get_remote_tags(url, prefix + "*")
         if remote_tags is None:  # didn't check
             return None
+        logger.debug(
+            f"Package {self.package_id} searched for {order} remote tags {prefix}* on {self.safe_url}"
+        )
         vtags = [tag[len(prefix) :] for tag in remote_tags]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
