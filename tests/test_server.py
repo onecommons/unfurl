@@ -2,12 +2,14 @@ import json
 import os
 from pprint import pformat
 import re
+import socket
 import threading
 import time
+import traceback
 import unittest
 import urllib.request
 from functools import partial
-from multiprocessing import Process, set_start_method
+from multiprocessing import Process, set_start_method, get_context, Queue
 
 import requests
 from click.testing import CliRunner
@@ -24,6 +26,40 @@ from unfurl.util import change_cwd, get_package_digest
 from base64 import b64encode
 import logging
 
+# Prefer explicit IPv4 loopback for tests to avoid getaddrinfo resolution ordering differences
+HOST = "127.0.0.1"
+
+
+def wait_for_status(
+    url, params=None, headers=None, expected=304, timeout=10.0, poll_interval=0.25
+):
+    """Poll `url` until it returns `expected` status or `timeout` elapses.
+
+    On timeout, fail the test with diagnostic information including last response headers.
+    """
+    deadline = time.time() + timeout
+    last_res = None
+    while time.time() < deadline:
+        try:
+            last_res = requests.get(url, params=params, headers=headers, timeout=2.0)
+        except requests.RequestException:
+            last_res = None
+            time.sleep(poll_interval)
+            continue
+        if last_res.status_code == expected:
+            return last_res
+        time.sleep(poll_interval)
+
+    if last_res is None:
+        pytest.fail(
+            f"Timed out waiting for status {expected} from {url}: no successful response seen within {timeout}s"
+        )
+    else:
+        pytest.fail(
+            f"cache expected {expected} for {url} after {timeout}s, last status {last_res.status_code}, headers: {dict(last_res.headers)}"
+        )
+
+
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
 # (with -s only)
 # but fork doesn't inherit the environment so UNFURL_TEST_REDIS_URL breaks
@@ -31,7 +67,7 @@ import logging
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
-    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@localhost:6379/0
+    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@127.0.0.1:6379/0
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
@@ -53,7 +89,7 @@ spec:
             container:
               environment:
                 VAR: "{0}"
-"""              
+"""
 
 patch = """
 [{{
@@ -101,27 +137,77 @@ def _next_port():
     return _server_port
 
 
-def serve_server(*args, **kw):
+def serve_server(*args, error_queue: Queue = None, **kw):
+    """Wrapper around server.serve that forwards child start errors to a Queue."""
     try:
         return server.serve(*args, **kw)
     except Exception:
+        tb = traceback.format_exc()
+        if error_queue is not None:
+            error_queue.put(tb)
         logging.warning("server.serve unexpectedly failed", exc_info=True)
+        raise
 
 
-def start_server_process(proc, port):
-    proc.start()
-    last_e = False
-    for _ in range(10):
-        time.sleep(0.2)
+def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
+    """Start a server process and wait for it to be reachable.
+
+    Args:
+        process_obj: Process object to start. The Process must have been created with
+                     serve_server as target and kwargs={"error_queue": queue}, and must
+                     have process_obj._error_queue set to the same queue for error retrieval.
+        port: Port number the server should bind to
+        hosts: Tuple of hosts to try connecting to
+        timeout: Maximum time to wait for the server to be reachable
+
+    Returns:
+        The process object if successful
+
+    Raises:
+        RuntimeError: If the server process exits prematurely or is not reachable
+    """
+    process_obj.start()
+    start = time.time()
+    last_exc = None
+
+    # Helper to retrieve any exception traceback from the child process.
+    # Uses closure to access process_obj from enclosing scope.
+    def _child_traceback():
+        eq = getattr(process_obj, "_error_queue", None)
+        if not eq:
+            return None
         try:
-            url = f"http://localhost:{port}/health?secret=secret"
-            urllib.request.urlopen(url)
-        except Exception as e:
-            last_e = e
-        else:
-            return proc
-    logging.warning("error connecting to server", exc_info=last_e)
-    return None
+            return eq.get_nowait()
+        except Exception:
+            return None
+
+    while time.time() - start < timeout:
+        if not process_obj.is_alive():
+            tb = _child_traceback()
+            if tb:
+                raise RuntimeError(
+                    f"server process exited prematurely; traceback:\n{tb}"
+                )
+            else:
+                raise RuntimeError(
+                    f"server process exited prematurely with exitcode {process_obj.exitcode}"
+                )
+        for h in hosts:
+            try:
+                with socket.create_connection((h, port), timeout=1):
+                    return process_obj
+            except Exception as e:
+                last_exc = e
+        time.sleep(0.1)
+
+    tb = _child_traceback()
+    if tb:
+        raise RuntimeError(
+            f"server not reachable on port {port} after {timeout}s; server traceback:\n{tb}"
+        )
+    raise RuntimeError(
+        f"server not reachable on port {port} after {timeout}s; last error: {last_exc}"
+    )
 
 
 def start_envvar_server(port):
@@ -139,7 +225,7 @@ def start_envvar_server(port):
     t.daemon = True
     t.start()
 
-    env_var_url = "http://localhost:8011/envlist.json"
+    env_var_url = "http://127.0.0.1:8011/envlist.json"
     # make sure this works
     f = urllib.request.urlopen(env_var_url)
     f.close()
@@ -150,23 +236,19 @@ def start_envvar_server(port):
 def runner():
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        # server.serve('localhost', _static_server_port, 'secret', 'ensemble', {})
+        # server.serve(HOST, _static_server_port, 'secret', 'ensemble', {})
         # "url": ,
         os.environ["UNFURL_LOGGING"] = "TRACE"
-        server_process = Process(
+        ctx = get_context()
+        error_queue = ctx.Queue()
+        server_process = ctx.Process(
             target=serve_server,
-            args=(
-                "localhost",
-                _static_server_port,
-                "secret",
-                ".",
-                "",
-                {},
-                CLOUD_TEST_SERVER,
-            ),
+            args=(HOST, _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
+            kwargs={"error_queue": error_queue},
         )
+        server_process._error_queue = error_queue
         try:
-            assert start_server_process(server_process, _static_server_port)
+            start_server_process(server_process, _static_server_port)
 
             yield server_process
         finally:
@@ -180,6 +262,7 @@ def commit_foo(val: str):
     os.system("git add foo")
     os.system(f"git commit -m'{val}'")
 
+
 def set_up_deployment(runner, deployment):
     # create git repo in "remote" and bare clone of it in "remote.git"
     # configure the server to clone into "server" and push into "remote.git"
@@ -192,8 +275,8 @@ def set_up_deployment(runner, deployment):
     with open("remote/ensemble/ensemble.yaml", "w") as f:
         f.write(deployment)
 
-    repo = GitRepo(Repo.init('remote'))
-    repo.add_all('remote')
+    repo = GitRepo(Repo.init("remote"))
+    repo.add_all("remote")
     repo.commit_files(["remote/ensemble/ensemble.yaml"], "Add deployment")
 
     # we need a bare repo for push to work
@@ -202,10 +285,12 @@ def set_up_deployment(runner, deployment):
     port = _next_port()
 
     os.makedirs("server")
-    p = Process(
+    ctx = get_context()
+    error_queue = ctx.Queue()
+    p = ctx.Process(
         target=serve_server,
         args=(
-            "localhost",
+            HOST,
             port,
             None,
             "server",
@@ -213,9 +298,11 @@ def set_up_deployment(runner, deployment):
             {"home": ""},
             os.path.abspath("remote.git"),
         ),
+        kwargs={"error_queue": error_queue},
     )
+    p._error_queue = error_queue
     try:
-        assert start_server_process(p, port)
+        start_server_process(p, port)
 
         assert repo.revision
         return p, port, repo.revision
@@ -226,42 +313,55 @@ def set_up_deployment(runner, deployment):
 
 
 def test_server_health(runner: Process):
-    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
+    res = requests.get(
+        f"http://{HOST}:{_static_server_port}/health", params={"secret": "secret"}
+    )
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
+
 def test_server_version(runner: Process):
-    res = requests.get("http://localhost:8090/version", params={"secret": "secret"})
+    res = requests.get(
+        f"http://{HOST}:{_static_server_port}/version", params={"secret": "secret"}
+    )
 
     assert res.status_code == 200
     assert re.match(rb"^1\..+\+\w+$", res.content) is not None
+
 
 def test_gui_release():
     assert re.match(gui.release_url_pattern, gui.RELEASE_URL).group(1) == gui.TAG
     assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
 
+
 def test_server_authentication(runner: Process):
-    res = requests.get("http://localhost:8090/health")
-    assert res.status_code == 401
-    assert res.json()["code"] == "UNAUTHORIZED"
-
-    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
-    assert res.status_code == 200
-    assert res.content == b"OK"
-
-    res = requests.get("http://localhost:8090/health", params={"secret": "wrong"})
+    res = requests.get(f"http://{HOST}:{_static_server_port}/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
     res = requests.get(
-        "http://localhost:8090/health", headers={"Authorization": "Bearer secret"}
+        f"http://{HOST}:{_static_server_port}/health", params={"secret": "secret"}
     )
     assert res.status_code == 200
     assert res.content == b"OK"
 
     res = requests.get(
-        "http://localhost:8090/health", headers={"Authorization": "Bearer wrong"}
+        f"http://{HOST}:{_static_server_port}/health", params={"secret": "wrong"}
+    )
+    assert res.status_code == 401
+    assert res.json()["code"] == "UNAUTHORIZED"
+
+    res = requests.get(
+        f"http://{HOST}:{_static_server_port}/health",
+        headers={"Authorization": "Bearer secret"},
+    )
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+    res = requests.get(
+        f"http://{HOST}:{_static_server_port}/health",
+        headers={"Authorization": "Bearer wrong"},
     )
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -271,12 +371,16 @@ def test_server_export_local():
     runner = CliRunner()
     port = _next_port()
     with runner.isolated_filesystem() as tmpdir:
-        p = Process(
+        ctx = get_context()
+        error_queue = ctx.Queue()
+        p = ctx.Process(
             target=serve_server,
-            args=("localhost", port, None, ".", f"{tmpdir}", {"home": ""}),
+            args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
+            kwargs={"error_queue": error_queue},
         )
+        p._error_queue = error_queue
         try:
-            assert start_server_process(p, port)
+            start_server_process(p, port)
             init_project(
                 runner,
                 args=["init", "--mono"],
@@ -285,7 +389,7 @@ def test_server_export_local():
             # compare the export request output to the export command output
             for export_format in ["deployment", "environments"]:
                 res = requests.get(
-                    f"http://localhost:{port}/export?format={export_format}"
+                    f"http://{HOST}:{port}/export?format={export_format}"
                 )
                 assert res.status_code == 200
                 exported = run_cmd(
@@ -307,23 +411,26 @@ def _strip_sourceinfo(export, log=False):
             print(name, _sourceinfo)
 
 
-@unittest.skipIf(
-    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
-)
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_server_export_remote():
     runner = CliRunner()
     with runner.isolated_filesystem():
         port = _next_port()
-        p = Process(
+        ctx = get_context()
+        error_queue = ctx.Queue()
+        p = ctx.Process(
             target=serve_server,
-            args=("localhost", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
+            args=(HOST, port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
+            kwargs={"error_queue": error_queue},
         )
+        p._error_queue = error_queue
         try:
-            assert start_server_process(p, port)
+            start_server_process(p, port)
             run_cmd(
                 runner,
                 [
-                    "--home", "",
+                    "--home",
+                    "",
                     "clone",
                     "--empty",
                     f"{CLOUD_TEST_SERVER}/onecommons/project-templates/dashboard",
@@ -339,16 +446,16 @@ def test_server_export_remote():
                     # test caching
                     project_id = "onecommons/project-templates/dashboard"
                     res = requests.get(
-                        f"http://localhost:{port}/export",
+                        f"http://{HOST}:{port}/export",
                         params={
                             "auth_project": project_id,
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
                         },
                         headers={
-                          "If-None-Match": etag,
-                          "X-Git-Credentials": b64encode("username:token".encode())
-                        }
+                            "If-None-Match": etag,
+                            "X-Git-Credentials": b64encode("username:token".encode()),
+                        },
                     )
                     if res.status_code == 200:
                         etag = res.headers.get("Etag") or ""
@@ -358,46 +465,73 @@ def test_server_export_remote():
                         # don't bother re-exporting the second time
                         exported = run_cmd(
                             runner,
-                            ["--home", "", "export", "dashboard", "--format", export_format],
+                            [
+                                "--home",
+                                "",
+                                "export",
+                                "dashboard",
+                                "--format",
+                                export_format,
+                            ],
                             env={"UNFURL_LOGGING": "critical"},
                         )
                         assert exported
                         # Strip out output from the http server
                         output = exported.output
-                        cleaned_output = output[max(output.find("{"), 0):]
+                        cleaned_output = output[max(output.find("{"), 0) :]
                         expected = _strip_sourceinfo(json.loads(cleaned_output))
-                        assert _strip_sourceinfo(res.json()) == expected #, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+                        assert (
+                            _strip_sourceinfo(res.json()) == expected
+                        )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
                     else:
-                        # cache hit
-                        assert res.status_code == 304, (res.headers.get("Etag") == etag, etag)
+                        # cache hit - poll for cached response to make test robust against async cache population in CI
+                        res = wait_for_status(
+                            f"http://{HOST}:{port}/export",
+                            params={
+                                "auth_project": project_id,
+                                "latest_commit": last_commit,
+                                "format": export_format,
+                            },
+                            headers={
+                                "If-None-Match": etag,
+                                "X-Git-Credentials": b64encode(
+                                    "username:token".encode()
+                                ),
+                            },
+                            expected=304,
+                            timeout=15.0,
+                        )
 
                     file_path = server._get_filepath(export_format, None)
-                    key = server.CacheEntry(project_id, "", file_path, export_format).cache_key()
+                    key = server.CacheEntry(
+                        project_id, "", file_path, export_format
+                    ).cache_key()
 
                     # XXX
                     # caplog, capsys, capfd capture log messages from uvicorn but not from the request workers
                     # pytest -s does output those messages to the console if set_start_method is set to "fork"
                     # visually confirmed this assert:
                     # assert f"{msg} {key}" in caplog.text
-            
+
             # test with a blueprint
             run_cmd(
                 runner,
                 [
-                    "--home", "",
+                    "--home",
+                    "",
                     "clone",
                     "--empty",
                     f"{CLOUD_TEST_SERVER}/onecommons/project-templates/application-blueprint",
-                ]
+                ],
             )
             last_commit = GitRepo(Repo("application-blueprint")).revision
             res = requests.get(
-                f"http://localhost:{port}/export",
+                f"http://{HOST}:{port}/export",
                 params={
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
-                    "branch": "(MISSING)"
+                    "branch": "(MISSING)",
                 },
             )
             # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
@@ -406,46 +540,61 @@ def test_server_export_remote():
             # etag = res.headers.get("Etag") or ""
             exported = run_cmd(
                 runner,
-                ["--home", "", "export", "--format", "blueprint", "application-blueprint/ensemble-template.yaml"],
+                [
+                    "--home",
+                    "",
+                    "export",
+                    "--format",
+                    "blueprint",
+                    "application-blueprint/ensemble-template.yaml",
+                ],
                 env={"UNFURL_LOGGING": "critical"},
             )
             assert exported
             # Strip out output from the http server
             output = exported.output
-            cleaned_output = output[max(output.find("{"), 0):]
+            cleaned_output = output[max(output.find("{"), 0) :]
             expected = _strip_sourceinfo(json.loads(cleaned_output))
-            assert _strip_sourceinfo(res.json()) == expected, f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+            assert _strip_sourceinfo(res.json()) == expected, (
+                f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+            )
 
             dep_commit = GitRepo(Repo("application-blueprint/std")).revision
-            etag = server._make_etag(hex(int(last_commit, 16) 
-                                         ^ int(get_package_digest(), 16)
-                                         ^ int(dep_commit, 16)))
-            # # check that this public project (no auth header sent) was cached
-            res = requests.get(
-                f"http://localhost:{port}/export",
+            etag = server._make_etag(
+                hex(
+                    int(last_commit, 16)
+                    ^ int(get_package_digest(), 16)
+                    ^ int(dep_commit, 16)
+                )
+            )
+            # Poll for cached response to make test robust against async cache population in CI
+            res = wait_for_status(
+                f"http://{HOST}:{port}/export",
                 params={
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
                 },
-                headers={
-                  "If-None-Match": etag,
-                }
+                headers={"If-None-Match": etag},
+                expected=304,
+                timeout=15.0,
             )
-            assert res.status_code == 304
         finally:
             p.terminate()
             p.join()
 
 
 def test_populate_cache(runner: Process):
-    project_ids = ["onecommons/project-templates/dashboard", "onecommons/project-templates/dashboard",
-                  "onecommons/project-templates/application-blueprint"]
+    project_ids = [
+        "onecommons/project-templates/dashboard",
+        "onecommons/project-templates/dashboard",
+        "onecommons/project-templates/application-blueprint",
+    ]
     files = ["unfurl.yaml", "ensemble/ensemble.yaml", "ensemble-template.yaml"]
     port = _static_server_port
     for file_path, project_id in zip(files, project_ids):
         res = requests.post(
-            f"http://localhost:{port}/populate_cache",
+            f"http://{HOST}:{port}/populate_cache",
             params={
                 "secret": "secret",
                 "auth_project": project_id,
@@ -457,9 +606,8 @@ def test_populate_cache(runner: Process):
         assert res.status_code == 200
         assert res.content == b"OK"
 
-@unittest.skipIf(
-    "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
-)
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_server_update_deployment():
     runner = CliRunner()
     with runner.isolated_filesystem():
@@ -470,11 +618,8 @@ def test_server_update_deployment():
 
             target_patch = patch.format("target")
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble?auth_project=remote",
-                json={
-                    "patch": json.loads(target_patch),
-                    "latest_commit": last_commit
-                },
+                f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
+                json={"patch": json.loads(target_patch), "latest_commit": last_commit},
             )
             assert res.status_code == 200
             new_commit = res.json()["commit"]
@@ -483,7 +628,7 @@ def test_server_update_deployment():
             # os.system("git --git-dir server/public/remote/main/.git log -p")
 
             res = requests.get(
-                f"http://localhost:{port}/export",
+                f"http://{HOST}:{port}/export",
                 params={
                     "auth_project": "remote",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
@@ -491,7 +636,12 @@ def test_server_update_deployment():
                 },
             )
             assert res.status_code == 200
-            assert res.json()["ResourceTemplate"]["container_service"]["properties"][0]["name"] == "container"
+            assert (
+                res.json()["ResourceTemplate"]["container_service"]["properties"][0][
+                    "name"
+                ]
+                == "container"
+            )
 
             os.chdir("remote")
             # server pushes to remote.git which needs to be a bare repository
@@ -500,22 +650,22 @@ def test_server_update_deployment():
 
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
-                assert (data['spec']
-                            ['service_template']
-                            ['topology_template']
-                            ['node_templates']
-                            ['container_service']
-                            ['properties']
-                            ['container']
-                            ['environment']
-                            ['VAR']
-                        ) == "target"
+                assert (
+                    (
+                        data["spec"]["service_template"]["topology_template"][
+                            "node_templates"
+                        ]["container_service"]["properties"]["container"][
+                            "environment"
+                        ]["VAR"]
+                    )
+                    == "target"
+                )
 
             # test that the server recovers from a bad repo before trying to patch
             # by creating a conflict between the server's local repo and the remote repo
             commit_foo("bar")
             os.system("git push ../remote.git")  # push to remote.git
-            client_repo = GitRepo(Repo.init('.'))
+            client_repo = GitRepo(Repo.init("."))
             last_commit = client_repo.revision
 
             os.chdir("../server/public/remote")
@@ -525,11 +675,11 @@ def test_server_update_deployment():
             # test deleting
 
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble?auth_project=remote",
+                f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
                 json={
                     "patch": json.loads(delete_patch),
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             last_commit = res.json()["commit"]
@@ -540,32 +690,38 @@ def test_server_update_deployment():
             os.system("git pull  ../remote.git")
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
-                assert not data['spec']['service_template']['topology_template']['node_templates']
+                assert not data["spec"]["service_template"]["topology_template"][
+                    "node_templates"
+                ]
 
-            provider_patch = [{
-              "name": "gcp",
-              "primary_provider": {
-                "name": "primary_provider",
-                "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
-                "__typename": "ResourceTemplate"
-              },
-              "connections": {
-                "primary_provider": {
-                  "name": "primary_provider",
-                  "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
-                  "__typename": "ResourceTemplate"
+            provider_patch = [
+                {
+                    "name": "gcp",
+                    "primary_provider": {
+                        "name": "primary_provider",
+                        "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+                        "__typename": "ResourceTemplate",
+                    },
+                    "connections": {
+                        "primary_provider": {
+                            "name": "primary_provider",
+                            "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+                            "__typename": "ResourceTemplate",
+                        }
+                    },
+                    "__typename": "DeploymentEnvironment",
                 }
-              },
-              "__typename": "DeploymentEnvironment"
-            }]
+            ]
             res = requests.post(
-                f"http://localhost:{port}/create_provider?auth_project=remote",
+                f"http://{HOST}:{port}/create_provider?auth_project=remote",
                 json={
-                    "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
+                    "environment": "gcp",
+                    "deployment_blueprint": None,
+                    "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
                     "commit_msg": "Create environment gcp",
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
@@ -574,14 +730,19 @@ def test_server_update_deployment():
             with open("unfurl.yaml", "r") as f:
                 data = yaml.load(f.read())
                 # check that the environment was added and an ensemble was created
-                assert data["environments"]["gcp"]["connections"]["primary_provider"]["type"] == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+                assert (
+                    data["environments"]["gcp"]["connections"]["primary_provider"][
+                        "type"
+                    ]
+                    == "unfurl.relationships.ConnectsTo.GoogleCloudProject"
+                )
                 assert data["ensembles"][-1]["alias"] == "primary_provider", data
 
             res = requests.post(
-                f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
+                f"http://{HOST}:{port}/clear_project_file_cache?auth_project=remote",
             )
             # 'remote:main::localenv', 'remote:pull:...', 'remote:main:ensemble/ensemble.yaml:deployment'
-            assert res.content == b'3'  # 3 keys deleted
+            assert res.content == b"3"  # 3 keys deleted
             assert res.status_code == 200
 
         finally:
@@ -589,16 +750,17 @@ def test_server_update_deployment():
                 p.terminate()
                 p.join()
 
+
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed
 # def test_force_push():
 #   assert repo.repo.create_tag("v1.0", message="tag v1")
-    # ...
-    # change a tag ref, which will cause GitRepo.pull() to fail like so:
-    # git.exc.GitCommandError: Cmd('git') failed due to: exit code(1)
-    #   cmdline: git pull origin v1.0.0 --tags --update-shallow --ff-only --shallow-since=1648458328
-    #   stderr: 'From http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress
-    # * tag               v1.0.0     -> FETCH_HEAD
-    # ! [rejected]        v1.0.0     -> v1.0.0  (would clobber existing tag)'
+# ...
+# change a tag ref, which will cause GitRepo.pull() to fail like so:
+# git.exc.GitCommandError: Cmd('git') failed due to: exit code(1)
+#   cmdline: git pull origin v1.0.0 --tags --update-shallow --ff-only --shallow-since=1648458328
+#   stderr: 'From http://tunnel.abreidenbach.com:3000/onecommons/blueprints/wordpress
+# * tag               v1.0.0     -> FETCH_HEAD
+# ! [rejected]        v1.0.0     -> v1.0.0  (would clobber existing tag)'
 #   assert not os.system("git tag -d v1.0")
 #   assert not os.system("git push --delete origin v1.0")
 #   assert not os.system("git tag v1.0 -m'retag'")
