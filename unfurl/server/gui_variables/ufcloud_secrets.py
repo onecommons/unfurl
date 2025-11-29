@@ -70,7 +70,7 @@ def set_ci_variables(
             "protected": var.get("protected"),
         }
 
-        if not create and var.get("id"):
+        if not create and (var.get("id") or var.get("project_id")):
             project.variables.update(var["key"], data)
         else:
             project.variables.create(data)

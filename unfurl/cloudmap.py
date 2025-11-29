@@ -1006,6 +1006,7 @@ class LocalHostConfig(HostConfig):
 
 
 def _clean_ci_var(envvar):
+    envvar = envvar.copy()
     envvar.pop("project_id")
     envvar.pop("id")
     envvar.pop("secret_value")
@@ -1142,6 +1143,92 @@ class GitlabManager(RepositoryHost):
         for subgroup in group.subgroups.list(iterator=True):
             self._get_projects_from_group(self.gitlab.groups.get(subgroup.id), projects)
 
+    def _sync_project_to_host(
+        self,
+        dest: Optional[Project],
+        repo_info: Repository,
+        dest_group: Group,
+        directory: Directory,
+        merge: bool,
+        force: bool,
+    ) -> None:
+        try:
+            name = repo_info.name
+            if dest:
+                # if both exist, update any changed metadata
+                if self.dryrun:
+                    self.logger.info(
+                        "dry run: skipping creating updating project %s", name
+                    )
+                else:
+                    self.update_project_metadata(repo_info, dest)
+                do_merge = not force and merge
+            else:
+                if self.dryrun:
+                    self.logger.info("dry run: skipping creating project %s", name)
+                    return
+                # create the project
+                dest = self.create_project(repo_info, dest_group)
+                do_merge = False
+        except Exception:
+            self.logger.error(
+                "Unexpected error updating project metadata for %s",
+                name,
+                exc_info=True,
+            )
+            return
+        assert dest
+        if directory.repos_root:
+            remote_url = self.git_url_with_auth(dest)
+            repo = directory.find_repo(dest.http_url_to_repo, self.name)
+            if not repo:
+                repo = directory.find_repo(repo_info.git, self.name)
+            if repo:
+                # there's a local mirror that might have changed
+                try:
+                    # get the latest from the remote
+                    repo, cloned = self.fetch_repo(remote_url, repo_info, directory)
+                    dest_branch = f"{self.name}/{repo_info.get_default_branch()}"
+                    if not repo.active_branch:
+                        repo.checkout(repo_info.get_default_branch())
+                    commit = repo.repo.head.commit
+                    branch_exists = dest_branch in repo.repo.references
+                    if (
+                        not branch_exists
+                        or commit != repo.repo.references[dest_branch].commit
+                    ):
+                        # now update project repository
+                        self.logger.info(
+                            f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
+                        )
+                        if self.dryrun:
+                            summary = cast(str, commit.summary)
+                            self.logger.info(
+                                f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
+                            )
+                        else:
+                            # maybe merge and (maybe) force push the current branch into dest_branch
+                            force_merge_local_and_push_to_remote(
+                                repo,
+                                self.name,
+                                dest_branch,
+                                merge=branch_exists and do_merge,
+                                force=force,
+                                logger=self.logger,
+                            )
+                        if do_merge:
+                            # we might have create a merge commit, update the directory
+                            repo_info.update_branch(repo)
+                    else:
+                        self.logger.debug(
+                            f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
+                        )
+                except Exception:
+                    self.logger.error(
+                        f"Unexpected error updating upstream git for {repo_info.git}",
+                        exc_info=True,
+                    )
+
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
         Create or update projects in a gitlab instance.
@@ -1181,77 +1268,10 @@ class GitlabManager(RepositoryHost):
         for name in projects:
             dest, repo_info = projects[name]
             if repo_info:
-                if dest:
-                    # if both exist, update any changed metadata
-                    if self.dryrun:
-                        self.logger.info(
-                            "dry run: skipping creating updating project %s", name
-                        )
-                    else:
-                        self.update_project_metadata(repo_info, dest)
-                    do_merge = not force and merge
-                else:
-                    if self.dryrun:
-                        self.logger.info("dry run: skipping creating project %s", name)
-                        continue
-                    # create the project
-                    dest = self.create_project(repo_info, dest_group)
-                    do_merge = False
-                assert dest
-                if directory.repos_root:
-                    remote_url = self.git_url_with_auth(dest)
-                    repo = directory.find_repo(dest.http_url_to_repo, self.name)
-                    if not repo:
-                        repo = directory.find_repo(repo_info.git, self.name)
-                    if repo:
-                        # there's a local mirror that might have changed
-                        try:
-                            # get the latest from the remote
-                            repo, cloned = self.fetch_repo(
-                                remote_url, repo_info, directory
-                            )
-                            dest_branch = (
-                                f"{self.name}/{repo_info.get_default_branch()}"
-                            )
-                            if not repo.active_branch:
-                                repo.checkout(repo_info.get_default_branch())
-                            commit = repo.repo.head.commit
-                            branch_exists = dest_branch in repo.repo.references
-                            if (
-                                not branch_exists
-                                or commit != repo.repo.references[dest_branch].commit
-                            ):
-                                # now update project repository
-                                self.logger.info(
-                                    f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
-                                )
-                                if self.dryrun:
-                                    summary = cast(str, commit.summary)
-                                    self.logger.info(
-                                        f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
-                                    )
-                                else:
-                                    # maybe merge and (maybe) force push the current branch into dest_branch
-                                    force_merge_local_and_push_to_remote(
-                                        repo,
-                                        self.name,
-                                        dest_branch,
-                                        merge=branch_exists and do_merge,
-                                        force=force,
-                                        logger=self.logger,
-                                    )
-                                if do_merge:
-                                    # we might have create a merge commit, update the directory
-                                    repo_info.update_branch(repo)
-                            else:
-                                self.logger.debug(
-                                    f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
-                                )
-                        except Exception:
-                            self.logger.error(
-                                f"Unexpected error updating upstream git for {repo_info.git}",
-                                exc_info=True,
-                            )
+                self._sync_project_to_host(
+                    dest, repo_info, dest_group, directory, merge, force
+                )
+
             # delete any extra projects
             # XXX: enable when ready
             if not repo_info and dest:
@@ -1328,6 +1348,12 @@ class GitlabManager(RepositoryHost):
 
         if repo_info.metadata.avatar_url:
             try:
+                # XXX if we have credentials for this host, add them so we can we try to access non-public avatars
+                # if self.visibility != "public":
+                #   gl = get_gl_for_host(repo_info.metadata.avatar_url)
+                #   if gl:
+                #     response = gl.session.get(avatar_url)
+                #     avatar = response.content
                 avatar = _urlopen(repo_info.metadata.avatar_url).read()
             except Exception:
                 self.logger.error(
@@ -1354,7 +1380,16 @@ class GitlabManager(RepositoryHost):
         if dest_proj.topics != repo_info.metadata.topics:
             dest_proj.topics = repo_info.metadata.topics
             changed = True
-        # XXX dest_proj.visibility = upstream_proj.visibility
+        visibility = "private" if repo_info.private else "public"
+        if dest_proj.visibility != visibility:
+            dest_proj.visibility = visibility
+            changed = True
+        if changed:
+            try:
+                dest_proj.save()
+            except Exception:
+                self.logger.error("failed to save", dest_proj.path, exc_info=True)
+                changed = False
         if repo_info.metadata.ci_variables and self.save_internal:
             # update or add ci vars recorded in the cloudmap
             local_vars = repo_info.metadata.ci_variables.copy()
@@ -1364,16 +1399,10 @@ class GitlabManager(RepositoryHost):
                 if local_var and _clean_ci_var(envvar) != local_var:
                     envvar.update(local_var)
                     local_vars[envvar["key"]] = envvar  # add it back
-
-            set_ci_variables(dest_proj, local_vars.values())
-        if not changed:
-            return False
-        try:
-            dest_proj.save()
-        except Exception:
-            self.logger.error("failed to save", dest_proj.path, exc_info=True)
-            return False
-        return True
+            if local_vars:
+                changed = True
+                set_ci_variables(dest_proj, local_vars.values())
+        return changed
 
     def canonize(self, url: str) -> str:
         if self.canonical_url:
@@ -1672,7 +1701,7 @@ class CloudMap:
         # deploy main to the host
         host.to_host(self.directory, True, force=force)
 
-        # if force we might have created merge commits, update the cloudmap with those
+        # cloudmap might have changed
         changed = self.save(f"{op_name}ed to {host.name}")
         if self.host_branch != self.source_branch:
             # set host branch head to match to main because we are even now
