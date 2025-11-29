@@ -1434,10 +1434,11 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             prop_def.setdefault("constraints", []).extend(
                 c.to_yaml() for c in self.constraints
             )
+        default_field = self.owner._default_key if self.owner else "default"
         default = self._get_default_value()
         if default is not None and default is not dataclasses.MISSING:
             # only set the default to null if required (not optional)
-            prop_def["default"] = to_tosca_value(default)
+            prop_def[default_field] = to_tosca_value(default)
         if self.title:
             prop_def["title"] = self.title
         if self.status:
