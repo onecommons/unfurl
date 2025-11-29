@@ -31,7 +31,7 @@ import logging
 
 UNFURL_TEST_REDIS_URL = os.getenv("UNFURL_TEST_REDIS_URL")
 if UNFURL_TEST_REDIS_URL:
-    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@localhost:6379/0
+    # e.g. "unix:///home/user/gdk/redis/redis.socket?db=2" or redis://[[username]:[password]]@127.0.0.1:6379/0
     os.environ["CACHE_TYPE"] = "RedisCache"
     os.environ["CACHE_REDIS_URL"] = UNFURL_TEST_REDIS_URL
     os.environ["CACHE_KEY_PREFIX"] = "test" + str(int(time.time())) + "::"
@@ -114,7 +114,7 @@ def start_server_process(proc, port):
     for _ in range(10):
         time.sleep(0.2)
         try:
-            url = f"http://localhost:{port}/health?secret=secret"
+            url = f"http://127.0.0.1:{port}/health?secret=secret"
             urllib.request.urlopen(url)
         except Exception as e:
             last_e = e
@@ -139,7 +139,7 @@ def start_envvar_server(port):
     t.daemon = True
     t.start()
 
-    env_var_url = "http://localhost:8011/envlist.json"
+    env_var_url = "http://127.0.0.1:8011/envlist.json"
     # make sure this works
     f = urllib.request.urlopen(env_var_url)
     f.close()
@@ -150,13 +150,13 @@ def start_envvar_server(port):
 def runner():
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        # server.serve('localhost', _static_server_port, 'secret', 'ensemble', {})
+        # server.serve('127.0.0.1', _static_server_port, 'secret', 'ensemble', {})
         # "url": ,
         os.environ["UNFURL_LOGGING"] = "TRACE"
         server_process = Process(
             target=serve_server,
             args=(
-                "localhost",
+                "127.0.0.1",
                 _static_server_port,
                 "secret",
                 ".",
@@ -205,7 +205,7 @@ def set_up_deployment(runner, deployment):
     p = Process(
         target=serve_server,
         args=(
-            "localhost",
+            "127.0.0.1",
             port,
             None,
             "server",
@@ -226,13 +226,13 @@ def set_up_deployment(runner, deployment):
 
 
 def test_server_health(runner: Process):
-    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
+    res = requests.get("http://127.0.0.1:8090/health", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert res.content == b"OK"
 
 def test_server_version(runner: Process):
-    res = requests.get("http://localhost:8090/version", params={"secret": "secret"})
+    res = requests.get("http://127.0.0.1:8090/version", params={"secret": "secret"})
 
     assert res.status_code == 200
     assert re.match(rb"^1\..+\+\w+$", res.content) is not None
@@ -242,26 +242,26 @@ def test_gui_release():
     assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
 
 def test_server_authentication(runner: Process):
-    res = requests.get("http://localhost:8090/health")
+    res = requests.get("http://127.0.0.1:8090/health")
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
-    res = requests.get("http://localhost:8090/health", params={"secret": "secret"})
+    res = requests.get("http://127.0.0.1:8090/health", params={"secret": "secret"})
     assert res.status_code == 200
     assert res.content == b"OK"
 
-    res = requests.get("http://localhost:8090/health", params={"secret": "wrong"})
+    res = requests.get("http://127.0.0.1:8090/health", params={"secret": "wrong"})
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
 
     res = requests.get(
-        "http://localhost:8090/health", headers={"Authorization": "Bearer secret"}
+        "http://127.0.0.1:8090/health", headers={"Authorization": "Bearer secret"}
     )
     assert res.status_code == 200
     assert res.content == b"OK"
 
     res = requests.get(
-        "http://localhost:8090/health", headers={"Authorization": "Bearer wrong"}
+        "http://127.0.0.1:8090/health", headers={"Authorization": "Bearer wrong"}
     )
     assert res.status_code == 401
     assert res.json()["code"] == "UNAUTHORIZED"
@@ -273,7 +273,7 @@ def test_server_export_local():
     with runner.isolated_filesystem() as tmpdir:
         p = Process(
             target=serve_server,
-            args=("localhost", port, None, ".", f"{tmpdir}", {"home": ""}),
+            args=("127.0.0.1", port, None, ".", f"{tmpdir}", {"home": ""}),
         )
         try:
             assert start_server_process(p, port)
@@ -285,7 +285,7 @@ def test_server_export_local():
             # compare the export request output to the export command output
             for export_format in ["deployment", "environments"]:
                 res = requests.get(
-                    f"http://localhost:{port}/export?format={export_format}"
+                    f"http://127.0.0.1:{port}/export?format={export_format}"
                 )
                 assert res.status_code == 200
                 exported = run_cmd(
@@ -316,7 +316,7 @@ def test_server_export_remote():
         port = _next_port()
         p = Process(
             target=serve_server,
-            args=("localhost", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
+            args=("127.0.0.1", port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
         )
         try:
             assert start_server_process(p, port)
@@ -339,16 +339,16 @@ def test_server_export_remote():
                     # test caching
                     project_id = "onecommons/project-templates/dashboard"
                     res = requests.get(
-                        f"http://localhost:{port}/export",
+                        f"http://127.0.0.1:{port}/export",
                         params={
                             "auth_project": project_id,
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
                         },
                         headers={
-                          "If-None-Match": etag,
-                          "X-Git-Credentials": b64encode("username:token".encode())
-                        }
+                            "If-None-Match": etag,
+                            "X-Git-Credentials": b64encode("username:token".encode()),
+                        },
                     )
                     if res.status_code == 200:
                         etag = res.headers.get("Etag") or ""
@@ -392,12 +392,12 @@ def test_server_export_remote():
             )
             last_commit = GitRepo(Repo("application-blueprint")).revision
             res = requests.get(
-                f"http://localhost:{port}/export",
+                f"http://127.0.0.1:{port}/export",
                 params={
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
-                    "branch": "(MISSING)"
+                    "branch": "(MISSING)",
                 },
             )
             # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
@@ -422,15 +422,15 @@ def test_server_export_remote():
                                          ^ int(dep_commit, 16)))
             # # check that this public project (no auth header sent) was cached
             res = requests.get(
-                f"http://localhost:{port}/export",
+                f"http://127.0.0.1:{port}/export",
                 params={
                     "auth_project": "onecommons/project-templates/application-blueprint",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                     "format": "blueprint",
                 },
                 headers={
-                  "If-None-Match": etag,
-                }
+                    "If-None-Match": etag,
+                },
             )
             assert res.status_code == 304
         finally:
@@ -445,7 +445,7 @@ def test_populate_cache(runner: Process):
     port = _static_server_port
     for file_path, project_id in zip(files, project_ids):
         res = requests.post(
-            f"http://localhost:{port}/populate_cache",
+            f"http://127.0.0.1:{port}/populate_cache",
             params={
                 "secret": "secret",
                 "auth_project": project_id,
@@ -470,11 +470,8 @@ def test_server_update_deployment():
 
             target_patch = patch.format("target")
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble?auth_project=remote",
-                json={
-                    "patch": json.loads(target_patch),
-                    "latest_commit": last_commit
-                },
+                f"http://127.0.0.1:{port}/update_ensemble?auth_project=remote",
+                json={"patch": json.loads(target_patch), "latest_commit": last_commit},
             )
             assert res.status_code == 200
             new_commit = res.json()["commit"]
@@ -483,7 +480,7 @@ def test_server_update_deployment():
             # os.system("git --git-dir server/public/remote/main/.git log -p")
 
             res = requests.get(
-                f"http://localhost:{port}/export",
+                f"http://127.0.0.1:{port}/export",
                 params={
                     "auth_project": "remote",
                     "latest_commit": last_commit,  # enable caching but just get the latest in the cache
@@ -525,11 +522,11 @@ def test_server_update_deployment():
             # test deleting
 
             res = requests.post(
-                f"http://localhost:{port}/update_ensemble?auth_project=remote",
+                f"http://127.0.0.1:{port}/update_ensemble?auth_project=remote",
                 json={
                     "patch": json.loads(delete_patch),
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             last_commit = res.json()["commit"]
@@ -559,13 +556,15 @@ def test_server_update_deployment():
               "__typename": "DeploymentEnvironment"
             }]
             res = requests.post(
-                f"http://localhost:{port}/create_provider?auth_project=remote",
+                f"http://127.0.0.1:{port}/create_provider?auth_project=remote",
                 json={
-                    "environment":"gcp", "deployment_blueprint":None, "deployment_path": "environments/gcp/primary_provider",
+                    "environment": "gcp",
+                    "deployment_blueprint": None,
+                    "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
                     "commit_msg": "Create environment gcp",
                     "latest_commit": last_commit,
-                }
+                },
             )
             assert res.status_code == 200
             assert res.content.startswith(b'{"commit":')
@@ -578,7 +577,7 @@ def test_server_update_deployment():
                 assert data["ensembles"][-1]["alias"] == "primary_provider", data
 
             res = requests.post(
-                f"http://localhost:{port}/clear_project_file_cache?auth_project=remote",
+                f"http://127.0.0.1:{port}/clear_project_file_cache?auth_project=remote",
             )
             # 'remote:main::localenv', 'remote:pull:...', 'remote:main:ensemble/ensemble.yaml:deployment'
             assert res.content == b'3'  # 3 keys deleted
