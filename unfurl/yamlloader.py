@@ -772,15 +772,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return path
 
     def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
-        skip_check = os.getenv("UNFURL_SKIP_UPSTREAM_CHECK")
         if self.manifest and self.manifest.localEnv:
-            if (
-                skip_check
-                or (self.manifest.localEnv.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK"))
-                and self.manifest.localEnv.find_git_repo(url)
-            ):
+            if self.manifest.localEnv.overrides.get(
+                "UNFURL_SKIP_UPSTREAM_CHECK"
+            ) and self.manifest.localEnv.find_git_repo(url):
                 return None  # skip if repo exists and skip_check is set
-        elif skip_check:
+        elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             return None
         # apply credentials to url like find_repo_from_git_url() does
         if self.manifest and self.manifest.repo:
