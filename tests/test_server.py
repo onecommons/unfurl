@@ -122,7 +122,9 @@ def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
     """Start a server process and wait for it to be reachable.
     
     Args:
-        process_obj: Process object to start (must have been created with kwargs {"error_queue": error_queue})
+        process_obj: Process object to start. The Process must have been created with
+                     serve_server as target and kwargs={"error_queue": queue}, and must
+                     have process_obj._error_queue set to the same queue for error retrieval.
         port: Port number the server should bind to
         hosts: Tuple of hosts to try connecting to
         timeout: Maximum time to wait for the server to be reachable
@@ -137,6 +139,8 @@ def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
     start = time.time()
     last_exc = None
 
+    # Helper to retrieve any exception traceback from the child process.
+    # Uses closure to access process_obj from enclosing scope.
     def _child_traceback():
         eq = getattr(process_obj, "_error_queue", None)
         if not eq:
