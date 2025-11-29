@@ -2256,6 +2256,57 @@ def test_typeinfo():
     assert t.instance_check({"D": {"a": {}}})
     assert not t.instance_check({"D": []})
 
+def test_typeddict():
+    python_src = """
+import unfurl
+import tosca
+import typing
+
+class TypedDictTest(typing.TypedDict):
+    test: str
+
+class Test(tosca.nodes.Root):
+    prop: TypedDictTest
+
+    def configure(self):
+        # ** desugars to self.prop.keys() and raises FieldProjection error
+        return unfurl.configurators.shell.ShellConfigurator(**self.prop)
+
+
+test = Test(prop=TypedDictTest(test="test"))
+    """
+    # XXX convert typeddicts to tosca datatypes?
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    test:
+      type: Test
+      properties:
+        prop:
+          test: test
+      metadata:
+        module: service_template
+node_types:
+  Test:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop:
+        type: map
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            implementation:
+              # this needs to be done at runtime because we don't convert TypedDict keys to TOSCA inputs
+              className: service_template:Test.configure:parse
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
