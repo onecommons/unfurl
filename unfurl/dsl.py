@@ -57,6 +57,7 @@ from tosca import (
     DataEntity,
     ToscaFieldType,
     TypeInfo,
+    is_newer_than,
 )
 import tosca.loader
 from tosca._tosca import (
@@ -99,20 +100,25 @@ logger = getLogger("unfurl")
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
-def is_python_file_newer(yaml_contents, path) -> Optional[str]:
+def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
     yaml_path = Path(path)
     python_path = yaml_path.parent / (yaml_path.stem + ".py")
     if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
         return None
     if not python_path.exists():
         return None
-    # only overwrite if yaml file is older than the python file
-    if not WritePolicy["older"].can_overwrite(str(python_path), path):
-        return ""
+    if is_newer_than(path, python_path):
+        return ""  # skip if yaml file is newer
     # only overwrite if the yaml file wasn't modified by another process
     if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
         return None
     return str(python_path)
+
+
+def is_yaml_file_newer(yaml_contents: str, yaml_path, python_path) -> bool:
+    if not WritePolicy.is_auto_generated(yaml_contents):
+        return False  # don't use yaml
+    return is_newer_than(yaml_path, python_path)
 
 
 def maybe_reconvert(
@@ -209,6 +215,11 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
+    src_path = Path(path)
+    yaml_path = src_path.parent / (src_path.stem + ".yaml")
+    if write_policy.can_overwrite(path, str(yaml_path)):
+        _write_yaml(write_policy, yaml_src, path, str(yaml_path))
+    logger.verbose("Saving imported python module as YAML at %s", yaml_path)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
         output = io.StringIO()
         yaml.dump(yaml_src, output)
