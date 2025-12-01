@@ -33,7 +33,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from .projectpaths import File
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
-from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap
+from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap, serialize_value
 
 from .support import (
     AttributeManager,
@@ -49,6 +49,7 @@ from .spec import (
     CapabilitySpec,
     RelationshipSpec,
     NodeSpec,
+    TopologyInputsSpec,
     TopologySpec,
     ArtifactSpec,
 )
@@ -541,7 +542,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         )
 
     def as_ref(self, options=None):
-        return {"ref": self.key}
+        return {"eval": self.key}
 
     @property
     def tosca_id(self):
@@ -1375,6 +1376,17 @@ class NodeInstance(HasInstancesInstance):
         return f"NodeInstance('{self.nested_name}')"
 
 
+class TopologyInputsInstance(EntityInstance):
+    @property
+    def key(self) -> InstanceKey:
+        assert self.parent
+        return cast(InstanceKey, f"{self.parent.key}::inputs")
+
+    def as_ref(self, options=None):
+        # serialize the attributes directly instead of creating an eval expression
+        return serialize_value(self._attributes, **(options or {}))
+
+
 class TopologyInstance(HasInstancesInstance):
     templateType = TopologySpec  # type: ignore
 
@@ -1384,13 +1396,22 @@ class TopologyInstance(HasInstancesInstance):
         status=None,
         parent_topology: Optional["TopologyInstance"] = None,
     ):
-        attributes = dict(inputs=template.inputs, outputs=template.outputs)
+        # create a pseudo instance so we can track accesses to individual inputs.
+        self.inputs = TopologyInputsInstance(
+            "inputs", template.inputs, self, TopologyInputsSpec(template)
+        )
+        attributes = dict(outputs=template.outputs)
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
         self._relationships: List["RelationshipInstance"] = []
         self._rel_counter = 0
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
+
+    def _resolve(self, key):
+        if key == "inputs":  # special case inputs
+            return self.inputs
+        return self.attributes._getresult(key)
 
     def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir

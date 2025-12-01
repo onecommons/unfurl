@@ -339,11 +339,8 @@ spec:
                 inputs:
                   dryrun: true
                   done:
-                    # success: "{{ '.name' | eval  not in '::root::inputs::failed' | eval }}"
-                    # modified: "{{  '.name' | eval in '::root::inputs::changed' | eval }}"
-                    success: "{{ '.name' | eval not in TOPOLOGY.inputs.failed }}"
-                    modified: "{{ '.name' | eval in TOPOLOGY.inputs.changed  }}"
-
+                    success: "{{ '.name' | eval  not in %s }}"
+                    modified: "{{  '.name' | eval in %s }}"
 
     topology_template:
       inputs:
@@ -361,7 +358,7 @@ spec:
 """
 
 
-@pytest.fixture()
+@pytest.fixture(params=["'::root::inputs::%s' | eval", "TOPOLOGY.inputs.%s"])
 def runner(request):
     runner = CliRunner()
     with runner.isolated_filesystem(SAVE_TMP) as test_dir:
@@ -371,8 +368,10 @@ def runner(request):
             runner,
             env=dict(UNFURL_HOME=""),
         )
+        failed = request.param % "failed"
+        changed = request.param % "changed"
         with open("ensemble-template.yaml", "w") as f:
-            f.write(commit_manifest)
+            f.write(commit_manifest % (failed, changed))
         run_cmd(runner, ["commit", "--no-edit"])
         runner.job_count = 0
         yield runner
@@ -397,7 +396,7 @@ def _deploy(cli_runner, command, expected_summary=None, check_files=None):
         summary = job.json_summary()["job"]
         jobid = summary.pop("id")
         expected_summary.pop("id", None)
-        assert expected_summary == summary, jobid
+        assert expected_summary == summary, (command, jobid)
 
 
 def test_committing(runner):

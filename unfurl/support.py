@@ -755,7 +755,7 @@ def get_input(arg, ctx):
         has_default = False
 
     try:
-        return ctx.currentResource.root.attributes["inputs"][name]
+        return ctx.currentResource.root.inputs[name]
     except KeyError:
         if has_default:
             return map_value(default, ctx)
@@ -872,7 +872,9 @@ class _ContextVars(dict):
 
     def __getitem__(self, key):
         # hack so we record access via attribute manager
-        if key in ("inputs", "outputs"):
+        if key == "inputs":
+            return self.root.inputs
+        elif key == "outputs":
             return self.root[key]
         return super().__getitem__(key)
 

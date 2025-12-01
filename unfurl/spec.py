@@ -864,7 +864,7 @@ class EntitySpec(ResourceRef):
         assert toscaNodeTemplate
         self.toscaEntityTemplate: EntityTemplate = toscaNodeTemplate
         self.topology: TopologySpec = topology
-        self.spec = topology.spec
+        self.spec: ToscaSpec = topology.spec
         self.name: str = toscaNodeTemplate.name
         if not validate_unfurl_identifier(self.name):
             ExceptionCollector.appendException(
@@ -1865,8 +1865,71 @@ class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
     def __len__(self):
         return len(self.topology.node_templates)
 
+class _PseudoSpec(EntitySpec):
+    def __init__(self, spec: ToscaSpec):
+        self.spec = spec
+        self.properties = CommentedMap()
+        self.defaultAttributes = {}
+        self.propertyDefs = {}
+        self.attributeDefs = {}
+        self._isReferencedBy = {}
 
-class TopologySpec(EntitySpec):
+    def get_interfaces(self) -> List[OperationDef]:
+        # doesn't have any interfaces
+        return []
+
+    def is_compatible_target(self, targetStr):
+        if self.name == targetStr:
+            return True
+        return False
+
+    def is_compatible_type(self, typeStr):
+        return self.type == typeStr
+
+    def _get_prop(self, name):
+        if name == ".type":
+            return self.type
+        else:
+            return super()._get_prop(name)
+
+    @property
+    def base_dir(self) -> str:
+        return self.spec.base_dir
+
+    @property
+    def metadata(self) -> Dict[str, Any]:
+        metadata = self.tpl.get("metadata")
+        if metadata is None:
+            return {}
+        return metadata
+
+    # @property
+    # def tpl(self) -> Dict[str, Any]:
+    #     return self.topology_template.tpl
+
+    def is_property_set(self, name: str) -> bool:
+        return False
+
+
+class TopologyInputsSpec(_PseudoSpec):
+    def __init__(self, topology: "TopologySpec"):
+        super().__init__(topology.spec)
+        self.toscaEntityTemplate = topology.toscaEntityTemplate  # hack
+        self.topology = topology
+        self.name = "inputs"
+        self.global_type = self.type = "~inputs"
+
+        self.propertyDefs = {i.name: i for i in topology.topology_template.inputs}
+        self.properties = CommentedMap(
+            [(prop.name, prop.value) for prop in self.propertyDefs.values()]
+        )
+
+    @property
+    def tpl(self) -> Dict[str, Any]:
+        return self.topology.topology_template._tpl_inputs()
+
+
+class TopologySpec(_PseudoSpec):
     # has attributes: tosca_id, tosca_name, state, (3.4.1 Node States p.61)
     def __init__(
         self,
@@ -1876,9 +1939,9 @@ class TopologySpec(EntitySpec):
         inputs: Optional[Dict[str, Any]] = None,
         path: Optional[str] = None,
     ):
+        super().__init__(spec)
         self.topology_template = topology
         self.toscaEntityTemplate = topology  # hack
-        self.spec: ToscaSpec = spec
         self.spec._topology_templates[id(topology)] = self
         self.name = "root"
         self.global_type = self.type = "~topology"
@@ -1902,12 +1965,7 @@ class TopologySpec(EntitySpec):
             for input in topology.inputs
         }
         self.outputs = {output.name: output.value for output in topology.outputs}
-        self.properties = CommentedMap()
-        self.defaultAttributes = {}
-        self.propertyDefs = {}
-        self.attributeDefs = {}
         self._default_relationships: List[RelationshipSpec] = []
-        self._isReferencedBy = {}
         self._all = _TopologyNodeSpecs(self)
         self.add_discovered()
 
@@ -1930,24 +1988,6 @@ class TopologySpec(EntitySpec):
             return nodespec.toscaEntityTemplate.entity_tpl
         else:
             return None
-
-    def get_interfaces(self) -> List[OperationDef]:
-        # doesn't have any interfaces
-        return []
-
-    def is_compatible_target(self, targetStr):
-        if self.name == targetStr:
-            return True
-        return False
-
-    def is_compatible_type(self, typeStr):
-        return False
-
-    def _get_prop(self, name):
-        if name == ".type":
-            return self.type
-        else:
-            return super()._get_prop(name)
 
     def add_discovered(self):
         if not self.substitute_of:
@@ -2029,18 +2069,8 @@ class TopologySpec(EntitySpec):
             return matches
 
     @property
-    def metadata(self) -> Dict[str, Any]:
-        metadata = self.tpl.get("metadata")
-        if metadata is None:
-            return {}
-        return metadata
-
-    @property
     def tpl(self) -> Dict[str, Any]:
         return self.topology_template.tpl
-
-    def is_property_set(self, name: str) -> bool:
-        return False
 
     def find_matching_templates(self, typeName) -> Iterator[NodeSpec]:
         for template in self.node_templates.values():

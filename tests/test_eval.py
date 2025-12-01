@@ -294,7 +294,7 @@ class EvalTest(unittest.TestCase):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
         serialized = serialize_value(src)
-        self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
+        self.assertEqual(serialized, {"a": ["b", {"eval": "::test"}]})
         self.assertEqual(src, map_value(serialized, resource))
         serialized = serialize_value(
             dict(foo=sensitive_str("sensitive"), yes="yes"), redact=True

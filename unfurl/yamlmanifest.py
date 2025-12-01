@@ -1099,7 +1099,7 @@ class YamlManifest(ReadOnlyManifest):
     ) -> CommentedMap:
         status = CommentedMap()
         # record the input and output values
-        status["inputs"] = serialize_value(root.attributes["inputs"])
+        status["inputs"] = root.inputs._attributes
         status["outputs"] = serialize_value(root.attributes["outputs"])
 
         save_status(root, status)
