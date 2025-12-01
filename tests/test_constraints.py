@@ -22,9 +22,10 @@ SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 def test_constraints(caplog):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
-    # loads yaml with with a json include
+    # includes examples/constraints.py
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
-    manifest = local.get_manifest(skip_validation=False, safe_mode=True)
+    # skip validation so we can load the ensemble (but assert that the validation error was logged)
+    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
     service_template = manifest.manifest.expanded["spec"]["service_template"]
     node_templates = {
         "myapp": {
@@ -41,7 +42,7 @@ def test_constraints(caplog):
                 "image": "myimage:latest",
                 "url": "http://localhost:8000",
                 "name": "app",  # applied by the app's node_filter
-                "mem_size": "1 GB",  # XXX node_filter constraints aren't being applied
+                "mem_size": "1 GB",
             },
             "metadata": {"module": "service_template.constraints"},
         },
@@ -175,17 +176,18 @@ def test_constraints(caplog):
     assert hosting == container, (hosting, container)
 
     Runner(manifest).static_plan()  # generate instances
-    with pytest.raises(
-        UnfurlError, match='The value "1 GB" of property "mem_size" is out of range'
-    ):
-        assert (
-            manifest.get_root_resource()
-            .find_instance("container_service")
-            .attributes["mem_size"]
-            == "1 GB"
-        )
+    assert (
+        manifest.get_root_resource()
+        .find_instance("container_service")
+        .attributes["mem_size"]
+        == 1 * tosca.GB
+    )
 
     assert "Solver set myapp_proxy.hosting to container" in caplog.text
+    assert (
+        '''Found TOSCA validation failures: ValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2 GB, max:20 GB)". in node template "container_service"'''
+        in caplog.text
+    )
     # XXX support for deducing inverse and test
     # assert container.get_relationship("host") == proxy
 
