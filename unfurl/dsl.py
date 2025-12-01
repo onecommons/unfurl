@@ -322,6 +322,7 @@ class DslMethodConfigurator(Configurator):
         self.action = action
         self.configurator: Optional[Configurator] = None
         self._generator: Optional[Generator] = None
+        self._executed = False  # the operation was invoked
 
     def _execute_artifact(self, task: TaskView):
         assert task._artifact
@@ -362,11 +363,13 @@ class DslMethodConfigurator(Configurator):
         artifact._invoke(self.cls.execute, *args, **kwargs)
         self._set_artifact(task, getattr(artifact, "_inputs", None), task._artifact)
         assert self.configurator
-        return self.configurator.render(task)
 
-    def render(self, task: TaskView) -> Any:
+    def _execute_operation(self, task: TaskView) -> None:
+        if self._executed:
+            return
+        self._executed = True
         if self.action == "execute":  # execute the implementation artifact
-            return self._execute_artifact(task)
+            self._execute_artifact(task)
         if self.action == "render" or self.action == "parse":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
@@ -380,12 +383,7 @@ class DslMethodConfigurator(Configurator):
 
             if isinstance(result, Generator):
                 self._generator = result
-                # render the yielded configurator
-                result = result.send(None)
-                assert isinstance(result, Configurator), (
-                    "Only yielding configurators is currently support"
-                )
-            if isinstance(result, Configurator):
+            elif isinstance(result, Configurator):
                 self.configurator = result
                 # task.inputs get reset after render phase
                 # so we need to set configSpec.inputs in order to preserve them for run()
@@ -393,8 +391,6 @@ class DslMethodConfigurator(Configurator):
                 # regenerate task.inputs:
                 task._inputs = None
                 task.inputs
-                if not self._generator:
-                    return self.configurator.render(task)
             elif callable(result):
                 self.func = result  # invoke during run()
             elif execute_proxy._artifact_executed:
@@ -407,7 +403,6 @@ class DslMethodConfigurator(Configurator):
                     )
                 self._set_artifact(task, execute_proxy._inputs, artifact)
                 assert self.configurator
-                return self.configurator.render(task)
             elif result is not None:
                 raise UnfurlError(
                     f"unsupported configurator type: {type(result)} {result and result._obj} {result and result._cls}"
@@ -417,6 +412,25 @@ class DslMethodConfigurator(Configurator):
                 # regenerate task.inputs:
                 task._inputs = None
                 task.inputs
+
+    def check_digest(self, task: "TaskView", changeset) -> bool:
+        self._execute_operation(task)
+        if self.configurator:
+            return self.configurator.check_digest(task, changeset)
+        else:
+            return super().check_digest(task, changeset)
+
+    def render(self, task: TaskView) -> Any:
+        self._execute_operation(task)
+        if self._generator:
+            # render the yielded configurator
+            result = self._generator.send(None)
+            assert isinstance(result, Configurator), (
+                "Only yielding configurators is currently support"
+            )
+            return result
+        elif self.configurator:
+            return self.configurator.render(task)
         return super().render(task)
 
     def _set_artifact(self, task: TaskView, _inputs, artifact):

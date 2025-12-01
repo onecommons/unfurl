@@ -1285,6 +1285,7 @@ def test_template_init() -> None:
         def _template_init(self) -> None:
             if self.has_default("shellScript"):
                 if self.host:
+                    assert tosca.global_state.mode == "parse"
                     intent = self.prop1["key"][0]
                 else:
                     intent = None  # self.host is None on template e3

@@ -328,8 +328,10 @@ class max_length(DataConstraint[int]):
     def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
         return super().apply_constraint(val)  # type: ignore[arg-type]
 
+
 class version(DataConstraint[T]):
     pass
+
 
 class pattern(DataConstraint[T]):
     pass
@@ -1990,6 +1992,7 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
+    previous_mode = global_state.mode
     global_state.mode = "parse"
     global_state._in_process_class = True
     try:
@@ -2101,6 +2104,7 @@ def _make_dataclass(cls):
                     setattr(cls, name, _FieldDescriptor(field))
     finally:
         global_state._in_process_class = False
+        global_state.mode = previous_mode
     return cls
 
 
@@ -2467,41 +2471,42 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         return patches
 
     def __post_init__(self) -> None:
-        self._defaults: Dict[str, Any] = {}
-        if self.is_patch:
-            return
-        patches = self._remove_patches()
-        if not self.is_patch:
-            self._template_init()  # user hook to initialize the template
+        with set_evaluation_mode("parse"):
+            self._defaults: Dict[str, Any] = {}
+            if self.is_patch:
+                return
+            patches = self._remove_patches()
+            if not self.is_patch:
+                self._template_init()  # user hook to initialize the template
 
-        # internal bookkeeping:
-        # add missing values, apply patches, and set ownership
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        if self._instance_fields:
-            fields = dict(fields, **self._instance_fields)
-        for field in fields.values():
-            if field.name[0] == "_":
-                continue
-            val = object.__getattribute__(self, field.name)
-            if not isinstance(field, _Tosca_Field):
-                self._set_value(None, val, field.name)
-                continue
-            patch = patches.get(field.name)
-            if (
-                (val is REQUIRED or val is MISSING)
-                and field._tosca_field_type != ToscaFieldType.attribute
-                and not field.declare_attribute
-                and not patch
-            ):
-                # a required field wasn't set
-                if self._enforce_required_fields():
-                    # on Python < 3.10 we set this to workaround the lack of keyword only fields
-                    raise ValueError(
-                        f'Keyword argument was missing: {field.name} on "{self}".'
-                    )
-            else:  # update if it wasn't initialize or set by _template_init()
-                self._set_value(field, val, field.name, patch)
-        self._initialized = True
+            # internal bookkeeping:
+            # add missing values, apply patches, and set ownership
+            fields = object.__getattribute__(self, "__dataclass_fields__")
+            if self._instance_fields:
+                fields = dict(fields, **self._instance_fields)
+            for field in fields.values():
+                if field.name[0] == "_":
+                    continue
+                val = object.__getattribute__(self, field.name)
+                if not isinstance(field, _Tosca_Field):
+                    self._set_value(None, val, field.name)
+                    continue
+                patch = patches.get(field.name)
+                if (
+                    (val is REQUIRED or val is MISSING)
+                    and field._tosca_field_type != ToscaFieldType.attribute
+                    and not field.declare_attribute
+                    and not patch
+                ):
+                    # a required field wasn't set
+                    if self._enforce_required_fields():
+                        # on Python < 3.10 we set this to workaround the lack of keyword only fields
+                        raise ValueError(
+                            f'Keyword argument was missing: {field.name} on "{self}".'
+                        )
+                else:  # update if it wasn't initialize or set by _template_init()
+                    self._set_value(field, val, field.name, patch)
+            self._initialized = True
 
     def _new_from_patch(self, patch: "ToscaType") -> "ToscaType":
         assert patch.is_patch, patch
@@ -3035,7 +3040,8 @@ class ToscaType(_ToscaType):
                     or (
                         t_field.default is val
                         and val is not None
-                        and t_field.tosca_field_type not in (ToscaFieldType.property, ToscaFieldType.builtin)
+                        and t_field.tosca_field_type
+                        not in (ToscaFieldType.property, ToscaFieldType.builtin)
                         and t_field not in self._instance_fields
                     )
                 ):
@@ -3720,6 +3726,7 @@ OpenDataType = OpenDataEntity  # deprecated
 
 class CapabilityEntity(_OwnedToscaType):
     """A TOSCA capability template."""
+
     _type_section: ClassVar[str] = "capability_types"
 
     @classmethod
@@ -3742,6 +3749,7 @@ CapabilityType = CapabilityEntity
 
 class Relationship(_OwnedToscaType):
     """A TOSCA relationship template."""
+
     # the "owner" of the relationship is its source node
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
@@ -3848,6 +3856,7 @@ InterfaceType = Interface  # deprecated
 
 class ArtifactEntity(_OwnedToscaType):
     """A TOSCA artifact template."""
+
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
@@ -3952,11 +3961,13 @@ class ArtifactEntity(_OwnedToscaType):
         # we can treat that as untyped, allowing any input to be set
         return None
 
+
 ArtifactType = ArtifactEntity  # deprecated
 
 
 class Policy(ToscaType):
     """A TOSCA policy template."""
+
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
     _targets: Sequence[Union[Node, "Group"]] = field(
@@ -3979,6 +3990,7 @@ PolicyType = Policy  # deprecated
 
 class Group(ToscaType):
     """A TOSCA group template."""
+
     _type_section: ClassVar[str] = "group_types"
     _template_section: ClassVar[str] = "groups"
     _members: Sequence[Union[Node, "Group"]] = field(
