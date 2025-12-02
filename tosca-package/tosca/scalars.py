@@ -44,6 +44,7 @@ from toscaparser.elements.scalarunit import (
 class _Scalar:
     __slots__ = ("unit", "value")  # unit to represent this value as
     SCALAR_UNIT_DICT: Dict[str, Any] = {}
+    tosca_name: str = ""  # TOSCA scalar.unit
 
     def __init__(self, value, unit: "_Unit"):
         self.value = float(value)
@@ -69,14 +70,16 @@ class _Scalar:
         return self.value / self.unit.value
 
     def to_yaml(self, dict_cls=dict) -> str:
-        "Return this value and this type's TOSCA unit suffix, eg. 10 kB"
+        "Return this value and this type's TOSCA unit suffix, eg. 10kB"
         val = self.as_unit
         as_int = math.floor(val)
         if val == as_int:
             val = as_int  # whole number, treat as int
-        return f"{val} {self.unit}"
+        return f"{val}{self.unit}"
 
     def as_ref(self, options=None):
+        if options and options.get("resolveExternal"):
+            return str(self)
         return {"eval": dict(scalar=str(self))}
 
     def __mul__(self, other: Union[int, float, Self, "_Unit[Self]"]) -> Self:
@@ -141,38 +144,38 @@ class _Scalar:
 
     def __eq__(self, value: object, /) -> bool:
         eq = self.value == value
-        if eq and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+        if eq and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
             return False
         return eq
 
     def __ne__(self, value: object, /) -> bool:
         ne = self.value != value
         if not ne:
-            if isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+            if isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
                 return True  # equal values but different types
         return ne
 
     def __lt__(self, value: float, /) -> bool:
         ans = self.value < value
-        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
             return False
         return ans
 
     def __le__(self, value: float, /) -> bool:
         ans = self.value <= value
-        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
             return False
         return ans
 
     def __gt__(self, value: float, /) -> bool:
         ans = self.value > value
-        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
             return False
         return ans
 
     def __ge__(self, value: float, /) -> bool:
         ans = self.value >= value
-        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:  # type: ignore
+        if ans and isinstance(value, _Scalar) and self.tosca_name != value.tosca_name:
             return False
         return ans
 
@@ -203,6 +206,9 @@ class _Unit(Generic[_S]):
 
     def __str__(self) -> str:
         return self.unit
+
+    def __repr__(self) -> str:
+        return f"_Unit({self.scalar_type.__name__}, '{self.unit}')"
 
     def as_int(
         self,
@@ -264,7 +270,7 @@ class Bitrate(_Scalar):
 
 B = _Unit(Size, "B")
 b = B
-kB = _Unit(Size, "kB")
+kB = _Unit(Size, "kB")  # match SI capitalization
 kb = kB
 KB = kB
 KiB = _Unit(Size, "KiB")

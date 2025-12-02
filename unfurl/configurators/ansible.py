@@ -323,7 +323,9 @@ class AnsibleConfigurator(TemplateConfigurator):
                 host, endpoint, inventory or {}, task
             )
         # XXX cache and reuse
-        return cwd.write_file(serialize_value(inventory), "inventory.yml"), hostname
+        return cwd.write_file(
+            serialize_value(inventory, resolveExternal=True), "inventory.yml"
+        ), hostname
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -383,7 +385,9 @@ class AnsibleConfigurator(TemplateConfigurator):
         envvars = task.get_environment(True)
         for play in playbook:
             play["environment"] = envvars
-        return cwd.write_file(serialize_value(playbook), "playbook.yml")
+        return cwd.write_file(
+            serialize_value(playbook, resolveExternal=True), "playbook.yml"
+        )
 
     def get_playbook_args(self, task: TaskView):
         args = task.inputs.get("playbookArgs", [])

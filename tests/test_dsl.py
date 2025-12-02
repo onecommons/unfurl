@@ -382,8 +382,8 @@ topology_template:
         host:
          properties:
            num_cpus: 1
-           disk_size: 10 GB
-           mem_size: 4096 MB
+           disk_size: 10GB
+           mem_size: 4096MB
         # Guest Operating System properties
         os:
           properties:

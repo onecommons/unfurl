@@ -250,8 +250,9 @@ class KomposeConfigurator(ShellConfigurator):
         # kompose.volume.type	: configMap
         # if there's a volume mapping that points to file use --volumes=configMap option,
         # (see https://github.com/kubernetes/kompose/pull/1216)
-        task.logger.debug("writing docker-compose:\n%s", compose)
-        cwd.write_file(serialize_value(compose), "docker-compose.yml")
+        composed = serialize_value(compose, resolveExternal=True)
+        task.logger.debug("writing docker-compose:\n%s", composed)
+        cwd.write_file(composed, "docker-compose.yml")
         result = self.run_process(cmd + ["convert", "-o", output_dir], cwd=cwd.cwd)
         ingress_extras = get_ingress_extras(
             task, task.inputs.get_copy("ingress_extras")

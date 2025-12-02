@@ -19,7 +19,7 @@ from unfurl.spec import find_env_vars
 import io
 from click.testing import CliRunner
 from toscaparser.topology_template import find_type
-
+from tosca import Size, GiB, GB, MB, MiB
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -80,7 +80,6 @@ spec:
             default:
               private:
                   eval: private_address
-            
           event_object: # 5.3.2.2 Examples p.194
             type: tosca.datatypes.json
             constraints:
@@ -105,6 +104,9 @@ spec:
             - valid_values: [ 1, 2, 4, 8 ]
           metadata:
             sensitive: true
+        mem_size:
+          type: scalar-unit.size
+          default: .5 GiB
       outputs:
         server_ip:
           description: The private IP address of the provisioned server.
@@ -159,7 +161,7 @@ spec:
              properties:
                num_cpus: { eval: ::root::inputs::cpus }
                disk_size: 10 GB
-               mem_size: 512 MB
+               mem_size: 512 MiB
             # Guest Operating System properties
             os:
               properties:
@@ -194,6 +196,18 @@ class ToscaSyntaxTest(unittest.TestCase):
         )
         assert my_server.attributes["test"] == "cpus: 2"
         assert my_server.attributes["concat2"] is None
+
+        size1 = my_server.get_capabilities("host")[0]["mem_size"]
+        assert isinstance(size1, Size)
+        size2 = my_server.query(dict(get_input="mem_size"))
+        assert isinstance(size2, Size)
+        assert size1 == size2
+        as_str = "512MiB 0.5GiB"
+        assert f"{size1} {size2}" == as_str
+        assert as_str == my_server.query(
+            '{{ "::my_server::.capabilities::[.name=host]::mem_size" | eval }} {{ {"get_input":"mem_size"} | eval }}'
+        )
+
         # print(job.out.getvalue())
         testSensitive = manifest.get_root_resource().find_resource("testSensitive")
         for name, toscaType in (
@@ -221,6 +235,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert isinstance(outputIp, sensitive_str), type(outputIp)
         assert job.status == Status.ok, job.summary()
         self.assertEqual("RHEL", testSensitive.attributes["distribution"])
+
         return outputIp, job
 
     def test_inputAndOutputs(self):

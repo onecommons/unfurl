@@ -42,7 +42,7 @@ def test_constraints(caplog):
                 "image": "myimage:latest",
                 "url": "http://localhost:8000",
                 "name": "app",  # applied by the app's node_filter
-                "mem_size": "1 GB",
+                "mem_size": "1GB",
             },
             "metadata": {"module": "service_template.constraints"},
         },
@@ -146,7 +146,7 @@ def test_constraints(caplog):
                                                 {"name": {"q": "app"}},
                                                 {
                                                     "mem_size": {
-                                                        "in_range": ["2 GB", "20 GB"]
+                                                        "in_range": ["2GB", "20GB"]
                                                     }
                                                 },
                                             ]
@@ -185,7 +185,7 @@ def test_constraints(caplog):
 
     assert "Solver set myapp_proxy.hosting to container" in caplog.text
     assert (
-        '''Found TOSCA validation failures: ValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2 GB, max:20 GB)". in node template "container_service"'''
+        '''Found TOSCA validation failures: ValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2GB, max:20GB)". in node template "container_service"'''
         in caplog.text
     )
     # XXX support for deducing inverse and test
@@ -243,8 +243,8 @@ node_types:
               properties:
               - mem_size:
                   in_range:
-                  - 2 GB
-                  - 20 GB
+                  - 2GB
+                  - 20GB
 topology_template: {}
 """
 
@@ -382,7 +382,7 @@ relationships_yaml = {
             "derived_from": "tosca.nodes.Root",
             "properties": {
                 "disk_label": {"type": "string"},
-                "disk_size": {"type": "scalar-unit.size", "default": "100 GB"},
+                "disk_size": {"type": "scalar-unit.size", "default": "100GB"},
             },
         },
         "TestTarget": {

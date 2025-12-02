@@ -461,11 +461,11 @@ def test_units(safe_mode):
     assert hash(one_mb)
     assert bool(0 * MB) == bool(0.0)
     assert one_mb.value == 1000000.0
-    assert str(one_mb) == "1 MB"
+    assert str(one_mb) == "1MB"
     assert repr(one_mb) == "1.0*MB"
     assert one_mb.as_unit == 1.0
-    assert one_mb.to_yaml() == "1 MB"
-    assert str(one_mb * GB) == "0.001 GB"
+    assert one_mb.to_yaml() == "1MB"
+    assert str(one_mb * GB) == "0.001GB"
     with pytest.raises(TypeError, match="Hz"):
         str(one_mb * tosca.HZ)
 
@@ -659,15 +659,15 @@ def test_artifact():
         "                  host:\n"
         "                  \n"
         "                      \n"
-        "                          - 0 100 GB\n"
-        "                          - 10.00001 GB\n"
-        "                          - nested: 10 GB, 20 GB, \n"
-        "                          - again: 10 GB, 20 GB, \n"
+        "                          - 0 100GB\n"
+        "                          - 10.00001GB\n"
+        "                          - nested: 10GB, 20GB, \n"
+        "                          - again: 10GB, 20GB, \n"
         "                              \n"
-        "                          - 1 100 GB\n"
-        "                          - 20.00001 GB\n"
-        "                          - nested: 10 GB, 20 GB, \n"
-        "                          - again: 10 GB, 20 GB, \n"
+        "                          - 1 100GB\n"
+        "                          - 20.00001GB\n"
+        "                          - nested: 10GB, 20GB, \n"
+        "                          - again: 10GB, 20GB, \n"
         "                              \n"
         "                  "
     )
@@ -689,7 +689,7 @@ def test_artifact():
                                         ]
                                     }
                                 },
-                                "volumes": ["10 GB", "20 GB"],
+                                "volumes": ["10GB", "20GB"],
                             },
                             "file": "",
                             "contents": {
