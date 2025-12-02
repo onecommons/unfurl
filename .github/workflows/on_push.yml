@@ -85,7 +85,7 @@ jobs:
           else
             tox -e $PY_V -v -- -vv -n auto --dist loadfile
           fi
-          .tox/$PY_V/bin/mypy unfurl --install-types --non-interactive
+          .tox/$PY_V/bin/mypy unfurl tosca-package --install-types --non-interactive
       - name: Run cargo clippy and cargo test
         if: matrix.python == '3.14'
         run: |

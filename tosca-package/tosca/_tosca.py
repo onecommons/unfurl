@@ -1915,7 +1915,7 @@ def get_annotations(o):
         return annotationlib.get_annotations(o, format=annotationlib.Format.FORWARDREF)
     elif sys.version_info.minor > 9:
         # this calls eval
-        return inspect.get_annotations(o)
+        return inspect.get_annotations(o)  # type: ignore
     elif isinstance(o, type):
         return o.__dict__.get("__annotations__", {})
     else:
@@ -2248,8 +2248,8 @@ def field(
         field: _Tosca_Field = _Tosca_Field(
             ToscaFieldType.builtin, default, default_factory, name, owner=owner
         )
-        if ClassVar:
-            field.kw_only = MISSING
+        if ClassVar and sys.version_info.minor > 9:
+            field.kw_only = MISSING  # type: ignore
         return field
     return dataclasses.field(**kw)
 
