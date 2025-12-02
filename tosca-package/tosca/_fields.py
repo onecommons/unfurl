@@ -630,9 +630,54 @@ def _strip_expr(expr) -> str:
 def jinja_template(
     _func: Optional[_F] = None, *, convert_to: Literal["yaml", "json", None] = None
 ) -> Any:
-    """Use this decorator on methods or functions passed to `Computed` properties. They should return a Python f-string, which the decorator converts to a jinja2 template at runtime.
+    '''
+    Use this decorator on methods or functions passed to `Computed` properties.
+    They should return a Python f-string, which the decorator converts to a jinja2 template at runtime.
     This allows you to create a template with conditionals and loops while taking advantage of static type checking and IDE support for f-strings.
-    """
+
+    It can be used as a plain decorator (``@jinja_template``) or with options: ``@jinja_template(convert_to="yaml")`` or ``@jinja_template(convert_to="json")``.
+
+
+    Args:
+      convert_to: Literal["yaml", "json", None]
+        If provided, wraps the generated template in a Jinja2 filter block so the rendered text is parsed into a native Python object using the corresponding from_yaml or from_json filter.
+    Returns:
+      Any:
+        At runtime: The value obtained by rendering the Jinja2 template.
+        Outside runtime: An EvalData placeholder that defers evaluation to the runtime.
+
+
+    The decorated function or method must accept two positional arguments: (obj, tags), where:
+
+    - obj is the instance (when used on methods) or an opaque object (when used on functions).
+    - tags is a `TagWriter` used to declare Jinja2 flow control statements in a type-safe manner.
+      Any variables recorded by this helper are provided as the template context when rendering.
+
+    The function should return a string (typically built with an f-string).
+
+    Example:
+
+      .. code-block:: python
+
+        class MyNode(tosca.nodes.Root):
+
+          @jinja_template(convert_to="yaml")
+          def _contents(self, tags: TagWriter) -> str:
+              return f"""server:
+                url: {self.url}
+                { tags.if_(self.ports) }
+                ports:
+                  { tag.for_(
+                      self.ports,
+                      lambda port: f"- {tags.index}: {tags.expr("port")}"
+                  }
+                { tags.endif }
+                """
+          my_yaml_template: str = Computed(_contents)
+
+      As this is interpreted as a Jinja2 template, the full Jinja2 syntax is available,
+      however note that "{" and "}" need to be escaped in f-strings, so Jinja2 expression would look like ``f\"Hello {{{{ name }}}}\"``).
+    '''
     from unfurl.eval import Ref
     from tosca import global_state_mode, global_state_context
 
@@ -664,36 +709,66 @@ def jinja_template(
 
 
 class TagWriter:
-    def __init__(self) -> None:
+    """Declare Jinja2 flow control statements in a type-safe manner. See `jinja_template` for more."""
+
+    def __init__(self):
         self._vars: Dict[str, Any] = {}
         self._exprs: Dict[int, str] = {}
         self._loops: List[List[Any]] = []
         self.index = -1
 
-    def _cond(self, op: str, expr: _T) -> _T:
+    def _cond(self, op: str, expr: Union[_T, EvalData]) -> _T:
         if not isinstance(expr, EvalData):
             expr = cast(_T, self._name_expr(expr))
         return cast(_T, f"{{% {op} {_strip_expr(expr)} %}}")
 
-    def if_(self, expr: _T) -> _T:
-        """Convert to {{if expr }}"""
+    def if_(self, expr: Union[_T, EvalData]) -> _T:
+        """Returns {% if expr %} escaped."""
         return self._cond("if", expr)
 
-    def elif_(self, expr: _T) -> _T:
+    def elif_(self, expr: Union[_T, EvalData]) -> _T:
+        """Returns {% elif expr } escaped."""
         return self._cond("elif", expr)
-
-    def strip(self, expr: str) -> str:
-        return _strip_expr(expr)
 
     @property
     def else_(self) -> str:
+        """Returns {% else %} escaped."""
         return "{% else %}"
 
     @property
     def endif(self) -> str:
+        """Returns {% endif %} escaped."""
         return "{% endif %}"
 
+    def strip(self, expr: str) -> str:
+        return _strip_expr(expr)
+
+    def expr(self, expr: str) -> str:
+        """Return ``expr`` as Jinja2 expression, i.e. ``{{ expr }}``.
+        You need to call this for jinj2a expressions that reference the loop argument in a `for_` partial
+        since they need to be rewritten.
+        """
+        if self._loops:
+            arg_name, collection_name, index = self._loops[-1]
+            expr = re.sub(
+                rf"(^|\W){arg_name}(\W|$)", rf"\1{collection_name}[{index}]\2", expr
+            )
+        return "{{ " + expr + " }}"
+
     def for_(self, iterable: Iterable[_T], partial: Callable[[_T], str]) -> str:
+        """
+        Generate a string by iterating over an iterable and applying a partial function to each item.
+        This method processes an iterable collection, applies the partial function to each item.
+
+        Args:
+          iterable (Iterable[_T]): The collection of items to iterate over.
+          partial (Callable[[_T], str]): A function that takes a single item from the iterable and returns a string representation.
+                                         The function's first parameter name will be used as the argument name in the loop context.
+                                         You access the current position in the collection via the``tags.index`` property.
+
+        Returns:
+          str: A concatenated string of all results from applying the partial function to each item in the iterable.
+        """
         self.arg_name = list(inspect.signature(partial).parameters)[0]
         collection_name = self._name_expr(iterable)
         self._loops.append([self.arg_name, collection_name, 0])
@@ -709,14 +784,6 @@ class TagWriter:
             self._loops.pop()
         self._vars[collection_name] = items
         return src
-
-    def expr(self, expr: str) -> str:
-        if self._loops:
-            arg_name, collection_name, index = self._loops[-1]
-            expr = re.sub(
-                rf"(^|\W){arg_name}(\W|$)", rf"\1{collection_name}[{index}]\2", expr
-            )
-        return "{{ " + expr + " }}"
 
     def _name_expr(self, expr) -> str:
         if id(expr) in self._exprs:

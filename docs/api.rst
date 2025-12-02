@@ -211,6 +211,10 @@ Other Module Items
 
 .. autofunction:: jinja_template
 
+.. autoclass:: TagWriter
+   :members:
+   :member-order: bysource
+
 .. autofunction:: patch_template
 
 .. autofunction:: set_evaluation_mode
