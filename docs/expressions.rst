@@ -521,10 +521,8 @@ python
 scalar
 ^^^^^^
 
-Parse the given string into a scalar, e.g. "5 mb".
-
-TOSCA properties with scalar-unit types represented as as strings so use this function to treat them as scalars.
-For example, in the example below, even though ``mem_size`` property is declared with type ``scalar-unit.size`` you still need to use the ``scalar`` expression function.
+Parse the given string into a scalar, e.g. "5 mb". The string should match the syntax expected for TOSCA scalar-unit types.
+For example:
 
   .. code-block:: YAML
 
@@ -533,7 +531,7 @@ For example, in the example below, even though ``mem_size`` property is declared
       - eval:
           scalar: "5 mb"
       - eval:
-          scalar: mem_size
+          scalar: "1GB"
 
 
 scalar_value
@@ -653,8 +651,7 @@ If ``update_os_environ`` is true update the environment variables for the curren
 to_googlecloud_label
 ^^^^^^^^^^^^^^^^^^^^
 
-Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
-following the rules found here https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+Convert the given argument (see :std:ref:`to_label` for full description) to a string following Google Cloud's `label requirements <https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements>`_.
 
 Invalid characters are replaced with "__".
 
@@ -662,9 +659,12 @@ to_kubernetes_label
 ^^^^^^^^^^^^^^^^^^^
 
 Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
-following the rules found here https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+following the rules found `here <https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set>`_.
+
+If the argument is a size scalar-unit, it is converted to a string following the `Kubernetes quantity syntax <https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity>`_.
 
 Invalid characters are replaced with "__".
+
 
 to_label
 ^^^^^^^^

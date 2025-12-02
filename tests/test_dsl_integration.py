@@ -22,6 +22,8 @@ from unfurl.tosca_plugins.k8s import (
     unfurl_relationships_ConnectsTo_K8sCluster,
 )
 from unfurl.dsl import is_python_file_newer
+from tosca import MB, GB, mb, gb, Size, kib, KB
+import math
 
 class Service(tosca.nodes.Root):
     host: str = tosca.Attribute()
@@ -433,10 +435,6 @@ def test_expressions():
     # tempfile
 
 
-from tosca import MB, GB, mb, gb, Size
-import math
-
-
 @expr.runtime_func
 def calc_size(size1: Size, size2: Size) -> Size:
     if size1 is None or size2 is None:
@@ -549,6 +547,9 @@ def test_units(safe_mode):
         tosca.global_state.context.copy(trace=0)
     )
     assert result == 32 * GB
+    assert functions.to_kubernetes_label(result) == "32G"
+    assert functions.to_kubernetes_label(1 * KB) == "1k"
+    assert functions.to_kubernetes_label(1 * kib) == "1Ki"
 
 
 def test_find_connection():

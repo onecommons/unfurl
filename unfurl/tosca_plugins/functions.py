@@ -34,7 +34,8 @@ from tosca import (
     safe_mode,
     global_state_mode,
     global_state_context,
-    has_function
+    has_function,
+    Size,
 )
 import tosca
 
@@ -121,7 +122,7 @@ def _mid_truncate(label: str, replace: str, trunc: int) -> str:
     return label
 
 
-LabelArg = Union[str, Mapping, list]
+LabelArg = Union[str, Mapping, list, Size]
 
 
 class DNSLabelKwArgs(TypedDict, total=False):
@@ -196,7 +197,7 @@ def to_label(
                                 Default: 3 or 2 if max < 32
     """
     if global_state_mode() == "runtime" or (not isinstance(arg, EvalData) and not has_function(arg)):
-        return _to_label(arg, **kw)
+        return _to_label(arg, _wrapper=_wrapper, **kw)  # type: ignore
     else:
         kw[_wrapper] = arg  # type: ignore
         return EvalData({"eval": kw})  # type: ignore
@@ -287,8 +288,10 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
             )
         else:
             return _mid_truncate(val, elide_chars, trunc)
-    else:
-        return arg
+    elif isinstance(arg, Size) and kw.get("_wrapper") == "to_kubernetes_label":
+        # see https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity
+        return str(round(arg.as_unit)) + arg.unit.unit.rstrip("Bb")
+    return arg
 
 
 @overload
