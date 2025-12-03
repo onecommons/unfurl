@@ -51,13 +51,13 @@ The resolved value is merged into the map containing the directive using the fol
 
   If the result of the lookup is not a JSON object or YAML map\:
 
-    If result of the lookup is a list and the map being replaced appears as an item in a list\:
-      The list is spliced in place. (If you don't want that behavior just wrap the include in another list, e.g ``[{+/list1: null}]``)
+    If result of the lookup is an array  and the map being replaced appears as an item in a array\:
+      The array is spliced in place. (If you don't want that behavior just wrap the include in another array, e.g ``[{+/list1: null}]``)
 
     Otherwise, if the map being replaced has no other keys\:
       Replace the map by the result
 
-    Otherwise abort processing with a merge error
+    Otherwise, abort processing with a merge error
 
   Otherwise, recursively merge the maps\:
     for each key in the result object
@@ -72,12 +72,27 @@ The resolved value is merged into the map containing the directive using the fol
                Omit the target key from the result object
             is an object with a merge directive with the value "nullout" (``{+%: nullout}``)\:
               Set the target key to null in the result object
+            is an object with a merge directive with the value "error" (``{+%: error}``)\:
+              Abort merge and raise an error
             is a different type then the result value\:
               Ignore this key or, if in "overlay" mode, replace the target value with the result value.
             is an array \:
-              Append the target items is the result array if they aren't already found in the result array.
+              For each item in the result array \:
+                 If it is a object and \:
+                    it contains a merge directive with the value "merge" (``+%: merge``)\:
+                      if the position of the item is beyond the end of the target array\:
+                         append the item
+                      Otherwise, get the target array item at the same position\:
+                        if it is an object\:
+                           merge the items
 
-        otherwise, merge the result object value and target object value following these rules.
+                        Otherwise, replace target item with the result item.
+                    or it contains a single key and there is object in the target array with the same key\:
+                      merge the object into the target array item following the rules above
+
+                 Otherwise if the item is not found in the target array, append the item to the target array.
+
+        Otherwise, merge the result object value and target object value following these rules.
 
 
 
@@ -89,7 +104,9 @@ Ansible Jinja2 Templates
 ========================
 
 Unfurl will process any `Ansible-flavored Jinja2 templates <https://docs.ansible.com/ansible/latest/user_guide/playbooks_filters.html>`_ it encounters in strings while processing an Ensemble template.
-It support the full suite of filters and lookup plugins provided by Ansible as well as the following predefined variables, filters, and lookup plugins:
+You can also convert Python f-strings with type-safe expressions to Jinaj2 templates using the `jinja_template` decorator.
+
+Unfurl's Jinja2 template rendering supports the full suite of filters and lookup plugins provided by Ansible as well as the following predefined variables, filters, and lookup plugins:
 
 Filters
 -------
@@ -97,9 +114,15 @@ Filters
   :eval: Evaluates the given `expression <eval expressions>` or function. Equivalent to `resolve_one`
          For example: ``{{ "::instance1::anAttribute" | eval }}``
   :map_value: Resolves any `eval expressions` or template strings embedded in the given map or list. Equivalent to :py:func:`unfurl.eval.map_value`.
-  :abspath: see :std:ref:`abspath`
-  :get_dir: see :std:ref:`get_dir`
   :which: Returns the full path to the given executable, like the ``which`` shell command.
+
+  In addition the following eval expression functions can be used as Jinja2 filters:
+  :std:ref:`abspath`, :std:ref:`get_dir`, :std:ref:`inert`,
+  :std:ref:`scalar`, :std:ref:`sensitive`,
+  :std:ref:`to_label`,
+  :std:ref:`to_dns_label`,
+  :std:ref:`to_googlecloud_label`
+  :std:ref:`to_kubernetes_label`,
 
 Lookup plugins
 --------------

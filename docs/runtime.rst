@@ -183,13 +183,13 @@ Note that inputs passed via ``--var`` on the command line as parsed as YAML stri
 Debugging Unfurl
 ================
 
-The following environment variables can be set to enable debugging features and diagnostic output:
+The following environment variables can be set to enable debugging features, testing, and diagnostic output:
 
 **UNFURL_DEBUGPY**
   Set to a port number (or "1" to use default port 5678) to wait for a remote debugger (like VS-Code) to attach on startup. Requires `debugpy <https://pypi.org/project/debugpy/>`_ to be installed.
 
 **UNFURL_TEST_PRINT_YAML_SRC**
-  Prints the YAML source generated when DSL Python is converted to TOSCA YAML. 
+  Prints the YAML source (at DEBUG logging level) generated when DSL Python is converted to TOSCA YAML. 
 
 **UNFURL_TEST_PRINT_AST_SRC**
   When the TOSCA DSL imports loader executes Python code, convert the processed Python Abstract Syntax Tree (AST) back to Python source code and  print it. Helpful to debug exceptions raised from user-defined Python DSL templates, which might not have the source code reported in the exception stack trace.
@@ -205,3 +205,14 @@ The following environment variables can be set to enable debugging features and 
 
 **UNFURL_TEST_SKIP_LOADER**
   If set, disable the TOSCA DSL imports loader. The imports loader can sometimes confuse an interactive Python debugger, only use this in those scenarios.
+
+**UNFURL_SKIP_VAULT_DECRYPT** Disable checking decrypting vault encrypted YAML and ``.secrets`` folders.
+
+**UNFURL_VALIDATION_MODE** Disable/enable additional validation of ensemble. It can contain include any of the following strings:
+
+:nopropcheck: Disable runtime validation of property values when they are accessed or set.
+:python_patterns: Only accept Python regex syntax in pattern constraints (not both).
+:rust_patterns: Only accept Rust regex syntax in pattern constraints (not both).
+:reqcheck: Validate all TOSCA requirements when loading a service template (instead of only validating requirements that are part of the job's plan).
+:strict_load: Abort loading an ensemble if there's an error an instantiating an instance from the YAML (instead of just logging the error).
+:use_changelog: Instead of just comparing digests, try to load `job.yaml` files and compare old values to the current one.

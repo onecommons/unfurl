@@ -87,7 +87,8 @@
           "type": "string"
         },
         "deployment_blueprint": {
-          "type": "string"
+          "type": "string",
+          "description": "Name of the deployment blueprint the ensemble should use."
         },
         "variables": {
           "anyOf": [
