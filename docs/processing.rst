@@ -2,16 +2,25 @@
 Template Processing
 ====================
 
+.. contents::
+  :local:
+
+Unfurl provides a few mechanisms for embedding logic into TOSCA service templates and Unfurl configuration files:
+
+At parse time, YAML configuration files can contain `YAML Merge directives` that preprocess the YAML.
+
+At runtime (e.g. when a job is running), TOSCA properties and inputs can contain `Eval Expressions` and `Jinj2a templates <Ansible Jinja2 Templates>` that are processed when those properties or inputs are accessed.
+
 .. _yaml_merge_directives:
 
 YAML Merge directives
 =====================
 
-When a YAML configuration is loaded, will look for dictionary keys that match the following pattern:
+When Unfurl's YAML parser encounters a YAML map key that matches the following pattern:
 
 ``'+'['?']['include'][*anchor][relative path][absolute path]``
 
-and treat them as merge directives that update the dictionary by processing the directive and merging in its resolved value.
+and it treats it as a merge directive that updates the map by processing the directive and merging in its resolved value.
 
 Merge keys can have the following components:
 
@@ -116,13 +125,13 @@ Filters
   :map_value: Resolves any `eval expressions` or template strings embedded in the given map or list. Equivalent to :py:func:`unfurl.eval.map_value`.
   :which: Returns the full path to the given executable, like the ``which`` shell command.
 
-  In addition the following eval expression functions can be used as Jinja2 filters:
+  In addition, the following eval expression functions can be used as Jinja2 filters:
   :std:ref:`abspath`, :std:ref:`get_dir`, :std:ref:`inert`,
   :std:ref:`scalar`, :std:ref:`sensitive`,
   :std:ref:`to_label`,
   :std:ref:`to_dns_label`,
   :std:ref:`to_googlecloud_label`
-  :std:ref:`to_kubernetes_label`,
+  :std:ref:`to_kubernetes_label`.
 
 Lookup plugins
 --------------
@@ -143,9 +152,29 @@ Variables
 Eval Expressions
 ================
 
-.. contents::
+The basic form is a YAML map with at least a key named ``eval``:
 
-When jobs are run Unfurl expressions that appear in the YAML configuration files are processed.
+.. code-block:: YAML
+
+  eval: <expression> or <eval function> or <jinja2 expression>
+  <optional eval keys>
+
+Where ``<expression>`` is string matching the query syntax below, ``<function>`` is a map that is an `expression function <Expression Functions>`, or a ``<jinaj2 expression>``, as described above.
+
+Eval Keys
+----------
+
+   =========  ==============  ==========================================
+   Key        Value           Description
+   =========  ==============  ==========================================
+   eval       expr or func    the eval or jinja2 expression to evaluate
+   vars?      map             define variables for the expression
+   select?    expr            apply expression to the result
+   foreach?   see `foreach`   apply expression to each item in result
+   trace?     integer         enable detailed logging of evaluation
+   strict?    bool or string  overrides current strict evaluation mode
+   base_dir?  string          override base directory for relative paths
+   =========  ==============  ==========================================
 
 Expression Query Syntax
 --------------------------
@@ -158,58 +187,184 @@ Expression Query Syntax
     test    : var | ([^$[]:?])+
     var     : "$" name
 
-Expression Function Syntax
---------------------------
-
-   =========  ==============  ==========================================
-   Key        Value           Description
-   =========  ==============  ==========================================
-   eval       expr or func    the expression to evaluate
-   vars?      map             define variables for the expression
-   select?    expr            apply expression to the result
-   foreach?   {key?, value?}  apply expression to each item in result
-   trace?     integer         enable detailed logging of evaluation
-   strict?    boolean         overrides strict evaluation
-   base_dir?  string          override base directory for relative paths
-   =========  ==============  ==========================================
-
 Evaluation Semantics
 --------------------
 
-Each segment specifies a key in a resource or JSON/YAML object.
-``::`` is used as the segment delimitated to allow for keys that contain "." and "/"
+Eval expressions are path-based queries where each segment selects values from the previous result. Eval expressions operate on `instances <instance_def>` and regular JSON/YAML objects and arrays. For example:
 
-Path expressions evaluations always start with a list of one or more instances.
-and each segment selects the value associated with that key.
-If segment has one or more filters
-each filter is applied to that value -- each is treated as a predicate
+.. code-block:: YAML
+
+  # start with my_instance
+  eval: ::my_instance::my_property::key_in_prop
+
+  # select the property "my_property" on the current instance  
+  eval: .::my_property
+
+  # my_property on nearest ancestor
+  eval: my_property::key_in_prop
+
+The first segment determines the initial value to start evaluation with. The examples above illustrate each have a first segment that is:
+
+  * Empty (i.e. the expression starts with ``::``): the initial value will be set to the evaluation of `.all <Special keys>`, so the next segment will match against a map of all the instances in the current topology.
+
+  * ``.`` The initial value set to the "current resource" -- basically, the instance that the expression is declared in.
+  
+  * Any other key (e.g "my_property" in the last example), sets the current value is set to the evaluation of `.ancestors <Special keys>`. In other words, if the current resource doesn't have that key, search for the nearest ancestor that does.
+
+A ensemble can contain more than one topology when `substitution mappings <substitution_mappings>` are used. Instances in nested topologies can be referenced using ``substituted_node:inner_instance`` syntax. An instance name can start with ":" to anchor the name in the root topology.  Thus, ``:::my_instance`` always evaluates to the instance named "my_instance" in the root topology (equivalent to ``.apex::my_instance``).
+
+The initial segment can also be a variable reference, where the current value is set to that variable's value, for example:
+
+.. code-block:: YAML
+
+  eval: $foo::my_key
+  vars:
+    foo:
+      my_key: 1
+
+
+Filters
+~~~~~~~
+
+If segment can have one or more filters.
+Each filter is applied to that value -- each is treated as a predicate
 that decides whether value is included or not in the results.
-If the filter doesn't include a test the filter tests the existence or non-existence of the expression,
+If the filter doesn't include a test, the filter tests the existence or non-existence of the expression,
 depending on whether the expression is prefixed with a ``!``.
+
+**Example:** Given a resource with attributes:
+
+.. code-block:: javascript
+
+  {
+    d: {a: "va", b: "vb"},
+    x: {
+      a: [{c: 1}, {c: 2}, {b: "exists"}]
+    }
+  }
+
+.. code-block:: YAML
+
+  eval: d[a=va]
+  # Result: {a: "va", b: "vb"}
+
+  eval: d[a=va]::b
+  # Result: "vb"
+
+  eval: x::a[b]::c
+  # Result: [1, 2]
+
+  eval: x::a[b!=exists]::c
+  # Result: []
+
+  eval: x::a[!b]::c
+  # Result: []
+
 If the filter includes a test the left side of the test needs to match the right side.
 If the right side is not a variable, that string will be coerced to left side's type before comparing it.
 If the left-side expression is omitted, the value of the segment's key is used and if that is missing, the current value is used.
 
-If the current value is a list and the key looks like an integer
-it will be treated like a zero-based index into the list.
-Otherwise the segment is evaluated again all values in the list and resulting value is a list.
+**Special keys**
 
-If the current value is a dictionary (a map), the next segment will match the keys in the map or use ``*`` to match all values. So to filter on the values in a map, select them all first before applying the filter, for example: ``.artifacts::*::[type=MyArtifactType]``.
+Keys that start with "." are reserved and special meaning -- see this list of built-in `Special keys`.
+
+Lists
+~~~~~
+
+Use number as the segment key to select items in a list or array. For example:
+
+.. code-block:: javascript
+
+  {
+    b: [1, 2, 3],
+    x: {
+      a: [{c: 1}, {c: 2}, {c: 3}, {c: 4}]
+    }
+  }
+
+.. code-block:: YAML
+
+  eval: b::0
+  # Result: 1
+
+  eval: b::1
+  # Result: 2
+
+  eval: x::a::c
+  # Result: [1, 2, 3, 4]
+
+``*`` Wildcard Operator
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Use ``*`` to match all values. So to filter on the values in a map, select them all first before applying the filter, for example: ``.artifacts::*::[type=MyArtifactType]``.
+
+**Example with wildcards:**
+
+.. code-block:: javascript
+
+  {
+    d: {a: "va", b: "vb"},
+    e: {
+        a1: {b1: "v1"},
+        a2: {b2: "v2"}
+    }
+  }
+
+.. code-block:: YAML
+
+  eval: d::*
+  # Result: ["va", "vb"]
+
+  eval: e::*::b2
+  # Result: ["v2"]
+
+
+``?`` Match Once Operator
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 If a segment ends in ``?``, it will only include the first match.
 In other words, ``a?::b::c`` is a shorthand for ``a[b::c]::0::b::c``.
 This is useful to guarantee the result of evaluating expression is always a single result.
 
-The first segment:
-If the first segment is a variable reference the current value is set to that variable's value.
-If the key in the first segment is empty (e.g. the expression starts with ``::``) the current value will be set to the evaluation of ``.all``.
-If the key in the first segment starts with ``.`` it is evaluated against the initial "current resource".
-Otherwise, the current value is set to the evaluation of ``.ancestors?``. In other words,
-the expression will be the result of evaluating it against the first ancestor of the current resource that it matches.
+**Example with** ``?`` **operator:**
 
-If key or test needs to be a non-string type or contain reserved characters use a var reference instead.
+.. code-block:: javascript
 
-Results flattened
+  {
+    b: [1, 2, 3],
+    x: [
+      {a: [{c: 1}, {c: 2}]},
+      {a: [{c: 3}, {c: 4}]}
+    ]
+  }
+
+.. code-block:: YAML
+
+  eval: x::a::c
+  # Result: [1, 2, 3, 4]
+
+  eval: x::a?::c
+  # Result: [1, 2] (only first match of 'a')
+
+  eval: x?::a[c=4]
+  # Result: [{c: 3}, {c: 4}] (first x that has an "a" with c=4)
+
+  eval: b?::2
+  # Result: 3 (first match, then get index 2)
+
+Variables
+~~~~~~~~~~~
+
+If a key or test needs to be a non-string type or contains reserved characters, declare and reference a var instead.
+
+In addition to variables declared in the ``vars`` key and in the `RefContext`, the following variables are always available:
+
+:start: The original "current resource" set by the `RefContext`.
+:"true": true,
+:"false": false,
+:"null": null
+
+Result flattening
 ~~~~~~~~~~~~~~~~~
 When multiple steps resolve to lists the resultant lists are flattened.
 However if the final set of matches contain values that are lists those values are not flattened.

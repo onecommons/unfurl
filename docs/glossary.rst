@@ -20,6 +20,8 @@ Entity Types
 
 Every entity in TOSCA has a declared type (including node types, relationship types, Artifact types, and data types) and type inheritance hierarchies can be defined in the `Service Template`.
 
+.. _instance_def:
+
 Instance
 ++++++++
 

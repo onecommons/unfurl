@@ -23,6 +23,8 @@ from unfurl.testing import (
     fs_runner,
     init_project,
 )
+from unfurl.eval import Ref, RefContext
+from unfurl.runtime import NodeInstance
 
 basedir = os.path.join(os.path.dirname(__file__), "..", "docs", "examples")
 
@@ -93,6 +95,102 @@ from tosca import Attribute, Eval, Property, operation, GB, MB, TopologyInputs
             from_py["topology_template"]["inputs"]
             == yaml_template.topology_template._tpl_inputs()
         )
+
+    def test_eval_examples(self):
+        """Test examples from docs/processing.rst Evaluation Semantics section"""
+
+        # Create test resource with attributes matching documentation examples
+        resourceDef = {
+            "name": "test",
+            "b": [1, 2, 3],
+            "n": {"n": {"n": "value"}},
+            "f": {"a": 1, "b": 2},
+            "d": {"a": "va", "b": "vb"},
+            "x": [
+                {"a": [{"c": 1}, {"c": 2}, {"b": "exists"}]},
+            ],
+            "e": {"a1": {"b1": "v1"}, "a2": {"b2": "v2"}},
+        }
+        resource = NodeInstance("test", resourceDef)
+
+        # Note: these return lists because resolve() returns a list
+        test_cases = [
+            # Filter examples - existence filters
+            ("d[a=va]", [{"a": "va", "b": "vb"}]),
+            ("d[a=va]::b", ["vb"]),
+            ("x::a[b]::c", [1, 2]),
+            ("x::a[b=exists]::c", [1, 2]),
+            ("x::a[b!=exists]::c", []),
+            ("x::a[!b]::c", []),
+            # Wildcard examples
+            ("d::*", set(["va", "vb"])),
+            ("e::*::b2", ["v2"]),
+        ]
+
+        for expr, expected in test_cases:
+            with self.subTest(expr=expr):
+                ref = Ref({"eval": expr})
+                result = ref.resolve(RefContext(resource, trace=0))
+                if isinstance(expected, set):
+                    self.assertEqual(set(result), expected)
+                else:
+                    self.assertEqual(result, expected, f"expr was: {expr}")
+
+        # List navigation
+        resourceDef4 = {
+            "b": [1, 2, 3],
+            "x": {"a": [{"c": 1}, {"c": 2}, {"c": 3}, {"c": 4}]},
+        }
+        resource4 = NodeInstance("test", resourceDef4)
+
+        initial_test_cases = [
+            ("b::0", [1]),
+            ("b::1", [2]),
+            ("x::a::c", [1, 2, 3, 4]),
+        ]
+
+        for expr, expected in initial_test_cases:
+            with self.subTest(expr=expr):
+                ref = Ref({"eval": expr})
+                result = ref.resolve(RefContext(resource4, trace=0))
+                self.assertEqual(result, expected, f"expr was: {expr}")
+
+        # Test ? operator examples
+        resourceDef3 = {
+            "b": [1, 2, 3],
+            "x": [{"a": [{"c": 1}, {"c": 2}]}, {"a": [{"c": 3}, {"c": 4}]}],
+        }
+        resource3 = NodeInstance("test", resourceDef3)
+
+        q_test_cases = [
+            ("x::a::c", [1, 2, 3, 4]),
+            ("x::a?::c", [1, 2]),  # only first match of 'a'
+            ("b?::2", [3]),  # first match, then get index 2
+            (
+                "x?::a[c=4]",
+                [[{"c": 3}, {"c": 4}]],
+            ),  # first x that has a with c=4
+        ]
+
+        for expr, expected in q_test_cases:
+            with self.subTest(expr=expr):
+                ref = Ref({"eval": expr})
+                result = ref.resolve(RefContext(resource3, trace=0))
+                self.assertEqual(result, expected, f"expr was: {expr}")
+
+        # # Flattening example
+        resourceDef = {"x": [{"a": [{"c": 1}, {"c": 2}]}, {"a": [{"c": 3}, {"c": 4}]}]}
+        resource = NodeInstance("test", resourceDef)
+        ref = Ref({"eval": "x::a::c"})
+        assert ref.resolve(RefContext(resource, trace=0)) == [1, 2, 3, 4]
+
+        # top-level foreach
+        ref = Ref(
+            dict(
+                eval="$numbers", foreach="{{ item * 2 }}", vars=dict(numbers=[1, 2, 3])
+            )
+        )
+        assert ref.resolve(RefContext(resource, trace=0)) == [2, 4, 6]
 
 
 def test_inputs():
@@ -255,6 +353,7 @@ def test_mypy(path):
     # assert mypy ok
     basepath = os.path.join(os.path.dirname(__file__), "..", "docs", "examples", path)
     assert_no_mypy_errors(basepath)  # , "--disable-error-code=override")
+
 
 unfurl_yaml = """\
 apiVersion: unfurl/v1.0.0
