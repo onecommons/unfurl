@@ -694,7 +694,7 @@ MaybePairOrResultOrResultList = Union[PairResultOrResultList, ResultOrResultList
 
 def _for_each(
     foreach: Union[MappingType[str, Any], str],
-    results: Iterable[Tuple[Any, Any]],
+    results: Iterable[Any],
     ctx: RefContext,
 ) -> List[Result]:
     if isinstance(foreach, str):
@@ -712,15 +712,24 @@ def _for_each(
     Break = object()
     Continue = object()
 
+    kv = False
+    if isinstance(results, Mapping):
+        results = results.items()
+        kv = True
+
     def make_items() -> Iterable[MaybePairOrResultOrResultList]:
-        for i, (k, v) in enumerate(results):
+        for i, v in enumerate(results):
             # XXX stop setting any kind of value to currentResource
             # assert isinstance(v, ResourceRef)
             ictx.currentResource = v
             ictx.vars["collection"] = results
             ictx.vars["index"] = i
-            ictx.vars["key"] = k
-            ictx.vars["item"] = v
+            if kv:
+                ictx.vars["key"] = v[0]
+                ictx.vars["item"] = v[1]
+            else:
+                ictx.vars["key"] = i
+                ictx.vars["item"] = v
             ictx.vars["break"] = Break
             ictx.vars["continue"] = Continue
             if keyExp:
@@ -763,22 +772,19 @@ def for_each(
     if foreach == "$true":
         return results
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
-        result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
+        result = _for_each(foreach, results[0].resolved, ctx)  # hack!
     else:
-        result = _for_each(
-            foreach, enumerate(r.external or r.resolved for r in results), ctx
-        )
+        result = _for_each(foreach, [r.external or r.resolved for r in results], ctx)
     return result
 
 
-def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[Result]:
-    results = ctx.currentResource
-    if isinstance(results, Mapping):
-        return _for_each(foreach, results.items(), ctx)
-    elif isinstance(results, MutableSequence):
-        return _for_each(foreach, enumerate(results), ctx)
+def for_each_func(args, ctx: RefContext) -> List[Result]:
+    results, foreach = args
+    results = map_value(results, ctx)
+    if isinstance(results, MutableSequence):
+        return _for_each(foreach, results, ctx)
     else:
-        return _for_each(foreach, [(0, results)], ctx)
+        return _for_each(foreach, results, ctx)
 
 
 _CoreFuncs = {
@@ -1101,6 +1107,7 @@ def eval_item(result: Result, seg: Segment, context: RefContext) -> Iterator[Res
         results = eval_exp(resultList, filter, context)
         negate = filter[0].modifier == "!"
         if negate and results:
+            print("huh!!!!", seg, results)
             return
         elif not negate and not results:
             return

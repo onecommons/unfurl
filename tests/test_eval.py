@@ -252,9 +252,19 @@ class EvalTest(unittest.TestCase):
         result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
         assert result3 == [2, 4, 6]
 
+        test2b = {
+            "eval": {"foreach": [{"eval": ".::b"}, "{{ item * 2 }}"]},
+        }
+        result3b = Ref(test2b).resolve_one(RefContext(resource, trace=0))
+        assert result3b == [2, 4, 6]
+
         test3 = {"eval": "a", "foreach": "$item"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
         assert result4 == ["test"]
+
+        test = {"eval": "a", "foreach": "$collection"}
+        result = Ref(test).resolve_one(RefContext(resource, trace=0))
+        assert result == [["test"]]
 
         test3 = {"eval": "a", "foreach": "$true"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
@@ -289,6 +299,12 @@ class EvalTest(unittest.TestCase):
 
         mapped = ResultsMap._map_value(dict(test8=test8), RefContext(resource))
         assert mapped["test8"] == [PortSpec.make("80:81")]
+
+        test9 = {
+            "eval": {"foreach": [dict(a=1, b=2), dict(key="$item", value="$key")]},
+        }
+        result9 = Ref(test9).resolve_one(RefContext(resource, trace=0))
+        assert result9 == {1: "a", 2: "b"}
 
     def test_serializeValues(self):
         resource = self._getTestResource()
@@ -440,10 +456,12 @@ class EvalTest(unittest.TestCase):
                 "success": dict(eval={"if": "$true", "then": ".name"}),
             },
         }
-        resource = self._getTestResource({
-            "aTemplate": query,
-            "q": dict(q="{{ SELF }}"),
-        })
+        resource = self._getTestResource(
+            {
+                "aTemplate": query,
+                "q": dict(q="{{ SELF }}"),
+            }
+        )
         self.assertEqual(map_value(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
         self.assertEqual(resource.attributes["q"], "{{ SELF }}")

@@ -137,7 +137,7 @@ Expression Functions
   `external <external_func>`       name
   `file`                           (see below)
   :std:ref:`find_connection`       expr
-  foreach                          {key?, value?}
+  `foreach`                        (see below)
   `ge`                             [a, b]
   :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
@@ -293,7 +293,7 @@ file
 
   ``contents`` If present, the contents will be written to the file, if missing the file will be read.
 
-  The `select<expression function syntax>` clause can evaluate the following keys:
+  The `select<eval keys>` clause can evaluate the following keys:
 
   =============  ========================================
   Key            Returns
@@ -347,6 +347,80 @@ Find a relationship that can be used to connect to the given instance. See `Task
 
 foreach
 ^^^^^^^
+
+Iterate over a collection and apply the expression to each item, returning a list or dictionary of results.
+
+To return a list use this form:
+
+.. code-block:: YAML
+
+  eval:
+    foreach: [<collection>, <expression>]
+
+To return a dictionary, use this form:
+
+.. code-block:: YAML
+
+  eval: [<collection_expression>, {key: <key_expression>, value: <value_expression>}]
+
+``foreach`` can also be used as a top level `eval key <eval keys>` with this form:
+
+.. code-block:: YAML
+
+  eval: <collection_expression>
+  foreach: <list_expression or dictionary_expression>
+
+In this case, the foreach expression evaluates each item returned by the primary expression.
+
+During iteration, the following expression variables are available:
+
+============ ===================================================================
+Variable     Description
+============ ===================================================================
+collection   The entire collection being iterated over
+index        Zero-based numeric index of the current iteration
+key          The key of the current item (for dictionaries) or index (for lists)
+item         The value of the current item
+break        Special value that when returned will stop iteration
+continue     Special value that when returned will skip to the next iteration
+============ ===================================================================
+
+**Examples:**
+
+Multiply each item in a list:
+
+.. code-block:: YAML
+
+  eval:
+    foreach:
+      - [1, 2, 3]
+      - "{{ item * 2 }}"
+
+  # Result: [2, 4, 6]
+
+Same example with ``foreach`` as a top-level eval key:
+
+.. code-block:: YAML
+
+  eval: $numbers 
+  foreach: "{{ item * 2 }}"
+  vars: 
+    numbers: [1, 2, 3]
+
+  # Result: [2, 4, 6]
+
+Reverse the keys and values of a dictionary:
+
+.. code-block:: YAML
+
+  eval:
+    foreach:
+    - {"a": 1, "b": 2}
+    - key: $item
+      value: $key
+
+  # Result: {1: "a", 2: "b"}
+
 
 get_dir
 ^^^^^^^
@@ -747,32 +821,32 @@ Built-in keys start with a leading **.**:
 ============== =============================================================
 **.**          self
 **..**         parent
+.all           Dictionary of all the resources in the current topology,
+.ancestors     self and parents
+.apex          Root ancestor of the outermost topology
+.artifacts     map with artifact names as keys and artifact instances as values
+.capabilities  list of capabilities
+.configured_by Follow .sources, filtering by the ``Configures`` relationship
+.deployment    Name of the ensemble
+.descendants   (including self)
+.hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
+.instances     child instances (via the ``HostedOn`` relationship)
 .name          name of this instance
-.type          name of instance's TOSCA type
+.owner         parent or source if embedded instance otherwise self
+.parents       list of parents starting from root
+.relationships list of relationships that target this capability
+.repository    repository associated with this artifact or resource
+.requirements  list of requirements
+.root          root ancestor of the current topology.
+.source        SOURCE node if instance is a relationship
+.sources       map with requirement names as keys and source instances as values
+.state         the instance's :class:`unfurl.support.NodeState`
+.status        the instance's :class:`unfurl.support.Status`
+.super         map of properties defined on the template's type or base type
+.target        TARGET node if instance is a relationship
+.targets       map with requirement names as keys and target instances as values
 .tosca_id      unique id of this instance
 .tosca_name    name of the instance's TOSCA template
-.status        the instance's :class:`unfurl.support.Status`
-.state         the instance's :class:`unfurl.support.NodeState`
-.parents       list of parents starting from root
-.ancestors     self and parents
-.owner         parent or source if embedded instance otherwise self
-.source        SOURCE node if instance is a relationship
-.target        TARGET node if instance is a relationship
-.root          root ancestor
-.instances     child instances (via the ``HostedOn`` relationship)
-.capabilities  list of capabilities
-.requirements  list of requirements
-.relationships list of relationships that target this capability
-.targets       map with requirement names as keys and target instances as values
-.sources       map with requirement names as keys and source instances as values
-.artifacts     map with artifact names as keys and artifact instances as values
-.repository    repository associated with this artifact or resource
-.hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
-.configured_by Follow .sources, filtering by the ``Configures`` relationship
-.descendants   (including self)
-.all           Dictionary of child resources with their names as keys
+.type          name of instance's TOSCA type
 .uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
-.deployment    Name of the ensemble
-.apex          Root ancestor of the outermost topology
-.super         map of properties defined on the template's type or base type
 ============== =============================================================
