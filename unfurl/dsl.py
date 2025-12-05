@@ -243,11 +243,22 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         section = "groups"
     else:
         return None
-    metadata = template.toscaEntityTemplate.entity_tpl.get("metadata")
-    module_name = metadata and metadata.get("module")
-    if module_name and global_state._all_templates:
-        return global_state._all_templates[section].get((module_name, template.name))  # type: ignore
-    return None
+    module_name = template.metadata.get("module")
+    obj = None
+    if module_name:
+        obj = global_state._all_templates.get(section, {}).get(
+            (module_name, template.name)
+        )  # type: ignore
+        if not obj:
+            try:
+                importlib.import_module(module_name)
+                # try again, hopefully template was loaded
+                obj = global_state._all_templates.get(section, {}).get(
+                    (module_name, template.name)
+                )  # type: ignore
+            except ImportError:
+                pass
+    return cast(Optional[ToscaType], obj)
 
 
 def proxy_instance(

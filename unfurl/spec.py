@@ -1163,6 +1163,7 @@ class EntitySpec(ResourceRef):
 
     @property
     def metadata(self) -> Dict[str, Any]:
+        # return merged template and type metadata
         return self.toscaEntityTemplate.metadata
 
     def get_interface_requirements(self) -> List[str]:
