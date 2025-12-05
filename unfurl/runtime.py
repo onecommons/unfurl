@@ -265,7 +265,8 @@ class Operational(ChangeAware):
                 continue
             if id(status) in seen:
                 logger.trace(
-                    f"Circular operational dependency when checking status: {status} already in {seen}"
+                    f"Circular operational dependency when checking status: {status} already in {seen}",
+                    extra=dict(log_once=True),
                 )
                 continue
             seen[id(status)] = status
@@ -1101,7 +1102,8 @@ class NodeInstance(HasInstancesInstance):
         ).find_resource(relationship.target.name)
         if not targetNodeInstance:
             logger.warning(
-                f'target instance "{relationship.target.nested_name}" should have already been created -- is "{self.name}" out of sync with latest templates?'
+                f'target instance "{relationship.target.nested_name}" should have already been created -- is "{self.name}" out of sync with latest templates?',
+                extra=dict(log_once=True),
             )
             return None
         assert isinstance(targetNodeInstance, NodeInstance)
@@ -1140,7 +1142,8 @@ class NodeInstance(HasInstancesInstance):
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         logger.warning(
-                            f'can not find relation instance for requirement "{template.name}" on node "{self.name}"'
+                            f'can not find relation instance for requirement "{template.name}" on node "{self.name}"',
+                            extra=dict(log_once=True),
                         )
                         continue
                     assert template.relationship is relInstance.template, (

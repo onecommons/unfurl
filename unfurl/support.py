@@ -458,7 +458,12 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
             try:
                 msg = "Template: %s" % self._undefined_message
                 # XXX? if self._undefined_obj is a Results then add its ctx._lastResource to the msg
-                log.debug("%s\nTemplate source:\n%s", msg, value)
+                log.debug(
+                    "%s\nTemplate source:\n%s",
+                    msg,
+                    value,
+                    extra=dict(log_once=True),
+                )
                 log.warning(msg)
                 if ctx.task:  # already logged, so don't log
                     UnfurlTaskError(ctx.task, msg, False)
@@ -472,7 +477,12 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                 super()._fail_with_undefined_error(*args, **kwargs)
             except self._undefined_exception as e:
                 msg = "Template: %s" % self._undefined_message
-                log.debug("%s\nTemplate source:\n%s", msg, value)
+                log.debug(
+                    "%s\nTemplate source:\n%s",
+                    msg,
+                    value,
+                    extra=dict(log_once=True),
+                )
                 log.warning(msg)
                 if ctx.task:  # already logged, so don't log
                     UnfurlTaskError(ctx.task, msg, False)
@@ -606,11 +616,23 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                     msg = f'missing variable: "{match.group(1)}"'
             value = f"<<Error rendering template: {msg}>>"
             if ctx.strict:
-                log.debug("%s\nTemplate source:\n%s", value, oldvalue, exc_info=True)
+                log.debug(
+                    "%s\nTemplate source:\n%s",
+                    value,
+                    oldvalue,
+                    exc_info=True,
+                    extra=dict(log_once=True),
+                )
                 raise UnfurlError(value)
             elif ctx.task:
                 log.warning(value[2:100] + "... see debug log for full report")
-                log.debug("%s\nTemplate source:\n%s", value, oldvalue, stack_info=True)
+                log.debug(
+                    "%s\nTemplate source:\n%s",
+                    value,
+                    oldvalue,
+                    stack_info=True,
+                    extra=dict(log_once=True),
+                )
                 UnfurlTaskError(ctx.task, msg)
             else:
                 ctx.trace(value)

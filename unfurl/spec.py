@@ -1612,7 +1612,8 @@ class NodeSpec(EntitySpec):
                 if rel.source:
                     if id(rel.source) in seen:
                         logger.debug(
-                            f"Circular operational dependency during configured_by in {seen}"
+                            f"Circular operational dependency during configured_by in {seen}",
+                            extra=dict(log_once=True),
                         )
                         continue
                     seen[id(rel.source)] = rel.source
@@ -1631,7 +1632,8 @@ class NodeSpec(EntitySpec):
                 target = req.relationship.target
                 if id(target) in seen:
                     logger.debug(
-                        f"Circular operational dependency for {target} with hosted_on in {seen}"
+                        f"Circular operational dependency for {target} with hosted_on in {seen}",
+                        extra=dict(log_once=True),
                     )
                     continue
                 seen[id(target)] = target
