@@ -6,10 +6,21 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
+@pytest.fixture
+def caplog_with_filters(caplog):
+    """Caplog fixture that adds Unfurl's filters to the caplog handler."""
+    # Add LogOnceFilter to caplog's handler so it captures filtered behavior
+    log_once_filter = LogOnceFilter()
+    caplog.handler.addFilter(log_once_filter)
+    yield caplog
+    # Cleanup
+    caplog.handler.removeFilter(log_once_filter)
+
+
 from unfurl.__main__ import detect_log_level, detect_verbose_level
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
-from unfurl.logs import Levels, SensitiveFilter, getConsole
+from unfurl.logs import Levels, SensitiveFilter, LogOnceFilter, getConsole, getLogger
 from unfurl.util import sensitive_str
 from unfurl import logs
 from ruamel.yaml.comments import CommentedMap
@@ -229,6 +240,254 @@ class TestColorHandler:
             log.error("I caught an error: %s", e, exc_info=True)
 
         assert "Traceback (most recent call last):" in caplog.text
+
+def test_log_once_basic(caplog_with_filters):
+    """Test that messages with log_once=True are only logged once."""
+    logger = getLogger("test_log_once_basic")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # First log should appear
+        logger.info("Test message", extra={"log_once": True})
+        assert "Test message" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Second identical log should be filtered out
+        logger.info("Test message", extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Different message should appear
+        logger.info("Different message", extra={"log_once": True})
+        assert "Different message" in caplog_with_filters.text
+
+
+def test_log_once_with_args(caplog_with_filters):
+    """Test that log_once considers message arguments."""
+    logger = getLogger("test_log_once_args")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # First log with args
+        logger.info("Message with %s", "arg1", extra={"log_once": True})
+        assert "arg1" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Same message, same args - should be filtered
+        logger.info("Message with %s", "arg1", extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Same message, different args - should appear
+        logger.info("Message with %s", "arg2", extra={"log_once": True})
+        assert "arg2" in caplog_with_filters.text
+
+
+def test_log_once_multiple_args(caplog_with_filters):
+    """Test log_once with multiple arguments."""
+    logger = getLogger("test_log_once_multiple")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # First log
+        logger.info("Values: %s, %s, %d", "a", "b", 123, extra={"log_once": True})
+        assert "Values:" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Duplicate - should be filtered
+        logger.info("Values: %s, %s, %d", "a", "b", 123, extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Different values - should appear
+        logger.info("Values: %s, %s, %d", "a", "b", 456, extra={"log_once": True})
+        assert "Values:" in caplog_with_filters.text
+
+
+def test_log_once_mixed_with_normal(caplog_with_filters):
+    """Test mixing log_once messages with normal messages."""
+    logger = getLogger("test_log_once_mixed")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # Normal message
+        logger.info("Normal message 1")
+        assert "Normal message 1" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # log_once message
+        logger.info("Once message", extra={"log_once": True})
+        assert "Once message" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Repeat normal message - should appear
+        logger.info("Normal message 1")
+        assert "Normal message 1" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Repeat log_once message - should be filtered
+        logger.info("Once message", extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+
+
+def test_log_once_different_levels(caplog_with_filters):
+    """Test that log_once works across different log levels."""
+    logger = getLogger("test_log_once_levels")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # Info level
+        logger.info("Test at info", extra={"log_once": True})
+        assert "Test at info" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Same message at info level - should be filtered
+        logger.info("Test at info", extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Warning level with different message
+        logger.warning("Test at warning", extra={"log_once": True})
+        assert "Test at warning" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Repeat warning - should be filtered
+        logger.warning("Test at warning", extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+
+
+def test_log_once_with_dict_args(caplog_with_filters):
+    """Test log_once with dictionary-style arguments."""
+    logger = getLogger("test_log_once_dict")
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # First log with dict args
+        logger.info("Message: %(key)s", {"key": "value1"}, extra={"log_once": True})
+        assert "value1" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Duplicate - should be filtered
+        logger.info("Message: %(key)s", {"key": "value1"}, extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Different value - should appear
+        logger.info("Message: %(key)s", {"key": "value2"}, extra={"log_once": True})
+        assert "value2" in caplog_with_filters.text
+
+
+def test_log_once_with_complex_objects(caplog_with_filters):
+    """Test log_once with complex objects as arguments."""
+    logger = getLogger("test_log_once_objects")
+
+    # Objects will be converted to strings for comparison
+    obj1 = {"data": [1, 2, 3]}
+    obj2 = {"data": [1, 2, 3]}
+    obj3 = {"data": [4, 5, 6]}
+
+    with caplog_with_filters.at_level(logging.INFO):
+        # First log with obj1
+        logger.info("Object: %s", obj1, extra={"log_once": True})
+        assert "Object:" in caplog_with_filters.text
+        caplog_with_filters.clear()
+
+        # Log with obj2 (equal to obj1 but different instance)
+        # Should be filtered because string representation is the same
+        logger.info("Object: %s", obj2, extra={"log_once": True})
+        assert caplog_with_filters.text == ""
+        caplog_with_filters.clear()
+
+        # Log with obj3 (different content) - should appear
+        logger.info("Object: %s", obj3, extra={"log_once": True})
+        assert "Object:" in caplog_with_filters.text
+
+
+def test_logger_has_log_once_filter():
+    """Test that loggers from getLogger() have LogOnceFilter configured automatically."""
+    from io import StringIO
+    import uuid
+
+    # Verify the LogOnceFilter is configured on root logger handlers
+    root_logger = logging.getLogger()
+    log_once_filter = None
+    for h in root_logger.handlers:
+        for f in h.filters:
+            if isinstance(f, LogOnceFilter):
+                log_once_filter = f
+                break
+        if log_once_filter:
+            break
+
+    assert log_once_filter is not None, (
+        "LogOnceFilter should be configured on root logger handlers"
+    )
+
+    # Get an unmodified logger from getLogger()
+    logger = getLogger("test_unfurl_logger_unmodified")
+
+    # Add a StringIO handler with the same filter to capture output
+    log_stream = StringIO()
+    handler = logging.StreamHandler(log_stream)
+    handler.setLevel(logging.DEBUG)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.addFilter(log_once_filter)  # Use the same filter instance from root
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    old_propagate = logger.propagate
+    logger.propagate = False  # Don't propagate to avoid duplicate handling
+
+    try:
+        # Use unique messages to avoid collision with other tests
+        unique_msg = "Unique test message %s %s"
+
+        # First log should appear
+        logger.info(unique_msg, "a", "b", extra={"log_once": True})
+        output1 = log_stream.getvalue()
+        msg = unique_msg % ("a", "b")
+        assert msg in output1, repr(msg) + " should be logged in " + output1
+        log_stream.truncate(0)
+        log_stream.seek(0)
+
+        # Second identical log should be filtered out
+        logger.info(unique_msg, "a", "b", extra={"log_once": True})
+        # Different message should appear
+        unique_msg2 = "Different unique message"
+        logger.info(unique_msg2, extra={"log_once": True})
+        output3 = log_stream.getvalue()
+        assert msg not in output3, (
+            "Second identical message should be filtered by LogOnceFilter"
+        )
+        assert unique_msg2 in output3, "Different message should be logged"
+    finally:
+        logger.removeHandler(handler)
+        logger.propagate = old_propagate
+        log_stream.close()
+
+
+def test_make_key_with_none_args():
+    """Test the _make_key method with None arguments."""
+    key1 = LogOnceFilter._make_key("message", None)
+    key2 = LogOnceFilter._make_key("message", None)
+    assert key1 == key2
+
+    key3 = LogOnceFilter._make_key("different", None)
+    assert key1 != key3
+
+
+def test_make_key_with_tuple_args():
+    """Test the _make_key method with tuple arguments."""
+    key1 = LogOnceFilter._make_key("msg", ("a", "b", 123))
+    key2 = LogOnceFilter._make_key("msg", ("a", "b", 123))
+    assert key1 == key2
+
+    key3 = LogOnceFilter._make_key("msg", ("a", "b", 456))
+    assert key1 != key3
+
+
+def test_make_key_with_dict_args():
+    """Test the _make_key method with dictionary arguments."""
+    key1 = LogOnceFilter._make_key("msg", {"x": 1, "y": 2})
+    key2 = LogOnceFilter._make_key("msg", {"y": 2, "x": 1})  # Different order
+    assert key1 == key2  # Should be equal due to sorting
+
+    key3 = LogOnceFilter._make_key("msg", {"x": 1, "y": 3})
+    assert key1 != key3
+
 
 from unfurl.reporting import JobTable, Console
 

@@ -61,18 +61,21 @@ LOGGING = {
     "filters": {
         "sensitive": {
             "()": "unfurl.logs.SensitiveFilter",
-        }
+        },
+        "log_once": {
+            "()": "unfurl.logs.LogOnceFilter",
+        },
     },
     "handlers": {
         "console": {
             "class": "unfurl.logs.ColorHandler",
             "level": logging.INFO,
-            "filters": ["sensitive"],
+            "filters": ["sensitive", "log_once"],
         },
         "HiddenOutputLogHandler": {
             "class": "unfurl.logs.HiddenOutputLogHandler",
             "level": logging.INFO,
-            "filters": ["sensitive"],
+            "filters": ["sensitive", "log_once"],
         },
     },
     "loggers": {
@@ -195,6 +198,87 @@ def is_sensitive(obj: object) -> bool:
     elif isinstance(obj, collections.abc.MutableSequence):
         return any(is_sensitive(i) for i in obj)
     return False
+
+
+class LogOnceFilter(logging.Filter):
+    """Filter that prevents duplicate log messages from being logged.
+
+    Tracks messages by their message string and arguments. When a log record
+    has extra={'log_once': True}, it will only be logged the first time that
+    combination of message and args is seen.
+    """
+
+    def __init__(self, name: str = ""):
+        super().__init__(name)
+        self._logged_messages: Set[tuple] = set()
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Filter out messages that have already been logged.
+
+        Args:
+            record: The log record to filter
+
+        Returns:
+            True if the message should be logged, False otherwise
+        """
+        # Only filter if log_once is explicitly set to True
+        if not getattr(record, "log_once", False):
+            return True
+
+        # Create a hashable key from the message and args
+        msg_key = self._make_key(record.msg, record.args)
+
+        # Check if we've seen this message before
+        if msg_key in self._logged_messages:
+            return False
+
+        # First time seeing this message, add it to the set
+        self._logged_messages.add(msg_key)
+        return True
+
+    @staticmethod
+    def _make_key(msg: object, args: object) -> tuple:
+        """Create a hashable key from a message and its arguments.
+
+        Args:
+            msg: The log message
+            args: The log message arguments
+
+        Returns:
+            A hashable tuple that uniquely identifies this message
+        """
+        # Convert msg to string representation
+        msg_str = str(msg)
+
+        # Convert args to a hashable format
+        args_tuple: tuple
+        if args is None:
+            args_tuple = ()
+        elif isinstance(args, tuple):
+            # Try to make each arg hashable
+            args_tuple = tuple(
+                arg
+                if isinstance(arg, (str, int, float, bool, type(None)))
+                else str(arg)
+                for arg in args
+            )
+        elif isinstance(args, dict):
+            # Convert dict to sorted tuple of items
+            args_tuple = tuple(
+                sorted(
+                    (
+                        k,
+                        v
+                        if isinstance(v, (str, int, float, bool, type(None)))
+                        else str(v),
+                    )
+                    for k, v in args.items()
+                )
+            )
+        else:
+            args_tuple = (str(args),)
+
+        return (msg_str, args_tuple)
 
 
 class SensitiveFilter(logging.Filter):
@@ -364,5 +448,6 @@ def add_log_file(filename: str, console_level: Levels = Levels.INFO):
     handler.setFormatter(formatter)
     log_level = min(console_level, Levels.DEBUG)
     handler.setLevel(log_level)
+    handler.addFilter(LogOnceFilter())
     logging.getLogger().addHandler(handler)
     return filename
