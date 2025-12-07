@@ -9,3 +9,4 @@ types-requests
 types-redis
 types-waitress
 debugpy
+pipdeptree
