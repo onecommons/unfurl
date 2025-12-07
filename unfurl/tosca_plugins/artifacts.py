@@ -75,7 +75,8 @@ class artifact_PythonPackage(tosca.artifacts.Root):
 
 class artifact_AnsibleCollection(tosca.artifacts.Root):
     _type_name = "artifact.AnsibleCollection"
-    version = None
+    version = ""
+    """Full version specifier (e.g. "==1.0")"""
 
     def check(self, **kw: Any) -> Any:
         return unfurl.configurators.CmdConfigurator(
@@ -101,7 +102,7 @@ readyState: absent
     def create(self, **kw: Any) -> Any:
         return unfurl.configurators.CmdConfigurator(
             cmd=Eval(
-                "{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}"
+                "{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}{{SELF.version}}"
             ),
             resultTemplate=Eval(
                 {"eval": {"python": "unfurl.configurators.ansible.reload_collections"}}

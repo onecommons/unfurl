@@ -76,7 +76,8 @@ artifact_types:
     properties:
       version:
         type: string
-        required: false
+        description: Full version specifier (e.g. "==1.0")
+        default: ""
     interfaces:
       Install:
         check:
@@ -100,8 +101,7 @@ artifact_types:
           implementation:
             className: Cmd
           inputs:
-            # XXX add version if specified
-            cmd: "{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}"
+            cmd: "{{__python_executable}} -m ansible.cli.galaxy collection install {{SELF.file}}{{SELF.version}}"
             resultTemplate:
               eval:
                 python: unfurl.configurators.ansible.reload_collections
@@ -181,16 +181,16 @@ topology_template:
           type: artifact.AnsibleCollection
           file: kubernetes.core
           properties:
-            version: "2.4.0"
+            version: "==2.4.0"
 
         community.docker:
           type: artifact.AnsibleCollection
           file: community.docker
           properties:
-            version: "3.12.1"
+            version: "==3.12.1"
 
         ansible.utils:
           type: artifact.AnsibleCollection
           file: ansible.utils
           properties:
-            version: "2.10.3"
+            version: "==2.10.3"
