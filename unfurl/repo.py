@@ -450,6 +450,11 @@ class RepoView:
         self.package: Optional[Union[Literal[False], "Package"]] = None
         self._loaded_secrets = False
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["yaml"] = None
+        return state
+
     @property
     def working_dir(self) -> str:
         if self.repo:
@@ -735,6 +740,16 @@ class GitRepo(Repo):
             # note: these might not look like absolute urls, e.g. git@github.com:onecommons/unfurl.git
             self.url = remote.url
         self.push_url: Optional[str] = None
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        state["repo"] = self.working_dir  # git.Repo might have file handles
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # restore from working_dir
+        self.repo = git.Repo(self.repo)  # type:ignore[arg-type]
 
     def add_transient_push_credentials(self, username: str, password: str) -> str:
         if not self.remote:

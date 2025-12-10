@@ -148,6 +148,8 @@ class Manifest(AttributeManager):
     def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"] = None):
         super().__init__(yaml)
         self.localEnv = localEnv
+        # save separate reference for pickling cache
+        self.overrides: Dict[str, Any] = localEnv.overrides if localEnv else {}
         self.path: Optional[str] = path
         self.repo = self._find_repo()
         self.currentCommitId = self.repo and self.repo.revision
@@ -170,6 +172,12 @@ class Manifest(AttributeManager):
         self._patched_templates: Dict[Tuple[str, str], tosca.ToscaType] = {}
         self.apiVersion = API_VERSION
         self._load_errors = False
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        state["modules"] = None
+        state["localEnv"] = None
+        return state
 
     @property
     def project_base_path(self):

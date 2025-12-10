@@ -1395,9 +1395,9 @@ class YamlConfig:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        # workarounds for 2.7:  Can't pickle <type 'instancemethod'>
         state["_yaml"] = None
         state["loadHook"] = None
+        state["vault"] = None  # VaultLib can't be pickled
         return state
 
     def validate(self, config):

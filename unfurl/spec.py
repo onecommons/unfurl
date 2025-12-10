@@ -382,6 +382,17 @@ class ToscaSpec:
                         ExceptionCollector.getExceptions(),
                     )
 
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # this loads tosca_plugins/tosca-ext.yaml:
+        self.template._validate_field()
+        # Rebuild _topology_templates dict using new id() values as keys
+        self._topology_templates = {
+            id(ts.topology_template): ts
+            for ts in self._topology_templates.values()
+            if ts.__dict__
+        }
+
     @property
     def substitution_node(self) -> Optional["NodeSpec"]:
         if self.topology:

@@ -5,6 +5,7 @@
 import glob
 import io
 import json
+import pickle
 from typing import (
     Any,
     Dict,
@@ -544,6 +545,11 @@ class YamlManifest(ReadOnlyManifest):
         self._configure_root(rootResource)
         self._set_repository_links()
         self._ready(rootResource)
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        state["lockfile"] = None  # File handle
+        return state
 
     def get_deployment_blueprints(self) -> Dict[str, dict]:
         spec = self.manifest.expanded.get("spec", {})
@@ -1230,6 +1236,21 @@ class YamlManifest(ReadOnlyManifest):
             changes, committed_changes = [], []
         self._save_manifest(job)
         return jobRecord, changes, committed_changes
+
+    @staticmethod
+    def restore_from_pickle(f, local_env: "LocalEnv") -> Optional["YamlManifest"]:
+        """Load a YamlManifest from a pickle file and restore its localEnv and vault."""
+        manifest: YamlManifest = pickle.load(f)
+        # Restore the localEnv and vault that were excluded from pickle
+        manifest.localEnv = local_env
+        if not local_env.parent:
+            # the loader cache is shared across manifests
+            local_env.loader_cache = manifest.cache
+        vault = local_env.get_vault()
+        manifest.manifest.vault = vault
+        manifest.manifest.loadHook = manifest.load_yaml_include
+        # XXX: RepoViews won't have yaml set, only used by commit(), so set there if needed
+        return manifest
 
     def _save_manifest(self, job: "Job") -> None:
         output = job.out or job.jobOptions.out  # type: ignore
