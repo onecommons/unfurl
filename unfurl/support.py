@@ -651,7 +651,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                     if result.external:
                         external_results.append(result)
                 if want_result and external_results:
-                    return _handle_external(external_results, value, log)
+                    return _handle_external(external_results, value)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
@@ -664,24 +664,18 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     return wrap_var(value)
 
 
-def _handle_external(external_results: List[Result], value: Any, logger) -> Any:
+def _handle_external(external_results: List[Result], value: Any) -> Any:
     if isinstance(value, str):
         canonical = value
         inert = False
         for result in external_results:
             if isinstance(result.external, InertValue):
                 e = result.external
-                canonical = canonical.replace(e.key, e.substitute)
+                # replace live value with inert substitute
+                canonical = canonical.replace(e.key, e.substitute, 1)
                 inert = True
-        if inert:
-            if value != canonical:
-                return InertValue(value, canonical)
-            else:
-                logger.warning(
-                    "could not find transient %s in %s, use the transient filter if needed",
-                    canonical,
-                    value,
-                )
+        if inert and value != canonical:
+            return InertValue(value, canonical)
     if (
         external_results
         and external_results[-1].external
