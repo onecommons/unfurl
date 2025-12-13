@@ -1768,7 +1768,7 @@ class ResourceChanges(OrderedDict["InstanceKey", ResourceChange]):
             )
             if current is not None:
                 attributes = v[self.attributesIndex]
-                if attributes:
+                if isinstance(attributes, MutableMapping):
                     v[self.attributesIndex] = intersect_dict(
                         attributes, current._attributes
                     )

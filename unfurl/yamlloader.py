@@ -60,6 +60,7 @@ from .merge import (
     find_anchor,
     _cache_anchors,
     restore_includes,
+    Includes,
 )
 from .repo import (
     Repo,
@@ -1309,7 +1310,7 @@ class YamlConfig:
             self.readonly,
         )
 
-    def _expand(self) -> Tuple[Mapping, Mapping]:
+    def _expand(self) -> Tuple[Includes, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache
         self._cachedDocIncludes: Dict[str, Tuple[str, dict, str]] = {}
         yaml_dict = yaml_dict_type(self.readonly)
