@@ -1443,7 +1443,6 @@ def _add_repositories(db: dict, tpl: dict):
                     and repository not in repositories
                 ):
                     repositories[repository] = repositories_tpl[repository]
-                    repositories[repository]["file"] = imp_def["file"].partition("#")[0]
     if repositories:
         db["repositories"] = repositories
 
