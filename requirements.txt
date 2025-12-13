@@ -1,7 +1,8 @@
 # pbr uses this for install_requires
 pipenv==2024.0.0 # MIT
 click>=8.0.1,<8.1.4 # BSD 3-clause
-jsonschema[format_nongpl] # MIT
+jsonschema==4.25.1 # MIT
+jsonpointer>1.13
 ruamel.yaml==0.17.21
 # use range because ansible-core support for 3.8 stops at 2.13.13
 ansible-core >= 2.13.13, <= 2.16.14 # gpl 3
