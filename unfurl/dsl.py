@@ -93,7 +93,7 @@ from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
 
 if TYPE_CHECKING:
-    from .yamlloader import ImportResolver
+    from .yamlloader import ImportResolver, ImportResolver_Context
 
 logger = getLogger("unfurl")
 
@@ -127,23 +127,23 @@ def maybe_reconvert(
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
-    yaml_dict=dict,
 ) -> Optional[dict]:
     "If the YAML was generated from a Python file, regenerate if Python file is newer."
     # path is a yaml file
     python_path = is_python_file_newer(yaml_contents, path)
     if not python_path:
         return None
-    with open(python_path) as f:
-        contents = f.read()
-    tosca_tpl = convert_to_yaml(
-        import_resolver, contents, python_path, repo_view, base_dir, yaml_dict
+    # reconstruct context
+    # file_name is not used if is_file is True
+    ctx: ImportResolver_Context = (
+        True,
+        repo_view,
+        base_dir,
+        "",
     )
-    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
-    try:
-        _write_yaml(write_policy, tosca_tpl, python_path, path)
-    except Exception:
-        logger.error("error saving generated yaml file %s", path, exc_info=True)
+    # use import resolver to load the python file so we go through its cache
+    # it will call convert_to_yaml() if it wasn't cached
+    tosca_tpl, cacheable = import_resolver.load_yaml(python_path, None, ctx)
     return tosca_tpl
 
 

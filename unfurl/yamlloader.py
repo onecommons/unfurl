@@ -1106,7 +1106,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         if path.endswith(".py"):
             return convert_to_yaml(self, contents, path, repo_view, base_dir, yaml_dict)
-        doc = maybe_reconvert(self, contents, path, repo_view, base_dir, yaml_dict)
+        doc = maybe_reconvert(self, contents, path, repo_view, base_dir)
         if doc is not None:
             return doc
         else:
