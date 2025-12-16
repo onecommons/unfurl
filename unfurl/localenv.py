@@ -1328,8 +1328,26 @@ class LocalEnv:
             return localEnv.get_manifest(skip_validation=skip_validation)
         else:
             assert self.manifestPath, "check manifestPath before calling get_manifest"
-            manifest = self._manifests.get(self.manifestPath)
+            manifest: Optional[YamlManifest] = self._manifests.get(self.manifestPath)
             if not manifest:
+                # Try to load from pickle cache first (unless disabled via env var)
+                use_cache = os.getenv("UNFURL_USE_CACHE") or ""
+                pickle_path = YamlManifest.get_manifest_cache_path(self.manifestPath)
+                if "load" in use_cache and os.path.exists(pickle_path):
+                    try:
+                        with open(pickle_path, "rb") as f:
+                            manifest = YamlManifest.restore_from_pickle(f, self)
+                        if manifest:
+                            logger.info(f"Loaded manifest from cache: {pickle_path}")
+                            self._manifests[self.manifestPath] = manifest
+                            return manifest
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to load cache at {pickle_path}, falling back to YAML: {e}",
+                            exc_info=True,
+                        )
+
+                # Normal YAML loading (either no pickle or pickle failed)
                 # should load vault ids from context
                 vault = self.get_vault()
                 manifest = YamlManifest(

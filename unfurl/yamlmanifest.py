@@ -40,6 +40,7 @@ from .util import (
     substitute_env,
     to_yaml_text,
     filter_env,
+    find_unpickleable,
 )
 from .merge import patch_dict
 from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
@@ -255,20 +256,18 @@ def commit_change_record(change: CommentedMap) -> bool:
     return True
 
 
-def split_changes(
+def _extract_committed_changes(
     changes: List[CommentedMap],
-) -> Tuple[List[CommentedMap], List[CommentedMap]]:
-    local_changes = []
+) -> List[CommentedMap]:
     committed_changes = []
     for change in changes:
-        local_change = change.copy()
-        local_changes.append(local_change)
         if not commit_change_record(change):
             continue
+        change = change.copy()
         if "result" in change and change["result"] != "skipped":
             change.pop("result")
         committed_changes.append(change)
-    return local_changes, committed_changes
+    return committed_changes
 
 
 @cache
@@ -303,7 +302,7 @@ class ReadOnlyManifest(Manifest):
         if path:
             path = os.path.abspath(path)
         super().__init__(path, localEnv)
-        self._importedManifests: Dict[int, Optional["YamlManifest"]] = {}
+        self._importedManifests: Dict[int, "YamlManifest"] = {}
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
         schema = get_manifest_schema(
@@ -1224,13 +1223,21 @@ class YamlManifest(ReadOnlyManifest):
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
-            changes, committed_changes = split_changes(changes)
+            committed_changes = _extract_committed_changes(changes)
             if self.changeLogPath and self.path is not None:
                 self.manifest.config["jobsLog"] = self.changeLogPath  # jobs.tsv
                 self._save_last_job(job, jobRecord, bool(committed_changes))
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
                 self.manifest.config["lastJob"] = jobRecord
+                self.lastJob = jobRecord
+            if changes:
+                # used when restoring from pickle
+                if self.changeSets is None:
+                    self.changeSets = {}
+                for c in changes:
+                    change_set = self.load_config_change(c)
+                    self.changeSets[change_set.changeId] = change_set
         else:
             # no work was done
             changes, committed_changes = [], []
@@ -1246,14 +1253,66 @@ class YamlManifest(ReadOnlyManifest):
         if not local_env.parent:
             # the loader cache is shared across manifests
             local_env.loader_cache = manifest.cache
+        # XXX check and return None if ensemble changed since pickle was created
         vault = local_env.get_vault()
         manifest.manifest.vault = vault
         manifest.manifest.loadHook = manifest.load_yaml_include
         # XXX: RepoViews won't have yaml set, only used by commit(), so set there if needed
+        manifest._restore_external_manifests()
         return manifest
 
+    def _restore_external_manifests(self):
+        external_manifests = list(self._importedManifests.values())
+        for external in external_manifests:
+            if external.localEnv:
+                continue
+            child_local_env = LocalEnv(
+                external.path,
+                parent=self.localEnv,
+            )
+            external.localEnv = child_local_env
+            # external manifests may have their own external manifests
+            external._restore_external_manifests()
+        self._importedManifests = {
+            id(external.get_root_resource()): external
+            for external in external_manifests
+        }
+
+    def _save_cache(self) -> None:
+        """Pickle the YamlManifest object for faster loading."""
+        use_cache = os.getenv("UNFURL_USE_CACHE") or ""
+        if "save" in use_cache and self.manifest.path:
+            pickle_path = self.get_manifest_cache_path(self.manifest.path)
+            os.makedirs(os.path.dirname(pickle_path), exist_ok=True)
+            try:
+                with open(pickle_path, "wb") as f:
+                    pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+                logger.info(f"Saved manifest cache: {pickle_path}")
+            except Exception as e:
+                # Debug: find which attribute can't be pickled
+                logger.warning(f"Failed to save cache", exc_info=True)
+                logger.warning("Searching for unpickleable objects...")
+                find_unpickleable(self)
+                # Delete corrupt pickle file
+                if os.path.exists(pickle_path) and "keep_corrupt" not in use_cache:
+                    try:
+                        os.remove(pickle_path)
+                        logger.debug(f"Removed corrupt pickle file: {pickle_path}")
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def get_manifest_cache_path(manifest_path: str) -> str:
+        """Get path to manifest cache for a given manifest path (e.g. ensemble/local/ensemble.yaml.pkl)."""
+        dirpath, filename = os.path.split(manifest_path)
+        return os.path.join(
+            dirpath,
+            "local",
+            filename + ".pkl",
+        )
+
     def _save_manifest(self, job: "Job") -> None:
-        output = job.out or job.jobOptions.out  # type: ignore
+        output = job.out or job.jobOptions.out
         if output:
             self.dump(output)
         else:
@@ -1270,9 +1329,10 @@ class YamlManifest(ReadOnlyManifest):
                     os.makedirs(ensemble_dir)
                 with open(dry_run_ensemble_path, "w") as f:
                     f.write(output.getvalue())
-                job.out = output  # type: ignore
+                job.out = output
             else:
-                job.out = self.manifest.save()  # type: ignore
+                job.out = self.manifest.save()
+                self._save_cache()
             # else:
             #     logger.verbose(
             #         "No changes detected to %s", self.path
@@ -1284,10 +1344,10 @@ class YamlManifest(ReadOnlyManifest):
         # only save lastJob in manifest if something changed or dryrun
         if job.save_as_dry_run():
             jobLogPath = job.log_path("planned", ".yaml")
-            self.manifest.config["lastJob"] = jobRecord
+            self.lastJob = self.manifest.config["lastJob"] = jobRecord
         elif changed:
             jobLogPath = job.log_path("changes", ".yaml")
-            self.manifest.config["lastJob"] = jobRecord
+            self.lastJob = self.manifest.config["lastJob"] = jobRecord
         else:
             jobLogPath = job.log_path("jobs", ".yaml")
         jobLogRelPath = os.path.relpath(jobLogPath, self.get_base_dir())

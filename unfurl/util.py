@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+import inspect
 from pathlib import Path
 import sys
 from types import ModuleType
@@ -860,3 +861,66 @@ required_envvars = [
 ]
 # hack for sphinx ext documentedlist
 _sphinx_envvars = [(i,) for i in required_envvars]
+
+
+def find_unpickleable(
+    obj: Any, path: str = "self", visited: Optional[set] = None, max_depth: int = 10
+) -> None:
+    """Recursively find unpickleable objects in the object tree.
+
+    This is a debugging utility to help identify which objects cannot be pickled.
+    It traverses the object graph and attempts to pickle each leaf object, logging
+    warnings for any that fail.
+
+    Args:
+        obj: The object to check for unpickleable components
+        path: String representation of the current path (for debugging output)
+        visited: Set of already-visited object ids (to avoid infinite recursion)
+        max_depth: Maximum recursion depth
+    """
+    import pickle
+    from .logs import getLogger
+
+    logger = getLogger("unfurl")
+
+    if visited is None:
+        visited = set()
+
+    # Avoid infinite recursion
+    obj_id = id(obj)
+    if obj_id in visited or max_depth <= 0:
+        return
+    visited.add(obj_id)
+
+    # Try to use __getstate__ if it's defined (not just inherited from object)
+    try:
+        if (
+            hasattr(obj.__class__, "__getstate__")
+            and obj.__class__.__getstate__ is not object.__getstate__  # type: ignore[attr-defined]
+        ):
+            state = obj.__getstate__()
+            if state:
+                obj = state
+    except Exception:
+        pass  # If __getstate__ fails, just use obj as-is
+
+    if hasattr(obj, "__dict__"):
+        for attr_name, attr_value in obj.__dict__.items():
+            if inspect.isdatadescriptor(attr_value) or hasattr(attr_value, "__get__"):
+                continue  # skip properties and descriptors
+            find_unpickleable(attr_value, f"{path}.{attr_name}", visited, max_depth - 1)
+    elif isinstance(obj, dict):
+        for key, value in obj.items():
+            find_unpickleable(value, f"{path}[{repr(key)}]", visited, max_depth - 1)
+    elif isinstance(obj, (list, tuple)):
+        for idx, item in enumerate(obj):
+            find_unpickleable(item, f"{path}[{idx}]", visited, max_depth - 1)
+    else:
+        # Leaf object - test if it's pickleable
+        try:
+            pickle.dumps(obj)
+        except Exception as e:
+            logger.warning(
+                f"Unpickleable leaf {type(obj)} at {path}: {e}: {obj}",
+                exc_info=True,
+            )

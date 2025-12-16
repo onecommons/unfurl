@@ -370,6 +370,7 @@ class Manifest(AttributeManager):
         resourceChanges = ResourceChanges()
         if changes:
             for k, change in changes.items():
+                change = change.copy()
                 status = change.pop(".status", None)
                 if isinstance(status, dict):
                     status = Manifest.load_status(status).local_status
