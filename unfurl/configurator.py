@@ -366,7 +366,11 @@ class Configurator(metaclass=AutoRegisterClass):
             values=",".join(digests),
         )
         task.logger.debug(
-            "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
+            "digest for %s: %s=%s (%s)",
+            task.target.name,
+            digest["digestKeys"],
+            inputdigest,
+            digests,
         )
         if changed:
             task.logger.debug(
