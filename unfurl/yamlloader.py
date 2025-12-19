@@ -14,6 +14,7 @@ from typing import (
     Any,
     Mapping,
     Optional,
+    Sequence,
     TextIO,
     Union,
     Tuple,
@@ -26,11 +27,10 @@ from typing import (
 from typing_extensions import Literal
 import urllib
 import urllib.request
-from urllib.parse import urljoin, urlparse, urlsplit
+from urllib.parse import unquote, urljoin, urlparse, urlsplit
 import ssl
 import certifi
 import git
-from jsonschema import RefResolver
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
@@ -296,7 +296,48 @@ def urlopen(url):
     )
 
 
-_refResolver = RefResolver("", None)
+def _resolve_fragment(document: Any, fragment: str) -> Any:
+    """Resolve a JSON pointer fragment within a document.
+
+    This replaces the deprecated RefResolver.resolve_fragment() method.
+    Navigates through nested dictionaries/lists using the fragment path.
+
+    Args:
+        document: The document to navigate (dict or list)
+        fragment: A path like "definitions/foo" or "items/0"
+
+    Returns:
+        The value at the fragment path
+
+    Raises:
+        KeyError: If the path doesn't exist
+    """
+    # based on deprecated jsonschema.RefResolver.resolve_fragment
+    # Split the fragment path and navigate through the document
+    fragment = fragment.lstrip("/")
+
+    if not fragment:
+        return document
+
+    # Resolve via path
+    parts = unquote(fragment).split("/")
+    for part in parts:
+        part = part.replace("~1", "/").replace("~0", "~")
+
+        if isinstance(document, Sequence):
+            try:
+                part = int(part)  # type: ignore
+            except ValueError:
+                pass
+        try:
+            document = document[part]
+        except (KeyError, IndexError, TypeError, LookupError):
+            raise KeyError(
+                f"Unresolvable JSON pointer: {fragment!r}",
+            )
+
+    return document
+
 
 # context for the resolved url or local path: is_file, repo_view, base url or path, file_name
 ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
@@ -1168,7 +1209,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     doc.path = path
                     doc.base_dir = get_base_dir(path)
             if fragment and doc:
-                return _refResolver.resolve_fragment(doc, fragment), cacheable
+                return _resolve_fragment(doc, fragment), cacheable
             else:
                 return doc, cacheable
         except Exception:
@@ -1235,6 +1276,7 @@ class YamlConfig:
         vault=None,
         readonly=False,
     ):
+        err_msg = "Unable to parse yaml configuration"
         try:
             self._yaml = None
             self.vault = vault
@@ -1256,7 +1298,6 @@ class YamlConfig:
                 # otherwise use default config
             else:
                 self.path = None
-                err_msg = "Unable to parse yaml config"
 
             if isinstance(config, str):
                 self.config: dict = load_yaml(
@@ -1283,16 +1324,23 @@ class YamlConfig:
                     pass  # reload
                 else:
                     break
-            errors = schema and self.validate(self.expanded)
-            if errors and validate:
-                (message, schemaErrors) = errors
-                raise UnfurlSchemaError(
-                    err_msg + ": JSON Schema validation failed: " + message,
-                    errors,
-                    self.config,
-                )
+            skip_validation = "no_jsonschema_check" in (
+                os.getenv("UNFURL_VALIDATION_MODE") or ""
+            )
+            if skip_validation:
+                errors = None
+                self.valid = True
             else:
-                self.valid = not not errors
+                errors = schema and self.validate(self.expanded)
+                if errors and validate:
+                    (message, schemaErrors) = errors
+                    raise UnfurlSchemaError(
+                        err_msg + ": JSON Schema validation failed: " + message,
+                        errors,
+                        self.config,
+                    )
+                else:
+                    self.valid = not not errors
         except UnfurlBadDocumentError:
             raise
         except Exception:
@@ -1345,7 +1393,7 @@ class YamlConfig:
         with f:
             config = load_yaml(self.yaml, f, path, self.readonly)
         if fragment and config:
-            return path, _refResolver.resolve_fragment(config, fragment)
+            return path, _resolve_fragment(config, fragment)
         return path, config
 
     def get_base_dir(self):
@@ -1409,10 +1457,7 @@ class YamlConfig:
                 self.schema = json.load(fp)
         else:
             path = None
-        baseUri = None
-        if path:
-            baseUri = urljoin("file:", urllib.request.pathname2url(path))
-        return find_schema_errors(config, self.schema, baseUri)
+        return find_schema_errors(config, self.schema, path)
 
     def search_includes(
         self,

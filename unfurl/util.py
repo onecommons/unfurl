@@ -35,8 +35,13 @@ import fnmatch
 import shutil
 from collections.abc import Mapping, MutableSequence
 import os.path
-from jsonschema import Draft7Validator, validators, RefResolver
+from jsonschema import Draft7Validator
 import jsonschema.exceptions
+from referencing import Registry
+from referencing.jsonschema import DRAFT7
+from referencing.exceptions import NoSuchResource, Unretrievable
+from urllib.parse import urljoin, urlparse
+from urllib.request import url2pathname, pathname2url
 from ruamel.yaml.scalarstring import ScalarString, FoldedScalarString
 from ansible.parsing.vault import VaultEditor
 from ansible.module_utils._text import (
@@ -499,59 +504,89 @@ def change_cwd(
         os.chdir(old_path)
 
 
-# https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # XXX unused because this breaks check_schema
-def extend_with_default(validator_class: Draft7Validator) -> Draft7Validator:
-    """
-    # Example usage:
-    obj = {}
-    schema = {'properties': {'foo': {'default': 'bar'}}}
-    # Note jsonschema.validate(obj, schema, cls=DefaultValidatingDraft7Validator)
-    # will not work because the metaschema contains `default` directives.
-    DefaultValidatingDraft7Validator(schema).validate(obj)
-    assert obj == {'foo': 'bar'}
-    """
-    validate_properties = validator_class.VALIDATORS["properties"]
+# see https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
+# def extend_with_default(validator_class: Draft7Validator) -> Draft7Validator:
+#     """
+#     # Example usage:
+#     obj = {}
+#     schema = {'properties': {'foo': {'default': 'bar'}}}
+#     DefaultValidatingDraft7Validator(schema).validate(obj)
+#     assert obj == {'foo': 'bar'}
+#     # Note jsonschema.validate(obj, schema, cls=DefaultValidatingDraft7Validator)
+#     # will not work because the metaschema contains `default` directives.
+#     """
+#     validate_properties = validator_class.VALIDATORS["properties"]
 
-    def set_defaults(
-        validator: Draft7Validator,
-        properties: Mapping,
-        instance: Draft7Validator,
-        schema: Mapping,
-    ) -> Iterator:
-        if not validator.is_type(instance, "object"):
-            return
+#     def set_defaults(
+#         validator: Draft7Validator,
+#         properties: Mapping,
+#         instance: Draft7Validator,
+#         schema: Mapping,
+#     ) -> Iterator:
+#         if not validator.is_type(instance, "object"):
+#             return
 
-        for key, subschema in properties.items():
-            if "default" in subschema:
-                instance.setdefault(key, subschema["default"])
+#         for key, subschema in properties.items():
+#             if "default" in subschema:
+#                 instance.setdefault(key, subschema["default"])
 
-        for error in validate_properties(validator, properties, instance, schema):
-            yield error
+#         for error in validate_properties(validator, properties, instance, schema):
+#             yield error
 
-    # new validator class
-    return validators.extend(validator_class, {"properties": set_defaults})
-
-
-DefaultValidatingLatestDraftValidator = (
-    Draft7Validator  # extend_with_default(Draft4Validator)
-)
+#     # new validator class
+#     return validators.extend(validator_class, {"properties": set_defaults})
+# DefaultValidatingLatestDraftValidator = (
+#     extend_with_default(Draft7Validator)
+# )
 
 
-def validate_schema(obj: Any, schema: Mapping, baseUri: Optional[str] = None) -> bool:
-    return not find_schema_errors(obj, schema)
+def validate_schema(
+    obj: Any, schema: Mapping, schema_path: Optional[str] = None
+) -> bool:
+    return not find_schema_errors(obj, schema, schema_path)
 
 
 def find_schema_errors(
-    obj: Any, schema: Mapping, baseUri: Optional[str] = None
+    obj: Any, schema: Mapping, schema_path: Optional[str] = None
 ) -> Optional[Tuple[str, List[object]]]:
     # XXX2 have option that includes definitions from manifest's schema
-    if baseUri is not None:
-        resolver = RefResolver(base_uri=baseUri, referrer=schema)
+    if schema_path is not None:
+        schema_uri = urljoin("file:", pathname2url(schema_path))
+
+        # Create a retrieve function to load external schema files
+        def retrieve_schema(uri: str):
+            """Retrieve schema from file:// URIs for external $ref resolution."""
+            # Resolve relative URIs against the base URI
+            absolute_uri = urljoin(schema_uri, uri)
+            parsed = urlparse(absolute_uri)
+
+            if parsed.scheme == "file":
+                # Convert file:// URI to filesystem path
+                file_path = url2pathname(parsed.path)
+                if not is_relative_to(file_path, os.path.dirname(schema_path)):
+                    # disallow paths outside of base path
+                    raise Unretrievable(
+                        f"{file_path} outside of base path {schema_path}"
+                    )
+                with open(file_path, "r") as f:
+                    schema_data = json.load(f)
+                return DRAFT7.create_resource(schema_data)
+            else:
+                # For non-file URIs, raise an error
+                raise NoSuchResource(uri)
+
+        # Create a registry with the schema registered at the base URI
+        # and a custom retrieve function for external references
+        resource = DRAFT7.create_resource(schema)
+        registry = Registry(retrieve=retrieve_schema).with_resource(  # type: ignore[call-arg]
+            uri=schema_uri, resource=resource
+        )
     else:
-        resolver = None
-    DefaultValidatingLatestDraftValidator.check_schema(schema)
-    validator = DefaultValidatingLatestDraftValidator(schema, resolver=resolver)
+        registry = Registry()
+
+    Draft7Validator.check_schema(schema)
+    validator = Draft7Validator(schema, registry=registry)
     errors = list(validator.iter_errors(obj))
     error = jsonschema.exceptions.best_match(errors)
     if not error:
