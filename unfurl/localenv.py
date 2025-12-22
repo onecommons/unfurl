@@ -1112,6 +1112,7 @@ class LocalEnv:
             self.homeProject: Optional[Project] = parent.homeProject
             self.make_resolver: Optional[Callable] = parent.make_resolver
             self.loader_cache: dict = parent.loader_cache
+            self.loader_cache_mtimes: Dict[str, float] = parent.loader_cache_mtimes
         else:
             self._projects = {}
             self._manifests = {}
@@ -1119,6 +1120,7 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
             self.loader_cache = {}
+            self.loader_cache_mtimes = {}
 
         self._resolve_path_and_project(
             manifestPath or "",

@@ -160,12 +160,15 @@ class Manifest(AttributeManager):
         self.repositories: Dict[str, RepoView] = {}
         self.package_specs: List[PackageSpec] = []
         self.packages: PackagesType = {}
+        self.cache_mtimes: Dict[str, float]
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
             self._add_repositories_from_environment()
             self.cache = self.localEnv.loader_cache
+            self.cache_mtimes = self.localEnv.loader_cache_mtimes
         else:
             self.cache = {}
+            self.cache_mtimes = {}
         self.imports = Imports()
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
@@ -290,6 +293,34 @@ class Manifest(AttributeManager):
         for tpl in [spec, t.topology_template.custom_defs, t.nested_tosca_tpls]:
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
         return m.hexdigest()
+
+    def remove_invalidated_cache(self) -> int:
+        """Check each cached path's mtime and remove from cache if changed.
+
+        Returns:
+            Number of cache entries that were invalidated.
+        """
+        invalidated = 0
+        paths_to_remove = []
+        for path, cached_mtime in self.cache_mtimes.items():
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime != cached_mtime:
+                    paths_to_remove.append(path)
+                    invalidated += 1
+            except OSError:
+                # File no longer exists
+                paths_to_remove.append(path)
+                invalidated += 1
+
+        for path in paths_to_remove:
+            self.cache_mtimes.pop(path, None)
+            # Remove all cache entries for this path (with any fragment)
+            keys_to_remove = [k for k in self.cache if k[0] == path]
+            for key in keys_to_remove:
+                self.cache.pop(key, None)
+
+        return invalidated
 
     def _ready(self, rootResource):
         """

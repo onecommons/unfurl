@@ -1250,6 +1250,9 @@ class SimpleCacheResolver(ImportResolver):
             )
             if cacheable:
                 self.set_cache((path, fragment), doc)
+            # Record mtime for cache invalidation (even if not cacheable)
+            if os.path.isfile(path):
+                self.manifest.cache_mtimes[path] = os.path.getmtime(path)
         else:
             cacheable = True
         return doc, cacheable
