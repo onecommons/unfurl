@@ -627,6 +627,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 )
         return None
 
+    def is_external_shadow(self) -> bool:
+        # if it starts with ":" its from a nested topology (see `Imports`)
+        return bool(self.imported and not self.imported.startswith(":"))
+
     @property
     def nested_name(self) -> str:
         if self.template.topology.substitute_of:
@@ -690,6 +694,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
             state["_interfaces"] = {}
         if "attributeManager" in state:
             del state["attributeManager"]
+        if "proxy" in state:
+            del state["proxy"]
         return state
 
     def __repr__(self):
@@ -1117,7 +1123,7 @@ class NodeInstance(HasInstancesInstance):
     @property
     def requirements(self) -> List[RelationshipInstance]:
         assert isinstance(self.template, NodeSpec)
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             if self.template.tpl.get("requirements"):
                 logger.warning(
                     f'Ignoring requirements defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s requirements are used instead.'
@@ -1168,7 +1174,7 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def capabilities(self) -> List[CapabilityInstance]:
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             return cast(NodeInstance, self.shadow).capabilities
         if len(self._capabilities) != len(self.template.capabilities):
             # instantiate missing capabilities (they are only added, never deleted)
@@ -1195,12 +1201,13 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def artifacts(self) -> dict:
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             if self.template.tpl.get("artifacts"):
                 logger.warning(
                     f'Ignoring artifacts defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s artifacts are used instead.'
                 )
-            return self.shadow.artifacts  # XXX create shadow artifacts
+            # XXX create shadow artifacts
+            return cast(NodeInstance, self.shadow).artifacts
         if self._named_artifacts is None:
             self._named_artifacts = {}
             instantiated = {a.name: a for a in self._artifacts if a.name}
@@ -1411,6 +1418,12 @@ class TopologyInstance(HasInstancesInstance):
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
 
+    @property
+    def environ(self):
+        if self.parent_topology:
+            return self.parent_topology.environ
+        return self._environ
+
     def _resolve(self, key):
         if key == "inputs":  # special case inputs
             return self.inputs
@@ -1511,7 +1524,6 @@ class TopologyInstance(HasInstancesInstance):
         nested_root.set_attribute_manager(self.attributeManager)
         nested_root.set_base_dir(self._baseDir)
         nested_root.imports = self.imports
-        nested_root._environ = self._environ
         if self.imports:
             self.imports.add_import(":" + topology.nested_name, nested_root)
         return nested_root

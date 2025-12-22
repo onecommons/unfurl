@@ -918,6 +918,10 @@ def find_unpickleable(
 
     logger = getLogger("unfurl")
 
+    if sys.version_info < (3, 11):
+        logger.debug("find_unpickleable is only supported in Python 3.11+")
+        return
+
     if visited is None:
         visited = set()
 

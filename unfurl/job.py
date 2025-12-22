@@ -1064,7 +1064,7 @@ class Job(ConfigChange):
             reqs_list = list(reqs)
             externalManifest = self.manifest._importedManifests.get(key)
             if externalManifest:
-                external_requests.append((externalManifest, reqs_list))
+                external_requests.append((externalManifest[0], reqs_list))
             else:
                 # run artifact jobs as a separate external job since we need to run them
                 # before the render stage of this job

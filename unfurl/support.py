@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     )
     from .configurator import Dependency
     from .spec import EntitySpec
+    from .localenv import LocalEnv
 
 from .logs import getLogger
 from .eval import _Tracker, RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -1464,6 +1465,21 @@ class _Import:
         self.spec = spec
         self.local_instance = local_instance
 
+    def find_local_env(
+        self, local_env: "LocalEnv", manifest_path: str
+    ) -> Optional["LocalEnv"]:
+        location = self.spec.get("manifest")
+        if not location:
+            return None
+        if "project" in location:
+            return local_env._get_external_localenv(location)
+        else:
+            return local_env.__class__(
+                manifest_path,
+                parent=local_env,
+                override_environment=location.get("environment", ""),
+            )
+
 
 class Imports(OrderedDict[str, _Import]):
     """
@@ -1554,7 +1570,9 @@ class Imports(OrderedDict[str, _Import]):
         record.local_instance = local_instance
         return record
 
-    def add_import(self, key, external_instance, spec=None) -> _Import:
+    def add_import(
+        self, key: str, external_instance: Optional["HasInstancesInstance"], spec=None
+    ) -> _Import:
         # Adds an external (imported or nested) instance
         self[key] = _Import(external_instance, spec or {})
         return self[key]
@@ -1993,7 +2011,7 @@ class AttributeManager:
             if p_def.schema and "default" in p_def.schema:
                 if not ctx.tosca_type:
                     # if a property is not defined on the template its value will be set to its type's default value
-                    # so super() should that type's superclass's default instead of the type's default value
+                    # so super() should use that type's superclass's default instead of the type's default value
                     if (
                         p_def.name
                         not in ctx._lastResource.template.toscaEntityTemplate._properties_tpl

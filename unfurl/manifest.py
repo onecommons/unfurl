@@ -180,6 +180,8 @@ class Manifest(AttributeManager):
         state = super().__getstate__()
         state["modules"] = None
         state["localEnv"] = None
+        # only used during yaml generation so ok to drop from pickle
+        state["_patched_templates"] = {}
         return state
 
     @property

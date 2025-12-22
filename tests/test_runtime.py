@@ -33,6 +33,7 @@ from unfurl.util import (
 from unfurl.yamlloader import YamlConfig
 from unfurl.yamlmanifest import YamlManifest
 from unfurl import logs
+from unfurl.testing import run_job_cmd
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
@@ -585,10 +586,9 @@ class ImportTestConfigurator(Configurator):
         yield task.done(True, Status.ok)
 
 
-class ImportTest(unittest.TestCase):
-    def test_import(self):
-        foreign = (
-            """
+def test_import(caplog):
+    foreign = (
+        """
     apiVersion: %s
     kind: Ensemble
     spec:
@@ -598,15 +598,15 @@ class ImportTest(unittest.TestCase):
           prop1: ok
           prop2: not-a-number
     """
-            % API_VERSION
-        )
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            with open("foreignmanifest.yaml", "w") as f:
-                f.write(foreign)
+        % API_VERSION
+    )
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open("foreignmanifest.yaml", "w") as f:
+            f.write(foreign)
 
-            importer = (
-                """
+        importer = (
+            """
 apiVersion: %s
 kind: Ensemble
 metadata:
@@ -628,6 +628,7 @@ spec:
   instances:
     importer:
       template: importer
+      readyState: pending
   service_template:
     topology_template:
       node_templates:
@@ -653,29 +654,44 @@ spec:
             Standard:
                 create: ImportTest
       """
-                % API_VERSION
-            )
-            with open("ensemble.yaml", "w") as f:
-                f.write(importer)
-            manifest = YamlManifest(path="ensemble.yaml")
-            root = manifest.get_root_resource()
-            importerResource = root.find_resource("importer")
-            assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", manifest.uri
-            assert root.uri == manifest.uri + "?:::root"
-            assert importerResource.uri == manifest.uri + "?:::importer"
-            # assert importing.attributes['test']
-            assert root.imports["test"]
-            self.assertEqual(importerResource.attributes["mapped1"], "ok")
-            with self.assertRaises(UnfurlValidationError) as err:
-                importerResource.attributes["mapped2"]
-            self.assertIn("schema validation failed", str(err.exception))
-            self.assertEqual(importerResource.attributes["mapped3"], "default")
-            job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-            assert job.status == Status.ok, job.summary()
-            manifest.lock()
-            with self.assertRaises(UnfurlError) as err:
-                manifest.lock()  # can't lock twice
-            self.assertIn("already locked", str(err.exception))
+            % API_VERSION
+        )
+        with open("ensemble.yaml", "w") as f:
+            f.write(importer)
+        local_env = LocalEnv("ensemble.yaml")
+        manifest = local_env.get_manifest()
+        root = manifest.get_root_resource()
+        importerResource = root.find_resource("importer")
+        assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", (
+            manifest.uri
+        )
+        assert root.uri == manifest.uri + "?:::root"
+        assert importerResource.uri == manifest.uri + "?:::importer"
+        # assert importing.attributes['test']
+        assert root.imports["test"]
+        assert importerResource.attributes["mapped1"] == "ok"
+        with pytest.raises(UnfurlValidationError) as err:
+            importerResource.attributes["mapped2"]
+        assert "schema validation failed" in str(err)
+        assert importerResource.attributes["mapped3"] == "default"
+
+        result, job, summary = run_job_cmd(runner)
+        assert summary["job"]["changed"] == 1, summary
+        manifest.lock()
+        with pytest.raises(UnfurlError) as err:
+            manifest.lock()  # can't lock twice
+        assert "already locked" in str(err)
+
+        manifest.unlock()
+        run_job_cmd(runner)
+        assert "Loaded manifest from cache" in caplog.text
+
+        with open("foreignmanifest.yaml", "a") as f:
+            f.write("\n")
+        result, job, summary = run_job_cmd(runner)
+        assert summary["job"]["changed"] == 0, summary
+        assert "cache invalidated: imported manifest changed" in caplog.text
+
 
 @pytest.mark.parametrize("include_paths, exclude_paths, target_path, expected", [
     (["/path/to/include"], [], "/path/to/include/subdir", True),

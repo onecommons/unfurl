@@ -1414,24 +1414,26 @@ class YamlConfig:
         except Exception:
             raise UnfurlError(f"Error saving {self.path}", True)
 
+    def config_file_changed(self) -> bool:
+        if self.path:
+            # st_mtime is unreliable so use file_size as a good-enough proxy
+            # to detect the file changing out from under us
+            if self.file_size:
+                statinfo = os.stat(self.path)
+                if statinfo.st_size != self.file_size:
+                    return True
+        return False
+
     def save(self):
         if self.readonly:
             raise UnfurlError(f'Can not save "{self.path}", it is set to readonly')
         output = io.StringIO()
         self.dump(output)
         if self.path:
-            if self.file_size:
-                statinfo = os.stat(self.path)
-                if statinfo.st_size > self.file_size:
-                    logger.error(
-                        'Not saving "%s", it was unexpectedly modified after it was loaded, %d is after last modified time %d',
-                        self.path,
-                        statinfo.st_size,
-                        self.file_size,
-                    )
-                    raise UnfurlError(
-                        f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
-                    )
+            if self.config_file_changed():
+                raise UnfurlError(
+                    f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
+                )
             with open(self.path, "w") as f:
                 f.write(output.getvalue())
             statinfo = os.stat(self.path)

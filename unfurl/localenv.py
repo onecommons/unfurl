@@ -1103,6 +1103,10 @@ class LocalEnv:
             self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
         if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
             self.overrides["skip_secret_files"] = True
+        if os.getenv("UNFURL_PACKAGE_RULES"):
+            self.overrides["UNFURL_PACKAGE_RULES"] = os.getenv("UNFURL_PACKAGE_RULES")
+        if os.getenv("UNFURL_CLOUD_SERVER"):
+            self.overrides["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
 
         if parent:
             self.parent = parent
@@ -1335,12 +1339,15 @@ class LocalEnv:
                 # Try to load from pickle cache first (unless disabled via env var)
                 use_cache = os.getenv("UNFURL_USE_CACHE") or ""
                 pickle_path = YamlManifest.get_manifest_cache_path(self.manifestPath)
-                if "load" in use_cache and os.path.exists(pickle_path):
+                if (
+                    not self.parent  # only load top-level manifest from cache
+                    and not safe_mode  # safe_mode disables cache
+                    and "load" in use_cache
+                    and os.path.exists(pickle_path)
+                ):
                     try:
-                        with open(pickle_path, "rb") as f:
-                            manifest = YamlManifest.restore_from_pickle(f, self)
+                        manifest = YamlManifest.restore_from_pickle(pickle_path, self)
                         if manifest:
-                            logger.info(f"Loaded manifest from cache: {pickle_path}")
                             self._manifests[self.manifestPath] = manifest
                             return manifest
                     except Exception as e:
@@ -1588,10 +1595,10 @@ class LocalEnv:
             else:
                 repositories[key] = value
         env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
+            "UNFURL_PACKAGE_RULES", self.overrides.get("UNFURL_PACKAGE_RULES")
         )
-        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
-            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
+        if not env_package_spec and self.overrides.get("UNFURL_CLOUD_SERVER"):
+            env_package_spec = "unfurl.cloud " + self.overrides["UNFURL_CLOUD_SERVER"]
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 package_specs.append(PackageSpec(key, value, None))
