@@ -128,7 +128,7 @@ def is_url_or_git_path(url):
     return False
 
 
-def split_git_url(url) -> Tuple[str, str, str]:
+def split_git_url(url: str) -> Tuple[str, str, str]:
     """
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
@@ -160,14 +160,24 @@ def split_git_url(url) -> Tuple[str, str, str]:
         return giturl, path, revision
     return url, "", ""
 
+def git_url_join(url: str, path: str, revision: str) -> str:
+    if revision and path:
+        return f"{url}.git#{revision}:{path}"
+    elif revision:
+        return f"{url}.git#{revision}"
+    elif path:
+        return f"{url}.git#:{path}"
+    else:
+        return url
+
 
 @lru_cache(None)
-def memoized_remote_tags(url, pattern="*") -> List[str]:
+def memoized_remote_tags(url: str, pattern: str = "*") -> List[str]:
     return get_remote_tags(url, pattern)
 
 
 # git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
-def get_remote_tags(url, pattern="*") -> List[str]:
+def get_remote_tags(url: str, pattern: str = "*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
     # -v:refname is version sort in reverse order

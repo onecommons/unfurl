@@ -291,7 +291,7 @@ T = TypeVar("T", bound="Notable")
 
 
 class EntitySchema:
-    Schema = "unfurl.cloud/onecommons/unfurl-types"
+    Schema = "unfurl.cloud/onecommons/std"
     GenericFile = "artifact.File"
     ContainerFile = "artifact.Containerfile"
     CloudBlueprint = "artifact.tosca.ServiceTemplate"

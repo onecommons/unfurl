@@ -19,6 +19,7 @@ from .localenv import LocalEnv, Project, LocalConfig
 from .repo import (
     GitRepo,
     Repo,
+    git_url_join,
     is_url_or_git_path,
     normalize_git_url,
     split_git_url,
@@ -1061,10 +1062,11 @@ class EnsembleBuilder:
             )
         return self.source_project
 
-    def resolve_input_source(self, current_project) -> str:
+    def resolve_input_source(self, current_project: Optional[Project]) -> str:
         if self.input_source.startswith("cloudmap:"):
             from .cloudmap import CloudMap
 
+            # note: if not project file is found, the home project is used if there is one, otherwise an error is raised
             local_env = LocalEnv(
                 can_be_empty=True,
                 homePath=self.home_path,
@@ -1072,10 +1074,13 @@ class EnsembleBuilder:
                 override_environment=self.options.get("use_environment"),
             )
             cloudmap = CloudMap.get_db(local_env)
-            repo_key = self.input_source[len("cloudmap:") :]
+            repo_url, filePath, revision = split_git_url(self.input_source)
+            repo_key = repo_url[len("cloudmap:") :]
             repo_record = cloudmap.repositories.get(repo_key)
             if repo_record:
-                self.input_source = repo_record.git_url()
+                self.input_source = git_url_join(
+                    repo_record.git_url(), filePath, revision
+                )
             else:
                 raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
         return self.input_source
