@@ -220,7 +220,7 @@ class Manifest(AttributeManager):
         repo = self.localEnv and self.localEnv.instance_repoview
         if repo:
             # this check is expensive and not that important so skip
-            return repo.repo
+            return repo.gitrepo
             # path = repo.find_path(self.path)[0]
             # if path and (path, 0) in repo.repo.index.entries:
             #     return repo
@@ -801,7 +801,9 @@ class Manifest(AttributeManager):
                 return find_canonical(self.package_specs, canonical, namespace_id)
         return url or ""
 
-    def find_path_in_repos(self, path, importLoader=None):
+    def find_path_in_repos(
+        self, path, importLoader=None
+    ) -> Tuple[Optional[Repo], Optional[str], Optional[str], Optional[bool]]:
         """
         Check if the file path is inside a folder that is managed by a repository.
         If the revision is pinned and doesn't match the repo, it might be bare
@@ -819,14 +821,14 @@ class Manifest(AttributeManager):
 
     def find_or_clone_repo(
         self, repo_view: RepoView, base: str
-    ) -> Tuple[Optional[GitRepo], Optional[bool]]:
+    ) -> Tuple[Optional[Repo], Optional[bool]]:
         url, _, _ = split_git_url(repo_view.url)
         if not url:
             raise UnfurlError(f"invalid git URL {repo_view.url}")
         if not self.localEnv:  # can happen in unit tests
-            repo = Repo.find_containing_repo(base)
+            repo: Optional[Repo] = Repo.find_containing_repo(base)
             if repo and (
-                repo.find_remote(url=url)
+                repo.find_remote_url(url=url)
                 or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
                 == repo.working_dir.rstrip("/")
             ):
@@ -914,11 +916,9 @@ class Manifest(AttributeManager):
                 )
         self._set_builtin_repositories()
 
-    def _set_repository_links(self):
+    def _set_repository_links(self) -> None:
         if self.localEnv and not self.localEnv.readonly:
-            repos = {
-                normalize_git_url(r.url): r for r in self.localEnv._get_git_repos()
-            }
+            repos = {normalize_git_url(r.url): r for r in self.localEnv._get_repos()}
             for name, repo_view in self.repositories.items():
                 if not repo_view.repo and repo_view.url in repos:
                     repo_view.repo = repos[repo_view.url]
@@ -1105,7 +1105,7 @@ class Manifest(AttributeManager):
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
-    def find_or_clone_from_url(self, url) -> Optional[RepoView]:
+    def find_or_clone_from_url(self, url: str) -> Optional[RepoView]:
         if self.localEnv and self.localEnv.project:
             base = self.localEnv.project.projectRoot
         else:
@@ -1114,7 +1114,7 @@ class Manifest(AttributeManager):
             None, base, repositories={}, resolver=self
         )
         resolver = self.get_import_resolver()
-        url, ctx = resolver.resolve_url(loader, url, "", None)
+        _, ctx = resolver.resolve_url(loader, url, "", None)
         if ctx:
             (is_file, repo_view, base, file_name) = ctx
             if repo_view:
@@ -1207,7 +1207,7 @@ class Manifest(AttributeManager):
 
 def is_external_template_compatible(
     import_name: str, external: EntitySpec, template: NodeTemplate
-):
+) -> bool:
     # match by template name unless a node_filter is set
     imported = external.tpl.get("imported")
     if imported:

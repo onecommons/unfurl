@@ -1173,7 +1173,7 @@ class YamlManifest(ReadOnlyManifest):
             url = tpl.get("url")
             repo_view = self.repositories.get(name)
             if repo_view and repo_view.repo:
-                if not url or not repo_view.repo.find_remote(url=url):
+                if not url or not repo_view.repo.find_remote_url(url=url):
                     new_url = normalize_git_url(repo_view.repo.url)
                     logger.verbose(
                         "updating repository %s's url from %s to %s",
@@ -1473,8 +1473,8 @@ class YamlManifest(ReadOnlyManifest):
             ensembleRepo = self.repositories["self"]
             if ensembleRepo.is_dirty():
                 ensembleRepo.commit(message, True)
-                if job.jobOptions.push and ensembleRepo.repo:
-                    ensembleRepo.repo.push()
+                if job.jobOptions.push and ensembleRepo.gitrepo:
+                    ensembleRepo.gitrepo.push()
 
     def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")

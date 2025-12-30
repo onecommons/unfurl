@@ -190,7 +190,7 @@ def write_service_template(projectdir, templateDir, vars):
 def write_ensemble_manifest(
     destDir: str,
     manifestName: str,
-    specRepo: Optional[GitRepo],
+    specRepo: Optional[Repo],
     specDir=None,
     extraVars=None,
     templateDir=None,
@@ -646,7 +646,7 @@ def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
         if repoSpec.name == "self":
             continue
         # XXX should look in home project too
-        repo = sourceProject.find_git_repo_from_repository(repoSpec)
+        repo = sourceProject.find_repo_from_repository(repoSpec)
         if repo:
             targetProject.find_or_clone(repo)
 
@@ -749,7 +749,9 @@ def _find_templates(sourceProject: Project, sourcePath: str):
     return None
 
 
-def find_project(source: str, home_path: Optional[str], register: bool = False):
+def find_project(
+    source: str, home_path: Optional[str], register: bool = False
+) -> Optional[Project]:
     src_dir = get_base_dir(source)
     sourceRoot = Project.find_path(src_dir)
     if sourceRoot:
@@ -1003,7 +1005,7 @@ class EnsembleBuilder:
         dest_project = assert_not_none(self.dest_project)
         repo = (
             self.shared_repo
-            or (self.mono and dest_project.project_repoview.repo)
+            or (self.mono and dest_project.project_repoview.gitrepo)
             or None
         )
         assert manifest
@@ -1019,7 +1021,7 @@ class EnsembleBuilder:
 
         if not self.options.get("render") and ensemble_project.localConfig.config.saved:
             msg = f"Add ensemble at {ensemble_project.get_relative_path(manifest_path)}"
-            assert_not_none(ensemble_project.project_repoview.repo).commit_files(
+            assert_not_none(ensemble_project.project_repoview.gitrepo).commit_files(
                 [assert_not_none(ensemble_project.localConfig.config.path)], msg
             )
         self.manifest = manifest
@@ -1039,7 +1041,7 @@ class EnsembleBuilder:
             )
         if currentProject:
             repoURL = sourceProject.project_repoview.repo.url
-            if currentProject.find_git_repo(repoURL):
+            if currentProject.find_repo(repoURL):
                 # if the repo has already been cloned into this project, just use that one
                 newrepo = currentProject.find_or_create_working_dir(repoURL)
                 search = os.path.join(newrepo.working_dir, self.source_path)
@@ -1324,7 +1326,7 @@ class EnsembleBuilder:
             # set overwrite so we create the ensemble in the same directory as the CSAR
             self.options["overwrite"] = True
             self.source_project = currentProject
-            repo = currentProject.project_repoview.repo
+            repo = currentProject.project_repoview.gitrepo
             if repo and (self.mono or self.options.get("empty")):
                 repo.add_all(csar.unzip_dir)
                 repo.repo.index.commit(

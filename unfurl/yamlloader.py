@@ -1048,9 +1048,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             # XXX we need both the commit and revision if we don't have the full git repo
             url, filePath, revision = split_git_url(path[len("git-ref:") :])
             repo_view = self._find_repoview(url)
-            if not repo_view.repo:
+            if not repo_view.gitrepo:
                 raise UnfurlError("Could not resolve " + path)
-            bdata = repo_view.repo.show(filePath, revision, stdout_as_string=False)
+            bdata = repo_view.gitrepo.show(filePath, revision, stdout_as_string=False)
             if self.yamlloader:
                 # ok_to_show if bdata was cleartext otherwise it was encrypted
                 bdata, ok_to_show = self.yamlloader._decrypt_if_vault_data(

@@ -61,6 +61,7 @@ from .util import (
 )
 from .logs import getLogger, UnfurlLogger
 from .yamlloader import cleartext_yaml
+from .repo import GitRepo
 
 logger = getLogger("unfurl")
 
@@ -565,7 +566,7 @@ class FilePath(_ArtifactExternalValue):
         manifest: Optional["Manifest"] = options and options.get("manifest")
         if manifest:
             repo, relPath, revision, bare = manifest.find_path_in_repos(fullpath)
-            if repo and not repo.is_dirty(True, relPath):
+            if isinstance(repo, GitRepo) and not repo.is_dirty(True, relPath):
                 if relPath:
                     # equivalent to git rev-parse HEAD:path
                     digest = "git:" + repo.repo.rev_parse("HEAD:" + relPath).hexsha

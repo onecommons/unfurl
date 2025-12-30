@@ -1547,7 +1547,8 @@ class CloudMap:
             repo, _, _ = local_env.find_or_create_working_dir(
                 url, revision, checkout_args=dict(b=branch)
             )
-        if not repo:
+        if not isinstance(repo, GitRepo):
+            # XXX add find_or_create_working_dir variant that always returns GitRepo
             raise UnfurlError(f"couldn't clone {url}")
         return CloudMap(
             repo, branch, revision, local_repo_root, path, skip_analysis, logger

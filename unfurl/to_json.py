@@ -1408,17 +1408,17 @@ def generate_deployment_template(
     return dt
 
 
-def get_project_path(repo: GitRepo, server_host: str):
+def get_project_path(repo: Repo, server_host: str) -> str:
     if server_host:
         # only use the project path if remote matches the cloud server
-        cloud_remote = repo.find_remote(host=server_host)
+        cloud_remote = repo.find_remote_url(host=server_host)
         if cloud_remote:
-            return Repo.get_path_for_git_repo(cloud_remote.url, False)
+            return Repo.get_path_for_git_repo(cloud_remote, False)
     # no remote (or remote is not for the cloud server), return local project path
     return get_local_project_path(repo)
 
 
-def get_local_project_path(repo: GitRepo):
+def get_local_project_path(repo: Repo):
     # XXX use different scheme if repo has a remote?
     return "local:" + repo.working_dir
 

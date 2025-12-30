@@ -109,7 +109,7 @@ if flask_config["CACHE_TYPE"] == "RedisCache":
 app = Flask(__name__)
 app.config.from_mapping(flask_config)
 cache = Cache(app)
-logger.info("created cache %s", flask_config["CACHE_TYPE"])
+logger.verbose("created cache %s", flask_config["CACHE_TYPE"])
 app.config["UNFURL_OPTIONS"] = {}
 app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
 app.config["UNFURL_CLOUD_SERVER"] = (
@@ -197,9 +197,9 @@ def _set_local_projects(
     for repo_view in repo_views:
         if not repo_view.repo:
             continue
-        remote = repo_view.repo.find_remote(host=server_host)
-        if remote:
-            parts = urlparse(normalize_git_url(remote.url))
+        remote_url = repo_view.repo.find_remote_url(host=server_host)
+        if remote_url:
+            parts = urlparse(normalize_git_url(remote_url))
             project_id = project_id_from_urlresult(parts)
             if project_id in local_projects:
                 # unless the existing one is inside the clone_root
@@ -296,12 +296,10 @@ def set_current_ensemble_git_url(gui: bool = False):
         if not gui and not server_host:
             return None  # no remote is ok in local mode
         if server_host:
-            remote = local_env.project.project_repoview.repo.find_remote(
+            remote_url = local_env.project.project_repoview.repo.find_remote_url(
                 host=server_host
             )
-            if remote:
-                remote_url = remote.url
-            else:
+            if not remote_url:
                 remote_url = local_env.project.project_repoview.url
             app.config["UNFURL_CURRENT_GIT_URL"] = normalize_git_url(remote_url)
         else:
@@ -2113,7 +2111,7 @@ def _patch_environment(body: dict, project_id: str):
         readonly_localEnv.project.projectRoot, home_dir, can_be_empty=True
     )
     assert localEnv.project
-    repo = localEnv.project.project_repoview.repo
+    repo = localEnv.project.project_repoview.gitrepo
     assert repo
     username = cast(str, body.get("username"))
     password = cast(str, body.get("private_token", body.get("password")))
@@ -2124,11 +2122,7 @@ def _patch_environment(body: dict, project_id: str):
     ):
         return create_error_response("UNAUTHORIZED", "Missing credentials")
     was_dirty = repo.is_dirty()
-    starting_revision = (
-        localEnv.project.project_repoview.repo
-        and localEnv.project.project_repoview.repo.revision
-        or ""
-    )
+    starting_revision = repo.revision
     localConfig = localEnv.project.localConfig
     _apply_environment_patch(patch, localEnv)
     localConfig.config.save()
