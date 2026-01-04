@@ -79,6 +79,7 @@ from .runtime import (
     RelationshipInstance,
     CapabilityInstance,
     Operational,
+    TopologyInstance,
 )
 from .yamlloader import yaml
 from .projectpaths import WorkFolder, Folders
@@ -365,7 +366,11 @@ class Configurator(metaclass=AutoRegisterClass):
             values=",".join(digests),
         )
         task.logger.debug(
-            "digest for %s: %s=%s", task.target.name, digest["digestKeys"], inputdigest
+            "digest for %s: %s=%s (%s)",
+            task.target.name,
+            digest["digestKeys"],
+            inputdigest,
+            digests,
         )
         if changed:
             task.logger.debug(
@@ -933,7 +938,7 @@ class TaskView:
             for rel in parent.get_default_relationships():
                 if id(rel) not in seen:
                     seen[id(rel)] = rel
-            if self.operation_host:
+            if self.operation_host and not isinstance(parent, TopologyInstance):
                 assert isinstance(
                     parent,
                     (

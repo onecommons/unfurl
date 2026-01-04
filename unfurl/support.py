@@ -51,6 +51,7 @@ if TYPE_CHECKING:
     )
     from .configurator import Dependency
     from .spec import EntitySpec
+    from .localenv import LocalEnv
 
 from .logs import getLogger
 from .eval import _Tracker, RefContext, set_eval_func, Ref, map_value, SafeRefContext
@@ -651,7 +652,7 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                     if result.external:
                         external_results.append(result)
                 if want_result and external_results:
-                    return _handle_external(external_results, value, log)
+                    return _handle_external(external_results, value)
             else:
                 ctx.trace("no modification after processing template:", value)
     finally:
@@ -664,24 +665,18 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
     return wrap_var(value)
 
 
-def _handle_external(external_results: List[Result], value: Any, logger) -> Any:
+def _handle_external(external_results: List[Result], value: Any) -> Any:
     if isinstance(value, str):
         canonical = value
         inert = False
         for result in external_results:
             if isinstance(result.external, InertValue):
                 e = result.external
-                canonical = canonical.replace(e.key, e.substitute)
+                # replace live value with inert substitute
+                canonical = canonical.replace(e.key, e.substitute, 1)
                 inert = True
-        if inert:
-            if value != canonical:
-                return InertValue(value, canonical)
-            else:
-                logger.warning(
-                    "could not find transient %s in %s, use the transient filter if needed",
-                    canonical,
-                    value,
-                )
+        if inert and value != canonical:
+            return InertValue(value, canonical)
     if (
         external_results
         and external_results[-1].external
@@ -1470,6 +1465,21 @@ class _Import:
         self.spec = spec
         self.local_instance = local_instance
 
+    def find_local_env(
+        self, local_env: "LocalEnv", manifest_path: str
+    ) -> Optional["LocalEnv"]:
+        location = self.spec.get("manifest")
+        if not location:
+            return None
+        if "project" in location:
+            return local_env._get_external_localenv(location)
+        else:
+            return local_env.__class__(
+                manifest_path,
+                parent=local_env,
+                override_environment=location.get("environment", ""),
+            )
+
 
 class Imports(OrderedDict[str, _Import]):
     """
@@ -1560,7 +1570,9 @@ class Imports(OrderedDict[str, _Import]):
         record.local_instance = local_instance
         return record
 
-    def add_import(self, key, external_instance, spec=None) -> _Import:
+    def add_import(
+        self, key: str, external_instance: Optional["HasInstancesInstance"], spec=None
+    ) -> _Import:
         # Adds an external (imported or nested) instance
         self[key] = _Import(external_instance, spec or {})
         return self[key]
@@ -1999,7 +2011,7 @@ class AttributeManager:
             if p_def.schema and "default" in p_def.schema:
                 if not ctx.tosca_type:
                     # if a property is not defined on the template its value will be set to its type's default value
-                    # so super() should that type's superclass's default instead of the type's default value
+                    # so super() should use that type's superclass's default instead of the type's default value
                     if (
                         p_def.name
                         not in ctx._lastResource.template.toscaEntityTemplate._properties_tpl

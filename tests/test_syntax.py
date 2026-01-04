@@ -364,6 +364,28 @@ spec:
         assert the_app.attributes["null_default"] is None
 
 
+def test_external_ref_schema_validation(tmp_path):
+    # test that we can catch schema validation errors from $ref to another schema file
+    from unfurl.localenv import LocalConfig
+
+    # unfurl-schema.json references manifest-schema.json#/definitions/environment
+    # 'inputs' in environment definition must be an object (via $ref to #/definitions/attributes)
+    # in manifest-schema.json, referenced via external $ref
+    invalid_unfurl_yaml = tmp_path / "unfurl.yaml"
+    invalid_unfurl_yaml.write_text("""
+apiVersion: unfurl/v1alpha1
+kind: Project
+environments:
+  defaults:
+    inputs: "should_be_object_not_string"
+""")
+
+    with pytest.raises(UnfurlError) as exc_info:
+        LocalConfig(str(invalid_unfurl_yaml), validate=True)
+
+    assert "is not of type 'object'" in str(exc_info.value)
+
+
 def test_deployment_blueprint():
     dp_yaml = """
 apiVersion: unfurl/v1.0.0

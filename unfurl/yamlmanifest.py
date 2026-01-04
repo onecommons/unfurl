@@ -40,11 +40,12 @@ from .util import (
     substitute_env,
     to_yaml_text,
     filter_env,
+    find_unpickleable,
 )
 from .merge import patch_dict
 from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
 from .result import serialize_value
-from .support import ResourceChanges, Defaults, Status
+from .support import _Import, ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
 from .lock import Lock
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
@@ -53,6 +54,7 @@ from .spec import (
     NodeSpec,
     RelationshipSpec,
     ToscaSpec,
+    TopologySpec,
     encode_unfurl_identifier,
     find_env_vars,
     get_default_topology,
@@ -255,20 +257,18 @@ def commit_change_record(change: CommentedMap) -> bool:
     return True
 
 
-def split_changes(
+def _extract_committed_changes(
     changes: List[CommentedMap],
-) -> Tuple[List[CommentedMap], List[CommentedMap]]:
-    local_changes = []
+) -> List[CommentedMap]:
     committed_changes = []
     for change in changes:
-        local_change = change.copy()
-        local_changes.append(local_change)
         if not commit_change_record(change):
             continue
+        change = change.copy()
         if "result" in change and change["result"] != "skipped":
             change.pop("result")
         committed_changes.append(change)
-    return local_changes, committed_changes
+    return committed_changes
 
 
 @cache
@@ -303,7 +303,9 @@ class ReadOnlyManifest(Manifest):
         if path:
             path = os.path.abspath(path)
         super().__init__(path, localEnv)
-        self._importedManifests: Dict[int, Optional["YamlManifest"]] = {}
+        self._importedManifests: Dict[int, Tuple["YamlManifest", _Import]] = {}
+        # Save overrides for pickle cache invalidation checks
+        # self.overrides: dict = localEnv.overrides.copy() if localEnv else {}
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
         schema = get_manifest_schema(
@@ -434,6 +436,7 @@ class YamlManifest(ReadOnlyManifest):
     lockfile = None
     lfs_locked: Optional[str] = None
     lfs_url: Optional[str] = None
+    CACHE_VERSION = 1
 
     def __init__(
         self,
@@ -448,6 +451,7 @@ class YamlManifest(ReadOnlyManifest):
         if skip_validation:
             global_state._enforce_required_fields = False
         super().__init__(manifest, path, validate, localEnv, vault, safe_mode)
+        self.cache_version = YamlManifest.CACHE_VERSION
         self.validate = not skip_validation  # see AttributeManager.validate
         # instantiate the tosca template
         manifest = self.manifest.expanded
@@ -815,8 +819,8 @@ class YamlManifest(ReadOnlyManifest):
                     raise UnfurlError(
                         f"Can not import external ensemble '{name}': ensemble's version '{imported_version}' isn't compatible with '{version}'"
                     )
-        self.imports.add_import(name, resource, value)
-        self._importedManifests[id(root)] = importedManifest
+        _import = self.imports.add_import(name, resource, value)
+        self._importedManifests[id(root)] = (importedManifest, _import)
         matches = []
         connections = value.get("connections")
         if connections:
@@ -957,8 +961,7 @@ class YamlManifest(ReadOnlyManifest):
         if self._operationIndex is None:
             operationIndex: Dict[Tuple[str, str], str] = {}
             if self.changeSets:
-                # add list() for 3.7
-                for change in reversed(list(self.changeSets.values())):
+                for change in reversed(self.changeSets.values()):
                     if not change.target or not change.operation:
                         continue
                     key = (change.target, change.operation)
@@ -1170,7 +1173,7 @@ class YamlManifest(ReadOnlyManifest):
             url = tpl.get("url")
             repo_view = self.repositories.get(name)
             if repo_view and repo_view.repo:
-                if not url or not repo_view.repo.find_remote(url=url):
+                if not url or not repo_view.repo.find_remote_url(url=url):
                     new_url = normalize_git_url(repo_view.repo.url)
                     logger.verbose(
                         "updating repository %s's url from %s to %s",
@@ -1224,13 +1227,22 @@ class YamlManifest(ReadOnlyManifest):
             changes = list(
                 map(lambda t: save_task(t, exclude_result), job.workDone.values())
             )
-            changes, committed_changes = split_changes(changes)
+            committed_changes = _extract_committed_changes(changes)
             if self.changeLogPath and self.path is not None:
                 self.manifest.config["jobsLog"] = self.changeLogPath  # jobs.tsv
                 self._save_last_job(job, jobRecord, bool(committed_changes))
             else:
                 self.manifest.config.setdefault("changes", []).extend(changes)
                 self.manifest.config["lastJob"] = jobRecord
+                self.lastJob = jobRecord
+            if changes:
+                # used when restoring from pickle
+                if self.changeSets is None:
+                    self.changeSets = {}
+                for c in changes:
+                    change_set = self.load_config_change(c)
+                    self.changeSets[change_set.changeId] = change_set
+                self._operationIndex = None  # reset operation index
         else:
             # no work was done
             changes, committed_changes = [], []
@@ -1238,22 +1250,149 @@ class YamlManifest(ReadOnlyManifest):
         return jobRecord, changes, committed_changes
 
     @staticmethod
-    def restore_from_pickle(f, local_env: "LocalEnv") -> Optional["YamlManifest"]:
+    def restore_from_pickle(
+        pickle_path: str, local_env: "LocalEnv"
+    ) -> Optional["YamlManifest"]:
         """Load a YamlManifest from a pickle file and restore its localEnv and vault."""
-        manifest: YamlManifest = pickle.load(f)
-        # Restore the localEnv and vault that were excluded from pickle
-        manifest.localEnv = local_env
+        if not local_env.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK"):
+            logger.debug("cache invalidated: upstream check not skipped")
+            return None
+
+        with open(pickle_path, "rb") as f:
+            manifest: YamlManifest = pickle.load(f)
+
+        if manifest._restore(local_env):
+            logger.verbose(f"Loaded manifest from cache: {pickle_path}")
+            return manifest
+        return None
+
+    def _restore(self, local_env: "LocalEnv") -> bool:
+        if self.cache_version != YamlManifest.CACHE_VERSION:
+            logger.debug(
+                "cache invalidated: cache version changed (was %s, now %s)",
+                self.cache_version,
+                YamlManifest.CACHE_VERSION,
+            )
+            return False
+
+        if local_env.overrides.get("UNFURL_PACKAGE_RULES") != self.overrides.get(
+            "UNFURL_PACKAGE_RULES"
+        ):
+            logger.debug("cache invalidated: UNFURL_PACKAGE_RULES override present")
+            return False
+
         if not local_env.parent:
             # the loader cache is shared across manifests
-            local_env.loader_cache = manifest.cache
+            # set this now so we reuse the cache even if we can't reuse the manifest
+            local_env.loader_cache = self.cache
+            local_env.loader_cache_mtimes = self.cache_mtimes
+
+        # Remove any cached files that have changed since the pickle was created
+        invalidated = self.remove_invalidated_cache()
+        if invalidated:
+            logger.debug("cache invalidated: %d file(s) changed", invalidated)
+            return False
+
+        if self.manifest.config_file_changed():
+            logger.debug("cache invalidated: manifest file changed")
+            return False
+
+        if self.overrides != local_env.overrides:
+            self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = (
+                local_env.overrides.setdefault("UNFURL_SKIP_UPSTREAM_CHECK", "")
+            )
+            if self.overrides != local_env.overrides:
+                logger.debug(
+                    "cache invalidated: overrides changed: old=%r new=%r",
+                    self.overrides,
+                    local_env.overrides,
+                )
+                return False
+
+        if self.context != local_env.get_context(
+            self.manifest.expanded.get("environment") or {}
+        ):
+            logger.debug("cache invalidated: environment changed")
+            return False
+
+        # Restore the localEnv and vault that were excluded from pickle
+        self.localEnv = local_env
+        if not self._restore_external_manifests():
+            logger.debug("cache invalidated: imported manifest changed")
+            return False
+
         vault = local_env.get_vault()
-        manifest.manifest.vault = vault
-        manifest.manifest.loadHook = manifest.load_yaml_include
+        self.manifest.vault = vault
+        self.manifest.loadHook = self.load_yaml_include
         # XXX: RepoViews won't have yaml set, only used by commit(), so set there if needed
-        return manifest
+        if self.rootResource:
+            # reset computed outputs:
+            self.rootResource._attributes = dict(
+                outputs=cast(TopologySpec, self.rootResource.template).outputs
+            )
+            if not self.safe_mode:
+                # recompute because os.environ might have changed
+                self._set_root_environ()
+        return True
+
+    def _restore_external_manifests(self) -> bool:
+        assert self.localEnv
+        external_manifests = list(self._importedManifests.values())
+        for external, _import in external_manifests:
+            if external.localEnv:
+                continue
+            if external.path is None:
+                return False
+
+            child_local_env = _import.find_local_env(self.localEnv, external.path)
+            if not child_local_env:
+                return False
+            if not external._restore(child_local_env):
+                return False
+
+        self._importedManifests = {
+            id(external[0].get_root_resource()): external
+            for external in external_manifests
+        }
+        return True
+
+    def _save_cache(self) -> None:
+        """Pickle the YamlManifest object for faster loading."""
+        use_cache = os.getenv("UNFURL_USE_CACHE") or ""
+        if "save" in use_cache and self.manifest.path:
+            pickle_path = self.get_manifest_cache_path(self.manifest.path)
+            os.makedirs(os.path.dirname(pickle_path), exist_ok=True)
+            try:
+                with open(pickle_path, "wb") as f:
+                    pickle.dump(self, f, protocol=pickle.HIGHEST_PROTOCOL)
+                logger.info(f"Saved manifest cache: {pickle_path}")
+            except Exception as e:
+                # Debug: find which attribute can't be pickled
+                logger.warning(f"Failed to save cache", exc_info=True)
+                logger.warning("Searching for unpickleable objects...")
+                if "abort" in use_cache:
+                    raise e
+                find_unpickleable(self)
+                # Delete corrupt pickle file
+                if os.path.exists(pickle_path) and "keep_corrupt" not in use_cache:
+                    try:
+                        os.remove(pickle_path)
+                        logger.debug(f"Removed corrupt pickle file: {pickle_path}")
+                    except Exception:
+                        pass
+
+    @staticmethod
+    def get_manifest_cache_path(manifest_path: str) -> str:
+        """Get path to manifest cache for a given manifest path (e.g. ensemble/local/ensemble.yaml.pkl)."""
+        dirpath, filename = os.path.split(manifest_path)
+        return os.path.join(
+            dirpath,
+            "local",
+            filename + ".pkl",
+        )
 
     def _save_manifest(self, job: "Job") -> None:
-        output = job.out or job.jobOptions.out  # type: ignore
+        output = job.out or job.jobOptions.out
         if output:
             self.dump(output)
         else:
@@ -1270,9 +1409,10 @@ class YamlManifest(ReadOnlyManifest):
                     os.makedirs(ensemble_dir)
                 with open(dry_run_ensemble_path, "w") as f:
                     f.write(output.getvalue())
-                job.out = output  # type: ignore
+                job.out = output
             else:
-                job.out = self.manifest.save()  # type: ignore
+                job.out = self.manifest.save()
+                self._save_cache()
             # else:
             #     logger.verbose(
             #         "No changes detected to %s", self.path
@@ -1284,10 +1424,10 @@ class YamlManifest(ReadOnlyManifest):
         # only save lastJob in manifest if something changed or dryrun
         if job.save_as_dry_run():
             jobLogPath = job.log_path("planned", ".yaml")
-            self.manifest.config["lastJob"] = jobRecord
+            self.lastJob = self.manifest.config["lastJob"] = jobRecord
         elif changed:
             jobLogPath = job.log_path("changes", ".yaml")
-            self.manifest.config["lastJob"] = jobRecord
+            self.lastJob = self.manifest.config["lastJob"] = jobRecord
         else:
             jobLogPath = job.log_path("jobs", ".yaml")
         jobLogRelPath = os.path.relpath(jobLogPath, self.get_base_dir())
@@ -1333,8 +1473,8 @@ class YamlManifest(ReadOnlyManifest):
             ensembleRepo = self.repositories["self"]
             if ensembleRepo.is_dirty():
                 ensembleRepo.commit(message, True)
-                if job.jobOptions.push and ensembleRepo.repo:
-                    ensembleRepo.repo.push()
+                if job.jobOptions.push and ensembleRepo.gitrepo:
+                    ensembleRepo.gitrepo.push()
 
     def get_default_commit_message(self):
         jobRecord = self.manifest.config.get("lastJob")

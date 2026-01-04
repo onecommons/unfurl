@@ -639,17 +639,20 @@ def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
 
 
 def _set_deployment_url(
-    manifest, deployment: Deployment, primary_resource: Optional[GraphqlObject]
+    manifest: "YamlManifest",
+    deployment: Deployment,
+    primary_resource: Optional[GraphqlObject],
 ):
     outputs = manifest.get_saved_outputs()
+    url = None
     if outputs and "url" in outputs:
         url = outputs["url"]
-    else:
+    elif manifest.rootResource:
         # computed outputs might not be saved, so try to evaluate it now
         try:
             url = manifest.rootResource.attributes["outputs"].get("url")
         except UnfurlError as e:
-            url = None  # this can be raised if the evaluation is unsafe
+            # this can be raised if the evaluation is unsafe
             logger.warning(f"export could not evaluate output 'url': {e}")
 
     if url:

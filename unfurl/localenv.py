@@ -169,10 +169,12 @@ class Project:
         )
         self._set_project_repoview()
 
-        if self.project_repoview.repo:
+        if self.project_repoview.gitrepo:
             # Repo.find_git_working_dirs() doesn't look inside git working dirs
             # so look for repos in dirs that might be excluded from git
-            for dir in self.project_repoview.repo.find_excluded_dirs(self.projectRoot):
+            for dir in self.project_repoview.gitrepo.find_excluded_dirs(
+                self.projectRoot
+            ):
                 if (
                     self.projectRoot in dir
                     and "/tosca_repositories" not in dir
@@ -269,7 +271,7 @@ class Project:
                                     paths.append(path)
         return paths
 
-    def _get_git_repos(self) -> List[GitRepo]:
+    def _get_repos(self) -> List[Repo]:
         repos = [r.repo for r in self.workingDirs.values() if r.repo]
         if self.project_repoview.repo and self.project_repoview.repo not in repos:
             repos.append(self.project_repoview.repo)
@@ -321,7 +323,7 @@ class Project:
             counter += 1
         return os.path.join(self.projectRoot, name)
 
-    def _find_git_repo(
+    def _find_repo(
         self, repoURL: str, revision: Optional[str] = None
     ) -> Union[RepoView, str]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
@@ -335,7 +337,9 @@ class Project:
                 continue
             if repoURL.startswith("git-local://"):
                 initialCommit = urlparse(repoURL).netloc.partition(":")[0]
-                match = initialCommit == repo.get_initial_revision()
+                if not repository.gitrepo:
+                    continue
+                match = initialCommit == repository.gitrepo.get_initial_revision()
             else:
                 match = normalized == normalize_git_url_hard(repo.url)
             if match:
@@ -362,10 +366,8 @@ class Project:
                         )
         return candidate or repoURL
 
-    def find_git_repo(
-        self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[GitRepo]:
-        repo_or_url = self._find_git_repo(repoURL, revision)
+    def find_repo(self, repoURL: str, revision: Optional[str] = None) -> Optional[Repo]:
+        repo_or_url = self._find_repo(repoURL, revision)
         if isinstance(repo_or_url, str):
             return None
         return repo_or_url.repo
@@ -394,25 +396,28 @@ class Project:
             #         candidate = (repo, filePath, revision, bare)
         return candidate, None, None
 
-    def create_working_dir(self, gitUrl: str, ref: Optional[str] = None) -> GitRepo:
+    def create_working_dir(self, gitUrl: str, ref: Optional[str] = None) -> Repo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
         repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
         return repo
 
-    def find_git_repo_from_repository(self, repoSpec: Repository) -> Optional[GitRepo]:
+    def find_repo_from_repository(self, repoSpec: Repository) -> Optional[Repo]:
         repoUrl = repoSpec.url
-        return self.find_git_repo(split_git_url(repoUrl)[0])
+        return self.find_repo(split_git_url(repoUrl)[0])
 
-    def find_or_clone(self, repo: GitRepo) -> GitRepo:
+    def find_or_clone(self, repo: Repo) -> Repo:
         for dir, repository in self.workingDirs.items():
+            gitrepo = repository.repo
             if (
-                repository.repo
-                and repo.get_initial_revision()
-                == repository.repo.get_initial_revision()
+                isinstance(gitrepo, GitRepo)
+                and isinstance(repo, GitRepo)
+                and gitrepo.get_initial_revision() == repo.get_initial_revision()
             ):
-                return repository.repo
+                return gitrepo
+            elif gitrepo and gitrepo.working_dir == repo.working_dir:
+                return gitrepo
 
         gitUrl = repo.url
         localRepoPath = os.path.abspath(
@@ -426,8 +431,8 @@ class Project:
 
     def find_or_create_working_dir(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> GitRepo:
-        repo = self.find_git_repo(repoURL, revision)
+    ) -> Repo:
+        repo = self.find_repo(repoURL, revision)
         if not repo:
             repo = self.create_working_dir(repoURL, revision)
         return repo
@@ -1078,7 +1083,9 @@ class LocalEnv:
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
-        starting from the current directory.
+        starting from the current directory. If no ensemble is found then raise an error unless ``can_be_empty`` is True.
+        In that case, if no project file is found, use the home project if it's present,
+        otherwise, raise an error.
 
         If homepath is set it overrides $UNFURL_HOME
         (and an empty string disable the home path).
@@ -1103,6 +1110,10 @@ class LocalEnv:
             self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
         if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
             self.overrides["skip_secret_files"] = True
+        if os.getenv("UNFURL_PACKAGE_RULES"):
+            self.overrides["UNFURL_PACKAGE_RULES"] = os.getenv("UNFURL_PACKAGE_RULES")
+        if os.getenv("UNFURL_CLOUD_SERVER"):
+            self.overrides["UNFURL_CLOUD_SERVER"] = os.getenv("UNFURL_CLOUD_SERVER")
 
         if parent:
             self.parent = parent
@@ -1112,6 +1123,7 @@ class LocalEnv:
             self.homeProject: Optional[Project] = parent.homeProject
             self.make_resolver: Optional[Callable] = parent.make_resolver
             self.loader_cache: dict = parent.loader_cache
+            self.loader_cache_mtimes: Dict[str, float] = parent.loader_cache_mtimes
         else:
             self._projects = {}
             self._manifests = {}
@@ -1119,6 +1131,7 @@ class LocalEnv:
             self.homeProject = self._get_home_project()
             self.make_resolver = None
             self.loader_cache = {}
+            self.loader_cache_mtimes = {}
 
         self._resolve_path_and_project(
             manifestPath or "",
@@ -1296,7 +1309,7 @@ class LocalEnv:
             return project.get_vault_password(self.manifest_environment_name, vaultId)
         return None
 
-    def get_vault(self):
+    def get_vault(self) -> Optional[VaultLib]:
         project = self.project or self.homeProject
         if project:
             vault = project.make_vault_lib(self.manifest_environment_name)
@@ -1328,8 +1341,29 @@ class LocalEnv:
             return localEnv.get_manifest(skip_validation=skip_validation)
         else:
             assert self.manifestPath, "check manifestPath before calling get_manifest"
-            manifest = self._manifests.get(self.manifestPath)
+            manifest: Optional[YamlManifest] = self._manifests.get(self.manifestPath)
             if not manifest:
+                # Try to load from pickle cache first (unless disabled via env var)
+                use_cache = os.getenv("UNFURL_USE_CACHE") or ""
+                pickle_path = YamlManifest.get_manifest_cache_path(self.manifestPath)
+                if (
+                    not self.parent  # only load top-level manifest from cache
+                    and not safe_mode  # safe_mode disables cache
+                    and "load" in use_cache
+                    and os.path.exists(pickle_path)
+                ):
+                    try:
+                        manifest = YamlManifest.restore_from_pickle(pickle_path, self)
+                        if manifest:
+                            self._manifests[self.manifestPath] = manifest
+                            return manifest
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to load cache at {pickle_path}, falling back to YAML: {e}",
+                            exc_info=True,
+                        )
+
+                # Normal YAML loading (either no pickle or pickle failed)
                 # should load vault ids from context
                 vault = self.get_vault()
                 manifest = YamlManifest(
@@ -1389,7 +1423,7 @@ class LocalEnv:
         if project:
             url, file, revision = split_git_url(project["url"])
             if currentProject:
-                repo = currentProject.find_git_repo(url)
+                repo = currentProject.find_repo(url)
             if not repo:
                 repo = self.find_git_repo(url)
             if project.get("file"):
@@ -1444,9 +1478,9 @@ class LocalEnv:
 
     # NOTE returns repos outside of this LocalEnv
     # (every repo found in localRepositories)
-    def _get_git_repos(self) -> List[GitRepo]:
+    def _get_repos(self) -> List[Repo]:
         if self.project:
-            repos = self.project._get_git_repos()
+            repos = self.project._get_repos()
         else:
             repos = []
         if (
@@ -1568,10 +1602,10 @@ class LocalEnv:
             else:
                 repositories[key] = value
         env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
+            "UNFURL_PACKAGE_RULES", self.overrides.get("UNFURL_PACKAGE_RULES")
         )
-        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
-            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
+        if not env_package_spec and self.overrides.get("UNFURL_CLOUD_SERVER"):
+            env_package_spec = "unfurl.cloud " + self.overrides["UNFURL_CLOUD_SERVER"]
         if env_package_spec:
             for key, value in taketwo(env_package_spec.split()):
                 package_specs.append(PackageSpec(key, value, None))
@@ -1593,7 +1627,7 @@ class LocalEnv:
                 project.projectRoot,
                 project.parentProject and project.parentProject.projectRoot,
             )
-            candidate = project._find_git_repo(repoURL, revision)
+            candidate = project._find_repo(repoURL, revision)
             if isinstance(candidate, RepoView):
                 return candidate
             elif candidate != repoURL:
@@ -1603,13 +1637,13 @@ class LocalEnv:
 
     def find_git_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[GitRepo]:
+    ) -> Optional[Repo]:
         repo_or_url = self._find_git_repo(repoURL, revision)
         if isinstance(repo_or_url, str):
             return None
         return repo_or_url.repo
 
-    def _create_working_dir(self, repoURL, revision, basepath):
+    def _create_working_dir(self, repoURL, revision, basepath) -> Optional[Repo]:
         start = project = self.project or self.homeProject
         if not start:
             logger.warning(
@@ -1632,7 +1666,7 @@ class LocalEnv:
         basepath: Optional[str] = None,
         checkout_args: dict = {},
         package: Optional["Package"] = None,
-    ) -> Tuple[Optional[GitRepo], Optional[str], Optional[bool]]:
+    ) -> Tuple[Optional[Repo], Optional[str], Optional[bool]]:
         repoview_or_url = self._find_git_repo(repoURL, revision)
         created = False
         locked = package and package.locked or False
@@ -1646,9 +1680,11 @@ class LocalEnv:
                 not locked
                 and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
                 and not (repoview_or_url.package and repoview_or_url.package.locked)
-                and not repo.is_dirty()
             ):
-                repo.pull(revision=revision)
+                if isinstance(repo, GitRepo):
+                    if not repo.is_dirty():
+                        repo.pull(revision=revision)
+                # else: XXX handle other repo types when supported
         else:
             # it's the repoUrl (possibly rewritten) at this point
             assert isinstance(repoview_or_url, str), repoview_or_url
@@ -1662,9 +1698,10 @@ class LocalEnv:
             if not repo:
                 return None, None, None
 
-        assert isinstance(repo, GitRepo)
         if revision:
-            if repo.revision != repo.resolve_rev_spec(revision) or checkout_args:
+            if isinstance(repo, GitRepo) and (
+                checkout_args or repo.revision != repo.resolve_rev_spec(revision)
+            ):
                 if repo.is_dirty():
                     logger.warning(
                         f"{repo.working_dir} is dirty, skipping checking out revision {revision}"
@@ -1677,7 +1714,7 @@ class LocalEnv:
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
-    ) -> Tuple[Optional[GitRepo], Optional[str], Optional[str], Optional[bool]]:
+    ) -> Tuple[Optional[Repo], Optional[str], Optional[str], Optional[bool]]:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
@@ -1688,7 +1725,7 @@ class LocalEnv:
                 return repo, filePath, repo.revision, False
 
         candidate: Tuple[
-            Optional[GitRepo], Optional[str], Optional[str], Optional[bool]
+            Optional[Repo], Optional[str], Optional[str], Optional[bool]
         ] = (None, None, None, None)
         bare: Optional[bool] = False
         project = self.project or self.homeProject

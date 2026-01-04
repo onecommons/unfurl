@@ -128,7 +128,7 @@ def is_url_or_git_path(url):
     return False
 
 
-def split_git_url(url) -> Tuple[str, str, str]:
+def split_git_url(url: str) -> Tuple[str, str, str]:
     """
     Returns (repoURL, filePath, revision)
     RepoURL will be an empty string if it isn't a path to a git repo
@@ -160,14 +160,24 @@ def split_git_url(url) -> Tuple[str, str, str]:
         return giturl, path, revision
     return url, "", ""
 
+def git_url_join(url: str, path: str, revision: str) -> str:
+    if revision and path:
+        return f"{url}.git#{revision}:{path}"
+    elif revision:
+        return f"{url}.git#{revision}"
+    elif path:
+        return f"{url}.git#:{path}"
+    else:
+        return url
+
 
 @lru_cache(None)
-def memoized_remote_tags(url, pattern="*") -> List[str]:
+def memoized_remote_tags(url: str, pattern: str = "*") -> List[str]:
     return get_remote_tags(url, pattern)
 
 
 # git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
-def get_remote_tags(url, pattern="*") -> List[str]:
+def get_remote_tags(url: str, pattern: str = "*") -> List[str]:
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
     # -v:refname is version sort in reverse order
@@ -258,6 +268,31 @@ class Repo(abc.ABC):
     @property
     @abc.abstractmethod
     def revision(self) -> str: ...
+
+    @property
+    @abc.abstractmethod
+    def current_tag(self) -> str: ...
+
+    @abc.abstractmethod
+    def resolve_rev_spec(self, revision) -> Optional[str]: ...
+
+    @abc.abstractmethod
+    def find_remote_url(self, *, url=None, host=None) -> Optional[str]: ...
+
+    @abc.abstractmethod
+    def clone(self, newPath: str) -> "GitRepo": ...
+
+    def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
+        hard = 2 if sanitize else 0
+        if os.path.isabs(path):
+            # get path relative to repository's root
+            path = os.path.relpath(path, self.working_dir)
+            if path.startswith(".."):
+                # outside of the repo, don't include it in the url
+                if revision:
+                    revision = "#" + revision
+                return normalize_git_url(self.url, hard) + revision
+        return normalize_git_url(self.url, hard) + "#" + revision + ":" + path
 
     @property
     def safe_url(self):
@@ -415,7 +450,7 @@ class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
     def __init__(
-        self, repository: Union[dict, Repository], repo: Optional["GitRepo"], path=""
+        self, repository: Union[dict, Repository], repo: Optional[Repo], path=""
     ) -> None:
         if isinstance(repository, dict):
             # required keys: name, url
@@ -461,6 +496,12 @@ class RepoView:
             return os.path.join(self.repo.working_dir, self.path)
         else:  # XXX wrong unless url is just a file path not an url
             return os.path.join(self.repository.url, self.path)
+
+    @property
+    def gitrepo(self) -> Optional["GitRepo"]:
+        if isinstance(self.repo, GitRepo):
+            return self.repo
+        return None
 
     @property
     def name(self):
@@ -517,11 +558,11 @@ class RepoView:
         return ""
 
     def is_dirty(self, path="") -> bool:
-        if self.read_only or not self.repo:
+        if self.read_only or not self.gitrepo:
             return False
-        if self.repo.is_dirty(untracked_files=True, path=path or self.path):
+        if self.gitrepo.is_dirty(untracked_files=True, path=path or self.path):
             return True
-        for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
+        for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.gitrepo):
             return True
         return False
 
@@ -530,14 +571,14 @@ class RepoView:
             self.file_refs.append(file_name)
 
     def add_all(self):
-        assert not self.read_only and self.repo
-        self.repo.repo.git.add("--all", self.path or ".")
+        assert not self.read_only and self.gitrepo
+        self.gitrepo.repo.git.add("--all", self.path or ".")
 
     def load_secrets(self, _loader):
-        if self._loaded_secrets or not self.repo:
+        if self._loaded_secrets or not self.gitrepo:
             return
         logger.trace("looking for secrets %s", self.working_dir)
-        excluded = set(self.repo.find_excluded_dirs(self.working_dir))
+        excluded = set(self.gitrepo.find_excluded_dirs(self.working_dir))
         failed = False
         for root, dirs, files in os.walk(self.working_dir):
             for d in dirs[:]:
@@ -575,11 +616,11 @@ class RepoView:
         self._loaded_secrets = not failed
 
     def save_secrets(self) -> List[Path]:
-        return commit_secrets(self.working_dir, self.yaml, self.repo)
+        return commit_secrets(self.working_dir, self.yaml, self.gitrepo)
 
     def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
         assert not self.read_only
-        repo = assert_not_none(self.repo)
+        repo = assert_not_none(self.gitrepo)
         if self.yaml and save_secrets:
             for saved in self.save_secrets():
                 local_path = str(saved.relative_to(repo.working_dir))
@@ -590,16 +631,16 @@ class RepoView:
         return 1
 
     def git_status(self):
-        assert self.repo
-        return self.repo.run_cmd(["status", self.path or "."])[1]
+        assert self.gitrepo
+        return self.gitrepo.run_cmd(["status", self.path or "."])[1]
 
     def _secrets_status(self):
-        assert self.repo
+        assert self.gitrepo
         modified = "\n   ".join(
             [
-                str(filepath.relative_to(self.repo.working_dir))
+                str(filepath.relative_to(self.gitrepo.working_dir))
                 for filepath, dotsecrets in find_dirty_secrets(
-                    self.working_dir, self.repo
+                    self.working_dir, self.gitrepo
                 )
             ]
         )
@@ -620,9 +661,9 @@ class RepoView:
             return ""
 
     def get_initial_revision(self):
-        if not self.repo:
+        if not self.gitrepo:
             return ""
-        return self.repo.get_initial_revision()
+        return self.gitrepo.get_initial_revision()
 
     def get_current_commit(self):
         if not self.repo:
@@ -653,9 +694,9 @@ class RepoView:
                     record["revision"] = self.package.revision
             if self.package.missing:
                 record["discovered_revision"] = "(MISSING)"
-        if self.repo and self.repo.active_branch:
+        if self.gitrepo and self.gitrepo.active_branch:
             # current commit is on this branch
-            record["branch"] = self.repo.active_branch
+            record["branch"] = self.gitrepo.active_branch
         if self.repo and self.repo.current_tag:
             # current commit is on this tag
             record["tag"] = self.repo.current_tag
@@ -825,11 +866,17 @@ class GitRepo(Repo):
             # or stderr: 'fatal: No names found, cannot describe anything.'
             return ""
 
-    def resolve_rev_spec(self, revision):
+    def resolve_rev_spec(self, revision) -> Optional[str]:
         try:
             return self.repo.commit(revision).hexsha
         except Exception:
             return None
+
+    def find_remote_url(self, *, url=None, host=None) -> Optional[str]:
+        remote = self.find_remote(url=url, host=host)
+        if remote:
+            return remote.url
+        return None
 
     def find_remote(self, *, url=None, host=None) -> Optional[git.Remote]:
         if url:
@@ -845,17 +892,8 @@ class GitRepo(Repo):
         return None
 
     def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
-        hard = 2 if sanitize else 0
         if is_url_or_git_path(self.url):
-            if os.path.isabs(path):
-                # get path relative to repository's root
-                path = os.path.relpath(path, self.working_dir)
-                if path.startswith(".."):
-                    # outside of the repo, don't include it in the url
-                    if revision:
-                        revision = "#" + revision
-                    return normalize_git_url(self.url, hard) + revision
-            return normalize_git_url(self.url, hard) + "#" + revision + ":" + path
+            return super().get_url_with_path(path, sanitize, revision)
         else:
             return self.get_git_local_url(path, revision=revision)
 
@@ -1033,7 +1071,7 @@ class GitRepo(Repo):
             else:
                 raise e
 
-    def clone(self, newPath):
+    def clone(self, newPath: str) -> "GitRepo":
         # note: repo.clone uses bare path, which breaks submodule path resolution
         cloned = git.Repo.clone_from(
             self.working_dir, os.path.abspath(newPath), recurse_submodules=True

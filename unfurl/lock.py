@@ -154,9 +154,10 @@ class Lock:
             if ":" in name or not _import.spec or not _import.external_instance:
                 continue
             root = _import.external_instance.root
-            manifest = ensemble._importedManifests.get(id(root))
-            if not manifest:
+            imported = ensemble._importedManifests.get(id(root))
+            if not imported:
                 continue
+            manifest = imported[0]
             lastJob = manifest.lastJob or {}
             ensembles[name] = CommentedMap(
                 [

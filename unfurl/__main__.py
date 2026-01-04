@@ -1315,14 +1315,14 @@ def git(ctx, git_command, dir="."):
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
-            os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.repo
+            os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.gitrepo
             for repo in localEnv.get_manifest(
                 skip_validation=True
             ).repositories.values()
-            if repo.repo
+            if repo.gitrepo
         }
-    elif localEnv.project and localEnv.project.project_repoview.repo:
-        repo = localEnv.project.project_repoview.repo
+    elif localEnv.project and localEnv.project.project_repoview.gitrepo:
+        repo = localEnv.project.project_repoview.gitrepo
         repos = {os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo}
     else:
         repos = {}

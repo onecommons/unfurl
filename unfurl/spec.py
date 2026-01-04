@@ -384,8 +384,6 @@ class ToscaSpec:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        # this loads tosca_plugins/tosca-ext.yaml:
-        self.template._validate_field()
         # Rebuild _topology_templates dict using new id() values as keys
         self._topology_templates = {
             id(ts.topology_template): ts
@@ -510,7 +508,7 @@ class ToscaSpec:
     def get_template(self, name: str) -> Optional["EntitySpec"]:
         return self.topology and self.topology.get_template(name) or None
 
-    def get_topology(self, node_template: NodeTemplate):
+    def get_topology(self, node_template: NodeTemplate) -> Optional["TopologySpec"]:
         return self._topology_templates.get(id(node_template.topology_template))
 
     def node_from_template(self, node_template: NodeTemplate) -> Optional["NodeSpec"]:
@@ -707,6 +705,7 @@ class ToscaSpec:
         target_spec = self.node_from_template(target)
         if not req_def.get("node_filter"):
             return
+        # apply self._match_filter to the node and any referenced capabilities and artifacts (by name or type)
         target._match_nodefilter(
             req_def["node_filter"],
             lambda entity, node_filter: self._match_filter(
@@ -729,7 +728,9 @@ class ToscaSpec:
                     )
                     requires.append({name: value})
 
-    def find_matching_node(self, relTpl: RelationshipTemplate, req_name, req_def: dict):
+    def find_matching_node(
+        self, relTpl: RelationshipTemplate, req_name, req_def: dict
+    ) -> Tuple[Optional[NodeTemplate], Optional[Capability]]:
         assert relTpl.source
         if relTpl.target:
             # found a match already (currently not set)
@@ -737,21 +738,30 @@ class ToscaSpec:
             return relTpl.target, relTpl.capability
         node: Optional[str] = req_def.get("node")
         capability = req_def.get("capability")
-        # evaluate constraints to find a match:
         source = self.node_from_template(relTpl.source)
         if not source:
             return None, None
+        # evaluate constraints to find a match
         matches = source._find_requirement_candidates(req_def, node)
-        if len(matches) == 1:
-            match = list(matches)[0]
-            capabilities = relTpl.get_matching_capabilities(
+        found: Optional[Tuple[NodeTemplate, Capability]] = None
+        for match in matches:
+            capabilities: List[Capability] = relTpl.get_matching_capabilities(
                 match.toscaEntityTemplate, capability, req_def
             )
             if capabilities:
+                if found:
+                    logger.debug(
+                        f"Multiple matches found for requirement {req_name} of {relTpl.source.name}"
+                    )
+                    return None, None
+                found = cast(NodeTemplate, match.toscaEntityTemplate), capabilities[0]
                 self.apply_node_filters(
-                    match.toscaEntityTemplate, req_def, relTpl.source
+                    cast(NodeTemplate, match.toscaEntityTemplate),
+                    req_def,
+                    relTpl.source,
                 )
-                return match.toscaEntityTemplate, capabilities[0]
+        if found:
+            return found
         # XXX if node_filter
         return None, None
 
@@ -1916,10 +1926,6 @@ class _PseudoSpec(EntitySpec):
         if metadata is None:
             return {}
         return metadata
-
-    # @property
-    # def tpl(self) -> Dict[str, Any]:
-    #     return self.topology_template.tpl
 
     def is_property_set(self, name: str) -> bool:
         return False

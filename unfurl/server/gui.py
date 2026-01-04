@@ -14,7 +14,7 @@ from ..to_json import get_project_path
 
 from ..logs import getLogger
 
-from ..repo import GitRepo, normalize_git_url
+from ..repo import GitRepo, normalize_git_url, Repo
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
@@ -62,7 +62,7 @@ blueprint_template = _template_env.get_template("project.j2.html")
 dashboard_template = _template_env.get_template("dashboard.j2.html")
 
 
-def get_project_readme(repo: GitRepo) -> str:
+def get_project_readme(repo: Repo) -> str:
     for path in glob.glob(os.path.join(repo.working_dir, "[Rr][Ee][Aa][Dd][Mm][Ee].*")):
         with open(path, "r") as file:
             return file.read()
@@ -102,8 +102,8 @@ def serve_document(
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
-    if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
-        parsed = urlparse(normalize_git_url(localrepo.remote.url))
+    if localrepo_is_dashboard and localrepo.url:
+        parsed = urlparse(normalize_git_url(localrepo.url))
         [user, _, *_] = re.split(r"[@:]", parsed.netloc)
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:
@@ -121,7 +121,7 @@ def serve_document(
     # assume serving dashboard unless an /-/overview url
     if (
         "-/overview" in path
-        or repo.repo != localrepo.repo
+        or repo.working_dir != localrepo.working_dir
         or not localrepo_is_dashboard
     ):
         format = "blueprint"
@@ -153,7 +153,7 @@ def serve_document(
     )
 
 
-def _get_project_path(repo: GitRepo):
+def _get_project_path(repo: Repo):
     return get_project_path(repo, urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname)
 
 
@@ -185,7 +185,7 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
+def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Repo]:
     if not project_path or project_path == "local:":
         return localenv.project.project_repoview.repo if localenv.project else None
 
@@ -325,7 +325,7 @@ def create_routes(localenv: LocalEnv):
             # XXX search for latest compatible release with https://api.github.com/repos/onecommons/unfurl-gui/releases tag_name assets[0][browser_download_url]
             fetch_release(download_dir, release_url, tag, exact)
 
-    def get_repo(project_path: str, branch=None):
+    def get_repo(project_path: str, branch=None) -> Optional[Repo]:
         return _get_repo(project_path, localenv, branch)
 
     @app.route("/.well-known/<path:path>")
@@ -336,14 +336,14 @@ def create_routes(localenv: LocalEnv):
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
         repo = get_repo(project_path)
-        if not repo or repo.repo != localrepo.repo:
+        if not repo or repo.working_dir != localrepo.working_dir:
             return notfound_response(project_path)
         return {"variables": list(yield_variables(localenv))}
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
     def patch_variables(project_path):
         repo = get_repo(project_path)
-        if not repo or repo.repo != localrepo.repo:
+        if not repo or repo.working_dir != localrepo.working_dir:
             return notfound_response(project_path)
 
         body = request.json
@@ -358,9 +358,13 @@ def create_routes(localenv: LocalEnv):
         repo = get_repo(project_path)
         if not repo:
             return notfound_response(project_path)
+        if isinstance(repo, GitRepo):
+            branch = repo.active_branch
+        else:
+            branch = "main"  # XXX
         return jsonify(
             # TODO
-            [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
+            [{"name": branch, "commit": {"id": repo.revision}}]
         )
 
     @app.route("/api/v4/<api>")

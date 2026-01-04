@@ -8,6 +8,7 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime, timedelta
+from io import StringIO
 import itertools
 import os
 import json
@@ -175,6 +176,7 @@ class JobOptions:
     readonly: bool = False
     instances: Optional[List[Union[str, Dict[str, Any]]]] = None
     vars: Optional[Dict[str, str]] = None
+    out: Optional[StringIO] = None
 
     defaults = dict(
         global_defaults,
@@ -761,6 +763,7 @@ class Job(ConfigChange):
         previousId: Optional[str] = None,
     ) -> None:
         assert isinstance(jobOptions, JobOptions)
+        self.out: Optional[StringIO] = None
         self.__dict__.update(jobOptions.__dict__)
         super().__init__(jobOptions.parentJob, self.startTime, Status.ok, previousId)
         self.jobOptions = jobOptions
@@ -975,7 +978,7 @@ class Job(ConfigChange):
         with change_cwd(manifest.get_base_dir()):
             try:
                 ready, notReady, errors = rendered
-                if not jobOptions.out:  # type: ignore
+                if not jobOptions.out:
                     # out is used by unit tests to avoid writing to disk
                     manifest.lock()
                 if jobOptions.dirty == "auto":  # default to false if committing
@@ -1061,7 +1064,7 @@ class Job(ConfigChange):
             reqs_list = list(reqs)
             externalManifest = self.manifest._importedManifests.get(key)
             if externalManifest:
-                external_requests.append((externalManifest, reqs_list))
+                external_requests.append((externalManifest[0], reqs_list))
             else:
                 # run artifact jobs as a separate external job since we need to run them
                 # before the render stage of this job

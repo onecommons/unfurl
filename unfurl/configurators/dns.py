@@ -3,10 +3,9 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
+from octodns.manager import Manager
+from octodns.zone import Zone
 try:
-  from octodns.manager import Manager
-  from octodns.zone import Zone
-
   # octodns installs natsort_keygen
   from natsort import natsort_keygen
 
@@ -276,11 +275,16 @@ class DNSConfigurator(Configurator):
 
         with change_cwd(folder.cwd, task.logger):
             manager = Manager(config_file="main-config.yaml")
-            manager.sync(dry_run=task.dry_run)
-            task.vars["SELF"]["zone"] = updated
+            changes = manager.sync(dry_run=task.dry_run)
+            if changes:
+                task.vars["SELF"]["zone"] = updated
             assert task.target.attributes is task.vars["SELF"]
-            task.logger.debug("setting zone %s", updated)
-            return task.done(success=True, modified=True, result="OctoDNS synced")
+            task.logger.debug(
+                "setting zone (%s changed) %s\n was %s", changes, updated, live
+            )
+            return task.done(
+                success=True, modified=bool(changes), result="OctoDNS synced"
+            )
 
     def _run_check(self, task: TaskView):
         """Retrieves current zone data and compares with expected"""
