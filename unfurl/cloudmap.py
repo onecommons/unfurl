@@ -58,6 +58,7 @@ import os
 import os.path
 from typing import (
     Any,
+    Iterable,
     Iterator,
     Optional,
     List,
@@ -70,6 +71,7 @@ from typing import (
     cast,
     Union,
 )
+from gitlab.base import RESTObject
 from typing_extensions import Required, Literal
 from urllib.parse import urljoin, urlparse
 import git
@@ -77,22 +79,6 @@ import git.cmd
 from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
-
-# PyGithub is optional - only needed for GitHub integration
-try:
-    import github
-    from github import Github, GithubException, Auth
-    from github.Repository import Repository as GithubRepository
-    from github.Organization import Organization
-    from github.NamedUser import NamedUser
-except ImportError:
-    github = None  # type: ignore
-    Github = None  # type: ignore
-    GithubException = None  # type: ignore
-    Auth = None  # type: ignore
-    GithubRepository = None  # type: ignore
-    Organization = None  # type: ignore
-    NamedUser = None  # type: ignore
 
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.nodetemplate import NodeTemplate
@@ -835,12 +821,10 @@ class RepositoryHost:
     canonical_url: str = ""
     dryrun: bool = False
     repo_filter: str = ""
+    hostname: str = ""
 
     def __init__(self) -> None:
         self.logger = logger
-
-    def has_repository(self, repo_info: Repository) -> bool:
-        return False
 
     def from_host(self, directory: Directory):
         """
@@ -862,8 +846,18 @@ class RepositoryHost:
         if self.repo_filter:
             if git_url.endswith(".git"):
                 git_url = git_url[:-4]
+            if self.repo_filter[0] == "!":
+                return git_url != self.repo_filter[1:]
             return git_url == self.repo_filter
         return True
+
+    def has_repository(self, repo_info: Repository) -> bool:
+        """Check if repository belongs to this host."""
+        if self.repo_filter:
+            return self.match_repo_filter(repo_info.key)
+        if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
+            return True
+        return False
 
     def fetch_repo(
         self, push_url: str, dest: Repository, local: "Directory"
@@ -904,6 +898,31 @@ class RepositoryHost:
             dest_remote.fetch()
         return repo, missing
 
+    def canonize(self, url: str) -> str:
+        """Convert URL to canonical form if canonical_url is set."""
+        if self.canonical_url:
+            parts = urlparse(url)
+            return urljoin(self.canonical_url, parts.path)
+        else:
+            return url
+
+    def _fetch_and_analyze_repo(
+        self,
+        r: Repository,
+        directory: Directory,
+        previous: Optional[Repository],
+        remote_url: str,
+    ) -> None:
+        try:
+            repo, cloned = self.fetch_repo(remote_url, r, directory)
+            remote_branch = f"{self.name or 'origin'}/{r.default_branch}"
+            if remote_branch in repo.repo.references:
+                # reset local main to remote's main
+                repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
+        except Exception:
+            self.logger.error("Error retrieving content for %s", r.key, exc_info=True)
+        else:
+            directory.maybe_analyze(r, repo, previous.notable if previous else {})
 
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
@@ -1007,7 +1026,9 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
 
 
 class HostConfig(TypedDict, total=False):
-    type: Union[Literal["local"], Literal["gitlab"], Literal["unfurl.cloud"], Literal["github"]]
+    type: Union[
+        Literal["local"], Literal["gitlab"], Literal["unfurl.cloud"], Literal["github"]
+    ]
     # not used by local:
     url: Required[str]
     user: str
@@ -1015,6 +1036,7 @@ class HostConfig(TypedDict, total=False):
     visibility: str  # "public", "private", "any"
     save_internal: bool  # save repository host internals
     canonical_url: str
+
 
 class LocalHostConfig(HostConfig):
     # use when type = local (LocalRepositoryHost)
@@ -1075,13 +1097,6 @@ class GitlabManager(RepositoryHost):
             # public api calls will not have this attribute but we can assume it is public in that case
             return "public"
 
-    def has_repository(self, repo_info: Repository) -> bool:
-        if self.repo_filter:
-            return self.match_repo_filter(repo_info.key)
-        if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
-            return True
-        return False
-
     def from_host(self, directory: Directory):
         """
         Update the directory with projects on this gitlab instance.
@@ -1105,12 +1120,13 @@ class GitlabManager(RepositoryHost):
         for subgroup in group.subgroups.list(iterator=True):
             self._import_group_from_host(self.gitlab.groups.get(subgroup.id), directory)
 
-    def _import_projects_from_host(self, projects, directory: Directory):
+    def _import_projects_from_host(
+        self, projects: Iterable[RESTObject], directory: Directory
+    ):
         # XXX delete removed projects
-        repositories = directory.db.repositories
         for p in projects:
             if self.repo_filter:
-                git_url, scheme = self._git_url(p)
+                git_url, scheme = self._git_url(cast(Project, p))
                 if not self.match_repo_filter(git_url):  # git_url is r.key
                     self.logger.trace(
                         "skipping %s, doesn't match %s", git_url, self.repo_filter
@@ -1130,28 +1146,20 @@ class GitlabManager(RepositoryHost):
                     f"skipping project {dest_proj.web_url}, it doesn't have a git repository"
                 )
                 continue
-            r = self.gitlab_project_to_repository(dest_proj)
+            self._import_project(dest_proj, directory, True)
 
-            previous = repositories.get(r.key)
-            repositories[r.key] = r
-            if directory.repos_root:
-                # add remote branches to local repository
-                # XXX pull mirror = True and merge all branches not just main?
-                remote_url = self.git_url_with_auth(dest_proj)
-                try:
-                    repo, cloned = self.fetch_repo(remote_url, r, directory)
-                    remote_branch = f"{self.name or 'origin'}/{r.default_branch}"
-                    if remote_branch in repo.repo.references:
-                        # reset local main to remote's main
-                        repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
-                except Exception:
-                    self.logger.error(
-                        "Error retrieving content for %s", r.key, exc_info=True
-                    )
-                else:
-                    directory.maybe_analyze(
-                        r, repo, previous.notable if previous else {}
-                    )
+    def _import_project(
+        self, dest_proj: Project, directory: Directory, download: bool
+    ) -> None:
+        r = self.gitlab_project_to_repository(dest_proj)
+        repositories = directory.db.repositories
+        previous = repositories.get(r.key)
+        repositories[r.key] = r
+        if download and directory.repos_root:
+            # add remote branches to local repository
+            # XXX pull mirror = True and merge all branches not just main?
+            remote_url = self.git_url_with_auth(dest_proj)
+            self._fetch_and_analyze_repo(r, directory, previous, remote_url)
 
     def _get_projects_from_group(self, group, projects):
         for p in group.projects.list(iterator=True):
@@ -1420,13 +1428,6 @@ class GitlabManager(RepositoryHost):
                 set_ci_variables(dest_proj, local_vars.values())
         return changed
 
-    def canonize(self, url: str) -> str:
-        if self.canonical_url:
-            parts = urlparse(url)
-            return urljoin(self.canonical_url, parts.path)
-        else:
-            return url
-
     def _git_url(self, project: Project):
         # strip out url scheme
         parts = urlparse(self.canonize(project.http_url_to_repo))
@@ -1482,336 +1483,320 @@ class GitlabManager(RepositoryHost):
         return repository
 
 
-class GithubManager(RepositoryHost):
-    """GitHub repository host manager using PyGithub API."""
+# PyGithub is optional - only needed for GitHub integration
+try:
+    import github
+    from github import Github, GithubException, Auth
+    from github.Repository import Repository as GithubRepository
+    from github.Organization import Organization as GithubOrganization
+    from github.NamedUser import NamedUser
+    from github.AuthenticatedUser import AuthenticatedUser
+except ImportError:
+    github = None  # type:ignore[assignment]
+    GithubManager = None  # type:ignore[no-redef]
+else:
 
-    def __init__(
-        self,
-        name: str,
-        config: HostConfig,
-        namespace: str = "",
-        repo_filter: str = "",
-        logger=logger,
-    ) -> None:
-        if Github is None:
-            raise ImportError(
-                "PyGithub is required for GitHub integration. "
-                "Install it with: pip install PyGithub"
-            )
+    class GithubManager(RepositoryHost):  # type:ignore[no-redef]
+        """GitHub repository host manager using PyGithub API."""
 
-        self.logger = logger
-        self.name = name
-        self.path = namespace
-        self.repo_filter = repo_filter
-        self.visibility = config.get("visibility", "any")
-        self.save_internal = config.get("save_internal", False)
-        self.canonical_url = config.get("canonical_url", "")
+        def __init__(
+            self,
+            name: str,
+            config: HostConfig,
+            namespace: str = "",
+            repo_filter: str = "",
+            logger=logger,
+        ) -> None:
+            self.logger = logger
+            self.name = name
+            self.path = namespace
+            self.repo_filter = repo_filter
+            self.visibility = config.get("visibility", "any")
+            self.save_internal = config.get("save_internal", False)
+            self.canonical_url = config.get("canonical_url", "")
 
-        # Parse URL to extract hostname and base_url for GitHub Enterprise support
-        url = config.get("url", "https://github.com")
-        self.user = config.get("user", "")
-        self.token = config.get("password", "")
+            # Parse URL to extract hostname and base_url for GitHub Enterprise support
+            url = config.get("url", "https://github.com")
+            self.user = config.get("user", "")
+            self.token = config.get("password", "")
 
-        # Parse URL - supports both github.com and GitHub Enterprise
-        if url:
-            parsed_url = urlparse(url)
-            # Extract token from URL if embedded (https://user:token@github.com)
-            if parsed_url.username and not self.user:
-                self.user = parsed_url.username
-            if parsed_url.password and not self.token:
-                self.token = parsed_url.password
+            # Parse URL - supports both github.com and GitHub Enterprise
+            if url:
+                parsed_url = urlparse(url)
+                # Extract token from URL if embedded (https://user:token@github.com)
+                if parsed_url.username and not self.user:
+                    self.user = parsed_url.username
+                if parsed_url.password and not self.token:
+                    self.token = parsed_url.password
 
-            # Extract hostname
-            self.hostname = parsed_url.hostname or "github.com"
+                # Extract hostname
+                self.hostname = parsed_url.hostname or "github.com"
 
-            # Construct base URL for API
-            if self.hostname == "github.com":
-                self.base_url = "https://github.com"
-            else:
-                # GitHub Enterprise requires /api/v3 path
-                self.base_url = f"{parsed_url.scheme}://{self.hostname}"
-        else:
-            self.hostname = "github.com"
-            self.base_url = "https://github.com"
-
-        # Initialize PyGithub client
-        if self.token:
-            auth = Auth.Token(self.token)
-            if self.hostname == "github.com":
-                self.github: Github = Github(auth=auth)
-            else:
-                # GitHub Enterprise requires base_url with /api/v3
-                self.github = Github(base_url=f"{self.base_url}/api/v3", auth=auth)
-        else:
-            # No auth - can only access public repos
-            if self.hostname == "github.com":
-                self.github = Github()
-            else:
-                self.github = Github(base_url=f"{self.base_url}/api/v3")
-
-    def has_repository(self, repo_info: Repository) -> bool:
-        """Check if repository belongs to this GitHub host."""
-        if self.repo_filter:
-            return self.match_repo_filter(repo_info.key)
-        if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
-            return True
-        return False
-
-    def _git_url(self, repo: GithubRepository) -> Tuple[str, str]:
-        """Extract and normalize git URL from GitHub repository, returning (git_url, scheme)."""
-        # strip out url scheme
-        parts = urlparse(self.canonize(repo.clone_url))
-        git_url = parts.netloc + parts.path
-        return git_url, parts.scheme
-
-    def _get_organization(self, path: str) -> Optional[Organization]:
-        """Get organization without creating it (helper for checking existence)."""
-        try:
-            return self.github.get_organization(path)
-        except GithubException:
-            return None
-
-    def github_repository_to_repository(
-        self, repo: GithubRepository
-    ) -> Repository:
-        """Convert PyGithub Repository object to cloudmap Repository dataclass."""
-        # Extract git URL and scheme
-        git_url, scheme = self._git_url(repo)
-
-        # Build protocols list
-        protocols = [scheme]
-        if repo.ssh_url:
-            protocols.append("ssh")
-
-        # Extract metadata
-        kw: Dict[str, Any] = {}
-        if repo.homepage:
-            kw["homepage_url"] = repo.homepage
-
-        metadata = RepositoryMetadata(
-            description=repo.description or "",
-            topics=repo.get_topics(),
-            spdx_license_id=repo.license.spdx_id if repo.license else "",
-            **kw,
-        )
-
-        # Build Repository object
-        repository = Repository(
-            initial_revision="",  # XXX
-            git=git_url,
-            name=repo.name,
-            protocols=protocols,
-            path=f"{repo.owner.login}/{repo.name}",
-            default_branch=repo.default_branch or "main",
-            project_url=self.canonize(repo.html_url),
-            metadata=metadata,
-            private=repo.private,
-            branches={b.name: b.commit.sha for b in repo.get_branches()},
-            tags={t.name: t.commit.sha for t in repo.get_tags()},
-        )
-
-        if self.save_internal:
-            repository.internal_id = str(repo.id)
-
-        return repository
-
-    def canonize(self, url: str) -> str:
-        """Convert URL to canonical form if canonical_url is set."""
-        if self.canonical_url:
-            # Replace hostname with canonical hostname
-            parsed = urlparse(url)
-            canonical_parsed = urlparse(self.canonical_url)
-            return url.replace(parsed.hostname or "", canonical_parsed.hostname or "")
-        return url
-
-    def git_url_with_auth(self, repo: GithubRepository) -> str:
-        """Generate authenticated git URL for PyGithub Repository."""
-        clone_url = repo.clone_url
-        if self.token:
-            # Inject token into URL: https://{token}@github.com/org/repo.git
-            parsed = urlparse(clone_url)
-            return f"{parsed.scheme}://{self.token}@{parsed.hostname}{parsed.path}"
-        return clone_url
-
-    def ensure_group(
-        self, path: str
-    ) -> Optional[Union[Organization, "github.AuthenticatedUser.AuthenticatedUser"]]:
-        """Get organization or user. Cannot create organizations via GitHub API."""
-        if not path or path == "user":
-            # Return authenticated user
-            # get_user() with no args always returns AuthenticatedUser, not NamedUser
-            from typing import cast
-            user = self.github.get_user()
-            # Type assertion for mypy
-            return cast("github.AuthenticatedUser.AuthenticatedUser", user)
-
-        # Try to get organization
-        try:
-            return self.github.get_organization(path)
-        except GithubException as e:
-            if e.status == 404:
-                raise ValueError(
-                    f"Organization '{path}' not found and cannot be created via GitHub API"
-                )
-            raise
-
-    def _import_repositories_from_host(
-        self, repos, directory: Directory
-    ) -> None:
-        """Import multiple repositories from GitHub into directory."""
-        repositories = directory.db.repositories
-        for repo in repos:
-            # Filter by repo_filter if set
-            if self.repo_filter:
-                git_url, scheme = self._git_url(repo)
-                if not self.match_repo_filter(git_url):
-                    self.logger.trace(
-                        "skipping %s, doesn't match %s", git_url, self.repo_filter
-                    )
-                    continue
-
-            # Filter by visibility if needed
-            if self.visibility == "public" and repo.private:
-                continue
-
-            # Convert and add to directory
-            repo_info = self.github_repository_to_repository(repo)
-            repositories[repo_info.key] = repo_info
-            self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
-
-    def from_host(self, directory: Directory) -> None:
-        """Fetch repositories from GitHub and sync to cloudmap."""
-        if self.path:
-            # Get organization repos
-            try:
-                org = self.github.get_organization(self.path)
-                repos = org.get_repos()
-                self.logger.info(
-                    f"Fetching repositories from GitHub organization: {self.path}"
-                )
-                self._import_repositories_from_host(repos, directory)
-            except GithubException as e:
-                self.logger.error(
-                    f"Failed to fetch GitHub organization '{self.path}': {e}"
-                )
-                raise
-        else:
-            # Get authenticated user's repos
-            user = self.github.get_user()
-            repos = user.get_repos()
-            self.logger.info(f"Fetching repositories from GitHub user: {user.login}")
-            self._import_repositories_from_host(repos, directory)
-
-    def create_project(
-        self, repo_info: Repository, dest_group: Union[Organization, "github.AuthenticatedUser.AuthenticatedUser"]
-    ) -> GithubRepository:
-        """Create new GitHub repository."""
-        if self.dryrun:
-            self.logger.info(f"[DRYRUN] Would create GitHub repo: {repo_info.name}")
-            return None  # type: ignore
-
-        name = repo_info.name
-        description = repo_info.metadata.description or ""
-        private = repo_info.private if repo_info.private is not None else True
-
-        # Create repo in organization or under user
-        if isinstance(dest_group, Organization):
-            repo = dest_group.create_repo(
-                name=name,
-                description=description,
-                private=private,
-                auto_init=False,
-            )
-            self.logger.info(
-                f"Created GitHub repo in organization: {dest_group.login}/{name}"
-            )
-        else:
-            # NamedUser (authenticated user)
-            repo = dest_group.create_repo(
-                name=name,
-                description=description,
-                private=private,
-                auto_init=False,
-            )
-            self.logger.info(f"Created GitHub repo for user: {dest_group.login}/{name}")
-
-        # Update metadata (topics, etc.)
-        self.update_project_metadata(repo_info, repo)
-
-        return repo
-
-    def update_project_metadata(
-        self, repo_info: Repository, dest: GithubRepository
-    ) -> bool:
-        """Update GitHub repository metadata (description, topics, visibility)."""
-        if self.dryrun:
-            self.logger.info(
-                f"[DRYRUN] Would update metadata for GitHub repo: {dest.full_name}"
-            )
-            return False
-
-        changed = False
-
-        # Update description
-        if repo_info.metadata.description and repo_info.metadata.description != dest.description:
-            dest.edit(description=repo_info.metadata.description)
-            self.logger.debug(f"Updated description for {dest.full_name}")
-            changed = True
-
-        # Update topics
-        if repo_info.metadata.topics:
-            current_topics = dest.get_topics()
-            if set(repo_info.metadata.topics) != set(current_topics):
-                dest.replace_topics(repo_info.metadata.topics)
-                self.logger.debug(f"Updated topics for {dest.full_name}")
-                changed = True
-
-        # Update visibility
-        if repo_info.private is not None:
-            if repo_info.private != dest.private:
-                dest.edit(private=repo_info.private)
-                self.logger.debug(f"Updated visibility for {dest.full_name}")
-                changed = True
-
-        return changed
-
-    def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
-        """Push/sync repositories to GitHub."""
-        # Filter repos that belong to this host
-        matching_repos = [r for r in directory.db.repositories.values() if self.has_repository(r)]
-        if not matching_repos:
-            self.logger.info("No matching repositories to sync to GitHub")
-            return False
-
-        # Ensure organization/user exists
-        dest_group = self.ensure_group(self.path)
-        if not dest_group:
-            self.logger.error(f"Failed to get GitHub destination: {self.path}")
-            return False
-
-        changed = False
-        for repo_info in matching_repos:
-            # Check if repo already exists on GitHub
-            try:
-                if isinstance(dest_group, Organization):
-                    existing_repo = dest_group.get_repo(repo_info.name)
+                # Construct base URL for API
+                if self.hostname == "github.com":
+                    self.base_url = "https://github.com"
                 else:
-                    existing_repo = dest_group.get_repo(repo_info.name)
+                    # GitHub Enterprise requires /api/v3 path
+                    self.base_url = f"{parsed_url.scheme}://{self.hostname}"
+            else:
+                self.hostname = "github.com"
+                self.base_url = "https://github.com"
 
-                # Update existing repo
-                if self.update_project_metadata(repo_info, existing_repo):
-                    changed = True
+            # Initialize PyGithub client
+            if self.token:
+                auth = Auth.Token(self.token)
+                if self.hostname == "github.com":
+                    self.github: Github = Github(auth=auth)
+                else:
+                    # GitHub Enterprise requires base_url with /api/v3
+                    self.github = Github(base_url=f"{self.base_url}/api/v3", auth=auth)
+            else:
+                # No auth - can only access public repos
+                if self.hostname == "github.com":
+                    self.github = Github()
+                else:
+                    self.github = Github(base_url=f"{self.base_url}/api/v3")
 
+        def _git_url(self, repo: "GithubRepository") -> Tuple[str, str]:
+            """Extract and normalize git URL from GitHub repository, returning (git_url, scheme)."""
+            # strip out url scheme
+            parts = urlparse(self.canonize(repo.clone_url))
+            git_url = parts.netloc + parts.path
+            return git_url, parts.scheme
+
+        def _get_organization(self, path: str) -> Optional[GithubOrganization]:
+            """Get organization without creating it (helper for checking existence)."""
+            try:
+                return self.github.get_organization(path)
+            except GithubException:
+                return None
+
+        def github_repository_to_repository(
+            self, repo: "GithubRepository"
+        ) -> Repository:
+            """Convert PyGithub Repository object to cloudmap Repository dataclass."""
+            # Extract git URL and scheme
+            git_url, scheme = self._git_url(repo)
+
+            # Build protocols list
+            protocols = [scheme]
+            if repo.ssh_url:
+                protocols.append("ssh")
+
+            # Extract metadata
+            kw: Dict[str, Any] = {}
+            if repo.homepage:
+                kw["homepage_url"] = repo.homepage
+
+            metadata = RepositoryMetadata(
+                description=repo.description or "",
+                topics=repo.get_topics(),
+                spdx_license_id=repo.license.spdx_id if repo.license else "",
+                **kw,
+            )
+
+            # Build Repository object
+            repository = Repository(
+                initial_revision="",  # XXX
+                git=git_url,
+                name=repo.name,
+                protocols=protocols,
+                path=f"{repo.owner.login}/{repo.name}",
+                default_branch=repo.default_branch or "main",
+                project_url=self.canonize(repo.html_url),
+                metadata=metadata,
+                private=repo.private,
+                branches={b.name: b.commit.sha for b in repo.get_branches()},
+                tags={t.name: t.commit.sha for t in repo.get_tags()},
+            )
+
+            if self.save_internal:
+                repository.internal_id = str(repo.id)
+
+            return repository
+
+        def git_url_with_auth(self, repo: GithubRepository) -> str:
+            """Generate authenticated git URL for PyGithub Repository."""
+            clone_url = repo.clone_url
+            if self.token:
+                # Inject token into URL: https://{token}@github.com/org/repo.git
+                parsed = urlparse(clone_url)
+                return f"{parsed.scheme}://{self.token}@{parsed.hostname}{parsed.path}"
+            return clone_url
+
+        def get_owner(
+            self, path: str
+        ) -> Optional[Union[GithubOrganization, AuthenticatedUser, NamedUser]]:
+            """Get organization or user. Cannot create organizations via GitHub API."""
+            if not path:
+                # Return authenticated user
+                return self.github.get_user()
+            # Try to get organization or named user
+            try:
+                return self.github.get_organization(path)
             except GithubException as e:
                 if e.status == 404:
-                    # Repo doesn't exist, create it
-                    self.create_project(repo_info, dest_group)
-                    changed = True
-                else:
-                    self.logger.error(f"Error checking GitHub repo {repo_info.name}: {e}")
-                    raise
+                    return self.github.get_user(path)
+                self.logger.error(f"Error fetching GitHub org '{path}'", exc_info=True)
+                return None
 
-        return changed
+        def _import_repositories_from_host(
+            self, repos: Iterable[GithubRepository], directory: Directory
+        ) -> None:
+            """Import multiple repositories from GitHub into directory."""
+            for repo in repos:
+                # Filter by repo_filter if set
+                if self.repo_filter:
+                    git_url, scheme = self._git_url(repo)
+                    if not self.match_repo_filter(git_url):
+                        self.logger.trace(
+                            "skipping %s, doesn't match %s", git_url, self.repo_filter
+                        )
+                        continue
+
+                # Filter by visibility if needed
+                if self.visibility == "public" and repo.private:
+                    continue
+                self._import_repository(repo, directory, True)
+
+        def _import_repository(
+            self, repo: GithubRepository, directory: Directory, download: bool
+        ) -> None:
+            # Convert and add to directory
+            repositories = directory.db.repositories
+            repo_info = self.github_repository_to_repository(repo)
+            previous = repositories.get(repo_info.key)
+            repositories[repo_info.key] = repo_info
+            if download and directory.repos_root:
+                # add remote branches to local repository
+                # XXX pull mirror = True and merge all branches not just main?
+                remote_url = self.git_url_with_auth(repo)
+                self._fetch_and_analyze_repo(repo_info, directory, previous, remote_url)
+            self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
+
+        def from_host(self, directory: Directory) -> None:
+            """Fetch repositories from GitHub and sync to cloudmap."""
+            group = self.get_owner(self.path)
+            if group:
+                repos = group.get_repos()
+                self._import_repositories_from_host(repos, directory)
+
+        def create_project(
+            self,
+            repo_info: Repository,
+            dest_group: Union[GithubOrganization, AuthenticatedUser],
+        ) -> GithubRepository:
+            """Create new GitHub repository."""
+            if self.dryrun:
+                self.logger.info(f"[DRYRUN] Would create GitHub repo: {repo_info.name}")
+                return None  # type: ignore
+
+            name = repo_info.name
+            description = repo_info.metadata.description or ""
+            private = repo_info.private if repo_info.private is not None else True
+
+            # Create repo in organization or user
+            repo = dest_group.create_repo(
+                name=name,
+                description=description,
+                private=private,
+                auto_init=False,
+            )
+            self.logger.info(f"Created GitHub repo: {dest_group.login}/{name}")
+
+            # Update metadata (topics, etc.)
+            self.update_project_metadata(repo_info, repo)
+
+            return repo
+
+        def update_project_metadata(
+            self, repo_info: Repository, dest: GithubRepository
+        ) -> bool:
+            """Update GitHub repository metadata (description, topics, visibility)."""
+            if self.dryrun:
+                self.logger.info(
+                    f"[DRYRUN] Would update metadata for GitHub repo: {dest.full_name}"
+                )
+                return False
+
+            changed = False
+
+            # Update description
+            if (
+                repo_info.metadata.description
+                and repo_info.metadata.description != dest.description
+            ):
+                dest.edit(description=repo_info.metadata.description)
+                self.logger.debug(f"Updated description for {dest.full_name}")
+                changed = True
+
+            # Update topics
+            if repo_info.metadata.topics:
+                current_topics = dest.get_topics()
+                if set(repo_info.metadata.topics) != set(current_topics):
+                    dest.replace_topics(repo_info.metadata.topics)
+                    self.logger.debug(f"Updated topics for {dest.full_name}")
+                    changed = True
+
+            # Update visibility
+            if repo_info.private is not None:
+                if repo_info.private != dest.private:
+                    dest.edit(private=repo_info.private)
+                    self.logger.debug(f"Updated visibility for {dest.full_name}")
+                    changed = True
+
+            return changed
+
+        def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
+            """Push/sync repositories to GitHub."""
+            # Filter repos that belong to this host
+            matching_repos = [
+                r for r in directory.db.repositories.values() if self.has_repository(r)
+            ]
+            if not matching_repos:
+                self.logger.info("No matching repositories to sync to GitHub")
+                return False
+
+            # check if organization/user exists
+            dest_group = self.get_owner(self.path)
+            if not dest_group:
+                self.logger.error(f"Failed to get GitHub destination: {self.path}")
+                return False
+
+            changed = False
+            for repo_info in matching_repos:
+                # Check if repo already exists on GitHub
+                try:
+                    existing_repo = dest_group.get_repo(repo_info.name)
+                except GithubException as e:
+                    if e.status == 404:
+                        # Repo doesn't exist, create it
+                        if isinstance(dest_group, NamedUser):
+                            auth_user = cast(AuthenticatedUser, self.github.get_user())
+                            if auth_user.login == dest_group.login:
+                                owner: Union[AuthenticatedUser, GithubOrganization] = (
+                                    auth_user
+                                )
+                            else:
+                                self.logger.error(
+                                    f"Cannot create repository under user {dest_group.login} - authenticated as {auth_user.login}"
+                                )
+                                continue
+                        else:
+                            owner = dest_group
+                        self.create_project(repo_info, owner)
+                        changed = True
+                    else:
+                        self.logger.error(
+                            f"Error checking GitHub repo {repo_info.name}: {e}"
+                        )
+                        raise
+                else:
+                    # Update existing repo
+                    if self.update_project_metadata(repo_info, existing_repo):
+                        changed = True
+
+            return changed
 
 
 class CloudMap:
@@ -1992,6 +1977,11 @@ class CloudMap:
             if not name:
                 name = urlparse(host_config["url"]).hostname or ""
                 assert name
+            if GithubManager is None:
+                raise ImportError(
+                    "PyGithub is required for GitHub integration. "
+                    "Install it with: pip install PyGithub"
+                )
             return GithubManager(name, host_config, namespace, repo_filter, logger)
 
         assert host_config["type"] in ["gitlab", "unfurl.cloud"]
