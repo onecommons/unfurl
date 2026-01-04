@@ -1956,7 +1956,7 @@ def serve(
 @click.option(
     "--sync",
     default=None,
-    help='Sync the given repository host ("local", name, or url).',
+    help='Sync (import then export) the given repository host ("local", name, or url).',
     metavar="HOST",
 )
 @click.option(
@@ -1974,12 +1974,12 @@ def serve(
 @click.option(
     "--namespace",
     default=None,
-    help="Limit sync to repositories in this folder or group.",
+    help="Apply command only to repositories in this folder or group.",
 )
 @click.option(
     "--repository",
     default="",
-    help="Limit sync to this one repository (matches key).",
+    help="Apply command only to this one repository (matches key).",
 )
 @click.option(
     "--clone-root",
