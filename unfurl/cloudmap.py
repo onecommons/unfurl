@@ -752,6 +752,7 @@ class Directory(_LocalGitRepos):
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
         # XXX handle conflict when same path, different host
         download_path = str(Path(self.repos_root) / repo_info.path)
+        self.logger.verbose(f"cloning {sanitize_url(url)} to {download_path}")
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
         return GitRepo(repo)
 
@@ -794,8 +795,8 @@ class Directory(_LocalGitRepos):
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
-        notables = self.analyze_repo(repo_info, repo)
         self.logger.verbose("analyzing %s", repo_info.key)
+        notables = self.analyze_repo(repo_info, repo)
         repo_info.add_notables(notables)
         for n in notables:
             for a in n.artifacts:
@@ -826,11 +827,12 @@ class RepositoryHost:
     def __init__(self) -> None:
         self.logger = logger
 
-    def from_host(self, directory: Directory):
+    def from_host(self, directory: Directory) -> int:
         """
         Update the directory with latest from this host.
         If the directory has local repositories associated with it, update those repositories too.
         """
+        return 0
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -924,6 +926,64 @@ class RepositoryHost:
         else:
             directory.maybe_analyze(r, repo, previous.notable if previous else {})
 
+    def _push_to_host(
+        self,
+        repo: Optional[GitRepo],
+        repo_info: Repository,
+        directory: Directory,
+        remote_url: str,
+        do_merge: bool,
+        force: bool,
+    ) -> None:
+        if not repo:
+            repo = directory.find_repo(repo_info.git, self.name)
+        if repo:
+            # there's a local mirror that might have changed
+            try:
+                # get the latest from the remote
+                repo, cloned = self.fetch_repo(remote_url, repo_info, directory)
+                dest_branch = f"{self.name}/{repo_info.get_default_branch()}"
+                if not repo.active_branch:
+                    repo.checkout(repo_info.get_default_branch())
+                commit = repo.repo.head.commit
+                branch_exists = dest_branch in repo.repo.references
+                if (
+                    not branch_exists
+                    or commit != repo.repo.references[dest_branch].commit
+                ):
+                    # now update project repository
+                    self.logger.info(
+                        f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
+                    )
+                    if self.dryrun:
+                        summary = cast(str, commit.summary)
+                        self.logger.info(
+                            f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
+                        )
+                    else:
+                        # maybe merge and (maybe) force push the current branch into dest_branch
+                        force_merge_local_and_push_to_remote(
+                            repo,
+                            self.name,
+                            dest_branch,
+                            merge=branch_exists and do_merge,
+                            force=force,
+                            logger=self.logger,
+                        )
+                    if do_merge:
+                        # we might have create a merge commit, update the directory
+                        repo_info.update_branch(repo)
+                else:
+                    self.logger.debug(
+                        f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
+                    )
+            except Exception:
+                self.logger.error(
+                    f"Unexpected error updating upstream git for {repo_info.git}",
+                    exc_info=True,
+                )
+
+
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
     Locally manage git repositories from any origin using the git protocol.
@@ -951,8 +1011,9 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     def include_local_repo(self, repo: GitRepo) -> bool:
         return bool(repo.remote)
 
-    def from_host(self, directory: Directory):
+    def from_host(self, directory: Directory) -> int:
         """Pull latest and update the cloudmap to match the local repositories."""
+        count = 0
         for repo in self.repos.values():
             if self.include_local_repo(repo):
                 path = str(
@@ -984,6 +1045,8 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                 directory.maybe_analyze(
                     repository, repo, previous.notable if previous else {}
                 )
+                count += 1
+        return count
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """Push cloudmap revisions to origin."""
@@ -1097,7 +1160,7 @@ class GitlabManager(RepositoryHost):
             # public api calls will not have this attribute but we can assume it is public in that case
             return "public"
 
-    def from_host(self, directory: Directory):
+    def from_host(self, directory: Directory) -> int:
         """
         Update the directory with projects on this gitlab instance.
         If the directory has local repositories associated with it, update those repositories too.
@@ -1107,23 +1170,27 @@ class GitlabManager(RepositoryHost):
             group = self._get_group(self.path)
             if not group:
                 raise Exception(f"Group {self.path} not found")
-            self._import_group_from_host(group, directory)
+            return self._import_group_from_host(group, directory)
         else:
             projects = self.gitlab.projects.list(iterator=True)
-            self._import_projects_from_host(projects, directory)
+            return self._import_projects_from_host(projects, directory)
 
-    def _import_group_from_host(self, group: Group, directory: Directory):
+    def _import_group_from_host(self, group: Group, directory: Directory) -> int:
         # XXX add/update namespace in cloudmap
         projects = group.projects.list(iterator=True)
         self.logger.info(f"importing group {group.full_path}")
-        self._import_projects_from_host(projects, directory)
+        count = self._import_projects_from_host(projects, directory)
         for subgroup in group.subgroups.list(iterator=True):
-            self._import_group_from_host(self.gitlab.groups.get(subgroup.id), directory)
+            count += self._import_group_from_host(
+                self.gitlab.groups.get(subgroup.id), directory
+            )
+        return count
 
     def _import_projects_from_host(
         self, projects: Iterable[RESTObject], directory: Directory
-    ):
+    ) -> int:
         # XXX delete removed projects
+        count = 0
         for p in projects:
             if self.repo_filter:
                 git_url, scheme = self._git_url(cast(Project, p))
@@ -1147,6 +1214,8 @@ class GitlabManager(RepositoryHost):
                 )
                 continue
             self._import_project(dest_proj, directory, True)
+            count += 1
+        return count
 
     def _import_project(
         self, dest_proj: Project, directory: Directory, download: bool
@@ -1205,53 +1274,7 @@ class GitlabManager(RepositoryHost):
         if directory.repos_root:
             remote_url = self.git_url_with_auth(dest)
             repo = directory.find_repo(dest.http_url_to_repo, self.name)
-            if not repo:
-                repo = directory.find_repo(repo_info.git, self.name)
-            if repo:
-                # there's a local mirror that might have changed
-                try:
-                    # get the latest from the remote
-                    repo, cloned = self.fetch_repo(remote_url, repo_info, directory)
-                    dest_branch = f"{self.name}/{repo_info.get_default_branch()}"
-                    if not repo.active_branch:
-                        repo.checkout(repo_info.get_default_branch())
-                    commit = repo.repo.head.commit
-                    branch_exists = dest_branch in repo.repo.references
-                    if (
-                        not branch_exists
-                        or commit != repo.repo.references[dest_branch].commit
-                    ):
-                        # now update project repository
-                        self.logger.info(
-                            f"{force and '(force) ' or ' '}{do_merge and 'merging' or 'pushing'} local repository to {repo.safe_url}"
-                        )
-                        if self.dryrun:
-                            summary = cast(str, commit.summary)
-                            self.logger.info(
-                                f"dry run: would have pushed commit {commit.hexsha[:6]} {commit.committed_datetime} {summary}"
-                            )
-                        else:
-                            # maybe merge and (maybe) force push the current branch into dest_branch
-                            force_merge_local_and_push_to_remote(
-                                repo,
-                                self.name,
-                                dest_branch,
-                                merge=branch_exists and do_merge,
-                                force=force,
-                                logger=self.logger,
-                            )
-                        if do_merge:
-                            # we might have create a merge commit, update the directory
-                            repo_info.update_branch(repo)
-                    else:
-                        self.logger.debug(
-                            f"skipping push: no change detected on branch {dest_branch} for {repo.safe_url}"
-                        )
-                except Exception:
-                    self.logger.error(
-                        f"Unexpected error updating upstream git for {repo_info.git}",
-                        exc_info=True,
-                    )
+            self._push_to_host(repo, repo_info, directory, remote_url, do_merge, force)
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
@@ -1636,14 +1659,24 @@ else:
                 return self.github.get_organization(path)
             except GithubException as e:
                 if e.status == 404:
-                    return self.github.get_user(path)
+                    try:
+                        return self.github.get_user(path)
+                    except GithubException as e:
+                        if e.status == 404:
+                            self.logger.error(f"GitHub org or user '{path}' not found")
+                        else:
+                            self.logger.error(
+                                f"Error fetching Github user '{path}'", exc_info=True
+                            )
+                        return None
                 self.logger.error(f"Error fetching GitHub org '{path}'", exc_info=True)
                 return None
 
         def _import_repositories_from_host(
             self, repos: Iterable[GithubRepository], directory: Directory
-        ) -> None:
+        ) -> int:
             """Import multiple repositories from GitHub into directory."""
+            count = 0
             for repo in repos:
                 # Filter by repo_filter if set
                 if self.repo_filter:
@@ -1658,6 +1691,8 @@ else:
                 if self.visibility == "public" and repo.private:
                     continue
                 self._import_repository(repo, directory, True)
+                count += 1
+            return count
 
         def _import_repository(
             self, repo: GithubRepository, directory: Directory, download: bool
@@ -1674,12 +1709,13 @@ else:
                 self._fetch_and_analyze_repo(repo_info, directory, previous, remote_url)
             self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
 
-        def from_host(self, directory: Directory) -> None:
+        def from_host(self, directory: Directory) -> int:
             """Fetch repositories from GitHub and sync to cloudmap."""
             group = self.get_owner(self.path)
             if group:
                 repos = group.get_repos()
-                self._import_repositories_from_host(repos, directory)
+                return self._import_repositories_from_host(repos, directory)
+            return 0
 
         def create_project(
             self,
@@ -1687,10 +1723,6 @@ else:
             dest_group: Union[GithubOrganization, AuthenticatedUser],
         ) -> GithubRepository:
             """Create new GitHub repository."""
-            if self.dryrun:
-                self.logger.info(f"[DRYRUN] Would create GitHub repo: {repo_info.name}")
-                return None  # type: ignore
-
             name = repo_info.name
             description = repo_info.metadata.description or ""
             private = repo_info.private if repo_info.private is not None else True
@@ -1713,12 +1745,6 @@ else:
             self, repo_info: Repository, dest: GithubRepository
         ) -> bool:
             """Update GitHub repository metadata (description, topics, visibility)."""
-            if self.dryrun:
-                self.logger.info(
-                    f"[DRYRUN] Would update metadata for GitHub repo: {dest.full_name}"
-                )
-                return False
-
             changed = False
 
             # Update description
@@ -1767,7 +1793,8 @@ else:
             for repo_info in matching_repos:
                 # Check if repo already exists on GitHub
                 try:
-                    existing_repo = dest_group.get_repo(repo_info.name)
+                    repo = dest_group.get_repo(repo_info.name)
+                    do_merge = not force and merge
                 except GithubException as e:
                     if e.status == 404:
                         # Repo doesn't exist, create it
@@ -1784,7 +1811,13 @@ else:
                                 continue
                         else:
                             owner = dest_group
-                        self.create_project(repo_info, owner)
+                        if self.dryrun:
+                            self.logger.info(
+                                "dry run: skipping creating project %s", repo_info.name
+                            )
+                            continue
+                        repo = self.create_project(repo_info, owner)
+                        do_merge = False
                         changed = True
                     else:
                         self.logger.error(
@@ -1793,8 +1826,20 @@ else:
                         raise
                 else:
                     # Update existing repo
-                    if self.update_project_metadata(repo_info, existing_repo):
+                    if self.dryrun:
+                        self.logger.info(
+                            "dry run: skipping creating updating project %s",
+                            repo_info.name,
+                        )
+                        continue
+                    elif self.update_project_metadata(repo_info, repo):
                         changed = True
+                if directory.repos_root:
+                    remote_url = self.git_url_with_auth(repo)
+                    git_repo = directory.find_repo(repo.clone_url, self.name)
+                    self._push_to_host(
+                        git_repo, repo_info, directory, remote_url, do_merge, force
+                    )
 
             return changed
 
@@ -1992,7 +2037,11 @@ class CloudMap:
         return GitlabManager(name, host_config, namespace, repo_filter, logger)
 
     def from_host(self, host: RepositoryHost) -> bool:
-        host.from_host(self.directory)
+        count = host.from_host(self.directory)
+        if not count and host.repo_filter:
+            self.logger.info(
+                f"No repositories matched filter '{host.repo_filter}' on host {host.name}"
+            )
         changed = self.save(
             f"Update {self.host_branch} with latest from {'/'.join([host.name, host.path])}"
         )

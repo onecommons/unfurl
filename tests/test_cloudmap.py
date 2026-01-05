@@ -265,25 +265,6 @@ class TestGithubManager:
         call_kwargs = mock_github_class.call_args[1]
         assert call_kwargs["base_url"] == "https://github.company.com/api/v3"
 
-    def test_init_without_pygithub(self):
-        """Test that initializing GithubManager without PyGithub raises ImportError."""
-        config = {
-            "type": "github",
-            "url": "https://github.com",
-            "password": "token",
-        }
-
-        # Temporarily replace Github with None to simulate missing import
-        import unfurl.cloudmap as cloudmap_module
-
-        original_github = cloudmap_module.Github
-        try:
-            cloudmap_module.Github = None
-            with pytest.raises(ImportError, match="PyGithub is required"):
-                GithubManager("test", config)
-        finally:
-            cloudmap_module.Github = original_github
-
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
     def test_has_repository_github_url(self, mock_auth, mock_github_class):
@@ -395,8 +376,8 @@ class TestGithubManager:
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
-    def test_ensure_group_user(self, mock_auth, mock_github_class):
-        """Test ensure_group returns authenticated user."""
+    def test_get_owner_user(self, mock_auth, mock_github_class):
+        """Test get_owner returns authenticated user."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
 
         # Mock authenticated user
@@ -407,15 +388,15 @@ class TestGithubManager:
 
         manager = GithubManager("test", config, namespace="")
 
-        result = manager.ensure_group("")
+        result = manager.get_owner("")
 
         assert result == mock_user
         mock_github_instance.get_user.assert_called_once()
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
-    def test_ensure_group_organization(self, mock_auth, mock_github_class):
-        """Test ensure_group returns organization."""
+    def test_get_owner_organization(self, mock_auth, mock_github_class):
+        """Test get_owner returns organization."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
 
         # Mock organization
@@ -426,28 +407,27 @@ class TestGithubManager:
 
         manager = GithubManager("test", config, namespace="testorg")
 
-        result = manager.ensure_group("testorg")
+        result = manager.get_owner("testorg")
 
         assert result == mock_org
         mock_github_instance.get_organization.assert_called_once_with("testorg")
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
-    def test_ensure_group_org_not_found(self, mock_auth, mock_github_class):
-        """Test ensure_group raises error when organization not found."""
+    def test_get_owner_org_not_found(self, mock_auth, mock_github_class):
+        """Test get_owner raises error when organization not found."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
 
         # Mock GithubException for 404
-        from github import GithubException as RealGithubException
+        from github import GithubException
 
-        mock_exception = RealGithubException(404, {"message": "Not found"}, None)
+        mock_exception = GithubException(404, {"message": "Not found"}, None)
         mock_github_instance = mock_github_class.return_value
         mock_github_instance.get_organization.side_effect = mock_exception
+        mock_github_instance.get_user.side_effect = mock_exception
 
         manager = GithubManager("test", config)
-
-        with pytest.raises(ValueError, match="Organization 'nonexistent' not found"):
-            manager.ensure_group("nonexistent")
+        assert manager.get_owner("nonexistent") is None
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
@@ -499,6 +479,7 @@ class TestGithubManager:
         mock_directory = Mock(spec=Directory)
         mock_directory.db = Mock()
         mock_directory.db.repositories = {}
+        mock_directory.repos_root = "/mock/repos"
 
         manager.from_host(mock_directory)
 
@@ -573,6 +554,7 @@ class TestGithubManager:
         mock_directory = Mock(spec=Directory)
         mock_directory.db = Mock()
         mock_directory.db.repositories = {}
+        mock_directory.repos_root = "/mock/repos"
 
         manager.from_host(mock_directory)
 
