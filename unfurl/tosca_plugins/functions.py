@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Adam Souzis
+# SPDX-License-Identifier: MIT
 """
 This module contains utility functions that can be executed in `"parse" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``)
 and in the safe mode Python sandbox.

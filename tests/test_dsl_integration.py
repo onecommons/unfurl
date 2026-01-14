@@ -365,6 +365,7 @@ def test_expressions():
 
     topology = runtime_test(test)
     assert topology._yaml == expressions_yaml
+    assert tosca.global_state.mode == "runtime"
 
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
@@ -424,6 +425,30 @@ def test_expressions():
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
+
+    resolved = "ghcr.io/onecommons/unfurl@sha256:acd6c243b16145778f8ed96b7b3b7d26b211664114b1e8dbc5537902cc456afc"
+    assert (
+        expr.get_artifact(None, "ghcr.io/onecommons/unfurl:v1.1.0").with_digest
+        == resolved
+    )
+    image = expr.container_image("ghcr.io/onecommons/unfurl:v1.1.0")
+    assert image
+    assert image.get() == "ghcr.io/onecommons/unfurl:v1.1.0"
+
+    with tosca.set_evaluation_mode("parse"):
+        evaldata = expr.get_artifact(
+            None, "ghcr.io/onecommons/unfurl:v1.1.0"
+        ).with_digest
+        assert evaldata == {
+            "eval": {
+                "get_artifact": [None, "ghcr.io/onecommons/unfurl:v1.1.0", None, None]
+            },
+            "select": "with_digest",
+        }
+        assert Ref(evaldata.expr).resolve_one(tosca.global_state_context()) == resolved
+        evaldata2 = expr.container_image("ghcr.io/onecommons/unfurl:v1.1.0")
+        # arg is a string so it is evaluated eagerly
+        assert evaldata2.get() == image.get()
 
     # XXX test:
     # "if_expr", and_expr
