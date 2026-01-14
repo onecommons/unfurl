@@ -87,7 +87,7 @@ from .projectpaths import FilePath, _getdir
 from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
 
-from .support import ContainerImage
+from .support import ContainerImageParts
 from .configurator import Configurator, Result, TaskView
 
 
@@ -486,7 +486,7 @@ class UnfurlNotable(Notable):
                 "image"
             )
             if image:
-                name, tag, digest, hostname = ContainerImage.split(image)
+                name, tag, digest, hostname = ContainerImageParts.split(image)
                 return os.path.join(hostname or "docker.io", name or "")
         return None
 

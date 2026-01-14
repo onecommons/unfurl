@@ -28,6 +28,7 @@ from typing import (
     Any,
     NewType,
     OrderedDict,
+    NamedTuple,
 )
 from typing_extensions import NoReturn
 from enum import Enum
@@ -1108,6 +1109,63 @@ set_eval_func(
 )
 
 
+class ContainerImageParts(NamedTuple):
+    full_name: str
+    tag: str
+    digest: str
+    registry: str
+
+    @property
+    def reference(self) -> str:
+        return self.digest or self.tag
+
+    @property
+    def name(self) -> str:
+        return self.full_name.rpartition("/")[2]
+
+    @property
+    def namespace(self) -> str:
+        return self.full_name.rpartition("/")[0]
+
+    @property
+    def host(self) -> str:
+        return (
+            "registry-1.docker.io"
+            if not self.registry or self.registry == "docker.io"
+            else self.registry
+        )
+
+    @property
+    def repository(self) -> str:
+        if not self.namespace and self.host == "registry-1.docker.io":
+            return "library/" + self.full_name
+        return self.full_name
+
+    @staticmethod
+    def split(
+        artifact_name: str,
+    ) -> "ContainerImageParts":
+        if not artifact_name:
+            return ContainerImageParts("", "", "", "")
+        hostname = ""
+        namespace, sep, name = artifact_name.partition("/")
+        if sep and (":" in namespace or artifact_name.count("/") > 1):
+            # heuristic because name can look like a hostname
+            hostname = namespace
+        else:
+            name = artifact_name
+
+        tag = ""
+        digest: Optional[str]
+        name, sep, digest = name.partition("@")
+        if not sep:
+            digest = ""
+            name, sep, qualifier = name.partition(":")
+            if sep:
+                tag = qualifier
+        return ContainerImageParts(name.lower(), tag, digest, hostname)
+
+
 class ContainerImage(ExternalValue):
     """
     Represents a container image.
@@ -1130,7 +1188,7 @@ class ContainerImage(ExternalValue):
     # optionally prefixed by a registry hostname. The hostname must comply with standard DNS rules,
     # but may not contain underscores. If a hostname is present, it may optionally be followed by
     # a port number in the format :8080. If not present, the command uses Docker’s public registry
-    # located at registry-1.docker.io by default. Name components may contain lowercase letters, digits
+    # located at docker.io by default. Name components may contain lowercase letters, digits
     # and separators. A separator is defined as a period, one or two underscores, or one or more dashes.
     # A name component may not start or end with a separator.
     # A tag name must be valid ASCII and may contain lowercase and uppercase letters, digits, underscores, periods and dashes.

@@ -3,7 +3,7 @@ import os
 import pickle
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions
-from unfurl.support import Status, ContainerImage
+from unfurl.support import Status, ContainerImage, ContainerImageParts
 import toscaparser.repositories
 from pathlib import Path
 from .utils import isolated_lifecycle, DEFAULT_STEPS, Step
@@ -75,8 +75,8 @@ spec:
 """
 
 def test_container_image():
-    args = ContainerImage.split("busybox:latest")
-    assert args == ('busybox', 'latest', None, None)
+    args = ContainerImageParts.split("busybox:latest")
+    assert args == ("busybox", "latest", "", "")
     image = ContainerImage.make("busybox:latest")
     assert isinstance(image, ContainerImage)
     assert image == "busybox:latest"
