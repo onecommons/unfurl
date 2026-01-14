@@ -1213,24 +1213,45 @@ class ContainerImage(ExternalValue):
         self.source_digest = source_digest
         super().__init__("container_image", self.get())
 
-    # XXX
-    # def resolve_key(self, name=None, currentResource=None):
-    #     # hostname: registry-1.docker.io, name, tag, digest
+    def resolve_key(self, key=None, currentResource=None) -> Union[Any, "Result"]:
+        if key == "with_digest":
+            return self.with_digest
+        # raises KeyError if not found
+        return super().resolve_key(key, currentResource)
 
-    def get(self) -> str:
+    @property
+    def with_digest(self) -> str:
+        self.fetch_digest()
+        return self.get(use_digest_over_tag=True)
+
+    def get(self, use_digest_over_tag=False) -> str:
         if self.registry_host:
             name = os.path.join(self.registry_host, self.name)
         else:
             name = self.name
 
-        if self.tag:
+        if self.tag and (not self.digest or not use_digest_over_tag):
             return f"{name}:{self.tag}"
         if self.digest:
             if "@" == self.digest[0]:
                 return name + self.digest
+            elif ":" in self.digest:
+                return f"{name}@{self.digest}"
             else:
                 return f"{name}@sha256:{self.digest}"
         return name
+
+    def fetch_digest(self) -> Optional[str]:
+        from .oci import registry_v2_fetch
+
+        if not self.digest:
+            ref = self.split(self.get())
+            if ref.name:
+                fetched = registry_v2_fetch(
+                    ref, username=self.username, password=self.password
+                )
+                self.digest = fetched.manifest_digest
+        return self.digest
 
     def full_name(self, default_hostname="docker.io") -> str:
         if not self.registry_host:
@@ -1241,30 +1262,12 @@ class ContainerImage(ExternalValue):
     @staticmethod
     def split(
         artifact_name: str,
-    ) -> Tuple[Optional[str], Optional[str], Optional[str], Optional[str]]:
-        if not artifact_name:
-            return None, None, None, None
-        hostname = None
-        namespace, sep, name = artifact_name.partition("/")
-        if sep and (":" in namespace or artifact_name.count("/") > 1):
-            # heuristic because name can look like a hostname
-            hostname = namespace
-        else:
-            name = artifact_name
-
-        tag = None
-        digest: Optional[str]
-        name, sep, digest = name.partition("@")
-        if not sep:
-            digest = None
-            name, sep, qualifier = name.partition(":")
-            if sep:
-                tag = qualifier
-        return name.lower(), tag, digest, hostname
+    ) -> ContainerImageParts:
+        return ContainerImageParts.split(artifact_name)
 
     @staticmethod
     def make(artifact_name: str) -> Optional["ContainerImage"]:
-        parts = ContainerImage.split(artifact_name)
+        parts = ContainerImageParts.split(artifact_name)
         if parts[0]:
             return ContainerImage(*parts)  # type: ignore
         else:
@@ -1338,7 +1341,7 @@ def _get_container_image_from_repository(
     else:
         name = repository_id or name
 
-    tag = tag or attr.get("repository_tag")
+    rtag = tag or attr.get("repository_tag")
 
     if attr.get("registry_url"):
         hostname = cast(str, attr["registry_url"])
@@ -1350,7 +1353,7 @@ def _get_container_image_from_repository(
     if not name:
         return None
     return ContainerImage(
-        name, tag, digest, hostname, username, password, source_digest
+        name, rtag, digest, hostname, username, password, source_digest
     )
 
 
@@ -1664,13 +1667,13 @@ class ExternalResource(ExternalValue):
     def get(self):
         return self.resource
 
-    def resolve_key(self, name=None, currentResource=None):
-        if not name:
+    def resolve_key(self, key=None, currentResource=None):
+        if not key:
             return self.resource
 
-        schema = self._get_schema(name)
+        schema = self._get_schema(key)
         try:
-            value = self.resource._resolve(name)
+            value = self.resource._resolve(key)
             # value maybe a Result
         except KeyError:
             if schema and "default" in schema:
@@ -1680,15 +1683,15 @@ class ExternalResource(ExternalValue):
         if schema:
             if isinstance(value, Result):
                 value = value.resolved
-            self._validate(value, schema, name)
+            self._validate(value, schema, key)
         # we don't want to return a result across boundaries
         return value
 
 
 class SecretResource(ExternalResource):
-    def resolve_key(self, name=None, currentResource=None):
+    def resolve_key(self, key=None, currentResource=None):
         # raises KeyError if not found
-        val = super().resolve_key(name, currentResource)
+        val = super().resolve_key(key, currentResource)
         if isinstance(val, Result):
             val.resolved = wrap_sensitive_value(val.resolved)
             return val

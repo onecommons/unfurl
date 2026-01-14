@@ -15,7 +15,7 @@ Stand-alone functions don't need to be wrapped in an "eval".
   Key                           Value
   ============================  ========================================================
   :std:ref:`concat`             ``[ string* ]``
-  `get_artifact`                ``[ template_name, artifact_name]``
+  :std:ref:`get_artifact`       ``[ template_name, artifact_name]``
   `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`get_env`            :regexp:`name | [ name, default? ]`
   :std:ref:`get_input`          :regexp:`name | [ name, default? ]`
@@ -54,6 +54,20 @@ get_artifact
   If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return ``null``.
 
   See also the :tosca_spec:`TOSCA get_artifact spec <_Toc50125538>` (but note that ``location`` and ``remove`` arguments are not currently supported).
+
+  Container images can use ``with_digest`` in a `select<eval keys>` clause to resolve to the image reference an immutable digest. For example:
+
+  .. code-block:: YAML
+
+      eval:
+        get_artifact: [null, ghcr.io/onecommons/unfurl:v1.1.0]
+      select: with_digest
+
+  Evaluates to ``ghcr.io/onecommons/unfurl@sha256:acd6c243b16145778f8ed96b7b3b7d26b211664114b1e8dbc5537902cc456afc``
+
+  If image registry requires credentials to retrieve the digest, the registry has to be declared as a TOSCA `repository` with credentials and the artifact's ``repository`` key set to its name.
+  Alternatively, if the node template referenced in the first argument is of type ``unfurl.nodes.Repository``, those credentials will be used.
+  In both cases, the resolved image name will include the hostname of the referenced registry, the hostname of the registry does not need to be in the declared name.
 
 get_attribute
 ^^^^^^^^^^^^^

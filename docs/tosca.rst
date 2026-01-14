@@ -184,7 +184,7 @@ Artifacts can be used in the following ways:
 
 * An operation's `implementation's<implementation>`, ``primary`` field can be assigned an artifact which will be used to execute the operation. Artifacts derived from ``unfurl.artifacts.HasConfigurator`` will use configurator set on its type, otherwise it will treated as a shell script (using the `Cmd` configurator) unless the ``className`` field is set in the implementation.
 * An implementation can also list artifacts in the ``dependencies`` field which will be installed if necessary.
-* The `get_artifact` TOSCA function to reference to artifact's URL or local location (if available).
+* The :std:ref:`get_artifact` TOSCA function to reference to artifact's URL or local location (if available).
 * An artifact and its properties can be accessed in `Eval Expressions` via the `.artifacts<Special keys>` key. (see `Artifact enhancements`) or as :py:class:`Node` attributes when using the `Python DSL`. 
 
 Artifacts that are referenced in an operation's implementation will be installed on the operation's :tosca_spec:`operation_host<_Toc50125294>` (by default, where Unfurl is running) as part of the `Job Lifecycle` if the artifact has ``Standard`` operations (``create`` or ``configure``) defined for it.
