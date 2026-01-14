@@ -202,7 +202,7 @@ artifact_keys = [
         ),
     ],
 )
-def test_parse_image_ref(
+def test_resolve_image_ref(
     image_url, expected_ref, expected_metadata, has_artifact_fetch
 ):
     # Test parsing the image reference
@@ -223,9 +223,16 @@ def test_parse_image_ref(
         assert artifact_fetch is None, f"artifact_fetch should be None for {image_url}"
 
     # Test creating artifact metadata
-    artifact_metadata = oci.create_oci_artifact(image_url)
+    artifact_metadata, source_urls = oci.create_oci_artifact(image_url)
     assert artifact_metadata is not None, (
         f"Failed to create artifact metadata for {image_url}"
+    )
+    assert isinstance(source_urls, list), f"source_urls should be a list for {image_url}"
+    assert len(source_urls) > 0, f"Expected at least one source URL for {image_url}"
+
+    # Verify manifest URL is included (will have the manifest digest, not the tag)
+    assert any("/manifests/" in url for url in source_urls), (
+        f"No manifest URL found in source_urls for {image_url}"
     )
 
     if not expected_metadata.digest:

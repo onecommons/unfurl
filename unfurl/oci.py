@@ -124,13 +124,23 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     return purl
 
 
-def create_oci_artifact(image_name: str) -> ArtifactMetadata:
-    """Create minimal OCI artifact metadata for the given image name."""
+def create_oci_artifact(image_name: str) -> Tuple[ArtifactMetadata, List[str]]:
+    """Create minimal OCI artifact metadata for the given image name.
+
+    Returns:
+        Tuple of (metadata, source_urls) where source_urls is a list of URLs
+        that were used to gather the metadata.
+    """
     ref = ContainerImageParts.split(image_name)
+    source_urls: List[str] = []
 
     purl = build_oci_purl(ref)
     metadata = ArtifactMetadata(purl=purl, digest=ref.digest)
     annotations, platforms, manifest_digest, artifact_fetch = registry_v2_fetch(ref)
+
+    # Track the manifest URL used
+    manifest_url = f"https://{ref.host}/v2/{ref.repository}/manifests/{manifest_digest}"
+    source_urls.append(manifest_url)
 
     # Extract metadata from labels/annotations
     metadata.extract_urls_from_labels(annotations)
@@ -148,8 +158,13 @@ def create_oci_artifact(image_name: str) -> ArtifactMetadata:
         #     metadata.purl = build_oci_purl(ref._replace(digest=manifest_digest))
 
     if ref.host == "registry-1.docker.io":
+        namespace = ref.namespace or "library"
+        dockerhub_url = (
+            f"https://hub.docker.com/v2/repositories/{namespace}/{ref.name}/"
+        )
         raw_urls = dockerhub_repo_metadata(ref)
         if raw_urls:
+            source_urls.append(dockerhub_url)
             source = raw_urls.get("repo_url") or raw_urls.get("source")
             if source:
                 metadata.source = source
@@ -161,8 +176,10 @@ def create_oci_artifact(image_name: str) -> ArtifactMetadata:
                 metadata.description = raw_urls["description"]
 
     elif ref.registry == "lscr.io" and ref.namespace == "linuxserver":
+        linuxserver_url = "https://api.linuxserver.io/api/v1/images"
         image = linuxserver_fetch(ref)
         if image:
+            source_urls.append(linuxserver_url)
             for k, attr_name in {
                 "github_url": "source",
                 "project_url": "homepage_url",
@@ -178,7 +195,7 @@ def create_oci_artifact(image_name: str) -> ArtifactMetadata:
     ]:
         # set first 2 segments in path as homepage_url (will be a group or project page)
         metadata.homepage_url = f"https://{ref.host[len('registry.'):]}/{'/'.join(ref.full_name.split('/')[:2])}"
-    return metadata
+    return metadata, source_urls
 
 
 # ---------------------------
