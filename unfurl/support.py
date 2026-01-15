@@ -1220,6 +1220,12 @@ class ContainerImage(ExternalValue):
         return super().resolve_key(key, currentResource)
 
     @property
+    def parts(self) -> ContainerImageParts:
+        return ContainerImageParts(
+            self.name, self.tag or "", self.digest or "", self.registry_host or ""
+        )
+
+    @property
     def with_digest(self) -> str:
         self.fetch_digest()
         return self.get(use_digest_over_tag=True)

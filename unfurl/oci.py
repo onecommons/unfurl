@@ -36,7 +36,7 @@ from tenacity import (
     wait_exponential_jitter,
     before_sleep_log,
 )
-from .support import ContainerImageParts
+from .support import ContainerImageParts, ContainerImage
 from .logs import getLogger
 
 logger = getLogger("unfurl")
@@ -124,19 +124,21 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     return purl
 
 
-def create_oci_artifact(image_name: str) -> Tuple[ArtifactMetadata, List[str]]:
+def create_oci_artifact(image: ContainerImage) -> Tuple[ArtifactMetadata, List[str]]:
     """Create minimal OCI artifact metadata for the given image name.
 
     Returns:
         Tuple of (metadata, source_urls) where source_urls is a list of URLs
         that were used to gather the metadata.
     """
-    ref = ContainerImageParts.split(image_name)
+    ref = image.parts
     source_urls: List[str] = []
 
     purl = build_oci_purl(ref)
     metadata = ArtifactMetadata(purl=purl, digest=ref.digest)
-    annotations, platforms, manifest_digest, artifact_fetch = registry_v2_fetch(ref)
+    annotations, platforms, manifest_digest, artifact_fetch = registry_v2_fetch(
+        ref, username=image.username, password=image.password
+    )
 
     # Track the manifest URL used
     manifest_url = f"https://{ref.host}/v2/{ref.repository}/manifests/{manifest_digest}"
@@ -177,8 +179,8 @@ def create_oci_artifact(image_name: str) -> Tuple[ArtifactMetadata, List[str]]:
 
     elif ref.registry == "lscr.io" and ref.namespace == "linuxserver":
         linuxserver_url = "https://api.linuxserver.io/api/v1/images"
-        image = linuxserver_fetch(ref)
-        if image:
+        image_info = linuxserver_fetch(ref)
+        if image_info:
             source_urls.append(linuxserver_url)
             for k, attr_name in {
                 "github_url": "source",
@@ -186,7 +188,7 @@ def create_oci_artifact(image_name: str) -> Tuple[ArtifactMetadata, List[str]]:
                 "description": "description",
                 "version": "version",
             }.items():
-                v = image.get(k)
+                v = image_info.get(k)
                 if v:
                     setattr(metadata, attr_name, v)
     elif not metadata.homepage_url and ref.host in [

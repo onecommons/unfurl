@@ -3,7 +3,7 @@ import pytest
 from dataclasses import replace
 
 from unfurl import oci
-from unfurl.support import ContainerImageParts
+from unfurl.support import ContainerImageParts, ContainerImage
 
 artifact_keys = [
     "docker.io/baserow/baserow",
@@ -206,11 +206,13 @@ def test_resolve_image_ref(
     image_url, expected_ref, expected_metadata, has_artifact_fetch
 ):
     # Test parsing the image reference
-    ref = oci.ContainerImageParts.split(image_url)
-    assert ref == expected_ref
+    ref = ContainerImage.make(image_url)
+    assert ref and ref.parts == expected_ref
 
     # Test fetching from registry
-    annotations, platforms, manifest_digest, artifact_fetch = oci.registry_v2_fetch(ref)
+    annotations, platforms, manifest_digest, artifact_fetch = oci.registry_v2_fetch(
+        ref.parts
+    )
     assert platforms
     assert manifest_digest == expected_metadata.digest or expected_metadata.digest == ""
 
@@ -223,7 +225,7 @@ def test_resolve_image_ref(
         assert artifact_fetch is None, f"artifact_fetch should be None for {image_url}"
 
     # Test creating artifact metadata
-    artifact_metadata, source_urls = oci.create_oci_artifact(image_url)
+    artifact_metadata, source_urls = oci.create_oci_artifact(ref)
     assert artifact_metadata is not None, (
         f"Failed to create artifact metadata for {image_url}"
     )
