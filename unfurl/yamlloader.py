@@ -99,6 +99,7 @@ from jinja2.runtime import DebugUndefined
 
 if TYPE_CHECKING:
     from .manifest import Manifest
+    from .localenv import LocalEnv
 
 logger = getLogger("unfurl")
 
@@ -365,22 +366,28 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     safe_mode: bool = False
 
     def __init__(
-        self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
+        self,
+        manifest: "Manifest",
+        ignoreFileNotFound=False,
+        expand=False,
+        config: Optional[Dict[str, Any]] = None,
+        local_env: Optional["LocalEnv"] = None,
     ):
         self.manifest = manifest
-        self.readonly = bool(
-            manifest and manifest.localEnv and manifest.localEnv.readonly
-        )
         self.ignoreFileNotFound = ignoreFileNotFound
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+        self._local_env = local_env
         if manifest:
+            assert not local_env
             self.solve_topology = self._solve_topology
         else:
             self.solve_topology = solve_topology
+        self.readonly = bool(self.local_env and self.local_env.readonly)
 
     def _solve_topology(self, topology_template):
+        assert self.manifest
         if solve_topology is not None:
             constrain_required = not is_semver(
                 self.manifest.apiVersion[len("unfurl/") :]
@@ -398,9 +405,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*",
     )
 
+    @property
+    def local_env(self) -> Optional["LocalEnv"]:
+        return self.manifest.localEnv if self.manifest else self._local_env
+
     def __getstate__(self):
         state = self.__dict__.copy()
         state["yamlloader"] = None
+        state["_local_env"] = None
         return state
 
     def get_safe_mode(self) -> bool:
@@ -600,21 +612,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     url = "ssh://" + url.replace(":", "/", 1)
                 tpl["url"] = url
 
-            if tpl.get("credential") and self.manifest and not self.manifest.safe_mode:
+            if tpl.get("credential") and not self.get_safe_mode():
                 credential = tpl["credential"]
                 # support expressions to resolve credential secrets
-                if self.manifest.rootResource:
+                if self.manifest and self.manifest.rootResource:
                     from .eval import map_value
 
                     tpl["credential"] = map_value(
                         credential, self.manifest.rootResource
                     )
-                elif self.manifest.localEnv:
+                elif self.local_env:
                     # we're including or importing before we finished initializing
-                    context = self.manifest.localEnv.get_context(
-                        self.config.get("environment")
-                    )
-                    tpl["credential"] = self.manifest.localEnv.map_value(
+                    context = self.local_env.get_context(self.config.get("environment"))
+                    tpl["credential"] = self.local_env.map_value(
                         credential, cast(dict, context.get("variables"))
                     )
                 tpl["credential"] = wrap_sensitive_value(tpl["credential"])
@@ -665,7 +675,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         source_info: Optional[toscaparser.imports.SourceInfo] = None,
     ) -> str:
         if repository_name:
-            if repository_name not in importsLoader.repositories:
+            if self.manifest and repository_name not in importsLoader.repositories:
                 importsLoader.repositories[repository_name] = (
                     self.manifest.repositories[repository_name].repository.tpl
                 )
@@ -751,20 +761,20 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             return False
 
         # user supplied path can't be outside of the project or the home project
-        if self.manifest.localEnv and self.manifest.localEnv.project:
+        if self.local_env and self.local_env.project:
             if os.path.abspath(path).startswith(
                 os.path.abspath(os.path.dirname(__file__))
             ):
                 # special case for built-in "unfurl" repository
                 return False
-            if self.manifest.localEnv.project.get_relative_path(path).startswith(".."):
+            if self.local_env.project.get_relative_path(path).startswith(".."):
                 if (
-                    not self.manifest.localEnv.homeProject
-                    or self.manifest.localEnv.homeProject.get_relative_path(
-                        path
-                    ).startswith("..")
+                    not self.local_env.homeProject
+                    or self.local_env.homeProject.get_relative_path(path).startswith(
+                        ".."
+                    )
                 ):
-                    msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.manifest.localEnv.project.projectRoot}"'
+                    msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
                     ExceptionCollector.appendException(ImportError(msg))
                     return True
         return False
@@ -772,8 +782,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def _find_repoview(self, url: str) -> RepoView:
         repo_view = None
         git_url, path, revision = split_git_url(url)  # we only support git urls
-        assert self.manifest.localEnv
-        repoview_or_url = self.manifest.localEnv._find_git_repo(git_url, revision)
+        assert self.local_env
+        repoview_or_url = self.local_env._find_git_repo(git_url, revision)
         if isinstance(repoview_or_url, RepoView):
             repo_view = repoview_or_url
         else:
@@ -796,7 +806,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             # XXX coalesce repoviews
-            repo, created = self.manifest.find_or_clone_repo(repo_view, base)
+            if self.manifest:
+                repo, created = self.manifest.find_or_clone_repo(repo_view, base)
+            else:
+                repo = None
             if repo:
                 repo_view.repo = repo
             else:
@@ -814,10 +827,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return path
 
     def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
-        if self.manifest and self.manifest.localEnv:
-            if self.manifest.localEnv.overrides.get(
+        if self.local_env:
+            if self.local_env.overrides.get(
                 "UNFURL_SKIP_UPSTREAM_CHECK"
-            ) and self.manifest.localEnv.find_git_repo(url):
+            ) and self.local_env.find_git_repo(url):
                 return None  # skip if repo exists and skip_check is set
         elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             return None
@@ -857,10 +870,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             # if repository is nested in another choose the most nested
             for repo_view in self.manifest.repositories.values():
                 if not repo_view.repo:
-                    if self.manifest.localEnv:
-                        repo_view.repo = self.manifest.localEnv.find_git_repo(
-                            repo_view.url
-                        )
+                    if self.local_env:
+                        repo_view.repo = self.local_env.find_git_repo(repo_view.url)
                 if is_relative_to(base, repo_view.working_dir):
                     if len(repo_view.working_dir) > len(nearest):
                         nearest = repo_view.working_dir
