@@ -1135,8 +1135,9 @@ class GitlabManager(RepositoryHost):
             user, colon, token = user.partition(":")
         else:
             token = None
-        self.user = config.get("user") or user
-        self.token = config.get("password") or token
+        # Prioritize URL credentials over config credentials
+        self.user = user or config.get("user")
+        self.token = token or config.get("password")
         self.path = namespace or parts.path.strip("/")
         self.save_internal = bool(config.get("save_internal"))
         self.canonical_url = config.get("canonical_url") or ""
@@ -1540,17 +1541,14 @@ else:
 
             # Parse URL to extract hostname and base_url for GitHub Enterprise support
             url = config.get("url", "https://github.com")
-            self.user = config.get("user", "")
-            self.token = config.get("password", "")
 
             # Parse URL - supports both github.com and GitHub Enterprise
+            # Prioritize URL credentials over config credentials
             if url:
                 parsed_url = urlparse(url)
                 # Extract token from URL if embedded (https://user:token@github.com)
-                if parsed_url.username and not self.user:
-                    self.user = parsed_url.username
-                if parsed_url.password and not self.token:
-                    self.token = parsed_url.password
+                self.user = parsed_url.username or config.get("user", "")
+                self.token = parsed_url.password or config.get("password", "")
 
                 # Extract hostname
                 self.hostname = parsed_url.hostname or "github.com"
@@ -1562,6 +1560,8 @@ else:
                     # GitHub Enterprise requires /api/v3 path
                     self.base_url = f"{parsed_url.scheme}://{self.hostname}"
             else:
+                self.user = config.get("user", "")
+                self.token = config.get("password", "")
                 self.hostname = "github.com"
                 self.base_url = "https://github.com"
 

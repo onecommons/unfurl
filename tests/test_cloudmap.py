@@ -7,7 +7,14 @@ import git
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd, run_job_cmd
-from unfurl.cloudmap import CloudMapConfigurator
+from unittest.mock import Mock, patch
+from unfurl.cloudmap import (
+    GitlabManager,
+    GithubManager,
+    Repository,
+    RepositoryMetadata,
+    Directory,
+)
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
 
@@ -218,11 +225,6 @@ def test_configurator(runner, caplog):
     expected["tasks"][0]["status"] = None
     expected["tasks"][0]["changed"] = False
     assert summary == expected
-
-
-# Unit tests for GithubManager using mocks
-from unittest.mock import Mock, patch
-from unfurl.cloudmap import GithubManager, Repository, RepositoryMetadata, Directory
 
 
 class TestGithubManager:
@@ -740,3 +742,126 @@ class TestGithubManager:
         result = manager.canonize(url)
 
         assert result == url
+
+    @patch("unfurl.cloudmap.Github")
+    @patch("unfurl.cloudmap.Auth")
+    def test_url_credentials_priority(self, mock_auth, mock_github_class):
+        """Test that URL credentials take priority over config credentials."""
+        config = {
+            "type": "github",
+            "url": "https://urluser:urltoken@github.com",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+        manager = GithubManager("test", config)
+
+        assert manager.user == "urluser"
+        assert manager.token == "urltoken"
+
+    @patch("unfurl.cloudmap.Github")
+    @patch("unfurl.cloudmap.Auth")
+    def test_config_credentials_fallback(self, mock_auth, mock_github_class):
+        """Test that config credentials are used when URL has none."""
+        config = {
+            "type": "github",
+            "url": "https://github.com",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+        manager = GithubManager("test", config)
+
+        assert manager.user == "configuser"
+        assert manager.token == "configtoken"
+
+    @patch("unfurl.cloudmap.Github")
+    @patch("unfurl.cloudmap.Auth")
+    def test_url_user_only_priority(self, mock_auth, mock_github_class):
+        """Test that URL username takes priority even without URL password."""
+        config = {
+            "type": "github",
+            "url": "https://urluser@github.com",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+        manager = GithubManager("test", config)
+
+        assert manager.user == "urluser"
+        assert manager.token == "configtoken"  # Falls back to config password
+
+
+class TestGitlabManager:
+    """Unit tests for GitlabManager using mock GitLab API objects."""
+
+    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    def test_url_credentials_priority(self, mock_gitlab_class):
+        """Test that URL credentials take priority over config credentials."""
+        config = {
+            "type": "gitlab",
+            "url": "https://urluser:urltoken@gitlab.example.com/namespace",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+
+        # Mock the Gitlab instance to avoid auth attempt
+        mock_gitlab_instance = Mock()
+        mock_gitlab_class.return_value = mock_gitlab_instance
+
+        manager = GitlabManager("test", config)
+
+        assert manager.user == "urluser"
+        assert manager.token == "urltoken"
+
+    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    def test_config_credentials_fallback(self, mock_gitlab_class):
+        """Test that config credentials are used when URL has none."""
+        config = {
+            "type": "gitlab",
+            "url": "https://gitlab.example.com/namespace",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+
+        # Mock the Gitlab instance to avoid auth attempt
+        mock_gitlab_instance = Mock()
+        mock_gitlab_class.return_value = mock_gitlab_instance
+
+        manager = GitlabManager("test", config)
+
+        assert manager.user == "configuser"
+        assert manager.token == "configtoken"
+
+    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    def test_url_user_only_priority(self, mock_gitlab_class):
+        """Test that URL username takes priority even without URL password."""
+        config = {
+            "type": "gitlab",
+            "url": "https://urluser@gitlab.example.com/namespace",
+            "user": "configuser",
+            "password": "configtoken",
+        }
+
+        # Mock the Gitlab instance to avoid auth attempt
+        mock_gitlab_instance = Mock()
+        mock_gitlab_class.return_value = mock_gitlab_instance
+
+        manager = GitlabManager("test", config)
+
+        assert manager.user == "urluser"
+        assert manager.token == "configtoken"  # Falls back to config password
+
+    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    def test_no_credentials(self, mock_gitlab_class):
+        """Test manager initialization with no credentials at all."""
+        config = {
+            "type": "gitlab",
+            "url": "https://gitlab.example.com/namespace",
+        }
+
+        # Mock the Gitlab instance to avoid auth attempt
+        mock_gitlab_instance = Mock()
+        mock_gitlab_class.return_value = mock_gitlab_instance
+
+        manager = GitlabManager("test", config)
+
+        assert manager.user is None
+        assert manager.token is None
