@@ -483,6 +483,21 @@ class TestGithubManager:
         mock_directory.db.repositories = {}
         mock_directory.repos_root = "/mock/repos"
 
+        # Mock repo structure to avoid fetch/analyze errors
+        mock_git_repo = Mock()
+        mock_git_repo.repo.references = []  # Empty list to avoid iteration error
+        mock_git_repo.working_dir = "/mock/repos/testuser/test-repo"
+
+        # Mock the remote to return the correct URL
+        mock_remote = Mock()
+        mock_remote.url = "https://github.com/testuser/test-repo.git"
+        mock_git_repo.repo.remote.return_value = mock_remote
+
+        # Mock find_repo and clone_repo to prevent actual git operations
+        mock_directory.find_repo.return_value = None
+        mock_directory.clone_repo.return_value = mock_git_repo
+        mock_directory.maybe_analyze.return_value = None
+
         manager.from_host(mock_directory)
 
         # Verify repository was added
@@ -557,6 +572,21 @@ class TestGithubManager:
         mock_directory.db = Mock()
         mock_directory.db.repositories = {}
         mock_directory.repos_root = "/mock/repos"
+
+        # Mock repo structure to avoid fetch/analyze errors
+        mock_git_repo = Mock()
+        mock_git_repo.repo.references = []  # Empty list to avoid iteration error
+        mock_git_repo.working_dir = "/mock/repos/testorg/org-repo"
+
+        # Mock the remote to return the correct URL
+        mock_remote = Mock()
+        mock_remote.url = "https://github.com/testorg/org-repo.git"
+        mock_git_repo.repo.remote.return_value = mock_remote
+
+        # Mock find_repo and clone_repo to prevent actual git operations
+        mock_directory.find_repo.return_value = None
+        mock_directory.clone_repo.return_value = mock_git_repo
+        mock_directory.maybe_analyze.return_value = None
 
         manager.from_host(mock_directory)
 

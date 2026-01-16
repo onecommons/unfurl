@@ -844,13 +844,38 @@ class RepositoryHost:
         """
         return False
 
-    def match_repo_filter(self, git_url) -> bool:
+    def import_project_url(
+        self, url: str, directory: Directory, download: bool
+    ) -> None:
+        """Import a project from the given URL into the directory."""
+        pass
+
+    def extract_project_path(self, url: str) -> str:
+        if ":" in url:
+            parts = urlparse(url)
+            path = parts.path.lstrip("/")
+        elif url.startswith(self.hostname):
+            path = url[len(self.hostname) :].lstrip("/")
+        else:
+            path = url.lstrip("/")
+        if path.endswith(".git"):
+            path = path[:-4]
+        return path
+
+    def _git_url(self, url: str) -> Tuple[str, str]:
+        # strip out url scheme
+        parts = urlparse(self.canonize(url))
+        git_url = parts.netloc + parts.path
+        return git_url, parts.scheme
+
+    def match_repo_filter(self, repo_key: str) -> bool:
+        """repo_key is the location of the git server without the scheme or user"""
         if self.repo_filter:
-            if git_url.endswith(".git"):
-                git_url = git_url[:-4]
+            if repo_key.endswith(".git"):
+                repo_key = repo_key[:-4]
             if self.repo_filter[0] == "!":
-                return git_url != self.repo_filter[1:]
-            return git_url == self.repo_filter
+                return repo_key != self.repo_filter[1:]
+            return repo_key == self.repo_filter
         return True
 
     def has_repository(self, repo_info: Repository) -> bool:
@@ -1166,7 +1191,9 @@ class GitlabManager(RepositoryHost):
         Update the directory with projects on this gitlab instance.
         If the directory has local repositories associated with it, update those repositories too.
         """
-        # Gather repo info
+        if self.repo_filter and self.repo_filter[0] != "!":
+            self.import_project_url(self.repo_filter, directory, download=True)
+            return 1
         if self.path:
             group = self._get_group(self.path)
             if not group:
@@ -1187,6 +1214,12 @@ class GitlabManager(RepositoryHost):
             )
         return count
 
+    def import_project_url(
+        self, url: str, directory: Directory, download: bool
+    ) -> None:
+        project = self.gitlab.projects.get(self.extract_project_path(url))
+        return self._import_project(project, directory, download)
+
     def _import_projects_from_host(
         self, projects: Iterable[RESTObject], directory: Directory
     ) -> int:
@@ -1194,7 +1227,7 @@ class GitlabManager(RepositoryHost):
         count = 0
         for p in projects:
             if self.repo_filter:
-                git_url, scheme = self._git_url(cast(Project, p))
+                git_url, scheme = self._git_url(cast(Project, p).http_url_to_repo)
                 if not self.match_repo_filter(git_url):  # git_url is r.key
                     self.logger.trace(
                         "skipping %s, doesn't match %s", git_url, self.repo_filter
@@ -1452,12 +1485,6 @@ class GitlabManager(RepositoryHost):
                 set_ci_variables(dest_proj, local_vars.values())
         return changed
 
-    def _git_url(self, project: Project):
-        # strip out url scheme
-        parts = urlparse(self.canonize(project.http_url_to_repo))
-        git_url = parts.netloc + parts.path
-        return git_url, parts.scheme
-
     def gitlab_project_to_repository(self, project: Project) -> Repository:
         self.logger.verbose("getting %s", project.http_url_to_repo)
         kw = {}
@@ -1483,7 +1510,7 @@ class GitlabManager(RepositoryHost):
                 for envvar in yield_ci_variables(project)
             }
         metadata.set_lastupdate()
-        git_url, scheme = self._git_url(project)
+        git_url, scheme = self._git_url(project.http_url_to_repo)
         protocols = [scheme]
         if project.ssh_url_to_repo:
             protocols.append("ssh")
@@ -1580,13 +1607,6 @@ else:
                 else:
                     self.github = Github(base_url=f"{self.base_url}/api/v3")
 
-        def _git_url(self, repo: "GithubRepository") -> Tuple[str, str]:
-            """Extract and normalize git URL from GitHub repository, returning (git_url, scheme)."""
-            # strip out url scheme
-            parts = urlparse(self.canonize(repo.clone_url))
-            git_url = parts.netloc + parts.path
-            return git_url, parts.scheme
-
         def _get_organization(self, path: str) -> Optional[GithubOrganization]:
             """Get organization without creating it (helper for checking existence)."""
             try:
@@ -1594,12 +1614,18 @@ else:
             except GithubException:
                 return None
 
+        def import_project_url(
+            self, url: str, directory: Directory, download: bool
+        ) -> None:
+            repo = self.github.get_repo(self.extract_project_path(url))
+            return self._import_repository(repo, directory, download)
+
         def github_repository_to_repository(
             self, repo: "GithubRepository"
         ) -> Repository:
             """Convert PyGithub Repository object to cloudmap Repository dataclass."""
             # Extract git URL and scheme
-            git_url, scheme = self._git_url(repo)
+            git_url, scheme = self._git_url(repo.clone_url)
 
             # Build protocols list
             protocols = [scheme]
@@ -1680,7 +1706,7 @@ else:
             for repo in repos:
                 # Filter by repo_filter if set
                 if self.repo_filter:
-                    git_url, scheme = self._git_url(repo)
+                    git_url, scheme = self._git_url(repo.clone_url)
                     if not self.match_repo_filter(git_url):
                         self.logger.trace(
                             "skipping %s, doesn't match %s", git_url, self.repo_filter
@@ -1711,6 +1737,9 @@ else:
 
         def from_host(self, directory: Directory) -> int:
             """Fetch repositories from GitHub and sync to cloudmap."""
+            if self.repo_filter and self.repo_filter[0] != "!":
+                self.import_project_url(self.repo_filter, directory, download=True)
+                return 1
             group = self.get_owner(self.path)
             if group:
                 repos = group.get_repos()
@@ -1962,6 +1991,19 @@ class CloudMap:
             repository,
         )
 
+    @staticmethod
+    def _find_host_config(
+        hosts: Dict[str, HostConfig], host_name: str
+    ) -> Tuple[str, Optional[HostConfig]]:
+        for host_name, host_config in hosts.items():
+            if "url" not in host_config:
+                continue
+            host_url = host_config["url"]
+            host_parsed = urlparse(host_url)
+            if host_parsed.hostname == host_name:
+                return host_name, host_config
+        return "", None
+
     @classmethod
     def get_host(
         cls,
@@ -1972,6 +2014,20 @@ class CloudMap:
         visibility: Optional[str] = None,
         repo_filter: str = "",
     ) -> RepositoryHost:
+        """
+        Find a repository host in the cloudmap config with a hostname matching the given URL
+        and return a RepositoryHost instance with repo_filter set to the URL.
+
+        Args:
+            local_env: The local environment containing cloudmap configuration
+            name: Name of the host config or url with optional credentials
+            namespace: Optional namespace to filter repositories
+            repos_root: Optional root directory for local repositories
+            visibility: Optional visibility filter for repositories
+            repo_filter: Optional repository identifier to match and use as repo_filter
+        Returns:
+            RepositoryHost instance
+        """
         environment = local_env.get_context().get("cloudmaps", {})
         hosts = environment.get("hosts", {})
         host_config: Optional[HostConfig] = hosts.get(name)
@@ -1981,13 +2037,27 @@ class CloudMap:
                     type="local", clone_root=repos_root, url=""
                 )
             elif ":" in name:
-                # assume it's an url pointing to gitlab or unfurl cloud instance
-                hostname = urlparse(name).hostname
+                # name is an url
+                # try to find a matching host config for the url, otherwise create new host config on the fly
+                url = name
+                parts = urlparse(url)
+                hostname = parts.hostname
                 if not hostname:
-                    raise UnfurlError(f"invalid url for host: {name}")
-                host_config = HostConfig(type="gitlab", url=name)
-                # name has to be useable as part of a branch name so just use the hostname
-                name = unique_name(hostname, list(hosts))
+                    raise UnfurlError(f"invalid url for host: {url}")
+                path = parts.path.strip("/")
+                name, host_config = cls._find_host_config(hosts, hostname)
+                if host_config is None:
+                    host_type: Literal["github", "gitlab"] = (
+                        "github" if hostname == "github.com" else "gitlab"
+                    )
+                    host_config = HostConfig(type=host_type, url=url)
+                    # set name to empty so we don't create a branch like "hosts/github.com"
+                    name = ""
+                if not repo_filter and "/" in path:
+                    # find host config that matches this hostname and set this url as its repo_filter
+                    repo_filter = get_remote_git_url(url)
+                elif not namespace and path:
+                    namespace = path
             else:
                 raise UnfurlError(f"no repository host named {name} found")
         host_config = local_env.map_value(
@@ -2176,3 +2246,4 @@ class CloudMapConfigurator(Configurator):
         cloud_map, host = task.rendered
         changed = cloud_map.to_host(host, False, bool(task.inputs.get("force")), False)
         return task.done(True, changed)
+
