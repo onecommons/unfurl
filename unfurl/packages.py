@@ -431,19 +431,23 @@ class Package:
     def __str__(self):
         return f"Package({self.package_id} {self.revision} {self.safe_url})"
 
-    def version_tag_prefix(self) -> str:
+    def version_tag_prefix(self, major_version: str = "") -> str:
         # see https://go.dev/ref/mod#vcs-version
         if self.url:
             url, repopath, urlrevision = split_git_url(self.url)
             # return tag prefix to match version tags with
             if repopath:
-                # strip out major version suffix:
-                # if repopath looks "foo" or "foo/v2", return "foo/v"
-                return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
-        return "v"
+                # if repopath has a major version suffix use that to only match tags with that major version
+                # otherwise return "foo/v" to find version tags for this package only
+                if re.match(r".*/v\d+$", repopath):
+                    return repopath
+                return repopath + "/v" + major_version
+        return "v" + major_version
 
-    def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
-        prefix = self.version_tag_prefix()
+    def find_latest_semver_from_repo(
+        self, get_remote_tags, major_version: str = ""
+    ) -> Optional[str]:
+        prefix = self.version_tag_prefix(major_version)
         order = "earliest" if self.missing else "latest"
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
@@ -501,6 +505,10 @@ class Package:
         if not self.has_semver(True):
             return self.revision
         else:
+            prefix = self.version_tag_prefix()
+            while prefix[-1:].isdigit():
+                # remove trailing digit from prefix
+                prefix = prefix[:-1]
             # since "^v" is in the semver regex, make sure don't end up with "vv"
             return self.version_tag_prefix() + self.revision.lstrip("v")
 
