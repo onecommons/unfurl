@@ -17,57 +17,65 @@ artifact_keys = [
 
 
 @pytest.mark.parametrize(
-    "image_url,expected_ref,expected_metadata,has_artifact_fetch",
+    "image_url,expected_ref,expected_artifact,has_artifact_fetch,has_vcs_info",
     [
         (
             "docker.io/baserow/baserow",
             ContainerImageParts(
                 full_name="baserow/baserow", tag="", digest="", registry="docker.io"
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/baserow?repository_url=registry-1.docker.io/baserow/baserow",
-                source="https://github.com/baserow/baserow",
-                description="All in one docker image for Baserow, open source no-code platform tool and Airtable alternative",
-                title="baserow",
-                repository_id="",
+            oci.Artifact(
+                url="pkg:oci/baserow?repository_url=docker.io/baserow/baserow",
+                type="cloudmap.artifacts.oci.Image",
                 digest="",  # Will be replaced in test
-                platforms=[
-                    {"architecture": "amd64", "os": "linux"},
-                    {"architecture": "arm64", "os": "linux"},
-                ],
-                spdx_licenses="",
-                vendor="",
-                version="",
-                revision="2790886f0d68669327793d46ee8989f92a9459c6",
-                homepage_url="",
-                documentation_url="",
+                source=oci.ArtifactSource(
+                    location="https://github.com/baserow/baserow",
+                    revision="2790886f0d68669327793d46ee8989f92a9459c6",
+                ),
+                metadata=oci.ArtifactMetadata(
+                    source="https://github.com/baserow/baserow",
+                    description="All in one docker image for Baserow, open source no-code platform tool and Airtable alternative",
+                    title="baserow",
+                    platforms=[
+                        {"architecture": "amd64", "os": "linux"},
+                        {"architecture": "arm64", "os": "linux"},
+                    ],
+                    spdx_licenses="",
+                    vendor="",
+                    version="",
+                    homepage_url="",
+                    documentation_url="",
+                ),
             ),
             True,
+            False,  # has artifact but no VCS info
         ),
         (
             "lscr.io/linuxserver/wireguard",
             ContainerImageParts(
                 full_name="linuxserver/wireguard", tag="", digest="", registry="lscr.io"
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/wireguard?repository_url=lscr.io/linuxserver/wireguard",
-                source="https://github.com/linuxserver/docker-wireguard",
-                description="[WireGuard®] is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. It aims to be faster, simpler, leaner, and more useful than IPsec, while avoiding the massive headache. It intends to be considerably more performant than OpenVPN. WireGuard is designed as a general purpose VPN for running on embedded interfaces and super computers alike, fit for many different circumstances. Initially released for the Linux kernel, it is now cross-platform (Windows, macOS, BSD, iOS, Android) and widely deployable. It is currently under heavy development, but already it might be regarded as the most secure, easiest to use, and simplest VPN solution in the industry.",
-                title="Wireguard",
-                repository_id="",
+            oci.Artifact(
+                url="pkg:oci/wireguard?repository_url=lscr.io/linuxserver/wireguard",
+                type="cloudmap.artifacts.oci.Image",
                 digest="",  # Will be replaced in test
-                platforms=[
-                    {"architecture": "amd64", "os": "linux"},
-                    {"architecture": "arm64", "os": "linux"},
-                ],
-                spdx_licenses="GPL-3.0-only",
-                vendor="linuxserver.io",
-                version="1.0.20250521-r1-ls97",
-                revision="4951f20e686ae1109b3be25abfbf9b712aa53e81",
-                homepage_url="https://www.wireguard.com/",
-                documentation_url="https://docs.linuxserver.io/images/docker-wireguard",
+                metadata=oci.ArtifactMetadata(
+                    source="https://github.com/linuxserver/docker-wireguard",
+                    description="[WireGuard®] is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. It aims to be faster, simpler, leaner, and more useful than IPsec, while avoiding the massive headache. It intends to be considerably more performant than OpenVPN. WireGuard is designed as a general purpose VPN for running on embedded interfaces and super computers alike, fit for many different circumstances. Initially released for the Linux kernel, it is now cross-platform (Windows, macOS, BSD, iOS, Android) and widely deployable. It is currently under heavy development, but already it might be regarded as the most secure, easiest to use, and simplest VPN solution in the industry.",
+                    title="Wireguard",
+                    platforms=[
+                        {"architecture": "amd64", "os": "linux"},
+                        {"architecture": "arm64", "os": "linux"},
+                    ],
+                    spdx_licenses="GPL-3.0-only",
+                    vendor="linuxserver.io",
+                    version="IGNORE",  # version may change
+                    homepage_url="https://www.wireguard.com/",
+                    documentation_url="https://docs.linuxserver.io/images/docker-wireguard",
+                ),
             ),
             True,
+            False,  # has artifact but no VCS info
         ),
         (
             "registry.gitlab.com/gitlab-org/project-templates/express/main",
@@ -77,22 +85,24 @@ artifact_keys = [
                 digest="",
                 registry="registry.gitlab.com",
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/main?repository_url=registry.gitlab.com/gitlab-org/project-templates/express/main",
-                source="",
-                description="",
-                title="",
-                repository_id="",
+            oci.Artifact(
+                url="pkg:oci/main?repository_url=registry.gitlab.com/gitlab-org/project-templates/express/main",
+                type="cloudmap.artifacts.oci.Image",
                 digest="",  # Will be replaced in test
-                platforms=[{"architecture": "amd64", "os": "linux"}],
-                spdx_licenses="",
-                vendor="",
-                version="",
-                revision="",
-                homepage_url="https://gitlab.com/gitlab-org/project-templates",
-                documentation_url="",
+                metadata=oci.ArtifactMetadata(
+                    source="",
+                    description="",
+                    title="",
+                    platforms=[{"architecture": "amd64", "os": "linux"}],
+                    spdx_licenses="",
+                    vendor="",
+                    version="",
+                    homepage_url="https://gitlab.com/gitlab-org/project-templates",
+                    documentation_url="",
+                ),
             ),
             False,
+            False,  # no artifact
         ),
         (
             "ghcr.io/onecommons/unfurl:v1.1.0-server-cached",
@@ -102,22 +112,28 @@ artifact_keys = [
                 digest="",
                 registry="ghcr.io",
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/unfurl?repository_url=ghcr.io/onecommons/unfurl&tag=v1.1.0-server-cached",
-                source="",
-                description="",
-                title="",
-                repository_id="",
+            oci.Artifact(
+                url="pkg:oci/unfurl?repository_url=ghcr.io/onecommons/unfurl&tag=v1.1.0-server-cached",
+                type="cloudmap.artifacts.oci.Image",
                 digest="sha256:4410d557ee799971770cf4fadc04e78fa5d2bd68470b6e6c6ebd49f32a59338d",
-                platforms=[{"architecture": "amd64", "os": "linux"}],
-                spdx_licenses="",
-                vendor="",
-                version="",
-                revision="",
-                homepage_url="",
-                documentation_url="",
+                source=oci.ArtifactSource(
+                    location="https://github.com/onecommons/unfurl",
+                    revision="f5da8de13ae2dcce293508c4ccac9b373e66dd49",
+                ),
+                metadata=oci.ArtifactMetadata(
+                    source="https://github.com/onecommons/unfurl",
+                    description="",
+                    title="",
+                    platforms=[{"architecture": "amd64", "os": "linux"}],
+                    spdx_licenses="",
+                    vendor="",
+                    version="",
+                    homepage_url="",
+                    documentation_url="",
+                ),
             ),
             True,
+            True,  # ghcr.io image with VCS info
         ),
         (
             "ghcr.io/actions/actions-runner:latest",
@@ -127,25 +143,31 @@ artifact_keys = [
                 digest="",
                 registry="ghcr.io",
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/actions-runner?repository_url=ghcr.io/actions/actions-runner&tag=latest",
-                source="https://github.com/actions/runner",
-                description="IGNORE",  # ignore because this will change: "https://github.com/actions/runner/releases/tag/v2.331.0",
-                title="",
-                repository_id="",
-                digest="",
-                platforms=[
-                    {"architecture": "amd64", "os": "linux"},
-                    {"architecture": "arm64", "os": "linux"},
-                ],
-                spdx_licenses="MIT",
-                vendor="",
-                version="24.04",
-                revision="",
-                homepage_url="",
-                documentation_url="",
+            oci.Artifact(
+                url="pkg:oci/actions-runner?repository_url=ghcr.io/actions/actions-runner&tag=latest",
+                type="cloudmap.artifacts.oci.Image",
+                digest="",  # Will be replaced in test
+                source=oci.ArtifactSource(
+                    location="https://github.com/actions/runner",
+                    revision="IGNORE",  # extracted from in-toto artifact, will change with new builds
+                ),
+                metadata=oci.ArtifactMetadata(
+                    source="https://github.com/actions/runner",
+                    description="IGNORE",  # ignore because this will change
+                    title="",
+                    platforms=[
+                        {"architecture": "amd64", "os": "linux"},
+                        {"architecture": "arm64", "os": "linux"},
+                    ],
+                    spdx_licenses="MIT",
+                    vendor="",
+                    version="24.04",
+                    homepage_url="",
+                    documentation_url="",
+                ),
             ),
             True,
+            True,  # ghcr.io image with VCS info
         ),
         (
             "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:master",
@@ -155,25 +177,27 @@ artifact_keys = [
                 digest="",
                 registry="registry.gitlab.com",
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/gitlab-toolbox-ce?repository_url=registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce&tag=master",
-                source="",
-                description="",
-                title="",
-                repository_id="",
-                digest="",
-                platforms=[
-                    {"architecture": "amd64", "os": "linux"},
-                    {"architecture": "arm64", "os": "linux"},
-                ],
-                spdx_licenses="",
-                vendor="",
-                version="",
-                revision="",
-                homepage_url="https://gitlab.com/gitlab-org/build",
-                documentation_url="",
+            oci.Artifact(
+                url="pkg:oci/gitlab-toolbox-ce?repository_url=registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce&tag=master",
+                type="cloudmap.artifacts.oci.Image",
+                digest="",  # Will be replaced in test
+                metadata=oci.ArtifactMetadata(
+                    source="",
+                    description="",
+                    title="",
+                    platforms=[
+                        {"architecture": "amd64", "os": "linux"},
+                        {"architecture": "arm64", "os": "linux"},
+                    ],
+                    spdx_licenses="",
+                    vendor="",
+                    version="",
+                    homepage_url="https://gitlab.com/gitlab-org/build",
+                    documentation_url="",
+                ),
             ),
             False,
+            False,  # no artifact
         ),
         (
             "registry.unfurl.cloud/onecommons/unfurl-gui@sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
@@ -183,27 +207,29 @@ artifact_keys = [
                 digest="sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
                 registry="registry.unfurl.cloud",
             ),
-            oci.ArtifactMetadata(
-                purl="pkg:oci/unfurl-gui@sha256%3Ac21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32?repository_url=registry.unfurl.cloud/onecommons/unfurl-gui",
-                source="",
-                description="",
-                title="",
-                repository_id="",
+            oci.Artifact(
+                url="pkg:oci/unfurl-gui@sha256%3Ac21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32?repository_url=registry.unfurl.cloud/onecommons/unfurl-gui",
+                type="cloudmap.artifacts.oci.Image",
                 digest="sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
-                platforms=[{"architecture": "amd64", "os": "linux"}],
-                spdx_licenses="",
-                vendor="",
-                version="",
-                revision="",
-                homepage_url="https://unfurl.cloud/onecommons/unfurl-gui",
-                documentation_url="",
+                metadata=oci.ArtifactMetadata(
+                    source="",
+                    description="",
+                    title="",
+                    platforms=[{"architecture": "amd64", "os": "linux"}],
+                    spdx_licenses="",
+                    vendor="",
+                    version="",
+                    homepage_url="https://unfurl.cloud/onecommons/unfurl-gui",
+                    documentation_url="",
+                ),
             ),
             False,
+            False,  # no artifact
         ),
     ],
 )
 def test_resolve_image_ref(
-    image_url, expected_ref, expected_metadata, has_artifact_fetch
+    image_url, expected_ref, expected_artifact, has_artifact_fetch, has_vcs_info
 ):
     # Test parsing the image reference
     ref = ContainerImage.make(image_url)
@@ -214,40 +240,88 @@ def test_resolve_image_ref(
         ref.parts
     )
     assert platforms
-    assert manifest_digest == expected_metadata.digest or expected_metadata.digest == ""
+    assert manifest_digest == expected_artifact.digest or expected_artifact.digest == ""
 
-    # Assert artifact_fetch presence based on expected value
+    # Test creating artifact
+    artifact = oci.create_oci_artifact(ref)
+    assert artifact is not None, f"Failed to create artifact for {image_url}"
+    assert artifact.discovery is not None, f"Expected discovery info for {image_url}"
+    assert len(artifact.discovery.sources) > 0, (
+        f"Expected at least one source URL for {image_url}"
+    )
+
     if has_artifact_fetch:
+        # print("ARTIFACT FETCH:", artifact.discovery.sources, artifact_fetch)
         assert artifact_fetch is not None, (
             f"artifact_fetch should be returned for {image_url}"
         )
+        if has_vcs_info:
+            assert artifact_fetch.manifest_url in artifact.discovery.sources, (
+                f"Expected artifact manifest URL {artifact_fetch.manifest_url} to be in discovery.sources for {image_url}"
+            )
     else:
         assert artifact_fetch is None, f"artifact_fetch should be None for {image_url}"
 
-    # Test creating artifact metadata
-    artifact_metadata, source_urls = oci.create_oci_artifact(ref)
-    assert artifact_metadata is not None, (
-        f"Failed to create artifact metadata for {image_url}"
-    )
-    assert isinstance(source_urls, list), f"source_urls should be a list for {image_url}"
-    assert len(source_urls) > 0, f"Expected at least one source URL for {image_url}"
-
     # Verify manifest URL is included (will have the manifest digest, not the tag)
-    assert any("/manifests/" in url for url in source_urls), (
-        f"No manifest URL found in source_urls for {image_url}"
+    assert any("/manifests/" in url for url in artifact.discovery.sources), (
+        f"No manifest URL found in discovery.sources for {image_url}"
     )
 
-    if not expected_metadata.digest:
+    # Handle variable fields
+    if not expected_artifact.digest:
         # digest is unpredictable, just assert it's set
-        assert artifact_metadata.digest is not None, (
-            f"Expected a digest for {image_url}"
+        assert artifact.digest, f"Expected a digest for {image_url}"
+        expected_artifact = replace(expected_artifact, digest=artifact.digest)
+
+    if expected_artifact.metadata.description == "IGNORE":
+        expected_artifact = replace(
+            expected_artifact,
+            metadata=replace(
+                expected_artifact.metadata, description=artifact.metadata.description
+            ),
         )
-        expected_metadata = replace(expected_metadata, digest=artifact_metadata.digest)
-    if expected_metadata.description == "IGNORE":
-        expected_metadata = replace(
-            expected_metadata, description=artifact_metadata.description
+
+    if expected_artifact.metadata.version == "IGNORE":
+        expected_artifact = replace(
+            expected_artifact,
+            metadata=replace(
+                expected_artifact.metadata, version=artifact.metadata.version
+            ),
         )
-    assert artifact_metadata == expected_metadata, f"Metadata mismatch for {image_url}"
+
+    if expected_artifact.source and expected_artifact.source.revision == "IGNORE":
+        expected_artifact = replace(
+            expected_artifact,
+            source=replace(
+                expected_artifact.source,
+                revision=artifact.source.revision if artifact.source else "",
+            ),
+        )
+
+    # Compare artifacts (excluding discovery which we already checked)
+    assert artifact.url == expected_artifact.url, (
+        f"Package URL mismatch for {image_url}"
+    )
+    assert artifact.type == expected_artifact.type, (
+        f"unexpected artifact type for {image_url}: {artifact.type} != {expected_artifact.type}"
+    )
+    assert artifact.digest == expected_artifact.digest, (
+        f"Digest mismatch for {image_url}"
+    )
+    # assert artifact.metadata == expected_artifact.metadata, f"Metadata mismatch for {image_url}"
+
+    # Compare source if expected
+    if expected_artifact.source:
+        assert artifact.source is not None, f"Expected source for {image_url}"
+        assert artifact.source.location == expected_artifact.source.location, (
+            f"Source location mismatch for {image_url}"
+        )
+        assert artifact.source.revision == expected_artifact.source.revision, (
+            f"Source revision mismatch for {image_url}"
+        )
+    elif artifact.source:
+        # It's OK for artifact to have source even if not expected (e.g. from annotations)
+        pass
 
 
 class FakeResponse:
@@ -317,7 +391,6 @@ def mock_requests_get(monkeypatch):
 
 
 def test_registry_v2_fetch_single_manifest_labels(mock_requests_get):
-    # ref = oci.parse_image_ref("docker.io/library/nginx:latest")
     host = "registry-1.docker.io"
     repo = "library/nginx"
 

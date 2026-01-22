@@ -16,9 +16,9 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 import os
 
-from ..cloudmap import Repository, RepositoryDict
+from ..cloudmap import CloudMapDB, EntitySchema
 from ..logs import getLogger
-from ..graphql import ImportDef, ResourceTypesByName
+from ..graphql import ImportDef, ResourceType, ResourceTypesByName
 
 from toscaparser.elements.entity_type import Namespace
 
@@ -32,6 +32,9 @@ from .serve import (
     DEFAULT_BRANCH,
     project_id_from_urlresult,
 )
+
+CLOUDMAP_BRANCH = "main"
+
 from ..repo import (
     GitRepo,
     Repo,
@@ -76,48 +79,58 @@ def load_yaml(
     return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
 
 
-def get_cloudmap_types(project_id: str, root_cache_entry: CacheEntry):
-    err, doc = load_yaml(project_id, "main", "cloudmap.yaml", root_cache_entry)
+def get_cloudmap_types(
+    project_id: str, root_cache_entry: CacheEntry
+) -> Tuple[Optional[Any], Dict[str, ResourceType]]:
+    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml", root_cache_entry)
     if doc is None:
         return err, {}
-    repositories_dict = cast(Dict[str, dict], doc.get("repositories") or {})
-    types: Dict[str, dict] = {}
-    for r_dict in repositories_dict.values():
-        r = Repository(**r_dict)
-        if not r.notable:
-            continue
-        for file_path, notable in r.notable.items():
-            if notable.get("artifact_type") == "artifact.tosca.ServiceTemplate":
-                typeinfo = notable.get("type")
-                if typeinfo:
-                    name = typeinfo["name"]
-                    if "_sourceinfo" not in typeinfo:
-                        typeinfo["_sourceinfo"] = ImportDef(
-                            file=file_path, url=r.git_url()
-                        )
+    types: Dict[str, ResourceType] = {}
+    db = CloudMapDB("", doc, False)
+    for artifact in db.find_artifacts(EntitySchema.CloudBlueprint):
+        git_url = artifact.url
+        # Iterate through each type that this artifact instantiates
+        if artifact.instantiates:
+            for type_name in artifact.instantiates.types:
+                cloud_type = db.get_type(type_name)
+                if cloud_type:
+                    name = cloud_type.name
+                    local_types = ResourceTypesByName(git_url, Namespace({}, ""))
                     if "@" not in name:
-                        schema = cast(str, notable.get("schema", r.git_url()))
-                        local_types = ResourceTypesByName(schema, Namespace({}, ""))
-                        typeinfo["name"] = name = local_types.expand_typename(name)
-                        # make sure "extends" are fully qualified
-                        extends = typeinfo.get("extends")
-                        if extends:
-                            typeinfo["extends"] = [
-                                local_types.expand_typename(extend)
-                                for extend in extends
-                            ]
-                    typeinfo["_sourceinfo"]["incomplete"] = True
-                    if not typeinfo.get("description") and notable.get("description"):
-                        typeinfo["description"] = notable["description"]
+                        name = local_types.expand_typename(name)
+                    # make sure "extends" are fully qualified
+                    if cloud_type.extends:
+                        extends = [
+                            local_types.expand_typename(extend)
+                            for extend in cloud_type.extends
+                        ]
+                    else:
+                        extends = []
+                    file = split_git_url(artifact.url)[1]
+                    resource_type = ResourceType(
+                        __typename="ResourceType",
+                        name=name,
+                        requirements=[],
+                        extends=extends,
+                        title=cloud_type.title
+                        or name.split(".")[-1],  # short, readable name
+                        _sourceinfo=ImportDef(file=file, url=git_url, incomplete=True),
+                        inputsSchema={},
+                    )
+                    if artifact.metadata.description:
+                        resource_type["description"] = artifact.metadata.description
                     # XXX hack, always set for root type:
-                    typeinfo["implementations"] = ["connect", "create"]
-                    typeinfo["directives"] = ["substitute"]
-                    if r.metadata.avatar_url:
-                        typeinfo["icon"] = r.metadata.avatar_url
-                    dependencies = notable.get("dependencies")
+                    resource_type["implementations"] = ["connect", "create"]
+                    resource_type["directives"] = ["substitute"]
+                    thumbnail = artifact.metadata.thumbnail_url
+                    if thumbnail:
+                        resource_type["icon"] = thumbnail
+                    dependencies = artifact.requires.names()
                     if dependencies:
-                        typeinfo.setdefault("metadata", {})["components"] = dependencies
-                    types[name] = typeinfo
+                        resource_type.setdefault("metadata", {})["components"] = (
+                            dependencies
+                        )
+                    types[name] = resource_type
 
     return err, types
 

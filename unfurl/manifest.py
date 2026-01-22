@@ -93,13 +93,15 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 _TI = TypeVar("_TI", bound=EntityInstance)
 
 
-def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
+def relabel_dict(
+    environment: Dict[str, Dict[str, Any]], localEnv: "LocalEnv", key: str
+) -> Dict[str, Any]:
     """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment."""
     connections = environment.get(key)
     if not connections:
         return {}
     assert isinstance(connections, dict)
-    environments: Dict[str, Dict] = {}
+    environments: Dict[str, Dict[str, Any]] = {}
     if localEnv:
         project = localEnv.project or localEnv.homeProject
         if project:
@@ -112,7 +114,7 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
             if sep:  # found a ":"
                 v = environments[env][key][name]
             else:  # look in current dict
-                v = connections[env]  # type: ignore
+                v = connections[env]
             return follow_alias(v)  # follow
         else:
             return v

@@ -4,6 +4,7 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
+from unfurl.oci import EntitySchema
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd, run_job_cmd
@@ -14,6 +15,8 @@ from unfurl.cloudmap import (
     Repository,
     RepositoryMetadata,
     Directory,
+    CloudMapDB,
+    TypeRefs,
 )
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
@@ -126,8 +129,12 @@ repositories:
     branches:
       main: f2440a4f6cf20bf0c14d0d256d28b796aeacff0b
     notable:
-      ensemble/ensemble.yaml#spec/service_template:
-        artifact_type: artifact.tosca.UnfurlEnsemble""".rstrip()
+      ensemble/ensemble.yaml:
+        type: {EntitySchema.Ensemble}
+        artifact: https://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
+artifacts:
+  https://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
+    type: {EntitySchema.Ensemble}""".rstrip()
 
 @skip_integration
 def test_create(runner, caplog):
@@ -150,7 +157,7 @@ def test_create(runner, caplog):
         "committed: Update hosts/testProvider with latest from testProvider/feb20a"
         in caplog.text
     )
-    assert "nothing to commit for: synced to testProvider" in caplog.text
+    assert 'nothing to commit for "synced to testProvider"' in caplog.text
 
 
 @skip_integration
@@ -164,10 +171,10 @@ def test_sync(runner, caplog):
     assert UNFURL_TEST_CLOUDMAP_URL
     for msg in [
         "found git repo unfurl.cloud/feb20a/dashboard.git",
-        "nothing to commit for: Update hosts/testProvider with latest from testProvider/feb20a",
+        'nothing to commit for "Update hosts/testProvider with latest from testProvider/feb20a"',
         "syncing to feb20a",
         f"skipping push: no change detected on branch testProvider/main for {sanitize_url(UNFURL_TEST_CLOUDMAP_URL)}/feb20a/dashboard.git",
-        "nothing to commit for: synced to testProvider",
+        'nothing to commit for "synced to testProvider"',
     ]:
         assert msg in caplog.text
 
@@ -225,6 +232,64 @@ def test_configurator(runner, caplog):
     expected["tasks"][0]["status"] = None
     expected["tasks"][0]["changed"] = False
     assert summary == expected
+
+
+expected_types_cloudmap = f"""apiVersion: {API_VERSION}
+kind: CloudMap
+repositories:
+  unfurl.cloud/onecommons/blueprints/cronicle:
+    git: unfurl.cloud/onecommons/blueprints/cronicle.git
+    path: onecommons/blueprints/cronicle
+    name: Cronicle
+    protocols:
+    - https
+    - ssh
+    internal_id: '504'
+    project_url: https://unfurl.cloud/onecommons/blueprints/cronicle
+    metadata:
+      description: A simple, distributed task scheduler and runner with a web based
+        UI.
+      issues_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/issues
+      homepage_url: https://unfurl.cloud/onecommons/blueprints/cronicle
+      avatar_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar
+    default_branch: main
+    branches:
+      main: c927e49f0fa1bc6c957cc16ca9d554b46d1abe73
+    tags:
+      v1.0.0: c927e49f0fa1bc6c957cc16ca9d554b46d1abe73
+      v0.1.0: 2f9288e491d47ab0d976c135a5a17475bc9c746a
+    notable:
+      ensemble-template.yaml#spec/service_template:
+        type: {EntitySchema.CloudBlueprint}
+        artifact: https://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template
+artifacts:
+  https://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template:
+    type: {EntitySchema.CloudBlueprint}
+    notable:
+    - pkg:oci/cronicle?repository_url=docker.io/soulteary:
+    instantiates:
+      CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
+    metadata:
+      description: A simple, distributed task scheduler and runner with a web based
+        UI.
+      title: Cronicle
+      version: '0.1'
+      thumbnail_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar
+types:
+  CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
+    name: CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
+    kind: Service
+    title: CronicleApp
+    extends:
+    - CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
+    - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
+    - WebApp@unfurl.cloud/onecommons/std:generic_types
+    - _ContainerAppBase@unfurl.cloud/onecommons/std:generic_types
+    - App@unfurl.cloud/onecommons/std:generic_types
+    - tosca.nodes.Root
+    - tosca.capabilities.Node
+    - tosca.capabilities.Root
+"""
 
 
 class TestGithubManager:
@@ -370,7 +435,7 @@ class TestGithubManager:
         assert result.default_branch == "main"
         assert result.metadata.description == "Test repository"
         assert result.metadata.topics == ["python", "testing"]
-        assert result.metadata.spdx_license_id == "MIT"
+        assert result.metadata.spdx_licenses == "MIT"
         assert result.metadata.homepage_url == "https://example.com"
         # Verify branches and tags
         assert result.branches == {"main": "abc123", "develop": "def456"}
@@ -895,3 +960,320 @@ class TestGitlabManager:
 
         assert manager.user is None
         assert manager.token is None
+
+
+def test_cloudmap_schema_with_artifacts_and_services():
+    """Test CloudMapDB validates artifacts and services sections with new schema."""
+    import tempfile
+
+    cloudmap_yaml = f"""apiVersion: {API_VERSION}
+kind: CloudMap
+repositories:
+  github.com/onecommons/unfurl:
+    git: github.com/onecommons/unfurl.git
+    path: onecommons/unfurl
+    name: unfurl
+    protocols:
+    - https
+    - ssh
+    default_branch: main
+    branches:
+      main: f5da8de13ae2dcce293508c4ccac9b373e66dd49
+    tags:
+      v1.1.0: abc123def456
+artifacts:
+  pkg:oci:docker.io/library/nginx:
+    type: cloudmap.artifacts.oci.Image
+    notable:
+    - pkg:oci:ghcr.io/library/alpine
+    instantiates:
+      software.WebServer:
+        version: "1.25"
+      software.HTTPServer: null
+    requires:
+      software.Linux:
+        version: ">=5.0"
+    source:
+      location: https://github.com/onecommons/unfurl#:.
+      revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
+      provenance: https://ghcr.io/v2/actions/actions-runner/manifests/sha256:6ab8b6170ff81ad2288567b1a2c7446fbd15bc458fd899d94a5626d77e8c90dd
+      reproducible: false
+    digest: sha256:abc123
+    immutable: false
+    metadata:
+      title: Nginx Web Server
+      description: High-performance HTTP server and reverse proxy
+      created: "2023-09-24T15:30:00Z"
+      platforms:
+      - architecture: amd64
+        os: linux
+      - architecture: arm64
+        os: linux
+      spdx_licenses: BSD-2-Clause
+      vendor: Nginx Inc.
+      version: 1.25.3
+      homepage_url: https://nginx.org
+      documentation_url: https://nginx.org/en/docs/
+      thumbnail_url: https://nginx.org/images/nginx-logo.png
+    discovery:
+      last_checked: "2023-09-24T15:30:00Z"
+      sources:
+      - https://ghcr.io/v2/nginx/manifests/latest
+      - https://github.com/nginx/nginx/releases
+    releases:
+      pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49:
+        digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
+        immutable: true
+      pkg:oci:docker.io/library/nginx:latest:
+        digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
+        immutable: false
+        metadata:
+          version: latest
+services:
+  https://unfurl.cloud:
+    type:
+      WebApp@unfurl.cloud/onecommons/std:generic_types:
+        version: "1.0"
+    capabilities:
+      capabilities.GitOps:
+      capabilities.CICD:
+        version: ">=2.0"
+    endpoints:
+    - url: https://unfurl.cloud/api/v1
+      type: API
+    dependencies:
+    - https://github.com
+    metadata:
+      title: Unfurl Cloud
+      description: Open-source platform for collaboratively developing cloud applications
+      vendor: OneCommons
+      version: 1.0.0
+      documentation_url: https://docs.unfurl.cloud
+      thumbnail_url: https://unfurl.cloud/unfurl-logo.svg
+      source_url: https://github.com/onecommons/unfurl-cloud
+    notable:
+    - pkg:oci:ghcr.io/onecommons/unfurl
+    policies:
+      spdx_licenses: MIT
+      terms_of_service: https://unfurl.cloud/terms
+      privacy_policy: https://unfurl.cloud/privacy
+    deployment:
+      location: unfurl.cloud/onecommons/unfurl_cloud_prod#v1:prod
+      type: cloudmap.artifacts.unfurl.Ensemble
+      revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
+    discovery:
+      last_checked: "2023-09-24T15:30:00Z"
+      sources:
+      - https://unfurl.cloud/api/v1/metadata
+types:
+  Zulip@unfurl.cloud/onecommons/blueprints/zulip:
+    kind: Service
+    title: Zulip
+    source: unfurl.cloud/onecommons/blueprints/zulip#:types/app.yaml
+    extends:
+    - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
+    - WebApp@unfurl.cloud/onecommons/std:generic_types
+  software.Nginx@unfurl.cloud/onecommons/std:
+    kind: Software
+    title: Nginx Web Server
+    extends:
+    - software.WebServer@unfurl.cloud/onecommons/std:generic_types
+"""
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".yml", delete=False) as f:
+        f.write(cloudmap_yaml)
+        temp_path = f.name
+
+    try:
+        # This should validate the schema successfully
+        db = CloudMapDB(temp_path)
+
+        # Verify repositories loaded correctly
+        assert len(db.repositories) == 1
+        assert "github.com/onecommons/unfurl" in db.repositories
+
+        # Verify artifacts loaded correctly
+        assert "artifacts" in db.db
+        assert "pkg:oci:docker.io/library/nginx" in db.artifacts
+        artifact = db.artifacts["pkg:oci:docker.io/library/nginx"]
+        assert artifact.type == "cloudmap.artifacts.oci.Image"
+        assert artifact.source.revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+        assert artifact.source.reproducible is False
+        assert artifact.immutable is False
+        assert len(artifact.notable) == 1
+
+        # Verify instantiates uses typeRef structure
+        instantiates = artifact.instantiates
+        assert isinstance(instantiates, TypeRefs)
+        assert "software.WebServer" in instantiates.types
+        assert instantiates.types["software.WebServer"]["version"] == "1.25"
+        assert "software.HTTPServer" in instantiates.types
+        assert instantiates.types["software.HTTPServer"] is None
+
+        # Verify requires uses typeRef structure
+        requires = artifact.requires
+        assert isinstance(requires, TypeRefs)
+        assert "software.Linux" in requires.types
+        assert requires.types["software.Linux"]["version"] == ">=5.0"
+
+        assert artifact.metadata.title == "Nginx Web Server"
+        assert len(artifact.metadata.platforms) == 2
+        assert artifact.discovery.last_checked == "2023-09-24T15:30:00Z"
+        assert len(artifact.discovery.sources) == 2
+
+        # Verify releases loaded correctly
+        releases = artifact.releases
+        assert len(releases) == 2
+        assert (
+            "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+            in releases
+        )
+        assert "pkg:oci:docker.io/library/nginx:latest" in releases
+
+        # Verify release by digest
+        release_by_digest = releases[
+            "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+        ]
+        assert (
+            release_by_digest.digest
+            == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+        )
+        assert release_by_digest.immutable is True
+
+        # Verify release by tag
+        release_latest = releases["pkg:oci:docker.io/library/nginx:latest"]
+        assert (
+            release_latest.digest == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+        )
+        assert release_latest.immutable is False
+        assert release_latest.metadata.version == "latest"
+
+        # Verify services loaded correctly
+        assert "services" in db.db
+        assert "https://unfurl.cloud" in db.services
+        service = db.services["https://unfurl.cloud"]
+
+        # Verify type uses typeRef structure
+        service_type = service.type
+        assert isinstance(service_type, TypeRefs)
+        assert "WebApp@unfurl.cloud/onecommons/std:generic_types" in service_type.types
+        assert (
+            service_type.types["WebApp@unfurl.cloud/onecommons/std:generic_types"][
+                "version"
+            ]
+            == "1.0"
+        )
+
+        # Verify capabilities uses typeRef structure
+        capabilities = service.capabilities
+        assert isinstance(capabilities, TypeRefs)
+        assert "capabilities.GitOps" in capabilities.types
+        assert capabilities.types["capabilities.GitOps"] is None
+        assert "capabilities.CICD" in capabilities.types
+        assert capabilities.types["capabilities.CICD"]["version"] == ">=2.0"
+
+        assert len(service.endpoints) == 1
+        assert len(service.dependencies) == 1
+        assert service.metadata.title == "Unfurl Cloud"
+        assert service.policies.spdx_licenses == "MIT"
+        assert service.deployment.type == "cloudmap.artifacts.unfurl.Ensemble"
+        assert service.discovery.last_checked == "2023-09-24T15:30:00Z"
+        assert len(service.discovery.sources) == 1
+
+        # Verify types loaded correctly
+        assert "types" in db.db
+        assert len(db.types) == 2
+
+        # Verify Zulip service type
+        assert "Zulip@unfurl.cloud/onecommons/blueprints/zulip" in db.types
+        zulip_type = db.types["Zulip@unfurl.cloud/onecommons/blueprints/zulip"]
+        assert zulip_type.kind == "Service"
+        assert zulip_type.title == "Zulip"
+        assert (
+            zulip_type.source
+            == "unfurl.cloud/onecommons/blueprints/zulip#:types/app.yaml"
+        )
+
+        # Verify extends is an array of strings
+        extends = zulip_type.extends
+        assert isinstance(extends, list)
+        assert len(extends) == 2
+        assert (
+            "unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types" in extends
+        )
+        assert "WebApp@unfurl.cloud/onecommons/std:generic_types" in extends
+
+        # Verify Nginx software type
+        assert "software.Nginx@unfurl.cloud/onecommons/std" in db.types
+        nginx_type = db.types["software.Nginx@unfurl.cloud/onecommons/std"]
+        assert nginx_type.kind == "Software"
+        assert nginx_type.title == "Nginx Web Server"
+        assert not nginx_type.source  # Optional field not provided
+
+        # Verify extends for Nginx is an array
+        nginx_extends = nginx_type.extends
+        assert isinstance(nginx_extends, list)
+        assert len(nginx_extends) == 1
+        assert (
+            "software.WebServer@unfurl.cloud/onecommons/std:generic_types"
+            in nginx_extends
+        )
+
+    finally:
+        # Clean up temp file
+        os.unlink(temp_path)
+
+
+def test_get_cloudmap_types():
+    """Test get_cloudmap_types with mocked load_yaml."""
+    from unfurl.server.cache import get_cloudmap_types, CLOUDMAP_BRANCH
+    import yaml
+
+    # Parse the expected_types_cloudmap YAML string
+    cloudmap_doc = yaml.safe_load(expected_types_cloudmap)
+
+    # Mock load_yaml to return the parsed cloudmap
+    with patch("unfurl.server.cache.load_yaml") as mock_load_yaml:
+        mock_load_yaml.return_value = (None, cloudmap_doc)
+
+        # Create a mock CacheEntry (we just need something to pass in)
+        mock_cache_entry = Mock()
+
+        # Call the function
+        err, types = get_cloudmap_types("test_project", mock_cache_entry)
+
+        # Verify load_yaml was called correctly
+        mock_load_yaml.assert_called_once_with(
+            "test_project",
+            CLOUDMAP_BRANCH,
+            "cloudmap.yaml",
+            mock_cache_entry
+        )
+
+        # Verify no error
+        assert err is None
+
+        # Verify we got the expected type
+        assert "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle" in types
+
+        # Verify the type has the expected properties
+        cronicle_type = types["CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle"]
+        assert cronicle_type["name"] == "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle"
+        assert cronicle_type["title"] == "CronicleApp"
+        assert cronicle_type["__typename"] == "ResourceType"
+
+        # Verify extends are fully qualified
+        assert len(cronicle_type["extends"]) > 0
+
+        # Verify implementations and directives are set
+        assert "connect" in cronicle_type["implementations"]
+        assert "create" in cronicle_type["implementations"]
+        assert "substitute" in cronicle_type["directives"]
+
+        # Verify metadata fields
+        assert "description" in cronicle_type
+        assert cronicle_type["description"] == "A simple, distributed task scheduler and runner with a web based UI."
+
+        # Verify icon/thumbnail is set
+        assert "icon" in cronicle_type
+        assert cronicle_type["icon"] == "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar"

@@ -53,6 +53,7 @@ import collections
 from dataclasses import dataclass, field, asdict
 from operator import attrgetter
 from pathlib import Path
+import re
 import tempfile
 import os
 import os.path
@@ -73,22 +74,31 @@ from typing import (
 )
 from gitlab.base import RESTObject
 from typing_extensions import Required, Literal
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, quote
 import git
 import git.cmd
 from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
-
-from toscaparser.elements.nodetype import NodeType
 from toscaparser.nodetemplate import NodeTemplate
 from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
-from .projectpaths import FilePath, _getdir
+from .projectpaths import _getdir
 from .graphql import ResourceTypesByName
 from .spec import NodeSpec, ToscaSpec
 
-from .support import ContainerImageParts
-from .configurator import Configurator, Result, TaskView
+from .support import ContainerImage
+from .configurator import Configurator, TaskView
+from .oci import (
+    build_oci_purl,
+    create_oci_artifact,
+    ArtifactMetadata,
+    Artifact,
+    EntitySchema,
+    Discovery,
+    TypeRefs,
+    filter_dict,
+    validate_url,
+)
 
 
 from .to_json import node_type_to_graphql
@@ -102,7 +112,7 @@ from .repo import (
 from .util import API_VERSION, UnfurlError, assert_not_none, unique_name
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
-from .logs import getLogger
+from .logs import getLogger, UnfurlLogger
 from . import DefaultNames
 
 logger = getLogger("unfurl")
@@ -124,6 +134,12 @@ class Namespace:
     public: Optional[bool] = None
     shared: List[str] = field(default_factory=list)
 
+    def __post_init__(self):
+        if self.url:
+            self.url = validate_url(self.url, "Namespace.url")
+        if self.avatar_url:
+            self.avatar_url = validate_url(self.avatar_url, "Namespace.avatar_url")
+
 
 @dataclass
 class RepositoryMetadata:
@@ -134,14 +150,44 @@ class RepositoryMetadata:
 
     description: str = ""
     topics: List[str] = field(default_factory=list)
-    spdx_license_id: str = ""
+    spdx_licenses: str = ""
     license_url: str = ""
     issues_url: str = ""
     homepage_url: str = ""
-    avatar_url: str = ""
+    thumbnail_url: str = ""
     ci_variables: Optional[dict] = None
     lastupdate_time: Optional[str] = None
     lastupdate_digest: Optional[str] = None
+    project_status: Optional[
+        Literal[
+            "concept",
+            "WIP",
+            "suspended",
+            "abandoned",
+            "active",
+            "inactive",
+            "unsupported",
+            "moved",
+        ]
+    ] = None
+
+    def __post_init__(self):
+        if self.license_url:
+            self.license_url = validate_url(
+                self.license_url, "RepositoryMetadata.license_url"
+            )
+        if self.issues_url:
+            self.issues_url = validate_url(
+                self.issues_url, "RepositoryMetadata.issues_url"
+            )
+        if self.homepage_url:
+            self.homepage_url = validate_url(
+                self.homepage_url, "RepositoryMetadata.homepage_url"
+            )
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, "RepositoryMetadata.thumbnail_url"
+            )
 
     def asdict(self):
         # exclude empty values
@@ -155,11 +201,6 @@ class RepositoryMetadata:
         pass
 
 
-def filter_dict(d: dict) -> dict:
-    # exclude empty values
-    return {k: v for k, v in d.items() if v}
-
-
 def match_namespace(path: str, namespace: str) -> bool:
     if not namespace or path == namespace:
         return True
@@ -171,8 +212,10 @@ def match_namespace(path: str, namespace: str) -> bool:
 
 @dataclass
 class Repository:
-    git: str  # hostname and path without protocols, unique key for this record
-    path: str  # project path relative to base location of git repositories on the host
+    git: str
+    """hostname and path without protocols, unique key for this record"""
+    path: str
+    """Project path relative to base location of git repositories on the host"""
     initial_revision: str = ""
     name: str = ""
     protocols: List[str] = field(default_factory=list)
@@ -188,7 +231,19 @@ class Repository:
     notable: Dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self):
+        # Validate URLs
+        if self.git:
+            self.git = validate_url(self.git, "Repository.git")
+        if self.project_url:
+            self.project_url = validate_url(self.project_url, "Repository.project_url")
+        if self.mirror_of:
+            self.mirror_of = validate_url(self.mirror_of, "Repository.mirror_of")
+        if self.fork_of:
+            self.fork_of = validate_url(self.fork_of, "Repository.fork_of")
+
         if isinstance(self.metadata, dict):
+            if "avatar_url" in self.metadata:  # migrate deprecated key
+                self.metadata["thumbnail_url"] = self.metadata.pop("avatar_url")
             self.metadata = RepositoryMetadata(**self.metadata)
 
     def get_metadata(self, directory: "RepositoryDict") -> dict:
@@ -244,13 +299,191 @@ class Repository:
         return self.default_branch or "main"
 
 
-ArtifactDict = Dict[str, dict]
+ArtifactDict = Dict[str, Artifact]
+
+
+@dataclass
+class ServiceMetadata:
+    """Human-readable metadata about a service."""
+
+    title: str = ""
+    description: str = ""
+    vendor: str = ""
+    version: str = ""
+    documentation_url: str = ""
+    thumbnail_url: str = ""
+    """Icon or thumbnail representing the service"""
+    source_url: str = ""
+    """Informal pointer to source code"""
+
+    def __post_init__(self):
+        if self.documentation_url:
+            self.documentation_url = validate_url(
+                self.documentation_url, "ServiceMetadata.documentation_url"
+            )
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, "ServiceMetadata.thumbnail_url"
+            )
+        if self.source_url:
+            self.source_url = validate_url(
+                self.source_url, "ServiceMetadata.source_url"
+            )
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
+
+
+@dataclass
+class ServicePolicies:
+    """Service policies and legal information."""
+
+    spdx_licenses: str = ""
+    terms_of_service: str = ""
+    privacy_policy: str = ""
+
+    def __post_init__(self):
+        if self.terms_of_service:
+            self.terms_of_service = validate_url(
+                self.terms_of_service, "ServicePolicies.terms_of_service"
+            )
+        if self.privacy_policy:
+            self.privacy_policy = validate_url(
+                self.privacy_policy, "ServicePolicies.privacy_policy"
+            )
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
+
+
+@dataclass
+class ServiceDeployment:
+    """Ensemble or artifact representing the actual deployment."""
+
+    location: str = ""
+    type: str = ""
+    """Type identifier from types/artifacts"""
+    revision: str = ""
+
+    def __post_init__(self):
+        if self.location:
+            self.location = validate_url(self.location, "ServiceDeployment.location")
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
+
+
+@dataclass
+class Service:
+    """A service instance."""
+
+    url: str
+    """URL of the service"""
+    type: TypeRefs = field(default_factory=TypeRefs)
+    """typeRef: Type identifier from types/services with optional version constraints"""
+    capabilities: TypeRefs = field(default_factory=TypeRefs)
+    """typeRef: Capability types from types/capabilities"""
+    endpoints: List[Dict[str, Any]] = field(default_factory=list)
+    """Service endpoints"""
+    dependencies: List[str] = field(default_factory=list)
+    """List of other services this service depends on"""
+    notable: List[str] = field(default_factory=list)
+    """Links to artifacts like blueprints or Helm charts"""
+    operation_status: Optional[
+        Literal[
+            "wishlist",
+            "planning",
+            "pre-launch",
+            "alpha",
+            "beta",
+            "production",
+            "maintenance",
+            "unmaintained",
+            "sunsetting",
+            "suspended",
+            "shutdown",
+        ]
+    ] = None
+    metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
+    policies: ServicePolicies = field(default_factory=ServicePolicies)
+    deployment: ServiceDeployment = field(default_factory=ServiceDeployment)
+    discovery: Optional[Discovery] = None
+    """Metadata discovery information (last_checked, sources)"""
+
+    def __post_init__(self):
+        # Validate URL
+        if self.url:
+            self.url = validate_url(self.url, "Service.url")
+
+        if isinstance(self.metadata, dict):
+            self.metadata = ServiceMetadata(**self.metadata)
+        if isinstance(self.policies, dict):
+            self.policies = ServicePolicies(**self.policies)
+        if isinstance(self.deployment, dict):
+            self.deployment = ServiceDeployment(**self.deployment)
+        if isinstance(self.discovery, dict):
+            self.discovery = Discovery(**self.discovery)
+        if isinstance(self.type, dict):
+            self.type = TypeRefs(types=self.type)
+        if isinstance(self.capabilities, dict):
+            self.capabilities = TypeRefs(types=self.capabilities)
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        result = {}
+        for k, v in asdict(self).items():
+            if k == "url":
+                continue  # skip url, save as the key instead
+            if k == "metadata":
+                v = filter_dict(v)
+            elif k == "policies":
+                v = filter_dict(v)
+            elif k == "deployment":
+                v = filter_dict(v)
+            elif k == "discovery" and v:
+                v = filter_dict(v)
+            elif k == "type" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "capabilities" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            if v:  # exclude empty values
+                result[k] = v
+        return result
+
+
+@dataclass
+class CloudType:
+    """A type definition for artifacts, services, software, or capabilities."""
+
+    name: str
+    """Fully-qualified type name with namespace"""
+    kind: Literal["Service", "Software", "Artifact", "Capability"]
+    title: str = ""
+    source: str = ""
+    """Artifact containing type definition"""
+    extends: List[str] = field(default_factory=list)
+    """List of fully-qualified type names that this type extends"""
+
+    def __post_init__(self):
+        if self.source:
+            self.source = validate_url(self.source, "CloudType.source")
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
+
+
+ServiceDict = Dict[str, Service]
+CloudTypeDict = Dict[str, CloudType]
 
 
 RepositoryDict = Dict[str, Repository]
 
 
-def find_git_repos(rootDir, gitDir=".git") -> Iterator[str]:
+def find_git_repos(rootDir: str, gitDir=".git") -> Iterator[str]:
     for root, dirs, files in os.walk(rootDir):
         if gitDir in dirs and is_git_worktree(root, gitDir):
             del dirs[:]  # don't visit sub directories
@@ -292,17 +525,6 @@ def force_merge_local_and_push_to_remote(
 T = TypeVar("T", bound="Notable")
 
 
-class EntitySchema:
-    Schema = "unfurl.cloud/onecommons/std"
-    GenericFile = "artifact.File"
-    ContainerFile = "artifact.Containerfile"
-    CloudBlueprint = "artifact.tosca.ServiceTemplate"
-    TOSCASchema = "artifact.tosca.TypeLibrary"
-    Ensemble = "artifact.tosca.UnfurlEnsemble"
-    UnfurlProject = "artifact.tosca.UnfurlProject"
-    OCIImage = "artifacts.OCIImage"
-
-
 class Notable:
     files: Sequence[str] = ()
     folders: Sequence[str] = ()
@@ -310,20 +532,21 @@ class Notable:
 
     def __init__(
         self,
-        repo_info: Repository,
-        root_path: str,
         folder: str,
         file: str,
-        logger=logger,
     ):
-        self.logger = logger
-        self.root_path = root_path
         self.folder = folder
         self.file = file
         self.fragment = ""
-        self.metadata: Dict[str, Any] = {}
-        self.artifacts: List[ArtifactDict] = []
-        self.logger.verbose("analyzing %s with %s", file, self)
+        self.artifact_id: Optional[str] = (
+            None  # Artifact ID when added to directory.db.artifacts
+        )
+
+    def analyze(
+        self, directory: "Directory", repo_info: Repository, root_path: str
+    ) -> Optional[Artifact]:
+        directory.logger.debug("analyzing %s with %s", self.file, self)
+        return None
 
     @property
     def path(self) -> str:
@@ -335,10 +558,6 @@ class Notable:
         else:
             return self.folder
 
-    @property
-    def full_path(self) -> str:
-        return os.path.join(self.root_path, self.folder, self.file)
-
     @classmethod
     def _exist_in_folder(cls, folder: str, notables: List["Notable"]):
         for n in notables:
@@ -349,17 +568,15 @@ class Notable:
     @classmethod
     def init(
         cls: Type[T],
-        repo_info: Repository,
-        root_path: str,
         folder: str,
         file: str,
-        logger=None,
     ) -> Optional[T]:
-        return cls(repo_info, root_path, folder, file, logger)
+        return cls(folder, file)
 
     def asdict(self) -> Dict[str, Any]:
-        metadata = dict(artifact_type=self.artifact_type)
-        metadata.update(filter_dict(self.metadata))
+        metadata = dict(type=self.artifact_type)
+        if self.artifact_id:
+            metadata["artifact"] = self.artifact_id
         return metadata
 
 
@@ -369,13 +586,10 @@ class ContainerBuilderNotable(Notable):
 
     def __init__(
         self,
-        repo_info: Repository,
-        root_path: str,
         folder: str,
         file: str,
-        logger=logger,
     ) -> None:
-        super().__init__(repo_info, root_path, folder, file, logger)
+        super().__init__(folder, file)
 
 
 class UnfurlNotable(Notable):
@@ -389,41 +603,48 @@ class UnfurlNotable(Notable):
 
     def __init__(
         self,
-        repo_info: Repository,
-        root_path: str,
         folder: str,
         file: str,
-        logger=logger,
     ) -> None:
-        super().__init__(repo_info, root_path, folder, file, logger)
+        super().__init__(folder, file)
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
+
+    def analyze(
+        self, directory: "Directory", repo_info: Repository, root_path: str
+    ) -> Optional[Artifact]:
+        logger = directory.logger
+        path = os.path.join(root_path, self.folder, self.file)
+        logger.verbose("analyzing %s", path)
         localenv = LocalEnv(
-            self.full_path,
+            path,
             can_be_empty=True,
+            parent=directory.cloudmap.local_env,
         )
+        artifact: Optional[Artifact] = None
         if localenv.manifestPath:
             self.artifact_type = self._get_artifacttype(localenv.manifestPath)
             manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
-            rel_path = str(
-                Path(localenv.manifestPath).relative_to(Path(self.root_path))
-            )
+            rel_path = str(Path(localenv.manifestPath).relative_to(Path(root_path)))
             self.folder, self.file = os.path.split(rel_path)
             spec = assert_not_none(manifest.tosca)
-            self.fragment = spec.fragment
+            if self.artifact_type == EntitySchema.CloudBlueprint:
+                self.fragment = spec.fragment
             metadata = cast(dict, spec.template.tpl).get("metadata") or {}
-            self.metadata.update(
-                filter_dict(
-                    dict(
-                        name=metadata.get("template_name"),
-                        version=metadata.get("template_version"),
-                        description=spec.template.description,
-                    )
-                )
-            )
+
+            # Extract template metadata
+            template_name = metadata.get("template_name", "")
+            template_version = metadata.get("template_version", "")
+            template_description = spec.template.description or ""
+
             node = self._get_root_node(spec)
-            schema_repo = manifest.repositories.get("types")
-            if schema_repo:
-                self.metadata["schema"] = schema_repo.url.strip(":")
+            # schema_repo = manifest.repositories.get("types")
+            # schema = schema_repo.url.strip(":") if schema_repo else ""
+
+            # Prepare type_info and dependencies
+            type_info = None
+            dependencies = []
+            child_artifacts = []
+
             if node:
                 types = ResourceTypesByName(
                     repo_info.key, spec.template.topology_template.custom_defs
@@ -439,34 +660,64 @@ class UnfurlNotable(Notable):
                 )
                 if type_dict:
                     type_dict.pop("__typename", None)
-                    self.metadata.update(
-                        dict(
-                            type=filter_dict(type_dict),
-                            dependencies=list(
-                                self.find_dependencies(node, types).values()
-                            ),
-                        )
-                    )
-                image_name = self.find_image_dependency(node)
-                if image_name:
-                    self.artifacts.append(
-                        {image_name: dict(type=EntitySchema.OCIImage)}
-                    )
-                    self.metadata["artifacts"] = [image_name]
+                    type_info = filter_dict(type_dict)
+
+                dependencies = list(self.find_dependencies(node, types).values())
+
+                # Handle container image dependency
+                image = self.find_image_dependency(node)
+                if image:
+                    # XXX directory.add_credentials(image)
+                    image_artifact = create_oci_artifact(image)
+                    purl = image_artifact.url
+
+                    # Override type if needed
+                    image_artifact.type = EntitySchema.OCIImage
+
+                    # Add image artifact to directory
+                    directory.db.artifacts[purl] = image_artifact
+                    child_artifacts.append(purl)
+
+            # Create artifact pkg from repository URL + file path
+            artifact_pkg = (
+                f"{repo_info.git_url()}#:{quote(os.path.join(self.folder, self.file))}"
+            )
+
+            # Create main artifact using helper method
+            artifact, cloud_type = CloudMapDB.create_artifact_from_notable(
+                artifact_pkg=artifact_pkg,
+                artifact_type=self.artifact_type,
+                name=template_name,
+                version=template_version,
+                description=template_description,
+                thumbnail=repo_info.metadata.thumbnail_url,
+                artifacts=child_artifacts,
+                dependencies=dependencies,
+                type_info=type_info,
+                types_dict=directory.db.types,
+            )
+
+            # Add CloudType if created
+            if cloud_type:
+                directory.db.types[cloud_type.name] = cloud_type
+
+            # Add to directory artifacts
+            directory.db.artifacts[artifact_pkg] = artifact
+
+            # Store artifact ID for repository notable
+            self.artifact_id = artifact_pkg
         else:
             self.artifact_type = EntitySchema.UnfurlProject
+        return artifact
 
     @classmethod
     def init(
         cls,
-        repo_info: Repository,
-        root_path: str,
         folder: str,
         file: str,
-        logger=logger,
     ) -> Optional["UnfurlNotable"]:
         try:
-            return UnfurlNotable(repo_info, root_path, folder, file, logger)
+            return UnfurlNotable(folder, file)
         except UnfurlError:
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
@@ -479,15 +730,18 @@ class UnfurlNotable(Notable):
             ).missing_requirements.items()
         }
 
-    def find_image_dependency(self, node: NodeSpec):
+    def find_image_dependency(self, node: NodeSpec) -> Optional[ContainerImage]:
+        # hacky, only works with ContainerServices
         container_service = node.get_relationship("container")
         if container_service and container_service.target:
-            image = container_service.target.properties.get("container", {}).get(
+            image_name = container_service.target.properties.get("container", {}).get(
                 "image"
             )
-            if image:
-                name, tag, digest, hostname = ContainerImageParts.split(image)
-                return os.path.join(hostname or "docker.io", name or "")
+            if image_name:
+                # remove any {{ }} templating
+                image = ContainerImage.make(re.sub(r"\{\{.*\}\}", "", image_name))
+                if image:
+                    return image
         return None
 
     def _get_artifacttype(self, path: str) -> str:
@@ -524,29 +778,25 @@ class Analyzer:
         for folder in cls.folders:
             self.folders[folder] = cls
 
-    def analyze_local(self, repo_info: Repository, rootDir) -> List[Notable]:
+    def analyze_local(self, root_dir: str) -> List[Notable]:
         # currently unused
         notables: List[Notable] = []
-        for root, dirs, files in os.walk(rootDir):
+        for root, dirs, files in os.walk(root_dir):
             notable = None
             notable_cls = None
             notables_found: List[Type[Notable]] = []
-            rel_root = str(Path(root).relative_to(Path(rootDir)))
+            rel_root = str(Path(root).relative_to(Path(root_dir)))
             for folder in dirs:
                 notable_cls = self.folders.get(folder)
                 if notable_cls:
                     if notable_cls not in notables_found:
-                        notable = notable_cls.init(
-                            repo_info, rootDir, rel_root, "", self.logger
-                        )
+                        notable = notable_cls.init(rel_root, "")
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
                 notable_cls = self.files.get(filename)
                 if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(
-                        repo_info, rootDir, rel_root, filename, self.logger
-                    )
+                    notable = notable_cls.init(rel_root, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -555,7 +805,6 @@ class Analyzer:
 
     def analyze_repo_tree(
         self,
-        repo_info: Repository,
         root_path: str,
         children: List[IndexObject],
         notables: List[Notable],
@@ -572,18 +821,14 @@ class Analyzer:
             if item.type == "tree":
                 notable_cls = self.folders.get(filename)
                 if notable_cls:
-                    if notable_cls not in notables_found:
-                        notable = notable_cls.init(
-                            repo_info, root_path, cast(str, item.path), "", self.logger
-                        )
+                    # if notable_cls not in notables_found:
+                    notable = notable_cls.init(cast(str, item.path), "")
                 else:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
-                if notable_cls and notable_cls not in notables_found:
-                    notable = notable_cls.init(
-                        repo_info, root_path, dirname, filename, self.logger
-                    )
+                if notable_cls:  # and notable_cls not in notables_found:
+                    notable = notable_cls.init(dirname, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -592,8 +837,10 @@ class Analyzer:
 
 
 class _LocalGitRepos:
-    def __init__(self, local_repo_root: str = "", logger=logger) -> None:
-        self.logger = logger
+    def __init__(
+        self, local_repo_root: str = "", _logger: Optional[UnfurlLogger] = None
+    ) -> None:
+        self.logger = _logger or logger
         self._set_repos(os.path.expanduser(local_repo_root))
 
     def _add_repo(self, working_dir: str) -> Optional[GitRepo]:
@@ -617,8 +864,8 @@ class _LocalGitRepos:
         self.remotes: Dict[str, List[git.Remote]] = {}
         # working_dir => repo
         self.repos: Dict[str, GitRepo] = {}
-        self.logger.debug(f"looking for repos in {root}")
         if root:
+            self.logger.debug(f"looking for repos in {root}")
             for working_dir in find_git_repos(root):
                 self._add_repo(working_dir)
         self.repos_root = root
@@ -652,26 +899,182 @@ class CloudMapDB:
 
     DEFAULT_NAME = "cloudmap.yml"
 
-    def __init__(self, path=".") -> None:
-        self._load(path)
+    def __init__(self, path=".", contents=None, validate: bool = True) -> None:
+        self._load(path, contents, validate)
 
-    def _load(self, path: str, contents=None):
+    @staticmethod
+    def create_artifact_from_notable(
+        artifact_pkg: str,
+        artifact_type: str,
+        name: str = "",
+        version: str = "",
+        description: str = "",
+        thumbnail: str = "",
+        artifacts: Optional[List[str]] = None,
+        dependencies: Optional[List[str]] = None,
+        type_info: Optional[Dict[str, Any]] = None,
+        types_dict: Optional[CloudTypeDict] = None,
+    ) -> Tuple[Artifact, Optional[CloudType]]:
+        """
+        Create an Artifact from notable metadata fields.
+
+        Args:
+            artifact_pkg: Package URL for the artifact
+            artifact_type: Type identifier for the artifact
+            name: Human-readable name (maps to metadata.title)
+            version: Version string (maps to metadata.version)
+            description: Description (maps to metadata.description)
+            thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
+            artifacts: List of artifact IDs this artifact references (maps to notable)
+            dependencies: List of dependencies (maps to requires)
+            type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
+            types_dict: Optional dict to check for existing types
+
+        Returns:
+            Tuple of (Artifact, Optional[CloudType]) - CloudType is returned if created
+        """
+        # Build artifact metadata
+        metadata = ArtifactMetadata(
+            title=name,
+            version=version,
+            description=description,
+            thumbnail_url=thumbnail,
+        )
+
+        # Convert dependencies to requires TypeRefs
+        requires = TypeRefs(types={dep: None for dep in (dependencies or [])})
+
+        # Handle type field: create CloudType and add to instantiates
+        instantiates = TypeRefs()
+        cloud_type = None
+        if type_info and isinstance(type_info, dict):
+            type_name = type_info.get("name", "")
+            if type_name:
+                # Create CloudType if it doesn't exist in provided dict
+                if not types_dict or type_name not in types_dict:
+                    cloud_type = CloudType(
+                        name=type_name,
+                        kind="Service",  # Default, could be inferred from artifact_type
+                        title=type_info.get("title", ""),
+                        extends=type_info.get("extends", []),
+                    )
+                # Add to artifact's instantiates
+                instantiates.add(type_name)
+
+        # Create the artifact
+        artifact = Artifact(
+            url=artifact_pkg,
+            type=artifact_type,
+            notable=artifacts or [],
+            instantiates=instantiates,
+            requires=requires,
+            metadata=metadata,
+        )
+
+        return artifact, cloud_type
+
+    def _migrate_old_notable_format(self, repo: Repository) -> List[str]:
+        """
+        Migrate old Repository.notable dictionary format to new List[str] format.
+
+        Creates Artifact instances from old inline notable definitions and adds them
+        to self.artifacts and self.types.
+
+        Args:
+            repo: Repository with potentially old-format notable dict
+
+        Returns:
+            Notable converted to artifact IDs
+        """
+        migrated_artifact_ids = []
+        for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
+            if "artifact_type" in notable_dict:
+                # Create artifact pkg from repository URL + file path
+                artifact_pkg = f"{repo.git_url()}#:{quote(file_path)}"
+
+                # Create artifact using helper method
+                artifact, cloud_type = self.create_artifact_from_notable(
+                    artifact_pkg=artifact_pkg,
+                    artifact_type=notable_dict.pop("artifact_type", ""),
+                    name=notable_dict.pop("name", ""),
+                    version=str(notable_dict.pop("version", "") or ""),
+                    description=notable_dict.pop("description", ""),
+                    thumbnail=notable_dict.pop("thumbnail_url", "")
+                    or repo.metadata.thumbnail_url,
+                    artifacts=[
+                        build_oci_purl(ContainerImage.split(ref))
+                        for ref in notable_dict.pop("artifacts", [])
+                    ],
+                    dependencies=notable_dict.pop("dependencies", []),
+                    type_info=notable_dict.pop("type", None),
+                    types_dict=self.types,
+                )
+                while notable_dict:
+                    notable_dict.popitem()  # remove any remaining old fields
+                # update notable to new format:
+                notable_dict["type"] = artifact.type
+                notable_dict["artifact"] = artifact_pkg
+
+                # Add CloudType if created
+                if cloud_type:
+                    self.types[cloud_type.name] = cloud_type
+
+                # Add to artifacts dict
+                self.artifacts[artifact_pkg] = artifact
+                migrated_artifact_ids.append(artifact_pkg)
+
+        return migrated_artifact_ids
+
+    def _load(self, path: str, contents=None, validate: bool = True) -> None:
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
         default_db = dict(apiVersion=API_VERSION, kind="CloudMap", repositories={})
         self.config = YamlConfig(
             contents or default_db,
             path,
-            # validate,
+            validate,
             schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
         db = self.config.config
         assert isinstance(db, dict)
-        repositories = cast(Dict, db.get("repositories") or {})
-        self.repositories: RepositoryDict = {
-            url: Repository(**r) for url, r in repositories.items()
+
+        # Load types first (may be augmented during notable migration)
+        types = cast(Dict, db.get("types") or {})
+        self.types: CloudTypeDict = {
+            name: (
+                t
+                if isinstance(t, CloudType)
+                else CloudType(name=t.pop("name", name), **t)
+            )
+            for name, t in types.items()
         }
-        self.artifacts: ArtifactDict = db.get("artifacts") or {}
+
+        # Load artifacts (may be augmented during notable migration)
+        artifacts = cast(Dict, db.get("artifacts") or {})
+        self.artifacts: ArtifactDict = {
+            url: (
+                a if isinstance(a, Artifact) else Artifact(url=a.pop("url", url), **a)
+            )
+            for url, a in artifacts.items()
+        }
+
+        # Load repositories and migrate old notable format
+        repositories = cast(Dict, db.get("repositories") or {})
+        self.repositories: RepositoryDict = {}
+        for url, r in repositories.items():
+            repo = Repository(**r)
+            # Backwards compatibility: migrate old notable dictionary format to new format
+            if isinstance(repo.notable, dict):
+                self._migrate_old_notable_format(repo)
+            self.repositories[url] = repo
+
+        # Load services
+        services = cast(Dict, db.get("services") or {})
+        self.services: ServiceDict = {
+            url: (s if isinstance(s, Service) else Service(url=s.pop("url", url), **s))
+            for url, s in services.items()
+        }
+
         self.db = cast(Dict[str, Any], db)
 
     def reload(self):
@@ -687,9 +1090,42 @@ class CloudMapDB:
         self.db.pop("artifacts", None)
         if self.artifacts:
             self.db["artifacts"] = {
-                a: self.artifacts[a] for a in sorted(self.artifacts)
+                url: (
+                    self.artifacts[url].asdict()
+                    if isinstance(self.artifacts[url], Artifact)
+                    else self.artifacts[url]
+                )
+                for url in sorted(self.artifacts)
+            }
+        self.db.pop("services", None)
+        if self.services:
+            self.db["services"] = {
+                url: (
+                    self.services[url].asdict()
+                    if isinstance(self.services[url], Service)
+                    else self.services[url]
+                )
+                for url in sorted(self.services)
+            }
+        self.db.pop("types", None)
+        if self.types:
+            self.db["types"] = {
+                name: (
+                    self.types[name].asdict()
+                    if isinstance(self.types[name], CloudType)
+                    else self.types[name]
+                )
+                for name in sorted(self.types)
             }
         self.config.save()
+
+    def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
+        if not artifact_type:
+            return [a for a in self.artifacts.values() if a.type == artifact_type]
+        return self.artifacts.values()
+
+    def get_type(self, name: str) -> Optional[CloudType]:
+        return self.types.get(name)
 
 
 class Directory(_LocalGitRepos):
@@ -701,16 +1137,17 @@ class Directory(_LocalGitRepos):
 
     def __init__(
         self,
+        cloudmap: "CloudMap",
         path=".",
         local_repo_root: str = "",
         skip_analysis=False,
-        logger=None,
     ) -> None:
         self.db = CloudMapDB(path)
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
-        _LocalGitRepos.__init__(self, local_repo_root, logger)
+        self.cloudmap = cloudmap
+        _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
         self.do_analysis = not skip_analysis
-        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable], logger)
+        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable], self.logger)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
@@ -771,7 +1208,7 @@ class Directory(_LocalGitRepos):
             # analyze return trees to descend into
             # XXX track and pass depth argument
             for tree in self.analyzer.analyze_repo_tree(
-                repo_info, repo.working_dir, children, notables
+                repo.working_dir, children, notables
             ):
                 if tree.type == "tree" and tree not in seen:
                     items.append(tree)
@@ -779,7 +1216,10 @@ class Directory(_LocalGitRepos):
         return notables
 
     def maybe_analyze(
-        self, repo_info: Repository, repo: GitRepo, previous_notables: dict
+        self,
+        repo_info: Repository,
+        repo: GitRepo,
+        previous_notables: Dict[str, Dict],
     ) -> Optional[List[Notable]]:
         if self.do_analysis:
             try:
@@ -797,10 +1237,16 @@ class Directory(_LocalGitRepos):
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
         self.logger.verbose("analyzing %s", repo_info.key)
         notables = self.analyze_repo(repo_info, repo)
-        repo_info.add_notables(notables)
         for n in notables:
-            for a in n.artifacts:
-                self.db.artifacts.update(a)
+            artifact = n.analyze(self, repo_info, repo.working_dir)
+            # XXX
+            # if artifact and artifact.source:
+            #     url = artifact.source.location
+            #     if url and not self.db.find_repository(url):
+            #         host = self.cloudmap.get_host_for_url(url)
+            #         if host:
+            #             host.import_project_url(url, self, download=False)
+        repo_info.add_notables(notables)
         return notables
 
 
@@ -1427,7 +1873,7 @@ class GitlabManager(RepositoryHost):
 
         new_project = cast(Project, self.gitlab.projects.create(proj_data))
 
-        if repo_info.metadata.avatar_url:
+        if repo_info.metadata.thumbnail_url:
             try:
                 # XXX if we have credentials for this host, add them so we can we try to access non-public avatars
                 # if self.visibility != "public":
@@ -1435,11 +1881,11 @@ class GitlabManager(RepositoryHost):
                 #   if gl:
                 #     response = gl.session.get(avatar_url)
                 #     avatar = response.content
-                avatar = _urlopen(repo_info.metadata.avatar_url).read()
+                avatar = _urlopen(repo_info.metadata.thumbnail_url).read()
             except Exception:
                 self.logger.error(
                     f"Error retrieving avatar at %s",
-                    repo_info.metadata.avatar_url,
+                    repo_info.metadata.thumbnail_url,
                     exc_info=True,
                 )
             else:
@@ -1640,7 +2086,7 @@ else:
             metadata = RepositoryMetadata(
                 description=repo.description or "",
                 topics=repo.get_topics(),
-                spdx_license_id=repo.license.spdx_id if repo.license else "",
+                spdx_licenses=repo.license.spdx_id if repo.license else "",
                 **kw,
             )
 
@@ -1888,16 +2334,18 @@ class CloudMap:
         path: str = "",
         skip_analysis: bool = False,
         logger=logger,
+        local_env: Optional["LocalEnv"] = None,
     ):
         self.logger = logger
         self.repo = repo
         self.host_branch = host_branch
         self.source_branch = source_branch
+        self.local_env = local_env
         self.directory = Directory(
+            self,
             str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
             localrepo_root,
             skip_analysis,
-            logger,
         )
 
     @classmethod
@@ -1918,14 +2366,17 @@ class CloudMap:
         cls,
         local_env: "LocalEnv",
         name: str,
-        clone_root: str,
+        clone_root: Optional[str],
         host_name: str,
         namespace: str,
         skip_analysis: bool,
         logger=logger,
     ) -> "CloudMap":
         url, path, revision, repository = cls.get_config(local_env, name)
-        local_repo_root = clone_root or repository.get("clone_root") or ""
+        if clone_root is None:
+            local_repo_root = repository.get("clone_root") or ""
+        else:
+            local_repo_root = clone_root
 
         # what if branch only exists locally?
         if not host_name:
@@ -1958,7 +2409,14 @@ class CloudMap:
             # XXX add find_or_create_working_dir variant that always returns GitRepo
             raise UnfurlError(f"couldn't clone {url}")
         return CloudMap(
-            repo, branch, revision, local_repo_root, path, skip_analysis, logger
+            repo,
+            branch,
+            revision,
+            local_repo_root,
+            path,
+            skip_analysis,
+            logger,
+            local_env,
         )
 
     @classmethod
@@ -2041,11 +2499,17 @@ class CloudMap:
                 # try to find a matching host config for the url, otherwise create new host config on the fly
                 url = name
                 parts = urlparse(url)
-                hostname = parts.hostname
-                if not hostname:
-                    raise UnfurlError(f"invalid url for host: {url}")
                 path = parts.path.strip("/")
-                name, host_config = cls._find_host_config(hosts, hostname)
+                hostname = parts.hostname
+                if parts.scheme == "file":
+                    host_config = LocalHostConfig(
+                        type="local", clone_root=repos_root or parts.path, url=""
+                    )
+                    name = ""
+                else:
+                    if not hostname:
+                        raise UnfurlError(f"invalid url for host: {url}")
+                    name, host_config = cls._find_host_config(hosts, hostname)
                 if host_config is None:
                     host_type: Literal["github", "gitlab"] = (
                         "github" if hostname == "github.com" else "gitlab"
@@ -2113,7 +2577,7 @@ class CloudMap:
                 f"No repositories matched filter '{host.repo_filter}' on host {host.name}"
             )
         changed = self.save(
-            f"Update {self.host_branch} with latest from {'/'.join([host.name, host.path])}"
+            f"Update {self.host_branch} with latest from {'/'.join([host.name, host.path]).rstrip('/')}"
         )
         return changed
 
@@ -2140,7 +2604,8 @@ class CloudMap:
     ) -> bool:
         op_name = "sync" if sync else "export"
         if self.host_branch != self.source_branch:
-            self.repo.checkout(self.source_branch)
+            if self.repo:
+                self.repo.checkout(self.source_branch)
             self.directory.db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
             mismatched = self.directory.find_mismatched_repo(host)
@@ -2151,7 +2616,7 @@ class CloudMap:
             # merge the host branch into main
             # there will be a merge conflict if a repository branch or tags was changed in both branches
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
-            if merge_host:
+            if merge_host and self.repo:
                 self.repo.repo.git.merge(
                     self.host_branch, m=f"merge changes from syncing {self.host_branch}"
                 )
@@ -2167,21 +2632,24 @@ class CloudMap:
 
         # cloudmap might have changed
         changed = self.save(f"{op_name}ed to {host.name}")
-        if self.host_branch != self.source_branch:
+        if self.repo and self.host_branch != self.source_branch:
             # set host branch head to match to main because we are even now
             self.repo.repo.git.branch(self.host_branch, f=True)
         return changed
 
     def save(self, msg: str) -> bool:
         self.directory.db.save()
-        if self.repo.is_dirty(True, self.directory.db.config.path):
+        if not self.repo or not self.directory.db.config.path:
+            return False
+        self.repo.repo.index.add(self.directory.db.config.path)
+        if self.repo.is_dirty(False, self.directory.db.config.path):
             assert self.directory.db.config.path
             self.repo.commit_files([self.directory.db.config.path], msg)
             self.repo.repo.index.commit(msg)
             self.logger.debug(f"committed: {msg}")
             return True
         else:
-            self.logger.debug(f"nothing to commit for: {msg}")
+            self.logger.debug(f'nothing to commit for "{msg}"')
             return False
 
 
@@ -2246,4 +2714,3 @@ class CloudMapConfigurator(Configurator):
         cloud_map, host = task.rendered
         changed = cloud_map.to_host(host, False, bool(task.inputs.get("force")), False)
         return task.done(True, changed)
-

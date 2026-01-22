@@ -19,7 +19,7 @@ Registry Auth Tips:
 - gcr.io and *.pkg.dev: username="oauth2accesstoken", password=<oauth access token>
 """
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from functools import cache
 from typing import Any, Dict, NamedTuple, Optional, Tuple, List
 import base64
@@ -43,9 +43,46 @@ logger = getLogger("unfurl")
 
 DEFAULT_TIMEOUT = 20  # seconds
 
+
+def validate_url(url: str, field_name: str = "URL") -> str:
+    """
+    Validate that a URL doesn't contain whitespace.
+
+    Args:
+        url: The URL string to validate
+        field_name: Name of the field (for error messages)
+
+    Returns:
+        The validated URL
+
+    Raises:
+        ValueError: If the URL contains whitespace
+    """
+    if not url:
+        return url
+    if any(c.isspace() for c in url):
+        raise ValueError(f"{field_name} contains whitespace: {url!r}")
+    return url
+
+
 # ---------------------------
 # Parsing image references
 # ---------------------------
+
+
+class EntitySchema:
+    """built-in artifact entity types"""
+
+    # https://github.com/package-url/purl-spec
+    # mime type https://www.iana.org/assignments/media-types/media-types.xhtml
+    Schema = "unfurl.cloud/onecommons/std"
+    GenericFile = "tosca.artifacts.File"
+    ContainerFile = "cloudmap.artifacts.Containerfile"
+    CloudBlueprint = "cloudmap.artifacts.tosca.ServiceTemplate"
+    TOSCASchema = "cloudmap.artifacts.tosca.TypeLibrary"
+    Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
+    UnfurlProject = "cloudmap.artifacts.unfurl.Project"
+    OCIImage = "cloudmap.artifacts.oci.Image"
 
 
 @dataclass
@@ -55,21 +92,35 @@ class ArtifactMetadata:
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
-    purl: str = ""  # Package URL
     source: str = ""
     description: str = ""
     title: str = ""
-    repository_id: str = ""  # indexed in repositories
-    digest: str = ""
-    # created
-    # authors
     platforms: Optional[List[Dict[str, str]]] = None
     spdx_licenses: str = ""
     vendor: str = ""
     version: str = ""
-    revision: str = ""
+    created: str = ""
+    """Date and time on which the artifact was built, conforming to RFC 3339 format."""
     homepage_url: str = ""
     documentation_url: str = ""
+    thumbnail_url: str = ""
+    """Icon or thumbnail representing the artifact"""
+
+    def __post_init__(self):
+        if self.source:
+            self.source = validate_url(self.source, "ArtifactMetadata.source")
+        if self.homepage_url:
+            self.homepage_url = validate_url(
+                self.homepage_url, "ArtifactMetadata.homepage_url"
+            )
+        if self.documentation_url:
+            self.documentation_url = validate_url(
+                self.documentation_url, "ArtifactMetadata.documentation_url"
+            )
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, "ArtifactMetadata.thumbnail"
+            )
 
     def extract_urls_from_labels(self, labels: Dict[str, Any]) -> None:
         """
@@ -80,7 +131,11 @@ class ArtifactMetadata:
         def _set_if_present(field_name: str, label_key: str) -> None:
             value = labels.get(label_key)
             if isinstance(value, str) and value.strip():
-                setattr(self, field_name, value.strip())
+                # Validate URL fields before setting
+                cleaned = value.strip()
+                if field_name in ("source", "homepage_url", "documentation_url"):
+                    cleaned = validate_url(cleaned, f"ArtifactMetadata.{field_name}")
+                setattr(self, field_name, cleaned)
 
         # OCI standard annotations
         _set_if_present("source", "org.label-schema.vcs-url")
@@ -89,8 +144,6 @@ class ArtifactMetadata:
         _set_if_present("spdx_licenses", "org.opencontainers.image.licenses")
         _set_if_present("version", "org.label-schema.version")
         _set_if_present("version", "org.opencontainers.image.version")
-        _set_if_present("revision", "org.label-schema.vcs-ref")
-        _set_if_present("revision", "org.opencontainers.image.revision")
         _set_if_present("title", "org.label-schema.name")
         _set_if_present("title", "org.opencontainers.image.title")
         _set_if_present("description", "org.label-schema.description")
@@ -99,6 +152,189 @@ class ArtifactMetadata:
         _set_if_present("vendor", "org.opencontainers.image.vendor")
         _set_if_present("homepage_url", "org.label-schema.url")
         _set_if_present("homepage_url", "org.opencontainers.image.url")
+
+
+class TypeRefs:
+    """
+    Type references with optional constraints.
+
+    Represents a mapping of type names to optional version constraints.
+    Example: {"software.Nginx": {"version": "1.25"}, "software.Linux": None}
+    """
+
+    def __init__(self, types: Optional[Dict[str, Optional[Dict[str, str]]]] = None):
+        """Initialize TypeRefs from a dict or create empty."""
+        self.types = types if types is not None else {}
+
+    def asdict(self) -> Dict[str, Any]:
+        """Return JSON representation of typeRef."""
+        return self.types
+
+    def names(self) -> List[str]:
+        """Return list of type names."""
+        return list(self.types)
+
+    def add(self, type_name: str, version: Optional[str] = None) -> None:
+        """Add a type reference with optional version constraint."""
+        if version:
+            self.types[type_name] = {"version": version}
+        else:
+            self.types[type_name] = None
+
+    def __bool__(self) -> bool:
+        """Return True if there are any type references."""
+        return bool(self.types)
+
+    def __len__(self) -> int:
+        """Return number of type references."""
+        return len(self.types)
+
+    def __repr__(self) -> str:
+        return f"TypeRefs({self.types!r})"
+
+
+@dataclass
+class ArtifactSource:
+    """Source code and build provenance of an artifact."""
+
+    location: str = ""
+    """Repository URL pointing to source code"""
+    revision: str = ""
+    """Source control revision identifier"""
+    provenance: str = ""
+    """URL to build provenance or SBOM"""
+    reproducible: Optional[bool] = None
+    """Whether artifact is fully reproducible"""
+
+    def __post_init__(self):
+        if self.location:
+            self.location = validate_url(self.location, "ArtifactSource.location")
+        if self.provenance:
+            self.provenance = validate_url(self.provenance, "ArtifactSource.provenance")
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v is not None and v != ""}
+
+
+@dataclass
+class Discovery:
+    """Metadata discovery information."""
+
+    last_checked: str = ""
+    """Date and time of the last metadata check"""
+    sources: List[str] = field(default_factory=list)
+    """List of URLs that were used for metadata discovery"""
+
+    def __post_init__(self):
+        if self.sources:
+            self.sources = [
+                validate_url(url, "Discovery.sources") for url in self.sources
+            ]
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
+
+
+def filter_dict(d: dict) -> dict:
+    """Exclude empty values from a dictionary."""
+    return {k: v for k, v in d.items() if v}
+
+
+@dataclass
+class Artifact:
+    url: str
+    type: str
+    notable: List[str] = field(default_factory=list)
+    """List of IDs of artifacts or repositories that this artifact incorporates or references"""
+    instantiates: TypeRefs = field(default_factory=TypeRefs)
+    """Types that this artifact instantiates with optional version constraints (typeRef)"""
+    requires: TypeRefs = field(default_factory=TypeRefs)
+    """Requirements for instantiation with optional version constraints (typeRef)"""
+    source: Optional[ArtifactSource] = None
+    """Source code and build provenance (location, revision, provenance, reproducible)"""
+    digest: str = ""
+    """Cryptographic digest of the artifact"""
+    immutable: bool = False
+    """Whether the artifact identifier refers to an artifact that will not change over time"""
+    metadata: ArtifactMetadata = field(default_factory=ArtifactMetadata)
+    """Human-readable metadata"""
+    discovery: Optional[Discovery] = None
+    """Metadata discovery information (last_checked, sources)"""
+    releases: Dict[str, "Artifact"] = field(default_factory=dict)
+    """Artifacts that are variants of this artifact"""
+
+    def __post_init__(self):
+        # Validate pkg URL
+        if self.url:
+            self.url = validate_url(self.url, "Artifact.url")
+
+        if isinstance(self.metadata, dict):
+            self.metadata = ArtifactMetadata(**self.metadata)
+        if isinstance(self.discovery, dict):
+            self.discovery = Discovery(**self.discovery)
+        if isinstance(self.instantiates, dict):
+            self.instantiates = TypeRefs(types=self.instantiates)
+        if isinstance(self.requires, dict):
+            self.requires = TypeRefs(types=self.requires)
+        if isinstance(self.source, dict):
+            self.source = ArtifactSource(**self.source) if self.source else None
+        # Convert releases dict entries to Artifact instances if they're still dicts
+        if self.releases:
+            new_releases = {}
+            for k, v in self.releases.items():
+                if isinstance(v, Artifact):
+                    new_releases[k] = v
+                else:
+                    # Inherit type from parent if not specified in release
+                    if "type" not in v:
+                        v = dict(v, type=self.type)
+                    new_releases[k] = Artifact(url=k, **v)
+            self.releases = new_releases
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        result = {}
+        for k, v in asdict(self).items():
+            if k == "url":
+                continue  # skip url, save as the key instead
+            if k == "metadata":
+                v = filter_dict(v)
+            elif k == "discovery" and v:
+                v = filter_dict(v)
+            elif k == "instantiates" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "requires" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "source" and v:
+                v = v.asdict() if isinstance(v, ArtifactSource) else filter_dict(v)
+            elif k == "releases" and v:
+                # Convert nested Artifact instances to dicts
+                v = {
+                    url: (rel.asdict() if isinstance(rel, Artifact) else rel)
+                    for url, rel in v.items()
+                }
+            if v:  # exclude empty values
+                result[k] = v
+        return result
+
+
+class ArtifactFetch(NamedTuple):
+    manifest: Dict[str, Any]
+    artifact: Dict[str, Any]
+    manifest_url: str
+    artifact_digest: str
+
+
+class ImageMetadataFetch(NamedTuple):
+    annotations: Dict[str, Any]
+    "merged annotations from the index, manifest, and labels in the config blob"
+    platforms: List[Dict[str, str]]
+    "list of platform configs from the index or application/vnd.oci.image.config.v1+json blob (which has the same platform keys)"
+    manifest_digest: Optional[str]
+    "the manifest digest of the selected architecture or the root manifest if single-arch"
+    artifact_fetch: Optional[ArtifactFetch] = None
 
 
 def build_oci_purl(ref: ContainerImageParts) -> str:
@@ -115,7 +351,7 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     purl = f"pkg:oci/{quote(ref.name)}"
     if ref.digest:
         purl += f"@{quote(ref.digest)}"
-    purl += "?repository_url=" + quote(ref.host)
+    purl += "?repository_url=" + quote(ref.registry or "docker.io")
     repository = ref.repository
     if repository:
         purl += f"/{quote(repository)}"
@@ -124,25 +360,26 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     return purl
 
 
-def create_oci_artifact(image: ContainerImage) -> Tuple[ArtifactMetadata, List[str]]:
-    """Create minimal OCI artifact metadata for the given image name.
+def create_oci_artifact(image: ContainerImage) -> Artifact:
+    """Create OCI artifact from the given image name.
 
     Returns:
-        Tuple of (metadata, source_urls) where source_urls is a list of URLs
-        that were used to gather the metadata.
+        Artifact object with metadata and discovery information populated.
     """
     ref = image.parts
     source_urls: List[str] = []
 
     purl = build_oci_purl(ref)
-    metadata = ArtifactMetadata(purl=purl, digest=ref.digest)
+    metadata = ArtifactMetadata()
     annotations, platforms, manifest_digest, artifact_fetch = registry_v2_fetch(
         ref, username=image.username, password=image.password
     )
 
-    # Track the manifest URL used
-    manifest_url = f"https://{ref.host}/v2/{ref.repository}/manifests/{manifest_digest}"
-    source_urls.append(manifest_url)
+    if manifest_digest:  # Track the manifest URL used
+        manifest_url = (
+            f"https://{ref.host}/v2/{ref.repository}/manifests/{manifest_digest}"
+        )
+        source_urls.append(manifest_url)
 
     # Extract metadata from labels/annotations
     metadata.extract_urls_from_labels(annotations)
@@ -154,10 +391,31 @@ def create_oci_artifact(image: ContainerImage) -> Tuple[ArtifactMetadata, List[s
             if "architecture" in p and "os" in p and p["architecture"] != "unknown"
         ]
 
-    if manifest_digest:
-        metadata.digest = manifest_digest
-        # if ref.digest != manifest_digest:
-        #     metadata.purl = build_oci_purl(ref._replace(digest=manifest_digest))
+    # Set digest on the artifact
+    digest = manifest_digest or ref.digest
+
+    # Handle in-toto artifact metadata - extract VCS info for ArtifactSource
+    artifact_source = None
+    if artifact_fetch:
+        artifact = artifact_fetch.artifact
+        if isinstance(artifact, dict):
+            predicate = artifact.get("predicate")
+            if isinstance(predicate, dict):
+                artifact_metadata = predicate.get("metadata")
+                if isinstance(artifact_metadata, dict):
+                    vcs_info = artifact_metadata.get(
+                        "https://mobyproject.org/buildkit@v1#metadata", {}
+                    ).get("vcs")
+                    if isinstance(vcs_info, dict):
+                        # Add the artifact's manifest URL to sources
+                        source_urls.append(artifact_fetch.manifest_url)
+                        # Extract revision and source for ArtifactSource
+                        revision = vcs_info.get("revision", "")
+                        source_location = vcs_info.get("source") or metadata.source
+                        if source_location or revision:
+                            artifact_source = ArtifactSource(
+                                location=source_location, revision=revision
+                            )
 
     if ref.host == "registry-1.docker.io":
         namespace = ref.namespace or "library"
@@ -170,6 +428,9 @@ def create_oci_artifact(image: ContainerImage) -> Tuple[ArtifactMetadata, List[s
             source = raw_urls.get("repo_url") or raw_urls.get("source")
             if source:
                 metadata.source = source
+                # Update artifact_source if not already set
+                if not artifact_source:
+                    artifact_source = ArtifactSource(location=source)
             if raw_urls.get("homepage"):
                 metadata.homepage_url = raw_urls["homepage"]
             if raw_urls.get("documentation"):
@@ -191,13 +452,30 @@ def create_oci_artifact(image: ContainerImage) -> Tuple[ArtifactMetadata, List[s
                 v = image_info.get(k)
                 if v:
                     setattr(metadata, attr_name, v)
+            # Update artifact_source if github_url found and not already set
+            github_url = image_info.get("github_url")
+            if github_url and not artifact_source:
+                artifact_source = ArtifactSource(location=github_url)
     elif not metadata.homepage_url and ref.host in [
         "registry.gitlab.com",
         "registry.unfurl.cloud",
     ]:
         # set first 2 segments in path as homepage_url (will be a group or project page)
-        metadata.homepage_url = f"https://{ref.host[len('registry.'):]}/{'/'.join(ref.full_name.split('/')[:2])}"
-    return metadata, source_urls
+        metadata.homepage_url = f"https://{ref.host[len('registry.') :]}/{'/'.join(ref.full_name.split('/')[:2])}"
+
+    # If we still don't have an artifact_source but metadata.source is set, create one
+    if not artifact_source and metadata.source:
+        artifact_source = ArtifactSource(location=metadata.source)
+
+    # Create and return Artifact
+    return Artifact(
+        url=purl,
+        type=EntitySchema.OCIImage,
+        digest=digest,
+        metadata=metadata,
+        source=artifact_source,
+        discovery=Discovery(sources=source_urls) if source_urls else None,
+    )
 
 
 # ---------------------------
@@ -466,18 +744,6 @@ def registry_v2_get_tags(
             rt.status_code if rt is not None else "no response",
         )
     return tags
-
-
-ArtifactFetch = Optional[Tuple[Dict[str, Any], Dict[str, Any]]]
-
-class ImageMetadataFetch(NamedTuple):
-    annotations: Dict[str, Any]
-    "merged annotations from the index, manifest, and labels in the config blob"
-    platforms: List[Dict[str, str]]
-    "list of platform configs from the index or application/vnd.oci.image.config.v1+json blob (which has the same platform keys)"
-    manifest_digest: Optional[str]
-    "the manifest digest of the selected architecture or the root manifest if single-arch"
-    artifact_fetch: ArtifactFetch = None
 
 
 @cache
@@ -875,7 +1141,7 @@ def registry_v2_download_referrer_payload(
     username: Optional[str] = None,
     password: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> ArtifactFetch:
+) -> Optional[ArtifactFetch]:
     "Returns None or the artifact manifest and the artifact as JSON"
     if not artifact_digest or "sha256:" not in artifact_digest:
         return None
@@ -944,7 +1210,7 @@ def registry_v2_download_referrer_payload(
         except Exception:
             return None
 
-    return manifest, payload_json
+    return ArtifactFetch(manifest, payload_json, manifest_url, payload_digest)
 
 
 def fetch_referrers_and_payloads(
@@ -954,7 +1220,7 @@ def fetch_referrers_and_payloads(
     username: Optional[str] = None,
     password: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> ArtifactFetch:
+) -> Optional[ArtifactFetch]:
     referrers = registry_v2_referrers(
         ref,
         subject_digest,

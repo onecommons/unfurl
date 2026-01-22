@@ -4,6 +4,10 @@ Configuration Files
 Unfurl's configuration files are validated according to the JSON schemas described below.
 (Note: Required properties are in **bold**.)
 
+.. contents::
+   :local:
+   :depth: 2
+
 Files
 -----
 
@@ -163,3 +167,15 @@ Reusable helper definitions
 .. jsonschema:: manifest-schema.json#/definitions/namedObjects
 
 .. jsonschema:: manifest-schema.json#/definitions/schema
+
+
+Cloudmap definitions
+--------------------
+
+.. jsonschema:: cloudmap-schema.json#/definitions/typeRef
+
+.. jsonschema:: cloudmap-schema.json#/definitions/discovery
+
+.. jsonschema:: cloudmap-schema.json#/definitions/artifact
+
+.. jsonschema:: cloudmap-schema.json#/definitions/inlineArtifact

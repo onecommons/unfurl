@@ -455,7 +455,12 @@ destroyUnmanagedOption = click.option(
 @deploy_cli.command(short_help="Run and record an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
-@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.option(
+    "--ensemble",
+    default="",
+    type=click.Path(exists=False),
+    help="The ensemble to use. (Default: The current project's default ensemble.)",
+)
 # XXX:
 # @click.option(
 #     "--append", default=False, is_flag=True, help="add this command to the previous"
@@ -1983,8 +1988,8 @@ def serve(
 )
 @click.option(
     "--clone-root",
-    type=click.Path(exists=True),
-    help="Directory to clone repositories to.",
+    type=click.Path(exists=False),
+    help='Directory to clone repositories to ("" to override config and disable cloning).',
 )
 @click.option(
     "--visibility",
@@ -2045,8 +2050,9 @@ def cloudmap(
     host = CloudMap.get_host(
         localEnv, host_name, namespace or "", clone_root or "", visibility, repository
     )
+    # get the host first so we know branch to use in the cloud map repository
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root or "", host.name, namespace or "", skip_analysis
+        localEnv, cloudmap, clone_root, host.name, namespace or "", skip_analysis
     )
     host.dryrun = dryrun
     if options.get("import") or sync:
