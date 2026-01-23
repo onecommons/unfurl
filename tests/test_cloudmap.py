@@ -113,8 +113,7 @@ def runner():
 expected_cloudmap = f"""apiVersion: {API_VERSION}
 kind: CloudMap
 repositories:
-  unfurl.cloud/feb20a/dashboard:
-    git: unfurl.cloud/feb20a/dashboard.git
+  git://unfurl.cloud/feb20a/dashboard.git:
     path: feb20a/dashboard
     name: dashboard
     protocols:
@@ -131,9 +130,9 @@ repositories:
     notable:
       ensemble/ensemble.yaml:
         type: {EntitySchema.Ensemble}
-        artifact: https://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
+        artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 artifacts:
-  https://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
+  git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type: {EntitySchema.Ensemble}""".rstrip()
 
 @skip_integration
@@ -170,7 +169,7 @@ def test_sync(runner, caplog):
     )
     assert UNFURL_TEST_CLOUDMAP_URL
     for msg in [
-        "found git repo unfurl.cloud/feb20a/dashboard.git",
+        "found git repo git://unfurl.cloud/feb20a/dashboard.git",
         'nothing to commit for "Update hosts/testProvider with latest from testProvider/feb20a"',
         "syncing to feb20a",
         f"skipping push: no change detected on branch testProvider/main for {sanitize_url(UNFURL_TEST_CLOUDMAP_URL)}/feb20a/dashboard.git",
@@ -237,8 +236,7 @@ def test_configurator(runner, caplog):
 expected_types_cloudmap = f"""apiVersion: {API_VERSION}
 kind: CloudMap
 repositories:
-  unfurl.cloud/onecommons/blueprints/cronicle:
-    git: unfurl.cloud/onecommons/blueprints/cronicle.git
+  git://unfurl.cloud/onecommons/blueprints/cronicle.git:
     path: onecommons/blueprints/cronicle
     name: Cronicle
     protocols:
@@ -261,9 +259,9 @@ repositories:
     notable:
       ensemble-template.yaml#spec/service_template:
         type: {EntitySchema.CloudBlueprint}
-        artifact: https://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template
+        artifact: git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template
 artifacts:
-  https://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template:
+  git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template:
     type: {EntitySchema.CloudBlueprint}
     notable:
     - pkg:oci/cronicle?repository_url=docker.io/soulteary:
@@ -341,7 +339,7 @@ class TestGithubManager:
 
         repo = Repository(
             name="test-repo",
-            git="github.com/user/test-repo.git",
+            url="git://github.com/user/test-repo.git",
             path="user/test-repo",
             initial_revision="",
             protocols=["https"],
@@ -350,23 +348,16 @@ class TestGithubManager:
 
         assert manager.has_repository(repo)
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
-    def test_has_repository_non_github_url(self, mock_auth, mock_github_class):
-        """Test has_repository rejects non-GitHub repos."""
-        config = {"type": "github", "url": "https://github.com", "password": "token"}
-        manager = GithubManager("test", config)
-
-        repo = Repository(
+        repo2 = Repository(
             name="test-repo",
-            git="gitlab.com/user/test-repo.git",
+            url="git://gitlab.com/user/test-repo.git",
             path="user/test-repo",
             initial_revision="",
             protocols=["https"],
             default_branch="main",
         )
 
-        assert not manager.has_repository(repo)
+        assert not manager.has_repository(repo2)
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
@@ -429,7 +420,7 @@ class TestGithubManager:
         result = manager.github_repository_to_repository(mock_repo)
 
         assert result.name == "test-repo"
-        assert result.git == "github.com/testuser/test-repo.git"
+        assert result.url == "git://github.com/testuser/test-repo.git"
         assert result.path == "testuser/test-repo"
         assert result.private is False
         assert result.default_branch == "main"
@@ -498,112 +489,45 @@ class TestGithubManager:
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
-    def test_from_host_user_repos(self, mock_auth, mock_github_class):
-        """Test fetching repositories from authenticated user."""
-        config = {"type": "github", "url": "https://github.com", "password": "token"}
+    def test_github_repository_to_repository_conversion(
+        self, mock_auth, mock_github_class
+    ):
+        """Test converting PyGithub Repository to cloudmap Repository with all features."""
+        config = {
+            "type": "github",
+            "url": "https://github.com",
+            "password": "token",
+            "save_internal": True,
+        }
+        manager = GithubManager("test", config)
 
-        # Mock user and repos
-        mock_user = Mock()
-        mock_user.login = "testuser"
+        # Mock PyGithub Repository with all features
+        mock_owner = Mock()
+        mock_owner.login = "testuser"
+
+        mock_license = Mock()
+        mock_license.spdx_id = "MIT"
 
         mock_repo = Mock()
         mock_repo.name = "test-repo"
         mock_repo.full_name = "testuser/test-repo"
-        mock_repo.description = "Test"
-        mock_repo.private = False
+        mock_repo.description = "Test repository with all features"
+        mock_repo.private = True
         mock_repo.clone_url = "https://github.com/testuser/test-repo.git"
         mock_repo.ssh_url = "git@github.com:testuser/test-repo.git"
         mock_repo.html_url = "https://github.com/testuser/test-repo"
-        mock_repo.default_branch = "main"
-        mock_repo.homepage = None
-        mock_repo.get_topics.return_value = []
-        mock_repo.license = None
-        mock_repo.owner = mock_user
-        mock_repo.id = 123
-
-        # Mock branches
-        mock_branch = Mock()
-        mock_branch.name = "main"
-        mock_branch.commit = Mock()
-        mock_branch.commit.sha = "abc123def456"
-        mock_repo.get_branches.return_value = [mock_branch]
-
-        # Mock tags
-        mock_tag = Mock()
-        mock_tag.name = "v1.0.0"
-        mock_tag.commit = Mock()
-        mock_tag.commit.sha = "tag123abc456"
-        mock_repo.get_tags.return_value = [mock_tag]
-
-        mock_user.get_repos.return_value = [mock_repo]
-
-        mock_github_instance = mock_github_class.return_value
-        mock_github_instance.get_user.return_value = mock_user
-
-        manager = GithubManager("test", config, namespace="")
-
-        # Mock directory
-        mock_directory = Mock(spec=Directory)
-        mock_directory.db = Mock()
-        mock_directory.db.repositories = {}
-        mock_directory.repos_root = "/mock/repos"
-
-        # Mock repo structure to avoid fetch/analyze errors
-        mock_git_repo = Mock()
-        mock_git_repo.repo.references = []  # Empty list to avoid iteration error
-        mock_git_repo.working_dir = "/mock/repos/testuser/test-repo"
-
-        # Mock the remote to return the correct URL
-        mock_remote = Mock()
-        mock_remote.url = "https://github.com/testuser/test-repo.git"
-        mock_git_repo.repo.remote.return_value = mock_remote
-
-        # Mock find_repo and clone_repo to prevent actual git operations
-        mock_directory.find_repo.return_value = None
-        mock_directory.clone_repo.return_value = mock_git_repo
-        mock_directory.maybe_analyze.return_value = None
-
-        manager.from_host(mock_directory)
-
-        # Verify repository was added
-        assert len(mock_directory.db.repositories) == 1
-        # Repository key is the git URL without protocol
-        assert "github.com/testuser/test-repo" in mock_directory.db.repositories
-        # Verify branches and tags were captured
-        repo = mock_directory.db.repositories["github.com/testuser/test-repo"]
-        assert repo.branches == {"main": "abc123def456"}
-        assert repo.tags == {"v1.0.0": "tag123abc456"}
-
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
-    def test_from_host_organization_repos(self, mock_auth, mock_github_class):
-        """Test fetching repositories from organization."""
-        config = {"type": "github", "url": "https://github.com", "password": "token"}
-
-        # Mock organization and repos
-        mock_org = Mock()
-        mock_org.login = "testorg"
-
-        mock_repo = Mock()
-        mock_repo.name = "org-repo"
-        mock_repo.full_name = "testorg/org-repo"
-        mock_repo.description = "Org test"
-        mock_repo.private = True
-        mock_repo.clone_url = "https://github.com/testorg/org-repo.git"
-        mock_repo.ssh_url = "git@github.com:testorg/org-repo.git"
-        mock_repo.html_url = "https://github.com/testorg/org-repo"
-        mock_repo.default_branch = "main"
-        mock_repo.homepage = None
-        mock_repo.get_topics.return_value = ["org"]
-        mock_repo.license = None
-        mock_repo.owner = mock_org
-        mock_repo.id = 456
+        mock_repo.default_branch = "develop"
+        mock_repo.homepage = "https://example.com"
+        mock_repo.get_topics.return_value = ["python", "testing"]
+        mock_repo.license = mock_license
+        mock_repo.owner = mock_owner
+        mock_repo.id = 12345
 
         # Mock multiple branches
         mock_branch_main = Mock()
         mock_branch_main.name = "main"
         mock_branch_main.commit = Mock()
-        mock_branch_main.commit.sha = "123abc456def"
+        mock_branch_main.commit.sha = "abc123def456"
 
         mock_branch_dev = Mock()
         mock_branch_dev.name = "develop"
@@ -616,53 +540,37 @@ class TestGithubManager:
         mock_tag_v1 = Mock()
         mock_tag_v1.name = "v1.0.0"
         mock_tag_v1.commit = Mock()
-        mock_tag_v1.commit.sha = "aaa111bbb222"
+        mock_tag_v1.commit.sha = "tag111aaa222"
 
         mock_tag_v2 = Mock()
         mock_tag_v2.name = "v2.0.0"
         mock_tag_v2.commit = Mock()
-        mock_tag_v2.commit.sha = "ccc333ddd444"
+        mock_tag_v2.commit.sha = "tag333bbb444"
 
         mock_repo.get_tags.return_value = [mock_tag_v1, mock_tag_v2]
 
-        mock_org.get_repos.return_value = [mock_repo]
+        # Convert to cloudmap Repository
+        result = manager.github_repository_to_repository(mock_repo)
 
-        mock_github_instance = mock_github_class.return_value
-        mock_github_instance.get_organization.return_value = mock_org
+        # Verify basic properties
+        assert result.name == "test-repo"
+        assert result.url == "git://github.com/testuser/test-repo.git"
+        assert result.path == "testuser/test-repo"
+        assert result.private is True
+        assert result.default_branch == "develop"
+        assert result.metadata.description == "Test repository with all features"
+        assert result.metadata.topics == ["python", "testing"]
+        assert result.metadata.homepage_url == "https://example.com"
+        assert result.metadata.spdx_licenses == "MIT"
 
-        manager = GithubManager("test", config, namespace="testorg")
+        # Verify internal_id is saved when save_internal=True
+        assert result.internal_id == "12345"
 
-        # Mock directory
-        mock_directory = Mock(spec=Directory)
-        mock_directory.db = Mock()
-        mock_directory.db.repositories = {}
-        mock_directory.repos_root = "/mock/repos"
+        # Verify branches were correctly extracted
+        assert result.branches == {"main": "abc123def456", "develop": "789ghi012jkl"}
 
-        # Mock repo structure to avoid fetch/analyze errors
-        mock_git_repo = Mock()
-        mock_git_repo.repo.references = []  # Empty list to avoid iteration error
-        mock_git_repo.working_dir = "/mock/repos/testorg/org-repo"
-
-        # Mock the remote to return the correct URL
-        mock_remote = Mock()
-        mock_remote.url = "https://github.com/testorg/org-repo.git"
-        mock_git_repo.repo.remote.return_value = mock_remote
-
-        # Mock find_repo and clone_repo to prevent actual git operations
-        mock_directory.find_repo.return_value = None
-        mock_directory.clone_repo.return_value = mock_git_repo
-        mock_directory.maybe_analyze.return_value = None
-
-        manager.from_host(mock_directory)
-
-        # Verify repository was added
-        assert len(mock_directory.db.repositories) == 1
-        # Repository key is the git URL without protocol
-        assert "github.com/testorg/org-repo" in mock_directory.db.repositories
-        # Verify branches and tags were captured
-        repo = mock_directory.db.repositories["github.com/testorg/org-repo"]
-        assert repo.branches == {"main": "123abc456def", "develop": "789ghi012jkl"}
-        assert repo.tags == {"v1.0.0": "aaa111bbb222", "v2.0.0": "ccc333ddd444"}
+        # Verify tags were correctly extracted
+        assert result.tags == {"v1.0.0": "tag111aaa222", "v2.0.0": "tag333bbb444"}
 
     @patch("unfurl.cloudmap.Github")
     @patch("unfurl.cloudmap.Auth")
@@ -687,7 +595,7 @@ class TestGithubManager:
         # Mock repo to create
         repo_info = Repository(
             name="new-repo",
-            git="github.com/testorg/new-repo.git",
+            url="git://github.com/testorg/new-repo.git",
             path="testorg/new-repo",
             initial_revision="",
             protocols=["https"],
@@ -733,7 +641,7 @@ class TestGithubManager:
         # Mock repo to create
         repo_info = Repository(
             name="user-repo",
-            git="github.com/testuser/user-repo.git",
+            url="git://github.com/testuser/user-repo.git",
             path="testuser/user-repo",
             initial_revision="",
             protocols=["https"],
@@ -773,7 +681,7 @@ class TestGithubManager:
         # New metadata
         repo_info = Repository(
             name="test-repo",
-            git="github.com/testuser/test-repo.git",
+            url="git://github.com/testuser/test-repo.git",
             path="testuser/test-repo",
             initial_revision="",
             protocols=["https"],
@@ -1058,7 +966,7 @@ services:
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
     deployment:
-      location: unfurl.cloud/onecommons/unfurl_cloud_prod#v1:prod
+      location: git://unfurl.cloud/onecommons/unfurl_cloud_prod.git#:v1:prod
       type: cloudmap.artifacts.unfurl.Ensemble
       revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
     discovery:
@@ -1069,7 +977,7 @@ types:
   Zulip@unfurl.cloud/onecommons/blueprints/zulip:
     kind: Service
     title: Zulip
-    source: unfurl.cloud/onecommons/blueprints/zulip#:types/app.yaml
+    source: git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml
     extends:
     - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
     - WebApp@unfurl.cloud/onecommons/std:generic_types
@@ -1090,7 +998,7 @@ types:
 
         # Verify repositories loaded correctly
         assert len(db.repositories) == 1
-        assert "github.com/onecommons/unfurl" in db.repositories
+        assert "git://github.com/onecommons/unfurl.git" in db.repositories
 
         # Verify artifacts loaded correctly
         assert "artifacts" in db.db
@@ -1191,7 +1099,7 @@ types:
         assert zulip_type.title == "Zulip"
         assert (
             zulip_type.source
-            == "unfurl.cloud/onecommons/blueprints/zulip#:types/app.yaml"
+            == "git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml"
         )
 
         # Verify extends is an array of strings

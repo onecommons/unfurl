@@ -88,7 +88,11 @@ def get_cloudmap_types(
     types: Dict[str, ResourceType] = {}
     db = CloudMapDB("", doc, False)
     for artifact in db.find_artifacts(EntitySchema.CloudBlueprint):
-        git_url = artifact.url
+        repo = db.get_repository(artifact.url)
+        if repo:
+            git_url = repo.git_url()
+        else:
+            git_url = artifact.url
         # Iterate through each type that this artifact instantiates
         if artifact.instantiates:
             for type_name in artifact.instantiates.types:

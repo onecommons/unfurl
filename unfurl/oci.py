@@ -25,7 +25,7 @@ from typing import Any, Dict, NamedTuple, Optional, Tuple, List
 import base64
 import json
 import logging
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 import requests
 
 from tenacity import (
@@ -38,6 +38,7 @@ from tenacity import (
 )
 from .support import ContainerImageParts, ContainerImage
 from .logs import getLogger
+from toscaparser.imports import is_url
 
 logger = getLogger("unfurl")
 
@@ -46,7 +47,7 @@ DEFAULT_TIMEOUT = 20  # seconds
 
 def validate_url(url: str, field_name: str = "URL") -> str:
     """
-    Validate that a URL doesn't contain whitespace.
+    Validate that the given field is a valid URL or empty.
 
     Args:
         url: The URL string to validate
@@ -56,12 +57,12 @@ def validate_url(url: str, field_name: str = "URL") -> str:
         The validated URL
 
     Raises:
-        ValueError: If the URL contains whitespace
+        ValueError: If the URL is not valid
     """
     if not url:
         return url
-    if any(c.isspace() for c in url):
-        raise ValueError(f"{field_name} contains whitespace: {url!r}")
+    if not is_url(url):
+        raise ValueError(f"{field_name} is not a valid URL: {url!r}")
     return url
 
 
@@ -268,7 +269,9 @@ class Artifact:
     def __post_init__(self):
         # Validate pkg URL
         if self.url:
-            self.url = validate_url(self.url, "Artifact.url")
+            parts = urlparse(self.url)  # just to parse and validate
+            if parts.scheme not in ["pkg", "git"]:
+                raise ValueError(f"Artifact.url must be a pkg URL: {self.url!r}")
 
         if isinstance(self.metadata, dict):
             self.metadata = ArtifactMetadata(**self.metadata)

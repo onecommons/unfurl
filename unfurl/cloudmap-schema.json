@@ -280,55 +280,66 @@
     "repositories": {
       "type": "object",
       "propertyNames": {
+        "description": "URL of the repository using the git:// URL scheme.",
         "pattern": "^[^\\s]*$"
       },
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "git": {
-            "type": "string"
-          },
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "Project path relative to base location of git repositories on the host."
           },
           "initial_revision": {
-            "type": "string"
+            "type": "string",
+            "description": "Initial commit hash when the repository was first added to the cloudmap."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Repository name."
           },
           "protocols": {
             "type": "array",
+            "description": "List of protocols available to clone the repository (e.g., https, ssh).",
             "items": {
               "type": "string"
             }
           },
           "internal_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Internal identifier from the repository host (e.g., GitHub repository ID)."
           },
           "project_url": {
-            "type": "string"
+            "type": "string",
+            "description": "URL to the repository's project page on the host (e.g., https://github.com/user/repo)."
           },
           "mirror_of": {
-            "type": "string"
+            "type": "string",
+            "description": "URL of the repository that this repository is a mirror of."
           },
           "fork_of": {
-            "type": "string"
+            "type": "string",
+            "description": "URL of the repository that this repository was forked from."
           },
           "private": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the repository is private."
           },
           "default_branch": {
-            "type": "string"
+            "type": "string",
+            "description": "Default branch name (e.g., main, master)."
           },
           "metadata": {
             "type": "object",
+            "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
             "properties": {
               "description": {
-                "type": "string"
+                "type": "string",
+                "description": "Human-readable description of the repository."
               },
               "topics": {
                 "type": "array",
+                "description": "List of topic tags associated with the repository.",
                 "items": {
                   "type": "string"
                 }
@@ -338,22 +349,28 @@
                 "description": "License(s) under which the repository contents are distributed as an SPDX License Expression."
               },
               "license_url": {
-                "type": "string"
+                "type": "string",
+                "description": "URL to the license file or license information."
               },
               "issues_url": {
-                "type": "string"
+                "type": "string",
+                "description": "URL to the issue tracker for the repository."
               },
               "homepage_url": {
-                "type": "string"
+                "type": "string",
+                "description": "URL to the project homepage."
               },
               "thumbnail_url": {
-                "type": "string"
+                "type": "string",
+                "description": "URL to an avatar, icon, or thumbnail image representing the repository."
               },
               "lastupdate_time": {
-                "type": "string"
+                "type": "string",
+                "description": "Timestamp of the last metadata update."
               },
               "lastupdate_digest": {
-                "type": "string"
+                "type": "string",
+                "description": "Digest hash of the metadata at the time of the last update."
               },
               "project_status": {
                 "type": "string",
@@ -373,14 +390,18 @@
           },
           "branches": {
             "type": "object",
+            "description": "Map of branch names to their commit SHA hashes.",
             "additionalProperties": {
-              "type": "string"
+              "type": "string",
+              "description": "Commit SHA hash for the branch."
             }
           },
           "tags": {
             "type": "object",
+            "description": "Map of tag names to their commit SHA hashes.",
             "additionalProperties": {
-              "type": "string"
+              "type": "string",
+              "description": "Commit SHA hash for the tag."
             }
           },
           "notable": {

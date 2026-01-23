@@ -1078,7 +1078,7 @@ class EnsembleBuilder:
             cloudmap = CloudMap.get_db(local_env)
             repo_url, filePath, revision = split_git_url(self.input_source)
             repo_key = repo_url[len("cloudmap:") :]
-            repo_record = cloudmap.repositories.get(repo_key)
+            repo_record = cloudmap.get_repository(repo_key)
             if repo_record:
                 self.input_source = git_url_join(
                     repo_record.git_url(), filePath, revision

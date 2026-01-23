@@ -122,6 +122,35 @@ DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
+def get_repository_url(url: str) -> str:
+    """Return the git:// URL for the repository without user, fragment or .git suffix"""
+    parts = urlparse(url)
+    if parts.scheme == "git":
+        return url
+    user, sep, host = parts.netloc.rpartition("@")
+    if sep:
+        netloc = host
+    else:
+        netloc = parts.netloc
+    return "git://" + netloc + parts.path
+
+
+def find_git_repos(rootDir: str, gitDir=".git") -> Iterator[str]:
+    for root, dirs, files in os.walk(rootDir):
+        if gitDir in dirs and is_git_worktree(root, gitDir):
+            del dirs[:]  # don't visit sub directories
+            yield os.path.abspath(root)
+
+
+def match_namespace(path: str, namespace: str) -> bool:
+    if not namespace or path == namespace:
+        return True
+    if not path:
+        return False
+    # don't match on partial segments
+    return path.startswith(os.path.join(namespace, ""))
+
+
 # Data classes
 @dataclass
 class Namespace:
@@ -201,19 +230,10 @@ class RepositoryMetadata:
         pass
 
 
-def match_namespace(path: str, namespace: str) -> bool:
-    if not namespace or path == namespace:
-        return True
-    if not path:
-        return False
-    # don't match on partial segments
-    return path.startswith(os.path.join(namespace, ""))
-
-
 @dataclass
 class Repository:
-    git: str
-    """hostname and path without protocols, unique key for this record"""
+    url: str
+    """URL of the repository using the git:// URL scheme"""
     path: str
     """Project path relative to base location of git repositories on the host"""
     initial_revision: str = ""
@@ -231,9 +251,9 @@ class Repository:
     notable: Dict[str, dict] = field(default_factory=dict)
 
     def __post_init__(self):
-        # Validate URLs
-        if self.git:
-            self.git = validate_url(self.git, "Repository.git")
+        if self.url:
+            # url is stored as git:// URL
+            self.url = get_repository_url(self.url)
         if self.project_url:
             self.project_url = validate_url(self.project_url, "Repository.project_url")
         if self.mirror_of:
@@ -256,31 +276,39 @@ class Repository:
         return self.metadata.asdict()
 
     def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
+        # exclude empty values and skip url, (save as the key instead)
         return {
             k: (filter_dict(v) if k == "metadata" else v)
             for k, v in asdict(self).items()
-            if v
+            if v and k != "url"
         }
 
     def git_url(self, preference=()) -> str:
+        "URL to clone the repository using preferred protocol or the first available protocol"
         preference = preference or self.protocols  # match first protocol if not set
+        url = self.url[len("git://") :]
         for scheme in preference:
             if scheme in self.protocols:
                 if scheme == "ssh":
-                    return "git@" + self.git.replace("/", ":", 1)
+                    return "git@" + url.replace("/", ":", 1)
                 else:
-                    return scheme + "://" + self.git
+                    return scheme + "://" + url
         return ""
+
+    def artifact_url(self, file_path: str) -> str:
+        "URL to reference a file in the repository as an artifact"
+        return f"{self.url}#:{quote(file_path)}"
 
     def match_path(self, path: str) -> bool:
         return match_namespace(self.path, path)
 
     @property
-    def key(self):
-        if self.git.endswith(".git"):
-            return self.git[:-4]
-        return self.git
+    def package_id(self):
+        "URL as a package id"
+        url = self.url[len("git://") :]
+        if url.endswith(".git"):
+            return url[:-4]
+        return url
 
     # match url and path?
     # def get_namespace(self, directory) -> Optional[Namespace]:
@@ -478,16 +506,7 @@ class CloudType:
 
 ServiceDict = Dict[str, Service]
 CloudTypeDict = Dict[str, CloudType]
-
-
 RepositoryDict = Dict[str, Repository]
-
-
-def find_git_repos(rootDir: str, gitDir=".git") -> Iterator[str]:
-    for root, dirs, files in os.walk(rootDir):
-        if gitDir in dirs and is_git_worktree(root, gitDir):
-            del dirs[:]  # don't visit sub directories
-            yield os.path.abspath(root)
 
 
 def force_merge_local_and_push_to_remote(
@@ -647,7 +666,7 @@ class UnfurlNotable(Notable):
 
             if node:
                 types = ResourceTypesByName(
-                    repo_info.key, spec.template.topology_template.custom_defs
+                    repo_info.package_id, spec.template.topology_template.custom_defs
                 )
                 type_dict = cast(
                     dict,
@@ -678,14 +697,11 @@ class UnfurlNotable(Notable):
                     directory.db.artifacts[purl] = image_artifact
                     child_artifacts.append(purl)
 
-            # Create artifact pkg from repository URL + file path
-            artifact_pkg = (
-                f"{repo_info.git_url()}#:{quote(os.path.join(self.folder, self.file))}"
-            )
+            artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
 
             # Create main artifact using helper method
             artifact, cloud_type = CloudMapDB.create_artifact_from_notable(
-                artifact_pkg=artifact_pkg,
+                artifact_pkg=artifact_url,
                 artifact_type=self.artifact_type,
                 name=template_name,
                 version=template_version,
@@ -702,10 +718,10 @@ class UnfurlNotable(Notable):
                 directory.db.types[cloud_type.name] = cloud_type
 
             # Add to directory artifacts
-            directory.db.artifacts[artifact_pkg] = artifact
+            directory.db.artifacts[artifact_url] = artifact
 
             # Store artifact ID for repository notable
-            self.artifact_id = artifact_pkg
+            self.artifact_id = artifact_url
         else:
             self.artifact_type = EntitySchema.UnfurlProject
         return artifact
@@ -852,7 +868,7 @@ class _LocalGitRepos:
             for remote in gitrepo.remotes:
                 if not remote.url:
                     continue
-                url = get_remote_git_url(remote.url)
+                url = get_repository_url(remote.url)
                 self.remotes.setdefault(url, []).append(remote)
                 self.logger.trace(f"found git repo {url} in {working_dir}")
             self.repos[working_dir] = repo
@@ -860,7 +876,7 @@ class _LocalGitRepos:
 
     def _set_repos(self, root: str) -> None:
         # note: there can be a many to many relationship between upstream and local repos
-        # url => remotes
+        # Repository url => remotes
         self.remotes: Dict[str, List[git.Remote]] = {}
         # working_dir => repo
         self.repos: Dict[str, GitRepo] = {}
@@ -884,7 +900,7 @@ class _LocalGitRepos:
         return host or origin or canonical or remotes[0]
 
     def find_repo(self, url: str, hint: str) -> Optional[GitRepo]:
-        remotes = self.remotes.get(get_remote_git_url(url))
+        remotes = self.remotes.get(get_repository_url(url))
         if remotes:
             # find best candidate
             remote = self._choose_remote(remotes, hint)
@@ -973,6 +989,22 @@ class CloudMapDB:
 
         return artifact, cloud_type
 
+    def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
+        """Get a repository by its key (URL)."""
+        if isinstance(r, Repository):
+            url = r.url
+        else:
+            url = get_repository_url(r)
+        found = self.repositories.get(url)
+        if not found and not url.endswith(".git"):
+            # package ids don't have .git suffix, try adding it
+            return self.repositories.get(url + ".git")
+        return found
+
+    def add_repository(self, repository: Repository) -> None:
+        """Add or update a repository in the cloudmap."""
+        self.repositories[repository.url] = repository
+
     def _migrate_old_notable_format(self, repo: Repository) -> List[str]:
         """
         Migrate old Repository.notable dictionary format to new List[str] format.
@@ -990,7 +1022,7 @@ class CloudMapDB:
         for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
             if "artifact_type" in notable_dict:
                 # Create artifact pkg from repository URL + file path
-                artifact_pkg = f"{repo.git_url()}#:{quote(file_path)}"
+                artifact_pkg = repo.artifact_url(file_path)
 
                 # Create artifact using helper method
                 artifact, cloud_type = self.create_artifact_from_notable(
@@ -1062,11 +1094,11 @@ class CloudMapDB:
         repositories = cast(Dict, db.get("repositories") or {})
         self.repositories: RepositoryDict = {}
         for url, r in repositories.items():
-            repo = Repository(**r)
+            repo = Repository(url=r.pop("git", url), **r)
             # Backwards compatibility: migrate old notable dictionary format to new format
             if isinstance(repo.notable, dict):
                 self._migrate_old_notable_format(repo)
-            self.repositories[url] = repo
+            self.add_repository(repo)
 
         # Load services
         services = cast(Dict, db.get("services") or {})
@@ -1154,7 +1186,7 @@ class Directory(_LocalGitRepos):
     ) -> Iterator[Tuple[git.Remote, GitRepo, Repository]]:
         """for each repo that matches host.host and host.namespace, yield matching remote and Repository"""
         for url, remotes in self.remotes.items():
-            repo_info = self.db.repositories.get(url)
+            repo_info = self.db.get_repository(url)
             if repo_info and host.has_repository(repo_info):
                 remote = self._choose_remote(remotes, host.name)
                 working_dir = cast(str, remote.repo.working_tree_dir)
@@ -1228,14 +1260,14 @@ class Directory(_LocalGitRepos):
                 # restore previous
                 repo_info.notable = previous_notables
                 self.logger.error(
-                    "Unexpected error analyzing %s.", repo_info.key, exc_info=True
+                    "Unexpected error analyzing %s.", repo_info.url, exc_info=True
                 )
         # no analysis happened, preserve previous analysis
         repo_info.notable = previous_notables
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
-        self.logger.verbose("analyzing %s", repo_info.key)
+        self.logger.verbose("analyzing %s", repo_info.url)
         notables = self.analyze_repo(repo_info, repo)
         for n in notables:
             artifact = n.analyze(self, repo_info, repo.working_dir)
@@ -1249,19 +1281,6 @@ class Directory(_LocalGitRepos):
         repo_info.add_notables(notables)
         return notables
 
-
-def get_remote_git_url(url: str) -> str:
-    """Return the location of the git server without the scheme or user"""
-    parts = urlparse(url)
-    if not parts.netloc and not parts.scheme and "@" in url:
-        # scp style used by git: user@server:project.git
-        parts = urlparse("ssh://" + url.replace(":", "/", 1))
-    if parts.netloc:
-        user, sep, host = parts.netloc.rpartition("@")
-        return host + parts.path
-    return url
-
-
 class RepositoryHost:
     name: str = ""
     path: str = ""
@@ -1270,7 +1289,16 @@ class RepositoryHost:
     repo_filter: str = ""
     hostname: str = ""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        name: str,
+        namespace: str,
+        repo_filter: str,
+        logger: UnfurlLogger,
+    ) -> None:
+        self.name = name
+        self.path = namespace
+        self.repo_filter = get_repository_url(repo_filter) if repo_filter else ""
         self.logger = logger
 
     def from_host(self, directory: Directory) -> int:
@@ -1308,17 +1336,10 @@ class RepositoryHost:
             path = path[:-4]
         return path
 
-    def _git_url(self, url: str) -> Tuple[str, str]:
-        # strip out url scheme
-        parts = urlparse(self.canonize(url))
-        git_url = parts.netloc + parts.path
-        return git_url, parts.scheme
-
-    def match_repo_filter(self, repo_key: str) -> bool:
+    def match_repo_filter(self, repo_key: str) -> bool:  # XXX
         """repo_key is the location of the git server without the scheme or user"""
         if self.repo_filter:
-            if repo_key.endswith(".git"):
-                repo_key = repo_key[:-4]
+            repo_key = get_repository_url(repo_key)
             if self.repo_filter[0] == "!":
                 return repo_key != self.repo_filter[1:]
             return repo_key == self.repo_filter
@@ -1327,8 +1348,10 @@ class RepositoryHost:
     def has_repository(self, repo_info: Repository) -> bool:
         """Check if repository belongs to this host."""
         if self.repo_filter:
-            return self.match_repo_filter(repo_info.key)
-        if repo_info.git.startswith(self.hostname) and repo_info.match_path(self.path):
+            return self.match_repo_filter(repo_info.url)
+        if repo_info.url.startswith("git://" + self.hostname) and repo_info.match_path(
+            self.path
+        ):
             return True
         return False
 
@@ -1339,7 +1362,7 @@ class RepositoryHost:
         # add remote for target repo
         repo = local.find_repo(push_url, self.name)
         if not repo:
-            repo = local.find_repo(dest.git, self.name)
+            repo = local.find_repo(dest.url, self.name)
         missing = not repo
         if not repo:
             repo = local.clone_repo(dest, push_url)
@@ -1372,7 +1395,7 @@ class RepositoryHost:
         return repo, missing
 
     def canonize(self, url: str) -> str:
-        """Convert URL to canonical form if canonical_url is set."""
+        """Convert URL to use canonical url if canonical_url is set."""
         if self.canonical_url:
             parts = urlparse(url)
             return urljoin(self.canonical_url, parts.path)
@@ -1393,7 +1416,7 @@ class RepositoryHost:
                 # reset local main to remote's main
                 repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
         except Exception:
-            self.logger.error("Error retrieving content for %s", r.key, exc_info=True)
+            self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
             directory.maybe_analyze(r, repo, previous.notable if previous else {})
 
@@ -1407,7 +1430,7 @@ class RepositoryHost:
         force: bool,
     ) -> None:
         if not repo:
-            repo = directory.find_repo(repo_info.git, self.name)
+            repo = directory.find_repo(repo_info.url, self.name)
         if repo:
             # there's a local mirror that might have changed
             try:
@@ -1450,7 +1473,7 @@ class RepositoryHost:
                     )
             except Exception:
                 self.logger.error(
-                    f"Unexpected error updating upstream git for {repo_info.git}",
+                    f"Unexpected error updating upstream git for {repo_info.url}",
                     exc_info=True,
                 )
 
@@ -1466,18 +1489,15 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         local_repo_root: str = "",
         namespace: str = "",
         repo_filter: str = "",
-        logger=None,
+        logger=logger,
     ) -> None:
-        RepositoryHost.__init__(self)
+        super().__init__(name, namespace, repo_filter, logger)
         _LocalGitRepos.__init__(self, local_repo_root, logger)
-        self.name = name
-        self.path = namespace
-        self.repo_filter = repo_filter
 
     def has_repository(self, repo_info: Repository) -> bool:
         if self.repo_filter:
-            return self.match_repo_filter(repo_info.key)
-        return repo_info.git in self.remotes
+            return self.match_repo_filter(repo_info.url)
+        return repo_info.url in self.remotes
 
     def include_local_repo(self, repo: GitRepo) -> bool:
         return bool(repo.remote)
@@ -1496,23 +1516,21 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     continue
                 # prefer "canonical" remote
                 remote = _LocalGitRepos._choose_remote(repo.repo.remotes, "canonical")
-                if self.repo_filter and not self.match_repo_filter(
-                    get_remote_git_url(remote.url)
-                ):
+                if self.repo_filter and not self.match_repo_filter(remote.url):
                     continue
                 assert repo.repo.working_dir
                 if not os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
                     repo.pull(remote.name)
                 repository = self.git_to_repository(remote, path)
                 repository.initial_revision = repo.get_initial_revision()
-                previous = directory.db.repositories.get(repository.key)
+                previous = directory.db.get_repository(repository)
                 if previous:
                     # don't replace metadata from remote host
                     if not previous.initial_revision:
                         previous.initial_revision = repository.initial_revision
                     repository = previous
                 else:
-                    directory.db.repositories[repository.key] = repository
+                    directory.db.add_repository(repository)
                 directory.maybe_analyze(
                     repository, repo, previous.notable if previous else {}
                 )
@@ -1537,7 +1555,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     def git_to_repository(remote: git.Remote, path: str) -> "Repository":
         url = remote.url
         record = Repository(
-            git=get_remote_git_url(url),
+            url=url,
             path=path,
             protocols=[urlparse(url).scheme or "ssh"],
         )
@@ -1594,11 +1612,6 @@ class GitlabManager(RepositoryHost):
         repo_filter: str = "",
         logger=logger,
     ) -> None:
-        RepositoryHost.__init__(self)
-        self.logger = logger
-        self.name = name
-        self.visibility = config.get("visibility", "any")
-        self.repo_filter = repo_filter
         url = config["url"]
         parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
@@ -1609,7 +1622,10 @@ class GitlabManager(RepositoryHost):
         # Prioritize URL credentials over config credentials
         self.user = user or config.get("user")
         self.token = token or config.get("password")
-        self.path = namespace or parts.path.strip("/")
+        # namespace can be provided in the URL path or as a parameter
+        namespace = namespace or parts.path.strip("/")
+        super().__init__(name, namespace, repo_filter, logger)
+        self.visibility = config.get("visibility", "any")
         self.save_internal = bool(config.get("save_internal"))
         self.canonical_url = config.get("canonical_url") or ""
         if self.canonical_url:
@@ -1673,8 +1689,8 @@ class GitlabManager(RepositoryHost):
         count = 0
         for p in projects:
             if self.repo_filter:
-                git_url, scheme = self._git_url(cast(Project, p).http_url_to_repo)
-                if not self.match_repo_filter(git_url):  # git_url is r.key
+                git_url = self.canonize(cast(Project, p).http_url_to_repo)
+                if not self.match_repo_filter(git_url):
                     self.logger.trace(
                         "skipping %s, doesn't match %s", git_url, self.repo_filter
                     )
@@ -1701,9 +1717,8 @@ class GitlabManager(RepositoryHost):
         self, dest_proj: Project, directory: Directory, download: bool
     ) -> None:
         r = self.gitlab_project_to_repository(dest_proj)
-        repositories = directory.db.repositories
-        previous = repositories.get(r.key)
-        repositories[r.key] = r
+        previous = directory.db.get_repository(r)
+        directory.db.add_repository(r)
         if download and directory.repos_root:
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?
@@ -1956,13 +1971,14 @@ class GitlabManager(RepositoryHost):
                 for envvar in yield_ci_variables(project)
             }
         metadata.set_lastupdate()
-        git_url, scheme = self._git_url(project.http_url_to_repo)
-        protocols = [scheme]
+        git_url = project.http_url_to_repo
+        parts = urlparse(git_url)
+        protocols = [parts.scheme]
         if project.ssh_url_to_repo:
             protocols.append("ssh")
         repository = Repository(
             initial_revision="",  # XXX
-            git=git_url,
+            url=self.canonize(git_url),
             name=project.name,
             protocols=protocols,
             path=project.path_with_namespace,
@@ -2004,10 +2020,7 @@ else:
             repo_filter: str = "",
             logger=logger,
         ) -> None:
-            self.logger = logger
-            self.name = name
-            self.path = namespace
-            self.repo_filter = repo_filter
+            super().__init__(name, namespace, repo_filter, logger)
             self.visibility = config.get("visibility", "any")
             self.save_internal = config.get("save_internal", False)
             self.canonical_url = config.get("canonical_url", "")
@@ -2071,10 +2084,10 @@ else:
         ) -> Repository:
             """Convert PyGithub Repository object to cloudmap Repository dataclass."""
             # Extract git URL and scheme
-            git_url, scheme = self._git_url(repo.clone_url)
+            git_url = self.canonize(repo.clone_url)
 
             # Build protocols list
-            protocols = [scheme]
+            protocols = ["https"]
             if repo.ssh_url:
                 protocols.append("ssh")
 
@@ -2093,7 +2106,7 @@ else:
             # Build Repository object
             repository = Repository(
                 initial_revision="",  # XXX
-                git=git_url,
+                url=git_url,
                 name=repo.name,
                 protocols=protocols,
                 path=f"{repo.owner.login}/{repo.name}",
@@ -2152,7 +2165,7 @@ else:
             for repo in repos:
                 # Filter by repo_filter if set
                 if self.repo_filter:
-                    git_url, scheme = self._git_url(repo.clone_url)
+                    git_url = self.canonize(repo.clone_url)
                     if not self.match_repo_filter(git_url):
                         self.logger.trace(
                             "skipping %s, doesn't match %s", git_url, self.repo_filter
@@ -2170,10 +2183,9 @@ else:
             self, repo: GithubRepository, directory: Directory, download: bool
         ) -> None:
             # Convert and add to directory
-            repositories = directory.db.repositories
             repo_info = self.github_repository_to_repository(repo)
-            previous = repositories.get(repo_info.key)
-            repositories[repo_info.key] = repo_info
+            previous = directory.db.get_repository(repo_info)
+            directory.db.add_repository(repo_info)
             if download and directory.repos_root:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
@@ -2519,7 +2531,7 @@ class CloudMap:
                     name = ""
                 if not repo_filter and "/" in path:
                     # find host config that matches this hostname and set this url as its repo_filter
-                    repo_filter = get_remote_git_url(url)
+                    repo_filter = url
                 elif not namespace and path:
                     namespace = path
             else:
