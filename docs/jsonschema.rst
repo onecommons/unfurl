@@ -174,6 +174,8 @@ Cloudmap definitions
 
 .. jsonschema:: cloudmap-schema.json#/definitions/typeRef
 
+.. jsonschema:: cloudmap-schema.json#/definitions/typedURLs
+
 .. jsonschema:: cloudmap-schema.json#/definitions/discovery
 
 .. jsonschema:: cloudmap-schema.json#/definitions/artifact

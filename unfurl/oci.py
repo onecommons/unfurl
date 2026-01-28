@@ -21,11 +21,12 @@ Registry Auth Tips:
 
 from dataclasses import dataclass, asdict, field
 from functools import cache
-from typing import Any, Dict, NamedTuple, Optional, Tuple, List
+from typing import Any, Dict, NamedTuple, Optional, Tuple, List, Literal
 import base64
 import json
 import logging
 from urllib.parse import quote, urlparse
+from datetime import datetime, timezone
 import requests
 
 from tenacity import (
@@ -38,7 +39,6 @@ from tenacity import (
 )
 from .support import ContainerImageParts, ContainerImage
 from .logs import getLogger
-from toscaparser.imports import is_url
 
 logger = getLogger("unfurl")
 
@@ -47,7 +47,7 @@ DEFAULT_TIMEOUT = 20  # seconds
 
 def validate_url(url: str, field_name: str = "URL") -> str:
     """
-    Validate that the given field is a valid URL or empty.
+    Validate that the given field is a valid URL.
 
     Args:
         url: The URL string to validate
@@ -59,9 +59,8 @@ def validate_url(url: str, field_name: str = "URL") -> str:
     Raises:
         ValueError: If the URL is not valid
     """
-    if not url:
-        return url
-    if not is_url(url):
+    parsed = urlparse(url)
+    if not parsed.scheme:
         raise ValueError(f"{field_name} is not a valid URL: {url!r}")
     return url
 
@@ -84,7 +83,25 @@ class EntitySchema:
     Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
     UnfurlProject = "cloudmap.artifacts.unfurl.Project"
     OCIImage = "cloudmap.artifacts.oci.Image"
+    InTotoAttestation = "cloudmap.artifacts.InTotoAttestation"
+    "application/vnd.in-toto+json"
+    SpDxDoc = "cloudmap.artifacts.SpdxDocument"
+    SlsaProvenance02 = "cloudmap.artifacts.SlsaProvenance02"
+    SlsaProvenance1 = "cloudmap.artifacts.SlsaProvenance1"
+    BuildkitProvenance = "cloudmap.artifacts.BuildkitProvenance"
+    "see https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"
+    Empty = "cloudmap.artifacts.Empty"
+    "Null artifact used to represent empty documents or placeholders"
+    Group = "cloudmap.artifacts.Group"
+    "Generic grouping of artifacts (use notable to declare members)"
 
+ArtifactMappings = {
+    "https://in-toto.io/Statement/v0.1": EntitySchema.InTotoAttestation,
+    "https://spdx.dev/Document": EntitySchema.SpDxDoc,
+    "https://slsa.dev/provenance/v0.2": EntitySchema.SlsaProvenance02,
+    "https://slsa.dev/provenance/v1": EntitySchema.SlsaProvenance1,
+    "https://mobyproject.org/buildkit@v1": EntitySchema.BuildkitProvenance,
+}
 
 @dataclass
 class ArtifactMetadata:
@@ -132,11 +149,15 @@ class ArtifactMetadata:
         def _set_if_present(field_name: str, label_key: str) -> None:
             value = labels.get(label_key)
             if isinstance(value, str) and value.strip():
-                # Validate URL fields before setting
                 cleaned = value.strip()
                 if field_name in ("source", "homepage_url", "documentation_url"):
-                    cleaned = validate_url(cleaned, f"ArtifactMetadata.{field_name}")
-                setattr(self, field_name, cleaned)
+                    try:
+                        cleaned = validate_url(
+                            cleaned, f"ArtifactMetadata.{field_name}"
+                        )
+                        setattr(self, field_name, cleaned)
+                    except ValueError:
+                        pass  # skip invalid URL
 
         # OCI standard annotations
         _set_if_present("source", "org.label-schema.vcs-url")
@@ -175,8 +196,10 @@ class TypeRefs:
         """Return list of type names."""
         return list(self.types)
 
-    def add(self, type_name: str, version: Optional[str] = None) -> None:
+    def add(self, type_name: Optional[str], version: Optional[str] = None) -> None:
         """Add a type reference with optional version constraint."""
+        if not type_name:
+            return
         if version:
             self.types[type_name] = {"version": version}
         else:
@@ -195,27 +218,56 @@ class TypeRefs:
 
 
 @dataclass
-class ArtifactSource:
-    """Source code and build provenance of an artifact."""
+class Instantiation:
+    """
+    Build and deployment information for artifacts and services.
 
-    location: str = ""
-    """Repository URL pointing to source code"""
+    Stored in CloudMapDB.instantiations with URL keys and referenced by
+    Artifact.instantiated_by and Service.instantiated_by.
+    """
+
+    url: str = ""
+    """URL of the instantiation (auto-generated as timestamp fragment if not provided)"""
+    type: TypeRefs = field(default_factory=TypeRefs)
+    """Type of the instantiation."""
+    digest: str = ""
+    """Cryptographic digest of document reference by the instantiation URL."""
     revision: str = ""
-    """Source control revision identifier"""
-    provenance: str = ""
-    """URL to build provenance or SBOM"""
+    """If instantiation URL references a repository, source control revision of that repository."""
+    source: str = ""
+    """Repository URL (for builds) or deployment location URL (for deployments)."""
+    source_revision: str = ""
+    """If source URL references a repository, the source control revision of that repository."""
+    instantiated: Dict[str, Any] = field(default_factory=dict)
+    """The artifacts or services created or updated by this instantiation with optional capability."""
+    inputs: Dict[str, Any] = field(default_factory=dict)
+    """The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process."""
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    """Additional metadata about the instantiation."""
     reproducible: Optional[bool] = None
-    """Whether artifact is fully reproducible"""
+    """Whether this instantiation is fully reproducible."""
 
     def __post_init__(self):
-        if self.location:
-            self.location = validate_url(self.location, "ArtifactSource.location")
-        if self.provenance:
-            self.provenance = validate_url(self.provenance, "ArtifactSource.provenance")
+        if not self.url:  # Auto-generate id as url fragment if not set
+            self.url = "#" + datetime.now(timezone.utc).isoformat().replace(
+                "+00:00", "Z"
+            )
+        if self.source:
+            self.source = validate_url(self.source, "Instantiation.source")
+        if isinstance(self.type, dict):
+            self.type = TypeRefs(types=self.type)
 
     def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v is not None and v != ""}
+        # exclude url and empty values
+        result = {}
+        for k, v in asdict(self).items():
+            if k == "url":
+                continue  # url is the key, not saved in value
+            if k == "type" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            if v is not None and v != "" and v != {}:
+                result[k] = v
+        return result
 
 
 @dataclass
@@ -246,15 +298,16 @@ def filter_dict(d: dict) -> dict:
 @dataclass
 class Artifact:
     url: str
-    type: str
-    notable: List[str] = field(default_factory=list)
+    type: TypeRefs = field(default_factory=TypeRefs)
+    """Type identifier from types/artifacts with optional version constraints (typeRef)"""
+    notable: Dict[str, Optional[TypeRefs]] = field(default_factory=dict)
     """List of IDs of artifacts or repositories that this artifact incorporates or references"""
     instantiates: TypeRefs = field(default_factory=TypeRefs)
     """Types that this artifact instantiates with optional version constraints (typeRef)"""
     requires: TypeRefs = field(default_factory=TypeRefs)
     """Requirements for instantiation with optional version constraints (typeRef)"""
-    source: Optional[ArtifactSource] = None
-    """Source code and build provenance (location, revision, provenance, reproducible)"""
+    instantiated_by: List[str] = field(default_factory=list)
+    """List of URLs referencing an entry in instantiations."""
     digest: str = ""
     """Cryptographic digest of the artifact"""
     immutable: bool = False
@@ -263,8 +316,8 @@ class Artifact:
     """Human-readable metadata"""
     discovery: Optional[Discovery] = None
     """Metadata discovery information (last_checked, sources)"""
-    releases: Dict[str, "Artifact"] = field(default_factory=dict)
-    """Artifacts that are variants of this artifact"""
+    versions: Dict[str, "Artifact"] = field(default_factory=dict)
+    """Artifacts that are variants of this artifact (for example, releases or snapshots)"""
 
     def __post_init__(self):
         # Validate pkg URL
@@ -277,24 +330,24 @@ class Artifact:
             self.metadata = ArtifactMetadata(**self.metadata)
         if isinstance(self.discovery, dict):
             self.discovery = Discovery(**self.discovery)
+        if isinstance(self.type, dict):
+            self.type = TypeRefs(types=self.type)
         if isinstance(self.instantiates, dict):
             self.instantiates = TypeRefs(types=self.instantiates)
         if isinstance(self.requires, dict):
             self.requires = TypeRefs(types=self.requires)
-        if isinstance(self.source, dict):
-            self.source = ArtifactSource(**self.source) if self.source else None
-        # Convert releases dict entries to Artifact instances if they're still dicts
-        if self.releases:
-            new_releases = {}
-            for k, v in self.releases.items():
+        # Convert versions dict entries to Artifact instances if they're still dicts
+        if self.versions:
+            new_versions = {}
+            for k, v in self.versions.items():
                 if isinstance(v, Artifact):
-                    new_releases[k] = v
+                    new_versions[k] = v
                 else:
-                    # Inherit type from parent if not specified in release
+                    # Inherit type from parent if not specified in version
                     if "type" not in v:
                         v = dict(v, type=self.type)
-                    new_releases[k] = Artifact(url=k, **v)
-            self.releases = new_releases
+                    new_versions[k] = Artifact(url=k, **v)
+            self.versions = new_versions
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
@@ -306,13 +359,13 @@ class Artifact:
                 v = filter_dict(v)
             elif k == "discovery" and v:
                 v = filter_dict(v)
+            elif k == "type" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "instantiates" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "requires" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "source" and v:
-                v = v.asdict() if isinstance(v, ArtifactSource) else filter_dict(v)
-            elif k == "releases" and v:
+            elif k == "versions" and v:
                 # Convert nested Artifact instances to dicts
                 v = {
                     url: (rel.asdict() if isinstance(rel, Artifact) else rel)
@@ -363,19 +416,28 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
     return purl
 
 
-def create_oci_artifact(image: ContainerImage) -> Artifact:
+def create_oci_artifact(
+    image: ContainerImage,
+) -> Tuple[Artifact, Optional[Instantiation]]:
     """Create OCI artifact from the given image name.
 
     Returns:
-        Artifact object with metadata and discovery information populated.
+        Tuple of (Artifact object, Optional Instantiation for build provenance)
     """
     ref = image.parts
     source_urls: List[str] = []
+    instantiation: Optional[Instantiation] = None
 
     purl = build_oci_purl(ref)
     metadata = ArtifactMetadata()
+    artifact_type = (
+        "application/vnd.in-toto+json"  # support in-toto attestation artifacts
+    )
     annotations, platforms, manifest_digest, artifact_fetch = registry_v2_fetch(
-        ref, username=image.username, password=image.password
+        ref,
+        username=image.username,
+        password=image.password,
+        artifact_fetch=artifact_type,
     )
 
     if manifest_digest:  # Track the manifest URL used
@@ -397,13 +459,29 @@ def create_oci_artifact(image: ContainerImage) -> Artifact:
     # Set digest on the artifact
     digest = manifest_digest or ref.digest
 
-    # Handle in-toto artifact metadata - extract VCS info for ArtifactSource
-    artifact_source = None
+    # Handle in-toto artifact metadata - extract VCS info for build instantiation
     if artifact_fetch:
-        artifact = artifact_fetch.artifact
-        if isinstance(artifact, dict):
-            predicate = artifact.get("predicate")
+        attestation_artifact = artifact_fetch.artifact
+        if isinstance(attestation_artifact, dict):
+            # print("attestation_artifact:", json.dumps(attestation_artifact, indent=2))
+            inst_type = TypeRefs()
+            # in-toto Statement:
+            inst_type.add(ArtifactMappings.get(attestation_artifact.get("_type", "")))
+            # SLSA provenance or SPDX document:
+            inst_type.add(
+                ArtifactMappings.get(attestation_artifact.get("predicateType", ""))
+            )
+            predicate = attestation_artifact.get("predicate")
             if isinstance(predicate, dict):
+                # both slsa and spdx use this:
+                inst_type.add(
+                    ArtifactMappings.get(attestation_artifact.get("buildType", ""))
+                )
+                instantiation = Instantiation(
+                    url=artifact_fetch.manifest_url,
+                    type=inst_type,
+                    digest=artifact_fetch.artifact_digest,
+                )
                 artifact_metadata = predicate.get("metadata")
                 if isinstance(artifact_metadata, dict):
                     vcs_info = artifact_metadata.get(
@@ -411,14 +489,15 @@ def create_oci_artifact(image: ContainerImage) -> Artifact:
                     ).get("vcs")
                     if isinstance(vcs_info, dict):
                         # Add the artifact's manifest URL to sources
-                        source_urls.append(artifact_fetch.manifest_url)
-                        # Extract revision and source for ArtifactSource
-                        revision = vcs_info.get("revision", "")
-                        source_location = vcs_info.get("source") or metadata.source
-                        if source_location or revision:
-                            artifact_source = ArtifactSource(
-                                location=source_location, revision=revision
-                            )
+                        # Extract VCS info for build instantiation
+                        source_revision = vcs_info.get("revision", "")
+                        source_location = vcs_info.get("source")
+                        if source_location or source_revision:
+                            instantiation.source = source_location or ""
+                            instantiation.source_revision = source_revision
+                        if source_location and not metadata.source:
+                            source_urls.append(artifact_fetch.manifest_url)
+                            metadata.source = source_location
 
     if ref.host == "registry-1.docker.io":
         namespace = ref.namespace or "library"
@@ -431,9 +510,6 @@ def create_oci_artifact(image: ContainerImage) -> Artifact:
             source = raw_urls.get("repo_url") or raw_urls.get("source")
             if source:
                 metadata.source = source
-                # Update artifact_source if not already set
-                if not artifact_source:
-                    artifact_source = ArtifactSource(location=source)
             if raw_urls.get("homepage"):
                 metadata.homepage_url = raw_urls["homepage"]
             if raw_urls.get("documentation"):
@@ -455,10 +531,6 @@ def create_oci_artifact(image: ContainerImage) -> Artifact:
                 v = image_info.get(k)
                 if v:
                     setattr(metadata, attr_name, v)
-            # Update artifact_source if github_url found and not already set
-            github_url = image_info.get("github_url")
-            if github_url and not artifact_source:
-                artifact_source = ArtifactSource(location=github_url)
     elif not metadata.homepage_url and ref.host in [
         "registry.gitlab.com",
         "registry.unfurl.cloud",
@@ -466,19 +538,20 @@ def create_oci_artifact(image: ContainerImage) -> Artifact:
         # set first 2 segments in path as homepage_url (will be a group or project page)
         metadata.homepage_url = f"https://{ref.host[len('registry.') :]}/{'/'.join(ref.full_name.split('/')[:2])}"
 
-    # If we still don't have an artifact_source but metadata.source is set, create one
-    if not artifact_source and metadata.source:
-        artifact_source = ArtifactSource(location=metadata.source)
-
-    # Create and return Artifact
-    return Artifact(
+    # Create and return Artifact with instantiation
+    instantiated_by = [instantiation.url] if instantiation else []
+    artifact_types = TypeRefs()
+    artifact_types.add(EntitySchema.OCIImage)
+    artifact = Artifact(
         url=purl,
-        type=EntitySchema.OCIImage,
+        type=artifact_types,
         digest=digest,
         metadata=metadata,
-        source=artifact_source,
+        instantiated_by=instantiated_by,
         discovery=Discovery(sources=source_urls) if source_urls else None,
     )
+
+    return artifact, instantiation
 
 
 # ---------------------------
@@ -724,8 +797,6 @@ def registry_v2_get_tags(
     *,
     username: Optional[str] = None,
     password: Optional[str] = None,
-    platform: Optional[str] = None,
-    include_tags: bool = False,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Optional[Dict[str, Any]]:
     tags_url = f"https://{ref.host}/v2/{ref.repository}/tags/list"
@@ -756,6 +827,7 @@ def registry_v2_fetch(
     username: Optional[str] = None,
     password: Optional[str] = None,
     platform: Optional[str] = None,
+    artifact_fetch: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
 ) -> ImageMetadataFetch:
     """
@@ -820,10 +892,11 @@ def registry_v2_fetch(
 
         subject_descriptor = root.get("subject") or {}
         subject_digest = subject_descriptor.get("digest")
-        if subject_digest:
+        if artifact_fetch and subject_digest:
             artifact = fetch_referrers_and_payloads(
                 ref,
                 subject_digest,
+                artifact_fetch,
                 username=username,
                 password=password,
                 timeout=timeout,
@@ -867,10 +940,11 @@ def registry_v2_fetch(
             return fetched
         manifest = r2.json()
         attestation_digest = attestations.get(chosen_digest)
-        if attestation_digest:
+        if artifact_fetch and attestation_digest:
             artifact = registry_v2_download_referrer_payload(
                 ref,
                 attestation_digest,
+                artifact_fetch,
                 username=username,
                 password=password,
                 timeout=timeout,
@@ -886,9 +960,14 @@ def registry_v2_fetch(
 
     subject_descriptor = manifest.get("subject") or {}
     subject_digest = subject_descriptor.get("digest")
-    if subject_digest:
+    if artifact_fetch and subject_digest:
         artifact = fetch_referrers_and_payloads(
-            ref, subject_digest, username=username, password=password, timeout=timeout
+            ref,
+            subject_digest,
+            artifact_fetch,
+            username=username,
+            password=password,
+            timeout=timeout,
         )
         if artifact:
             fetched = fetched._replace(artifact_fetch=artifact)
@@ -1139,8 +1218,9 @@ def registry_v2_referrers(
 def registry_v2_download_referrer_payload(
     ref: ContainerImageParts,
     artifact_digest: str,
-    mediaType: str = "application/vnd.in-toto+json",
+    media_type: str,
     *,
+    predicate_type: Optional[str] = None,
     username: Optional[str] = None,
     password: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -1172,8 +1252,13 @@ def registry_v2_download_referrer_payload(
     layers = manifest.get("layers")
     if isinstance(layers, list) and layers:
         for layer in layers:
-            if layer.get("mediaType") == mediaType:
+            if layer.get("mediaType") == media_type:
                 desc = layer
+                annotations = layer.get("annotations") or {}
+                if predicate_type and (
+                    annotations.get("in-toto.io/predicate-type") != predicate_type
+                ):
+                    continue
                 break
     if not desc:
         return None
@@ -1195,9 +1280,9 @@ def registry_v2_download_referrer_payload(
             )
             return None
     else:
-        blob_url = f"https://{host}/v2/{repository}/blobs/{payload_digest}"
+        manifest_url = f"https://{host}/v2/{repository}/blobs/{payload_digest}"
         rb = _registry_get(
-            blob_url,
+            manifest_url,
             accept=SBOM_BLOB_ACCEPT,
             username=username,
             password=password,
@@ -1219,7 +1304,7 @@ def registry_v2_download_referrer_payload(
 def fetch_referrers_and_payloads(
     ref: ContainerImageParts,
     subject_digest: str,
-    mediaType: str = "application/vnd.in-toto+json",
+    media_type: str,
     username: Optional[str] = None,
     password: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -1233,13 +1318,13 @@ def fetch_referrers_and_payloads(
     )
     if referrers:
         for item in referrers:
-            if item.get("mediaType") != mediaType:
+            if item.get("mediaType") != media_type:
                 continue
             artifact_digest = item["digest"]
             return registry_v2_download_referrer_payload(
                 ref,
                 artifact_digest,
-                mediaType,
+                media_type,
                 username=username,
                 password=password,
                 timeout=timeout,

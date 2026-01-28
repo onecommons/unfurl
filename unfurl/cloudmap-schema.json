@@ -50,8 +50,39 @@
                     "type": "number"
                   }
                 ]
+              },
+              "status": {
+                "type": "string",
+                "description": "Status of the instance or capability.",
+                "enum": [
+                  "unknown",
+                  "absent",
+                  "present",
+                  "failed",
+                  "validated"
+                ]
               }
             }
+          }
+        ]
+      }
+    },
+    "typedURLs": {
+      "type": "object",
+      "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.",
+      "$$target": "#/definitions/typedURLs",
+      "propertyNames": {
+        "description": "",
+        "pattern": "^[^\\s]+$"
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "type": "null"
+          },
+          {
+            "type": "object",
+            "$ref": "#/definitions/typeRef"
           }
         ]
       }
@@ -62,15 +93,13 @@
       "$$target": "#/definitions/artifact",
       "properties": {
         "type": {
-          "type": "string",
-          "description": "Type identifier from types/artifacts."
+          "$ref": "#/definitions/typeRef",
+          "description": "Type identifier from types/artifacts with optional version constraints."
         },
         "notable": {
-          "type": "array",
-          "description": "List of IDs of artifacts or repositories that this artifact incorporates or references.",
-          "items": {
-            "type": "string"
-          }
+            "type": "object",
+            "description": "Map of URLs of interesting artifacts or repositories that this artifact incorporates or references.",
+            "$ref": "#/definitions/typedURLs"
         },
         "instantiates": {
           "$ref": "#/definitions/typeRef",
@@ -80,26 +109,11 @@
           "$ref": "#/definitions/typeRef",
           "description": "Requirements for instantiation including environment context and types of software or services with optional version constraints. Non-exhaustive, for example, the type may imply additional requirements."
         },
-        "source": {
-          "type": "object",
-          "description": "The source code and build provenance of the artifact. Omitted if the artifact ID is a direct reference to a file path in a repository.",
-          "properties": {
-            "location": {
-              "type": "string",
-              "description": "Repository URL pointing to source code."
-            },
-            "revision": {
-              "type": "string",
-              "description": "Source control revision identifier for the packaged software."
-            },
-            "provenance": {
-              "type": "string",
-              "description": "URL to documents with build provenance or SBOM, such as in-toto build provenance statement."
-            },
-            "reproducible": {
-              "type": "boolean",
-              "description": "Indicates whether this artifact is fully reproducible when rebuilt from source."
-            }
+        "instantiated_by": {
+          "type": "array",
+          "description": "List of URLs referencing an entry in instantiations.",
+          "items": {
+            "type": "string"
           }
         },
         "digest": {
@@ -179,9 +193,9 @@
         "discovery": {
           "$ref": "#/definitions/discovery"
         },
-        "releases": {
+        "versions": {
           "type": "object",
-          "description": "Artifacts that are variants of this artifact. Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If releases share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
+          "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
           "propertyNames": {
             "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
             "pattern": "^[^\\s]*$"
@@ -413,7 +427,7 @@
                   "type": "object",
                   "properties": {
                     "type": {
-                      "type": "string"
+                      "$ref": "#/definitions/typeRef"
                     },
                     "artifact": {
                       "type": "string"
@@ -455,10 +469,6 @@
             "$ref": "#/definitions/typeRef",
             "description": "Type identifier from types/services with optional version constraints."
           },
-          "capabilities": {
-            "$ref": "#/definitions/typeRef",
-            "description": "Capability types from types/capabilities with optional version constraints."
-          },
           "endpoints": {
             "type": "array",
             "description": "Service endpoints.",
@@ -466,9 +476,9 @@
               "type": "object"
             }
         },
-        "dependencies": {
+        "connections": {
           "type": "array",
-          "description": "List of other services this service depends on.",
+          "description": "List of other services this service uses.",
           "items": {
             "type": "string"
           }
@@ -513,13 +523,6 @@
               "description": "Informal pointer to source code. Use when deployment information is not available."
             }
           },
-          "notable": {
-            "type": "array",
-            "description": "Links to artifacts like blueprints or Helm charts when origin information is unavailable.",
-            "items": {
-              "type": "string"
-            }
-          },
           "operation_status": {
             "type": "string",
             "enum": [
@@ -555,26 +558,66 @@
             }
           }
         },
-        "deployment": {
-          "type": "object",
-          "description": "Ensemble or artifact representing the actual deployment.",
-          "properties": {
-            "location": {
-              "type": "string",
-              "description": "Location of the deployment blueprint or ensemble."
-            },
-            "type": {
-              "type": "string",
-              "description": "Type identifier from types/artifacts."
-            },
-            "revision": {
-              "type": "string",
-              "description": "Source control revision identifier."
-            }
+        "instantiated_by": {
+          "type": "array",
+          "description": "List of instantiation URLs.",
+          "items": {
+            "type": "string",
+            "description": "List of URLs referencing an entry in instantiations."
           }
         },
         "discovery": {
           "$ref": "#/definitions/discovery"
+        }
+      }
+    }
+  },
+  "instantiations": {
+    "type": "object",
+    "description": "Build and deployment information for artifacts and services. Keys are URLs.",
+    "propertyNames": {
+      "description": "URL of the instantiation.",
+      "pattern": "^[^\\s]*$"
+    },
+    "additionalProperties": {
+      "type": "object",
+      "properties": {
+          "type": {
+            "$ref": "#/definitions/typeRef",
+            "description": "Type of the instantiation."
+          },
+          "digest": {
+            "type": "string",
+            "description": "Cryptographic digest of document reference by the instantiation URL."
+          },
+          "revision": {
+            "type": "string",
+            "description": "If instantiation URL references a repository, source control revision of that repository."
+          },
+          "source": {
+            "type": "string",
+            "description": "Repository URL (for builds) or deployment location URL (for deployments)."
+          },
+          "source_revision": {
+            "type": "string",
+            "description": "If source URL references a repository, the source control revision of that repository."
+          },
+          "instantiated": {
+            "type": "object",
+            "description": "the artifacts or services created or updated by this instantiation with optional capability.",
+            "$ref": "#/definitions/typedURLs"
+          },
+          "inputs": {
+            "type": "object",
+            "description": "The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
+            "$ref": "#/definitions/typedURLs"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "reproducible": {
+            "type": "boolean",
+            "description": "Whether this instantiation is fully reproducible."
         }
       }
     }
@@ -591,10 +634,9 @@
       "properties": {
         "kind": {
           "type": "string",
-          "description": "One of: Service, Software, Artifact, or Capability.",
+          "description": "One of: Component, Artifact, or Capability.",
           "enum": [
-            "Service",
-            "Software",
+            "Component",
             "Artifact",
             "Capability"
           ]

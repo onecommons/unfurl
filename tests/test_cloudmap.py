@@ -129,11 +129,13 @@ repositories:
       main: f2440a4f6cf20bf0c14d0d256d28b796aeacff0b
     notable:
       ensemble/ensemble.yaml:
-        type: {EntitySchema.Ensemble}
+        type:
+          {EntitySchema.Ensemble}:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
-    type: {EntitySchema.Ensemble}""".rstrip()
+    type:
+      {EntitySchema.Ensemble}:""".rstrip()
 
 @skip_integration
 def test_create(runner, caplog):
@@ -264,7 +266,7 @@ artifacts:
   git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template:
     type: {EntitySchema.CloudBlueprint}
     notable:
-    - pkg:oci/cronicle?repository_url=docker.io/soulteary:
+      pkg:oci/cronicle?repository_url=docker.io/soulteary:
     instantiates:
       CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
     metadata:
@@ -276,7 +278,7 @@ artifacts:
 types:
   CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
     name: CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
-    kind: Service
+    kind: Component
     title: CronicleApp
     extends:
     - CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
@@ -889,11 +891,24 @@ repositories:
       main: f5da8de13ae2dcce293508c4ccac9b373e66dd49
     tags:
       v1.1.0: abc123def456
+instantiations:
+  "#2023-09-24T15:30:00Z":
+    type:
+      cloudmap.artifacts.IntotoAttestation: null
+    source: https://github.com/onecommons/unfurl#:.
+    source_revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
+    reproducible: false
+  "#2023-09-24T15:31:00Z":
+    type:
+      cloudmap.artifacts.unfurl.Ensemble: null
+    source: git://unfurl.cloud/onecommons/unfurl_cloud_prod.git#:v1:prod
+    revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
 artifacts:
   pkg:oci:docker.io/library/nginx:
-    type: cloudmap.artifacts.oci.Image
+    type:
+      cloudmap.artifacts.oci.Image:
     notable:
-    - pkg:oci:ghcr.io/library/alpine
+      pkg:oci:ghcr.io/library/alpine:
     instantiates:
       software.WebServer:
         version: "1.25"
@@ -901,11 +916,8 @@ artifacts:
     requires:
       software.Linux:
         version: ">=5.0"
-    source:
-      location: https://github.com/onecommons/unfurl#:.
-      revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
-      provenance: https://ghcr.io/v2/actions/actions-runner/manifests/sha256:6ab8b6170ff81ad2288567b1a2c7446fbd15bc458fd899d94a5626d77e8c90dd
-      reproducible: false
+    instantiated_by:
+    - "#2023-09-24T15:30:00Z"
     digest: sha256:abc123
     immutable: false
     metadata:
@@ -928,7 +940,7 @@ artifacts:
       sources:
       - https://ghcr.io/v2/nginx/manifests/latest
       - https://github.com/nginx/nginx/releases
-    releases:
+    versions:
       pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49:
         digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
         immutable: true
@@ -942,14 +954,13 @@ services:
     type:
       WebApp@unfurl.cloud/onecommons/std:generic_types:
         version: "1.0"
-    capabilities:
       capabilities.GitOps:
       capabilities.CICD:
         version: ">=2.0"
     endpoints:
     - url: https://unfurl.cloud/api/v1
       type: API
-    dependencies:
+    connections:
     - https://github.com
     metadata:
       title: Unfurl Cloud
@@ -959,30 +970,26 @@ services:
       documentation_url: https://docs.unfurl.cloud
       thumbnail_url: https://unfurl.cloud/unfurl-logo.svg
       source_url: https://github.com/onecommons/unfurl-cloud
-    notable:
-    - pkg:oci:ghcr.io/onecommons/unfurl
     policies:
       spdx_licenses: MIT
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
-    deployment:
-      location: git://unfurl.cloud/onecommons/unfurl_cloud_prod.git#:v1:prod
-      type: cloudmap.artifacts.unfurl.Ensemble
-      revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
+    instantiated_by:
+    - "#2023-09-24T15:31:00Z"
     discovery:
       last_checked: "2023-09-24T15:30:00Z"
       sources:
       - https://unfurl.cloud/api/v1/metadata
 types:
   Zulip@unfurl.cloud/onecommons/blueprints/zulip:
-    kind: Service
+    kind: Component
     title: Zulip
     source: git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml
     extends:
     - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
     - WebApp@unfurl.cloud/onecommons/std:generic_types
   software.Nginx@unfurl.cloud/onecommons/std:
-    kind: Software
+    kind: Component
     title: Nginx Web Server
     extends:
     - software.WebServer@unfurl.cloud/onecommons/std:generic_types
@@ -1004,11 +1011,28 @@ types:
         assert "artifacts" in db.db
         assert "pkg:oci:docker.io/library/nginx" in db.artifacts
         artifact = db.artifacts["pkg:oci:docker.io/library/nginx"]
-        assert artifact.type == "cloudmap.artifacts.oci.Image"
-        assert artifact.source.revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
-        assert artifact.source.reproducible is False
+        assert isinstance(artifact.type, TypeRefs)
+        assert "cloudmap.artifacts.oci.Image" in artifact.type.types
         assert artifact.immutable is False
         assert len(artifact.notable) == 1
+        assert len(artifact.instantiated_by) == 1
+
+        # Verify instantiations loaded correctly
+        assert "instantiations" in db.db
+        assert len(db.instantiations) == 2
+
+        # Get the build instantiation (ignore exact timestamp key)
+        build_instantiation = None
+        for key, inst in db.instantiations.items():
+            if "cloudmap.artifacts.IntotoAttestation" in inst.type.types:
+                build_instantiation = inst
+                assert inst.source == "https://github.com/onecommons/unfurl#:."
+                assert (
+                    inst.source_revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+                )
+                assert inst.reproducible is False
+                break
+        assert build_instantiation is not None, "Build instantiation not found"
 
         # Verify instantiates uses typeRef structure
         instantiates = artifact.instantiates
@@ -1029,32 +1053,32 @@ types:
         assert artifact.discovery.last_checked == "2023-09-24T15:30:00Z"
         assert len(artifact.discovery.sources) == 2
 
-        # Verify releases loaded correctly
-        releases = artifact.releases
-        assert len(releases) == 2
+        # Verify versions loaded correctly
+        versions = artifact.versions
+        assert len(versions) == 2
         assert (
             "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
-            in releases
+            in versions
         )
-        assert "pkg:oci:docker.io/library/nginx:latest" in releases
+        assert "pkg:oci:docker.io/library/nginx:latest" in versions
 
-        # Verify release by digest
-        release_by_digest = releases[
+        # Verify version by digest
+        version_by_digest = versions[
             "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
         ]
         assert (
-            release_by_digest.digest
+            version_by_digest.digest
             == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
         )
-        assert release_by_digest.immutable is True
+        assert version_by_digest.immutable is True
 
-        # Verify release by tag
-        release_latest = releases["pkg:oci:docker.io/library/nginx:latest"]
+        # Verify version by tag
+        version_latest = versions["pkg:oci:docker.io/library/nginx:latest"]
         assert (
-            release_latest.digest == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+            version_latest.digest == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
         )
-        assert release_latest.immutable is False
-        assert release_latest.metadata.version == "latest"
+        assert version_latest.immutable is False
+        assert version_latest.metadata.version == "latest"
 
         # Verify services loaded correctly
         assert "services" in db.db
@@ -1072,21 +1096,34 @@ types:
             == "1.0"
         )
 
-        # Verify capabilities uses typeRef structure
-        capabilities = service.capabilities
-        assert isinstance(capabilities, TypeRefs)
-        assert "capabilities.GitOps" in capabilities.types
-        assert capabilities.types["capabilities.GitOps"] is None
-        assert "capabilities.CICD" in capabilities.types
-        assert capabilities.types["capabilities.CICD"]["version"] == ">=2.0"
+        # Verify capabilities uses typeRef structure (capabilities are in service.type)
+        assert "capabilities.GitOps" in service_type.types
+        assert service_type.types["capabilities.GitOps"] is None
+        assert "capabilities.CICD" in service_type.types
+        assert service_type.types["capabilities.CICD"]["version"] == ">=2.0"
 
         assert len(service.endpoints) == 1
-        assert len(service.dependencies) == 1
+        assert len(service.connections) == 1
         assert service.metadata.title == "Unfurl Cloud"
         assert service.policies.spdx_licenses == "MIT"
-        assert service.deployment.type == "cloudmap.artifacts.unfurl.Ensemble"
+        assert len(service.instantiated_by) == 1
         assert service.discovery.last_checked == "2023-09-24T15:30:00Z"
         assert len(service.discovery.sources) == 1
+
+        # Get the deployment instantiation (ignore exact timestamp key)
+        deployment_instantiation = None
+        for key, inst in db.instantiations.items():
+            if "cloudmap.artifacts.unfurl.Ensemble" in inst.type.types:
+                deployment_instantiation = inst
+                assert (
+                    inst.source
+                    == "git://unfurl.cloud/onecommons/unfurl_cloud_prod.git#:v1:prod"
+                )
+                assert inst.revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
+                break
+        assert deployment_instantiation is not None, (
+            "Deployment instantiation not found"
+        )
 
         # Verify types loaded correctly
         assert "types" in db.db
@@ -1095,7 +1132,7 @@ types:
         # Verify Zulip service type
         assert "Zulip@unfurl.cloud/onecommons/blueprints/zulip" in db.types
         zulip_type = db.types["Zulip@unfurl.cloud/onecommons/blueprints/zulip"]
-        assert zulip_type.kind == "Service"
+        assert zulip_type.kind == "Component"
         assert zulip_type.title == "Zulip"
         assert (
             zulip_type.source
@@ -1114,7 +1151,7 @@ types:
         # Verify Nginx software type
         assert "software.Nginx@unfurl.cloud/onecommons/std" in db.types
         nginx_type = db.types["software.Nginx@unfurl.cloud/onecommons/std"]
-        assert nginx_type.kind == "Software"
+        assert nginx_type.kind == "Component"
         assert nginx_type.title == "Nginx Web Server"
         assert not nginx_type.source  # Optional field not provided
 

@@ -95,6 +95,7 @@ from .oci import (
     Artifact,
     EntitySchema,
     Discovery,
+    Instantiation,
     TypeRefs,
     filter_dict,
     validate_url,
@@ -248,7 +249,9 @@ class Repository:
     default_branch: str = ""
     branches: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
-    notable: Dict[str, dict] = field(default_factory=dict)
+    notable: Dict[str, Dict[str, Dict[str, Optional[Dict[str, str]]]]] = field(
+        default_factory=dict
+    )
 
     def __post_init__(self):
         if self.url:
@@ -387,39 +390,17 @@ class ServicePolicies:
 
 
 @dataclass
-class ServiceDeployment:
-    """Ensemble or artifact representing the actual deployment."""
-
-    location: str = ""
-    type: str = ""
-    """Type identifier from types/artifacts"""
-    revision: str = ""
-
-    def __post_init__(self):
-        if self.location:
-            self.location = validate_url(self.location, "ServiceDeployment.location")
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
-
-@dataclass
 class Service:
     """A service instance."""
 
     url: str
     """URL of the service"""
     type: TypeRefs = field(default_factory=TypeRefs)
-    """typeRef: Type identifier from types/services with optional version constraints"""
-    capabilities: TypeRefs = field(default_factory=TypeRefs)
-    """typeRef: Capability types from types/capabilities"""
+    """Type identifiers from types with optional version constraints"""
     endpoints: List[Dict[str, Any]] = field(default_factory=list)
     """Service endpoints"""
-    dependencies: List[str] = field(default_factory=list)
-    """List of other services this service depends on"""
-    notable: List[str] = field(default_factory=list)
-    """Links to artifacts like blueprints or Helm charts"""
+    connections: List[str] = field(default_factory=list)
+    """List of other services this service uses."""
     operation_status: Optional[
         Literal[
             "wishlist",
@@ -437,12 +418,12 @@ class Service:
     ] = None
     metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
     policies: ServicePolicies = field(default_factory=ServicePolicies)
-    deployment: ServiceDeployment = field(default_factory=ServiceDeployment)
+    instantiated_by: List[str] = field(default_factory=list)
+    """List of URLs referencing an entry in instantiations."""
     discovery: Optional[Discovery] = None
     """Metadata discovery information (last_checked, sources)"""
 
     def __post_init__(self):
-        # Validate URL
         if self.url:
             self.url = validate_url(self.url, "Service.url")
 
@@ -450,14 +431,10 @@ class Service:
             self.metadata = ServiceMetadata(**self.metadata)
         if isinstance(self.policies, dict):
             self.policies = ServicePolicies(**self.policies)
-        if isinstance(self.deployment, dict):
-            self.deployment = ServiceDeployment(**self.deployment)
         if isinstance(self.discovery, dict):
             self.discovery = Discovery(**self.discovery)
         if isinstance(self.type, dict):
             self.type = TypeRefs(types=self.type)
-        if isinstance(self.capabilities, dict):
-            self.capabilities = TypeRefs(types=self.capabilities)
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
@@ -469,13 +446,9 @@ class Service:
                 v = filter_dict(v)
             elif k == "policies":
                 v = filter_dict(v)
-            elif k == "deployment":
-                v = filter_dict(v)
             elif k == "discovery" and v:
                 v = filter_dict(v)
             elif k == "type" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "capabilities" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             if v:  # exclude empty values
                 result[k] = v
@@ -593,7 +566,7 @@ class Notable:
         return cls(folder, file)
 
     def asdict(self) -> Dict[str, Any]:
-        metadata = dict(type=self.artifact_type)
+        metadata: Dict[str, Any] = dict(type={self.artifact_type: None})
         if self.artifact_id:
             metadata["artifact"] = self.artifact_id
         return metadata
@@ -662,7 +635,7 @@ class UnfurlNotable(Notable):
             # Prepare type_info and dependencies
             type_info = None
             dependencies = []
-            child_artifacts = []
+            child_artifacts: Dict[str, Optional[TypeRefs]] = {}
 
             if node:
                 types = ResourceTypesByName(
@@ -687,15 +660,9 @@ class UnfurlNotable(Notable):
                 image = self.find_image_dependency(node)
                 if image:
                     # XXX directory.add_credentials(image)
-                    image_artifact = create_oci_artifact(image)
+                    image_artifact = directory.db.add_image_artifact(image)
                     purl = image_artifact.url
-
-                    # Override type if needed
-                    image_artifact.type = EntitySchema.OCIImage
-
-                    # Add image artifact to directory
-                    directory.db.artifacts[purl] = image_artifact
-                    child_artifacts.append(purl)
+                    child_artifacts[purl] = None
 
             artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
 
@@ -926,7 +893,7 @@ class CloudMapDB:
         version: str = "",
         description: str = "",
         thumbnail: str = "",
-        artifacts: Optional[List[str]] = None,
+        artifacts: Optional[Dict[str, Optional[TypeRefs]]] = None,
         dependencies: Optional[List[str]] = None,
         type_info: Optional[Dict[str, Any]] = None,
         types_dict: Optional[CloudTypeDict] = None,
@@ -941,7 +908,7 @@ class CloudMapDB:
             version: Version string (maps to metadata.version)
             description: Description (maps to metadata.description)
             thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
-            artifacts: List of artifact IDs this artifact references (maps to notable)
+            artifacts: Map of artifact IDs this artifact references (maps to notable)
             dependencies: List of dependencies (maps to requires)
             type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
             types_dict: Optional dict to check for existing types
@@ -980,8 +947,8 @@ class CloudMapDB:
         # Create the artifact
         artifact = Artifact(
             url=artifact_pkg,
-            type=artifact_type,
-            notable=artifacts or [],
+            type=TypeRefs({artifact_type: None}),
+            notable=artifacts or {},
             instantiates=instantiates,
             requires=requires,
             metadata=metadata,
@@ -1004,6 +971,55 @@ class CloudMapDB:
     def add_repository(self, repository: Repository) -> None:
         """Add or update a repository in the cloudmap."""
         self.repositories[repository.url] = repository
+
+    def add_instantiation(self, instantiation: Instantiation) -> str:
+        """
+        Add an instantiation and return its unique key.
+
+        Args:
+            instantiation: Instantiation object to add (id is auto-generated if not set)
+
+        Returns:
+            ISO 8601 timestamp key from instantiation.id
+        """
+        # The id is auto-generated in Instantiation.__post_init__ if not set
+        key = instantiation.url
+        self.instantiations[key] = instantiation
+        return key
+
+    def get_instantiation(self, key: str) -> Optional[Instantiation]:
+        """
+        Get an instantiation by its key.
+
+        Args:
+            key: ISO 8601 timestamp key
+
+        Returns:
+            Instantiation object or None if not found
+        """
+        return self.instantiations.get(key)
+
+    def add_image_artifact(self, image: "ContainerImage") -> Artifact:
+        """
+        Add an OCI artifact to the cloudmap from a container image.
+
+        Creates the artifact, extracts build instantiation, and adds them to the database.
+
+        Args:
+            image: ContainerImage to analyze
+
+        Returns:
+            Artifact object added to self.artifacts
+        """
+        artifact, instantiation = create_oci_artifact(image)
+
+        # Add instantiation and update artifact.instantiated_by
+        if instantiation:
+            self.add_instantiation(instantiation)
+        # Add artifact to database
+        self.artifacts[artifact.url] = artifact
+
+        return artifact
 
     def _migrate_old_notable_format(self, repo: Repository) -> List[str]:
         """
@@ -1033,10 +1049,10 @@ class CloudMapDB:
                     description=notable_dict.pop("description", ""),
                     thumbnail=notable_dict.pop("thumbnail_url", "")
                     or repo.metadata.thumbnail_url,
-                    artifacts=[
-                        build_oci_purl(ContainerImage.split(ref))
+                    artifacts={
+                        build_oci_purl(ContainerImage.split(ref)): None
                         for ref in notable_dict.pop("artifacts", [])
-                    ],
+                    },
                     dependencies=notable_dict.pop("dependencies", []),
                     type_info=notable_dict.pop("type", None),
                     types_dict=self.types,
@@ -1107,6 +1123,17 @@ class CloudMapDB:
             for url, s in services.items()
         }
 
+        # Load instantiations
+        instantiations = cast(Dict, db.get("instantiations") or {})
+        self.instantiations: Dict[str, Instantiation] = {
+            key: (
+                inst
+                if isinstance(inst, Instantiation)
+                else Instantiation(url=inst.pop("url", key), **inst)
+            )
+            for key, inst in instantiations.items()
+        }
+
         self.db = cast(Dict[str, Any], db)
 
     def reload(self):
@@ -1138,6 +1165,16 @@ class CloudMapDB:
                     else self.services[url]
                 )
                 for url in sorted(self.services)
+            }
+        self.db.pop("instantiations", None)
+        if self.instantiations:
+            self.db["instantiations"] = {
+                key: (
+                    self.instantiations[key].asdict()
+                    if isinstance(self.instantiations[key], Instantiation)
+                    else self.instantiations[key]
+                )
+                for key in sorted(self.instantiations)
             }
         self.db.pop("types", None)
         if self.types:
