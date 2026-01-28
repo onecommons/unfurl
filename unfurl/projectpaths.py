@@ -92,10 +92,34 @@ class Folders(str, Enum):
     active = "active"
     failed = "failed"
     jobs = "jobs"
+    tmp = "tmp"
 
     Persistent = ClassProperty(("artifacts", "secrets", "local"))
 
     Job = ClassProperty(("tasks", "operation", "workflow"))
+
+    @classmethod
+    def excluded_for_git(cls) -> Tuple[str, ...]:
+        # include all patterns in .gitignore that look like **/<name>
+        return (
+            "tasks",
+            "operation",
+            "workflow",
+            "local",
+            "secrets",
+            "tmp",
+            "failed",
+            "planned",
+            "jobs",
+        )
+
+    @classmethod
+    def has_excluded_path(cls, path: str) -> str:
+        paths = path.split("/")
+        for name in cls.excluded_for_git():
+            if name in paths:
+                return name
+        return ""
 
     def __str__(self) -> str:
         return str(self.value)

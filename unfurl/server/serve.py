@@ -60,7 +60,7 @@ from ..graphql import ImportDef, get_local_type, project_id_from_urlresult
 from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url
 
-from ..projectpaths import rmtree
+from ..projectpaths import rmtree, Folders
 from ..localenv import LocalEnv, Project
 from ..repo import (
     GitRepo,
@@ -1672,7 +1672,9 @@ def _localenv_from_cache_checked(
         and latest_commit
         and repo.revision != latest_commit
     ):
-        logger.warning(f"Conflict in {project_id}: {latest_commit} != {repo.revision}")
+        logger.warning(
+            f"Conflict in {project_id}: {latest_commit} != {repo.revision} ({repo.url})"
+        )
         err = create_error_response("CONFLICT", "Repository at wrong revision")
         return err, readonly_localEnv
     return None, readonly_localEnv
@@ -2039,7 +2041,9 @@ def _patch_response(repo: Optional[GitRepo]):
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
-def _apply_environment_patch(patch: list, local_env: LocalEnv):
+def _apply_environment_patch(
+    patch: list, local_env: LocalEnv
+) -> Optional[Tuple[Any, int]]:
     project = local_env.project
     assert project
     localConfig = project.localConfig
@@ -2058,6 +2062,14 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                     del environments[name]
             else:
                 imports: List[ImportDef] = []
+                if name not in environments:
+                    # can't commit to reserved folder names
+                    invalid = Folders.has_excluded_path(name)
+                    if invalid:
+                        return create_error_response(
+                            "BAD_REQUEST",
+                            f'Cannot create environment with reserved name: "{invalid}"',
+                        )
                 environment = environments.setdefault(name, {})
                 prefix = re.sub(r"\W", "_", name)
                 for key in patch_inner:
@@ -2089,6 +2101,7 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv):
                 )
         elif typename == "DeploymentPath":
             update_deployment(project, patch_inner["name"], patch_inner, False, deleted)
+    return None
 
 
 def _patch_environment(body: dict, project_id: str):
@@ -2124,7 +2137,9 @@ def _patch_environment(body: dict, project_id: str):
     was_dirty = repo.is_dirty()
     starting_revision = repo.revision
     localConfig = localEnv.project.localConfig
-    _apply_environment_patch(patch, localEnv)
+    err = _apply_environment_patch(patch, localEnv)
+    if err:
+        return err
     localConfig.config.save()
     if not was_dirty:
         if repo.is_dirty():
@@ -2237,6 +2252,14 @@ def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=
     assert isinstance(patch, list)
     environment = body.get("environment") or ""  # cloud_vars_url need the ""!
     deployment_path = body.get("deployment_path") or ""
+    if create:
+        # can't commit to reserved folder names
+        invalid = Folders.has_excluded_path(deployment_path)
+        if invalid:
+            return create_error_response(
+                "BAD_REQUEST",
+                f'Cannot create deployment with reserved name: "{invalid}"',
+            )
     branch = body.get("branch", DEFAULT_BRANCH)
     existing_repo = _get_project_repo(project_id, branch, body)
 
@@ -2535,12 +2558,18 @@ def _fetch_working_dir(
     return clone_location
 
 
-def create_error_response(code: str, message: str, err: Optional[Exception] = None):
+def create_error_response(
+    code: str, message: str, err: Optional[Exception] = None
+) -> Tuple[Any, int]:
     http_code = 400  # Default to BAD_REQUEST
     if code == "BAD_REQUEST":
         http_code = 400
     elif code == "UNAUTHORIZED":
         http_code = 401
+    elif code == "FORBIDDEN":
+        http_code = 403
+    elif code == "NOT_FOUND":
+        http_code = 404
     elif code in ["INTERNAL_ERROR", "BAD_REPOSITORY"]:
         http_code = 500
     elif code == "CONFLICT":
