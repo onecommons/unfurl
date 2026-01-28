@@ -788,9 +788,9 @@ class GitRepo(Repo):
         return state
 
     def __setstate__(self, state):
+        if isinstance(state.get("repo"), str):  # restore from working_dir
+            state["repo"] = git.Repo(state["repo"])
         self.__dict__.update(state)
-        # restore from working_dir
-        self.repo = git.Repo(self.repo)  # type:ignore[arg-type]
 
     def add_transient_push_credentials(self, username: str, password: str) -> str:
         if not self.remote:

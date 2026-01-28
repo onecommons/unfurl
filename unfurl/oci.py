@@ -323,7 +323,9 @@ class Artifact:
         # Validate pkg URL
         if self.url:
             parts = urlparse(self.url)  # just to parse and validate
-            if parts.scheme not in ["pkg", "git"]:
+            if not parts.scheme:  # migrate old cloudmap format
+                self.url = build_oci_purl(ContainerImageParts.split(self.url))
+            elif parts.scheme not in ["pkg", "git"]:
                 raise ValueError(f"Artifact.url must be a pkg URL: {self.url!r}")
 
         if isinstance(self.metadata, dict):
