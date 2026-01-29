@@ -126,16 +126,66 @@ repositories:
     private: true
     default_branch: main
     branches:
-      main: f2440a4f6cf20bf0c14d0d256d28b796aeacff0b
+      main: 4551885dfab39991cfdb958cb79fcb6aa282481d
     notable:
       ensemble/ensemble.yaml:
         type:
           {EntitySchema.Ensemble}:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
+      environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+        type:
+          cloudmap.artifacts.unfurl.Ensemble:
+        artifact: git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
-      {EntitySchema.Ensemble}:""".rstrip()
+      cloudmap.artifacts.unfurl.Ensemble:
+  git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+    type:
+      cloudmap.artifacts.unfurl.Ensemble:
+    notable:
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
+    instantiates:
+      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+    metadata:
+      title: Odoo
+      version: 0.1
+  pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
+    type:
+      cloudmap.artifacts.oci.Image:
+    metadata:
+      description: Bitnami Secure Image for odoo
+    discovery:
+      sources:
+      - https://hub.docker.com/v2/repositories/bitnami/odoo/
+services:
+  https://example.com/oodo:
+    type:
+      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+    instantiated_by:
+    - git://unfurl.cloud/feb20a/dashboard.git
+instantiations:
+  git://unfurl.cloud/feb20a/dashboard.git:
+    type:
+      cloudmap.artifacts.unfurl.Ensemble:
+    revision: 4551885dfab39991cfdb958cb79fcb6aa282481d
+    source: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+    source_revision: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
+    instantiated:
+      https://example.com/oodo:
+types:
+  Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+    name: Odoo@unfurl.cloud/onecommons/blueprints/odoo
+    kind: Component
+    title: Odoo
+    extends:
+    - Odoo@unfurl.cloud/onecommons/blueprints/odoo
+    - unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
+    - SoftwareService@unfurl.cloud/onecommons/std:generic_types
+    - SoftwareComponent@unfurl.cloud/onecommons/std:generic_types
+    - tosca.nodes.Root
+    - tosca.capabilities.Node
+    - tosca.capabilities.Root"""
 
 @skip_integration
 def test_create(runner, caplog):

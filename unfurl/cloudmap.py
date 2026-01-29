@@ -51,6 +51,7 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 
 import collections
 from dataclasses import dataclass, field, asdict
+from datetime import datetime, timezone
 from operator import attrgetter
 from pathlib import Path
 import re
@@ -58,6 +59,7 @@ import tempfile
 import os
 import os.path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Iterable,
     Iterator,
@@ -83,7 +85,7 @@ from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 from toscaparser.nodetemplate import NodeTemplate
 from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from .projectpaths import _getdir
-from .graphql import ResourceTypesByName
+from .graphql import ResourceTypesByName, get_deployment_url
 from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
@@ -102,7 +104,7 @@ from .oci import (
 )
 
 
-from .to_json import node_type_to_graphql
+from .to_json import get_blueprint_path, node_type_to_graphql
 from .repo import (
     GitRepo,
     is_git_worktree,
@@ -115,6 +117,9 @@ from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger, UnfurlLogger
 from . import DefaultNames
+
+if TYPE_CHECKING:
+    from .yamlmanifest import YamlManifest
 
 logger = getLogger("unfurl")
 
@@ -268,6 +273,11 @@ class Repository:
             if "avatar_url" in self.metadata:  # migrate deprecated key
                 self.metadata["thumbnail_url"] = self.metadata.pop("avatar_url")
             self.metadata = RepositoryMetadata(**self.metadata)
+
+    def get_current_commit(self) -> str:
+        """Return the current commit for the default branch."""
+        branch_name = self.default_branch or "main"
+        return self.branches.get(branch_name, "")
 
     def get_metadata(self, directory: "RepositoryDict") -> dict:
         if self.mirror_of and self.mirror_of in directory:
@@ -461,7 +471,7 @@ class CloudType:
 
     name: str
     """Fully-qualified type name with namespace"""
-    kind: Literal["Service", "Software", "Artifact", "Capability"]
+    kind: Literal["Component", "Artifact", "Capability"]
     title: str = ""
     source: str = ""
     """Artifact containing type definition"""
@@ -634,6 +644,7 @@ class UnfurlNotable(Notable):
 
             # Prepare type_info and dependencies
             type_info = None
+            typename = ""
             dependencies = []
             child_artifacts: Dict[str, Optional[TypeRefs]] = {}
 
@@ -653,6 +664,7 @@ class UnfurlNotable(Notable):
                 if type_dict:
                     type_dict.pop("__typename", None)
                     type_info = filter_dict(type_dict)
+                    typename = type_info.get("name", "")
 
                 dependencies = list(self.find_dependencies(node, types).values())
 
@@ -686,6 +698,12 @@ class UnfurlNotable(Notable):
 
             # Add to directory artifacts
             directory.db.artifacts[artifact_url] = artifact
+
+            # Create Instantiation and Service for Ensemble artifacts
+            if self.artifact_type == EntitySchema.Ensemble and typename:
+                self._create_ensemble_instantiation_and_service(
+                    manifest, repo_info, directory, typename
+                )
 
             # Store artifact ID for repository notable
             self.artifact_id = artifact_url
@@ -726,6 +744,55 @@ class UnfurlNotable(Notable):
                 if image:
                     return image
         return None
+
+    def _create_ensemble_instantiation_and_service(
+        self,
+        manifest: "YamlManifest",
+        repo_info: Repository,
+        directory: "Directory",
+        typename: str,
+    ) -> None:
+        """
+        Create an Instantiation and Service for Ensemble artifacts.
+
+        Args:
+            manifest: The YamlManifest object for the ensemble
+            repo_info: Repository information
+            directory: Directory object to add instantiation and service to
+        """
+        # Get spec repository for source information
+        spec_repo_view = manifest.repositories.get("spec")
+
+        instantiation = Instantiation(
+            url=repo_info.url,
+            revision=repo_info.get_current_commit(),
+            type=TypeRefs(types={EntitySchema.Ensemble: None}),
+        )
+        instantiation_url = instantiation.url
+        if spec_repo_view:
+            instantiation.source = (
+                get_repository_url(spec_repo_view.url)
+                + f"#:{get_blueprint_path(manifest)}"
+            )
+            instantiation.source_revision = spec_repo_view.get_current_commit()
+
+        # Get deployment URL from manifest
+        deployment_url = get_deployment_url(manifest, None)
+        if not deployment_url:
+            deployment_url = manifest.uri
+
+        # Create Service if we have a deployment URL
+        if deployment_url:
+            service = Service(
+                url=deployment_url,
+                type=TypeRefs(types={typename: None}),
+                instantiated_by=[instantiation_url],
+            )
+            directory.db.services[deployment_url] = service
+            instantiation.instantiated = {deployment_url: None}
+
+        # Add Instantiation to directory
+        directory.db.instantiations[instantiation_url] = instantiation
 
     def _get_artifacttype(self, path: str) -> str:
         if path.endswith(DefaultNames.EnsembleTemplate):
@@ -937,7 +1004,7 @@ class CloudMapDB:
                 if not types_dict or type_name not in types_dict:
                     cloud_type = CloudType(
                         name=type_name,
-                        kind="Service",  # Default, could be inferred from artifact_type
+                        kind="Component",  # XXX inferred from artifact_type
                         title=type_info.get("title", ""),
                         extends=type_info.get("extends", []),
                     )

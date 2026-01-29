@@ -581,7 +581,9 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
             _add_lastjob(manifest.lastJob, deployment)
 
         primary_resource = self["Resource"].get(primary_name)
-        _set_deployment_url(manifest, deployment, primary_resource)
+        url = get_deployment_url(manifest, primary_resource)
+        if url:
+            deployment["url"] = url
         if primary_resource and primary_resource["title"] == primary_name:
             primary_resource["title"] = deployment["title"]
         packages = {}
@@ -638,11 +640,10 @@ def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
     )
 
 
-def _set_deployment_url(
+def get_deployment_url(
     manifest: "YamlManifest",
-    deployment: Deployment,
     primary_resource: Optional[GraphqlObject],
-):
+) -> Optional[str]:
     outputs = manifest.get_saved_outputs()
     url = None
     if outputs and "url" in outputs:
@@ -656,12 +657,12 @@ def _set_deployment_url(
             logger.warning(f"export could not evaluate output 'url': {e}")
 
     if url:
-        deployment["url"] = url
+        return url
     elif primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:  # type: ignore
             if prop["name"] == "url":
-                deployment["url"] = prop["value"]
-                break
+                return prop["value"]
+    return None
 
 
 class Resource(GraphqlObject):
