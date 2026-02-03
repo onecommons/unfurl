@@ -21,7 +21,17 @@ Registry Auth Tips:
 
 from dataclasses import dataclass, asdict, field
 from functools import cache
-from typing import Any, Dict, NamedTuple, Optional, Tuple, List, Literal
+from typing import (
+    Any,
+    Dict,
+    NamedTuple,
+    Optional,
+    Tuple,
+    List,
+    Literal,
+    TypedDict,
+    Union,
+)
 import base64
 import json
 import logging
@@ -83,9 +93,12 @@ class EntitySchema:
     Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
     UnfurlProject = "cloudmap.artifacts.unfurl.Project"
     OCIImage = "cloudmap.artifacts.oci.Image"
+    PullRequest = "cloudmap.artifacts.unfurl.PullRequest"
+    CommitMessage = "cloudmap.artifacts.unfurl.CommitMessage"
     InTotoAttestation = "cloudmap.artifacts.InTotoAttestation"
     "application/vnd.in-toto+json"
     SpDxDoc = "cloudmap.artifacts.SpdxDocument"
+    CycloneDxBom = "cloudmap.artifacts.CycloneDxBom"
     SlsaProvenance02 = "cloudmap.artifacts.SlsaProvenance02"
     SlsaProvenance1 = "cloudmap.artifacts.SlsaProvenance1"
     BuildkitProvenance = "cloudmap.artifacts.BuildkitProvenance"
@@ -94,6 +107,9 @@ class EntitySchema:
     "Null artifact used to represent empty documents or placeholders"
     Group = "cloudmap.artifacts.Group"
     "Generic grouping of artifacts (use notable to declare members)"
+    AbstractBlueprint = "cloudmap.artifacts.AbstractBlueprint"
+    "Artifact definition that does not correspond to a concrete artifact"
+
 
 ArtifactMappings = {
     "https://in-toto.io/Statement/v0.1": EntitySchema.InTotoAttestation,
@@ -101,44 +117,61 @@ ArtifactMappings = {
     "https://slsa.dev/provenance/v0.2": EntitySchema.SlsaProvenance02,
     "https://slsa.dev/provenance/v1": EntitySchema.SlsaProvenance1,
     "https://mobyproject.org/buildkit@v1": EntitySchema.BuildkitProvenance,
+    "https://cyclonedx.org/bom/v1.4": EntitySchema.CycloneDxBom,
 }
 
 @dataclass
-class ArtifactMetadata:
+class BaseMetadata:
+    """Common metadata fields shared across artifacts, services, and repositories."""
+
+    title: str = ""
+    """Human-readable title."""
+    description: str = ""
+    """Human-readable description."""
+    vendor: str = ""
+    """Name of the distributing entity, organization, or individual."""
+    version: str = ""
+    """Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."""
+    documentation_url: str = ""
+    """URL to get documentation."""
+    homepage_url: str = ""
+    """URL to find more information."""
+    thumbnail_url: str = ""
+    """Icon or thumbnail URL."""
+    spdx_licenses: str = ""
+    """License(s) as an SPDX License Expression."""
+    created: str = ""
+    """Date and time on which the resource was created, conforming to RFC 3339."""
+
+    def __post_init__(self):
+        if self.homepage_url:
+            self.homepage_url = validate_url(
+                self.homepage_url, f"{self.__class__.__name__}.homepage_url"
+            )
+        if self.documentation_url:
+            self.documentation_url = validate_url(
+                self.documentation_url, f"{self.__class__.__name__}.documentation_url"
+            )
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, f"{self.__class__.__name__}.thumbnail_url"
+            )
+
+
+@dataclass
+class ArtifactMetadata(BaseMetadata):
     """
     Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
     source: str = ""
-    description: str = ""
-    title: str = ""
     platforms: Optional[List[Dict[str, str]]] = None
-    spdx_licenses: str = ""
-    vendor: str = ""
-    version: str = ""
-    created: str = ""
-    """Date and time on which the artifact was built, conforming to RFC 3339 format."""
-    homepage_url: str = ""
-    documentation_url: str = ""
-    thumbnail_url: str = ""
-    """Icon or thumbnail representing the artifact"""
 
     def __post_init__(self):
+        super().__post_init__()
         if self.source:
             self.source = validate_url(self.source, "ArtifactMetadata.source")
-        if self.homepage_url:
-            self.homepage_url = validate_url(
-                self.homepage_url, "ArtifactMetadata.homepage_url"
-            )
-        if self.documentation_url:
-            self.documentation_url = validate_url(
-                self.documentation_url, "ArtifactMetadata.documentation_url"
-            )
-        if self.thumbnail_url:
-            self.thumbnail_url = validate_url(
-                self.thumbnail_url, "ArtifactMetadata.thumbnail"
-            )
 
     def extract_urls_from_labels(self, labels: Dict[str, Any]) -> None:
         """
@@ -176,6 +209,18 @@ class ArtifactMetadata:
         _set_if_present("homepage_url", "org.opencontainers.image.url")
 
 
+class TypeRefConstraint(TypedDict, total=False):
+    status: Literal["unknown", "absent", "present", "failed", "validated"]
+    version: Union[int, float, str]
+    properties: Dict[str, Any]
+
+
+TypeRefJson = Dict[
+    str,
+    Optional[TypeRefConstraint],
+]
+
+
 class TypeRefs:
     """
     Type references with optional constraints.
@@ -184,11 +229,11 @@ class TypeRefs:
     Example: {"software.Nginx": {"version": "1.25"}, "software.Linux": None}
     """
 
-    def __init__(self, types: Optional[Dict[str, Optional[Dict[str, str]]]] = None):
+    def __init__(self, types: Optional[TypeRefJson] = None):
         """Initialize TypeRefs from a dict or create empty."""
         self.types = types if types is not None else {}
 
-    def asdict(self) -> Dict[str, Any]:
+    def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
         return self.types
 
@@ -196,14 +241,13 @@ class TypeRefs:
         """Return list of type names."""
         return list(self.types)
 
-    def add(self, type_name: Optional[str], version: Optional[str] = None) -> None:
-        """Add a type reference with optional version constraint."""
+    def add(
+        self, type_name: Optional[str], constraints: Optional[TypeRefConstraint] = None
+    ) -> None:
+        """Add a type reference with optional constraints."""
         if not type_name:
             return
-        if version:
-            self.types[type_name] = {"version": version}
-        else:
-            self.types[type_name] = None
+        self.types[type_name] = constraints
 
     def __bool__(self) -> bool:
         """Return True if there are any type references."""
@@ -244,14 +288,23 @@ class Instantiation:
     """The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process."""
     metadata: Dict[str, Any] = field(default_factory=dict)
     """Additional metadata about the instantiation."""
-    reproducible: Optional[bool] = None
-    """Whether this instantiation is fully reproducible."""
+    status: Optional[
+        Literal[
+            "draft",
+            "model",
+            "planned",
+            "observed",
+            "verifiable",
+            "verified",
+            "reproducible",
+            "reproduced",
+        ]
+    ] = None
+    """Status of the instantiation's reproducibility and verification."""
 
     def __post_init__(self):
         if not self.url:  # Auto-generate id as url fragment if not set
-            self.url = "#" + datetime.now(timezone.utc).isoformat().replace(
-                "+00:00", "Z"
-            )
+            self.url = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         if self.source:
             self.source = validate_url(self.source, "Instantiation.source")
         if isinstance(self.type, dict):
@@ -304,8 +357,8 @@ class Artifact:
     """List of IDs of artifacts or repositories that this artifact incorporates or references"""
     instantiates: TypeRefs = field(default_factory=TypeRefs)
     """Types that this artifact instantiates with optional version constraints (typeRef)"""
-    requires: TypeRefs = field(default_factory=TypeRefs)
-    """Requirements for instantiation with optional version constraints (typeRef)"""
+    dependencies: TypeRefs = field(default_factory=TypeRefs)
+    """Types that instantiation may depend on with optional version constraints (typeRef)"""
     instantiated_by: List[str] = field(default_factory=list)
     """List of URLs referencing an entry in instantiations."""
     digest: str = ""
@@ -336,8 +389,8 @@ class Artifact:
             self.type = TypeRefs(types=self.type)
         if isinstance(self.instantiates, dict):
             self.instantiates = TypeRefs(types=self.instantiates)
-        if isinstance(self.requires, dict):
-            self.requires = TypeRefs(types=self.requires)
+        if isinstance(self.dependencies, dict):
+            self.dependencies = TypeRefs(types=self.dependencies)
         # Convert versions dict entries to Artifact instances if they're still dicts
         if self.versions:
             new_versions = {}
@@ -365,7 +418,7 @@ class Artifact:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "instantiates" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "requires" and v:
+            elif k == "dependencies" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "versions" and v:
                 # Convert nested Artifact instances to dicts

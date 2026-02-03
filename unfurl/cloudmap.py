@@ -85,7 +85,7 @@ from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 from toscaparser.nodetemplate import NodeTemplate
 from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from .projectpaths import _getdir
-from .graphql import ResourceTypesByName, get_deployment_url
+from .graphql import ResourceTypesByName, get_deployment_url, TypeName
 from .spec import NodeSpec, ToscaSpec
 
 from .support import ContainerImage
@@ -93,12 +93,14 @@ from .configurator import Configurator, TaskView
 from .oci import (
     build_oci_purl,
     create_oci_artifact,
+    BaseMetadata,
     ArtifactMetadata,
     Artifact,
     EntitySchema,
     Discovery,
     Instantiation,
     TypeRefs,
+    TypeRefJson,
     filter_dict,
     validate_url,
 )
@@ -177,19 +179,15 @@ class Namespace:
 
 
 @dataclass
-class RepositoryMetadata:
+class RepositoryMetadata(BaseMetadata):
     """
     Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
-    description: str = ""
     topics: List[str] = field(default_factory=list)
-    spdx_licenses: str = ""
     license_url: str = ""
     issues_url: str = ""
-    homepage_url: str = ""
-    thumbnail_url: str = ""
     ci_variables: Optional[dict] = None
     lastupdate_time: Optional[str] = None
     lastupdate_digest: Optional[str] = None
@@ -207,6 +205,7 @@ class RepositoryMetadata:
     ] = None
 
     def __post_init__(self):
+        super().__post_init__()
         if self.license_url:
             self.license_url = validate_url(
                 self.license_url, "RepositoryMetadata.license_url"
@@ -214,14 +213,6 @@ class RepositoryMetadata:
         if self.issues_url:
             self.issues_url = validate_url(
                 self.issues_url, "RepositoryMetadata.issues_url"
-            )
-        if self.homepage_url:
-            self.homepage_url = validate_url(
-                self.homepage_url, "RepositoryMetadata.homepage_url"
-            )
-        if self.thumbnail_url:
-            self.thumbnail_url = validate_url(
-                self.thumbnail_url, "RepositoryMetadata.thumbnail_url"
             )
 
     def asdict(self):
@@ -236,6 +227,11 @@ class RepositoryMetadata:
         pass
 
 
+class NotableDict(TypedDict, total=False):
+    type: TypeRefJson
+    artifact: str
+
+
 @dataclass
 class Repository:
     url: str
@@ -243,20 +239,25 @@ class Repository:
     path: str
     """Project path relative to base location of git repositories on the host"""
     initial_revision: str = ""
+    "Initial commit of the default branch."
     name: str = ""
     protocols: List[str] = field(default_factory=list)
     internal_id: Optional[str] = None
+    "Internal identifier from the repository host (e.g., GitHub repository ID)."
     project_url: str = ""
     metadata: RepositoryMetadata = field(default_factory=RepositoryMetadata)
     mirror_of: Optional[str] = None
+    "URL of the original repository if this is a mirror"
     fork_of: Optional[str] = None
+    "URL of the original repository if this is a fork"
     private: Optional[bool] = None
+    "True if the repository not publicly accessible."
     default_branch: str = ""
+    'The default branch of the repository (e.g. "main").'
     branches: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
-    notable: Dict[str, Dict[str, Dict[str, Optional[Dict[str, str]]]]] = field(
-        default_factory=dict
-    )
+    notable: Dict[str, NotableDict] = field(default_factory=dict)
+    """Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map"""
 
     def __post_init__(self):
         if self.url:
@@ -344,28 +345,14 @@ ArtifactDict = Dict[str, Artifact]
 
 
 @dataclass
-class ServiceMetadata:
+class ServiceMetadata(BaseMetadata):
     """Human-readable metadata about a service."""
 
-    title: str = ""
-    description: str = ""
-    vendor: str = ""
-    version: str = ""
-    documentation_url: str = ""
-    thumbnail_url: str = ""
-    """Icon or thumbnail representing the service"""
     source_url: str = ""
     """Informal pointer to source code"""
 
     def __post_init__(self):
-        if self.documentation_url:
-            self.documentation_url = validate_url(
-                self.documentation_url, "ServiceMetadata.documentation_url"
-            )
-        if self.thumbnail_url:
-            self.thumbnail_url = validate_url(
-                self.thumbnail_url, "ServiceMetadata.thumbnail_url"
-            )
+        super().__post_init__()
         if self.source_url:
             self.source_url = validate_url(
                 self.source_url, "ServiceMetadata.source_url"
@@ -407,6 +394,8 @@ class Service:
     """URL of the service"""
     type: TypeRefs = field(default_factory=TypeRefs)
     """Type identifiers from types with optional version constraints"""
+    access: Optional[Literal["public", "private", "none", ""]] = ""
+    "Access to the service (who can resolve the URL)."
     endpoints: List[Dict[str, Any]] = field(default_factory=list)
     """Service endpoints"""
     connections: List[str] = field(default_factory=list)
@@ -415,6 +404,7 @@ class Service:
         Literal[
             "wishlist",
             "planning",
+            "model",
             "pre-launch",
             "alpha",
             "beta",
@@ -477,6 +467,8 @@ class CloudType:
     """Artifact containing type definition"""
     extends: List[str] = field(default_factory=list)
     """List of fully-qualified type names that this type extends"""
+    implementations: List[str] = field(default_factory=list)
+    """Non-exhaustive list URLs to repositories or artifacts that implement this type."""
 
     def __post_init__(self):
         if self.source:
@@ -575,8 +567,8 @@ class Notable:
     ) -> Optional[T]:
         return cls(folder, file)
 
-    def asdict(self) -> Dict[str, Any]:
-        metadata: Dict[str, Any] = dict(type={self.artifact_type: None})
+    def asdict(self) -> NotableDict:
+        metadata = NotableDict(type={self.artifact_type: None})
         if self.artifact_id:
             metadata["artifact"] = self.artifact_id
         return metadata
@@ -645,13 +637,14 @@ class UnfurlNotable(Notable):
             # Prepare type_info and dependencies
             type_info = None
             typename = ""
-            dependencies = []
+            dependencies: set[TypeName] = set()
             child_artifacts: Dict[str, Optional[TypeRefs]] = {}
 
             if node:
                 types = ResourceTypesByName(
                     repo_info.package_id, spec.template.topology_template.custom_defs
                 )
+                # Get type information for node's type
                 type_dict = cast(
                     dict,
                     node_type_to_graphql(
@@ -666,8 +659,13 @@ class UnfurlNotable(Notable):
                     type_info = filter_dict(type_dict)
                     typename = type_info.get("name", "")
 
-                dependencies = list(self.find_dependencies(node, types).values())
-
+                dependencies = set(self.find_dependencies(node, types).values())
+                deployment_blueprints = manifest.get_deployment_blueprints()
+                dependencies.update(
+                    tpl["cloud"]
+                    for tpl in deployment_blueprints.values()
+                    if tpl.get("cloud")
+                )
                 # Handle container image dependency
                 image = self.find_image_dependency(node)
                 if image:
@@ -687,7 +685,7 @@ class UnfurlNotable(Notable):
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
                 artifacts=child_artifacts,
-                dependencies=dependencies,
+                dependencies=list(dependencies),
                 type_info=type_info,
                 types_dict=directory.db.types,
             )
@@ -696,13 +694,50 @@ class UnfurlNotable(Notable):
             if cloud_type:
                 directory.db.types[cloud_type.name] = cloud_type
 
+            # Create CloudTypes for dependencies
+            if node:
+                for dep_typename in dependencies:
+                    # Check if type already exists
+                    if dep_typename not in directory.db.types:
+                        # Get type information for dependency type
+                        # Extract the base typename (without @package part)
+                        base_typename = dep_typename.split("@")[0]
+                        type_def = types.custom_defs.get(base_typename)
+                        dep_type_info = None
+                        if type_def:
+                            dep_type_dict = cast(
+                                dict,
+                                node_type_to_graphql(
+                                    node.topology,
+                                    type_def,
+                                    types,
+                                    True,
+                                ),
+                            )
+                            if dep_type_dict:
+                                dep_type_dict.pop("__typename", None)
+                                dep_type_info = filter_dict(dep_type_dict)
+
+                        # Fallback to minimal CloudType if type not found in custom_defs
+                        if not dep_type_info:
+                            dep_type_info = {
+                                "name": dep_typename,
+                                "title": dep_typename.split("@")[0].split(".")[-1],
+                            }
+
+                        dep_cloud_type = CloudMapDB.create_cloud_type_from_type_info(
+                            dep_type_info, directory.db.types
+                        )
+                        if dep_cloud_type:
+                            directory.db.types[dep_cloud_type.name] = dep_cloud_type
+
             # Add to directory artifacts
             directory.db.artifacts[artifact_url] = artifact
 
             # Create Instantiation and Service for Ensemble artifacts
             if self.artifact_type == EntitySchema.Ensemble and typename:
                 self._create_ensemble_instantiation_and_service(
-                    manifest, repo_info, directory, typename
+                    manifest, repo_info, directory, typename, artifact
                 )
 
             # Store artifact ID for repository notable
@@ -723,7 +758,9 @@ class UnfurlNotable(Notable):
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
 
-    def find_dependencies(self, node: NodeSpec, types: ResourceTypesByName):
+    def find_dependencies(
+        self, node: NodeSpec, types: ResourceTypesByName
+    ) -> Dict[str, TypeName]:
         return {
             name: types.expand_typename(req.get("node"))
             for name, req in cast(
@@ -751,6 +788,7 @@ class UnfurlNotable(Notable):
         repo_info: Repository,
         directory: "Directory",
         typename: str,
+        artifact: "Artifact",
     ) -> None:
         """
         Create an Instantiation and Service for Ensemble artifacts.
@@ -759,14 +797,17 @@ class UnfurlNotable(Notable):
             manifest: The YamlManifest object for the ensemble
             repo_info: Repository information
             directory: Directory object to add instantiation and service to
+            artifact: The ensemble artifact
         """
         # Get spec repository for source information
         spec_repo_view = manifest.repositories.get("spec")
 
+        # XXX add inputs from repositories and lock section
         instantiation = Instantiation(
-            url=repo_info.url,
+            url=artifact.url,
             revision=repo_info.get_current_commit(),
             type=TypeRefs(types={EntitySchema.Ensemble: None}),
+            inputs=artifact.notable,
         )
         instantiation_url = instantiation.url
         if spec_repo_view:
@@ -782,6 +823,7 @@ class UnfurlNotable(Notable):
             deployment_url = manifest.uri
 
         # Create Service if we have a deployment URL
+        # XXX add connections
         if deployment_url:
             service = Service(
                 url=deployment_url,
@@ -953,6 +995,35 @@ class CloudMapDB:
         self._load(path, contents, validate)
 
     @staticmethod
+    def create_cloud_type_from_type_info(
+        type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
+    ) -> Optional[CloudType]:
+        """
+        Create a CloudType from type_info dict if it doesn't already exist.
+
+        Args:
+            type_info: Dict with 'name', 'title', 'extends' keys
+            types_dict: Optional dict to check for existing types
+
+        Returns:
+            CloudType if created, None if type_info is empty or type already exists
+        """
+        type_name = type_info.get("name", "")
+        if not type_name:
+            return None
+
+        # Don't create if it already exists
+        if types_dict and type_name in types_dict:
+            return None
+
+        return CloudType(
+            name=type_name,
+            kind="Component",  # XXX inferred from artifact_type
+            title=type_info.get("title", ""),
+            extends=type_info.get("extends", []),
+        )
+
+    @staticmethod
     def create_artifact_from_notable(
         artifact_pkg: str,
         artifact_type: str,
@@ -991,23 +1062,18 @@ class CloudMapDB:
             thumbnail_url=thumbnail,
         )
 
-        # Convert dependencies to requires TypeRefs
-        requires = TypeRefs(types={dep: None for dep in (dependencies or [])})
+        # Convert dependencies list to TypeRefs
+        dep_refs = TypeRefs(types={dep: None for dep in sorted(dependencies or [])})
 
         # Handle type field: create CloudType and add to instantiates
         instantiates = TypeRefs()
         cloud_type = None
         if type_info and isinstance(type_info, dict):
+            cloud_type = CloudMapDB.create_cloud_type_from_type_info(
+                type_info, types_dict
+            )
             type_name = type_info.get("name", "")
             if type_name:
-                # Create CloudType if it doesn't exist in provided dict
-                if not types_dict or type_name not in types_dict:
-                    cloud_type = CloudType(
-                        name=type_name,
-                        kind="Component",  # XXX inferred from artifact_type
-                        title=type_info.get("title", ""),
-                        extends=type_info.get("extends", []),
-                    )
                 # Add to artifact's instantiates
                 instantiates.add(type_name)
 
@@ -1017,7 +1083,7 @@ class CloudMapDB:
             type=TypeRefs({artifact_type: None}),
             notable=artifacts or {},
             instantiates=instantiates,
-            requires=requires,
+            dependencies=dep_refs,
             metadata=metadata,
         )
 
@@ -1120,7 +1186,7 @@ class CloudMapDB:
                         build_oci_purl(ContainerImage.split(ref)): None
                         for ref in notable_dict.pop("artifacts", [])
                     },
-                    dependencies=notable_dict.pop("dependencies", []),
+                    dependencies=sorted(notable_dict.pop("dependencies", [])),
                     type_info=notable_dict.pop("type", None),
                     types_dict=self.types,
                 )
@@ -1355,7 +1421,7 @@ class Directory(_LocalGitRepos):
         self,
         repo_info: Repository,
         repo: GitRepo,
-        previous_notables: Dict[str, Dict],
+        previous_notables: Dict[str, NotableDict],
     ) -> Optional[List[Notable]]:
         if self.do_analysis:
             try:

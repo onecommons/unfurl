@@ -121,8 +121,8 @@ repositories:
     - ssh
     project_url: https://unfurl.cloud/feb20a/dashboard
     metadata:
-      issues_url: https://unfurl.cloud/feb20a/dashboard/-/issues
       homepage_url: https://unfurl.cloud/feb20a/dashboard
+      issues_url: https://unfurl.cloud/feb20a/dashboard/-/issues
     private: true
     default_branch: main
     branches:
@@ -147,6 +147,9 @@ artifacts:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+    dependencies:
+      unfurl.relationships.ConnectsTo.AWSAccount:
+      unfurl.relationships.ConnectsTo.GoogleCloudProject:
     metadata:
       title: Odoo
       version: 0.1
@@ -163,9 +166,9 @@ services:
     type:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     instantiated_by:
-    - git://unfurl.cloud/feb20a/dashboard.git
+    - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 instantiations:
-  git://unfurl.cloud/feb20a/dashboard.git:
+  git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     revision: 4551885dfab39991cfdb958cb79fcb6aa282481d
@@ -173,6 +176,8 @@ instantiations:
     source_revision: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
     instantiated:
       https://example.com/oodo:
+    inputs:
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     name: Odoo@unfurl.cloud/onecommons/blueprints/odoo
@@ -185,7 +190,15 @@ types:
     - SoftwareComponent@unfurl.cloud/onecommons/std:generic_types
     - tosca.nodes.Root
     - tosca.capabilities.Node
-    - tosca.capabilities.Root"""
+    - tosca.capabilities.Root
+  unfurl.relationships.ConnectsTo.AWSAccount:
+    name: unfurl.relationships.ConnectsTo.AWSAccount
+    kind: Component
+    title: AWSAccount
+  unfurl.relationships.ConnectsTo.GoogleCloudProject:
+    name: unfurl.relationships.ConnectsTo.GoogleCloudProject
+    kind: Component
+    title: GoogleCloudProject"""
 
 @skip_integration
 def test_create(runner, caplog):
@@ -947,7 +960,7 @@ instantiations:
       cloudmap.artifacts.IntotoAttestation: null
     source: https://github.com/onecommons/unfurl#:.
     source_revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
-    reproducible: false
+    status: observed
   "#2023-09-24T15:31:00Z":
     type:
       cloudmap.artifacts.unfurl.Ensemble: null
@@ -963,7 +976,7 @@ artifacts:
       software.WebServer:
         version: "1.25"
       software.HTTPServer: null
-    requires:
+    dependencies:
       software.Linux:
         version: ">=5.0"
     instantiated_by:
@@ -1080,7 +1093,7 @@ types:
                 assert (
                     inst.source_revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
                 )
-                assert inst.reproducible is False
+                assert inst.status == "observed"
                 break
         assert build_instantiation is not None, "Build instantiation not found"
 
@@ -1092,11 +1105,11 @@ types:
         assert "software.HTTPServer" in instantiates.types
         assert instantiates.types["software.HTTPServer"] is None
 
-        # Verify requires uses typeRef structure
-        requires = artifact.requires
-        assert isinstance(requires, TypeRefs)
-        assert "software.Linux" in requires.types
-        assert requires.types["software.Linux"]["version"] == ">=5.0"
+        # Verify dependencies uses typeRef structure
+        dependencies = artifact.dependencies
+        assert isinstance(dependencies, TypeRefs)
+        assert "software.Linux" in dependencies.types
+        assert dependencies.types["software.Linux"]["version"] == ">=5.0"
 
         assert artifact.metadata.title == "Nginx Web Server"
         assert len(artifact.metadata.platforms) == 2

@@ -129,7 +129,7 @@ def get_cloudmap_types(
                     thumbnail = artifact.metadata.thumbnail_url
                     if thumbnail:
                         resource_type["icon"] = thumbnail
-                    dependencies = artifact.requires.names()
+                    dependencies = artifact.dependencies.names()
                     if dependencies:
                         resource_type.setdefault("metadata", {})["components"] = (
                             dependencies

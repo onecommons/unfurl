@@ -21,6 +21,57 @@
         }
       }
     },
+    "metadata": {
+      "description": "Common metadata fields shared across artifacts, services, and repositories.",
+      "title": "Common Metadata",
+      "$$target": "#/definitions/metadata",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "description": "Human-readable title."
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description."
+        },
+        "vendor": {
+          "type": "string",
+          "description": "Name of the distributing entity, organization, or individual."
+        },
+        "version": {
+          "description": "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            }
+          ]
+        },
+        "documentation_url": {
+          "type": "string",
+          "description": "URL to get documentation."
+        },
+        "homepage_url": {
+          "type": "string",
+          "description": "URL to find more information."
+        },
+        "thumbnail_url": {
+          "type": "string",
+          "description": "Icon or thumbnail URL."
+        },
+        "spdx_licenses": {
+          "type": "string",
+          "description": "License(s) as an SPDX License Expression."
+        },
+        "created": {
+          "type": "string",
+          "description": "Date and time on which the resource was created, conforming to RFC 3339."
+        }
+      }
+    },
     "typeRef": {
       "type": "object",
       "title": "Type Ref",
@@ -50,6 +101,10 @@
                     "type": "number"
                   }
                 ]
+              },
+              "properties": {
+                "type": "object",
+                "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition."
               },
               "status": {
                 "type": "string",
@@ -105,9 +160,9 @@
           "$ref": "#/definitions/typeRef",
           "description": "Types that this artifact instantiates (e.g., software package, service image or template, capabilities pipeline, build tools) with optional version constraints."
         },
-        "requires": {
+        "dependencies": {
           "$ref": "#/definitions/typeRef",
-          "description": "Requirements for instantiation including environment context and types of software or services with optional version constraints. Non-exhaustive, for example, the type may imply additional requirements."
+          "description": "Types that instantiation may depend on including environment context and types of software or services with optional version constraints. Non-exhaustive, for example, the type may imply additional requirements or some dependencies might be optional."
         },
         "instantiated_by": {
           "type": "array",
@@ -125,70 +180,34 @@
           "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
         },
         "metadata": {
-          "type": "object",
           "description": "Human-readable metadata about the artifact.",
-          "properties": {
-            "title": {
-              "type": "string",
-              "description": "Human-readable title of the artifact."
+          "allOf": [
+            {
+              "$ref": "#/definitions/metadata"
             },
-            "description": {
-              "type": "string",
-              "description": "Human-readable description of the artifact."
-            },
-            "created": {
-              "type": "string",
-              "description": "Date and time on which the artifact was built, conforming to RFC 3339."
-            },
-            "platforms": {
-              "type": "array",
-              "description": "List of platforms this artifact supports.",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "architecture": {
-                    "type": "string",
-                    "description": "CPU architecture (e.g., amd64, arm64)."
-                  },
-                  "os": {
-                    "type": "string",
-                    "description": "Operating system (e.g., linux, windows)."
+            {
+              "type": "object",
+              "properties": {
+                "platforms": {
+                  "type": "array",
+                  "description": "List of platforms this artifact supports.",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "architecture": {
+                        "type": "string",
+                        "description": "CPU architecture (e.g., amd64, arm64)."
+                      },
+                      "os": {
+                        "type": "string",
+                        "description": "Operating system (e.g., linux, windows)."
+                      }
+                    }
                   }
                 }
               }
-            },
-            "spdx_licenses": {
-              "type": "string",
-              "description": "License(s) under which the artifact is distributed as an SPDX License Expression."
-            },
-            "vendor": {
-              "type": "string",
-              "description": "Name of the distributing entity, organization, or individual."
-            },
-            "version": {
-              "description": "Version of the packaged software. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.",
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
-              ]
-            },
-            "homepage_url": {
-              "type": "string",
-              "description": "URL to find more information on the artifact."
-            },
-            "documentation_url": {
-              "type": "string",
-              "description": "URL to get documentation on the artifact."
-            },
-            "thumbnail_url": {
-              "type": "string",
-              "description": "Icon or thumbnail representing the artifact."
             }
-          }
+          ]
         },
         "discovery": {
           "$ref": "#/definitions/discovery"
@@ -306,7 +325,7 @@
           },
           "initial_revision": {
             "type": "string",
-            "description": "Initial commit hash when the repository was first added to the cloudmap."
+            "description": "Initial commit of the default branch."
           },
           "name": {
             "type": "string",
@@ -337,70 +356,61 @@
           },
           "private": {
             "type": "boolean",
-            "description": "Whether the repository is private."
+            "description": "True if the repository is not publicly accessible."
           },
           "default_branch": {
             "type": "string",
             "description": "Default branch name (e.g., main, master)."
           },
           "metadata": {
-            "type": "object",
             "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
-            "properties": {
-              "description": {
-                "type": "string",
-                "description": "Human-readable description of the repository."
+            "allOf": [
+              {
+                "$ref": "#/definitions/metadata"
               },
-              "topics": {
-                "type": "array",
-                "description": "List of topic tags associated with the repository.",
-                "items": {
-                  "type": "string"
+              {
+                "type": "object",
+                "properties": {
+                  "topics": {
+                    "type": "array",
+                    "description": "List of topic tags associated with the repository.",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "license_url": {
+                    "type": "string",
+                    "description": "URL to the license file or license information."
+                  },
+                  "issues_url": {
+                    "type": "string",
+                    "description": "URL to the issue tracker for the repository."
+                  },
+                  "lastupdate_time": {
+                    "type": "string",
+                    "description": "Timestamp of the last metadata update."
+                  },
+                  "lastupdate_digest": {
+                    "type": "string",
+                    "description": "Digest hash of the metadata at the time of the last update."
+                  },
+                  "project_status": {
+                    "type": "string",
+                    "description": "Project status as defined by https://www.repostatus.org",
+                    "enum": [
+                      "concept",
+                      "WIP",
+                      "suspended",
+                      "abandoned",
+                      "active",
+                      "inactive",
+                      "unsupported",
+                      "moved"
+                    ]
+                  }
                 }
-              },
-              "spdx_licenses": {
-                "type": "string",
-                "description": "License(s) under which the repository contents are distributed as an SPDX License Expression."
-              },
-              "license_url": {
-                "type": "string",
-                "description": "URL to the license file or license information."
-              },
-              "issues_url": {
-                "type": "string",
-                "description": "URL to the issue tracker for the repository."
-              },
-              "homepage_url": {
-                "type": "string",
-                "description": "URL to the project homepage."
-              },
-              "thumbnail_url": {
-                "type": "string",
-                "description": "URL to an avatar, icon, or thumbnail image representing the repository."
-              },
-              "lastupdate_time": {
-                "type": "string",
-                "description": "Timestamp of the last metadata update."
-              },
-              "lastupdate_digest": {
-                "type": "string",
-                "description": "Digest hash of the metadata at the time of the last update."
-              },
-              "project_status": {
-                "type": "string",
-                "description": "Project status as defined by https://www.repostatus.org",
-                "enum": [
-                  "concept",
-                  "WIP",
-                  "suspended",
-                  "abandoned",
-                  "active",
-                  "inactive",
-                  "unsupported",
-                  "moved"
-                ]
               }
-            }
+            ]
           },
           "branches": {
             "type": "object",
@@ -422,7 +432,7 @@
             "oneOf": [
               {
                 "type": "object",
-                "description": "Links to artifacts like blueprints or Helm charts when origin information is unavailable.",
+                "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
                 "additionalProperties": {
                   "type": "object",
                   "properties": {
@@ -430,7 +440,8 @@
                       "$ref": "#/definitions/typeRef"
                     },
                     "artifact": {
-                      "type": "string"
+                      "type": "string",
+                      "description": "URL of an artifact that represents this notable file or directory."
                     }
                   },
                   "additionalProperties": false
@@ -469,107 +480,94 @@
             "$ref": "#/definitions/typeRef",
             "description": "Type identifier from types/services with optional version constraints."
           },
+          "access": {
+            "type": "string",
+            "description": "Access to the service (who can resolve the URL).",
+            "enum": [
+              "public",
+              "private",
+              "none"
+            ]
+          },
           "endpoints": {
             "type": "array",
             "description": "Service endpoints.",
             "items": {
               "type": "object"
             }
-        },
-        "connections": {
-          "type": "array",
-          "description": "List of other services this service uses.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "metadata": {
-          "type": "object",
-          "description": "Human-readable metadata about the service.",
-          "properties": {
-            "title": {
-              "type": "string",
-              "description": "Human-readable title of the service."
-            },
-            "description": {
-              "type": "string",
-              "description": "Human-readable description of the service."
-            },
-            "vendor": {
-              "type": "string",
-              "description": "Name of the distributing entity, organization, or individual."
-            },
-            "version": {
-              "description": "Version of the service. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible.",
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "number"
-                }
-              ]
-            },
-            "documentation_url": {
-              "type": "string",
-              "description": "URL to get documentation on the service."
-            },
-            "thumbnail_url": {
-              "type": "string",
-              "description": "Icon or thumbnail representing the service."
-            },
-            "source_url": {
-              "type": "string",
-              "description": "Informal pointer to source code. Use when deployment information is not available."
+          },
+          "connections": {
+            "type": "array",
+            "description": "List of other services this service uses.",
+            "items": {
+              "type": "string"
             }
           },
-          "operation_status": {
-            "type": "string",
-            "enum": [
-              "wishlist",
-              "planning",
-              "pre-launch",
-              "alpha",
-              "beta",
-              "production",
-              "maintenance",
-              "unmaintained",
-              "sunsetting",
-              "suspended",
-              "shutdown"
+          "metadata": {
+            "description": "Human-readable metadata about the service.",
+            "allOf": [
+              {
+                "$ref": "#/definitions/metadata"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "source_url": {
+                    "type": "string",
+                    "description": "Informal pointer to source code. Use when deployment information is not available."
+                  },
+                  "operation_status": {
+                    "type": "string",
+                    "description": "Operational status of the service.",
+                    "enum": [
+                      "wishlist",
+                      "planning",
+                      "model",
+                      "pre-launch",
+                      "alpha",
+                      "beta",
+                      "production",
+                      "maintenance",
+                      "unmaintained",
+                      "sunsetting",
+                      "suspended",
+                      "shutdown"
+                    ]
+                  }
+                }
+              }
             ]
-          }
-        },
-        "policies": {
-          "type": "object",
-          "description": "Service policies and legal information.",
-          "properties": {
-            "spdx_licenses": {
-              "type": "string",
-              "description": "License(s) under which the service is distributed as an SPDX License Expression."
-            },
-            "terms_of_service": {
-              "type": "string",
-              "description": "URL to the terms of service."
-            },
-            "privacy_policy": {
-              "type": "string",
-              "description": "URL to the privacy policy."
+          },
+          "policies": {
+            "type": "object",
+            "description": "Service policies and legal information.",
+            "properties": {
+              "spdx_licenses": {
+                "type": "string",
+                "description": "License(s) under which the service is distributed as an SPDX License Expression."
+              },
+              "terms_of_service": {
+                "type": "string",
+                "description": "URL to the terms of service."
+              },
+              "privacy_policy": {
+                "type": "string",
+                "description": "URL to the privacy policy."
+              }
             }
+          },
+          "instantiated_by": {
+            "type": "array",
+            "description": "List of instantiation URLs.",
+            "items": {
+              "type": "string",
+              "description": "List of URLs referencing an entry in instantiations."
+            }
+          },
+          "discovery": {
+            "$ref": "#/definitions/discovery"
           }
-        },
-        "instantiated_by": {
-          "type": "array",
-          "description": "List of instantiation URLs.",
-          "items": {
-            "type": "string",
-            "description": "List of URLs referencing an entry in instantiations."
-          }
-        },
-        "discovery": {
-          "$ref": "#/definitions/discovery"
         }
-      }
     }
   },
   "instantiations": {
@@ -588,7 +586,7 @@
           },
           "digest": {
             "type": "string",
-            "description": "Cryptographic digest of document reference by the instantiation URL."
+            "description": "Cryptographic digest of the document referenced by the instantiation URL."
           },
           "revision": {
             "type": "string",
@@ -609,16 +607,28 @@
           },
           "inputs": {
             "type": "object",
-            "description": "The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
+            "description": "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
             "$ref": "#/definitions/typedURLs"
           },
           "metadata": {
-            "type": "object"
+            "type": "object",
+            "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
+            "$ref": "#/definitions/metadata"
           },
-          "reproducible": {
-            "type": "boolean",
-            "description": "Whether this instantiation is fully reproducible."
-        }
+          "status": {
+            "type": "string",
+            "description": "Status of the instantiation.",
+            "enum": [
+              "draft",
+              "model",
+              "planned",
+              "observed",
+              "verifiable",
+              "verified",
+              "reproducible",
+              "reproduced"
+            ]
+          }
       }
     }
   },
@@ -644,6 +654,42 @@
         "title": {
           "type": "string",
           "description": "Human-readable name."
+        },
+        "implementations": {
+          "type": "array",
+          "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "Human-readable description."
+        },
+        "status": {
+          "type": "string",
+          "description": "Maturity level of the type definition.",
+          "enum": [
+            "draft",
+            "experimental",
+            "stable",
+            "deprecated",
+            "removed"
+          ]
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional metadata about the type.",
+          "properties": {
+            "documentation_url": {
+              "type": "string",
+              "description": "Link to documentation for this type."
+            },
+            "issue_url": {
+              "type": "string",
+              "description": "Link to issue tracking this type definition."
+            }
+          }
         },
         "source": {
           "type": "string",
