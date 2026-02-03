@@ -128,15 +128,16 @@ def is_url_or_git_path(url):
     return False
 
 
-def split_git_url(url: str) -> Tuple[str, str, str]:
+def split_git_url_with_commit(url: str) -> Tuple[str, str, str, str]:
     """
-    Returns (repoURL, filePath, revision)
-    RepoURL will be an empty string if it isn't a path to a git repo
+    Returns (repository_url, file_rath, revision, commit)
+    repository_url will be an empty string if it isn't a path to a git repo
     """
     if url.startswith("--"):
         # security: see https://github.com/gitpython-developers/GitPython/issues/1517
-        return "", "", ""
+        return "", "", "", ""
     parts = urlparse(url)
+    commit = ""
     if parts.scheme == "git-local":
         giturl, path, fragment = (
             parts.scheme + "://" + parts.netloc,
@@ -148,19 +149,30 @@ def split_git_url(url: str) -> Tuple[str, str, str]:
             path = os.path.join(path, frag_path)
         else:
             revision = ""
-        return giturl, path, revision
+        revision, sep, commit = revision.partition("~")
+        return giturl, path, revision, commit
 
     if parts.fragment:
-        # treat fragment as a git revision spec; see https://git-scm.com/docs/gitrevisions
-        # or https://docs.docker.com/engine/reference/commandline/build/#git-repositories
-        # just support <ref>:<path> for now
+        # support <ref>~<commit>:<path>
         # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
         revision, sep, path = parts.fragment.partition(":")
+        revision, sep, commit = revision.partition("~")
         giturl, sep, frag = url.partition("#")
-        return giturl, path, revision
-    return url, "", ""
+        return giturl, path, revision, commit
+    return url, "", "", ""
 
-def git_url_join(url: str, path: str, revision: str) -> str:
+
+def split_git_url(url: str) -> Tuple[str, str, str]:
+    """
+    Returns (repository_url, file_rath, revision)
+    repository_url will be an empty string if it isn't a path to a git repo
+    """
+    return split_git_url_with_commit(url)[:3]
+
+
+def git_url_join(url: str, path: str, revision: str, commit: str = "") -> str:
+    if commit:
+        revision = f"{revision}~{commit}"
     if revision and path:
         return f"{url}.git#{revision}:{path}"
     elif revision:
