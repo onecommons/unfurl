@@ -305,6 +305,44 @@ def load_module(path: str, full_name: str = None) -> ModuleType:
     return module
 
 
+def load_class_from_file(
+    class_path: str,
+    base_dir: str,
+    description: str = "class"
+) -> Optional[type]:
+    """
+    Load a Python class from a file using the format: "path/to/file.py#ClassName"
+
+    Args:
+        class_path: String in format "path/to/file.py#ClassName"
+        base_dir: Base directory to resolve relative paths
+        description: Description for error messages (e.g., "configurator class", "Notable class")
+
+    Returns:
+        The loaded class, or None if loading fails
+
+    Example:
+        klass = load_class_from_file("notables/custom.py#MyNotable", "/path/to/repo", "Notable class")
+    """
+    import shlex
+
+    if "#" not in class_path:
+        raise UnfurlError(f'Invalid {description} path: "{class_path}" - must use format "file.py#ClassName"')
+
+    if len(shlex.split(class_path)) != 1:
+        raise UnfurlError(f'Invalid {description} path: "{class_path}" - contains shell metacharacters')
+
+    path, sep, fragment = class_path.partition("#")
+    fullpath = os.path.join(base_dir, path)
+
+    try:
+        mod = load_module(fullpath)
+        klass = getattr(mod, fragment)
+        return klass
+    except (ImportError, AttributeError, FileNotFoundError) as e:
+        raise UnfurlError(f'Failed to load {description} from "{class_path}": {e}')
+
+
 def load_class(klass: str, defaultModule: str = "__main__") -> object:
     prefix, sep, suffix = klass.rpartition(".")
     module = importlib.import_module(prefix or defaultModule)

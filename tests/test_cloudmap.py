@@ -1285,3 +1285,120 @@ def test_get_cloudmap_types():
         # Verify icon/thumbnail is set
         assert "icon" in cronicle_type
         assert cronicle_type["icon"] == "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar"
+
+@pytest.mark.parametrize("test_case,custom_class_code,analyzer_config,expected_count,expected_log", [
+    (
+        "valid_custom_analyzer",
+        """
+from unfurl.cloudmap import Notable, Directory, Repository, Artifact
+
+class CustomTestNotable(Notable):
+    files = ["custom-test.yaml"]
+    folders = []
+
+    def analyze(self, directory, repo_info, root_path):
+        directory.logger.info(f"CustomTestNotable analyzing {self.file}")
+        return None
+""",
+        ["notables/custom.py#CustomTestNotable"],
+        1,
+        "Loaded custom Notable analyzer"
+    ),
+    (
+        "invalid_path",
+        None,  # No file created
+        ["notables/nonexistent.py#MissingClass"],
+        0,
+        "Failed to load custom Notable analyzer"
+    ),
+    (
+        "not_notable_subclass",
+        """
+class NotANotable:
+    def __init__(self):
+        pass
+""",
+        ["notables/notnotable.py#NotANotable"],
+        0,
+        "not a subclass of Notable"
+    ),
+])
+def test_custom_analyzers(tmp_path, caplog, test_case, custom_class_code, analyzer_config, expected_count, expected_log):
+    """Test loading custom Notable analyzer classes from cloudmaps config"""
+    from unfurl.cloudmap import CloudMap, Notable
+    from unfurl.localenv import LocalEnv
+
+    # Create a temporary cloudmap repository
+    cloudmap_repo_path = tmp_path / "cloudmap"
+    cloudmap_repo_path.mkdir()
+
+    # Initialize git repo
+    import git
+    repo = git.Repo.init(cloudmap_repo_path)
+
+    # Create cloudmap.yaml
+    cloudmap_yaml = cloudmap_repo_path / "cloudmap.yaml"
+    cloudmap_yaml.write_text(f"""apiVersion: {API_VERSION}
+kind: CloudMap
+repositories: {{}}
+""")
+
+    files_to_commit = ["cloudmap.yaml"]
+
+    # Create custom class file if code is provided
+    if custom_class_code:
+        notables_dir = cloudmap_repo_path / "notables"
+        notables_dir.mkdir()
+
+        # Extract filename from analyzer_config
+        class_file = analyzer_config[0].split("#")[0].split("/")[-1]
+        custom_py = notables_dir / class_file
+        custom_py.write_text(custom_class_code)
+        files_to_commit.append(f"notables/{class_file}")
+
+    # Commit the files
+    repo.index.add(files_to_commit)
+    repo.index.commit("Initial commit")
+
+    # Create unfurl project with custom analyzer config
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+
+    unfurl_yaml = project_path / "unfurl.yaml"
+    unfurl_yaml.write_text(f"""apiVersion: unfurl/v1alpha1
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      analyzers:
+        {chr(10).join(f"        - {repr(path)}" for path in analyzer_config)}
+      repositories:
+        cloudmap:
+          url: {cloudmap_repo_path}
+""")
+
+    # Load the LocalEnv with skip_default_ensemble to avoid needing an ensemble
+    os.chdir(project_path)
+    local_env = LocalEnv(str(project_path), overrides={"skip_default_ensemble": True})
+
+    # Create CloudMap instance - this should load (or fail to load) the custom analyzer
+    cloudmap = CloudMap.from_name(
+        local_env,
+        "cloudmap",
+        None,  # clone_root
+        "",    # host_name
+        "",    # namespace
+        False, # skip_analysis
+    )
+
+    # Verify expected number of custom analyzers
+    assert len(cloudmap.custom_analyzers) == expected_count
+
+    # Verify expected log message
+    assert expected_log in caplog.text
+
+    # Additional validation for successful load
+    if expected_count > 0:
+        assert cloudmap.custom_analyzers[0].__name__ == "CustomTestNotable"
+        assert "custom-test.yaml" in cloudmap.directory.analyzer.files
+        assert cloudmap.directory.analyzer.files["custom-test.yaml"].__name__ == "CustomTestNotable"

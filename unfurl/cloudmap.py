@@ -1349,7 +1349,12 @@ class Directory(_LocalGitRepos):
         self.cloudmap = cloudmap
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
         self.do_analysis = not skip_analysis
-        self.analyzer = Analyzer([UnfurlNotable, ContainerBuilderNotable], self.logger)
+
+        # Start with default Notable classes and add custom analyzers from cloudmap
+        notable_classes: List[Type[Notable]] = [UnfurlNotable, ContainerBuilderNotable]
+        notable_classes.extend(cloudmap.custom_analyzers)
+
+        self.analyzer = Analyzer(notable_classes, self.logger)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
@@ -2517,12 +2522,15 @@ class CloudMap:
         skip_analysis: bool = False,
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
+        custom_analyzers: Optional[List[Type[Notable]]] = None,
     ):
         self.logger = logger
         self.repo = repo
         self.host_branch = host_branch
         self.source_branch = source_branch
         self.local_env = local_env
+        self.custom_analyzers = custom_analyzers or []
+
         self.directory = Directory(
             self,
             str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
@@ -2590,6 +2598,10 @@ class CloudMap:
         if not isinstance(repo, GitRepo):
             # XXX add find_or_create_working_dir variant that always returns GitRepo
             raise UnfurlError(f"couldn't clone {url}")
+
+        # Load custom analyzers after repo is available
+        custom_analyzers = cls._load_custom_analyzers(local_env, repo.working_dir, logger)
+
         return CloudMap(
             repo,
             branch,
@@ -2599,7 +2611,57 @@ class CloudMap:
             skip_analysis,
             logger,
             local_env,
+            custom_analyzers,
         )
+
+    @staticmethod
+    def _load_custom_analyzers(
+        local_env: Optional["LocalEnv"],
+        base_dir: str,
+        logger,
+    ) -> List[Type[Notable]]:
+        """
+        Load custom Notable analyzer classes from cloudmaps config.
+
+        Args:
+            local_env: LocalEnv instance to get cloudmaps config from
+            base_dir: Base directory for resolving relative paths (typically repo.working_dir)
+            logger: Logger instance for debug/warning/error messages
+
+        Returns:
+            List of loaded Notable analyzer classes
+        """
+        custom_analyzers: List[Type[Notable]] = []
+        if not local_env:
+            return custom_analyzers
+
+        from .util import load_class_from_file
+
+        cloudmaps_config = local_env.get_context().get("cloudmaps", {})
+        analyzer_paths = cloudmaps_config.get("analyzers", [])
+
+        for analyzer_path in analyzer_paths:
+            try:
+                analyzer_class = load_class_from_file(
+                    analyzer_path,
+                    base_dir,
+                    "Notable analyzer class"
+                )
+                if analyzer_class and issubclass(analyzer_class, Notable):
+                    custom_analyzers.append(analyzer_class)
+                    logger.debug(
+                        f"Loaded custom Notable analyzer from {analyzer_path}"
+                    )
+                else:
+                    logger.warning(
+                        f"Class loaded from {analyzer_path} is not a subclass of Notable"
+                    )
+            except Exception as e:
+                logger.error(
+                    f"Failed to load custom Notable analyzer from {analyzer_path}: {e}"
+                )
+
+        return custom_analyzers
 
     @classmethod
     def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
