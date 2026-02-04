@@ -346,20 +346,6 @@ ArtifactDict = Dict[str, Artifact]
 class ServiceMetadata(BaseMetadata):
     """Human-readable metadata about a service."""
 
-    source_url: str = ""
-    """Informal pointer to source code"""
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.source_url:
-            self.source_url = validate_url(
-                self.source_url, "ServiceMetadata.source_url"
-            )
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
 
 @dataclass
 class ServicePolicies:
@@ -1163,7 +1149,7 @@ class CloudMapDB:
         Returns:
             Artifact object added to self.artifacts
         """
-        artifact, instantiation = create_oci_artifact(image)
+        artifact, instantiation, artifact_fetch = create_oci_artifact(image)
 
         # Add instantiation and update artifact.instantiated_by
         if instantiation:

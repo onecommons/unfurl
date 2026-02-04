@@ -66,6 +66,10 @@
           "type": "string",
           "description": "Link to issue, PR/MR, or discussion about this definition."
         },
+        "source_url": {
+          "type": "string",
+          "description": "Informal pointer to source code. Use when deployment information is not available."
+        },
         "spdx_licenses": {
           "type": "string",
           "description": "License(s) as an SPDX License Expression."
@@ -156,9 +160,9 @@
           "description": "Type identifier from types/artifacts with optional version constraints."
         },
         "notable": {
-            "type": "object",
-            "description": "Map of URLs of interesting artifacts or repositories that this artifact incorporates or references.",
-            "$ref": "#/definitions/typedURLs"
+          "type": "object",
+          "description": "Map of URLs of interesting artifacts or repositories that this artifact incorporates or references.",
+          "$ref": "#/definitions/typedURLs"
         },
         "instantiates": {
           "$ref": "#/definitions/typeRef",
@@ -192,6 +196,12 @@
             {
               "type": "object",
               "properties": {
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
                 "platforms": {
                   "type": "array",
                   "description": "List of platforms this artifact supports.",
@@ -507,40 +517,27 @@
               "type": "string"
             }
           },
+          "operation_status": {
+            "type": "string",
+            "description": "Operational status of the service.",
+            "enum": [
+              "wishlist",
+              "planning",
+              "model",
+              "pre-launch",
+              "alpha",
+              "beta",
+              "production",
+              "maintenance",
+              "unmaintained",
+              "sunsetting",
+              "suspended",
+              "shutdown"
+            ]
+          },
           "metadata": {
             "description": "Human-readable metadata about the service.",
-            "allOf": [
-              {
-                "$ref": "#/definitions/metadata"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "source_url": {
-                    "type": "string",
-                    "description": "Informal pointer to source code. Use when deployment information is not available."
-                  },
-                  "operation_status": {
-                    "type": "string",
-                    "description": "Operational status of the service.",
-                    "enum": [
-                      "wishlist",
-                      "planning",
-                      "model",
-                      "pre-launch",
-                      "alpha",
-                      "beta",
-                      "production",
-                      "maintenance",
-                      "unmaintained",
-                      "sunsetting",
-                      "suspended",
-                      "shutdown"
-                    ]
-                  }
-                }
-              }
-            ]
+            "$ref": "#/definitions/metadata"
           },
           "policies": {
             "type": "object",
@@ -572,18 +569,18 @@
             "$ref": "#/definitions/discovery"
           }
         }
-    }
-  },
-  "instantiations": {
-    "type": "object",
-    "description": "Build and deployment information for artifacts and services. Keys are URLs.",
-    "propertyNames": {
-      "description": "URL of the instantiation.",
-      "pattern": "^[^\\s]*$"
+      }
     },
-    "additionalProperties": {
+    "instantiations": {
       "type": "object",
-      "properties": {
+      "description": "Build and deployment information for artifacts and services. Keys are URLs.",
+      "propertyNames": {
+        "description": "URL of the instantiation.",
+        "pattern": "^[^\\s]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
           "type": {
             "$ref": "#/definitions/typeRef",
             "description": "Type of the instantiation."
@@ -633,72 +630,72 @@
               "reproduced"
             ]
           }
+        }
       }
-    }
-  },
-  "types": {
-    "type": "object",
-    "description": "Type definitions for artifacts, services, software, and capabilities.",
-    "propertyNames": {
-      "description": "Fully-qualified type name with namespace (e.g., Zulip@unfurl.cloud/onecommons/blueprints/zulip).",
-      "pattern": "^[^\\s]+$"
     },
-    "additionalProperties": {
+    "types": {
       "type": "object",
-      "properties": {
-        "kind": {
-          "type": "string",
-          "description": "One of: Component, Artifact, or Capability.",
-          "enum": [
-            "Component",
-            "Artifact",
-            "Capability"
-          ]
-        },
-        "implementations": {
-          "type": "array",
-          "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "status": {
-          "type": "string",
-          "description": "Maturity level of the type definition.",
-          "enum": [
-            "draft",
-            "experimental",
-            "stable",
-            "deprecated",
-            "removed"
-          ]
-        },
-        "model": {
-          "type": "string",
-          "description": "URL of artifact or service to use a model for instances of this type."
-        },
-        "metadata": {
-          "type": "object",
-          "$ref": "#/definitions/metadata",
-          "description": "Additional metadata about the type."
-        },
-        "source": {
-          "type": "string",
-          "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
-        },
-        "extends": {
-          "type": "array",
-          "description": "List of fully-qualified type names that this type extends.",
-          "items": {
-            "type": "string"
+      "description": "Type definitions for artifacts, services, software, and capabilities.",
+      "propertyNames": {
+        "description": "Fully-qualified type name with namespace (e.g., Zulip@unfurl.cloud/onecommons/blueprints/zulip).",
+        "pattern": "^[^\\s]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "description": "One of: Component, Artifact, or Capability.",
+            "enum": [
+              "Component",
+              "Artifact",
+              "Capability"
+            ]
+          },
+          "implementations": {
+            "type": "array",
+            "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "description": "Maturity level of the type definition.",
+            "enum": [
+              "draft",
+              "experimental",
+              "stable",
+              "deprecated",
+              "removed"
+            ]
+          },
+          "model": {
+            "type": "string",
+            "description": "URL of artifact or service to use a model for instances of this type."
+          },
+          "metadata": {
+            "type": "object",
+            "$ref": "#/definitions/metadata",
+            "description": "Additional metadata about the type."
+          },
+          "source": {
+            "type": "string",
+            "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
+          },
+          "extends": {
+            "type": "array",
+            "description": "List of fully-qualified type names that this type extends.",
+            "items": {
+              "type": "string"
+            }
           }
         }
       }
     }
-  }
-},
-"required": [
-  "apiVersion",
-  "kind"
-]
+  },
+  "required": [
+    "apiVersion",
+    "kind"
+  ]
 }

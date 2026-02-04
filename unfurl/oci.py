@@ -144,6 +144,12 @@ class BaseMetadata:
     """License(s) as an SPDX License Expression."""
     created: str = ""
     """Date and time on which the resource was created, conforming to RFC 3339."""
+    source_url: str = ""
+    """Informal pointer to source code"""
+
+    def asdict(self) -> Dict[str, Any]:
+        # exclude empty values
+        return {k: v for k, v in asdict(self).items() if v}
 
     def __post_init__(self):
         if self.homepage_url:
@@ -162,6 +168,10 @@ class BaseMetadata:
             self.thumbnail_url = validate_url(
                 self.thumbnail_url, f"{self.__class__.__name__}.thumbnail_url"
             )
+        if self.source_url:
+            self.source_url = validate_url(
+                self.source_url, f"{self.__class__.__name__}.source_url"
+            )
 
 
 @dataclass
@@ -171,13 +181,8 @@ class ArtifactMetadata(BaseMetadata):
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
-    source: str = ""
     platforms: Optional[List[Dict[str, str]]] = None
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.source:
-            self.source = validate_url(self.source, "ArtifactMetadata.source")
+    tags: Optional[List[str]] = None
 
     def extract_urls_from_labels(self, labels: Dict[str, Any]) -> None:
         """
@@ -189,7 +194,7 @@ class ArtifactMetadata(BaseMetadata):
             value = labels.get(label_key)
             if isinstance(value, str) and value.strip():
                 cleaned = value.strip()
-                if field_name in ("source", "homepage_url", "documentation_url"):
+                if field_name in ("source_url", "homepage_url", "documentation_url"):
                     try:
                         cleaned = validate_url(
                             cleaned, f"ArtifactMetadata.{field_name}"
@@ -199,8 +204,8 @@ class ArtifactMetadata(BaseMetadata):
                         pass  # skip invalid URL
 
         # OCI standard annotations
-        _set_if_present("source", "org.label-schema.vcs-url")
-        _set_if_present("source", "org.opencontainers.image.source")
+        _set_if_present("source_url", "org.label-schema.vcs-url")
+        _set_if_present("source_url", "org.opencontainers.image.source")
         _set_if_present("documentation_url", "org.opencontainers.image.documentation")
         _set_if_present("spdx_licenses", "org.opencontainers.image.licenses")
         _set_if_present("version", "org.label-schema.version")
@@ -442,6 +447,7 @@ class ArtifactFetch(NamedTuple):
     artifact: Dict[str, Any]
     manifest_url: str
     artifact_digest: str
+    artifact_bytes: bytes
 
 
 class ImageMetadataFetch(NamedTuple):
@@ -478,8 +484,8 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
 
 
 def create_oci_artifact(
-    image: ContainerImage,
-) -> Tuple[Artifact, Optional[Instantiation]]:
+    image: ContainerImage, fetch_tags: Optional[bool] = None
+) -> Tuple[Artifact, Optional[Instantiation], Optional[ArtifactFetch]]:
     """Create OCI artifact from the given image name.
 
     Returns:
@@ -516,6 +522,16 @@ def create_oci_artifact(
             for p in platforms
             if "architecture" in p and "os" in p and p["architecture"] != "unknown"
         ]
+
+    # Fetch available tags if the tag is empty or "latest"
+    if fetch_tags is not False and (not ref.tag or ref.tag == "latest"):
+        tags = registry_v2_get_tags(
+            ref,
+            username=image.username,
+            password=image.password,
+        )
+        if tags and isinstance(tags, list):
+            metadata.tags = tags
 
     # Set digest on the artifact
     digest = manifest_digest or ref.digest
@@ -556,9 +572,9 @@ def create_oci_artifact(
                         if source_location or source_revision:
                             instantiation.source = source_location or ""
                             instantiation.source_revision = source_revision
-                        if source_location and not metadata.source:
+                        if source_location and not metadata.source_url:
                             source_urls.append(artifact_fetch.manifest_url)
-                            metadata.source = source_location
+                            metadata.source_url = source_location
 
     if ref.host == "registry-1.docker.io":
         namespace = ref.namespace or "library"
@@ -570,7 +586,7 @@ def create_oci_artifact(
             source_urls.append(dockerhub_url)
             source = raw_urls.get("repo_url") or raw_urls.get("source")
             if source:
-                metadata.source = source
+                metadata.source_url = source
             if raw_urls.get("homepage"):
                 metadata.homepage_url = raw_urls["homepage"]
             if raw_urls.get("documentation"):
@@ -612,7 +628,7 @@ def create_oci_artifact(
         discovery=Discovery(sources=source_urls) if source_urls else None,
     )
 
-    return artifact, instantiation
+    return artifact, instantiation, artifact_fetch
 
 
 # ---------------------------
@@ -638,17 +654,6 @@ def _is_retryable_exception(exc: BaseException) -> bool:
     before_sleep=before_sleep_log(logger, logging.WARNING),
     reraise=True,
 )
-def _get_json(
-    url: str,
-    params: Optional[dict] = None,
-    headers: Optional[dict] = None,
-    timeout: int = DEFAULT_TIMEOUT,
-) -> Any:
-    r = requests.get(url, params=params, headers=headers, timeout=timeout)
-    r.raise_for_status()
-    return r.json()
-
-
 def _safe_get_json(
     url: str,
     params: Optional[dict] = None,
@@ -656,7 +661,9 @@ def _safe_get_json(
     timeout: int = DEFAULT_TIMEOUT,
 ) -> Optional[Any]:
     try:
-        return _get_json(url, params=params, headers=headers, timeout=timeout)
+        r = requests.get(url, params=params, headers=headers, timeout=timeout)
+        r.raise_for_status()
+        return r.json()
     except Exception:
         return None
 
@@ -852,14 +859,14 @@ def _choose_platform_manifest(
 # Registry v2
 # ---------------------------
 
-
+@cache
 def registry_v2_get_tags(
     ref: ContainerImageParts,
     *,
     username: Optional[str] = None,
     password: Optional[str] = None,
     timeout: int = DEFAULT_TIMEOUT,
-) -> Optional[Dict[str, Any]]:
+) -> Optional[List[str]]:
     tags_url = f"https://{ref.host}/v2/{ref.repository}/tags/list"
     rt = _registry_get(
         tags_url,
@@ -872,6 +879,13 @@ def registry_v2_get_tags(
     tags = None
     if rt and rt.ok:
         tags = (rt.json() or {}).get("tags")
+        if not isinstance(tags, list):
+            logger.info(
+                "Failed to parse 'tags' from %s: got %s",
+                tags_url,
+                tags,
+            )
+            return None
     else:
         logger.info(
             "Failed to fetch %s (status: %s)",
@@ -1328,10 +1342,12 @@ def registry_v2_download_referrer_payload(
     if not isinstance(payload_digest, str):
         return None
 
+    payload_bytes = None
     payload_json = None
     if desc.get("data"):
         try:
-            payload_json = json.loads(base64.b64decode(desc["data"]))
+            payload_bytes = base64.b64decode(desc["data"])
+            payload_json = json.loads(payload_bytes.decode("utf-8"))
             assert isinstance(payload_json, dict), payload_json
         except Exception:
             logger.info(
@@ -1353,13 +1369,15 @@ def registry_v2_download_referrer_payload(
         if not rb or not rb.ok:
             return None
 
-        blob_bytes = rb.content
+        payload_bytes = rb.content
         try:
-            payload_json = json.loads(blob_bytes.decode("utf-8"))
+            payload_json = json.loads(payload_bytes.decode("utf-8"))
         except Exception:
             return None
 
-    return ArtifactFetch(manifest, payload_json, manifest_url, payload_digest)
+    return ArtifactFetch(
+        manifest, payload_json, manifest_url, payload_digest, payload_bytes
+    )
 
 
 def fetch_referrers_and_payloads(

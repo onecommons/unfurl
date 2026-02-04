@@ -29,7 +29,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
                 metadata=oci.ArtifactMetadata(
-                    source="https://github.com/baserow/baserow",
+                    source_url="https://github.com/baserow/baserow",
                     description="All in one docker image for Baserow, open source no-code platform tool and Airtable alternative",
                     title="baserow",
                     platforms=[
@@ -64,7 +64,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
                 metadata=oci.ArtifactMetadata(
-                    source="https://github.com/linuxserver/docker-wireguard",
+                    source_url="https://github.com/linuxserver/docker-wireguard",
                     description="[WireGuard®] is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. It aims to be faster, simpler, leaner, and more useful than IPsec, while avoiding the massive headache. It intends to be considerably more performant than OpenVPN. WireGuard is designed as a general purpose VPN for running on embedded interfaces and super computers alike, fit for many different circumstances. Initially released for the Linux kernel, it is now cross-platform (Windows, macOS, BSD, iOS, Android) and widely deployable. It is currently under heavy development, but already it might be regarded as the most secure, easiest to use, and simplest VPN solution in the industry.",
                     title="Wireguard",
                     platforms=[
@@ -100,7 +100,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
                 metadata=oci.ArtifactMetadata(
-                    source="",
+                    source_url="",
                     description="",
                     title="",
                     platforms=[{"architecture": "amd64", "os": "linux"}],
@@ -126,7 +126,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="sha256:4410d557ee799971770cf4fadc04e78fa5d2bd68470b6e6c6ebd49f32a59338d",
                 metadata=oci.ArtifactMetadata(
-                    source="https://github.com/onecommons/unfurl",
+                    source_url="https://github.com/onecommons/unfurl",
                     description="",
                     title="",
                     platforms=[{"architecture": "amd64", "os": "linux"}],
@@ -161,7 +161,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
                 metadata=oci.ArtifactMetadata(
-                    source="https://github.com/actions/runner",
+                    source_url="https://github.com/actions/runner",
                     description="IGNORE",  # ignore because this will change
                     title="",
                     platforms=[
@@ -199,7 +199,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
                 metadata=oci.ArtifactMetadata(
-                    source="",
+                    source_url="",
                     description="",
                     title="",
                     platforms=[
@@ -228,7 +228,7 @@ artifact_keys = [
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
                 metadata=oci.ArtifactMetadata(
-                    source="",
+                    source_url="",
                     description="",
                     title="",
                     platforms=[{"architecture": "amd64", "os": "linux"}],
@@ -258,7 +258,7 @@ def test_resolve_image_ref(
     assert manifest_digest == expected_artifact.digest or expected_artifact.digest == ""
 
     # Test creating artifact
-    artifact, instantiation = oci.create_oci_artifact(ref)
+    artifact, instantiation, artifact_fetch = oci.create_oci_artifact(ref)
     assert artifact is not None, f"Failed to create artifact for {image_url}"
     assert artifact.discovery is not None, f"Expected discovery info for {image_url}"
     assert len(artifact.discovery.sources) > 0, (
@@ -327,10 +327,23 @@ def test_resolve_image_ref(
     )
     # assert artifact.metadata == expected_artifact.metadata, f"Metadata mismatch for {image_url}"
 
-    # Compare metadata source field
-    if expected_artifact.metadata.source:
-        assert artifact.metadata.source == expected_artifact.metadata.source, (
-            f"Metadata source mismatch for {image_url}"
+    # Compare metadata source_url field
+    if expected_artifact.metadata.source_url:
+        assert artifact.metadata.source_url == expected_artifact.metadata.source_url, (
+            f"Metadata source_url mismatch for {image_url}"
+        )
+
+    # Verify metadata.tags is populated correctly based on tag
+    if not ref.parts.tag or ref.parts.tag == "latest":
+        # Should have tags when tag is empty or "latest"
+        # print(artifact.metadata.tags)
+        assert (
+            isinstance(artifact.metadata.tags, list) and len(artifact.metadata.tags) > 0
+        ), f"Expected metadata.tags to be non-empty for {image_url}"
+    else:
+        # Should not have tags when there's an explicit tag (other than "latest")
+        assert artifact.metadata.tags is None, (
+            f"Expected metadata.tags to be empty for {image_url} with explicit tag {ref.parts.tag!r}"
         )
 
 
