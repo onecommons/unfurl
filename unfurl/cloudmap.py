@@ -133,8 +133,6 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 def get_repository_url(url: str) -> str:
     """Return the git:// URL for the repository without user, fragment or .git suffix"""
     parts = urlparse(url)
-    if parts.scheme == "git":
-        return url
     user, sep, host = parts.netloc.rpartition("@")
     if sep:
         netloc = host
@@ -1115,7 +1113,7 @@ class CloudMapDB:
         if isinstance(r, Repository):
             url = r.url
         else:
-            url = get_repository_url(r)
+            url = get_repository_url(r)  # its a str
         found = self.repositories.get(url)
         if not found and not url.endswith(".git"):
             # package ids don't have .git suffix, try adding it

@@ -92,7 +92,7 @@ def get_cloudmap_types(
         if repo:
             git_url = repo.git_url()
         else:
-            git_url = artifact.url
+            git_url = artifact.url.replace("git://", "https://", 1)
         # Iterate through each type that this artifact instantiates
         if artifact.instantiates:
             for type_name in artifact.instantiates.types:

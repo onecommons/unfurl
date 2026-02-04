@@ -24,7 +24,7 @@ import git.exc
 from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 from .util import UnfurlError, assert_not_none, change_cwd, is_relative_to, save_to_file
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
@@ -130,7 +130,7 @@ def is_url_or_git_path(url):
 
 def split_git_url_with_commit(url: str) -> Tuple[str, str, str, str]:
     """
-    Returns (repository_url, file_rath, revision, commit)
+    Returns (repository_url, file_path, revision, commit)
     repository_url will be an empty string if it isn't a path to a git repo
     """
     if url.startswith("--"):
@@ -150,7 +150,7 @@ def split_git_url_with_commit(url: str) -> Tuple[str, str, str, str]:
         else:
             revision = ""
         revision, sep, commit = revision.partition("~")
-        return giturl, path, revision, commit
+        return giturl, unquote(path), revision, commit
 
     if parts.fragment:
         # support <ref>~<commit>:<path>
@@ -158,7 +158,7 @@ def split_git_url_with_commit(url: str) -> Tuple[str, str, str, str]:
         revision, sep, path = parts.fragment.partition(":")
         revision, sep, commit = revision.partition("~")
         giturl, sep, frag = url.partition("#")
-        return giturl, path, revision, commit
+        return giturl, unquote(path), revision, commit
     return url, "", "", ""
 
 

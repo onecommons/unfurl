@@ -1239,7 +1239,7 @@ types:
         os.unlink(temp_path)
 
 
-def test_get_cloudmap_types():
+def test_get_cloudmap_types(mocker):
     """Test get_cloudmap_types with mocked load_yaml."""
     from unfurl.server.cache import get_cloudmap_types, CLOUDMAP_BRANCH
     import yaml
@@ -1247,51 +1247,76 @@ def test_get_cloudmap_types():
     # Parse the expected_types_cloudmap YAML string
     cloudmap_doc = yaml.safe_load(expected_types_cloudmap)
 
+    # Variable to capture the CloudMapDB instance
+    captured_db = None
+
+    # Create a wrapper for CloudMapDB to capture the instance
+    original_cloudmapdb = CloudMapDB
+
+    def cloudmapdb_wrapper(*args, **kwargs):
+        nonlocal captured_db
+        captured_db = original_cloudmapdb(*args, **kwargs)
+        return captured_db
+
     # Mock load_yaml to return the parsed cloudmap
     with patch("unfurl.server.cache.load_yaml") as mock_load_yaml:
         mock_load_yaml.return_value = (None, cloudmap_doc)
 
-        # Create a mock CacheEntry (we just need something to pass in)
-        mock_cache_entry = Mock()
+        # Spy on CloudMapDB to capture the instance
+        with patch("unfurl.server.cache.CloudMapDB", side_effect=cloudmapdb_wrapper):
+            # Create a mock CacheEntry (we just need something to pass in)
+            mock_cache_entry = Mock()
 
-        # Call the function
-        err, types = get_cloudmap_types("test_project", mock_cache_entry)
+            # Call the function
+            err, types = get_cloudmap_types("test_project", mock_cache_entry)
 
-        # Verify load_yaml was called correctly
-        mock_load_yaml.assert_called_once_with(
-            "test_project",
-            CLOUDMAP_BRANCH,
-            "cloudmap.yaml",
-            mock_cache_entry
-        )
+            # Verify load_yaml was called correctly
+            mock_load_yaml.assert_called_once_with(
+                "test_project", CLOUDMAP_BRANCH, "cloudmap.yaml", mock_cache_entry
+            )
 
-        # Verify no error
-        assert err is None
+            # Verify no error
+            assert err is None
 
-        # Verify we got the expected type
-        assert "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle" in types
+            # Verify the db was captured
+            assert isinstance(captured_db, CloudMapDB)
+            assert captured_db.get_repository(
+                "git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template"
+            )
 
-        # Verify the type has the expected properties
-        cronicle_type = types["CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle"]
-        assert cronicle_type["name"] == "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle"
-        assert cronicle_type["title"] == "CronicleApp"
-        assert cronicle_type["__typename"] == "ResourceType"
+            # Verify we got the expected type
+            assert "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle" in types
 
-        # Verify extends are fully qualified
-        assert len(cronicle_type["extends"]) > 0
-
-        # Verify implementations and directives are set
-        assert "connect" in cronicle_type["implementations"]
-        assert "create" in cronicle_type["implementations"]
-        assert "substitute" in cronicle_type["directives"]
-
-        # Verify metadata fields
-        assert "description" in cronicle_type
-        assert cronicle_type["description"] == "A simple, distributed task scheduler and runner with a web based UI."
-
-        # Verify icon/thumbnail is set
-        assert "icon" in cronicle_type
-        assert cronicle_type["icon"] == "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar"
+            # Verify the type has the expected properties
+            cronicle_type = types[
+                "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle"
+            ]
+            assert cronicle_type == {
+                "__typename": "ResourceType",
+                "name": "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle",
+                "requirements": [],
+                "extends": [
+                    "CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle",
+                    "unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types",
+                    "WebApp@unfurl.cloud/onecommons/std:generic_types",
+                    "_ContainerAppBase@unfurl.cloud/onecommons/std:generic_types",
+                    "App@unfurl.cloud/onecommons/std:generic_types",
+                    "tosca.nodes.Root",
+                    "tosca.capabilities.Node",
+                    "tosca.capabilities.Root",
+                ],
+                "title": "CronicleApp",
+                "_sourceinfo": {
+                    "file": "ensemble-template.yaml#spec/service_template",
+                    "url": "https://unfurl.cloud/onecommons/blueprints/cronicle.git",
+                    "incomplete": True,
+                },
+                "inputsSchema": {},
+                "description": "A simple, distributed task scheduler and runner with a web based UI.",
+                "implementations": ["connect", "create"],
+                "directives": ["substitute"],
+                "icon": "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar",
+            }
 
 @pytest.mark.parametrize("test_case,custom_class_code,analyzer_config,expected_count,expected_log", [
     (
