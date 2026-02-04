@@ -301,6 +301,9 @@ node_types:
           metadata:
             visibility: hidden
 
+  unfurl.nodes.DigitalOceanAccount:
+    derived_from: unfurl.nodes.CloudAccount
+
 data_types:
   unfurl.datatypes.EnvVar:
     derived_from: tosca.datatypes.Root

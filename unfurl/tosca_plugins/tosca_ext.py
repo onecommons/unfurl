@@ -602,6 +602,9 @@ class nodes(Namespace):
             Union["relationships.ConnectsToAzure", "nodes.AzureAccount"], None
         ] = Requirement(default=None, metadata={"visibility": "hidden"})
 
+    class DigitalOceanAccount(CloudAccount):
+        _type_name = "unfurl.nodes.DigitalOceanAccount"
+
 
 class groups(Namespace):
     class AnsibleInventoryGroup(tosca.groups.Root):
