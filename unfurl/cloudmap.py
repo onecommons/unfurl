@@ -462,21 +462,38 @@ class CloudType:
     name: str
     """Fully-qualified type name with namespace"""
     kind: Literal["Component", "Artifact", "Capability"]
-    title: str = ""
     source: str = ""
     """Artifact containing type definition"""
     extends: List[str] = field(default_factory=list)
     """List of fully-qualified type names that this type extends"""
     implementations: List[str] = field(default_factory=list)
     """Non-exhaustive list URLs to repositories or artifacts that implement this type."""
+    status: Optional[
+        Literal["draft", "experimental", "stable", "deprecated", "removed"]
+    ] = None
+    """Maturity level of the type definition"""
+    model: str = ""
+    """URL of artifact or service to use as a model for instances of this type"""
+    metadata: BaseMetadata = field(default_factory=BaseMetadata)
+    """Additional metadata about the type"""
 
     def __post_init__(self):
         if self.source:
             self.source = validate_url(self.source, "CloudType.source")
+        if self.model:
+            self.model = validate_url(self.model, "CloudType.model")
+        # Convert metadata dict to BaseMetadata object if needed
+        if isinstance(self.metadata, dict):
+            self.metadata = BaseMetadata(**self.metadata)
 
     def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
+        result = {}
+        for k, v in asdict(self).items():
+            if k == "metadata":
+                v = filter_dict(v)
+            if v:  # exclude empty values
+                result[k] = v
+        return result
 
 
 ServiceDict = Dict[str, Service]
@@ -1016,10 +1033,14 @@ class CloudMapDB:
         if types_dict and type_name in types_dict:
             return None
 
+        metadata = BaseMetadata()
+        if type_info.get("title"):
+            metadata.title = type_info["title"]
+
         return CloudType(
             name=type_name,
             kind="Component",  # XXX inferred from artifact_type
-            title=type_info.get("title", ""),
+            metadata=metadata,
             extends=type_info.get("extends", []),
         )
 
@@ -1352,6 +1373,7 @@ class Directory(_LocalGitRepos):
 
         # Start with default Notable classes and add custom analyzers from cloudmap
         notable_classes: List[Type[Notable]] = [UnfurlNotable, ContainerBuilderNotable]
+        # note: these will override built-in analyzers if register the same files and folders types
         notable_classes.extend(cloudmap.custom_analyzers)
 
         self.analyzer = Analyzer(notable_classes, self.logger)

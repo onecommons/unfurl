@@ -69,8 +69,8 @@ def validate_url(url: str, field_name: str = "URL") -> str:
     Raises:
         ValueError: If the URL is not valid
     """
-    parsed = urlparse(url)
-    if not parsed.scheme:
+    # we want to support relative URLs too (like path or #fragment) so just check for spaces
+    if any(c.isspace() for c in url):
         raise ValueError(f"{field_name} is not a valid URL: {url!r}")
     return url
 
@@ -138,6 +138,8 @@ class BaseMetadata:
     """URL to find more information."""
     thumbnail_url: str = ""
     """Icon or thumbnail URL."""
+    discussion_url: str = ""
+    """Link to issue, PR/MR, or discussion about this definition."""
     spdx_licenses: str = ""
     """License(s) as an SPDX License Expression."""
     created: str = ""
@@ -151,6 +153,10 @@ class BaseMetadata:
         if self.documentation_url:
             self.documentation_url = validate_url(
                 self.documentation_url, f"{self.__class__.__name__}.documentation_url"
+            )
+        if self.discussion_url:
+            self.discussion_url = validate_url(
+                self.discussion_url, f"{self.__class__.__name__}.discussion_url"
             )
         if self.thumbnail_url:
             self.thumbnail_url = validate_url(

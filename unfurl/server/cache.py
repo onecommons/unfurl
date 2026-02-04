@@ -116,7 +116,7 @@ def get_cloudmap_types(
                         name=name,
                         requirements=[],
                         extends=extends,
-                        title=cloud_type.title
+                        title=cloud_type.metadata.title
                         or name.split(".")[-1],  # short, readable name
                         _sourceinfo=ImportDef(file=file, url=git_url, incomplete=True),
                         inputsSchema={},

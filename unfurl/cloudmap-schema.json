@@ -62,6 +62,10 @@
           "type": "string",
           "description": "Icon or thumbnail URL."
         },
+        "discussion_url": {
+          "type": "string",
+          "description": "Link to issue, PR/MR, or discussion about this definition."
+        },
         "spdx_licenses": {
           "type": "string",
           "description": "License(s) as an SPDX License Expression."
@@ -651,20 +655,12 @@
             "Capability"
           ]
         },
-        "title": {
-          "type": "string",
-          "description": "Human-readable name."
-        },
         "implementations": {
           "type": "array",
           "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
           "items": {
             "type": "string"
           }
-        },
-        "description": {
-          "type": "string",
-          "description": "Human-readable description."
         },
         "status": {
           "type": "string",
@@ -677,19 +673,14 @@
             "removed"
           ]
         },
+        "model": {
+          "type": "string",
+          "description": "URL of artifact or service to use a model for instances of this type."
+        },
         "metadata": {
           "type": "object",
-          "description": "Additional metadata about the type.",
-          "properties": {
-            "documentation_url": {
-              "type": "string",
-              "description": "Link to documentation for this type."
-            },
-            "issue_url": {
-              "type": "string",
-              "description": "Link to issue tracking this type definition."
-            }
-          }
+          "$ref": "#/definitions/metadata",
+          "description": "Additional metadata about the type."
         },
         "source": {
           "type": "string",

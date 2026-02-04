@@ -182,7 +182,6 @@ types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     name: Odoo@unfurl.cloud/onecommons/blueprints/odoo
     kind: Component
-    title: Odoo
     extends:
     - Odoo@unfurl.cloud/onecommons/blueprints/odoo
     - unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
@@ -191,14 +190,18 @@ types:
     - tosca.nodes.Root
     - tosca.capabilities.Node
     - tosca.capabilities.Root
+    metadata:
+      title: Odoo
   unfurl.relationships.ConnectsTo.AWSAccount:
     name: unfurl.relationships.ConnectsTo.AWSAccount
     kind: Component
-    title: AWSAccount
+    metadata:
+      title: AWSAccount
   unfurl.relationships.ConnectsTo.GoogleCloudProject:
     name: unfurl.relationships.ConnectsTo.GoogleCloudProject
     kind: Component
-    title: GoogleCloudProject"""
+    metadata:
+      title: GoogleCloudProject"""
 
 @skip_integration
 def test_create(runner, caplog):
@@ -342,7 +345,9 @@ types:
   CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
     name: CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
     kind: Component
-    title: CronicleApp
+    metadata:
+      title: CronicleApp
+      discussion_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/issues/1
     extends:
     - CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
     - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
@@ -1046,14 +1051,16 @@ services:
 types:
   Zulip@unfurl.cloud/onecommons/blueprints/zulip:
     kind: Component
-    title: Zulip
     source: git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml
+    metadata:
+      title: Zulip
     extends:
     - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
     - WebApp@unfurl.cloud/onecommons/std:generic_types
   software.Nginx@unfurl.cloud/onecommons/std:
     kind: Component
-    title: Nginx Web Server
+    metadata:
+      title: Nginx Web Server
     extends:
     - software.WebServer@unfurl.cloud/onecommons/std:generic_types
 """
@@ -1196,7 +1203,7 @@ types:
         assert "Zulip@unfurl.cloud/onecommons/blueprints/zulip" in db.types
         zulip_type = db.types["Zulip@unfurl.cloud/onecommons/blueprints/zulip"]
         assert zulip_type.kind == "Component"
-        assert zulip_type.title == "Zulip"
+        assert zulip_type.metadata.title == "Zulip"
         assert (
             zulip_type.source
             == "git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml"
@@ -1215,7 +1222,7 @@ types:
         assert "software.Nginx@unfurl.cloud/onecommons/std" in db.types
         nginx_type = db.types["software.Nginx@unfurl.cloud/onecommons/std"]
         assert nginx_type.kind == "Component"
-        assert nginx_type.title == "Nginx Web Server"
+        assert nginx_type.metadata.title == "Nginx Web Server"
         assert not nginx_type.source  # Optional field not provided
 
         # Verify extends for Nginx is an array
