@@ -140,6 +140,7 @@ artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
+    digest: git:tree:5fe07694589fe54e2fb60f250e793db684bbeb95
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
@@ -150,6 +151,7 @@ artifacts:
     dependencies:
       unfurl.relationships.ConnectsTo.AWSAccount:
       unfurl.relationships.ConnectsTo.GoogleCloudProject:
+    digest: git:blob:8e784df418a595b84a916be749024ec967ef1a60
     metadata:
       title: Odoo
       version: 0.1
@@ -195,11 +197,24 @@ types:
   unfurl.relationships.ConnectsTo.AWSAccount:
     name: unfurl.relationships.ConnectsTo.AWSAccount
     kind: Component
+    extends:
+    - unfurl.relationships.ConnectsTo.AWSAccount
+    - unfurl.relationships.ConnectsTo.CloudAccount
+    - unfurl.relationships.ConnectsTo.ComputeMachines
+    - tosca.relationships.ConnectsTo
+    - tosca.relationships.Root
+    - unfurl.relationships.ConnectsTo.ObjectStorage
     metadata:
       title: AWSAccount
   unfurl.relationships.ConnectsTo.GoogleCloudProject:
     name: unfurl.relationships.ConnectsTo.GoogleCloudProject
     kind: Component
+    extends:
+    - unfurl.relationships.ConnectsTo.GoogleCloudProject
+    - unfurl.relationships.ConnectsTo.CloudAccount
+    - unfurl.relationships.ConnectsTo.ComputeMachines
+    - tosca.relationships.ConnectsTo
+    - tosca.relationships.Root
     metadata:
       title: GoogleCloudProject"""
 

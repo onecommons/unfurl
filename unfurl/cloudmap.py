@@ -83,10 +83,11 @@ from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
 from toscaparser.nodetemplate import NodeTemplate
+from toscaparser.elements.statefulentitytype import StatefulEntityType
 from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from .projectpaths import _getdir
 from .graphql import ResourceTypesByName, get_deployment_url, TypeName
-from .spec import NodeSpec, ToscaSpec
+from .spec import NodeSpec, TopologySpec, ToscaSpec
 
 from .support import ContainerImage
 from .configurator import Configurator, TaskView
@@ -529,9 +530,11 @@ class Notable:
         self,
         folder: str,
         file: str,
+        digest: str = "",
     ):
         self.folder = folder
         self.file = file
+        self.digest = digest
         self.fragment = ""
         self.artifact_id: Optional[str] = (
             None  # Artifact ID when added to directory.db.artifacts
@@ -565,8 +568,9 @@ class Notable:
         cls: Type[T],
         folder: str,
         file: str,
+        digest: str = "",
     ) -> Optional[T]:
-        return cls(folder, file)
+        return cls(folder, file, digest)
 
     def asdict(self) -> NotableDict:
         metadata = NotableDict(type={self.artifact_type: None})
@@ -583,8 +587,9 @@ class ContainerBuilderNotable(Notable):
         self,
         folder: str,
         file: str,
+        digest: str = "",
     ) -> None:
-        super().__init__(folder, file)
+        super().__init__(folder, file, digest)
 
 
 class UnfurlNotable(Notable):
@@ -600,8 +605,9 @@ class UnfurlNotable(Notable):
         self,
         folder: str,
         file: str,
+        digest: str = "",
     ) -> None:
-        super().__init__(folder, file)
+        super().__init__(folder, file, digest)
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
 
     def analyze(
@@ -645,20 +651,12 @@ class UnfurlNotable(Notable):
                 types = ResourceTypesByName(
                     repo_info.package_id, spec.template.topology_template.custom_defs
                 )
-                # Get type information for node's type
-                type_dict = cast(
-                    dict,
-                    node_type_to_graphql(
-                        node.topology,
-                        assert_not_none(node.toscaEntityTemplate.type_definition),
-                        types,
-                        True,
-                    ),
+                type_info = self.get_type_info(
+                    node.topology,
+                    types,
+                    assert_not_none(node.toscaEntityTemplate.type_definition),
                 )
-                if type_dict:
-                    type_dict.pop("__typename", None)
-                    type_info = filter_dict(type_dict)
-                    typename = type_info.get("name", "")
+                typename = type_info.get("name", "")
 
                 dependencies = set(self.find_dependencies(node, types).values())
                 deployment_blueprints = manifest.get_deployment_blueprints()
@@ -689,6 +687,7 @@ class UnfurlNotable(Notable):
                 dependencies=list(dependencies),
                 type_info=type_info,
                 types_dict=directory.db.types,
+                digest=self.digest,
             )
 
             # Add CloudType if created
@@ -701,36 +700,19 @@ class UnfurlNotable(Notable):
                     # Check if type already exists
                     if dep_typename not in directory.db.types:
                         # Get type information for dependency type
-                        # Extract the base typename (without @package part)
-                        base_typename = dep_typename.split("@")[0]
-                        type_def = types.custom_defs.get(base_typename)
-                        dep_type_info = None
+                        type_def = node.topology.find_type(dep_typename)
                         if type_def:
-                            dep_type_dict = cast(
-                                dict,
-                                node_type_to_graphql(
-                                    node.topology,
-                                    type_def,
-                                    types,
-                                    True,
-                                ),
+                            dep_type_info = self.get_type_info(
+                                node.topology, types, type_def
                             )
-                            if dep_type_dict:
-                                dep_type_dict.pop("__typename", None)
-                                dep_type_info = filter_dict(dep_type_dict)
 
-                        # Fallback to minimal CloudType if type not found in custom_defs
-                        if not dep_type_info:
-                            dep_type_info = {
-                                "name": dep_typename,
-                                "title": dep_typename.split("@")[0].split(".")[-1],
-                            }
-
-                        dep_cloud_type = CloudMapDB.create_cloud_type_from_type_info(
-                            dep_type_info, directory.db.types
-                        )
-                        if dep_cloud_type:
-                            directory.db.types[dep_cloud_type.name] = dep_cloud_type
+                            dep_cloud_type = (
+                                CloudMapDB.create_cloud_type_from_type_info(
+                                    dep_type_info, directory.db.types
+                                )
+                            )
+                            if dep_cloud_type:
+                                directory.db.types[dep_cloud_type.name] = dep_cloud_type
 
             # Add to directory artifacts
             directory.db.artifacts[artifact_url] = artifact
@@ -747,14 +729,44 @@ class UnfurlNotable(Notable):
             self.artifact_type = EntitySchema.UnfurlProject
         return artifact
 
+    def get_type_info(
+        self,
+        topology: TopologySpec,
+        types: ResourceTypesByName,
+        entity_type: StatefulEntityType,
+    ):
+        dep_type_info = None
+        dep_type_dict = cast(
+            Optional[dict],
+            node_type_to_graphql(
+                topology,
+                entity_type,
+                types,
+                True,
+            ),
+        )
+        if dep_type_dict:
+            dep_type_dict.pop("__typename", None)
+            dep_type_info = filter_dict(dep_type_dict)
+
+        # Fallback to minimal CloudType if type not found in custom_defs
+        if not dep_type_info:
+            dep_type_info = {
+                "name": entity_type.global_name,
+                "title": entity_type.local_name,
+            }
+
+        return dep_type_info
+
     @classmethod
     def init(
         cls,
         folder: str,
         file: str,
+        digest: str = "",
     ) -> Optional["UnfurlNotable"]:
         try:
-            return UnfurlNotable(folder, file)
+            return UnfurlNotable(folder, file, digest)
         except UnfurlError:
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
@@ -915,13 +927,15 @@ class Analyzer:
                 notable_cls = self.folders.get(filename)
                 if notable_cls:
                     # if notable_cls not in notables_found:
-                    notable = notable_cls.init(cast(str, item.path), "")
+                    digest = f"git:tree:{item.hexsha}"
+                    notable = notable_cls.init(cast(str, item.path), "", digest)
                 else:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
                 if notable_cls:  # and notable_cls not in notables_found:
-                    notable = notable_cls.init(dirname, filename)
+                    digest = f"git:blob:{item.hexsha}"
+                    notable = notable_cls.init(dirname, filename, digest)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -1040,6 +1054,7 @@ class CloudMapDB:
         dependencies: Optional[List[str]] = None,
         type_info: Optional[Dict[str, Any]] = None,
         types_dict: Optional[CloudTypeDict] = None,
+        digest: str = "",
     ) -> Tuple[Artifact, Optional[CloudType]]:
         """
         Create an Artifact from notable metadata fields.
@@ -1055,6 +1070,7 @@ class CloudMapDB:
             dependencies: List of dependencies (maps to requires)
             type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
             types_dict: Optional dict to check for existing types
+            digest: Digest of the artifact (e.g., "git:blob:abc123")
 
         Returns:
             Tuple of (Artifact, Optional[CloudType]) - CloudType is returned if created
@@ -1090,6 +1106,7 @@ class CloudMapDB:
             instantiates=instantiates,
             dependencies=dep_refs,
             metadata=metadata,
+            digest=digest,
         )
 
         return artifact, cloud_type
