@@ -1508,7 +1508,7 @@ class RepositoryHost:
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
         """
-        Update this repository host with to match.
+        Update or create repositories on this repository host.
         If merge is True and there a local repositories associate with the directory,
         merge and push any changes in the local repository.
 
@@ -1736,7 +1736,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         return count
 
     def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
-        """Push cloudmap revisions to origin."""
+        """Push local changes to matching repositories to origin."""
         matched = False
         for repo in self.repos.values():
             if self.include_local_repo(repo):
@@ -2459,7 +2459,16 @@ else:
             return changed
 
         def to_host(self, directory: Directory, merge: bool, force: bool) -> bool:
-            """Push/sync repositories to GitHub."""
+            """
+            Create or update projects on GitHub.
+            If the target project has changed, update the records.
+
+            If merge is True and there a local repositories associate with the directory,
+            merge and push any changes in the local repository.
+
+            Returns True has a change was made to the repository host.
+            """
+
             # Filter repos that belong to this host
             matching_repos = [
                 r for r in directory.db.repositories.values() if self.has_repository(r)
@@ -2610,6 +2619,9 @@ class CloudMap:
                         f'Error trying to access cloudmap git repository at "{url}"',
                         saveStack=True,
                     )
+            logger.verbose(
+                f"Using {'existing' if branch_exists else 'new'} branch {branch} for cloudmap."
+            )
         if branch_exists:  # branch exists
             # clone or checkout branch
             repo, _, _ = local_env.find_or_create_working_dir(url, branch)
@@ -2923,8 +2935,8 @@ class CloudMap:
 class CloudMapInputs(TypedDict, total=False):
     host: Required[HostConfig]
     cloudmap: str  # name of cloudmap in the environment
-    namespace: str
-    repository: str
+    namespace: str  # filter by namespace
+    repository: str  # if set just export this repository (identified by url)
     clone_root: str
     skip_analysis: bool
     force: bool
@@ -2932,7 +2944,7 @@ class CloudMapInputs(TypedDict, total=False):
 
 class CloudMapConfigurator(Configurator):
     """
-    Exports the cloudmap to the given host.
+    Exports matching repositories in a cloudmap to the given host.
     You need to configure a cloudmap in your environment
     """
 
@@ -2946,7 +2958,7 @@ class CloudMapConfigurator(Configurator):
         )
         return super().check_digest(task, changeset)
 
-    def render(self, task: TaskView):
+    def render(self, task: TaskView) -> Tuple[CloudMap, RepositoryHost]:
         # set this so we can track changes to it
         localEnv = task._manifest.localEnv
         assert localEnv
@@ -2954,7 +2966,7 @@ class CloudMapConfigurator(Configurator):
         namespace = inputs.get("namespace") or ""
         host = CloudMap.make_host(
             HostConfig(type="unfurl.cloud", **inputs["host"]),
-            "",
+            "",  # if empty, get the name from hostname
             namespace,
             inputs.get("repository") or "",
             logger=task.logger,
@@ -2965,7 +2977,7 @@ class CloudMapConfigurator(Configurator):
             localEnv,
             cloudmap_name,
             inputs.get("clone_root") or "",
-            host.name,
+            "",  # skip name so we don't switch branches to f"hosts/{host.name}"
             namespace,
             bool(inputs.get("skip_analysis")),
             task.logger,
@@ -2978,6 +2990,6 @@ class CloudMapConfigurator(Configurator):
         self,
         task: TaskView,
     ):
-        cloud_map, host = task.rendered
+        cloud_map, host = cast(Tuple[CloudMap, RepositoryHost], task.rendered)
         changed = cloud_map.to_host(host, False, bool(task.inputs.get("force")), False)
         return task.done(True, changed)
