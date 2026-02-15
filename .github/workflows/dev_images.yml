@@ -7,7 +7,7 @@ env:
   GCLOUD_VERSION: 499.0.0 # sync with tosca_plugins/artifacts.yaml and Dockerfile
   KOMPOSE_VERSION: v1.26.1 # sync with Dockerfile
   KUBECTL_VERSION: v1.24.2
-  K3D_VERSION: v4.4.6
+  K3D_VERSION: v5.8.3
 
 jobs:
   publish_ghcr:
