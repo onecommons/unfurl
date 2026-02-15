@@ -41,8 +41,7 @@ import toscaparser.artifacts
 import toscaparser.repositories
 from toscaparser.common.exception import ExceptionCollector, TOSCAException
 import os
-from .logs import getLogger
-import logging
+from .logs import getLogger, Levels
 import re
 from typing import (
     TYPE_CHECKING,
@@ -297,7 +296,7 @@ class ToscaSpec:
                 ExceptionCollector.exceptions[:0] = errorsSoFar
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
-                        full=(get_console_log_level() < logging.INFO)
+                        full=(get_console_log_level() < Levels.VERBOSE)
                     )
                 )
                 raise UnfurlValidationError(
@@ -371,7 +370,7 @@ class ToscaSpec:
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
                     ExceptionCollector.getExceptionsReport(
-                        full=(get_console_log_level() < logging.INFO)
+                        full=(get_console_log_level() < Levels.VERBOSE)
                     )
                 )
                 if skip_validation:
