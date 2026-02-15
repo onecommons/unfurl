@@ -1076,15 +1076,11 @@ class EnsembleBuilder:
                 override_environment=self.options.get("use_environment"),
             )
             cloudmap = CloudMap.get_db(local_env)
-            repo_url, filePath, revision = split_git_url(self.input_source)
-            repo_key = repo_url[len("cloudmap:") :]
-            repo_record = cloudmap.get_repository(repo_key)
-            if repo_record:
-                self.input_source = git_url_join(
-                    repo_record.git_url(), filePath, revision
-                )
+            repo_key = cloudmap.cloudmap_to_git_url(self.input_source)
+            if repo_key:
+                self.input_source = repo_key
             else:
-                raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
+                raise UnfurlError(f'Could not find "{repo_key}" in the cloud map.')
         return self.input_source
 
     def clone_remote_project(
