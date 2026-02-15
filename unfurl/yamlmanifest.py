@@ -1001,8 +1001,8 @@ class YamlManifest(ReadOnlyManifest):
     def save_artifact(self, resource: ArtifactInstance) -> Optional[Tuple[str, Dict]]:
         if cast(ArtifactSpec, resource.template)._inline:
             return None
-        if resource.parent and resource.name not in resource.parent.template.artifacts:  # type: ignore
-            name, status = self.save_entity_instance(resource)  # type: ignore
+        if resource.parent and resource.name not in resource.parent.template.artifacts:
+            name, status = self.save_entity_instance(resource)
             # this artifact was dynamically added and is not part of the node template
             # so add the template spec inline
             status["template"] = resource.template.toscaEntityTemplate.entity_tpl

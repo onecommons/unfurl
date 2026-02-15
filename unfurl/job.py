@@ -40,7 +40,7 @@ from .support import (
     _Dependencies,
 )
 from .result import ResourceRef, ResultsItem, serialize_value, ChangeRecord
-from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
+from .util import UnfurlError, UnfurlTaskError, assert_not_none, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import (
     EntityInstance,
@@ -1020,8 +1020,10 @@ class Job(ConfigChange):
         self.jobOptions.instances = [
             resourceSpec
             if isinstance(resourceSpec, str)
-            else create_instance_from_spec(
-                self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
+            else assert_not_none(
+                create_instance_from_spec(
+                    self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
+                )
             ).name
             for resourceSpec in self.jobOptions.instances
         ]
@@ -1280,15 +1282,17 @@ class Job(ConfigChange):
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
                     else:
-                        preErrors = task.configSpec.find_invalid_preconditions(
+                        pre_errors = task.configSpec.find_invalid_preconditions(
                             task.target
                         )
-                        if preErrors:
-                            reason = f"invalid preconditions: {str(preErrors)}"
+                        if pre_errors:
+                            reason = f"invalid preconditions: {str(pre_errors)}"
                         else:
-                            errors = task.configurator.can_run(task)
-                            if not errors or not isinstance(errors, bool):
-                                reason = f"configurator declined: {str(errors)}"
+                            can_run_errors = task.configurator.can_run(task)
+                            if not can_run_errors or not isinstance(
+                                can_run_errors, bool
+                            ):
+                                reason = f"configurator declined: {str(can_run_errors)}"
                             else:
                                 can_run = True
         except Exception:

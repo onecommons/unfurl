@@ -47,14 +47,20 @@ from .util import (
 )
 from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority, Status, DEBUG_EX
-from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
+from .runtime import (
+    EntityInstance,
+    InstanceKey,
+    HasInstancesInstance,
+    TopologyInstance,
+    NodeInstance,
+)
 from .logs import getLogger
 import logging
 
 logger = getLogger("unfurl")
 
 
-def interface_requirements_ok(root: TopologyInstance, template: EntitySpec):
+def interface_requirements_ok(root: TopologyInstance, template: EntitySpec) -> bool:
     reqs = template.get_interface_requirements()
     if reqs:
         assert isinstance(reqs, list)
@@ -148,15 +154,15 @@ class ConfigurationSpec:
         self.arguments: Optional[List[str]] = arguments
         self.metadata = metadata
 
-    def find_invalid_inputs(self, inputs):
+    def find_invalid_inputs(self, inputs) -> Optional[Tuple[str, List[object]]]:
         if not self.inputSchema:
-            return []
+            return None
         return find_schema_errors(serialize_value(inputs), self.inputSchema)
 
     # XXX same for postConditions
-    def find_invalid_preconditions(self, target):
+    def find_invalid_preconditions(self, target) -> Optional[Tuple[str, List[object]]]:
         if not self.preConditions:
-            return []
+            return None
         # XXX this should be like a Dependency object
         expanded = serialize_value(target.attributes)
         return find_schema_errors(expanded, self.preConditions)
@@ -193,15 +199,15 @@ class ConfigurationSpec:
             assert callable(klass)
             return klass()
 
-    def should_run(self):
+    def should_run(self) -> Priority:
         return Defaults.shouldRun
 
-    def copy(self, **mods):
+    def copy(self, **mods) -> "ConfigurationSpec":
         args = self.__dict__.copy()
         args.update(mods)
         return ConfigurationSpec(**args)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if not isinstance(other, ConfigurationSpec):
             return False
         return (
@@ -235,7 +241,7 @@ class PlanRequest:
         self.target = target
         self.dependencies: List["Dependency"] = []
 
-    def set_error(self, msg: str):
+    def set_error(self, msg: str) -> None:
         self.error = msg
         if self.task:
             self.task.finished(self.task.done(False, False, Status.error, result=msg))
@@ -251,7 +257,7 @@ class PlanRequest:
     def get_operation_artifacts(self) -> List["JobRequest"]:
         return []
 
-    def include_in_plan(self):
+    def include_in_plan(self) -> bool:
         if self.task and self.task.priority == Priority.critical:
             return True  # XXX hackish, just used for primary_provider
         # calls self.target.template.required if _priority is None
@@ -361,7 +367,7 @@ class PlanRequest:
         return bool(self.has_unfulfilled_refs())
 
     @property
-    def name(self):
+    def name(self) -> str:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
@@ -592,7 +598,7 @@ class TaskRequest(PlanRequest):
         return artifacts
 
     @property
-    def name(self):
+    def name(self) -> str:
         if self.configSpec.operation:
             name = self.configSpec.operation
         else:
@@ -601,7 +607,7 @@ class TaskRequest(PlanRequest):
             return name + " (reason: " + self.reason + ")"
         return name
 
-    def _summary_dict(self, include_rendered=True):
+    def _summary_dict(self, include_rendered=True) -> Dict[str, Any]:
         summary: Dict[str, Any] = dict(
             operation=self.configSpec.operation or self.configSpec.name,
             reason=self.reason,
@@ -614,7 +620,7 @@ class TaskRequest(PlanRequest):
             summary["rendered"] = rendered
         return summary
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         state = " " + (self.target.state and self.target.state.name or "")
         return (
             f"TaskRequest({self.target}({self.target.status.name}{state}):{self.name})"
@@ -627,10 +633,10 @@ class SetStateRequest(PlanRequest):
         self.set_state = state
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.set_state
 
-    def _summary_dict(self):
+    def _summary_dict(self) -> Dict[str, Any]:
         return dict(set_state=self.set_state)
 
     def set_final_for_workflow(self, is_final: bool):
@@ -669,18 +675,18 @@ class TaskRequestGroup(PlanRequest):
             return siblings[siblings.index(req) - 1]
         return None
 
-    def has_errors(self):
+    def has_errors(self) -> bool:
         for req in self.children:
             if req.error or req.task and req.task.local_status == Status.error:
                 return True
         return False
 
-    def set_final_for_workflow(self, is_final: bool):
+    def set_final_for_workflow(self, is_final: bool) -> None:
         if self.children:
             self.children[-1].set_final_for_workflow(is_final)
 
     # XXX unused
-    def get_unfulfilled_refs(self, check_target=""):
+    def get_unfulfilled_refs(self, check_target="") -> Iterator["Dependency"]:
         for req in self.children:
             yield from req.get_unfulfilled_refs(check_target)
 
@@ -714,17 +720,17 @@ class JobRequest:
         self.errors = errors or []
         self.update = update
 
-    def set_error(self, msg: str):
+    def set_error(self, msg: str) -> None:
         cast(list, self.errors).append(UnfurlError(msg))
 
-    def get_instance_specs(self):
+    def get_instance_specs(self) -> List[str]:
         if self.update:
             return [self.update]
         else:
             return [r.name for r in self.instances]
 
     @property
-    def name(self):
+    def name(self) -> str:
         if self.update:
             return self.update["name"]
         elif self.instances:
@@ -733,7 +739,7 @@ class JobRequest:
             return ""
 
     @property
-    def target(self):
+    def target(self) -> Optional[EntityInstance]:
         # XXX replace instances with target
         if self.instances:
             return self.instances[0]
@@ -741,7 +747,7 @@ class JobRequest:
             return None
 
     @property
-    def root(self):
+    def root(self) -> Optional[EntityInstance]:
         if self.instances:
             # all instances need the same root
             assert (
@@ -752,7 +758,7 @@ class JobRequest:
         else:
             return None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"JobRequest({self.name})"
 
 
@@ -1160,7 +1166,7 @@ def create_instance_from_spec(
     target: EntityInstance,
     rname: str,
     resourceSpec: MutableMapping[str, Any],
-):
+) -> Optional[NodeInstance]:
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:

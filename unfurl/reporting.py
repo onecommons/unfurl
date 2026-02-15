@@ -115,7 +115,7 @@ class JobReporter:
             # XXX better reporting
             node = dict(instance=request.name)
             if manifest:
-                node["job_request"] = manifest.path
+                node["job_request"] = manifest.path or ""
             else:
                 node["job_request"] = "local"
             if request.target:
