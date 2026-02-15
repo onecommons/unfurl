@@ -10,7 +10,8 @@
       "properties": {
         "last_checked": {
           "type": "string",
-          "description": "Date and time of the last metadata check."
+          "description": "Date and time of the last metadata check, conforming to RFC 3339.",
+          "format": "date-time"
         },
         "sources": {
           "type": "array",
@@ -22,7 +23,7 @@
       }
     },
     "metadata": {
-      "description": "Common metadata fields shared across artifacts, services, and repositories.",
+      "description": "Common metadata fields shared across artifacts, services, instantiations, and repositories.",
       "title": "Common Metadata",
       "$$target": "#/definitions/metadata",
       "type": "object",
@@ -34,6 +35,13 @@
         "description": {
           "type": "string",
           "description": "Human-readable description."
+        },
+        "topics": {
+          "type": "array",
+          "description": "List of topic or categories associated with the resource.",
+          "items": {
+            "type": "string"
+          }
         },
         "vendor": {
           "type": "string",
@@ -76,7 +84,8 @@
         },
         "created": {
           "type": "string",
-          "description": "Date and time on which the resource was created, conforming to RFC 3339."
+          "description": "Date and time on which the resource was created, conforming to RFC 3339.",
+          "format": "date-time"
         }
       }
     },
@@ -109,6 +118,14 @@
                     "type": "number"
                   }
                 ]
+              },
+              "metadata": {
+                "description": "Additional metadata about the type reference.",
+                "type": "object"
+              },
+              "model": {
+                "type": "string",
+                "description": "URL of artifact or service model that constrains this type reference."
               },
               "properties": {
                 "type": "object",
@@ -150,6 +167,60 @@
         ]
       }
     },
+    "lifecycle_status": {
+      "type": "string",
+      "title": "Lifecycle status",
+      "$$target": "#/definitions/lifecycle_status",
+      "enum": [
+        "wishlist",
+        "model",
+        "planned",
+        "development",
+        "alpha",
+        "beta",
+        "production",
+        "maintenance",
+        "unmaintained",
+        "deprecated",
+        "removed"
+      ]
+    },
+    "release_schedule": {
+      "type": "array",
+      "title": "Release Schedule",
+      "description": "Scheduled Release for an artifact or service.",
+      "$$target": "#/definitions/release_schedule",
+      "items": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "The updated resource URL for this upcoming release."
+          },
+          "version": {
+            "description": "Version of the upcoming release.",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ]
+          },
+          "status": {
+            "$ref": "#/definitions/lifecycle_status",
+            "type": "string",
+            "description": "The upcoming lifecycle status."
+          },
+          "effective_date": {
+            "type": "string",
+            "description": "The date and time the release will happen (RFC 3339 format).",
+            "format": "date-time"
+          }
+        }
+      }
+    },
     "artifact": {
       "type": "object",
       "title": "Artifact",
@@ -170,7 +241,7 @@
         },
         "dependencies": {
           "$ref": "#/definitions/typeRef",
-          "description": "Types that instantiation may depend on including environment context and types of software or services with optional version constraints. Non-exhaustive, for example, the type may imply additional requirements or some dependencies might be optional."
+          "description": "Types that instantiation may depend on including environment context and types of software or services with optional version constraints. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."
         },
         "instantiated_by": {
           "type": "array",
@@ -183,9 +254,22 @@
           "type": "string",
           "description": "Cryptographic digest of the artifact."
         },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of available tags for this artifact (e.g., container image tags)."
+        },
         "immutable": {
           "type": "boolean",
           "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
+        },
+        "status": {
+          "$ref": "#/definitions/lifecycle_status"
+        },
+        "release_schedule": {
+          "$ref": "#/definitions/release_schedule"
         },
         "metadata": {
           "description": "Human-readable metadata about the artifact.",
@@ -196,12 +280,6 @@
             {
               "type": "object",
               "properties": {
-                "tags": {
-                  "type": "array",
-                  "items": {
-                    "type": "string"
-                  }
-                },
                 "platforms": {
                   "type": "array",
                   "description": "List of platforms this artifact supports.",
@@ -218,6 +296,10 @@
                       }
                     }
                   }
+                },
+                "fork_of": {
+                  "type": "string",
+                  "description": "URL to the artifact this is a fork of."
                 }
               }
             }
@@ -235,6 +317,156 @@
           },
           "additionalProperties": {
             "$ref": "#/definitions/artifact"
+          }
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "title": "Service",
+      "$$target": "#/definitions/service",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/typeRef",
+          "description": "Type identifier from types/services with optional version constraints."
+        },
+        "access": {
+          "type": "string",
+          "description": "Access to the service (who can resolve the URL).",
+          "enum": [
+            "public",
+            "private",
+            "none"
+          ]
+        },
+        "endpoints": {
+          "type": "array",
+          "description": "Service endpoints.",
+          "items": {
+            "type": "object"
+          }
+        },
+        "connections": {
+          "description": "Services this service connects to during operation.",
+          "$ref": "#/definitions/typedURLs"
+        },
+        "status": {
+          "$ref": "#/definitions/lifecycle_status",
+          "description": "Operational status of the service."
+        },
+        "metadata": {
+          "description": "Human-readable metadata about the service.",
+          "$ref": "#/definitions/metadata"
+        },
+        "policies": {
+          "type": "object",
+          "description": "Service policies and legal information.",
+          "properties": {
+            "spdx_licenses": {
+              "type": "string",
+              "description": "License(s) under which the service is distributed as an SPDX License Expression."
+            },
+            "terms_of_service": {
+              "type": "string",
+              "description": "URL to the terms of service."
+            },
+            "privacy_policy": {
+              "type": "string",
+              "description": "URL to the privacy policy."
+            }
+          }
+        },
+        "instantiated_by": {
+          "type": "array",
+          "description": "List of instantiation URLs.",
+          "items": {
+            "type": "string",
+            "description": "List of URLs referencing an entry in instantiations."
+          }
+        },
+        "discovery": {
+          "$ref": "#/definitions/discovery"
+        },
+        "release_schedule": {
+          "$ref": "#/definitions/release_schedule"
+        },
+        "versions": {
+          "type": "object",
+          "description": "Services that are variants of this service (for example, different versions or environments). Each service inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base URL as this service.",
+          "propertyNames": {
+            "description": "URL of the service variant.",
+            "pattern": "^[^\\s]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/service"
+          }
+        }
+      }
+    },
+    "instantiation": {
+      "type": "object",
+      "title": "Instantiation",
+      "$$target": "#/definitions/instantiation",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/typeRef",
+          "description": "Type of the instantiation."
+        },
+        "digest": {
+          "type": "string",
+          "description": "Cryptographic digest of the document referenced by the instantiation URL."
+        },
+        "revision": {
+          "type": "string",
+          "description": "If instantiation URL references a repository, source control revision of that repository."
+        },
+        "source": {
+          "type": "string",
+          "description": "Repository or artifact URL."
+        },
+        "source_revision": {
+          "type": "string",
+          "description": "If source URL references a repository, the source control revision of that repository."
+        },
+        "instantiated": {
+          "type": "object",
+          "description": "The artifacts or services created or updated by this instantiation with optional capability.",
+          "$ref": "#/definitions/typedURLs"
+        },
+        "inputs": {
+          "type": "object",
+          "description": "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
+          "$ref": "#/definitions/typedURLs"
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
+          "$ref": "#/definitions/metadata"
+        },
+        "status": {
+          "type": "string",
+          "description": "Status of the instantiation.",
+          "enum": [
+            "draft",
+            "model",
+            "planned",
+            "WIP",
+            "observed",
+            "verifiable",
+            "verified",
+            "reproducible",
+            "reproduced"
+          ]
+        },
+        "versions": {
+          "type": "object",
+          "description": "Instantiations that are variants of this instantiation (for example, different deployments or environments). Each instantiation inherits the metadata of this one unless overridden in its declaration.",
+          "propertyNames": {
+            "description": "URL of the instantiation variant.",
+            "pattern": "^[^\\s]*$"
+          },
+          "additionalProperties": {
+            "$ref": "#/definitions/instantiation"
           }
         }
       }
@@ -324,6 +556,10 @@
     "kind": {
       "const": "CloudMap"
     },
+    "metadata": {
+      "description": "Human-readable metadata about this CloudMap.",
+      "$ref": "#/definitions/metadata"
+    },
     "repositories": {
       "type": "object",
       "propertyNames": {
@@ -385,13 +621,6 @@
               {
                 "type": "object",
                 "properties": {
-                  "topics": {
-                    "type": "array",
-                    "description": "List of topic tags associated with the repository.",
-                    "items": {
-                      "type": "string"
-                    }
-                  },
                   "license_url": {
                     "type": "string",
                     "description": "URL to the license file or license information."
@@ -471,7 +700,7 @@
     },
     "artifacts": {
       "type": "object",
-      "description": "Instantiates (implements) node types. Artifact ID is either a package URL (https://github.com/package-url/purl-spec) or repository URL with path.",
+      "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (https://github.com/package-url/purl-spec) or repository URL with path.",
       "propertyNames": {
         "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
         "pattern": "^[^\\s]*$"
@@ -482,93 +711,13 @@
     },
     "services": {
       "type": "object",
-      "description": "Instances of types, instantiated from artifacts.",
+      "description": "Instances of services.",
       "propertyNames": {
         "description": "URL of the service.",
         "pattern": "^[^\\s]*$"
       },
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "$ref": "#/definitions/typeRef",
-            "description": "Type identifier from types/services with optional version constraints."
-          },
-          "access": {
-            "type": "string",
-            "description": "Access to the service (who can resolve the URL).",
-            "enum": [
-              "public",
-              "private",
-              "none"
-            ]
-          },
-          "endpoints": {
-            "type": "array",
-            "description": "Service endpoints.",
-            "items": {
-              "type": "object"
-            }
-          },
-          "connections": {
-            "type": "array",
-            "description": "List of other services this service uses.",
-            "items": {
-              "type": "string"
-            }
-          },
-          "operation_status": {
-            "type": "string",
-            "description": "Operational status of the service.",
-            "enum": [
-              "wishlist",
-              "planning",
-              "model",
-              "pre-launch",
-              "alpha",
-              "beta",
-              "production",
-              "maintenance",
-              "unmaintained",
-              "sunsetting",
-              "suspended",
-              "shutdown"
-            ]
-          },
-          "metadata": {
-            "description": "Human-readable metadata about the service.",
-            "$ref": "#/definitions/metadata"
-          },
-          "policies": {
-            "type": "object",
-            "description": "Service policies and legal information.",
-            "properties": {
-              "spdx_licenses": {
-                "type": "string",
-                "description": "License(s) under which the service is distributed as an SPDX License Expression."
-              },
-              "terms_of_service": {
-                "type": "string",
-                "description": "URL to the terms of service."
-              },
-              "privacy_policy": {
-                "type": "string",
-                "description": "URL to the privacy policy."
-              }
-            }
-          },
-          "instantiated_by": {
-            "type": "array",
-            "description": "List of instantiation URLs.",
-            "items": {
-              "type": "string",
-              "description": "List of URLs referencing an entry in instantiations."
-            }
-          },
-          "discovery": {
-            "$ref": "#/definitions/discovery"
-          }
-        }
+        "$ref": "#/definitions/service"
       }
     },
     "instantiations": {
@@ -579,58 +728,7 @@
         "pattern": "^[^\\s]*$"
       },
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "type": {
-            "$ref": "#/definitions/typeRef",
-            "description": "Type of the instantiation."
-          },
-          "digest": {
-            "type": "string",
-            "description": "Cryptographic digest of the document referenced by the instantiation URL."
-          },
-          "revision": {
-            "type": "string",
-            "description": "If instantiation URL references a repository, source control revision of that repository."
-          },
-          "source": {
-            "type": "string",
-            "description": "Repository URL (for builds) or deployment location URL (for deployments)."
-          },
-          "source_revision": {
-            "type": "string",
-            "description": "If source URL references a repository, the source control revision of that repository."
-          },
-          "instantiated": {
-            "type": "object",
-            "description": "the artifacts or services created or updated by this instantiation with optional capability.",
-            "$ref": "#/definitions/typedURLs"
-          },
-          "inputs": {
-            "type": "object",
-            "description": "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
-            "$ref": "#/definitions/typedURLs"
-          },
-          "metadata": {
-            "type": "object",
-            "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
-            "$ref": "#/definitions/metadata"
-          },
-          "status": {
-            "type": "string",
-            "description": "Status of the instantiation.",
-            "enum": [
-              "draft",
-              "model",
-              "planned",
-              "observed",
-              "verifiable",
-              "verified",
-              "reproducible",
-              "reproduced"
-            ]
-          }
-        }
+        "$ref": "#/definitions/instantiation"
       }
     },
     "types": {

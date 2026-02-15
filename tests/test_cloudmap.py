@@ -4,7 +4,7 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
-from unfurl.oci import EntitySchema
+from unfurl.oci import EntitySchema, Instantiation
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd, run_job_cmd
@@ -17,6 +17,7 @@ from unfurl.cloudmap import (
     Directory,
     CloudMapDB,
     TypeRefs,
+    Service,
 )
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
@@ -1044,7 +1045,7 @@ services:
     - url: https://unfurl.cloud/api/v1
       type: API
     connections:
-    - https://github.com
+      https://github.com:
     metadata:
       title: Unfurl Cloud
       description: Open-source platform for collaboratively developing cloud applications
@@ -1449,3 +1450,110 @@ environments:
         assert cloudmap.custom_analyzers[0].__name__ == "CustomTestNotable"
         assert "custom-test.yaml" in cloudmap.directory.analyzer.files
         assert cloudmap.directory.analyzer.files["custom-test.yaml"].__name__ == "CustomTestNotable"
+
+
+def test_instantiation_versions():
+    """Test that Instantiation versions property works correctly with type inheritance and serialization."""
+    import json
+
+    # Create an Instantiation with versions as dicts
+    inst_data = {
+        "url": "test-inst",
+        "type": {"software.Nginx": None},
+        "versions": {
+            "v1": {"digest": "sha256:abc123", "status": "verified"},
+            "v2": {
+                "digest": "sha256:def456",
+                "status": "verified",
+                "type": {"software.Nginx": {"version": "1.25"}},
+            },
+        },
+    }
+
+    inst = Instantiation(**inst_data)
+
+    # Verify versions were converted to Instantiation instances
+    assert isinstance(inst.versions["v1"], Instantiation)
+    assert isinstance(inst.versions["v2"], Instantiation)
+
+    # Verify type inheritance from parent
+    assert inst.versions["v1"].type.types == {"software.Nginx": None}
+    # v2 specifies its own type, should not inherit
+    assert inst.versions["v2"].type.types == {"software.Nginx": {"version": "1.25"}}
+
+    # Verify other properties
+    assert inst.versions["v1"].digest == "sha256:abc123"
+    assert inst.versions["v1"].status == "verified"
+    assert inst.versions["v2"].digest == "sha256:def456"
+
+    assert inst.versions["v2"]._parent == inst
+
+    # Test serialization
+    result = inst.asdict()
+    assert "versions" in result
+    assert "v1" in result["versions"]
+    assert "v2" in result["versions"]
+    assert result["versions"]["v1"]["digest"] == "sha256:abc123"
+    assert result["versions"]["v1"]["status"] == "verified"
+    assert result["versions"]["v2"]["digest"] == "sha256:def456"
+
+    # Verify the result is JSON serializable
+    json_str = json.dumps(result)
+    assert json_str  # Should not raise an exception
+
+    # Test round-trip: deserialize and recreate
+    recreated = Instantiation(url="test-inst", **result)
+    assert isinstance(recreated.versions["v1"], Instantiation)
+    assert recreated.versions["v1"].digest == "sha256:abc123"
+
+
+def test_release_schedule():
+    """Test that Service release_schedule property works correctly with serialization."""
+    import json
+
+    # Create a Service with release_schedule (formerly migrations)
+    service_data = {
+        "url": "https://example.com/api",
+        "type": {"service.API": None},
+        "status": "production",
+        "release_schedule": [
+            {
+                "url": "https://new-example.com/api",
+                "status": "production",
+                "effective_date": "2026-03-01T00:00:00Z",
+            },
+            {
+                "url": "https://example.com/api/v2",
+                "status": "beta",
+                "effective_date": "2026-02-15T00:00:00Z",
+            },
+        ],
+    }
+
+    service = Service(**service_data)
+
+    # Verify release_schedule field
+    assert len(service.release_schedule) == 2
+    assert service.release_schedule[0].url == "https://new-example.com/api"
+    assert service.release_schedule[0].status == "production"
+    assert service.release_schedule[0].effective_date == "2026-03-01T00:00:00Z"
+    assert service.release_schedule[1].url == "https://example.com/api/v2"
+    assert service.release_schedule[1].status == "beta"
+    assert service.release_schedule[1].effective_date == "2026-02-15T00:00:00Z"
+
+    # Test serialization
+    result = service.asdict()
+    assert "release_schedule" in result
+    assert len(result["release_schedule"]) == 2
+    assert result["release_schedule"][0]["url"] == "https://new-example.com/api"
+    assert result["release_schedule"][0]["status"] == "production"
+    assert result["release_schedule"][1]["url"] == "https://example.com/api/v2"
+
+    # Verify it's JSON serializable
+    json_str = json.dumps(result)
+    assert json_str  # Should not raise an exception
+
+    # Test round-trip: deserialize and recreate
+    recreated = Service(url="https://example.com/api", **result)
+    assert len(recreated.release_schedule) == 2
+    assert recreated.release_schedule[0].url == "https://new-example.com/api"

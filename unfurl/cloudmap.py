@@ -50,8 +50,7 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 """
 
 import collections
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from dataclasses import dataclass, field, asdict, InitVar
 from operator import attrgetter
 from pathlib import Path
 import re
@@ -94,7 +93,7 @@ from .configurator import Configurator, TaskView
 from .oci import (
     build_oci_purl,
     create_oci_artifact,
-    BaseMetadata,
+    CommonMetadata,
     ArtifactMetadata,
     Artifact,
     EntitySchema,
@@ -102,14 +101,19 @@ from .oci import (
     Instantiation,
     TypeRefs,
     TypeRefJson,
+    TypedUrls,
     filter_dict,
+    join_resource_url,
     validate_url,
+    LifecycleStatus,
+    ScheduledRelease,
 )
 
 
 from .to_json import get_blueprint_path, node_type_to_graphql
 from .repo import (
     GitRepo,
+    git_url_join,
     is_git_worktree,
     normalize_git_url,
     sanitize_url,
@@ -178,13 +182,12 @@ class Namespace:
 
 
 @dataclass
-class RepositoryMetadata(BaseMetadata):
+class RepositoryMetadata(CommonMetadata):
     """
     Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
     e.g. metadata that found on the repository's GitHub or GitLab project page.
     """
 
-    topics: List[str] = field(default_factory=list)
     license_url: str = ""
     issues_url: str = ""
     ci_variables: Optional[dict] = None
@@ -344,7 +347,7 @@ ArtifactDict = Dict[str, Artifact]
 
 
 @dataclass
-class ServiceMetadata(BaseMetadata):
+class ServiceMetadata(CommonMetadata):
     """Human-readable metadata about a service."""
 
 
@@ -383,32 +386,23 @@ class Service:
     "Access to the service (who can resolve the URL)."
     endpoints: List[Dict[str, Any]] = field(default_factory=list)
     """Service endpoints"""
-    connections: List[str] = field(default_factory=list)
-    """List of other services this service uses."""
-    operation_status: Optional[
-        Literal[
-            "wishlist",
-            "planning",
-            "model",
-            "pre-launch",
-            "alpha",
-            "beta",
-            "production",
-            "maintenance",
-            "unmaintained",
-            "sunsetting",
-            "suspended",
-            "shutdown",
-        ]
-    ] = None
+    connections: TypedUrls = field(default_factory=dict)
+    "Services this service connects to during operation."
+    status: Optional[LifecycleStatus] = None
+    """Lifecycle status of the service"""
     metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
     policies: ServicePolicies = field(default_factory=ServicePolicies)
     instantiated_by: List[str] = field(default_factory=list)
     """List of URLs referencing an entry in instantiations."""
     discovery: Optional[Discovery] = None
     """Metadata discovery information (last_checked, sources)"""
+    release_schedule: List[ScheduledRelease] = field(default_factory=list)
+    """Release schedule information for this service"""
+    versions: Dict[str, "Service"] = field(default_factory=dict)
+    """Services that are variants of this service (for example, different versions or environments)"""
+    _parent: InitVar[Optional["Service"]] = None
 
-    def __post_init__(self):
+    def __post_init__(self, _parent: Optional["Service"] = None):
         if self.url:
             self.url = validate_url(self.url, "Service.url")
 
@@ -420,6 +414,28 @@ class Service:
             self.discovery = Discovery(**self.discovery)
         if isinstance(self.type, dict):
             self.type = TypeRefs(types=self.type)
+        self.release_schedule = [
+            ScheduledRelease(**item) if isinstance(item, dict) else item
+            for item in self.release_schedule
+        ]
+        self.connections = TypeRefs.urls_fromdict(self.connections)
+        # Convert versions dict entries to Service instances if they're still dicts
+        if self.versions:
+            new_versions: Dict[str, Service] = {}
+            for version_key, version_val in self.versions.items():
+                if isinstance(version_val, Service):
+                    new_versions[version_key] = version_val
+                elif isinstance(version_val, dict):
+                    version_val = cast(Dict[str, Any], version_val)
+                    # Inherit type from parent if not specified in version
+                    # XXX inherit more attributes
+                    if "type" not in version_val:
+                        version_val = dict(version_val, type=self.type)
+                    new_versions[version_key] = Service(
+                        url=version_key, _parent=self, **version_val
+                    )
+            self.versions = new_versions
+        self._parent = _parent  # type: ignore # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
@@ -435,6 +451,16 @@ class Service:
                 v = filter_dict(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "connections":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "release_schedule" and v:
+                v = [filter_dict(item) for item in v]
+            elif k == "versions" and v:
+                # Convert nested Service instances to dicts
+                v = {
+                    url: (svc.asdict() if isinstance(svc, Service) else svc)
+                    for url, svc in v.items()
+                }
             if v:  # exclude empty values
                 result[k] = v
         return result
@@ -459,7 +485,7 @@ class CloudType:
     """Maturity level of the type definition"""
     model: str = ""
     """URL of artifact or service to use as a model for instances of this type"""
-    metadata: BaseMetadata = field(default_factory=BaseMetadata)
+    metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Additional metadata about the type"""
 
     def __post_init__(self):
@@ -467,9 +493,9 @@ class CloudType:
             self.source = validate_url(self.source, "CloudType.source")
         if self.model:
             self.model = validate_url(self.model, "CloudType.model")
-        # Convert metadata dict to BaseMetadata object if needed
+        # Convert metadata dict to CommonMetadata object if needed
         if isinstance(self.metadata, dict):
-            self.metadata = BaseMetadata(**self.metadata)
+            self.metadata = CommonMetadata(**self.metadata)
 
     def asdict(self) -> Dict[str, Any]:
         result = {}
@@ -1031,7 +1057,7 @@ class CloudMapDB:
         if types_dict and type_name in types_dict:
             return None
 
-        metadata = BaseMetadata()
+        metadata = CommonMetadata()
         if type_info.get("title"):
             metadata.title = type_info["title"]
 
@@ -1144,6 +1170,15 @@ class CloudMapDB:
         """Add or update a repository in the cloudmap."""
         self.repositories[repository.url] = repository
 
+    def get_artifact(self, url: str) -> Optional[Artifact]:
+        return self.artifacts.get(url)
+
+    def get_service(self, url: str) -> Optional[Service]:
+        return self.services.get(url)
+
+    def get_instantiation(self, url: str) -> Optional[Instantiation]:
+        return self.instantiations.get(url)
+
     def add_instantiation(self, instantiation: Instantiation) -> str:
         """
         Add an instantiation and return its unique key.
@@ -1158,18 +1193,6 @@ class CloudMapDB:
         key = instantiation.url
         self.instantiations[key] = instantiation
         return key
-
-    def get_instantiation(self, key: str) -> Optional[Instantiation]:
-        """
-        Get an instantiation by its key.
-
-        Args:
-            key: ISO 8601 timestamp key
-
-        Returns:
-            Instantiation object or None if not found
-        """
-        return self.instantiations.get(key)
 
     def add_image_artifact(self, image: "ContainerImage") -> Artifact:
         """
@@ -1257,6 +1280,7 @@ class CloudMapDB:
         )
         db = self.config.config
         assert isinstance(db, dict)
+        self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
 
         # Load types first (may be augmented during notable migration)
         types = cast(Dict, db.get("types") or {})
@@ -1271,12 +1295,7 @@ class CloudMapDB:
 
         # Load artifacts (may be augmented during notable migration)
         artifacts = cast(Dict, db.get("artifacts") or {})
-        self.artifacts: ArtifactDict = {
-            url: (
-                a if isinstance(a, Artifact) else Artifact(url=a.pop("url", url), **a)
-            )
-            for url, a in artifacts.items()
-        }
+        self.artifacts: ArtifactDict = self._load_resource(artifacts, Artifact)
 
         # Load repositories and migrate old notable format
         repositories = cast(Dict, db.get("repositories") or {})
@@ -1290,23 +1309,32 @@ class CloudMapDB:
 
         # Load services
         services = cast(Dict, db.get("services") or {})
-        self.services: ServiceDict = {
-            url: (s if isinstance(s, Service) else Service(url=s.pop("url", url), **s))
-            for url, s in services.items()
-        }
+        self.services: ServiceDict = self._load_resource(services, Service)
 
         # Load instantiations
         instantiations = cast(Dict, db.get("instantiations") or {})
-        self.instantiations: Dict[str, Instantiation] = {
-            key: (
-                inst
-                if isinstance(inst, Instantiation)
-                else Instantiation(url=inst.pop("url", key), **inst)
-            )
-            for key, inst in instantiations.items()
-        }
+        self.instantiations: Dict[str, Instantiation] = self._load_resource(
+            instantiations, Instantiation
+        )
 
         self.db = cast(Dict[str, Any], db)
+
+    def _load_resource(
+        self,
+        resources: Dict[str, Any],
+        cls: Union[Type[Artifact], Type[Service], Type[Instantiation]],
+    ) -> Dict[str, Any]:
+        resource_dict = {
+            url: (a if isinstance(a, cls) else cls(url=a.pop("url", url), **a))
+            for url, a in resources.items()
+        }
+        # add versions to top level for easy lookup by url#version
+        versions = {}
+        for url, resource in resource_dict.items():
+            for join, obj in resource.versions.items():
+                versions[join_resource_url(url, join)] = obj
+        resource_dict.update(versions)
+        return resource_dict
 
     def reload(self):
         assert self.config.path
@@ -1315,38 +1343,32 @@ class CloudMapDB:
     def save(self):
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
+        self.db.pop("metadata", None)
+        if self.metadata:
+            self.db["metadata"] = {k: self.metadata[k] for k in sorted(self.metadata)}
         self.db["repositories"] = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
         self.db.pop("artifacts", None)
         if self.artifacts:
             self.db["artifacts"] = {
-                url: (
-                    self.artifacts[url].asdict()
-                    if isinstance(self.artifacts[url], Artifact)
-                    else self.artifacts[url]
-                )
-                for url in sorted(self.artifacts)
+                url: val.asdict()
+                for url, val in sorted(self.artifacts.items())
+                if not val._parent  # type: ignore[attr-defined]
             }
         self.db.pop("services", None)
         if self.services:
             self.db["services"] = {
-                url: (
-                    self.services[url].asdict()
-                    if isinstance(self.services[url], Service)
-                    else self.services[url]
-                )
-                for url in sorted(self.services)
+                url: val.asdict()
+                for url, val in sorted(self.services.items())
+                if not val._parent  # type: ignore[attr-defined]
             }
         self.db.pop("instantiations", None)
         if self.instantiations:
             self.db["instantiations"] = {
-                key: (
-                    self.instantiations[key].asdict()
-                    if isinstance(self.instantiations[key], Instantiation)
-                    else self.instantiations[key]
-                )
-                for key in sorted(self.instantiations)
+                key: val.asdict()
+                for key, val in sorted(self.instantiations.items())
+                if not val._parent  # type: ignore[attr-defined]
             }
         self.db.pop("types", None)
         if self.types:

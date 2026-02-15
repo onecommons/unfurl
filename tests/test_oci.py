@@ -336,14 +336,14 @@ def test_resolve_image_ref(
     # Verify metadata.tags is populated correctly based on tag
     if not ref.parts.tag or ref.parts.tag == "latest":
         # Should have tags when tag is empty or "latest"
-        # print(artifact.metadata.tags)
-        assert (
-            isinstance(artifact.metadata.tags, list) and len(artifact.metadata.tags) > 0
-        ), f"Expected metadata.tags to be non-empty for {image_url}"
+        # print(artifact.tags)
+        assert isinstance(artifact.tags, list) and len(artifact.tags) > 0, (
+            f"Expected tags to be non-empty for {image_url}"
+        )
     else:
         # Should not have tags when there's an explicit tag (other than "latest")
-        assert artifact.metadata.tags is None, (
-            f"Expected metadata.tags to be empty for {image_url} with explicit tag {ref.parts.tag!r}"
+        assert artifact.tags is None, (
+            f"Expected tags to be empty for {image_url} with explicit tag {ref.parts.tag!r}"
         )
 
 
