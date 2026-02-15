@@ -183,7 +183,7 @@ Expression Query Syntax
     expr    : segment? ("::" segment)*
     segment : [key] ("[" filter "]")* ["?"]
     key     : name | integer | var | "*"
-    filter  : ['!'] [expr] [("!=" | "=") test]
+    filter  : ['!'] [expr] [("!=" | "=" | "~=") test]
     test    : var | ([^$[]:?])+
     var     : "$" name
 
@@ -292,6 +292,16 @@ Use number as the segment key to select items in a list or array. For example:
 
   eval: x::a::c
   # Result: [1, 2, 3, 4]
+
+Use ``~=`` to test if a value is in the list. For example:
+
+.. code-block:: YAML
+
+  eval: b[~=2]
+  # Result: [1, 2, 3]
+
+  eval: b[~=4]
+  # Result: []
 
 ``*`` Wildcard Operator
 ~~~~~~~~~~~~~~~~~~~~~~~

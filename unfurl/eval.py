@@ -42,10 +42,10 @@ from .result import (
     ResultsMap,
     wrap_var,
     quoted_dict,
-    AnsibleUnsafeText,
 )
 
 import logging
+import traceback
 
 if TYPE_CHECKING:
     from .configurator import TaskView
@@ -889,6 +889,10 @@ class AnyRef(ResourceRef):
         # assumes this is called from an expression's filter test and we want to proceed for analysis
         return True
 
+    def __contains__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        return True
+
 
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
     start = AnyRef("$start")
@@ -1036,13 +1040,26 @@ def eval_test(value, test, context: RefContext) -> bool:
         if context and isinstance(key, str) and key.startswith("$"):
             compare = context.resolve_var(key)
         else:
-            # try to coerce string to value type
-            compare = type(value)(key)
-        context.trace("compare", value, compare, comparor(value, compare))
+            if value and isinstance(value, MutableSequence):
+                compare = type(value[0])(key)
+            elif not isinstance(value, Results):
+                # try to coerce string to value type
+                compare = type(value)(key)
+            else:
+                compare = key
+        context.trace(
+            "compare", value, comparor.__name__, compare, "is", comparor(value, compare)
+        )
         if comparor(value, compare):
             return True
     except:
-        context.trace("compare exception, ne:", comparor is operator.ne)
+        context.trace(
+            "compare exception:",
+            comparor,
+            value,
+            "\n",
+            traceback.format_exc(),
+        )
         if comparor is operator.ne:
             return True
     return False
@@ -1078,8 +1095,6 @@ def lookup(result: Result, key_: str, context: RefContext) -> Optional[Result]:
         return result
     except (KeyError, IndexError, TypeError, ValueError):
         if context._trace:
-            import traceback
-
             context.trace(
                 f"lookup of '{key}' returned None due to exception:\n",
                 traceback.format_exc(),
@@ -1107,7 +1122,6 @@ def eval_item(result: Result, seg: Segment, context: RefContext) -> Iterator[Res
         results = eval_exp(resultList, filter, context)
         negate = filter[0].modifier == "!"
         if negate and results:
-            print("huh!!!!", seg, results)
             return
         elif not negate and not results:
             return
@@ -1127,6 +1141,7 @@ def _treat_as_singular(result: Result, seg: Segment) -> bool:
         result.external
         or not isinstance(result.resolved, MutableSequence)
         or isinstance(_make_key(seg.key), int)
+        or (seg.test and seg.test[0] == operator.contains)
     )
 
 
@@ -1212,10 +1227,17 @@ def parse_path_key(segment: str) -> Segment:
         segment = segment[:-1]
         modifier = "?"
 
-    parts = re.split(r"(=|!=)", segment, maxsplit=1)
+    parts = re.split(r"(=|!=|~=)", segment, maxsplit=1)
     if len(parts) == 3:
         key = parts[0]
-        op = operator.eq if parts[1] == "=" else operator.ne
+        if parts[1] == "~=":
+            op = operator.contains
+        elif parts[1] == "=":
+            op = operator.eq
+        else:
+            assert parts[1] == "!=", parts[1]
+            op = operator.ne
+
         return Segment(key, [op, parts[2]], modifier, [])
     else:
         return Segment(segment, [], modifier, [])

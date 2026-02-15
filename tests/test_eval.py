@@ -43,6 +43,7 @@ class EvalTest(unittest.TestCase):
             "name": "test",
             "a": {"ref": "name"},
             "b": [1, 2, 3],
+            "c": {"prop": ["a", "b"]},
             "d": {"a": "va", "b": "vb"},
             "n": {"n": {"n": "n"}},
             "s": {"ref": "."},
@@ -133,11 +134,15 @@ class EvalTest(unittest.TestCase):
             ["::*::.template::type", ["tosca.nodes.Root"]],
             ["$missing::a", []],
             [{"q": "{{ 'a' }}"}, ["{{ 'a' }}"]],
+            ["c[prop=a]", []],
+            ["c[prop~=a]", [{"prop": ["a", "b"]}]],
+            ["b[~=2]", [[1, 2, 3]]],
+            ["b[~=4]", []],
             # XXX test nested ['.[k[d=3]=4]']
         ]:
             ref = Ref(exp)
             # print ('eval', ref.source, ref)
-            result = ref.resolve(RefContext(resource, trace=0))
+            result = ref.resolve(RefContext(resource, trace=2))
             assert all(not isinstance(i, Result) for i in result)
             if isinstance(expected, set):
                 # for results where order isn't guaranteed in python2.7
@@ -1027,6 +1032,16 @@ def test_analyze_expr():
         ".capabilities",
         "cap_name",
         "foo",
+    ]
+
+    result = analyze_expr(
+        {"eval": ".capabilities::[.name=cap_name][confers~=item]", "trace": 1}
+    )
+    assert result and result.get_keys() == [
+        "$start",
+        ".capabilities",
+        "cap_name",
+        "confers",
     ]
 
     result = analyze_expr({"eval": "::node::foo", "trace": 0})
