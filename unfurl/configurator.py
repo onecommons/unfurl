@@ -93,7 +93,7 @@ from .planrequests import (
     find_operation_host,
     create_instance_from_spec,
 )
-from .spec import find_env_vars, EntitySpec, RelationshipSpec
+from .spec import find_env_vars, EntitySpec, ArtifactSpec
 
 import logging
 
@@ -1430,9 +1430,19 @@ class TaskView:
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
-                self._manifest._create_entity_instance(
+                artifact = self._manifest._create_entity_instance(
                     ArtifactInstance, key, val, existingResource
                 )
+                if artifact:
+                    cast(ArtifactSpec, artifact.template)._inline = False
+                    updated = True
+                else:
+                    self.logger.error(
+                        "unable to create artifact %s on %s with %s",
+                        key,
+                        existingResource.name,
+                        val,
+                    )
 
         template = resourceSpec.get("template")
         if template:

@@ -566,6 +566,7 @@ class TaskRequest(PlanRequest):
                     template = name  # type: ignore
 
                 # Artifacts can't be standalone so create an ArtifactInstaller node to "hold" the artifact
+                # ArtifactInstaller uses a DelegateConfigurator to delegate operations to the artifact.
                 # then Job.create_plan() will create this instance and its artifact via Job._update_joboption_instances()
                 return JobRequest(
                     [operation_host],

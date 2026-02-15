@@ -596,7 +596,11 @@ class Manifest(AttributeManager):
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
-                self._create_entity_instance(ArtifactInstance, key, val, resource)
+                artifact = self._create_entity_instance(
+                    ArtifactInstance, key, val, resource
+                )
+                if artifact:
+                    cast(ArtifactSpec, artifact.template)._inline = False
 
         for key, val in resourceSpec.get("instances", {}).items():
             self.create_node_instance(key, val, resource)

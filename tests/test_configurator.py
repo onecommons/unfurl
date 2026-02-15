@@ -267,3 +267,73 @@ spec:
     # def test_revert(self):
     #   # assert changes are removed
     #   pass
+
+
+def test_discover_artifact():
+    manifest = """\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      BuildArtifact:
+        artifacts:
+          test:  # this type will be used if not set inline in the template
+            type: tosca.artifacts.File
+        interfaces:
+           Standard:
+            operations:
+              configure:
+                implementation:
+                  className: unfurl.configurators.TemplateConfigurator
+                inputs:
+                  resultTemplate: |
+                    - name: .self
+                      artifacts:
+                        test:
+                          # error if template isn't declared inline
+                          template:  
+                            file: artifact.txt
+
+    topology_template:
+      node_templates:
+        testNode:
+          type: BuildArtifact
+"""
+    runner = Runner(YamlManifest(manifest))
+    job = runner.run()
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    artifact = (
+        job.manifest.get_root_resource().find_resource("testNode").artifacts["test"]
+    )
+    assert artifact.file == "artifact.txt"
+    assert artifact.type == "tosca.artifacts.File"
+
+    saved = job.out.getvalue()
+    # print(saved)
+    loaded = YamlManifest(saved)
+    artifact = loaded.get_root_resource().find_resource("testNode").artifacts["test"]
+    assert artifact.file == "artifact.txt"
+    assert artifact.type == "tosca.artifacts.File"
+    # out = loaded.manifest.save()
+    # print(out.getvalue())
+
+    # no tasks will run since nothing has changed but make sure the artifact is still there
+    job = Runner(loaded).run()
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    saved = job.out.getvalue()
+    # print(saved)
+    loaded = YamlManifest(saved)
+    artifact = loaded.get_root_resource().find_resource("testNode").artifacts["test"]
+    assert artifact.file == "artifact.txt"
+    assert artifact.type == "tosca.artifacts.File"
+
+    # force task to run and replace the artifact
+    job = Runner(loaded).run(jobOptions=JobOptions(force=True))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    saved = job.out.getvalue()
+    # print(saved)
+    loaded = YamlManifest(saved)
+    artifact = loaded.get_root_resource().find_resource("testNode").artifacts["test"]
+    assert artifact.file == "artifact.txt"
+    assert artifact.type == "tosca.artifacts.File"

@@ -188,7 +188,7 @@ node_types:
   unfurl.nodes.ArtifactInstaller:
     derived_from: tosca.nodes.Root
     description: >
-      Reification of an artifact that needs to be installed.
+      Manages an artifact by delegating lifecycle operations to the artifact.
       Node templates of this type are "discovered" when artifacts need to be installed on an operation_host.
     artifacts:
       install:

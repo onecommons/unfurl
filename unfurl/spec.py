@@ -2288,6 +2288,21 @@ class ArtifactSpec(EntitySpec):
                 and spec.template.topology_template.custom_defs
                 or {}
             )
+            if (
+                not artifact_tpl.get("type")
+                and template
+                and template.toscaEntityTemplate.type_definition
+            ):
+                required_artifacts: Dict[str, dict] = {}
+                NodeTemplate.find_artifacts_on_type(
+                    template.toscaEntityTemplate.type_definition,
+                    {},
+                    required_artifacts,
+                    False,
+                )
+                required_type = (required_artifacts.get(name) or {}).get("type")
+                if required_type:
+                    artifact_tpl["type"] = required_type
             artifact = toscaparser.artifacts.Artifact(
                 name, artifact_tpl, custom_defs, path
             )
