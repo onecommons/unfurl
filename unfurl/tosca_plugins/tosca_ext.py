@@ -520,6 +520,7 @@ class nodes(Namespace):
         """
 
         _type_name = "unfurl.nodes.ArtifactInstaller"
+        install: Union[tosca.artifacts.Root, None] = None
 
         @operation(
             apply_to=[

@@ -108,11 +108,11 @@ def _generate_builtin(generate, builtin_path=None):
         print("*** writing source to", path)
         with open(path, "w") as po:
             print(python_src, file=po)
-    return _to_yaml(python_src, False)
+    return _to_yaml(python_src, False), python_src
 
 
 def test_builtin_generation():
-    yaml_src = _generate_builtin(yaml2python.generate_builtins)
+    yaml_src, python_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
     for section in EntityType.TOSCA_DEF_SECTIONS:
         if section == "types":
@@ -141,7 +141,9 @@ def test_builtin_generation():
 
 
 def test_builtin_ext_generation():
-    assert _generate_builtin(yaml2python.generate_builtin_extensions)
+    yaml_src, python_src = _generate_builtin(yaml2python.generate_builtin_extensions)
+    assert yaml_src
+    assert "install: Union[tosca.artifacts.Root, None] = None" in python_src
 
 
 type_reference_python = '''

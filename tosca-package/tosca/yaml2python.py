@@ -1050,13 +1050,21 @@ class Convert:
                     cls_name, cls = self.imports.get_type_ref(artifact.type)
                     assert cls_name
                     src += f"{indent}{field_name}: {cls_name} = {artifact_src}\n"
+                else:
+                    logger.error(
+                        "error converting artifact %s of type %s",
+                        artifact.name,
+                        artifact.type,
+                    )
             for (
                 required_artifact_name,
                 required_artifact_tpl,
             ) in required_artifacts.items():
-                cls_name, cls = self.imports.get_type_ref(
-                    required_artifact_tpl.get("type", "")
-                )
+                type_name = required_artifact_tpl.get("type", "")
+                cls_name, cls = self.imports.get_type_ref(type_name)
+                if not cls_name and self._builtin_prefix:
+                    # happens with e.g. tosca.artifacts.Root
+                    cls_name, _ = self._get_name(type_name)
                 if cls_name:
                     name, _ = self._get_name(required_artifact_name)
                     field_name, tosca_name, overrides = self._set_name(name, "artifact")
@@ -1066,6 +1074,12 @@ class Convert:
                         src += f"{indent}{field_name}: {cls_name}{overrides}\n"
                     else:
                         src += f"{indent}{field_name}: {self._make_union(cls_name, 'None')} = None{overrides}\n"
+                else:
+                    logger.error(
+                        "required artifact %s has unknown type %s",
+                        required_artifact_name,
+                        required_artifact_tpl.get("type"),
+                    )
 
         if baseclass_name == "Interface":
             # inputs and operations are defined directly on the body of the type
@@ -1329,7 +1343,7 @@ class Convert:
         types = self.import_types(types)
         if not types:
             # XXX need to merge with base requirements
-            logger.error("req missing types %s", req)
+            logger.error("requirement missing types %s", req)
             return ""
         if len(types) > 1:
             typedecl = self._make_union(*types)
