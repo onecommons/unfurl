@@ -417,6 +417,7 @@ relationship_types:
           sensitive: true
       region:
         type: string
+        required: false
         default: us-east-1
       endpoint_hostname:
         type: string
