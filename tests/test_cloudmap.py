@@ -4,7 +4,7 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
-from unfurl.oci import EntitySchema, Instantiation
+from unfurl.oci import EntitySchema, Instantiation, join_resource_url
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd, run_job_cmd
@@ -27,6 +27,7 @@ skip_integration = pytest.mark.skipif(
     not UNFURL_TEST_CLOUDMAP_URL,
     reason="need UNFURL_TEST_CLOUDMAP_URL set to run integration test",
 )
+
 
 # XXX more tests:
 # add readonly public test of --import (doesn't need UNFURL_TEST_CLOUDMAP_URL)
@@ -960,6 +961,24 @@ class TestGitlabManager:
         assert manager.token is None
 
 
+def test_join_resource_url_merges_query_params_with_join_precedence():
+    merged = join_resource_url(
+        "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest&source=base",
+        "?tag=1.0&new=value",
+    )
+    assert (
+        merged
+        == "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&source=base&tag=1.0&new=value"
+    )
+
+
+def test_join_resource_url_replaces_repeated_base_key_with_join_values():
+    merged = join_resource_url(
+        "pkg:oci/name?tag=base1&tag=base2&keep=yes", "?tag=a&tag=b"
+    )
+    assert merged == "pkg:oci/name?keep=yes&tag=a&tag=b"
+
+
 def test_cloudmap_schema_with_artifacts_and_services():
     """Test CloudMapDB validates artifacts and services sections with new schema."""
     import tempfile
@@ -980,13 +999,13 @@ repositories:
     tags:
       v1.1.0: abc123def456
 instantiations:
-  "#2023-09-24T15:30:00Z":
+  "2023-09-24T15:30:00Z":
     type:
       cloudmap.artifacts.IntotoAttestation: null
     source: https://github.com/onecommons/unfurl#:.
     source_revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
     status: observed
-  "#2023-09-24T15:31:00Z":
+  "2023-09-24T15:31:00Z":
     type:
       cloudmap.artifacts.unfurl.Ensemble: null
     source: git://unfurl.cloud/onecommons/unfurl_cloud_prod.git#:v1:prod
@@ -1006,7 +1025,7 @@ artifacts:
         software.Linux:
           version: ">=5.0"
     instantiated_by:
-    - "#2023-09-24T15:30:00Z"
+    - "#/instantiations/2023-09-24T15:30:00Z"
     digest: sha256:abc123
     immutable: false
     metadata:
@@ -1030,10 +1049,10 @@ artifacts:
       - https://ghcr.io/v2/nginx/manifests/latest
       - https://github.com/nginx/nginx/releases
     versions:
-      pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49:
+      "@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49":
         digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
         immutable: true
-      pkg:oci:docker.io/library/nginx:latest:
+      ?tag=latest:
         digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
         immutable: false
         metadata:
@@ -1064,7 +1083,7 @@ services:
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
     instantiated_by:
-    - "#2023-09-24T15:31:00Z"
+    - "#/instantiations/2023-09-24T15:31:00Z"
     discovery:
       last_checked: "2023-09-24T15:30:00Z"
       sources:
@@ -1101,7 +1120,8 @@ types:
         # Verify artifacts loaded correctly
         assert "artifacts" in db.db
         assert "pkg:oci:docker.io/library/nginx" in db.artifacts
-        artifact = db.artifacts["pkg:oci:docker.io/library/nginx"]
+        artifact = db.get_artifact("pkg:oci:docker.io/library/nginx")
+        assert artifact
         assert isinstance(artifact.type, TypeRefs)
         assert "cloudmap.artifacts.oci.Image" in artifact.type.types
         assert artifact.immutable is False
@@ -1146,16 +1166,14 @@ types:
         # Verify versions loaded correctly
         versions = artifact.versions
         assert len(versions) == 2
-        assert (
+        version_by_digest = db.get_artifact(
             "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
-            in versions
         )
-        assert "pkg:oci:docker.io/library/nginx:latest" in versions
+        assert version_by_digest, list(db.artifacts)
+        assert "@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49" in versions
+        # assert "pkg:oci:docker.io/library/nginx:latest" in versions
 
         # Verify version by digest
-        version_by_digest = versions[
-            "pkg:oci:docker.io/library/nginx@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
-        ]
         assert (
             version_by_digest.digest
             == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
@@ -1163,7 +1181,8 @@ types:
         assert version_by_digest.immutable is True
 
         # Verify version by tag
-        version_latest = versions["pkg:oci:docker.io/library/nginx:latest"]
+        version_latest = db.get_artifact("pkg:oci:docker.io/library/nginx?tag=latest")
+        assert version_latest, list(db.artifacts)
         assert (
             version_latest.digest == "sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49"
         )

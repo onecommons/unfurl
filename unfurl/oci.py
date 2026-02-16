@@ -36,7 +36,7 @@ from typing import (
 import base64
 import json
 import logging
-from urllib.parse import quote, urlparse, urlunparse
+from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
 from datetime import datetime, timezone
 import requests
 
@@ -77,20 +77,32 @@ def validate_url(url: str, field_name: str = "URL") -> str:
 
 def join_resource_url(base_url: str, join_url: str) -> str:
     assert join_url
-    if ":" not in base_url:
-        return join_url  # if base_url is not an absolute URL, just return the join_url
     base = urlparse(base_url)
+    if not base.scheme:
+        return join_url  # if base_url is not an absolute URL, just return the join_url
     join = urlparse(join_url)
-    if join.scheme or (not join.fragment and not join.query):
-        # just return join url if it is an absolute URL or a bare name
+    if join.scheme or (not join.fragment and not join.query and "@" not in join.path):
+        # just return join url if it is an absolute URL or a bare name without a purl version
         return join_url
     replace = {}
     if join.fragment:
         replace["fragment"] = join.fragment
     if join.query:
-        replace["query"] = join.query
+        if base.query:
+            base_params = parse_qsl(base.query, keep_blank_values=True)
+            join_params = parse_qsl(join.query, keep_blank_values=True)
+            join_keys = {key for key, _value in join_params}
+            merged_params = [item for item in base_params if item[0] not in join_keys]
+            merged_params.extend(join_params)
+            replace["query"] = urlencode(merged_params, safe=":/@")
+        else:
+            replace["query"] = join.query
     if join.path:
-        replace["path"] = join.path
+        if join.path.startswith("@"):
+            # if join path starts with @, treat it as a purl version and append to base path with @
+            replace["path"] = base.path.partition("@")[0] + join.path
+        else:
+            replace["path"] = join.path
     return urlunparse(base._replace(**replace))
 
 # ---------------------------
