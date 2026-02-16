@@ -240,8 +240,8 @@
           "description": "Types that this artifact instantiates (e.g., software package, service image or template, capabilities pipeline, build tools) with optional version constraints."
         },
         "dependencies": {
-          "$ref": "#/definitions/typeRef",
-          "description": "Types that instantiation may depend on including environment context and types of software or services with optional version constraints. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."
+          "$ref": "#/definitions/typedURLs",
+          "description": "Instantiation dependencies on including environment context and types of software or services with optional version constraints. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."
         },
         "instantiated_by": {
           "type": "array",

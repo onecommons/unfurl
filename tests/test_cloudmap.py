@@ -150,8 +150,12 @@ artifacts:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
-      unfurl.relationships.ConnectsTo.AWSAccount:
-      unfurl.relationships.ConnectsTo.GoogleCloudProject:
+      aws:
+        unfurl.relationships.ConnectsTo.AWSAccount:
+      gcp:
+        unfurl.relationships.ConnectsTo.GoogleCloudProject:
+      odoo-aws-1:
+        unfurl.relationships.ConnectsTo.AWSAccount:
     digest: git:blob:8e784df418a595b84a916be749024ec967ef1a60
     metadata:
       title: Odoo
@@ -996,10 +1000,11 @@ artifacts:
     instantiates:
       software.WebServer:
         version: "1.25"
-      software.HTTPServer: null
+      software.HTTPServer:
     dependencies:
-      software.Linux:
-        version: ">=5.0"
+      "os":
+        software.Linux:
+          version: ">=5.0"
     instantiated_by:
     - "#2023-09-24T15:30:00Z"
     digest: sha256:abc123
@@ -1129,10 +1134,9 @@ types:
         assert instantiates.types["software.HTTPServer"] is None
 
         # Verify dependencies uses typeRef structure
-        dependencies = artifact.dependencies
-        assert isinstance(dependencies, TypeRefs)
-        assert "software.Linux" in dependencies.types
-        assert dependencies.types["software.Linux"]["version"] == ">=5.0"
+        assert artifact.dependencies == {
+            "os": TypeRefs({"software.Linux": {"version": ">=5.0"}})
+        }
 
         assert artifact.metadata.title == "Nginx Web Server"
         assert len(artifact.metadata.platforms) == 2

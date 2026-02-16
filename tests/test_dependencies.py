@@ -487,6 +487,7 @@ def test_conditional_directive(spec, success):
     except Exception:
         assert not success, "validation error expected"
     else:
+        assert success
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         summary = job.json_summary()
         assert summary["job"] == {

@@ -670,7 +670,7 @@ class UnfurlNotable(Notable):
             # Prepare type_info and dependencies
             type_info = None
             typename = ""
-            dependencies: set[TypeName] = set()
+            dependencies: dict[str, TypeName] = {}
             child_artifacts: Dict[str, Optional[TypeRefs]] = {}
 
             if node:
@@ -684,12 +684,14 @@ class UnfurlNotable(Notable):
                 )
                 typename = type_info.get("name", "")
 
-                dependencies = set(self.find_dependencies(node, types).values())
+                dependencies = self.find_dependencies(node, types)
                 deployment_blueprints = manifest.get_deployment_blueprints()
                 dependencies.update(
-                    tpl["cloud"]
-                    for tpl in deployment_blueprints.values()
-                    if tpl.get("cloud")
+                    {
+                        name: tpl["cloud"]
+                        for name, tpl in deployment_blueprints.items()
+                        if tpl.get("cloud")
+                    }
                 )
                 # Handle container image dependency
                 image = self.find_image_dependency(node)
@@ -710,7 +712,9 @@ class UnfurlNotable(Notable):
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
                 artifacts=child_artifacts,
-                dependencies=list(dependencies),
+                dependencies={
+                    name: TypeRefs({v: None}) for name, v in dependencies.items()
+                },
                 type_info=type_info,
                 types_dict=directory.db.types,
                 digest=self.digest,
@@ -722,7 +726,7 @@ class UnfurlNotable(Notable):
 
             # Create CloudTypes for dependencies
             if node:
-                for dep_typename in dependencies:
+                for dep_typename in dependencies.values():
                     # Check if type already exists
                     if dep_typename not in directory.db.types:
                         # Get type information for dependency type
@@ -1077,7 +1081,7 @@ class CloudMapDB:
         description: str = "",
         thumbnail: str = "",
         artifacts: Optional[Dict[str, Optional[TypeRefs]]] = None,
-        dependencies: Optional[List[str]] = None,
+        dependencies: Optional[TypedUrls] = None,
         type_info: Optional[Dict[str, Any]] = None,
         types_dict: Optional[CloudTypeDict] = None,
         digest: str = "",
@@ -1109,9 +1113,6 @@ class CloudMapDB:
             thumbnail_url=thumbnail,
         )
 
-        # Convert dependencies list to TypeRefs
-        dep_refs = TypeRefs(types={dep: None for dep in sorted(dependencies or [])})
-
         # Handle type field: create CloudType and add to instantiates
         instantiates = TypeRefs()
         cloud_type = None
@@ -1130,7 +1131,7 @@ class CloudMapDB:
             type=TypeRefs({artifact_type: None}),
             notable=artifacts or {},
             instantiates=instantiates,
-            dependencies=dep_refs,
+            dependencies=dependencies or {},
             metadata=metadata,
             digest=digest,
         )
@@ -1248,7 +1249,11 @@ class CloudMapDB:
                         build_oci_purl(ContainerImage.split(ref)): None
                         for ref in notable_dict.pop("artifacts", [])
                     },
-                    dependencies=sorted(notable_dict.pop("dependencies", [])),
+                    dependencies={
+                        "": TypeRefs(
+                            {v: None for v in notable_dict.pop("dependencies", [])}
+                        )
+                    },
                     type_info=notable_dict.pop("type", None),
                     types_dict=self.types,
                 )

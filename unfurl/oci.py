@@ -20,7 +20,7 @@ Registry Auth Tips:
 """
 
 from dataclasses import dataclass, asdict, field, InitVar
-from functools import cache
+from functools import cache, total_ordering
 from typing import (
     Any,
     Dict,
@@ -260,7 +260,7 @@ TypeRefJson = Dict[
     Optional[TypeRefConstraint],
 ]
 
-
+@total_ordering
 class TypeRefs:
     """
     Type references with optional constraints.
@@ -275,7 +275,7 @@ class TypeRefs:
 
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
-        return self.types
+        return {k: self.types[k] for k in sorted(self.types)}
 
     def names(self) -> List[str]:
         """Return list of type names."""
@@ -300,11 +300,42 @@ class TypeRefs:
     def __repr__(self) -> str:
         return f"TypeRefs({self.types!r})"
 
+    def __eq__(self, other: object) -> bool:
+        """Return True if there are any type references."""
+        if not isinstance(other, TypeRefs):
+            return NotImplemented
+        return self.types == other.types
+
+    def __ne__(self, other: object) -> bool:
+        """Return True if there are any type references."""
+        if not isinstance(other, TypeRefs):
+            return NotImplemented
+        return self.types != other.types
+
+    def __lt__(self, other):
+        """Compare based on the sorted items of the types dict."""
+        if not isinstance(other, TypeRefs):
+            return NotImplemented
+        return sorted(self.types.items()) < sorted(other.types.items())
+
+    def __hash__(self) -> int:
+        """Hash based on the sorted items of the types dict."""
+        return hash(tuple(sorted(self.types.items())))
+
+    def __cmp__(self, other: object) -> int:
+        """Compare based on the sorted items of the types dict."""
+        if not isinstance(other, TypeRefs):
+            return NotImplemented
+        return (sorted(self.types.items()) > sorted(other.types.items())) - (
+            sorted(self.types.items()) < sorted(other.types.items())
+        )
+
     @staticmethod
     def urls_asdict(typed_urls: "TypedUrls") -> Dict[str, Optional[TypeRefJson]]:
         """Convert TypedUrls to a dict with TypeRefJson values."""
         result: Dict[str, Optional[TypeRefJson]] = {}
-        for url, type_refs in typed_urls.items():
+        for url in sorted(typed_urls):
+            type_refs = typed_urls[url]
             if isinstance(type_refs, TypeRefs):
                 result[url] = type_refs.asdict()
             else:
@@ -490,7 +521,7 @@ class Artifact:
     """"Map of URLs of interesting artifacts or repositories that this artifact incorporates or references."""
     instantiates: TypeRefs = field(default_factory=TypeRefs)
     """Types that this artifact instantiates with optional version constraints (typeRef)"""
-    dependencies: TypeRefs = field(default_factory=TypeRefs)
+    dependencies: TypedUrls = field(default_factory=dict)
     """Types that instantiation may depend on with optional version constraints (typeRef)"""
     instantiated_by: List[str] = field(default_factory=list)
     """List of URLs referencing an entry in instantiations."""
@@ -529,8 +560,7 @@ class Artifact:
             self.type = TypeRefs(types=self.type)
         if isinstance(self.instantiates, dict):
             self.instantiates = TypeRefs(types=self.instantiates)
-        if isinstance(self.dependencies, dict):
-            self.dependencies = TypeRefs(types=self.dependencies)
+        self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
         self.notable = TypeRefs.urls_fromdict(self.notable)
         self.release_schedule = [
             ScheduledRelease(**item) if isinstance(item, dict) else item
@@ -570,8 +600,8 @@ class Artifact:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "instantiates" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "dependencies" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "dependencies":
+                v = TypeRefs.urls_asdict(v)
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]
             elif k == "versions" and v:
