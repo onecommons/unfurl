@@ -735,10 +735,7 @@ class Plan:
                 if "virtual" not in t.directives
                 and interface_requirements_ok(self.root, t)
                 # only include conditional templates if all their requirements are met
-                and (
-                    "conditional" not in t.directives
-                    or not t.toscaEntityTemplate.missing_requirements
-                )
+                and ("conditional" not in t.directives or not t.needs_requirements())
                 and (not filter or t.name == filter)
             },
             seen,

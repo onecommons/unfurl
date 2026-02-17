@@ -1387,7 +1387,20 @@ class NodeSpec(EntitySpec):
                 else:
                     entity_tpl = value
                 reqSpec = RequirementSpec(name, entity_tpl, self, req_type_def)
+                target = None
                 if relTpl.target:
+                    # skip conditional template with missing requirements
+                    # (use _missing_requirements to avoid triggering requirements resolution early (should have already happened)
+                    if (
+                        "conditional" not in relTpl.target.directives
+                        or not relTpl.target._missing_requirements
+                    ):
+                        target = relTpl.target
+                    else:
+                        logger.debug(
+                            f'Skipping the target node "{relTpl.target.name}" on requirement "{name}" on template "{self.name}": it is conditional and has missing requirements.'
+                        )
+                if target:
                     nodeSpec = self.spec.node_from_template(relTpl.target)
                     if nodeSpec:
                         nodeSpec.add_relationship(reqSpec)
@@ -1545,12 +1558,22 @@ class NodeSpec(EntitySpec):
     def directives(self):
         return self.toscaEntityTemplate.directives
 
+    def needs_requirements(self) -> List[str]:
+        # return a list of requirement names that are missing a target node template
+        return list(self.toscaEntityTemplate.missing_requirements) + list(
+            self.toscaEntityTemplate._invalid_requirements
+        )
+
     def validate(self):
         super().validate()
         missing = self.toscaEntityTemplate.missing_requirements
         if missing:
             raise UnfurlValidationError(
-                f"Node template {self.name} is missing requirements: {','.join(missing)}"
+                f'Node template "{self.name}" is missing requirements: {",".join(list(missing))}'
+            )
+        if self.toscaEntityTemplate._invalid_requirements:
+            raise UnfurlValidationError(
+                f'Node template "{self.name}" has requirements targeting invalid node templates: {self.toscaEntityTemplate._invalid_requirements}'
             )
 
     # XXX what are the semantics to determine which properties imply this relationship?

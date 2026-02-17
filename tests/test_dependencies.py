@@ -1,3 +1,4 @@
+import traceback
 import unittest
 import os
 import pprint
@@ -5,6 +6,7 @@ import logging
 import io
 import pytest
 from unfurl.localenv import LocalEnv
+from unfurl.util import UnfurlValidationError
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Job, Runner, JobOptions
 from unfurl.configurators import TemplateConfigurator
@@ -475,19 +477,46 @@ conditional_manifest = (
 """
 )
 
+found_template = """\
+          requirements:
+          - test:
+              node: depends_on_missing
+"""
+
+depends_on_missing_template = """\
+        depends_on_missing:
+          type: my_host_type
+          requirements:
+          - test:
+              node: missing
+              """
+
+depends_on_missing_manifest = conditional_manifest + depends_on_missing_template
+
+depends_on_found_manifest = (
+    conditional_manifest + found_template + depends_on_missing_template
+)
+
 
 @pytest.mark.parametrize(
-    "spec, success", [("unconditional_manifest", False), ("conditional_manifest", True)]
+    "spec, success",
+    [
+        ("unconditional_manifest", False),
+        ("conditional_manifest", True),
+        ("depends_on_missing_manifest", False),
+        ("depends_on_found_manifest", True),
+    ],
 )
 def test_conditional_directive(spec, success):
     manifest = YamlManifest(globals()[spec])
     runner = Runner(manifest)
     try:
         job = runner.run(JobOptions(startTime=1, planOnly=True))
-    except Exception:
-        assert not success, "validation error expected"
+    except UnfurlValidationError:
+        # traceback.print_exc()
+        assert not success, "unexpected validation error"
     else:
-        assert success
+        assert success, "expected a validation error"
         assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
         summary = job.json_summary()
         assert summary["job"] == {

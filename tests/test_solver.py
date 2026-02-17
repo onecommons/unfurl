@@ -37,7 +37,7 @@ def make_tpl(yaml_str: str):
         tosca_yaml["topology_template"] = dict(
             node_templates={}, relationship_templates={}
         )
-    return ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml)
+    return ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml, verify=False)
 
 
 example_helloworld_yaml = """
@@ -568,3 +568,73 @@ def test_pattern_fallback_fail():
         )
     else:
         assert False
+
+# maybe_match_conditional.test matches only when conditional node is satisfied
+conditional_manifest = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  MyNodeType:
+    derived_from: tosca:Root
+    requirements:
+      - test:
+          node: MyNodeType
+
+topology_template:
+  node_templates:
+    a_host:
+      type: tosca.nodes.Root
+      requirements:
+        - host:
+            node: conditional
+
+    maybe_match_conditional:
+      type: MyNodeType
+      requirements:
+        - test:  # use type to trigger inference
+            node: MyNodeType
+
+    conditional:
+      type: MyNodeType
+      directives:
+      - conditional
+      requirements:
+        - test:
+            node: another_host
+
+    another_host:
+      type: MyNodeType
+      directives:
+      - conditional
+"""
+
+# this should cause maybe_match_conditional to match both conditional templates
+conditional_manifest_solved = (
+    conditional_manifest
+    + """
+      requirements:
+        - test:
+            node: maybe_match_conditional
+"""
+)
+
+
+def test_conditional():
+    tosca = make_tpl(conditional_manifest)
+    solved = solve_topology(tosca.topology_template)
+    # print("conditional_manifest", solved)
+
+    # # maybe_match_conditional should match conditional and another_host because they satisfy each other's conditional requirements
+    assert ("maybe_match_conditional", "test") not in solved
+    assert ("conditional", "test") not in solved
+    assert ("another_host", "test") not in solved
+    assert ("a_host", "host") not in solved
+
+    # if we add a requirement to maybe_match_conditional that doesn't match the others, it should no longer match
+    tosca2 = make_tpl(conditional_manifest_solved)
+    solved2 = solve_topology(tosca2.topology_template)
+    # print("conditional_manifest_solved", solved2)
+
+    assert ("maybe_match_conditional", "test") in solved2
+    assert ("conditional", "test") in solved2
+    assert ("another_host", "test") in solved2
+    assert ("a_host", "host") in solved2

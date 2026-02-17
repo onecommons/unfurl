@@ -51,12 +51,14 @@ class Node:
         self.fields: List[Field] = fields or []
         # Set if any of its fields has restrictions
         self.has_restrictions: bool = False
-        self._reqs: Dict[
-            str, int
-        ] = {}  # extra attribute for bookkeeping (not used in rust)
+        self.required: List[str] = []
+        # extra attributes for bookkeeping (not used in rust):
+        self._reqs: Dict[str, int] = {}
+        # req_name -> target node_name for explicit node targets
+        self._assigned_reqs: Dict[str, str] = {}
 
     def __repr__(self) -> str:
-        return f"Node({self.name!r}, {self.tosca_type!r}, {self.has_restrictions}, {self.fields!r})"
+        return f"Node({self.name!r}, {self.tosca_type!r}, {self.has_restrictions}, {self.required!r}, {self.fields!r})"
 
 
 def deduce_type(value):
@@ -375,8 +377,14 @@ class TopologyGraph:
             )
             if field:
                 entity.fields.append(field)
+                # track explicit node targets for checking conditional deps
+                node_target = req_dict.get("node")
+                if node_target and node_target in self.topology_template.node_templates:
+                    entity._assigned_reqs[name] = self._resolve_node_name(node_target)
             if found_restrictions:
                 has_restrictions = True
+            if required and "conditional" in node_template.directives:
+                entity.required.append(intern(name))
         # print("rels", node_template.relationships, node_template.missing_requirements)
         entity.has_restrictions = has_restrictions
         return entity
@@ -696,7 +704,7 @@ def solve_topology(
     if not topology_template.node_templates:
         return {}
     graph = TopologyGraph(topology_template, constrain_required)
-    nodes = {}
+    nodes: Dict[str, Node] = {}
     for node_template in topology_template.node_templates.values():
         if resolve_select and "select" in node_template.directives:
             node_template = resolve_select(node_template)
@@ -737,6 +745,14 @@ def solve_topology(
                 )
         for target_node, cap in target_nodes:
             _set_target(source, req, cap, target_node)
+    # mark requirements with an explicit target that wasn't found by the solver as invalid
+    for node in nodes.values():
+        if node._assigned_reqs:
+            for req_name, target_name in node._assigned_reqs.items():
+                # solver skips nodes that reference themselves, so ignore those
+                if target_name != node.name and (node.name, req_name) not in solved:
+                    node_template = topology_template.node_templates[node.name]
+                    node_template._invalid_requirements[req_name] = target_name
     return solved
 
 

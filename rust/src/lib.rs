@@ -37,6 +37,8 @@ pub struct Node {
     pub fields: Vec<Field>,
     /// Set if any of its fields has [restrictions](FieldValue)
     pub has_restrictions: bool,
+    /// For conditional nodes: requirement names that must be satisfied before the node is live
+    pub required: Vec<String>,
 }
 
 /// HashMap mapping tosca type names to a list of ancestor types it inherits (including itsself)
@@ -232,6 +234,15 @@ fn add_node_to_topology<'a>(
     include_restrictions: bool,
 ) -> Result<(), PyErr> {
     let name = &node.name;
+    if node.required.is_empty() {
+        topology.live.push((name, "", true));
+    } else {
+        let btree: std::collections::BTreeSet<&str> =
+            node.required.iter().map(|s| s.as_str()).collect();
+        topology
+            .missing_requirements
+            .push((name, ascent::lattice::set::Set(btree)));
+    }
     for tosca_type in get_types(&node.tosca_type, type_parents) {
         topology.node.push((name, tosca_type));
         topology.entity.push((EntityRef::Node(name), tosca_type));
@@ -508,6 +519,13 @@ fn dump_solution(prog: &Topology<'_>) {
 
     println!("nodes: {:#?}", prog.node.iter().collect::<Vec<_>>());
 
+    if !prog.missing_requirements.is_empty() {
+        println!(
+            "missing_requirements (conditional): {:#?}",
+            prog.missing_requirements.iter().collect::<Vec<_>>()
+        );
+    }
+
     println!(
         "requirements: {:#?}",
         prog.requirement
@@ -697,6 +715,7 @@ mod tests {
                 name: name.into(),
                 tosca_type: "Service".into(),
                 has_restrictions: false,
+                required: vec![],
                 fields: vec![
                     // Field { name: "feature",
                     //         value: FieldValue::Capability {
@@ -784,6 +803,7 @@ mod tests {
                     name: "1".into(),
                     tosca_type: "Service".into(),
                     has_restrictions: false,
+                    required: vec![],
                     fields: vec![Field {
                         name: "cap".into(),
                         value: FieldValue::Capability {
@@ -799,6 +819,7 @@ mod tests {
                     name: "2".into(),
                     tosca_type: "Service".into(),
                     has_restrictions: false,
+                    required: vec![],
                     fields: vec![Field {
                         name: "req".into(),
                         value: FieldValue::Requirement {

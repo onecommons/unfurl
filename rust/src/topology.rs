@@ -669,6 +669,7 @@ ascent! {
 
     relation entity(EntityRef<'a>, TypeName<'a>);
     relation node(NodeName<'a>, TypeName<'a>);
+    relation live(NodeName<'a>, CapabilityName<'a>, bool);
 
     // reqname is set if property is on a relationship template
     // final bool is true when set by property_expr match
@@ -692,30 +693,39 @@ ascent! {
     relation term_match(NodeName<'a>, ReqName<'a>, Criteria, CriteriaTerm, NodeName<'a>, Option<CapabilityName<'a>>);
     lattice filtered(NodeName<'a>, ReqName<'a>, NodeName<'a>, Option<CapabilityName<'a>>, Criteria, Criteria);
     relation requirement_match(NodeName<'a>, ReqName<'a>, NodeName<'a>, CapabilityName<'a>);
+    // for conditional nodes:
+    lattice live_filter(NodeName<'a>, Set<ReqName<'a>>, Set<ReqName<'a>>);
+    relation missing_requirements(NodeName<'a>, Set<ReqName<'a>>);
 
     term_match(source, req, criteria, ct, target, None) <--
         node(target, typename), requirement(source, req, criteria),
+        live(target, "", true),
         req_term_node_name(source, req, ct, target) if source != target;
 
     term_match(source, req, criteria, ct, target, None) <--
         node(target, typename), requirement(source, req, criteria),
+        live(target, "", true),
         req_term_node_type(source, req, ct, typename) if source != target;
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, cap_id), entity(cap_id, typename),
         requirement(source, req, criteria),
+        live(target, "", true),
+        // live(target, cap_name, true)
         req_term_cap_type(source, req, ct, typename) if source != target;
-        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, _), requirement(source, req, criteria),
         term_match(source, req, criteria, _, target, _),  // only match req_term_capname after we found candidate target nodes
+        live(target, "", true),
+        // live(target, cap_name, true)
         req_term_cap_name(source, req, ct, cap_name);
-        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, None) <--
         property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
+        live(target, "", true),
+        // live(target, capname, true)
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
     // for node filters with capability typename instead of capability name:
@@ -723,12 +733,14 @@ ascent! {
         property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
         capability(target, capname, cap_id), entity(cap_id, typename),
-        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
+        live(target, "", true),
         // live(target, capname, true)
+        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
 
     term_match(source, req, criteria, ct, target, None) <--
         result(entity_ref, q_id, target, true),
         req_term_query(source, req, ct, q_id) if entity_ref.is_relationship(source, req),
+        live(target, "", true),
         requirement(source, req, criteria);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
@@ -744,6 +756,18 @@ ascent! {
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
     // live(extract_node(source), extract_cap(source), true)) <-- requirement_match(source, sym("~DYNCAP"), target, target_cap);
+
+    // update set of found requirements
+    live_filter(node_name, requirements, Set::<ReqName<'a>>::singleton(req_name)) <--
+        requirement_match(node_name, req_name, _, _),
+        missing_requirements(node_name, requirements) if requirements.contains(req_name);
+
+    live_filter(node_name, requirements, Set({let mut fc = f.0.clone(); fc.insert(req_name); fc})) <--
+        requirement_match(node_name, req_name, _, _),
+        missing_requirements(node_name, requirements) if requirements.contains(req_name),
+        live_filter(node_name, ?f, requirements);
+
+    live(node_name, "", true) <-- live_filter(node_name, filter, requirements) if filter == requirements;
 
     // graph navigation
     relation required_by(NodeName<'a>, ReqName<'a>, NodeName<'a>);
