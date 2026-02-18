@@ -237,8 +237,15 @@ def test_validate_connection():
 
         # gcpTestManifest has an invalid GOOGLE_APPLICATION_CREDENTIALS so job should abort
         # without running testNode
+        current = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        assert current != "bad.json", current
         job, rendered, proceed = start_job(_opts={"startTime": 1})
         job.run(rendered)
+        # check that it restored the original env var value
+        assert current == os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"), (
+            os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+        )
+
         summary = job.json_summary()
         assert summary == {
   "job": {
@@ -353,7 +360,7 @@ def test_gcp_configurator():
     """
     runner = CliRunner()
     with runner.isolated_filesystem():
-        # override home so to avoid interferring with other tests
+        # override home so to avoid interfering with other tests
         result = runner.invoke(
             cli,
             [

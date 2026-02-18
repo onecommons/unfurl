@@ -970,7 +970,12 @@ def to_env(args, ctx: RefContext):
         log = ctx.task and ctx.task.logger or logger
         log.debug("to_env is updating os.environ with %s using rules %s", result, rules)
         # update all the copies of environ
-        envs = [ctx.environ, ctx.currentResource.root._environ, os.environ]
+        envs: MutableSequence[Dict[str, str]] = [ctx.environ, cast(dict, os.environ)]
+        if hasattr(ctx.currentResource, "apex"):
+            envs.append(ctx.currentResource.apex._environ)
+            start = getattr(ctx.currentResource.apex, "_start_environ", None)
+            if start is not None:
+                envs.append(start)
         for env in envs:
             env.update(result)
             for key, value in rules.items():

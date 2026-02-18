@@ -669,29 +669,15 @@ class TaskView:
             self._environ = self.get_environment(False)
         return cast(Dict[str, str], self._environ)
 
-    def set_envvars(self):
+    def set_envvars(self) -> None:
         """
         Update os.environ with the task's environment variables and save the current one so it can be restored by `restore_envvars`.
         """
-        # self.logger.trace("update os.environ with %s", self.environ)
-        for key in os.environ:
-            current = self.environ.get(key)
-            if current is None:
-                del os.environ[key]
-        for key, value in self.environ.items():
-            if value is not None:
-                os.environ[key] = str(value)
+        self.target.apex.set_envvars(self.environ)
 
-    def restore_envvars(self):
+    def restore_envvars(self) -> None:
         """Restore the os.environ to the environment's state before this task ran."""
-        # self.logger.trace("restoring os.environ with %s", self.target.root.environ)
-        for key in os.environ:
-            current = self.target.root.environ.get(key)
-            if current is None:
-                del os.environ[key]
-        for key, value in self.target.environ.items():
-            if value is not None:
-                os.environ[key] = str(value)
+        self.target.apex.restore_envvars()
 
     @property
     def inputs(self) -> ResultsMap:

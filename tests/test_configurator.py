@@ -1,7 +1,12 @@
 import unittest
+import traceback
+import os
+from click.testing import CliRunner
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.job import Runner, JobOptions, Status
 from unfurl.configurator import Configurator
+from unfurl.__main__ import cli
+from unfurl.job import start_job
 
 
 class TestConfigurator(Configurator):
@@ -337,3 +342,113 @@ spec:
     artifact = loaded.get_root_resource().find_resource("testNode").artifacts["test"]
     assert artifact.file == "artifact.txt"
     assert artifact.type == "tosca.artifacts.File"
+
+
+envRestoreManifest = """\
+  apiVersion: unfurl/v1alpha1
+  kind: Ensemble
+  +include:
+    file: ensemble-template.yaml
+    repository: spec
+  environment:
+    variables:
+      TEST_MANIFEST_VAR: from_manifest
+      RESET_CREDENTIALS: cred.json
+      ACCESS_TOKEN: fake_token
+  changes: []
+  spec:
+    service_template:
+      topology_template:
+        node_templates:
+          testNode:
+            type: tosca.nodes.Root
+            interfaces:
+              Standard:
+                operations:
+                  create:
+                    implementation:
+                      className: Template
+                    inputs:
+                      done:
+                        result: {}
+                      resultTemplate:
+                        eval:
+                          to_env:
+                            TEST_PERSISTENT_VAR: persisted_value
+                            ACCESS_TOKEN: null
+                          update_os_environ: true
+  """
+
+
+def test_environ_restored_after_job():
+    """
+    Test that os.environ is restored after a job runs, except for
+    changes made with update_os_environ=True.
+    """
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        result = runner.invoke(
+            cli,
+            [
+                "--home",
+                "./unfurl_home",
+                "init",
+                "--mono",
+            ],
+        )
+        assert not result.exception, "\n".join(
+            traceback.format_exception(*result.exc_info)
+        )
+
+        with open("ensemble/ensemble.yaml", "w") as f:
+            f.write(envRestoreManifest)
+
+        # Set up initial os.environ state
+        os.environ["TEST_PRE_EXISTING"] = "should_survive"
+        os.environ["ACCESS_TOKEN"] = "original_token"
+        # Set a pre-existing value that the manifest will override during the job
+        os.environ["RESET_CREDENTIALS"] = "original_creds.json"
+        original_creds = os.environ["RESET_CREDENTIALS"]
+
+        # These should NOT be in os.environ before the job
+        assert "TEST_MANIFEST_VAR" not in os.environ
+        assert "TEST_PERSISTENT_VAR" not in os.environ
+
+        try:
+            job, rendered, proceed = start_job(_opts={"startTime": 1})
+            job.run(rendered)
+
+            summary = job.json_summary()
+            assert summary["job"]["status"] == "ok", summary
+
+            # Env vars set only by the manifest should NOT persist after the job
+            assert os.environ.get("TEST_MANIFEST_VAR") is None, (
+                "Manifest env var should not persist in os.environ after job"
+            )
+
+            # Manifest should not permanently overwrite pre-existing values
+            assert os.environ.get("RESET_CREDENTIALS") == original_creds, (
+                f"Manifest should not overwrite pre-existing RESET_CREDENTIALS: "
+                f"expected {original_creds!r}, got {os.environ.get('RESET_CREDENTIALS')!r}"
+            )
+
+            # Env vars set with update_os_environ=True SHOULD persist
+            assert os.environ.get("TEST_PERSISTENT_VAR") == "persisted_value", (
+                "update_os_environ=True changes should persist after job"
+            )
+
+            # update_os_environ deleted ACCESS_TOKEN
+            assert "ACCESS_TOKEN" not in os.environ, (
+                "update_os_environ=True deletion should persist after job"
+            )
+
+            # Pre-existing env vars should be unchanged
+            assert os.environ.get("TEST_PRE_EXISTING") == "should_survive", (
+                "Pre-existing env vars should survive the job"
+            )
+        finally:
+            # Clean up
+            os.environ.pop("TEST_PRE_EXISTING", None)
+            os.environ.pop("TEST_PERSISTENT_VAR", None)
+            os.environ.pop("RESET_CREDENTIALS", None)
+            os.environ.pop("ACCESS_TOKEN", None)

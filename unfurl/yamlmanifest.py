@@ -640,12 +640,14 @@ class YamlManifest(ReadOnlyManifest):
         # values maybe wrong before we set up the env vars so disable validation to suppress validation exceptions
         self.validate = False
         try:
+            # Apply manifest rules first so get_env() during map_value() don't use os.environ
+            root._environ = filter_env(rules, os.environ)
             for rel in root.default_relationships:
                 rules.update(rel.merge_props(find_env_vars, True))
             rules = cast(
                 dict, serialize_value(map_value(rules, root), resolveExternal=True)
             )
-            root._environ = filter_env(rules, os.environ)
+            root._environ = filter_env(rules, root._environ)
         finally:
             self.validate = _previous_validate
         paths = self.localEnv and self.localEnv.get_paths()

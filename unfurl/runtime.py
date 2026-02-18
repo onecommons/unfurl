@@ -595,10 +595,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return {}
 
     def get_attribute_manager(self) -> AttributeManager:
-        if not self.apex.attributeManager and not self.attributeManager:
-            # inefficient but create a local one for now
-            self.attributeManager = AttributeManager()
-        return self.apex.attributeManager or self.attributeManager  # type: ignore
+        if not self.apex.attributeManager:
+            if not self.attributeManager:
+                # inefficient but create a local one for now
+                self.attributeManager = AttributeManager()
+            return self.attributeManager
+        return self.apex.attributeManager
 
     @property
     def attributes(self) -> ResultsMap:
@@ -653,11 +655,11 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return bool(self.imported)  # imported instances are readonly
 
     @property
-    def apex(self):
+    def apex(self) -> "TopologyInstance":
         if isinstance(self.root, TopologyInstance):
             if self.root.parent_topology:
-                return cast(TopologyInstance, self.root.parent_topology).apex
-        return self.root
+                return self.root.parent_topology.apex
+        return cast(TopologyInstance, self.root)
 
     def validate(self) -> None:
         """
@@ -1417,12 +1419,39 @@ class TopologyInstance(HasInstancesInstance):
         self._rel_counter = 0
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
+        self._start_environ: Optional[Dict[str, str]] = None
 
     @property
     def environ(self):
         if self.parent_topology:
             return self.parent_topology.environ
         return self._environ
+
+    def set_envvars(self, env: Dict[str, str]) -> None:
+        """
+        Update os.environ with the given env save the current one so it can be restored by `restore_envvars`.
+        """
+        self._start_environ = os.environ.copy()
+        for key in os.environ:
+            current = env.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in env.items():
+            if value is not None:
+                os.environ[key] = str(value)
+
+    def restore_envvars(self) -> None:
+        """Restore the os.environ to the environment's state before this task ran."""
+        assert self._start_environ is not None, (
+            "start_environ should have been set by set_envvars()"
+        )
+        for key in os.environ:
+            current = self._start_environ.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in self._start_environ.items():
+            if value is not None:
+                os.environ[key] = str(value)
 
     def _resolve(self, key):
         if key == "inputs":  # special case inputs
