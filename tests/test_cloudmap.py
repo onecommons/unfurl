@@ -1066,8 +1066,9 @@ services:
       capabilities.CICD:
         version: ">=2.0"
     endpoints:
-    - url: https://unfurl.cloud/api/v1
-      type: API
+      https://unfurl.cloud/api/v4:
+        GitLabAPI:
+          version: "4"
     connections:
       https://github.com:
     metadata:

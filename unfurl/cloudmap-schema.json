@@ -58,6 +58,10 @@
             }
           ]
         },
+        "fork_of": {
+          "type": "string",
+          "description": "URL to the entity this is a fork of."
+        },
         "documentation_url": {
           "type": "string",
           "description": "URL to get documentation."
@@ -296,10 +300,6 @@
                       }
                     }
                   }
-                },
-                "fork_of": {
-                  "type": "string",
-                  "description": "URL to the artifact this is a fork of."
                 }
               }
             }
@@ -340,11 +340,8 @@
           ]
         },
         "endpoints": {
-          "type": "array",
           "description": "Service endpoints.",
-          "items": {
-            "type": "object"
-          }
+          "$ref": "#/definitions/typedURLs"
         },
         "connections": {
           "description": "Services this service connects to during operation.",
@@ -442,6 +439,9 @@
           "type": "object",
           "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
           "$ref": "#/definitions/metadata"
+        },
+        "discovery": {
+          "$ref": "#/definitions/discovery"
         },
         "status": {
           "type": "string",
@@ -580,6 +580,10 @@
           "name": {
             "type": "string",
             "description": "Repository name."
+          },
+          "service": {
+            "type": "string",
+            "description": "URL of the service hosting this repository."
           },
           "protocols": {
             "type": "array",
@@ -743,7 +747,7 @@
         "properties": {
           "kind": {
             "type": "string",
-            "description": "One of: Component, Artifact, or Capability.",
+            "description": "The kind of the type. One of: Component, Artifact, or Capability.",
             "enum": [
               "Component",
               "Artifact",

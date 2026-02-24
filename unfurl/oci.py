@@ -88,7 +88,7 @@ def join_resource_url(base_url: str, join_url: str) -> str:
     if join.fragment:
         replace["fragment"] = join.fragment
     if join.query:
-        if base.query:
+        if base.query and "=" in join.query:
             base_params = parse_qsl(base.query, keep_blank_values=True)
             join_params = parse_qsl(join.query, keep_blank_values=True)
             join_keys = {key for key, _value in join_params}
@@ -165,6 +165,8 @@ class CommonMetadata:
     """Name of the distributing entity, organization, or individual."""
     version: str = ""
     """Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."""
+    fork_of: str = ""
+    """URL to the entity this is a fork of."""
     documentation_url: str = ""
     """URL to get documentation."""
     homepage_url: str = ""
@@ -185,6 +187,10 @@ class CommonMetadata:
         return {k: v for k, v in asdict(self).items() if v}
 
     def __post_init__(self):
+        if self.fork_of:
+            self.fork_of = validate_url(
+                self.fork_of, f"{self.__class__.__name__}.fork_of"
+            )
         if self.homepage_url:
             self.homepage_url = validate_url(
                 self.homepage_url, f"{self.__class__.__name__}.homepage_url"
@@ -215,8 +221,6 @@ class ArtifactMetadata(CommonMetadata):
     """
 
     platforms: Optional[List[Dict[str, str]]] = None
-    fork_of: str = ""
-    """URL to the artifact this is a fork of."""
 
     def extract_urls_from_labels(self, labels: Dict[str, Any]) -> None:
         """
@@ -255,10 +259,6 @@ class ArtifactMetadata(CommonMetadata):
 
     def __post_init__(self):
         super().__post_init__()
-        if self.fork_of:
-            self.fork_of = validate_url(
-                self.fork_of, f"{self.__class__.__name__}.fork_of"
-            )
 
 
 class TypeRefConstraint(TypedDict, total=False):
@@ -398,6 +398,8 @@ class Instantiation:
     """The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process."""
     metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Additional metadata about the instantiation."""
+    discovery: Optional["Discovery"] = None
+    """Metadata discovery information"""
     status: Optional[
         Literal[
             "draft",
@@ -425,6 +427,8 @@ class Instantiation:
             self.type = TypeRefs(types=self.type)
         if isinstance(self.metadata, dict):
             self.metadata = CommonMetadata(**self.metadata)
+        if isinstance(self.discovery, dict):
+            self.discovery = Discovery(**self.discovery)
         self.instantiated = TypeRefs.urls_fromdict(self.instantiated)
         self.inputs = TypeRefs.urls_fromdict(self.inputs)
         # Convert versions dict entries to Instantiation instances if they're still dicts
@@ -454,6 +458,8 @@ class Instantiation:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "metadata":
                 v = filter_dict(v)
+            elif k == "discovery" and v:
+                v = filter_dict(v)
             elif k == "inputs":
                 v = TypeRefs.urls_asdict(v)
             elif k == "instantiated":
@@ -461,7 +467,10 @@ class Instantiation:
             elif k == "versions" and self.versions:
                 # Convert nested Instantiation instances to dicts by calling asdict on actual instances
                 v = {url: inst.asdict() for url, inst in self.versions.items()}
-            if v:
+            # exclude empty values and values inherited from parent
+            if v and (
+                not self._parent or v != getattr(self._parent, k)  # type: ignore
+            ):
                 result[k] = v
         return result
 
@@ -547,8 +556,8 @@ class Artifact:
     """Release schedule information for this artifact"""
     metadata: ArtifactMetadata = field(default_factory=ArtifactMetadata)
     """Human-readable metadata"""
-    discovery: Optional[Discovery] = None
-    """Metadata discovery information (last_checked, sources)"""
+    discovery: Optional["Discovery"] = None
+    """Metadata discovery information"""
     tags: Optional[List[str]] = None
     """List of available tags for this artifact (e.g., container image tags)"""
     versions: Dict[str, "Artifact"] = field(default_factory=dict)
@@ -622,7 +631,10 @@ class Artifact:
                     url: (rel.asdict() if isinstance(rel, Artifact) else rel)
                     for url, rel in v.items()
                 }
-            if v:  # exclude empty values
+            # exclude empty values and values inherited from parent
+            if v and (
+                not self._parent or v != getattr(self._parent, k)  # type: ignore
+            ):
                 result[k] = v
         return result
 

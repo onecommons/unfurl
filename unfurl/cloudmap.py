@@ -136,13 +136,16 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 def get_repository_url(url: str) -> str:
-    """Return the git:// URL for the repository without user, fragment or .git suffix"""
+    """Return the git:// URL for the repository without user or fragment"""
     parts = urlparse(url)
     user, sep, host = parts.netloc.rpartition("@")
     if sep:
         netloc = host
     else:
         netloc = parts.netloc
+    if "+" in parts.scheme:
+        # remove @revision from VCS location URLs like "git+https" (see https://github.com/spdx/spdx-spec/blob/cfa1b9d08903/chapters/3-package-information.md#3.7)
+        return "git://" + netloc + parts.path.partition("@")[0]
     return "git://" + netloc + parts.path
 
 
@@ -243,6 +246,8 @@ class Repository:
     initial_revision: str = ""
     "Initial commit of the default branch."
     name: str = ""
+    service: Optional[str] = None
+    "URL of the service hosting this repository."
     protocols: List[str] = field(default_factory=list)
     internal_id: Optional[str] = None
     "Internal identifier from the repository host (e.g., GitHub repository ID)."
@@ -384,7 +389,7 @@ class Service:
     """Type identifiers from types with optional version constraints"""
     access: Optional[Literal["public", "private", "none", ""]] = ""
     "Access to the service (who can resolve the URL)."
-    endpoints: List[Dict[str, Any]] = field(default_factory=list)
+    endpoints: TypedUrls = field(default_factory=dict)
     """Service endpoints"""
     connections: TypedUrls = field(default_factory=dict)
     "Services this service connects to during operation."
@@ -418,6 +423,7 @@ class Service:
             ScheduledRelease(**item) if isinstance(item, dict) else item
             for item in self.release_schedule
         ]
+        self.endpoints = TypeRefs.urls_fromdict(self.endpoints)
         self.connections = TypeRefs.urls_fromdict(self.connections)
         # Convert versions dict entries to Service instances if they're still dicts
         if self.versions:
@@ -451,6 +457,8 @@ class Service:
                 v = filter_dict(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "endpoints":
+                v = TypeRefs.urls_asdict(v)
             elif k == "connections":
                 v = TypeRefs.urls_asdict(v)
             elif k == "release_schedule" and v:
@@ -461,7 +469,11 @@ class Service:
                     url: (svc.asdict() if isinstance(svc, Service) else svc)
                     for url, svc in v.items()
                 }
-            if v:  # exclude empty values
+
+            # exclude empty values and values inherited from parent
+            if v and (
+                not self._parent or v != getattr(self._parent, k)  # type: ignore
+            ):
                 result[k] = v
         return result
 

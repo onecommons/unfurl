@@ -51,7 +51,7 @@ artifact_keys = [
                     }
                 ),
                 source="https://github.com/baserow/baserow",
-                source_revision="2790886f0d68669327793d46ee8989f92a9459c6",
+                source_revision="7d43e309793e1a9f1911bb5d44b4a1d6518444d0",
             ),
         ),
         (
