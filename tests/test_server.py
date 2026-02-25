@@ -137,8 +137,15 @@ def _next_port():
     return _server_port
 
 
-def serve_server(*args, error_queue: Queue = None, **kw):
-    """Wrapper around server.serve that forwards child start errors to a Queue."""
+def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw):
+    """Wrapper around server.serve that forwards child start errors to a Queue.
+
+    extra_env: env vars to set in the child process before starting the server.
+    Use this instead of relying on os.environ inheritance, which is unreliable
+    with the forkserver start method (the default on Linux since Python 3.14).
+    """
+    if extra_env:
+        os.environ.update(extra_env)
     try:
         return server.serve(*args, **kw)
     except Exception:
@@ -745,6 +752,236 @@ def test_server_update_deployment():
             assert res.content == b"3"  # 3 keys deleted
             assert res.status_code == 200
 
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_get_types():
+    """GET /types returns a GraphQL-style JSON database of TOSCA resource types."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            res = requests.get(
+                f"http://{HOST}:{port}/types",
+                params={
+                    "auth_project": "remote",
+                    "latest_commit": last_commit,
+                    "file": "ensemble/ensemble.yaml",
+                },
+            )
+            assert res.status_code == 200, res.json()
+            data = res.json()
+            assert "ResourceType" in data, list(data.keys())
+            assert len(data["ResourceType"]) > 0
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+def test_empty_cache():
+    """POST /empty_cache clears all cache entries when called with the admin project."""
+    runner = CliRunner()
+    port = _next_port()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            ctx = get_context()
+            error_queue = ctx.Queue()
+            p = ctx.Process(
+                target=serve_server,
+                args=(HOST, port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
+                kwargs={
+                    "error_queue": error_queue,
+                    # Pass via extra_env so it reaches the child regardless of
+                    # multiprocessing start method (forkserver on Linux py3.14+
+                    # does not inherit os.environ changes made after the forkserver starts).
+                    "extra_env": {"UNFURL_SERVER_ADMIN_PROJECT": "admin/project"},
+                },
+            )
+            p._error_queue = error_queue
+            start_server_process(p, port)
+
+            # Authorized: correct admin project → 200 OK
+            res = requests.post(
+                f"http://{HOST}:{port}/empty_cache",
+                params={"secret": "secret", "auth_project": "admin/project"},
+            )
+            assert res.status_code == 200, res.json()
+            assert res.content == b"OK"
+
+            # Unauthorized: wrong project → 401
+            res = requests.post(
+                f"http://{HOST}:{port}/empty_cache",
+                params={"secret": "secret", "auth_project": "wrong/project"},
+            )
+            assert res.status_code == 401
+            assert res.json()["code"] == "UNAUTHORIZED"
+
+            # Missing auth_project → 422 (APIFlask input validation: auth_project is required)
+            res = requests.post(
+                f"http://{HOST}:{port}/empty_cache",
+                params={"secret": "secret"},
+            )
+            assert res.status_code == 422
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_update_environment():
+    """POST /update_environment adds an environment to unfurl.yaml."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+
+            env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
+            res = requests.post(
+                f"http://{HOST}:{port}/update_environment?auth_project=remote",
+                json={"patch": env_patch, "latest_commit": last_commit},
+            )
+            assert res.status_code == 200, res.json()
+            new_commit = res.json()["commit"]
+            assert new_commit and new_commit != last_commit
+
+            os.chdir("remote")
+            os.system("git pull ../remote.git")
+            with open("unfurl.yaml") as f:
+                data = yaml.load(f.read())
+            assert "staging" in data.get("environments", {}), data
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_delete_environment():
+    """POST /delete_environment removes a previously created environment from unfurl.yaml."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+
+            # First create the environment
+            env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
+            res = requests.post(
+                f"http://{HOST}:{port}/update_environment?auth_project=remote",
+                json={"patch": env_patch, "latest_commit": last_commit},
+            )
+            assert res.status_code == 200, res.json()
+            last_commit = res.json()["commit"]
+            assert last_commit
+
+            # Now delete it
+            del_patch = [
+                {"name": "staging", "__typename": "DeploymentEnvironment", "__deleted": True}
+            ]
+            res = requests.post(
+                f"http://{HOST}:{port}/delete_environment?auth_project=remote",
+                json={"patch": del_patch, "latest_commit": last_commit},
+            )
+            assert res.status_code == 200, res.json()
+            new_commit = res.json()["commit"]
+            assert new_commit and new_commit != last_commit
+
+            os.chdir("remote")
+            os.system("git pull ../remote.git")
+            with open("unfurl.yaml") as f:
+                data = yaml.load(f.read())
+            assert "staging" not in data.get("environments", {}), data
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_delete_deployment():
+    """POST /delete_deployment removes an ensemble registration from unfurl.yaml."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+
+            # Create a provider so there is a registered deployment path to delete
+            provider_patch = [{"name": "gcp", "__typename": "DeploymentEnvironment"}]
+            res = requests.post(
+                f"http://{HOST}:{port}/create_provider?auth_project=remote",
+                json={
+                    "environment": "gcp",
+                    "deployment_path": "environments/gcp/primary_provider",
+                    "patch": provider_patch,
+                    "latest_commit": last_commit,
+                },
+            )
+            assert res.status_code == 200, res.json()
+            last_commit = res.json()["commit"]
+            assert last_commit
+
+            # Remove the ensemble registration via /delete_deployment
+            del_patch = [
+                {
+                    "name": "environments/gcp/primary_provider",
+                    "__typename": "DeploymentPath",
+                    "__deleted": True,
+                }
+            ]
+            res = requests.post(
+                f"http://{HOST}:{port}/delete_deployment?auth_project=remote",
+                json={"patch": del_patch, "latest_commit": last_commit},
+            )
+            assert res.status_code == 200, res.json()
+            new_commit = res.json()["commit"]
+            assert new_commit and new_commit != last_commit
+
+            os.chdir("remote")
+            os.system("git pull ../remote.git")
+            with open("unfurl.yaml") as f:
+                data = yaml.load(f.read())
+            ensemble_files = [e.get("file", "") for e in data.get("ensembles", [])]
+            assert not any("primary_provider" in f for f in ensemble_files), data
+        finally:
+            if p:
+                p.terminate()
+                p.join()
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_create_ensemble():
+    """POST /create_ensemble creates a new ensemble at the given deployment path."""
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+
+            res = requests.post(
+                f"http://{HOST}:{port}/create_ensemble?auth_project=remote",
+                json={
+                    "patch": [],
+                    "deployment_path": "deployments/new-app",
+                    "latest_commit": last_commit,
+                },
+            )
+            assert res.status_code == 200, res.json()
+            new_commit = res.json()["commit"]
+            assert new_commit and new_commit != last_commit
+
+            os.chdir("remote")
+            os.system("git pull ../remote.git")
+            assert os.path.exists("deployments/new-app/ensemble.yaml"), os.listdir(".")
         finally:
             if p:
                 p.terminate()
