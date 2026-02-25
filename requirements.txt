@@ -13,6 +13,7 @@ MarkupSafe<=2.1.1 # Apache 2. newer version broken with jinja2
 jinja2==3.1.6 # BSD 3-clause
 typing_extensions>=4.13
 flask==2.3.3 # BSD 3-clause
+apiflask>=3.0.2 # MIT
 flask-caching<=2.0.1 # BSD 3-clause
 flask_cors>=5.0.0 # MIT
 waitress  # Zope ZPL 2.1

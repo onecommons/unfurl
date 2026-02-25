@@ -1,0 +1,1240 @@
+{
+  "components": {
+    "schemas": {
+      "ExportResponse": {
+        "additionalProperties": true,
+        "properties": {
+          "ApplicationBlueprint": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of blueprint name \u2192 ApplicationBlueprint object",
+            "nullable": true,
+            "type": "object"
+          },
+          "Deployment": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of deployment name \u2192 Deployment object (deployment format only)",
+            "nullable": true,
+            "type": "object"
+          },
+          "DeploymentEnvironment": {
+            "additionalProperties": {},
+            "default": null,
+            "description": "DeploymentEnvironment object (deployment and environments formats)",
+            "nullable": true,
+            "type": "object"
+          },
+          "DeploymentPath": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of path \u2192 DeploymentPath object (registered ensemble paths)",
+            "nullable": true,
+            "type": "object"
+          },
+          "DeploymentTemplate": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of blueprint name \u2192 DeploymentTemplate object",
+            "nullable": true,
+            "type": "object"
+          },
+          "ResourceTemplate": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of template name \u2192 ResourceTemplate object (TOSCA node template)",
+            "nullable": true,
+            "type": "object"
+          },
+          "ResourceType": {
+            "additionalProperties": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "default": null,
+            "description": "Map of type name \u2192 ResourceType object (TOSCA node type)",
+            "nullable": true,
+            "type": "object"
+          },
+          "deployments": {
+            "default": null,
+            "description": "Embedded deployment exports (present when include_all_deployments=true)",
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "nullable": true,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "HTTPError": {
+        "properties": {
+          "detail": {
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PatchEnsembleBody": {
+        "additionalProperties": true,
+        "properties": {
+          "blueprint_url": {
+            "default": null,
+            "description": "Remote blueprint URL to clone when creating an ensemble",
+            "nullable": true,
+            "type": "string"
+          },
+          "branch": {
+            "default": "main",
+            "description": "Target branch",
+            "type": "string"
+          },
+          "cloud_vars_url": {
+            "default": null,
+            "description": "URL for cloud variables used for vault secret encryption",
+            "nullable": true,
+            "type": "string"
+          },
+          "commit_msg": {
+            "default": null,
+            "description": "Git commit message",
+            "nullable": true,
+            "type": "string"
+          },
+          "deployment_blueprint": {
+            "default": null,
+            "description": "Name of the deployment blueprint to use when creating an ensemble",
+            "nullable": true,
+            "type": "string"
+          },
+          "deployment_path": {
+            "default": null,
+            "description": "Path for the deployment within the project",
+            "nullable": true,
+            "type": "string"
+          },
+          "environment": {
+            "default": null,
+            "description": "Deployment environment name",
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_commit": {
+            "default": null,
+            "description": "Latest known commit hash for optimistic concurrency checks",
+            "nullable": true,
+            "type": "string"
+          },
+          "patch": {
+            "description": "List of patch operations describing the changes to apply",
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "private_token": {
+            "default": null,
+            "description": "Git personal access token or password",
+            "nullable": true,
+            "type": "string"
+          },
+          "username": {
+            "default": null,
+            "description": "Git username for pushing the commit",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "type": "object"
+      },
+      "PatchEnvironmentBody": {
+        "additionalProperties": true,
+        "properties": {
+          "branch": {
+            "default": "main",
+            "description": "Target branch",
+            "type": "string"
+          },
+          "commit_msg": {
+            "default": null,
+            "description": "Git commit message",
+            "nullable": true,
+            "type": "string"
+          },
+          "latest_commit": {
+            "default": null,
+            "description": "Latest known commit hash for optimistic concurrency checks",
+            "nullable": true,
+            "type": "string"
+          },
+          "patch": {
+            "description": "List of patch operations describing the changes to apply",
+            "items": {
+              "additionalProperties": {},
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "private_token": {
+            "default": null,
+            "description": "Git personal access token or password",
+            "nullable": true,
+            "type": "string"
+          },
+          "username": {
+            "default": null,
+            "description": "Git username for pushing the commit",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "type": "object"
+      },
+      "PatchResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "commit": {
+            "description": "Commit hash after applying the patch, or null if no changes were committed",
+            "nullable": true,
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "detail": {
+            "properties": {
+              "<location>": {
+                "properties": {
+                  "<field_name>": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Unfurl Server API",
+    "version": "1.2.1"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/clear_project_file_cache": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Project ID whose cache entries and cloned files will be removed",
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Clear cache and cloned files for a project",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/create_ensemble": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Create a new ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/create_provider": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Create a cloud provider and its associated ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/delete_deployment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Delete a deployment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/delete_environment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Delete a deployment environment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/empty_cache": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable",
+            "in": "query",
+            "name": "auth_project",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Cache key prefix to clear; defaults to the server-configured prefix",
+            "in": "query",
+            "name": "cache_prefix",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Clear all cache entries (admin only)",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/export": {
+      "get": {
+        "description": "Export an ensemble or service template in a JSON format suitable for the frontend. Supports 'deployment', 'blueprint', and 'environments' formats.",
+        "parameters": [
+          {
+            "description": "Project ID for authorization and cache key scoping",
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Commit hash used to validate the cache entry",
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Git branch name",
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pretty-print the JSON response",
+            "in": "query",
+            "name": "pretty",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Git username (alternative to X-Git-Credentials header)",
+            "in": "query",
+            "name": "username",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository visibility",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "default": null,
+              "enum": [
+                "public",
+                "private",
+                null
+              ],
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Export format",
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "enum": [
+                "deployment",
+                "blueprint",
+                "environments"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "description": "Path to the deployment within the project",
+            "in": "query",
+            "name": "deployment_path",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Environment name (used with 'environments' format)",
+            "in": "query",
+            "name": "environment",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Include all deployment exports embedded in the response",
+            "in": "query",
+            "name": "include_all_deployments",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "GraphQL-style JSON database of TOSCA objects"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Not Modified (ETag matched)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Export ensemble as JSON",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "Status"
+        ]
+      }
+    },
+    "/populate_cache": {
+      "post": {
+        "parameters": [
+          {
+            "description": "Project ID for authorization and cache key scoping",
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Branch name; also accepts 'refs/heads/\u2026' and 'refs/tags/\u2026' prefixes",
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "default": "main",
+              "type": "string"
+            }
+          },
+          {
+            "description": "File path relative to the project root",
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Latest commit hash for this file",
+            "in": "query",
+            "name": "latest_commit",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
+            "in": "query",
+            "name": "removed",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository visibility; private repositories are not cloned automatically",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "default": null,
+              "enum": [
+                "public",
+                "private",
+                null
+              ],
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Populate export cache for a project file",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/types": {
+      "get": {
+        "description": "Export all available TOSCA resource types, optionally augmented from a CloudMap project.",
+        "parameters": [
+          {
+            "description": "Project ID for authorization and cache key scoping",
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Commit hash used to validate the cache entry",
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Git branch name",
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pretty-print the JSON response",
+            "in": "query",
+            "name": "pretty",
+            "required": false,
+            "schema": {
+              "default": false,
+              "type": "boolean"
+            }
+          },
+          {
+            "description": "Git username (alternative to X-Git-Credentials header)",
+            "in": "query",
+            "name": "username",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Repository visibility",
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "default": null,
+              "enum": [
+                "public",
+                "private",
+                null
+              ],
+              "nullable": true,
+              "type": "string"
+            }
+          },
+          {
+            "description": "Filename used as template context",
+            "in": "query",
+            "name": "file",
+            "required": false,
+            "schema": {
+              "default": "dummy-ensemble.yaml",
+              "type": "string"
+            }
+          },
+          {
+            "description": "CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'",
+            "in": "query",
+            "name": "cloudmap",
+            "required": false,
+            "schema": {
+              "default": null,
+              "nullable": true,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "GraphQL-style JSON database of TOSCA types"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Not Modified (ETag matched)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Export TOSCA types",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/update_ensemble": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Update an existing ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/update_environment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Update a deployment environment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "summary": "Server version",
+        "tags": [
+          "Status"
+        ]
+      }
+    }
+  },
+  "tags": []
+}
