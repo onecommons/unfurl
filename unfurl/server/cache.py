@@ -178,8 +178,9 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
         )
         if args and base_url and key.startswith(base_url):
             # repository on this server, apply credentials if present
-            username, password = args.get("username"), args.get(
-                "private_token", args.get("password")
+            username, password = (
+                args.get("username"),
+                args.get("private_token", args.get("password")),
             )
             if username and password:
                 url = add_user_to_url(url, username, password)

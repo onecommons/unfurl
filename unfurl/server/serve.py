@@ -47,19 +47,34 @@ from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
-from apiflask import APIFlask, Schema
-from marshmallow import fields as ma_fields, INCLUDE
-from marshmallow.validate import OneOf
-from flask import Request, current_app, jsonify, request
+from apiflask import APIFlask
+from flask import Request, Response, current_app, jsonify, request
 import flask.json
-from flask.typing import ResponseValue
+from flask.typing import ResponseReturnValue
 from flask_caching import Cache
 from flask_cors import CORS
 
 import git
 from git.objects import Commit
 
-from ..graphql import ImportDef, get_local_type, project_id_from_urlresult
+from ..graphql import (
+    ImportDef,
+    get_local_type,
+    project_id_from_urlresult,
+)
+from .schemas import (
+    ClearProjectQuery,
+    EmptyCacheQuery,
+    ExportQuery,
+    ExportResponse,
+    PatchEnvironmentBody,
+    PatchEnsembleBody,
+    PatchResponse,
+    PopulateCacheQuery,
+    TypesQuery,
+    EXPORT_RESPONSES,
+    PATCH_RESPONSES,
+)
 from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url
 
@@ -89,333 +104,6 @@ if __logfile:
     add_log_file(__logfile)
 logger = getLogger("unfurl.server")
 
-
-# ---------------------------------------------------------------------------
-# APIFlask input schemas (used for OpenAPI spec generation and validation)
-# ---------------------------------------------------------------------------
-
-
-class ProjectQuery(Schema):
-    """Common auth query parameter shared by all endpoints."""
-
-    class Meta:
-        unknown = INCLUDE  # pass unknown query params through to request.args
-
-    auth_project = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Project ID for authorization and cache key scoping"},
-    )
-
-
-class ExportBaseQuery(ProjectQuery):
-    """Shared query parameters for /export and /types."""
-
-    latest_commit = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Commit hash used to validate the cache entry"},
-    )
-    branch = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Git branch name"},
-    )
-    pretty = ma_fields.Boolean(
-        load_default=False,
-        metadata={"description": "Pretty-print the JSON response"},
-    )
-    username = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Git username (alternative to X-Git-Credentials header)"
-        },
-    )
-    visibility = ma_fields.String(
-        load_default=None,
-        validate=OneOf(["public", "private"]),
-        metadata={"description": "Repository visibility"},
-    )
-
-
-class ExportQuery(ExportBaseQuery):
-    """Query parameters for /export."""
-
-    format = ma_fields.String(
-        load_default="deployment",
-        validate=OneOf(["deployment", "blueprint", "environments"]),
-        metadata={"description": "Export format"},
-    )
-    deployment_path = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Path to the deployment within the project"},
-    )
-    environment = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Environment name (used with 'environments' format)"},
-    )
-    include_all_deployments = ma_fields.Boolean(
-        load_default=False,
-        metadata={
-            "description": "Include all deployment exports embedded in the response"
-        },
-    )
-
-
-class TypesQuery(ExportBaseQuery):
-    """Query parameters for /types."""
-
-    file = ma_fields.String(
-        load_default="dummy-ensemble.yaml",
-        metadata={"description": "Filename used as template context"},
-    )
-    cloudmap = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'"
-        },
-    )
-
-
-class PopulateCacheQuery(ProjectQuery):
-    """Query parameters for /populate_cache."""
-
-    branch = ma_fields.String(
-        load_default="main",
-        metadata={
-            "description": "Branch name; also accepts 'refs/heads/…' and 'refs/tags/…' prefixes"
-        },
-    )
-    path = ma_fields.String(
-        required=True,
-        metadata={"description": "File path relative to the project root"},
-    )
-    latest_commit = ma_fields.String(
-        required=True,
-        metadata={"description": "Latest commit hash for this file"},
-    )
-    removed = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it"
-        },
-    )
-    visibility = ma_fields.String(
-        load_default=None,
-        validate=OneOf(["public", "private"]),
-        metadata={
-            "description": "Repository visibility; private repositories are not cloned automatically"
-        },
-    )
-
-
-class EmptyCacheQuery(ProjectQuery):
-    """Query parameters for /empty_cache."""
-
-    auth_project = ma_fields.String(
-        required=True,
-        metadata={
-            "description": "Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable"
-        },
-    )
-    cache_prefix = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Cache key prefix to clear; defaults to the server-configured prefix"
-        },
-    )
-
-
-class ClearProjectQuery(ProjectQuery):
-    """Query parameters for /clear_project_file_cache."""
-
-    auth_project = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Project ID whose cache entries and cloned files will be removed"
-        },
-    )
-
-
-class PatchEnvironmentBody(Schema):
-    """JSON body for /delete_deployment, /update_environment, and /delete_environment."""
-
-    class Meta:
-        unknown = INCLUDE  # allow extra fields (e.g. username/private_token added by _get_body)
-
-    patch = ma_fields.List(
-        ma_fields.Dict(),
-        required=True,
-        metadata={
-            "description": "List of patch operations describing the changes to apply"
-        },
-    )
-    branch = ma_fields.String(
-        load_default="main", metadata={"description": "Target branch"}
-    )
-    latest_commit = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Latest known commit hash for optimistic concurrency checks"
-        },
-    )
-    username = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Git username for pushing the commit"},
-    )
-    private_token = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Git personal access token or password"},
-    )
-    commit_msg = ma_fields.String(
-        load_default=None, metadata={"description": "Git commit message"}
-    )
-
-
-class PatchEnsembleBody(PatchEnvironmentBody):
-    """JSON body for /create_ensemble, /update_ensemble, and /create_provider.
-
-    Extends PatchEnvironmentBody with ensemble-specific fields.
-    """
-
-    environment = ma_fields.String(
-        load_default=None, metadata={"description": "Deployment environment name"}
-    )
-    deployment_path = ma_fields.String(
-        load_default=None,
-        metadata={"description": "Path for the deployment within the project"},
-    )
-    cloud_vars_url = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "URL for cloud variables used for vault secret encryption"
-        },
-    )
-    deployment_blueprint = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Name of the deployment blueprint to use when creating an ensemble"
-        },
-    )
-    blueprint_url = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Remote blueprint URL to clone when creating an ensemble"
-        },
-    )
-
-
-# --- Response schemas ---
-
-
-class ErrorResponse(Schema):
-    """Error response returned by all endpoints on failure."""
-
-    code = ma_fields.String(
-        required=True,
-        metadata={
-            "description": "Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)"
-        },
-    )
-    message = ma_fields.String(
-        required=True, metadata={"description": "Human-readable error message"}
-    )
-    details = ma_fields.String(
-        load_default=None,
-        metadata={
-            "description": "Full exception traceback, included when an unexpected error occurs"
-        },
-    )
-
-
-class PatchResponse(Schema):
-    """Response from all write endpoints after a successful commit."""
-
-    commit = ma_fields.String(
-        allow_none=True,
-        metadata={
-            "description": "Commit hash after applying the patch, or null if no changes were committed"
-        },
-    )
-
-
-class ExportResponse(Schema):
-    """GraphQL-style JSON database returned by /export and /types.
-
-    Each top-level key maps to a dict of named GraphQL objects of that type,
-    reflecting the GraphQL schema defined in unfurl/graphql.py.
-    """
-
-    class Meta:
-        unknown = INCLUDE  # allow format-specific keys not listed here
-
-    ResourceType = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={
-            "description": "Map of type name → ResourceType object (TOSCA node type)"
-        },
-    )
-    ResourceTemplate = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={
-            "description": "Map of template name → ResourceTemplate object (TOSCA node template)"
-        },
-    )
-    DeploymentTemplate = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={"description": "Map of blueprint name → DeploymentTemplate object"},
-    )
-    ApplicationBlueprint = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={"description": "Map of blueprint name → ApplicationBlueprint object"},
-    )
-    DeploymentEnvironment = ma_fields.Dict(
-        load_default=None,
-        metadata={
-            "description": "DeploymentEnvironment object (deployment and environments formats)"
-        },
-    )
-    DeploymentPath = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={
-            "description": "Map of path → DeploymentPath object (registered ensemble paths)"
-        },
-    )
-    Deployment = ma_fields.Dict(
-        keys=ma_fields.String(),
-        values=ma_fields.Dict(),
-        load_default=None,
-        metadata={
-            "description": "Map of deployment name → Deployment object (deployment format only)"
-        },
-    )
-    deployments = ma_fields.List(
-        ma_fields.Dict(),
-        load_default=None,
-        metadata={
-            "description": "Embedded deployment exports (present when include_all_deployments=true)"
-        },
-    )
-
-
-# Reusable response code sets for @app.doc(responses=...)
-_EXPORT_RESPONSES: Dict[int, str] = {
-    304: "Not Modified (ETag matched)",
-    401: "Unauthorized",
-    500: "Internal error",
-}
-_PATCH_RESPONSES: Dict[int, str] = {
-    401: "Unauthorized",
-    409: "Conflict (repository at wrong revision)",
-    500: "Internal error",
-}
 
 # note: export FLASK_ENV=development to see error stacks
 # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
@@ -1506,13 +1194,13 @@ def hook():
 
 @app.get("/health")
 @app.doc(summary="Health check", tags=["Status"])
-def health():
+def health() -> str:
     return "OK"
 
 
 @app.get("/version")
 @app.doc(summary="Server version", tags=["Status"])
-def version():
+def version() -> str:
     return f"{semver_prerelease()}+{get_package_digest() or '00000000'}"
 
 
@@ -1560,7 +1248,7 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Git
     return repo
 
 
-def ensure_local_config(working_dir):
+def ensure_local_config(working_dir: str) -> None:
     path = Path(working_dir)
     if (path / DefaultNames.LocalConfigTemplate).is_file() and not (
         path / "local" / DefaultNames.LocalConfig
@@ -1574,7 +1262,7 @@ def ensure_local_config(working_dir):
             )
 
 
-def _get_filepath(format, deployment_path):
+def _get_filepath(format: str, deployment_path: str) -> str:
     if deployment_path:
         if not deployment_path.endswith(".yaml"):
             return os.path.join(deployment_path, "ensemble.yaml")
@@ -1587,7 +1275,7 @@ def _get_filepath(format, deployment_path):
         return "ensemble/ensemble.yaml"
 
 
-def format_from_path(path):
+def format_from_path(path: str) -> str:
     if path.endswith("ensemble-template.yaml"):
         return "blueprint"
     elif path.endswith("unfurl.yaml"):
@@ -1611,11 +1299,11 @@ def _export_cache_work(
     return err, val, True
 
 
-def _make_etag(latest_commit: str):
+def _make_etag(latest_commit: str) -> str:
     return f'W/"{latest_commit}"'
 
 
-def json_response(obj, pretty, **dump_args):
+def json_response(obj: Any, pretty: Optional[str], **dump_args: Any) -> Response:
     if pretty:
         dump_args.setdefault("indent", 2)
     else:
@@ -1634,11 +1322,11 @@ def json_response(obj, pretty, **dump_args):
     description="Export an ensemble or service template in a JSON format suitable for the frontend. "
     "Supports 'deployment', 'blueprint', and 'environments' formats.",
     tags=["Export"],
-    responses=_EXPORT_RESPONSES,
+    responses=EXPORT_RESPONSES,
 )
 @app.input(ExportQuery, location="query", arg_name="query")
 @app.output(ExportResponse, description="GraphQL-style JSON database of TOSCA objects")
-def export(query: dict):
+def export(query: ExportQuery) -> ResponseReturnValue:
     requested_format = request.args.get("format", "deployment")
     if requested_format not in ["blueprint", "environments", "deployment"]:
         return create_error_response(
@@ -1675,7 +1363,7 @@ def _export(
     deployment_path: str,
     include_all: bool,
     post_work: Optional[Callable[[CacheEntry, Any], None]] = None,
-):
+) -> ResponseReturnValue:
     latest_commit = request.args.get("latest_commit")
     if latest_commit == "undefined":
         latest_commit = None
@@ -1761,7 +1449,7 @@ def _export(
             if not derrors and (hit or (cache_entry.value and not post_work)):
                 etag = request.headers.get("If-None-Match")
                 if etag and cache_entry.value and cache_entry.value.make_etag() == etag:
-                    return "Not Modified", 304
+                    return Response("Not Modified", status=304)
             elif post_work:
                 post_work(cache_entry, json_summary)
 
@@ -1806,11 +1494,11 @@ def _export(
     summary="Export TOSCA types",
     description="Export all available TOSCA resource types, optionally augmented from a CloudMap project.",
     tags=["Export"],
-    responses=_EXPORT_RESPONSES,
+    responses=EXPORT_RESPONSES,
 )
 @app.input(TypesQuery, location="query", arg_name="query")
 @app.output(ExportResponse, description="GraphQL-style JSON database of TOSCA types")
-def get_types(query: dict):
+def get_types(query: TypesQuery) -> ResponseReturnValue:
     # request.args.getlist("implementation_requirements")
     # request.args.getlist("extends")
     # request.args.getlist("implements")
@@ -1832,7 +1520,7 @@ def get_types(query: dict):
 @app.post("/populate_cache")
 @app.doc(summary="Populate export cache for a project file", tags=["Cache"])
 @app.input(PopulateCacheQuery, location="query", arg_name="query")
-def populate_cache(query: dict):
+def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
     project_id = get_project_id(request)
     branch = request.args.get("branch", DEFAULT_BRANCH)
     for prefix in ["refs/heads/", "refs/tags/"]:
@@ -1879,7 +1567,7 @@ def populate_cache(query: dict):
 @app.post("/empty_cache")
 @app.doc(summary="Clear all cache entries (admin only)", tags=["Cache"])
 @app.input(EmptyCacheQuery, location="query", arg_name="query")
-def empty_cache(query: dict):
+def empty_cache(query: EmptyCacheQuery) -> ResponseReturnValue:
     project_id = get_project_id(request)
     # only members of this project (with write permission) has permission for this
     admin_project = os.environ.get("UNFURL_SERVER_ADMIN_PROJECT")
@@ -1893,12 +1581,12 @@ def empty_cache(query: dict):
 @app.post("/clear_project_file_cache")
 @app.doc(summary="Clear cache and cloned files for a project", tags=["Cache"])
 @app.input(ClearProjectQuery, location="query", arg_name="query")
-def clear_project(query: dict):
+def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
     project_id = get_project_id(request)
     return _clear_project(project_id)
 
 
-def _clear_project(project_id):
+def _clear_project(project_id: str) -> ResponseReturnValue:
     if not local_developer_mode() and project_id:
         found = False
         # only delete repos we cloned
@@ -2130,11 +1818,11 @@ def _get_body(request):
 @app.doc(
     summary="Delete a deployment",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def delete_deployment(body_schema: dict):
+def delete_deployment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
@@ -2143,11 +1831,11 @@ def delete_deployment(body_schema: dict):
 @app.doc(
     summary="Update a deployment environment",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def update_environment(body_schema: dict):
+def update_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
@@ -2156,11 +1844,11 @@ def update_environment(body_schema: dict):
 @app.doc(
     summary="Delete a deployment environment",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def delete_environment(body_schema: dict):
+def delete_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
@@ -2169,11 +1857,11 @@ def delete_environment(body_schema: dict):
 @app.doc(
     summary="Create a cloud provider and its associated ensemble",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def create_provider(body_schema: dict):
+def create_provider(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     body = _get_body(request)
     project_id = get_project_id(request)
     _patch_environment(body, project_id)
@@ -2394,11 +2082,11 @@ def _patch_node_template(
 @app.doc(
     summary="Update an existing ensemble",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def update_ensemble(body_schema: dict):
+def update_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_ensemble(body, False, get_project_id(request))
 
@@ -2407,11 +2095,11 @@ def update_ensemble(body_schema: dict):
 @app.doc(
     summary="Create a new ensemble",
     tags=["Project"],
-    responses=_PATCH_RESPONSES,
+    responses=PATCH_RESPONSES,
 )
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def create_ensemble(body_schema: dict):
+def create_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_ensemble(body, True, get_project_id(request))
 
@@ -2435,7 +2123,7 @@ def update_deployment(project, key, patch_inner, save, deleted=False):
         localConfig.config.save()
 
 
-def _patch_response(repo: Optional[GitRepo]):
+def _patch_response(repo: Optional[GitRepo]) -> Response:
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
@@ -2502,7 +2190,7 @@ def _apply_environment_patch(
     return None
 
 
-def _patch_environment(body: dict, project_id: str):
+def _patch_environment(body: dict, project_id: str) -> ResponseReturnValue:
     patch = body.get("patch")
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
@@ -2567,7 +2255,7 @@ def _patch_environment(body: dict, project_id: str):
 def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     if project_id and project_id != ".":
         branch = body.get("branch")
-        file_path = _get_filepath(format, body.get("deployment_path"))
+        file_path = _get_filepath(format, body.get("deployment_path") or "")
         entry = CacheEntry(project_id, branch, file_path, format)
         success = entry.delete_cache(cache)
         logger.debug(f"invalidate cache: delete {entry.cache_key()}: {success}")
@@ -2643,7 +2331,9 @@ def _get_commit_msg(body, default_msg):
     return msg
 
 
-def _patch_ensemble(body: dict, create: bool, project_id: str, check_lastcommit=True):
+def _patch_ensemble(
+    body: dict, create: bool, project_id: str, check_lastcommit: bool = True
+) -> ResponseReturnValue:
     from .cache import ServerCacheResolver
 
     patch = body.get("patch")
@@ -2959,7 +2649,7 @@ def _fetch_working_dir(
 
 def create_error_response(
     code: str, message: str, err: Optional[Exception] = None
-) -> Tuple[Any, int]:
+) -> Tuple[Response, int]:
     http_code = 400  # Default to BAD_REQUEST
     if code == "BAD_REQUEST":
         http_code = 400

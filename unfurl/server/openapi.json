@@ -3,86 +3,909 @@
     "schemas": {
       "ExportResponse": {
         "additionalProperties": true,
+        "description": "GraphQL-style JSON database returned by /export and /types.\n\nEach top-level key maps to a dict of named GraphQL objects of that type,\nreflecting the GraphQL schema defined in unfurl/graphql.py.",
         "properties": {
           "ApplicationBlueprint": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ApplicationBlueprint"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of blueprint name \u2192 ApplicationBlueprint object",
-            "nullable": true,
-            "type": "object"
+            "title": "Applicationblueprint"
           },
           "Deployment": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.Deployment"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of deployment name \u2192 Deployment object (deployment format only)",
-            "nullable": true,
-            "type": "object"
+            "title": "Deployment"
           },
           "DeploymentEnvironment": {
-            "additionalProperties": {},
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.DeploymentEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
-            "description": "DeploymentEnvironment object (deployment and environments formats)",
-            "nullable": true,
-            "type": "object"
+            "description": "DeploymentEnvironment object (deployment and environments formats)"
           },
           "DeploymentPath": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.DeploymentPath"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of path \u2192 DeploymentPath object (registered ensemble paths)",
-            "nullable": true,
-            "type": "object"
+            "title": "Deploymentpath"
           },
           "DeploymentTemplate": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.DeploymentTemplate"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of blueprint name \u2192 DeploymentTemplate object",
-            "nullable": true,
-            "type": "object"
+            "title": "Deploymenttemplate"
           },
           "ResourceTemplate": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of template name \u2192 ResourceTemplate object (TOSCA node template)",
-            "nullable": true,
-            "type": "object"
+            "title": "Resourcetemplate"
           },
           "ResourceType": {
-            "additionalProperties": {
-              "additionalProperties": {},
-              "type": "object"
-            },
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ResourceType"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Map of type name \u2192 ResourceType object (TOSCA node type)",
-            "nullable": true,
-            "type": "object"
+            "title": "Resourcetype"
           },
           "deployments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExportResponse.Deployment"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Embedded deployment exports (present when include_all_deployments=true)",
-            "items": {
-              "additionalProperties": {},
-              "type": "object"
-            },
-            "nullable": true,
-            "type": "array"
+            "title": "Deployments"
           }
         },
+        "title": "ExportResponse",
         "type": "object"
+      },
+      "ExportResponse.ApplicationBlueprint": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "blueprintPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprintpath"
+          },
+          "deploymentTemplates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deploymenttemplates",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "livePreview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Livepreview"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "primaryDeploymentBlueprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primarydeploymentblueprint"
+          },
+          "projectIcon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projecticon"
+          },
+          "projectPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectpath"
+          },
+          "sourceCodeUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcecodeurl"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "ApplicationBlueprint",
+        "type": "object"
+      },
+      "ExportResponse.Deployment": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "deployTime": {
+            "title": "Deploytime",
+            "type": "string"
+          },
+          "deploymentTemplate": {
+            "title": "Deploymenttemplate",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "packages": {
+            "additionalProperties": true,
+            "title": "Packages",
+            "type": "object"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExportResponse.Status"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "Deployment",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentEnvironment": {
+        "additionalProperties": true,
+        "properties": {
+          "connections": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Connections",
+            "type": "object"
+          },
+          "instances": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Instances",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repositories": {
+            "additionalProperties": true,
+            "title": "Repositories",
+            "type": "object"
+          }
+        },
+        "required": [
+          "instances"
+        ],
+        "title": "DeploymentEnvironment",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentPath": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "incremental_deploy": {
+            "title": "Incremental Deploy",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pipelines": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "environment",
+          "pipelines",
+          "incremental_deploy",
+          "__typename"
+        ],
+        "title": "DeploymentPath",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentTemplate": {
+        "additionalProperties": true,
+        "properties": {
+          "ResourceTemplate": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Resourcetemplate",
+            "type": "object"
+          },
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "blueprint": {
+            "title": "Blueprint",
+            "type": "string"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "cloud": {
+            "title": "Cloud",
+            "type": "string"
+          },
+          "commitTime": {
+            "title": "Committime",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "environmentVariableNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Environmentvariablenames",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "resourceTemplates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resourcetemplates",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "DeploymentTemplate",
+        "type": "object"
+      },
+      "ExportResponse.ImportDef": {
+        "additionalProperties": true,
+        "properties": {
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "incomplete": {
+            "title": "Incomplete",
+            "type": "boolean"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "ImportDef",
+        "type": "object"
+      },
+      "ExportResponse.Requirement": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "constraint": {
+            "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "constraint",
+          "match",
+          "__typename"
+        ],
+        "title": "Requirement",
+        "type": "object"
+      },
+      "ExportResponse.RequirementConstraint": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "badge": {
+            "title": "Badge",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "inputsSchema": {
+            "additionalProperties": true,
+            "title": "Inputsschema",
+            "type": "object"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "min": {
+            "title": "Min",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "node_filter": {
+            "additionalProperties": true,
+            "title": "Node Filter",
+            "type": "object"
+          },
+          "requirementsFilter": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+            },
+            "title": "Requirementsfilter",
+            "type": "array"
+          },
+          "resourceType": {
+            "title": "Resourcetype",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "resourceType",
+          "match",
+          "min",
+          "max",
+          "badge",
+          "icon",
+          "inputsSchema",
+          "__typename"
+        ],
+        "title": "RequirementConstraint",
+        "type": "object"
+      },
+      "ExportResponse.ResourceTemplate": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.Requirement"
+            },
+            "title": "Dependencies",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "directives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directives",
+            "type": "array"
+          },
+          "imported": {
+            "title": "Imported",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "properties": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Properties",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "ResourceTemplate",
+        "type": "object"
+      },
+      "ExportResponse.ResourceType": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "_sourceinfo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.ImportDef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "badge": {
+            "title": "Badge",
+            "type": "string"
+          },
+          "computedPropertiesSchema": {
+            "additionalProperties": true,
+            "title": "Computedpropertiesschema",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "details_url": {
+            "title": "Details Url",
+            "type": "string"
+          },
+          "directives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directives",
+            "type": "array"
+          },
+          "extends": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extends",
+            "type": "array"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "implementation_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementation Requirements",
+            "type": "array"
+          },
+          "implementations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementations",
+            "type": "array"
+          },
+          "inputsSchema": {
+            "additionalProperties": true,
+            "title": "Inputsschema",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outputsSchema": {
+            "additionalProperties": true,
+            "title": "Outputsschema",
+            "type": "object"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "extends",
+          "inputsSchema",
+          "requirements",
+          "__typename"
+        ],
+        "title": "ResourceType",
+        "type": "object"
+      },
+      "ExportResponse.Status": {
+        "enum": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "title": "Status",
+        "type": "integer"
       },
       "HTTPError": {
         "properties": {
@@ -97,135 +920,243 @@
       },
       "PatchEnsembleBody": {
         "additionalProperties": true,
+        "description": "JSON body for /create_ensemble, /update_ensemble, and /create_provider.\n\nExtends PatchEnvironmentBody with ensemble-specific fields.",
         "properties": {
           "blueprint_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Remote blueprint URL to clone when creating an ensemble",
-            "nullable": true,
-            "type": "string"
+            "title": "Blueprint Url"
           },
           "branch": {
             "default": "main",
             "description": "Target branch",
+            "title": "Branch",
             "type": "string"
           },
           "cloud_vars_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "URL for cloud variables used for vault secret encryption",
-            "nullable": true,
-            "type": "string"
+            "title": "Cloud Vars Url"
           },
           "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git commit message",
-            "nullable": true,
-            "type": "string"
+            "title": "Commit Msg"
           },
           "deployment_blueprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Name of the deployment blueprint to use when creating an ensemble",
-            "nullable": true,
-            "type": "string"
+            "title": "Deployment Blueprint"
           },
           "deployment_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Path for the deployment within the project",
-            "nullable": true,
-            "type": "string"
+            "title": "Deployment Path"
           },
           "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Deployment environment name",
-            "nullable": true,
-            "type": "string"
+            "title": "Environment"
           },
           "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Latest known commit hash for optimistic concurrency checks",
-            "nullable": true,
-            "type": "string"
+            "title": "Latest Commit"
           },
           "patch": {
             "description": "List of patch operations describing the changes to apply",
             "items": {
-              "additionalProperties": {},
+              "additionalProperties": true,
               "type": "object"
             },
+            "title": "Patch",
             "type": "array"
           },
           "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git personal access token or password",
-            "nullable": true,
-            "type": "string"
+            "title": "Private Token"
           },
           "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git username for pushing the commit",
-            "nullable": true,
-            "type": "string"
+            "title": "Username"
           }
         },
         "required": [
           "patch"
         ],
+        "title": "PatchEnsembleBody",
         "type": "object"
       },
       "PatchEnvironmentBody": {
         "additionalProperties": true,
+        "description": "JSON body for /delete_deployment, /update_environment, and /delete_environment.",
         "properties": {
           "branch": {
             "default": "main",
             "description": "Target branch",
+            "title": "Branch",
             "type": "string"
           },
           "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git commit message",
-            "nullable": true,
-            "type": "string"
+            "title": "Commit Msg"
           },
           "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Latest known commit hash for optimistic concurrency checks",
-            "nullable": true,
-            "type": "string"
+            "title": "Latest Commit"
           },
           "patch": {
             "description": "List of patch operations describing the changes to apply",
             "items": {
-              "additionalProperties": {},
+              "additionalProperties": true,
               "type": "object"
             },
+            "title": "Patch",
             "type": "array"
           },
           "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git personal access token or password",
-            "nullable": true,
-            "type": "string"
+            "title": "Private Token"
           },
           "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "default": null,
             "description": "Git username for pushing the commit",
-            "nullable": true,
-            "type": "string"
+            "title": "Username"
           }
         },
         "required": [
           "patch"
         ],
+        "title": "PatchEnvironmentBody",
         "type": "object"
       },
       "PatchResponse": {
-        "additionalProperties": false,
+        "description": "Response from all write endpoints after a successful commit.",
         "properties": {
           "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
             "description": "Commit hash after applying the patch, or null if no changes were committed",
-            "nullable": true,
-            "type": "string"
+            "title": "Commit"
           }
         },
+        "title": "PatchResponse",
         "type": "object"
       },
       "ValidationError": {
@@ -264,14 +1195,21 @@
       "post": {
         "parameters": [
           {
-            "description": "Project ID whose cache entries and cloned files will be removed",
             "in": "query",
             "name": "auth_project",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Project ID whose cache entries and cloned files will be removed",
+              "title": "Auth Project"
             }
           }
         ],
@@ -585,23 +1523,31 @@
       "post": {
         "parameters": [
           {
-            "description": "Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable",
             "in": "query",
             "name": "auth_project",
             "required": true,
             "schema": {
+              "description": "Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable",
+              "title": "Auth Project",
               "type": "string"
             }
           },
           {
-            "description": "Cache key prefix to clear; defaults to the server-configured prefix",
             "in": "query",
             "name": "cache_prefix",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Cache key prefix to clear; defaults to the server-configured prefix",
+              "title": "Cache Prefix"
             }
           }
         ],
@@ -636,119 +1582,170 @@
         "description": "Export an ensemble or service template in a JSON format suitable for the frontend. Supports 'deployment', 'blueprint', and 'environments' formats.",
         "parameters": [
           {
-            "description": "Project ID for authorization and cache key scoping",
             "in": "query",
             "name": "auth_project",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
             }
           },
           {
-            "description": "Commit hash used to validate the cache entry",
             "in": "query",
             "name": "latest_commit",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
             }
           },
           {
-            "description": "Git branch name",
             "in": "query",
             "name": "branch",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Git branch name",
+              "title": "Branch"
             }
           },
           {
-            "description": "Pretty-print the JSON response",
             "in": "query",
             "name": "pretty",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Pretty-print the JSON response",
+              "title": "Pretty",
               "type": "boolean"
             }
           },
           {
-            "description": "Git username (alternative to X-Git-Credentials header)",
             "in": "query",
             "name": "username",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Git username (alternative to X-Git-Credentials header)",
+              "title": "Username"
             }
           },
           {
-            "description": "Repository visibility",
             "in": "query",
             "name": "visibility",
             "required": false,
             "schema": {
-              "default": null,
-              "enum": [
-                "public",
-                "private",
-                null
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "nullable": true,
-              "type": "string"
+              "default": null,
+              "description": "Repository visibility",
+              "title": "Visibility"
             }
           },
           {
-            "description": "Export format",
             "in": "query",
             "name": "format",
             "required": false,
             "schema": {
               "default": "deployment",
+              "description": "Export format",
               "enum": [
                 "deployment",
                 "blueprint",
                 "environments"
               ],
+              "title": "Format",
               "type": "string"
             }
           },
           {
-            "description": "Path to the deployment within the project",
             "in": "query",
             "name": "deployment_path",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Path to the deployment within the project",
+              "title": "Deployment Path"
             }
           },
           {
-            "description": "Environment name (used with 'environments' format)",
             "in": "query",
             "name": "environment",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Environment name (used with 'environments' format)",
+              "title": "Environment"
             }
           },
           {
-            "description": "Include all deployment exports embedded in the response",
             "in": "query",
             "name": "include_all_deployments",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Include all deployment exports embedded in the response",
+              "title": "Include All Deployments",
               "type": "boolean"
             }
           }
@@ -832,69 +1829,92 @@
       "post": {
         "parameters": [
           {
-            "description": "Project ID for authorization and cache key scoping",
             "in": "query",
             "name": "auth_project",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
             }
           },
           {
-            "description": "Branch name; also accepts 'refs/heads/\u2026' and 'refs/tags/\u2026' prefixes",
             "in": "query",
             "name": "branch",
             "required": false,
             "schema": {
               "default": "main",
+              "description": "Branch name; also accepts 'refs/heads/\u2026' and 'refs/tags/\u2026' prefixes",
+              "title": "Branch",
               "type": "string"
             }
           },
           {
-            "description": "File path relative to the project root",
             "in": "query",
             "name": "path",
             "required": true,
             "schema": {
+              "description": "File path relative to the project root",
+              "title": "Path",
               "type": "string"
             }
           },
           {
-            "description": "Latest commit hash for this file",
             "in": "query",
             "name": "latest_commit",
             "required": true,
             "schema": {
+              "description": "Latest commit hash for this file",
+              "title": "Latest Commit",
               "type": "string"
             }
           },
           {
-            "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
             "in": "query",
             "name": "removed",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
+              "title": "Removed"
             }
           },
           {
-            "description": "Repository visibility; private repositories are not cloned automatically",
             "in": "query",
             "name": "visibility",
             "required": false,
             "schema": {
-              "default": null,
-              "enum": [
-                "public",
-                "private",
-                null
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "nullable": true,
-              "type": "string"
+              "default": null,
+              "description": "Repository visibility; private repositories are not cloned automatically",
+              "title": "Visibility"
             }
           }
         ],
@@ -929,94 +1949,137 @@
         "description": "Export all available TOSCA resource types, optionally augmented from a CloudMap project.",
         "parameters": [
           {
-            "description": "Project ID for authorization and cache key scoping",
             "in": "query",
             "name": "auth_project",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
             }
           },
           {
-            "description": "Commit hash used to validate the cache entry",
             "in": "query",
             "name": "latest_commit",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
             }
           },
           {
-            "description": "Git branch name",
             "in": "query",
             "name": "branch",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Git branch name",
+              "title": "Branch"
             }
           },
           {
-            "description": "Pretty-print the JSON response",
             "in": "query",
             "name": "pretty",
             "required": false,
             "schema": {
               "default": false,
+              "description": "Pretty-print the JSON response",
+              "title": "Pretty",
               "type": "boolean"
             }
           },
           {
-            "description": "Git username (alternative to X-Git-Credentials header)",
             "in": "query",
             "name": "username",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "Git username (alternative to X-Git-Credentials header)",
+              "title": "Username"
             }
           },
           {
-            "description": "Repository visibility",
             "in": "query",
             "name": "visibility",
             "required": false,
             "schema": {
-              "default": null,
-              "enum": [
-                "public",
-                "private",
-                null
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
               ],
-              "nullable": true,
-              "type": "string"
+              "default": null,
+              "description": "Repository visibility",
+              "title": "Visibility"
             }
           },
           {
-            "description": "Filename used as template context",
             "in": "query",
             "name": "file",
             "required": false,
             "schema": {
               "default": "dummy-ensemble.yaml",
+              "description": "Filename used as template context",
+              "title": "File",
               "type": "string"
             }
           },
           {
-            "description": "CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'",
             "in": "query",
             "name": "cloudmap",
             "required": false,
             "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "default": null,
-              "nullable": true,
-              "type": "string"
+              "description": "CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'",
+              "title": "Cloudmap"
             }
           }
         ],

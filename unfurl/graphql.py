@@ -202,7 +202,9 @@ JsonType = Dict[str, Any]
 
 class GraphqlObject(TypedDict, total=False):
     name: Required[str]
-    __typename: Required[str]
+    __typename: Required[
+        str
+    ]  # mypy sees this as "__typename"; Python mangles it at runtime
     title: NotRequired[str]
     description: NotRequired[str]
     visibility: NotRequired[str]
@@ -490,6 +492,25 @@ class DeploymentPath(GraphqlObject):
     incremental_deploy: bool
 
 
+# Python name-mangles __typename → _GraphqlObject__typename in every TypedDict class body.
+# Fix the key in __annotations__ for GraphqlObject and all its subclasses so that pydantic
+# schema generation and other runtime tools see the correct "__typename" key.
+_MANGLED_TYPENAME = "_GraphqlObject__typename"
+for _cls in [
+    GraphqlObject,
+    ApplicationBlueprint,
+    DeploymentTemplate,
+    Deployment,
+    RequirementConstraint,
+    Requirement,
+    ResourceType,
+    ResourceTemplate,
+    DeploymentPath,
+]:
+    if _MANGLED_TYPENAME in _cls.__annotations__:
+        _cls.__annotations__["__typename"] = _cls.__annotations__.pop(_MANGLED_TYPENAME)
+
+
 class DeploymentPaths(TypedDict):
     DeploymentPath: Dict[str, DeploymentPath]
     deployments: NotRequired[List["GraphqlDB"]]
@@ -599,7 +620,9 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                 # old version of lock section YAML, set missing to True
                 version = "(MISSING)"
             if version:
-                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(version=version)
+                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(
+                    version=version
+                )
         if packages:
             deployment["packages"] = packages
 

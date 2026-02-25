@@ -1820,9 +1820,9 @@ def to_environments(
             details = "".join(traceback.TracebackException.from_exception(err).format())
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
-    db["DeploymentEnvironment"] = environments  # type: ignore
+    db["DeploymentEnvironment"] = environments
     db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = deployment_paths  # type: ignore
+    db["DeploymentPath"] = deployment_paths
     return db
 
 
