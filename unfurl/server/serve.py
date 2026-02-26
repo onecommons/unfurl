@@ -27,6 +27,8 @@ import logging
 import os
 from pathlib import Path
 import re
+import shutil
+import subprocess
 import time
 import traceback
 from typing import (
@@ -2682,6 +2684,94 @@ if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
 
 
+def _backend_port(main_port: int) -> int:
+    """Python backend port: UNFURL_BACKEND_PORT env var, or main_port + 1."""
+    return int(os.environ.get("UNFURL_BACKEND_PORT") or (main_port + 1))
+
+
+def _find_rust_server_bin() -> Optional[str]:
+    """Search for the unfurl-server binary.
+
+    Search order:
+
+    1. ``UNFURL_RUST_SERVER_BIN`` env var (explicit path)
+    2. ``PATH`` via ``shutil.which``
+    3. Alongside the installed unfurl package (distribution installs)
+    4. Cargo target directories relative to the repo root (development installs),
+       preferring release over debug
+    """
+    # 1. Explicit env var
+    explicit: Optional[str] = os.environ.get("UNFURL_RUST_SERVER_BIN")
+    if explicit:
+        return explicit if os.path.isfile(explicit) and os.access(explicit, os.X_OK) else None
+
+    # 2. PATH
+    found = shutil.which("unfurl-server")
+    if found:
+        return found
+
+    # serve.py lives at {root}/unfurl/server/serve.py
+    # two dirnames up → repo root (editable install) or site-packages parent
+    server_dir = os.path.dirname(os.path.abspath(__file__))  # .../unfurl/server
+    pkg_dir = os.path.dirname(server_dir)                    # .../unfurl (the package)
+    parent_dir = os.path.dirname(pkg_dir)                    # repo root or site-packages
+
+    # 3. Alongside the package (distribution installs place the binary next to the package dir)
+    candidate = os.path.join(parent_dir, "unfurl-server")
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
+
+    # 4. Cargo build output (development: rust/target/{release,debug}/unfurl-server)
+    for build_type in ("release", "debug"):
+        candidate = os.path.join(
+            parent_dir, "rust", "target", build_type, "unfurl-server"
+        )
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+
+    return None
+
+
+def _start_rust_server(
+    host: str, port: int, options: dict
+) -> Optional[subprocess.Popen[bytes]]:
+    """Start the Rust unfurl-server binary if available and UNFURL_RUST_SERVER != '0'."""
+    if os.environ.get("UNFURL_RUST_SERVER") == "0":
+        return None
+
+    bin_path = _find_rust_server_bin()
+    if not bin_path:
+        if os.environ.get("UNFURL_RUST_SERVER") == "1":
+            logger.warning("UNFURL_RUST_SERVER=1 but unfurl-server binary not found")
+        return None
+
+    backend_port = _backend_port(port)
+    env = os.environ.copy()
+    env["UNFURL_HOST"] = host
+    env["UNFURL_PORT"] = str(port)
+    env["UNFURL_BACKEND_URL"] = f"http://{host}:{backend_port}"
+    # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
+    if "RUST_LOG" not in env:
+        _level_map = {
+            "debug": "debug",
+            "verbose": "debug",
+            "info": "info",
+            "warning": "warn",
+            "warn": "warn",
+            "error": "error",
+            "critical": "error",
+        }
+        unfurl_level = env.get("UNFURL_LOGGING", "info").lower()
+        env["RUST_LOG"] = _level_map.get(unfurl_level, "info")
+    logger.info(
+        "Starting Rust unfurl-server on %s:%d (backend port: %d)",
+        host,
+        port,
+        backend_port,
+    )
+    return subprocess.Popen([bin_path], env=env)
+
+
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app
 def serve(
     host: str,
@@ -2754,18 +2844,47 @@ def serve(
 
     wlogger = logging.getLogger("waitress.queue")
     wlogger.setLevel(Levels.ERROR)  # suppress queue warning spam
-    # Start single-threaded WSGI server
-    waitress.serve(
-        make_filter(
-            app,
-            logger_name="http",
-            logging_level=Levels.VERBOSE,
-        ),
-        host=host,
-        port=port,
-        threads=1,
-        ident="unfurl",
-    )
+    # Optionally start the Rust proxy server in front of waitress.
+    rust_proc = None
+    try:
+        import signal
+
+        rust_proc = _start_rust_server(host, port, options)
+
+        if rust_proc:
+            # Ensure the Rust subprocess is reaped when this process receives SIGTERM
+            # (e.g. when the test runner calls p.terminate()).  Without this handler
+            # Python exits immediately on SIGTERM without running the finally block,
+            # leaving the Rust process as an orphan that holds onto the port.
+            _prev_sigterm = signal.getsignal(signal.SIGTERM)
+
+            def _sigterm_handler(signum: int, frame: object) -> None:
+                rust_proc.terminate()  # type: ignore[union-attr]
+                try:
+                    rust_proc.wait(timeout=5)  # type: ignore[union-attr]
+                except subprocess.TimeoutExpired:
+                    rust_proc.kill()  # type: ignore[union-attr]
+                signal.signal(signal.SIGTERM, _prev_sigterm)
+                raise SystemExit(0)
+
+            signal.signal(signal.SIGTERM, _sigterm_handler)
+
+        # Start single-threaded WSGI server
+        waitress.serve(
+            make_filter(
+                app,
+                logger_name="http",
+                logging_level=Levels.VERBOSE,
+            ),
+            host=host,
+            port=_backend_port(port) if rust_proc else port,
+            threads=1,
+            ident="unfurl",
+        )
+    finally:
+        if rust_proc:
+            rust_proc.terminate()
+            rust_proc.wait()
 
     # gunicorn  , "-b", "0.0.0.0:5000", "unfurl.server:app"
     # from gunicorn.app.wsgiapp import WSGIApplication

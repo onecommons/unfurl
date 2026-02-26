@@ -133,8 +133,44 @@ CLOUD_TEST_SERVER = "https://unfurl.cloud"
 #  NB: if server processes aren't terminated: pkill -fl spawn_main
 def _next_port():
     global _server_port
-    _server_port += 1
+    # When the Rust proxy is active each server occupies TWO ports (N=Rust front-end,
+    # N+1=Python backend).  Increment by 2 so consecutive tests don't race on the
+    # previous test's backend port.
+    _server_port += 2 if os.environ.get("UNFURL_TEST_RUST_SERVER") else 1
     return _server_port
+
+
+def _rust_extra_env() -> dict:
+    """Extra env vars to enable the Rust proxy when UNFURL_TEST_RUST_SERVER=1.
+
+    Redis is required for correct Rust proxy operation:
+    - Write endpoints are queued via Redis (without Redis the query string is dropped)
+    - Read endpoints use Redis for caching
+
+    Raises RuntimeError if UNFURL_TEST_RUST_SERVER=1 but UNFURL_TEST_REDIS_URL is not set.
+    Forwards Redis config explicitly so spawn-based child processes and the Rust
+    subprocess all use the same cache backend and key prefix.
+    """
+    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
+        return {}
+    if not UNFURL_TEST_REDIS_URL:
+        raise RuntimeError(
+            "UNFURL_TEST_RUST_SERVER=1 requires UNFURL_TEST_REDIS_URL to be set. "
+            "The Rust proxy requires Redis for correct operation of write endpoints."
+        )
+    return {
+        "UNFURL_RUST_SERVER": "1",
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_REDIS_URL": UNFURL_TEST_REDIS_URL,
+        # Forward the unique per-run prefix set by module-level code so all
+        # processes (Python server, Rust subprocess) share the same namespace.
+        "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
+        "CACHE_DEFAULT_TIMEOUT": "120",
+        # Disable the Redis write queue so tests receive synchronous commit
+        # responses from write endpoints (instead of {"queued": true}).
+        # Redis is still used for GET /export and /types caching.
+        "UNFURL_RUST_DISABLE_QUEUE": "1",
+    }
 
 
 def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw):
@@ -202,6 +238,21 @@ def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
         for h in hosts:
             try:
                 with socket.create_connection((h, port), timeout=1):
+                    # When the Rust proxy is active it binds the front-end port
+                    # almost instantly, but Python/waitress takes longer on port+1.
+                    # Wait for the backend port too so the first proxied request
+                    # doesn't arrive before waitress is ready.
+                    if os.environ.get("UNFURL_TEST_RUST_SERVER"):
+                        backend_port = port + 1
+                        deadline = time.time() + timeout
+                        while time.time() < deadline:
+                            try:
+                                with socket.create_connection(
+                                    (HOST, backend_port), timeout=1.0
+                                ):
+                                    break
+                            except OSError:
+                                time.sleep(0.1)
                     return process_obj
             except Exception as e:
                 last_exc = e
@@ -251,7 +302,7 @@ def runner():
         server_process = ctx.Process(
             target=serve_server,
             args=(HOST, _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue},
+            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
         )
         server_process._error_queue = error_queue
         try:
@@ -305,7 +356,7 @@ def set_up_deployment(runner, deployment):
             {"home": ""},
             os.path.abspath("remote.git"),
         ),
-        kwargs={"error_queue": error_queue},
+        kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
     )
     p._error_queue = error_queue
     try:
@@ -383,7 +434,7 @@ def test_server_export_local():
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
-            kwargs={"error_queue": error_queue},
+            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
         )
         p._error_queue = error_queue
         try:
@@ -428,7 +479,7 @@ def test_server_export_remote():
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue},
+            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
         )
         p._error_queue = error_queue
         try:
@@ -801,7 +852,7 @@ def test_empty_cache():
                     # Pass via extra_env so it reaches the child regardless of
                     # multiprocessing start method (forkserver on Linux py3.14+
                     # does not inherit os.environ changes made after the forkserver starts).
-                    "extra_env": {"UNFURL_SERVER_ADMIN_PROJECT": "admin/project"},
+                    "extra_env": {"UNFURL_SERVER_ADMIN_PROJECT": "admin/project", **_rust_extra_env()},
                 },
             )
             p._error_queue = error_queue
@@ -986,6 +1037,58 @@ def test_create_ensemble():
             if p:
                 p.terminate()
                 p.join()
+
+
+def test_find_rust_server_bin():
+    """Verify _find_rust_server_bin() locates the unfurl-server binary.
+
+    Build it first with: cd rust && cargo build -p unfurl-server
+    """
+    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
+        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+    from unfurl.server.serve import _find_rust_server_bin
+
+    bin_path = _find_rust_server_bin()
+    assert bin_path is not None, (
+        "unfurl-server binary not found; build it with: "
+        "cd rust && cargo build -p unfurl-server"
+    )
+    assert os.path.isfile(bin_path), f"path {bin_path!r} is not a file"
+    assert os.access(bin_path, os.X_OK), f"{bin_path!r} is not executable"
+
+
+def test_rust_server_proxy():
+    """Verify Rust proxy forwards /health correctly. Requires UNFURL_TEST_RUST_SERVER=1."""
+    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
+        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+
+    port = _next_port()
+    backend_port = port + 1  # Python waitress shifts to port+1 when Rust proxy is active
+    ctx = get_context("spawn")
+    error_queue = ctx.Queue()
+    # _rust_extra_env() already includes Redis config and errors if Redis is absent.
+    extra_env = {**_rust_extra_env()}
+    p = ctx.Process(
+        target=serve_server,
+        args=(HOST, port, "secret", ".", "", {}),
+        kwargs={
+            "error_queue": error_queue,
+            "extra_env": extra_env,
+        },
+    )
+    p._error_queue = error_queue
+    start_server_process(p, port)
+    try:
+        # /health requires Authorization when a secret is configured.
+        resp = requests.get(
+            f"http://{HOST}:{port}/health",
+            headers={"Authorization": "Bearer secret"},
+            timeout=5,
+        )
+        assert resp.status_code == 200
+    finally:
+        p.terminate()
+        p.join()
 
 
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed
