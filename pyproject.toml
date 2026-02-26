@@ -39,7 +39,7 @@ include = ["unfurl*"]
 
 [[tool.setuptools-rust.ext-modules]]
 target = "unfurl.tosca_solver"
-path = "rust/Cargo.toml"
+path = "rust/solver/Cargo.toml"
 
 [tool.setuptools.dynamic]
 readme = {file = ["README.md"], content-type = "text/markdown"}

@@ -1,30 +1,5 @@
-[package]
-name = "tosca-solver"
-version = "0.1.1"
-edition = "2021"
-rust-version = "1.70"
-authors = ["Adam Souzis <adam@souzis.com>"]
-license = "MIT"
-description = "Build a TOSCA topology from a set of TOSCA types and requirements."
-homepage = "https://github.com/onecommons/unfurl/tree/main/rust"
-repository = "https://github.com/onecommons/unfurl"
-readme = "README.md"
-keywords = ["devops"] # https://crates.io/keywords/devops
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-[lib]
-name = "tosca_solver"
-crate-type = ["cdylib"]
-
-[dependencies]
-pyo3 = { version = "0.25.1", features = ["hashbrown"] }
-pyo3-log = "0.12.4"
-ascent = "0.8.0"
-log = "0.4.28"
-semver = "1"
-regex = "1"
-# ascent-byods-rels = "0.7.0"
-
-[features]
-python = ["pyo3/extension-module"]
-default = ["python"]
+[workspace]
+resolver = "2"
+members = [
+    "solver",
+]

@@ -10,7 +10,7 @@
 //!
 //! [solve()] will return the nodes that match the requirements associated with a given set of nodes.
 //! By default this crate is exposed as a Python extension module and is used by [Unfurl](https://github.com/onecommons/unfurl), but it can be used by any TOSCA 1.3 processor.
-use ascent::hashbrown::HashMap;
+use hashbrown::HashMap;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use std::time::Duration;
