@@ -58,8 +58,8 @@ async fn main() {
         Some(url) => match redis::Client::open(url.as_str()) {
             Ok(c) => Some(c),
             Err(e) => {
-                tracing::warn!("invalid Redis URL (caching disabled): {}", e);
-                None
+                tracing::error!("invalid Redis URL: {}", e);
+                std::process::exit(1);
             }
         },
         None => {
@@ -75,8 +75,8 @@ async fn main() {
                 Some(conn)
             }
             Err(e) => {
-                tracing::warn!("Redis connection failed (caching disabled): {}", e);
-                None
+                tracing::error!("Redis connection failed: {}", e);
+                std::process::exit(1);
             }
         },
         None => None,
@@ -97,7 +97,8 @@ async fn main() {
                     tracing::info!("queue worker started");
                 }
                 Err(e) => {
-                    tracing::warn!("Redis worker connection failed (write queue disabled): {}", e);
+                    tracing::error!("Redis worker connection failed: {}", e);
+                    std::process::exit(1);
                 }
             }
         }

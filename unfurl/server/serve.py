@@ -2752,6 +2752,7 @@ def _start_rust_server(
     env["UNFURL_HOST"] = host
     env["UNFURL_PORT"] = str(port)
     env["UNFURL_BACKEND_URL"] = f"http://{host}:{backend_port}"
+    env.setdefault("UNFURL_PACKAGE_DIGEST", get_package_digest())
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
     if "RUST_LOG" not in env:
         _level_map = {

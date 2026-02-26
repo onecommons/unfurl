@@ -45,6 +45,11 @@ pub struct Config {
     /// 0 means no timeout. Default: 5 seconds.
     #[arg(long, env = "UNFURL_REDIS_TIMEOUT_SECS", default_value_t = 5)]
     pub redis_timeout_secs: u64,
+
+    /// Short git hash of the unfurl package (matches Python's get_package_digest()).
+    /// Used together with the cached `last_commit` to compute ETags.
+    #[arg(long, env = "UNFURL_PACKAGE_DIGEST", default_value = "")]
+    pub package_digest: String,
 }
 
 impl Config {

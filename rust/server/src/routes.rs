@@ -5,7 +5,7 @@
 use axum::{
     body::Body,
     extract::{Request, State},
-    http::StatusCode,
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -91,8 +91,9 @@ fn parse_query(uri: &axum::http::Uri) -> HashMap<String, String> {
 
 /// Shared logic for cache-aware GET handlers.
 ///
-/// Tries the Redis cache with `key`; on a miss (or when Redis is not
-/// configured) falls through to the Python backend.
+/// Tries the Redis cache with `key`; on a hit, honours `If-None-Match` (→ 304)
+/// or returns 200 with the cached body and an `Etag` header.  On a miss (or
+/// when Redis is not configured) falls through to the Python backend.
 async fn handle_cached_get(
     state: AppState,
     req: Request,
@@ -101,15 +102,28 @@ async fn handle_cached_get(
 ) -> Response {
     if let Some(ref redis) = state.redis {
         let mut conn = redis.clone();
-        if let Some(json_val) = cache::try_cache(
+        if let Some((json_val, etag)) = cache::try_cache(
             &mut conn,
             &key,
             latest_commit.as_deref(),
             state.config.redis_timeout_secs,
+            &state.config.package_digest,
         )
         .await
         {
-            return Json(json_val).into_response();
+            // Return 304 Not Modified if the client already has this version.
+            let if_none_match = req
+                .headers()
+                .get(header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok());
+            if if_none_match == Some(etag.as_str()) {
+                return StatusCode::NOT_MODIFIED.into_response();
+            }
+            let mut response = Json(json_val).into_response();
+            if let Ok(hv) = HeaderValue::from_str(&etag) {
+                response.headers_mut().insert(header::ETAG, hv);
+            }
+            return response;
         }
     } else {
         tracing::debug!("no Redis configured, skipping cache for: {}", key);

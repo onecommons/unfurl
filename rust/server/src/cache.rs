@@ -13,14 +13,17 @@ use serde_pickle::{DeOptions, HashableValue};
 
 /// Try to fetch and validate a cached response from Redis.
 ///
-/// Returns `Some(json_value)` on a valid cache hit, `None` otherwise.
+/// Returns `Some((json_value, etag))` on a valid cache hit, `None` otherwise.
+/// The `etag` replicates Python's `CacheValue.make_etag()` so callers can
+/// honour `If-None-Match` / return `Etag` headers without touching Python.
 /// `timeout_secs` is the deadline for the Redis GET; 0 means no timeout.
 pub async fn try_cache(
     conn: &mut redis::aio::MultiplexedConnection,
     key: &str,
     latest_commit: Option<&str>,
     timeout_secs: u64,
-) -> Option<JsonValue> {
+    package_digest: &str,
+) -> Option<(JsonValue, String)> {
     let get_fut = conn.get::<_, Vec<u8>>(key);
     let raw: Vec<u8> = if timeout_secs > 0 {
         tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), get_fut)
@@ -37,7 +40,7 @@ pub async fn try_cache(
         tracing::debug!("cache miss (no entry): {}", key);
         return None;
     }
-    deserialize_cache_value(&raw, latest_commit, key)
+    deserialize_cache_value(&raw, latest_commit, key, package_digest)
 }
 
 /// Deserialize the pickled CacheValue tuple and validate it.
@@ -48,7 +51,12 @@ pub async fn try_cache(
 ///   2 - latest_commit (str)  -- compared with the request param
 ///   3 - deps (dict)          -- must be empty for a cache hit
 ///   4 - last_commit_date (int)
-fn deserialize_cache_value(raw: &[u8], latest_commit: Option<&str>, key: &str) -> Option<JsonValue> {
+fn deserialize_cache_value(
+    raw: &[u8],
+    latest_commit: Option<&str>,
+    key: &str,
+    package_digest: &str,
+) -> Option<(JsonValue, String)> {
     let opts = DeOptions::default();
     let pickle_val: serde_pickle::Value = serde_pickle::from_slice(raw, opts).ok()?;
 
@@ -80,9 +88,57 @@ fn deserialize_cache_value(raw: &[u8], latest_commit: Option<&str>, key: &str) -
         return None;
     }
 
+    // Field 1: last_commit -- used to compute the ETag.
+    let last_commit = pickle_string(&items[1]).unwrap_or_default();
+    let etag = compute_etag(&last_commit, package_digest);
+
     // Field 0: the actual response value. Convert pickle -> JSON.
     tracing::debug!("cache hit: {}", key);
-    pickle_to_json(&items[0])
+    let json_val = pickle_to_json(&items[0])?;
+    Some((json_val, etag))
+}
+
+/// Compute the ETag for a cached response, replicating Python's `CacheValue.make_etag()`.
+///
+/// Python: `etag = int(last_commit or "0", 16) ^ int(package_digest or "0", 16)`
+///         `return f'W/"{hex(etag)}"'`
+///
+/// Both inputs are hex strings (git short/full hashes); the XOR is performed
+/// as big-endian 160-bit integers (20 bytes), matching Python's arbitrary-precision int.
+fn compute_etag(last_commit: &str, package_digest: &str) -> String {
+    fn parse_hex_be(hex: &str) -> [u8; 20] {
+        let mut bytes = [0u8; 20];
+        let hex = hex.trim_start_matches("0x");
+        // Left-pad to even length so chunks(2) works cleanly.
+        let padded;
+        let hex = if hex.len() % 2 != 0 {
+            padded = format!("0{}", hex);
+            padded.as_str()
+        } else {
+            hex
+        };
+        // Take at most the last 40 hex chars (20 bytes).
+        let hex = if hex.len() > 40 { &hex[hex.len() - 40..] } else { hex };
+        let start = 20 - hex.len() / 2;
+        for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
+            if let Ok(s) = std::str::from_utf8(chunk) {
+                if let Ok(b) = u8::from_str_radix(s, 16) {
+                    bytes[start + i] = b;
+                }
+            }
+        }
+        bytes
+    }
+
+    let commit_bytes = parse_hex_be(last_commit);
+    let digest_bytes = parse_hex_be(package_digest);
+    let xor: [u8; 20] = std::array::from_fn(|i| commit_bytes[i] ^ digest_bytes[i]);
+
+    // Replicate Python's `hex(n)`: lowercase, "0x" prefix, no leading zeros.
+    let hex_str: String = xor.iter().map(|b| format!("{:02x}", b)).collect();
+    let trimmed = hex_str.trim_start_matches('0');
+    let hex_val = if trimmed.is_empty() { "0" } else { trimmed };
+    format!("W/\"0x{}\"", hex_val)
 }
 
 /// Extract a string from a pickle value.

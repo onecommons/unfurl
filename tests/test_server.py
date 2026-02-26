@@ -513,6 +513,13 @@ def test_server_export_remote():
                 for msg in ("cache miss for", "cache hit for"):
                     # test caching
                     project_id = "onecommons/project-templates/dashboard"
+                    # Snapshot log position before this iteration so assertions
+                    # only inspect entries produced by the current request(s).
+                    log_offset = 0
+                    if use_rust and rust_log_file:
+                        with open(rust_log_file) as _f:
+                            _f.seek(0, 2)
+                            log_offset = _f.tell()
                     res = requests.get(
                         f"http://{HOST}:{port}/export",
                         params={
@@ -525,11 +532,10 @@ def test_server_export_remote():
                             "X-Git-Credentials": b64encode("username:token".encode()),
                         },
                     )
-                    if res.status_code == 200:
-                        etag = res.headers.get("Etag") or ""
-                        assert etag
                     if msg == "cache miss for":
                         assert res.status_code == 200
+                        etag = res.headers.get("Etag") or ""
+                        assert etag
                         # don't bother re-exporting the second time
                         exported = run_cmd(
                             runner,
@@ -551,8 +557,17 @@ def test_server_export_remote():
                         assert (
                             _strip_sourceinfo(res.json()) == expected
                         )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+                        if use_rust and rust_log_file:
+                            with open(rust_log_file) as _f:
+                                _f.seek(log_offset)
+                                new_log = _f.read()
+                            assert "cache miss" in new_log, (
+                                f"Expected 'cache miss' in Rust log for {export_format}:\n{new_log}"
+                            )
                     else:
-                        # cache hit - poll for cached response to make test robust against async cache population in CI
+                        # Cache hit: poll until server returns 304 via ETag match.
+                        # Rust computes the same ETag as Python and honours If-None-Match,
+                        # so both paths converge on 304 once Redis is populated.
                         res = wait_for_status(
                             f"http://{HOST}:{port}/export",
                             params={
@@ -569,17 +584,13 @@ def test_server_export_remote():
                             expected=304,
                             timeout=15.0,
                         )
-
-                    file_path = server._get_filepath(export_format, None)
-                    key = server.CacheEntry(
-                        project_id, "", file_path, export_format
-                    ).cache_key()
-
-                    # XXX
-                    # caplog, capsys, capfd capture log messages from uvicorn but not from the request workers
-                    # pytest -s does output those messages to the console if set_start_method is set to "fork"
-                    # visually confirmed this assert:
-                    # assert f"{msg} {key}" in caplog.text
+                        if use_rust and rust_log_file:
+                            with open(rust_log_file) as _f:
+                                _f.seek(log_offset)
+                                new_log = _f.read()
+                            assert "cache hit:" in new_log, (
+                                f"Expected 'cache hit:' in Rust log for {export_format}:\n{new_log}"
+                            )
 
             # test with a blueprint
             run_cmd(
@@ -1067,6 +1078,43 @@ def test_find_rust_server_bin():
     )
     assert os.path.isfile(bin_path), f"path {bin_path!r} is not a file"
     assert os.access(bin_path, os.X_OK), f"{bin_path!r} is not executable"
+
+
+def test_rust_server_bad_redis():
+    """Rust server must exit non-zero and log an error when Redis is unreachable.
+
+    Runs the binary directly so we capture its stderr without needing the full
+    Python server stack.  The binary exits before binding any port.
+    """
+    import subprocess
+
+    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
+        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+    from unfurl.server.serve import _find_rust_server_bin
+
+    bin_path = _find_rust_server_bin()
+    if not bin_path:
+        pytest.skip("unfurl-server binary not found")
+
+    result = subprocess.run(
+        [bin_path],
+        env={
+            **os.environ,
+            # Point at a TCP port where nothing is listening.
+            "CACHE_REDIS_URL": "redis://127.0.0.1:19999",
+            "UNFURL_HOST": "127.0.0.1",
+            "UNFURL_PORT": "19998",
+        },
+        capture_output=True,
+        timeout=10,
+    )
+    assert result.returncode != 0, (
+        "Expected non-zero exit code when Redis is unreachable"
+    )
+    stderr = result.stderr.decode()
+    assert "Redis" in stderr and ("failed" in stderr or "invalid" in stderr), (
+        f"Expected Redis error message in stderr, got:\n{stderr}"
+    )
 
 
 def test_rust_server_proxy():
