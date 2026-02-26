@@ -31,8 +31,10 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // Initialise tracing.
+    // Initialise tracing.  Write to stderr so that Python can redirect it to a
+    // log file via subprocess.Popen(stderr=...) without mixing with app output.
     tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
         )

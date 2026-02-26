@@ -1041,6 +1041,19 @@
             "description": "Git personal access token or password",
             "title": "Private Token"
           },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "title": "Queueid"
+          },
           "username": {
             "anyOf": [
               {
@@ -1118,6 +1131,19 @@
             "default": null,
             "description": "Git personal access token or password",
             "title": "Private Token"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "title": "Queueid"
           },
           "username": {
             "anyOf": [
@@ -1688,6 +1714,24 @@
           },
           {
             "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
             "name": "format",
             "required": false,
             "schema": {
@@ -2051,6 +2095,24 @@
               "default": null,
               "description": "Repository visibility",
               "title": "Visibility"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
             }
           },
           {

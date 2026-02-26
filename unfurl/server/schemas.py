@@ -55,6 +55,10 @@ class ExportBaseQuery(ProjectQuery):
     visibility: Optional[Literal["public", "private"]] = Field(
         default=None, description="Repository visibility"
     )
+    queueid: Optional[str] = Field(
+        default=None,
+        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+    )
 
 
 class ExportQuery(ExportBaseQuery):
@@ -152,6 +156,10 @@ class PatchEnvironmentBody(BaseModel):
         default=None, description="Git personal access token or password"
     )
     commit_msg: Optional[str] = Field(default=None, description="Git commit message")
+    queueid: Optional[str] = Field(
+        default=None,
+        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+    )
 
 
 class PatchEnsembleBody(PatchEnvironmentBody):

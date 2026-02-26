@@ -24,8 +24,10 @@ use crate::AppState;
 /// Build the Redis cache key for a `/export` request from its query params.
 fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
     let project_id = params.get("auth_project").map(|s| s.as_str()).unwrap_or("");
+    // Python resolves missing/HEAD branch to the repo's default branch (typically "main").
+    // Use "main" here to match the key Python stores.
     let branch = match params.get("branch").map(|s| s.as_str()) {
-        Some("HEAD") | None => "",
+        Some("HEAD") | None => "main",
         Some(b) => b,
     };
     let format = params.get("format").map(|s| s.as_str()).unwrap_or("deployment");
@@ -35,9 +37,9 @@ fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
         "blueprint" => "ensemble-template.yaml".to_string(),
         "environments" => "unfurl.yaml".to_string(),
         _ => {
-            // deployment
+            // deployment: Python's _get_filepath returns "ensemble/ensemble.yaml" by default
             match deployment_path {
-                None | Some("") => "ensemble.yaml".to_string(),
+                None | Some("") => "ensemble/ensemble.yaml".to_string(),
                 Some(p) if p.ends_with(".yaml") => p.to_string(),
                 Some(p) => format!("{}/ensemble.yaml", p),
             }
@@ -63,7 +65,7 @@ fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
 fn types_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
     let project_id = params.get("auth_project").map(|s| s.as_str()).unwrap_or("");
     let branch = match params.get("branch").map(|s| s.as_str()) {
-        Some("HEAD") | None => "",
+        Some("HEAD") | None => "main",
         Some(b) => b,
     };
     let file = params
@@ -87,44 +89,48 @@ fn parse_query(uri: &axum::http::Uri) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
+/// Shared logic for cache-aware GET handlers.
+///
+/// Tries the Redis cache with `key`; on a miss (or when Redis is not
+/// configured) falls through to the Python backend.
+async fn handle_cached_get(
+    state: AppState,
+    req: Request,
+    key: String,
+    latest_commit: Option<String>,
+) -> Response {
+    if let Some(ref redis) = state.redis {
+        let mut conn = redis.clone();
+        if let Some(json_val) = cache::try_cache(
+            &mut conn,
+            &key,
+            latest_commit.as_deref(),
+            state.config.redis_timeout_secs,
+        )
+        .await
+        {
+            return Json(json_val).into_response();
+        }
+    } else {
+        tracing::debug!("no Redis configured, skipping cache for: {}", key);
+    }
+    proxy::forward(&state.client, &state.config.backend_url(), req).await
+}
+
 /// GET /export -- try Redis cache first, fall back to proxying.
 pub async fn handle_export(State(state): State<AppState>, req: Request) -> Response {
     let params = parse_query(req.uri());
-    let latest_commit = params.get("latest_commit").map(|s| s.as_str());
-
-    if let Some(ref redis) = state.redis {
-        let key = export_cache_key(&state.config.cache_key_prefix, &params);
-        let mut conn = redis.clone();
-        if let Some(json_val) =
-            cache::try_cache(&mut conn, &key, latest_commit, state.config.redis_timeout_secs).await
-        {
-            tracing::debug!("cache hit for export: {}", key);
-            return Json(json_val).into_response();
-        }
-        tracing::debug!("cache miss for export: {}", key);
-    }
-
-    proxy::forward(&state.client, &state.config.backend_url(), req).await
+    let latest_commit = params.get("latest_commit").cloned();
+    let key = export_cache_key(&state.config.cache_key_prefix, &params);
+    handle_cached_get(state, req, key, latest_commit).await
 }
 
 /// GET /types -- try Redis cache first, fall back to proxying.
 pub async fn handle_types(State(state): State<AppState>, req: Request) -> Response {
     let params = parse_query(req.uri());
-    let latest_commit = params.get("latest_commit").map(|s| s.as_str());
-
-    if let Some(ref redis) = state.redis {
-        let key = types_cache_key(&state.config.cache_key_prefix, &params);
-        let mut conn = redis.clone();
-        if let Some(json_val) =
-            cache::try_cache(&mut conn, &key, latest_commit, state.config.redis_timeout_secs).await
-        {
-            tracing::debug!("cache hit for types: {}", key);
-            return Json(json_val).into_response();
-        }
-        tracing::debug!("cache miss for types: {}", key);
-    }
-
-    proxy::forward(&state.client, &state.config.backend_url(), req).await
+    let latest_commit = params.get("latest_commit").cloned();
+    let key = types_cache_key(&state.config.cache_key_prefix, &params);
+    handle_cached_get(state, req, key, latest_commit).await
 }
 
 // ---------------------------------------------------------------------------
@@ -161,11 +167,14 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
 
     let body: JsonValue = serde_json::from_slice(&body_bytes).unwrap_or(JsonValue::Null);
 
-    // Use the Redis queue only when Redis is available AND queueing is not disabled.
-    // Setting UNFURL_RUST_DISABLE_QUEUE=1 lets tests use Redis for caching while
-    // still getting synchronous commit responses from write endpoints.
-    let queue_disabled = std::env::var("UNFURL_RUST_DISABLE_QUEUE").as_deref() == Ok("1");
-    if !queue_disabled {
+    // Use the Redis queue only when Redis is available AND the request body
+    // contains a non-null, non-empty "queueid" field.  When queueid is absent
+    // the write request is proxied synchronously to the Python backend.
+    let has_queueid = body
+        .get("queueid")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    if has_queueid {
         if let Some(ref redis) = state.redis {
             let item = QueueItem {
                 endpoint: endpoint.clone(),

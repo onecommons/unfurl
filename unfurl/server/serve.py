@@ -45,6 +45,7 @@ from typing import (
     cast,
     Callable,
 )
+from cachelib.redis import RedisCache
 from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
@@ -190,9 +191,9 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
 
 def clear_all(cache, prefix) -> None:
     backend = cache.cache
-    redis = getattr(backend, "_write_client", None)
+    redis = cast(Optional[RedisCache], getattr(backend, "_write_client", None))
     if redis:
-        keys = redis.keys(pattern=prefix + "*")
+        keys = redis.keys(pattern=prefix + "*")  # type: ignore
         logger.info(f"clearing cache with prefix {prefix}, found {len(keys)} keys")
         if keys:
             redis.delete(*keys)
@@ -857,11 +858,12 @@ class CacheEntry:
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
         """
         full_key = self.cache_key()
+        prefixed_key = flask_config["CACHE_KEY_PREFIX"] + full_key
         # note: if CacheValue's definition changes then cache.get() will return None because it catches PickleError exceptions
         value = cast(Optional[CacheValue], cache.get(full_key))
         self.value = value
         if value is None:
-            logger.info("cache miss for %s", full_key)
+            logger.info("cache miss for %s", prefixed_key)
             self.hit = False
             return None, None  # cache miss
 
@@ -874,7 +876,7 @@ class CacheEntry:
         ) = value
         if latest_commit == cached_latest_commit:
             # this is the latest
-            logger.info("cache hit for %s with %s", full_key, latest_commit)
+            logger.info("cache hit for %s with %s", prefixed_key, latest_commit)
             self.hit = True
             return value, None
         else:
@@ -898,7 +900,7 @@ class CacheEntry:
                 else:
                     logger.info(
                         "cache hit for %s, but error with client's commit %s",
-                        full_key,
+                        prefixed_key,
                         latest_commit,
                         exc_info=True,
                     )
@@ -909,7 +911,7 @@ class CacheEntry:
                 # repo was up-to-date, so treat as a cache hit
                 logger.info(
                     "cache hit for %s with %s",
-                    full_key,
+                    prefixed_key,
                     latest_commit or cached_latest_commit,
                 )
                 self.hit = True
@@ -917,7 +919,7 @@ class CacheEntry:
             if self.directives and not self.directives.check_file:
                 logger.info(
                     "cache miss for %s (stale but check_file disabled) with %s",
-                    full_key,
+                    prefixed_key,
                     latest_commit or cached_latest_commit,
                 )
                 return None, None  # treat as cache miss
@@ -937,12 +939,12 @@ class CacheEntry:
                     value,
                 )
                 self.value = value
-                logger.info("cache hit for %s, updated %s", full_key, latest_commit)
+                logger.info("cache hit for %s, updated %s", prefixed_key, latest_commit)
                 self.hit = True
                 return value, None
             else:
                 # stale -- up to the caller to do something about it, e.g. update or delete the key
-                logger.info("stale cache hit for %s with %s", full_key, latest_commit)
+                logger.info("stale cache hit for %s with %s", prefixed_key, latest_commit)
                 return value, self.commitinfo
 
     def _set_inflight(
@@ -2769,7 +2771,32 @@ def _start_rust_server(
         port,
         backend_port,
     )
-    return subprocess.Popen([bin_path], env=env)
+    log_file_path = env.get("UNFURL_LOGFILE")
+    stderr_target = None
+    log_fh = None
+    if log_file_path:
+        logger.debug("Redirecting Rust server stderr to %s", log_file_path)
+        log_fh = open(log_file_path, "ab")
+        stderr_target = log_fh
+    else:
+        logger.debug("UNFURL_LOGFILE not set, Rust logs go to stderr")
+    logger.debug(
+        "stderr_target=%r, log_fh=%r, log_file_path=%r",
+        stderr_target,
+        log_fh,
+        log_file_path,
+    )
+    proc = subprocess.Popen([bin_path], env=env, stderr=stderr_target)
+    if log_fh:
+        time.sleep(0.5)
+        log_fh.flush()
+        if log_file_path:
+            logger.debug(
+                "Log file size after Popen: %d", os.path.getsize(log_file_path)
+            )
+    # Attach the file handle so the caller can close it if needed.
+    proc._log_fh = log_fh  # type: ignore[attr-defined]
+    return proc
 
 
 # UNFURL_HOME="" gunicorn --log-level debug -w 4 unfurl.server:app

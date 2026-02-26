@@ -1,4 +1,4 @@
-// Copyright (c) 2024 Adam Souzis
+// Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
 //! Build script: generate a typed Rust client from the unfurl OpenAPI spec
 //! using progenitor.

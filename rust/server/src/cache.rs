@@ -34,9 +34,10 @@ pub async fn try_cache(
         get_fut.await.ok()?
     };
     if raw.is_empty() {
+        tracing::debug!("cache miss (no entry): {}", key);
         return None;
     }
-    deserialize_cache_value(&raw, latest_commit)
+    deserialize_cache_value(&raw, latest_commit, key)
 }
 
 /// Deserialize the pickled CacheValue tuple and validate it.
@@ -47,7 +48,7 @@ pub async fn try_cache(
 ///   2 - latest_commit (str)  -- compared with the request param
 ///   3 - deps (dict)          -- must be empty for a cache hit
 ///   4 - last_commit_date (int)
-fn deserialize_cache_value(raw: &[u8], latest_commit: Option<&str>) -> Option<JsonValue> {
+fn deserialize_cache_value(raw: &[u8], latest_commit: Option<&str>, key: &str) -> Option<JsonValue> {
     let opts = DeOptions::default();
     let pickle_val: serde_pickle::Value = serde_pickle::from_slice(raw, opts).ok()?;
 
@@ -65,16 +66,22 @@ fn deserialize_cache_value(raw: &[u8], latest_commit: Option<&str>) -> Option<Js
     let cached_commit = pickle_string(&items[2])?;
     if let Some(req_commit) = latest_commit {
         if !req_commit.is_empty() && cached_commit != req_commit {
+            tracing::debug!(
+                "cache ignored - commit mismatch: {} (request={}, cached={})",
+                key, req_commit, cached_commit
+            );
             return None;
         }
     }
 
     // Field 3: deps -- must be empty (or None) for us to serve from cache.
     if !deps_empty(&items[3]) {
+        tracing::debug!("cache ignored - deps not empty: {}", key);
         return None;
     }
 
     // Field 0: the actual response value. Convert pickle -> JSON.
+    tracing::debug!("cache hit: {}", key);
     pickle_to_json(&items[0])
 }
 

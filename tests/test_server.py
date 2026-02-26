@@ -25,6 +25,7 @@ from unfurl.yamlloader import yaml
 from unfurl.util import change_cwd, get_package_digest
 from base64 import b64encode
 import logging
+import tempfile
 
 # Prefer explicit IPv4 loopback for tests to avoid getaddrinfo resolution ordering differences
 HOST = "127.0.0.1"
@@ -166,10 +167,6 @@ def _rust_extra_env() -> dict:
         # processes (Python server, Rust subprocess) share the same namespace.
         "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
         "CACHE_DEFAULT_TIMEOUT": "120",
-        # Disable the Redis write queue so tests receive synchronous commit
-        # responses from write endpoints (instead of {"queued": true}).
-        # Redis is still used for GET /export and /types caching.
-        "UNFURL_RUST_DISABLE_QUEUE": "1",
     }
 
 
@@ -472,14 +469,27 @@ def _strip_sourceinfo(export, log=False):
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_server_export_remote():
     runner = CliRunner()
+    use_rust = bool(os.environ.get("UNFURL_TEST_RUST_SERVER"))
     with runner.isolated_filesystem():
         port = _next_port()
         ctx = get_context()
         error_queue = ctx.Queue()
+        # When the Rust proxy is active, redirect its logs to a temp file
+        # so we can assert on cache hit/miss messages.
+        rust_log_file = None
+        extra_env = _rust_extra_env()
+        if use_rust:
+            rust_log_fd, rust_log_file = tempfile.mkstemp(
+                prefix="rust-server-", suffix=".log"
+            )
+            os.close(rust_log_fd)
+            extra_env["UNFURL_LOGFILE"] = rust_log_file
+            # Ensure the Rust server logs at DEBUG level so cache messages appear.
+            extra_env["UNFURL_LOGGING"] = "debug"
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
+            kwargs={"error_queue": error_queue, "extra_env": extra_env},
         )
         p._error_queue = error_queue
         try:
@@ -640,6 +650,8 @@ def test_server_export_remote():
         finally:
             p.terminate()
             p.join()
+            if rust_log_file and os.path.exists(rust_log_file):
+                os.unlink(rust_log_file)
 
 
 def test_populate_cache(runner: Process):
@@ -1066,8 +1078,15 @@ def test_rust_server_proxy():
     backend_port = port + 1  # Python waitress shifts to port+1 when Rust proxy is active
     ctx = get_context("spawn")
     error_queue = ctx.Queue()
+    rust_log_fd, rust_log_file = tempfile.mkstemp(prefix="rust-proxy-", suffix=".log")
+    os.close(rust_log_fd)
     # _rust_extra_env() already includes Redis config and errors if Redis is absent.
-    extra_env = {**_rust_extra_env()}
+    # Capture Rust server stderr to a log file so we can assert on log messages.
+    extra_env = {
+        **_rust_extra_env(),
+        "UNFURL_LOGGING": "debug",
+        "UNFURL_LOGFILE": rust_log_file,
+    }
     p = ctx.Process(
         target=serve_server,
         args=(HOST, port, "secret", ".", "", {}),
@@ -1086,9 +1105,20 @@ def test_rust_server_proxy():
             timeout=5,
         )
         assert resp.status_code == 200
+        # Allow time for the Rust server to flush log output to the file.
+        time.sleep(0.5)
+        with open(rust_log_file, "r") as f:
+            log_contents = f.read()
+        # Verify the Rust server logged a hyper connection pool message,
+        # confirming it actually proxied the request through to the Python backend.
+        assert (
+            "hyper_util" in log_contents and "pooling idle connection" in log_contents
+        ), f"Expected hyper_util pool log in Rust server output, got:\n{log_contents}"
     finally:
         p.terminate()
         p.join()
+        if os.path.exists(rust_log_file):
+            os.unlink(rust_log_file)
 
 
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed
