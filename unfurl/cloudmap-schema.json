@@ -542,6 +542,195 @@
           }
         }
       }
+    },
+    "repository": {
+      "$$target": "#/definitions/repository",
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Project path relative to base location of git repositories on the host."
+        },
+        "initial_revision": {
+          "type": "string",
+          "description": "Initial commit of the default branch."
+        },
+        "name": {
+          "type": "string",
+          "description": "Repository name."
+        },
+        "service": {
+          "type": "string",
+          "description": "URL of the service hosting this repository."
+        },
+        "protocols": {
+          "type": "array",
+          "description": "List of protocols available to clone the repository (e.g., https, ssh).",
+          "items": {
+            "type": "string"
+          }
+        },
+        "internal_id": {
+          "type": "string",
+          "description": "Internal identifier from the repository host (e.g., GitHub repository ID)."
+        },
+        "project_url": {
+          "type": "string",
+          "description": "URL to the repository's project page on the host (e.g., https://github.com/user/repo)."
+        },
+        "mirror_of": {
+          "type": "string",
+          "description": "URL of the repository that this repository is a mirror of."
+        },
+        "fork_of": {
+          "type": "string",
+          "description": "URL of the repository that this repository was forked from."
+        },
+        "private": {
+          "type": "boolean",
+          "description": "True if the repository is not publicly accessible."
+        },
+        "default_branch": {
+          "type": "string",
+          "description": "Default branch name (e.g., main, master)."
+        },
+        "metadata": {
+          "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
+          "allOf": [
+            {
+              "$ref": "#/definitions/metadata"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "license_url": {
+                  "type": "string",
+                  "description": "URL to the license file or license information."
+                },
+                "issues_url": {
+                  "type": "string",
+                  "description": "URL to the issue tracker for the repository."
+                },
+                "lastupdate_time": {
+                  "type": "string",
+                  "description": "Timestamp of the last metadata update."
+                },
+                "lastupdate_digest": {
+                  "type": "string",
+                  "description": "Digest hash of the metadata at the time of the last update."
+                },
+                "project_status": {
+                  "type": "string",
+                  "description": "Project status as defined by https://www.repostatus.org",
+                  "enum": [
+                    "concept",
+                    "WIP",
+                    "suspended",
+                    "abandoned",
+                    "active",
+                    "inactive",
+                    "unsupported",
+                    "moved"
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        "branches": {
+          "type": "object",
+          "description": "Map of branch names to their commit SHA hashes.",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Commit SHA hash for the branch."
+          }
+        },
+        "tags": {
+          "type": "object",
+          "description": "Map of tag names to their commit SHA hashes.",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Commit SHA hash for the tag."
+          }
+        },
+        "notable": {
+          "oneOf": [
+            {
+              "type": "object",
+              "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "$ref": "#/definitions/typeRef"
+                  },
+                  "artifact": {
+                    "type": "string",
+                    "description": "URL of an artifact that represents this notable file or directory."
+                  }
+                },
+                "additionalProperties": false
+              }
+            },
+            {
+              "$ref": "#/definitions/inlineArtifact"
+            }
+          ]
+        }
+      }
+    },
+    "type": {
+      "$$target": "#/definitions/type",
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "description": "The kind of the type. One of: Component, Artifact, or Capability.",
+          "enum": [
+            "Component",
+            "Artifact",
+            "Capability"
+          ]
+        },
+        "implementations": {
+          "type": "array",
+          "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "description": "Maturity level of the type definition.",
+          "enum": [
+            "draft",
+            "experimental",
+            "stable",
+            "deprecated",
+            "removed"
+          ]
+        },
+        "model": {
+          "type": "string",
+          "description": "URL of artifact or service to use a model for instances of this type."
+        },
+        "metadata": {
+          "type": "object",
+          "$ref": "#/definitions/metadata",
+          "description": "Additional metadata about the type."
+        },
+        "source": {
+          "type": "string",
+          "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
+        },
+        "extends": {
+          "type": "array",
+          "description": "List of fully-qualified type names that this type extends.",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
     }
   },
   "type": "object",
@@ -567,139 +756,7 @@
         "pattern": "^[^\\s]*$"
       },
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Project path relative to base location of git repositories on the host."
-          },
-          "initial_revision": {
-            "type": "string",
-            "description": "Initial commit of the default branch."
-          },
-          "name": {
-            "type": "string",
-            "description": "Repository name."
-          },
-          "service": {
-            "type": "string",
-            "description": "URL of the service hosting this repository."
-          },
-          "protocols": {
-            "type": "array",
-            "description": "List of protocols available to clone the repository (e.g., https, ssh).",
-            "items": {
-              "type": "string"
-            }
-          },
-          "internal_id": {
-            "type": "string",
-            "description": "Internal identifier from the repository host (e.g., GitHub repository ID)."
-          },
-          "project_url": {
-            "type": "string",
-            "description": "URL to the repository's project page on the host (e.g., https://github.com/user/repo)."
-          },
-          "mirror_of": {
-            "type": "string",
-            "description": "URL of the repository that this repository is a mirror of."
-          },
-          "fork_of": {
-            "type": "string",
-            "description": "URL of the repository that this repository was forked from."
-          },
-          "private": {
-            "type": "boolean",
-            "description": "True if the repository is not publicly accessible."
-          },
-          "default_branch": {
-            "type": "string",
-            "description": "Default branch name (e.g., main, master)."
-          },
-          "metadata": {
-            "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
-            "allOf": [
-              {
-                "$ref": "#/definitions/metadata"
-              },
-              {
-                "type": "object",
-                "properties": {
-                  "license_url": {
-                    "type": "string",
-                    "description": "URL to the license file or license information."
-                  },
-                  "issues_url": {
-                    "type": "string",
-                    "description": "URL to the issue tracker for the repository."
-                  },
-                  "lastupdate_time": {
-                    "type": "string",
-                    "description": "Timestamp of the last metadata update."
-                  },
-                  "lastupdate_digest": {
-                    "type": "string",
-                    "description": "Digest hash of the metadata at the time of the last update."
-                  },
-                  "project_status": {
-                    "type": "string",
-                    "description": "Project status as defined by https://www.repostatus.org",
-                    "enum": [
-                      "concept",
-                      "WIP",
-                      "suspended",
-                      "abandoned",
-                      "active",
-                      "inactive",
-                      "unsupported",
-                      "moved"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          "branches": {
-            "type": "object",
-            "description": "Map of branch names to their commit SHA hashes.",
-            "additionalProperties": {
-              "type": "string",
-              "description": "Commit SHA hash for the branch."
-            }
-          },
-          "tags": {
-            "type": "object",
-            "description": "Map of tag names to their commit SHA hashes.",
-            "additionalProperties": {
-              "type": "string",
-              "description": "Commit SHA hash for the tag."
-            }
-          },
-          "notable": {
-            "oneOf": [
-              {
-                "type": "object",
-                "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
-                "additionalProperties": {
-                  "type": "object",
-                  "properties": {
-                    "type": {
-                      "$ref": "#/definitions/typeRef"
-                    },
-                    "artifact": {
-                      "type": "string",
-                      "description": "URL of an artifact that represents this notable file or directory."
-                    }
-                  },
-                  "additionalProperties": false
-                }
-              },
-              {
-                "$ref": "#/definitions/inlineArtifact"
-              }
-            ]
-          }
-        }
+        "$ref": "#/definitions/repository"
       }
     },
     "artifacts": {
@@ -739,60 +796,11 @@
       "type": "object",
       "description": "Type definitions for artifacts, services, software, and capabilities.",
       "propertyNames": {
-        "description": "Fully-qualified type name with namespace (e.g., Zulip@unfurl.cloud/onecommons/blueprints/zulip).",
+        "description": "Fully-qualified type name with namespace (e.g., Compute@unfurl.cloud/onecommons/std).",
         "pattern": "^[^\\s]+$"
       },
       "additionalProperties": {
-        "type": "object",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "description": "The kind of the type. One of: Component, Artifact, or Capability.",
-            "enum": [
-              "Component",
-              "Artifact",
-              "Capability"
-            ]
-          },
-          "implementations": {
-            "type": "array",
-            "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
-            "items": {
-              "type": "string"
-            }
-          },
-          "status": {
-            "type": "string",
-            "description": "Maturity level of the type definition.",
-            "enum": [
-              "draft",
-              "experimental",
-              "stable",
-              "deprecated",
-              "removed"
-            ]
-          },
-          "model": {
-            "type": "string",
-            "description": "URL of artifact or service to use a model for instances of this type."
-          },
-          "metadata": {
-            "type": "object",
-            "$ref": "#/definitions/metadata",
-            "description": "Additional metadata about the type."
-          },
-          "source": {
-            "type": "string",
-            "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
-          },
-          "extends": {
-            "type": "array",
-            "description": "List of fully-qualified type names that this type extends.",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
+        "$ref": "#/definitions/type"
       }
     }
   },
