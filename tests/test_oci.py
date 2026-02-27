@@ -20,14 +20,17 @@ artifact_keys = [
     "image_url,expected_ref,expected_artifact,expected_instantiation",
     [
         (
-            "docker.io/baserow/baserow",
+            "docker.io/baserow/baserow:2.1.2",
             ContainerImageParts(
-                full_name="baserow/baserow", tag="", digest="", registry="docker.io"
+                full_name="baserow/baserow",
+                tag="2.1.2",
+                digest="",
+                registry="docker.io",
             ),
             oci.Artifact(
-                url="pkg:oci/baserow?repository_url=docker.io/baserow/baserow",
+                url="pkg:oci/baserow?repository_url=docker.io/baserow/baserow&tag=2.1.2",
                 type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
-                digest="",  # Will be replaced in test
+                digest="sha256:60e2e1215f4e020c36cb1233dab21514c214f0347dc9e2d7f3ae6d1b01d9044c",
                 metadata=oci.ArtifactMetadata(
                     source_url="https://github.com/baserow/baserow",
                     description="All in one docker image for Baserow, open source no-code platform tool and Airtable alternative",
@@ -51,7 +54,7 @@ artifact_keys = [
                     }
                 ),
                 source="https://github.com/baserow/baserow",
-                source_revision="7d43e309793e1a9f1911bb5d44b4a1d6518444d0",
+                source_revision="22bcfac3b835974a4a0787f5fa8d2d1b06ae58b1",
             ),
         ),
         (
@@ -254,6 +257,7 @@ def test_resolve_image_ref(
     annotations, platforms, manifest_digest, artifact_fetch = oci.registry_v2_fetch(
         ref.parts, artifact_fetch="application/vnd.in-toto+json"
     )
+    # print(artifact_fetch.artifact_bytes if artifact_fetch else "no artifact fetch")
     assert platforms
     assert manifest_digest == expected_artifact.digest or expected_artifact.digest == ""
 
