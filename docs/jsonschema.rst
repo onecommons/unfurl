@@ -180,6 +180,8 @@ Cloudmap definitions
 
 .. jsonschema:: cloudmap-schema.json#/definitions/discovery
 
+.. jsonschema:: cloudmap-schema.json#/definitions/repository
+
 .. jsonschema:: cloudmap-schema.json#/definitions/service
 
 .. jsonschema:: cloudmap-schema.json#/definitions/artifact
@@ -189,5 +191,7 @@ Cloudmap definitions
 .. jsonschema:: cloudmap-schema.json#/definitions/release_schedule
 
 .. jsonschema:: cloudmap-schema.json#/definitions/instantiation
+
+.. jsonschema:: cloudmap-schema.json#/definitions/type
 
 .. jsonschema:: cloudmap-schema.json#/definitions/inlineArtifact
