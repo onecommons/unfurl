@@ -54,16 +54,20 @@ async fn main() {
     // Using a clone() of MultiplexedConnection shares the same underlying socket,
     // and BLPOP 0 (infinite timeout) on that socket would block every subsequent
     // GET/SET command, causing all cache lookups to hang indefinitely.
-    let redis_client_opt: Option<redis::Client> = match &config.redis_url {
+    let redacted_url = config.redacted_redis_url();
+    let redis_client_opt: Option<redis::Client> = match config.effective_redis_url() {
         Some(url) => match redis::Client::open(url.as_str()) {
-            Ok(c) => Some(c),
+            Ok(c) => {
+                tracing::info!("using Redis: {}", redacted_url.as_deref().unwrap_or(""));
+                Some(c)
+            }
             Err(e) => {
-                tracing::error!("invalid Redis URL: {}", e);
+                tracing::error!("invalid Redis URL {}: {}", redacted_url.as_deref().unwrap_or(""), e);
                 std::process::exit(1);
             }
         },
         None => {
-            tracing::info!("no CACHE_REDIS_URL set, caching disabled");
+            tracing::info!("no Redis config set, caching disabled");
             None
         }
     };

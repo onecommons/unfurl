@@ -84,8 +84,7 @@ fn add_operation_ids(spec: &mut serde_json::Value) {
                             // e.g. POST /create_ensemble  →  post_create_ensemble
                             let slug = path
                                 .trim_start_matches('/')
-                                .replace('/', "_")
-                                .replace('-', "_");
+                                .replace(['/', '-'], "_");
                             let op_id = format!("{}_{}", method.to_lowercase(), slug);
                             obj.insert(
                                 "operationId".to_string(),

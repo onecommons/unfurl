@@ -24,9 +24,25 @@ pub struct Config {
     #[arg(long, env = "UNFURL_BACKEND_URL")]
     pub backend_url: Option<String>,
 
-    /// Redis connection URL. When absent, caching and queuing are disabled.
+    /// Redis connection URL. When absent, falls back to CACHE_REDIS_HOST/PORT/PASSWORD/DB.
     #[arg(long, env = "CACHE_REDIS_URL")]
     pub redis_url: Option<String>,
+
+    /// Redis host (used when CACHE_REDIS_URL is not set).
+    #[arg(long, env = "CACHE_REDIS_HOST")]
+    pub redis_host: Option<String>,
+
+    /// Redis port (used when CACHE_REDIS_URL is not set).
+    #[arg(long, env = "CACHE_REDIS_PORT", default_value_t = 6379)]
+    pub redis_port: u16,
+
+    /// Redis password (used when CACHE_REDIS_URL is not set).
+    #[arg(long, env = "CACHE_REDIS_PASSWORD")]
+    pub redis_password: Option<String>,
+
+    /// Redis database number (used when CACHE_REDIS_URL is not set).
+    #[arg(long, env = "CACHE_REDIS_DB", default_value_t = 0)]
+    pub redis_db: u16,
 
     /// Key prefix used by flask-caching's RedisCache backend.
     #[arg(long, env = "CACHE_KEY_PREFIX", default_value = "ufsv::")]
@@ -60,8 +76,146 @@ impl Config {
         })
     }
 
+    /// Resolved Redis URL: prefers `CACHE_REDIS_URL`, otherwise builds from
+    /// `CACHE_REDIS_HOST`/`PORT`/`PASSWORD`/`DB`.  Returns `None` when neither
+    /// `redis_url` nor `redis_host` is set.
+    pub fn effective_redis_url(&self) -> Option<String> {
+        if let Some(url) = &self.redis_url {
+            return Some(url.clone());
+        }
+        let host = self.redis_host.as_deref()?;
+        let userinfo = match &self.redis_password {
+            Some(pw) => format!(":{}@", pw),
+            None => String::new(),
+        };
+        Some(format!(
+            "redis://{}{}:{}/{}",
+            userinfo, host, self.redis_port, self.redis_db
+        ))
+    }
+
     /// Redis key prefix for the write queue.
     pub fn queue_key(&self) -> String {
         format!("{}patch_queue", self.cache_key_prefix)
+    }
+
+    /// Return the effective Redis URL with any password redacted for logging.
+    pub fn redacted_redis_url(&self) -> Option<String> {
+        self.effective_redis_url().map(|url| redact_url(&url))
+    }
+}
+
+/// Replace the password portion of a Redis URL with `***`.
+/// Handles both `redis://:password@host` and `redis://user:password@host`.
+fn redact_url(url: &str) -> String {
+    // Unix socket URLs (redis+unix:// or unix://) and plain redis:// URLs
+    // share the same `:password@` pattern in the authority section.
+    if let Some(at) = url.find('@') {
+        if let Some(colon) = url[..at].rfind(':') {
+            return format!("{}:***{}", &url[..colon], &url[at..]);
+        }
+    }
+    url.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: build a Config with only the redis fields set, everything else defaulted.
+    fn config_with_redis(
+        url: Option<&str>,
+        host: Option<&str>,
+        port: u16,
+        password: Option<&str>,
+        db: u16,
+    ) -> Config {
+        Config {
+            host: "127.0.0.1".into(),
+            port: 8080,
+            backend_url: None,
+            redis_url: url.map(Into::into),
+            redis_host: host.map(Into::into),
+            redis_port: port,
+            redis_password: password.map(Into::into),
+            redis_db: db,
+            cache_key_prefix: "ufsv::".into(),
+            secret: String::new(),
+            proxy_timeout_secs: 120,
+            redis_timeout_secs: 5,
+            package_digest: String::new(),
+        }
+    }
+
+    #[test]
+    fn effective_redis_url_prefers_url() {
+        let cfg = config_with_redis(
+            Some("redis://myhost:1234/5"),
+            Some("ignored"),
+            9999,
+            Some("ignored"),
+            9,
+        );
+        assert_eq!(
+            cfg.effective_redis_url().unwrap(),
+            "redis://myhost:1234/5"
+        );
+    }
+
+    #[test]
+    fn effective_redis_url_from_host_port_db() {
+        let cfg = config_with_redis(None, Some("redis.example.com"), 6380, None, 3);
+        assert_eq!(
+            cfg.effective_redis_url().unwrap(),
+            "redis://redis.example.com:6380/3"
+        );
+    }
+
+    #[test]
+    fn effective_redis_url_with_password() {
+        let cfg = config_with_redis(None, Some("localhost"), 6379, Some("s3cret"), 0);
+        assert_eq!(
+            cfg.effective_redis_url().unwrap(),
+            "redis://:s3cret@localhost:6379/0"
+        );
+    }
+
+    #[test]
+    fn effective_redis_url_defaults() {
+        let cfg = config_with_redis(None, Some("localhost"), 6379, None, 0);
+        assert_eq!(
+            cfg.effective_redis_url().unwrap(),
+            "redis://localhost:6379/0"
+        );
+    }
+
+    #[test]
+    fn effective_redis_url_none_when_no_config() {
+        let cfg = config_with_redis(None, None, 6379, None, 0);
+        assert!(cfg.effective_redis_url().is_none());
+    }
+
+    #[test]
+    fn redact_url_hides_password() {
+        assert_eq!(
+            super::redact_url("redis://:s3cret@localhost:6379/0"),
+            "redis://:***@localhost:6379/0"
+        );
+        assert_eq!(
+            super::redact_url("redis://user:pass@host:6379/0"),
+            "redis://user:***@host:6379/0"
+        );
+    }
+
+    #[test]
+    fn redact_url_noop_without_password() {
+        assert_eq!(
+            super::redact_url("redis://localhost:6379/0"),
+            "redis://localhost:6379/0"
+        );
+        assert_eq!(
+            super::redact_url("unix:///var/run/redis.sock?db=2"),
+            "unix:///var/run/redis.sock?db=2"
+        );
     }
 }

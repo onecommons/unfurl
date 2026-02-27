@@ -117,6 +117,7 @@ async fn handle_cached_get(
                 .get(header::IF_NONE_MATCH)
                 .and_then(|v| v.to_str().ok());
             if if_none_match == Some(etag.as_str()) {
+                tracing::info!("cache hit etag match: {}", key);
                 return StatusCode::NOT_MODIFIED.into_response();
             }
             let mut response = Json(json_val).into_response();
@@ -136,6 +137,7 @@ pub async fn handle_export(State(state): State<AppState>, req: Request) -> Respo
     let params = parse_query(req.uri());
     let latest_commit = params.get("latest_commit").cloned();
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
+    tracing::info!("handle_export: key={} redis={}", key, state.redis.is_some());
     handle_cached_get(state, req, key, latest_commit).await
 }
 

@@ -537,6 +537,24 @@ CacheItemDependencies = Dict[str, CacheItemDependency]
 # cache value, last_commit (on the file_path), latest_commit (seen in branch), map of deps this value depends on
 
 
+def _to_plain_types(obj: Any) -> Any:
+    """Recursively convert dict/str/list subclasses (e.g. AnsibleMapping,
+    AnsibleUnicode, GraphqlDB) to plain Python types so the pickled
+    representation uses only standard opcodes that Rust's serde_pickle can handle."""
+    if isinstance(obj, dict):
+        # dict subclass (AnsibleMapping, GraphqlDB, etc.)
+        return {_to_plain_types(k): _to_plain_types(v) for k, v in obj.items()}
+    if isinstance(obj, str):
+        # str subclass (AnsibleUnicode)
+        return str(obj)
+    if isinstance(obj, list):
+        return [_to_plain_types(v) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_to_plain_types(v) for v in obj)
+    # pass through
+    return obj
+
+
 class CacheValue(NamedTuple):
     value: Any
     last_commit: str
@@ -1155,7 +1173,7 @@ class CacheEntry:
         if package and package.discovered:
             # if set then we want to see if the dependency changed by looking for newer tags
             # (instead of pulling from the branch)
-            dep.latest_package_url = package.url
+            dep.latest_package_url = str(package.url)
         return dep
 
 
@@ -1300,7 +1318,7 @@ def _export_cache_work(
         latest_commit,
         cache_entry.args or {},
     )
-    return err, val, True
+    return err, _to_plain_types(val), True
 
 
 def _make_etag(latest_commit: str) -> str:

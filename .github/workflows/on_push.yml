@@ -89,8 +89,8 @@ jobs:
       - name: Run cargo clippy and cargo test
         if: matrix.python == '3.14'
         run: |
-          cargo clippy --manifest-path rust/solver/Cargo.toml
-          cargo test --no-default-features --manifest-path rust/solver/Cargo.toml
+          cargo clippy --manifest-path rust/Cargo.toml
+          cargo test --no-default-features --manifest-path rust/Cargo.toml
       - name: upload code coverage report
         if: matrix.python == 3.11
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

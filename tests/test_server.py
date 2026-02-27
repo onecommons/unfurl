@@ -61,6 +61,33 @@ def wait_for_status(
         )
 
 
+def wait_for_log(log_file, pattern, request_fn, timeout=15.0, poll_interval=0.25):
+    """Poll until `pattern` appears in new log entries, calling `request_fn` each iteration.
+
+    Records the current log file position before starting so only new entries are checked,
+    avoiding false positives from earlier test activity.  Returns the last response returned
+    by `request_fn`.  Fails the test on timeout.
+    """
+    with open(log_file) as _f:
+        _f.seek(0, 2)
+        offset = _f.tell()
+    deadline = time.time() + timeout
+    last_res = None
+    while time.time() < deadline:
+        last_res = request_fn()
+        with open(log_file) as _f:
+            _f.seek(offset)
+            new_log = _f.read()
+        if pattern in new_log:
+            return last_res
+        time.sleep(poll_interval)
+    with open(log_file) as _f:
+        log_contents = _f.read()
+    pytest.fail(
+        f"Timed out waiting for {pattern!r} in log after {timeout}s.\nLog tail:\n{log_contents[-3000:]}"
+    )
+
+
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
 # (with -s only)
 # but fork doesn't inherit the environment so UNFURL_TEST_REDIS_URL breaks
@@ -141,6 +168,46 @@ def _next_port():
     return _server_port
 
 
+def _save_rust_fixtures() -> None:
+    """Dump cached deployment and blueprint pickle values from Redis to
+    rust/server/tests/fixtures/ so the Rust unit tests can use them.
+
+    Requires UNFURL_TEST_REDIS_URL to be set.  Silently returns if Redis
+    is not configured or the expected keys are not found.
+    """
+    if not UNFURL_TEST_REDIS_URL:
+        return
+    import redis as _redis
+
+    fixtures_dir = os.path.join(
+        os.path.dirname(__file__), "..", "rust", "server", "tests", "fixtures"
+    )
+    os.makedirs(fixtures_dir, exist_ok=True)
+
+    cache_prefix = os.environ.get("CACHE_KEY_PREFIX", "ufsv::")
+    r = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
+    try:
+        keys = r.keys(f"{cache_prefix}*")
+    except Exception as e:
+        print(f"_save_rust_fixtures: Redis error: {e}")
+        return
+
+    suffix_to_file = {
+        ":deployment": "deployment.pkl",
+        ":blueprint": "blueprint.pkl",
+    }
+    for key in keys:
+        key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+        for suffix, filename in suffix_to_file.items():
+            if key_str.endswith(suffix):
+                value = r.get(key)
+                if value:
+                    dest = os.path.join(fixtures_dir, filename)
+                    with open(dest, "wb") as f:
+                        f.write(value)
+                    print(f"_save_rust_fixtures: saved {key_str} -> {dest}")
+
+
 def _rust_extra_env() -> dict:
     """Extra env vars to enable the Rust proxy when UNFURL_TEST_RUST_SERVER=1.
 
@@ -153,12 +220,14 @@ def _rust_extra_env() -> dict:
     subprocess all use the same cache backend and key prefix.
     """
     if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
-        return {}
+        print("UNFURL_TEST_RUST_SERVER not set, running server without Rust proxy")
+        return {"UNFURL_RUST_SERVER": "0"}
     if not UNFURL_TEST_REDIS_URL:
         raise RuntimeError(
             "UNFURL_TEST_RUST_SERVER=1 requires UNFURL_TEST_REDIS_URL to be set. "
             "The Rust proxy requires Redis for correct operation of write endpoints."
         )
+    print("UNFURL_TEST_RUST_SERVER set, running server with Rust proxy")
     return {
         "UNFURL_RUST_SERVER": "1",
         "CACHE_TYPE": "RedisCache",
@@ -167,6 +236,8 @@ def _rust_extra_env() -> dict:
         # processes (Python server, Rust subprocess) share the same namespace.
         "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
         "CACHE_DEFAULT_TIMEOUT": "120",
+        # Forward UNFURL_LOGGING so _start_rust_server can map it to RUST_LOG.
+        "UNFURL_LOGGING": os.environ.get("UNFURL_LOGGING", "debug"),
     }
 
 
@@ -557,13 +628,6 @@ def test_server_export_remote():
                         assert (
                             _strip_sourceinfo(res.json()) == expected
                         )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
-                        if use_rust and rust_log_file:
-                            with open(rust_log_file) as _f:
-                                _f.seek(log_offset)
-                                new_log = _f.read()
-                            assert "cache miss" in new_log, (
-                                f"Expected 'cache miss' in Rust log for {export_format}:\n{new_log}"
-                            )
                     else:
                         # Cache hit: poll until server returns 304 via ETag match.
                         # Rust computes the same ETag as Python and honours If-None-Match,
@@ -584,13 +648,36 @@ def test_server_export_remote():
                             expected=304,
                             timeout=15.0,
                         )
-                        if use_rust and rust_log_file:
-                            with open(rust_log_file) as _f:
-                                _f.seek(log_offset)
-                                new_log = _f.read()
-                            assert "cache hit:" in new_log, (
-                                f"Expected 'cache hit:' in Rust log for {export_format}:\n{new_log}"
+
+                    file_path = server._get_filepath(export_format, "")
+                    key = server.CacheEntry(
+                        project_id, "main", file_path, export_format
+                    ).cache_key()
+                    if use_rust:
+                        # Rust key includes the cache prefix
+                        cache_prefix = os.environ.get("CACHE_KEY_PREFIX", "ufsv::")
+                        rust_key = f"{cache_prefix}{key}"
+                        assert rust_log_file, (
+                            "Rust log file should be set when UNFURL_TEST_RUST_SERVER=1"
+                        )
+                        with open(rust_log_file) as _f:
+                            _f.seek(log_offset)
+                            new_log = _f.read()
+                        print(new_log)
+                        if msg == "cache miss for":
+                            assert f"cache miss (no entry): {rust_key}" in new_log, (
+                                f"Expected 'cache miss (no entry): {rust_key}' in Rust log for {export_format}:\n{new_log}"
                             )
+                        else:
+                            assert f"cache hit etag match: {rust_key}" in new_log, (
+                                f"Expected 'cache hit etag match: {rust_key}' in Rust log for {export_format}:\n{new_log}"
+                            )
+
+            # XXX
+            # caplog, capsys, capfd capture log messages from uvicorn but not from the request workers
+            # pytest -s does output those messages to the console if set_start_method is set to "fork"
+            # visually confirmed this assert:
+            # assert f"{msg} {key}" in caplog.text
 
             # test with a blueprint
             run_cmd(
@@ -658,6 +745,8 @@ def test_server_export_remote():
                 expected=304,
                 timeout=15.0,
             )
+            # Save Redis cache entries as fixtures for Rust unit tests.
+            _save_rust_fixtures()
         finally:
             p.terminate()
             p.join()
