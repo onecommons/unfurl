@@ -88,6 +88,25 @@ def wait_for_log(log_file, pattern, request_fn, timeout=15.0, poll_interval=0.25
     )
 
 
+def _poll_rust_log(
+    log_file: str, offset: int, pattern: str, timeout: float = 5.0
+) -> str:
+    """Read new log entries from *offset*, polling until *pattern* appears.
+
+    The Rust server writes to stderr which is piped to a file.  On Linux the
+    pipe may be fully buffered, so the log entry can lag behind the HTTP
+    response.  Poll for up to *timeout* seconds before giving up.
+    """
+    deadline = time.time() + timeout
+    while True:
+        with open(log_file) as f:
+            f.seek(offset)
+            text = f.read()
+        if pattern in text or time.time() >= deadline:
+            return text
+        time.sleep(0.25)
+
+
 # mac defaults to spawn, switch to fork so the subprocess inherits our stdout and stderr so we can see its log output
 # (with -s only)
 # but fork doesn't inherit the environment so UNFURL_TEST_REDIS_URL breaks
@@ -731,16 +750,20 @@ def test_server_export_remote(server_env):
                         assert rust_log_file, (
                             "Rust log file should be set when UNFURL_TEST_RUST_SERVER=1"
                         )
-                        with open(rust_log_file) as _f:
-                            _f.seek(log_offset)
-                            new_log = _f.read()
+                        # Poll the log file: the Rust server writes to stderr
+                        # which is piped to a file; on Linux the pipe is fully
+                        # buffered so the entry may not appear immediately after
+                        # the HTTP response arrives.
+                        if msg == "cache miss for":
+                            expected_pattern = f"cache miss (no entry): {rust_key}"
+                        else:
+                            expected_pattern = f"cache hit etag match: {rust_key}"
+                        new_log = _poll_rust_log(
+                            rust_log_file, log_offset, expected_pattern
+                        )
                         print(new_log)
                         new_log = clean_output(new_log)
-                        if msg == "cache miss for":
-                            assert f"cache miss (no entry): {rust_key}" in new_log, (
-                                f"Expected 'cache miss (no entry): {rust_key}' in Rust log for {export_format}:\n{new_log}"
-                            )
-                        else:
+                        if msg != "cache miss for":
                             # Check for etag mismatch first to give a diagnostic message
                             mismatch_marker = f"cache hit etag mismatch: {rust_key}"
                             assert mismatch_marker not in new_log, (
@@ -755,9 +778,9 @@ def test_server_export_remote(server_env):
                                     mismatch_marker,
                                 )
                             )
-                            assert f"cache hit etag match: {rust_key}" in new_log, (
-                                f"Expected 'cache hit etag match: {rust_key}' in Rust log for {export_format}:\n{new_log}"
-                            )
+                        assert expected_pattern in new_log, (
+                            f"Expected {expected_pattern!r} in Rust log for {export_format}:\n{new_log}"
+                        )
 
             # XXX
             # caplog, capsys, capfd capture log messages from uvicorn but not from the request workers
