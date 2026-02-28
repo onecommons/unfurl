@@ -855,34 +855,22 @@ mod tests {
         // Test partial match - pattern only matches part of string
         assert!(!regex_match_exact(&digit_pattern, "abc123").unwrap());
         assert!(!regex_match_exact(&digit_pattern, "123abc").unwrap());
-        assert!(
-            !regex_match_exact(&hello_pattern, "hello world").unwrap()
-        );
+        assert!(!regex_match_exact(&hello_pattern, "hello world").unwrap());
 
         // Test with anchors (should still work)
         let anchored_pattern = make_pattern_constraint(r"^hello$").unwrap();
         assert!(regex_match_exact(&anchored_pattern, "hello").unwrap());
-        assert!(
-            !regex_match_exact(&anchored_pattern, "hello world").unwrap()
-        );
+        assert!(!regex_match_exact(&anchored_pattern, "hello world").unwrap());
 
         // Test complex patterns
         let email_pattern = make_pattern_constraint(r"[a-z]+@[a-z]+\.[a-z]+").unwrap();
-        assert!(
-            regex_match_exact(&email_pattern, "user@example.com").unwrap()
-        );
-        assert!(
-            !regex_match_exact(&email_pattern, "user@example.com extra").unwrap()
-        );
+        assert!(regex_match_exact(&email_pattern, "user@example.com").unwrap());
+        assert!(!regex_match_exact(&email_pattern, "user@example.com extra").unwrap());
 
         // Test digit pattern
         let phone_pattern = make_pattern_constraint(r"\d{3}-\d{3}-\d{4}").unwrap();
-        assert!(
-            regex_match_exact(&phone_pattern, "123-456-7890").unwrap()
-        );
-        assert!(
-            !regex_match_exact(&phone_pattern, "call 123-456-7890").unwrap()
-        );
+        assert!(regex_match_exact(&phone_pattern, "123-456-7890").unwrap());
+        assert!(!regex_match_exact(&phone_pattern, "call 123-456-7890").unwrap());
 
         // Test empty string
         let empty_pattern = make_pattern_constraint(r"").unwrap();

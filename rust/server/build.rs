@@ -48,10 +48,7 @@ fn rewrite_nullable(val: &mut serde_json::Value) {
                             break;
                         }
                     }
-                    map.insert(
-                        "nullable".to_string(),
-                        serde_json::Value::Bool(true),
-                    );
+                    map.insert("nullable".to_string(), serde_json::Value::Bool(true));
                 }
             }
 
@@ -82,14 +79,9 @@ fn add_operation_ids(spec: &mut serde_json::Value) {
                     if let Some(obj) = details.as_object_mut() {
                         if !obj.contains_key("operationId") {
                             // e.g. POST /create_ensemble  →  post_create_ensemble
-                            let slug = path
-                                .trim_start_matches('/')
-                                .replace(['/', '-'], "_");
+                            let slug = path.trim_start_matches('/').replace(['/', '-'], "_");
                             let op_id = format!("{}_{}", method.to_lowercase(), slug);
-                            obj.insert(
-                                "operationId".to_string(),
-                                serde_json::Value::String(op_id),
-                            );
+                            obj.insert("operationId".to_string(), serde_json::Value::String(op_id));
                         }
                     }
                 }

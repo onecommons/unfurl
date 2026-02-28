@@ -56,7 +56,11 @@ pub async fn try_cache(
         Some(b) => b,
     };
     // cachelib's RedisSerializer prepends b"!" before the pickle payload.
-    let payload = if raw.first() == Some(&b'!') { &raw[1..] } else { &raw[..] };
+    let payload = if raw.first() == Some(&b'!') {
+        &raw[1..]
+    } else {
+        &raw[..]
+    };
     let (json_val, etag, has_deps) =
         deserialize_cache_value(payload, latest_commit, key, package_digest)?;
     if has_deps {
@@ -87,7 +91,9 @@ pub(crate) fn deserialize_cache_value(
     // 5-element CacheValue tuple without needing to call the Python class.
     // replace_unresolved_globals: replace unknown class refs with None instead
     // of erroring, needed for nested classes like CacheItemDependency in deps.
-    let opts = DeOptions::new().keep_restore_state().replace_unresolved_globals();
+    let opts = DeOptions::new()
+        .keep_restore_state()
+        .replace_unresolved_globals();
     let pickle_val: serde_pickle::Value = match serde_pickle::from_slice(raw, opts) {
         Ok(v) => v,
         Err(e) => {
@@ -112,7 +118,9 @@ pub(crate) fn deserialize_cache_value(
         if !req_commit.is_empty() && cached_commit != req_commit {
             tracing::debug!(
                 "cache ignored - commit mismatch: {} (request={}, cached={})",
-                key, req_commit, cached_commit
+                key,
+                req_commit,
+                cached_commit
             );
             return None;
         }
@@ -151,7 +159,11 @@ fn compute_etag(last_commit: &str, package_digest: &str) -> String {
             hex
         };
         // Take at most the last 40 hex chars (20 bytes).
-        let hex = if hex.len() > 40 { &hex[hex.len() - 40..] } else { hex };
+        let hex = if hex.len() > 40 {
+            &hex[hex.len() - 40..]
+        } else {
+            hex
+        };
         let start = 20 - hex.len() / 2;
         for (i, chunk) in hex.as_bytes().chunks(2).enumerate() {
             if let Ok(s) = std::str::from_utf8(chunk) {
@@ -199,13 +211,9 @@ fn pickle_to_json(val: &serde_pickle::Value) -> Option<JsonValue> {
         serde_pickle::Value::None => Some(JsonValue::Null),
         serde_pickle::Value::Bool(b) => Some(JsonValue::Bool(*b)),
         serde_pickle::Value::I64(n) => Some(JsonValue::Number((*n).into())),
-        serde_pickle::Value::F64(f) => {
-            serde_json::Number::from_f64(*f).map(JsonValue::Number)
-        }
+        serde_pickle::Value::F64(f) => serde_json::Number::from_f64(*f).map(JsonValue::Number),
         serde_pickle::Value::String(s) => Some(JsonValue::String(s.clone())),
-        serde_pickle::Value::Bytes(b) => {
-            String::from_utf8(b.clone()).ok().map(JsonValue::String)
-        }
+        serde_pickle::Value::Bytes(b) => String::from_utf8(b.clone()).ok().map(JsonValue::String),
         serde_pickle::Value::List(items) | serde_pickle::Value::Tuple(items) => {
             let arr: Option<Vec<JsonValue>> = items.iter().map(pickle_to_json).collect();
             arr.map(JsonValue::Array)
@@ -215,9 +223,7 @@ fn pickle_to_json(val: &serde_pickle::Value) -> Option<JsonValue> {
             for (k, v) in entries {
                 let key = match k {
                     HashableValue::String(s) => s.clone(),
-                    HashableValue::Bytes(b) => {
-                        String::from_utf8(b.clone()).ok()?
-                    }
+                    HashableValue::Bytes(b) => String::from_utf8(b.clone()).ok()?,
                     _ => return None,
                 };
                 map.insert(key, pickle_to_json(v)?);
@@ -225,8 +231,7 @@ fn pickle_to_json(val: &serde_pickle::Value) -> Option<JsonValue> {
             Some(JsonValue::Object(map))
         }
         serde_pickle::Value::Set(items) | serde_pickle::Value::FrozenSet(items) => {
-            let arr: Option<Vec<JsonValue>> =
-                items.iter().map(hashable_to_json).collect();
+            let arr: Option<Vec<JsonValue>> = items.iter().map(hashable_to_json).collect();
             arr.map(JsonValue::Array)
         }
         serde_pickle::Value::Int(_) => {
@@ -246,13 +251,11 @@ fn hashable_to_json(val: &HashableValue) -> Option<JsonValue> {
         HashableValue::String(s) => Some(JsonValue::String(s.clone())),
         HashableValue::Bytes(b) => String::from_utf8(b.clone()).ok().map(JsonValue::String),
         HashableValue::Tuple(items) => {
-            let arr: Option<Vec<JsonValue>> =
-                items.iter().map(hashable_to_json).collect();
+            let arr: Option<Vec<JsonValue>> = items.iter().map(hashable_to_json).collect();
             arr.map(JsonValue::Array)
         }
         HashableValue::FrozenSet(items) => {
-            let arr: Option<Vec<JsonValue>> =
-                items.iter().map(hashable_to_json).collect();
+            let arr: Option<Vec<JsonValue>> = items.iter().map(hashable_to_json).collect();
             arr.map(JsonValue::Array)
         }
         HashableValue::Int(_) => Some(JsonValue::String(format!("{:?}", val))),
@@ -271,7 +274,11 @@ mod tests {
     const BLUEPRINT_PKL: &[u8] = include_bytes!("../tests/fixtures/blueprint.pkl");
 
     fn strip_cachelib(raw: &[u8]) -> &[u8] {
-        if raw.first() == Some(&b'!') { &raw[1..] } else { raw }
+        if raw.first() == Some(&b'!') {
+            &raw[1..]
+        } else {
+            raw
+        }
     }
 
     #[test]
@@ -317,13 +324,22 @@ mod tests {
         };
         let deps = match &items[3] {
             serde_pickle::Value::Dict(d) => d,
-            other => panic!("deps should be a Dict, got: {:?}", std::mem::discriminant(other)),
+            other => panic!(
+                "deps should be a Dict, got: {:?}",
+                std::mem::discriminant(other)
+            ),
         };
-        assert_eq!(deps.len(), 1, "blueprint.pkl should have exactly 1 dep entry");
+        assert_eq!(
+            deps.len(),
+            1,
+            "blueprint.pkl should have exactly 1 dep entry"
+        );
 
         // Verify the dep key and that CacheItemDependency fields are accessible.
         let dep_key = HashableValue::String("onecommons/std:v1.1.0".into());
-        let dep_val = deps.get(&dep_key).expect("missing dep key onecommons/std:v1.1.0");
+        let dep_val = deps
+            .get(&dep_key)
+            .expect("missing dep key onecommons/std:v1.1.0");
 
         let dep_fields = match dep_val {
             serde_pickle::Value::Dict(d) => d,
@@ -337,9 +353,18 @@ mod tests {
         };
 
         // Verify all CacheItemDependency field values.
-        assert_eq!(get_field("project_id"), &serde_pickle::Value::String("onecommons/std".into()));
-        assert_eq!(get_field("branch"), &serde_pickle::Value::String("v1.1.0".into()));
-        assert_eq!(get_field("key"), &serde_pickle::Value::String("load_yaml".into()));
+        assert_eq!(
+            get_field("project_id"),
+            &serde_pickle::Value::String("onecommons/std".into())
+        );
+        assert_eq!(
+            get_field("branch"),
+            &serde_pickle::Value::String("v1.1.0".into())
+        );
+        assert_eq!(
+            get_field("key"),
+            &serde_pickle::Value::String("load_yaml".into())
+        );
         assert_eq!(get_field("stale_pull_age"), &serde_pickle::Value::I64(120));
         assert_eq!(get_field("do_clone"), &serde_pickle::Value::Bool(true));
         assert_eq!(
@@ -355,9 +380,9 @@ mod tests {
         );
         assert_eq!(
             get_field("last_commits"),
-            &serde_pickle::Value::List(vec![
-                serde_pickle::Value::String("62ce5b304f12c1a810930d849f17b460cd2999f0".into()),
-            ])
+            &serde_pickle::Value::List(vec![serde_pickle::Value::String(
+                "62ce5b304f12c1a810930d849f17b460cd2999f0".into()
+            ),])
         );
         assert_eq!(
             get_field("latest_package_url"),
@@ -381,8 +406,7 @@ mod tests {
             }
         };
 
-        let client = redis::Client::open(url.as_str())
-            .expect("failed to open Redis client");
+        let client = redis::Client::open(url.as_str()).expect("failed to open Redis client");
         let mut conn = client
             .get_multiplexed_async_connection()
             .await
@@ -434,8 +458,8 @@ mod tests {
                 let base = url.rsplit_once('/').map_or(url.as_str(), |(b, _)| b);
                 format!("{}/0", base)
             };
-            let client0 = redis::Client::open(db0_url.as_str())
-                .expect("failed to open db=0 client");
+            let client0 =
+                redis::Client::open(db0_url.as_str()).expect("failed to open db=0 client");
             let mut conn0 = client0
                 .get_multiplexed_async_connection()
                 .await
@@ -476,8 +500,7 @@ mod tests {
             }
         };
 
-        let client = redis::Client::open(url.as_str())
-            .expect("failed to open Redis client");
+        let client = redis::Client::open(url.as_str()).expect("failed to open Redis client");
         let mut conn = client
             .get_multiplexed_async_connection()
             .await
@@ -507,8 +530,20 @@ mod tests {
             }
 
             // cachelib prepends b"!" before the pickle payload — strip it.
-            let payload = if raw.first() == Some(&b'!') { &raw[1..] } else { &raw[..] };
-            println!("  first byte: 0x{:02x} ({})", raw[0], if raw[0] == b'!' { "cachelib prefix stripped" } else { "no prefix" });
+            let payload = if raw.first() == Some(&b'!') {
+                &raw[1..]
+            } else {
+                &raw[..]
+            };
+            println!(
+                "  first byte: 0x{:02x} ({})",
+                raw[0],
+                if raw[0] == b'!' {
+                    "cachelib prefix stripped"
+                } else {
+                    "no prefix"
+                }
+            );
 
             // Try to deserialize as pickle
             let opts = serde_pickle::DeOptions::default();
@@ -526,7 +561,11 @@ mod tests {
                     println!("  tuple length: {}", items.len());
                     for (i, item) in items.iter().enumerate() {
                         let short = format!("{:?}", item);
-                        let short = if short.len() > 120 { &short[..120] } else { &short };
+                        let short = if short.len() > 120 {
+                            &short[..120]
+                        } else {
+                            &short
+                        };
                         println!("  field[{}]: {}", i, short);
                     }
 
@@ -534,8 +573,15 @@ mod tests {
                     match super::deserialize_cache_value(payload, None, key, "") {
                         Some((json_val, etag, has_deps)) => {
                             let preview = serde_json::to_string(&json_val).unwrap_or_default();
-                            let preview = if preview.len() > 200 { &preview[..200] } else { &preview };
-                            println!("  => deserialized OK, etag={:?}, has_deps={}, json preview: {}", etag, has_deps, preview);
+                            let preview = if preview.len() > 200 {
+                                &preview[..200]
+                            } else {
+                                &preview
+                            };
+                            println!(
+                                "  => deserialized OK, etag={:?}, has_deps={}, json preview: {}",
+                                etag, has_deps, preview
+                            );
                         }
                         None => println!("  => deserialize_cache_value returned None"),
                     }

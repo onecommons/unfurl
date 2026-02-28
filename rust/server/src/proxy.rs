@@ -12,11 +12,7 @@ use reqwest::Client;
 
 /// Forward an incoming request to the Python backend and stream the
 /// response back to the client.
-pub async fn forward(
-    client: &Client,
-    backend_url: &str,
-    req: Request,
-) -> Response {
+pub async fn forward(client: &Client, backend_url: &str, req: Request) -> Response {
     // Build the target URL preserving path and query string.
     let path_and_query = req
         .uri()
@@ -71,8 +67,8 @@ pub async fn forward(
 
 /// Convert a reqwest::Response into an axum Response.
 async fn convert_response(resp: reqwest::Response) -> Response {
-    let status = StatusCode::from_u16(resp.status().as_u16())
-        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let status =
+        StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut headers = HeaderMap::new();
     for (name, value) in resp.headers().iter() {
         if let Ok(v) = HeaderValue::from_bytes(value.as_bytes()) {

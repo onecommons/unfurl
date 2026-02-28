@@ -13,7 +13,10 @@ mod proxy;
 mod queue;
 mod routes;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use clap::Parser;
 use config::Config;
 use std::sync::Arc;
@@ -62,7 +65,11 @@ async fn main() {
                 Some(c)
             }
             Err(e) => {
-                tracing::error!("invalid Redis URL {}: {}", redacted_url.as_deref().unwrap_or(""), e);
+                tracing::error!(
+                    "invalid Redis URL {}: {}",
+                    redacted_url.as_deref().unwrap_or(""),
+                    e
+                );
                 std::process::exit(1);
             }
         },

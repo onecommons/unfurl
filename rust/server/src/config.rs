@@ -71,9 +71,9 @@ pub struct Config {
 impl Config {
     /// Resolved backend URL (falls back to `http://{host}:{port+1}`).
     pub fn backend_url(&self) -> String {
-        self.backend_url.clone().unwrap_or_else(|| {
-            format!("http://{}:{}", self.host, self.port + 1)
-        })
+        self.backend_url
+            .clone()
+            .unwrap_or_else(|| format!("http://{}:{}", self.host, self.port + 1))
     }
 
     /// Resolved Redis URL: prefers `CACHE_REDIS_URL`, otherwise builds from
@@ -156,10 +156,7 @@ mod tests {
             Some("ignored"),
             9,
         );
-        assert_eq!(
-            cfg.effective_redis_url().unwrap(),
-            "redis://myhost:1234/5"
-        );
+        assert_eq!(cfg.effective_redis_url().unwrap(), "redis://myhost:1234/5");
     }
 
     #[test]

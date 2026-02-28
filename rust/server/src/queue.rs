@@ -43,12 +43,11 @@ pub async fn run_worker(
     tracing::info!("queue worker started, listening on key: {}", queue_key);
     loop {
         // BLPOP with 0 timeout blocks indefinitely until an item appears.
-        let result: Result<Option<(String, String)>, _> =
-            redis::cmd("BLPOP")
-                .arg(&queue_key)
-                .arg(0)
-                .query_async(&mut conn)
-                .await;
+        let result: Result<Option<(String, String)>, _> = redis::cmd("BLPOP")
+            .arg(&queue_key)
+            .arg(0)
+            .query_async(&mut conn)
+            .await;
 
         let payload = match result {
             Ok(Some((_key, val))) => val,

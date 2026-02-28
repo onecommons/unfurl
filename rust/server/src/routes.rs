@@ -30,7 +30,10 @@ fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
         Some("HEAD") | None => "main",
         Some(b) => b,
     };
-    let format = params.get("format").map(|s| s.as_str()).unwrap_or("deployment");
+    let format = params
+        .get("format")
+        .map(|s| s.as_str())
+        .unwrap_or("deployment");
     let deployment_path = params.get("deployment_path").map(|s| s.as_str());
 
     let file_path = match format {
@@ -58,7 +61,10 @@ fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
         _ => "deployment".to_string(),
     };
 
-    format!("{}{}:{}:{}:{}", prefix, project_id, branch, file_path, key_suffix)
+    format!(
+        "{}{}:{}:{}:{}",
+        prefix, project_id, branch, file_path, key_suffix
+    )
 }
 
 /// Build the Redis cache key for a `/types` request.
@@ -73,7 +79,10 @@ fn types_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
         .map(|s| s.as_str())
         .unwrap_or("dummy-ensemble.yaml");
 
-    format!("{}{}:{}:{}:blueprint+types", prefix, project_id, branch, file)
+    format!(
+        "{}{}:{}:{}:blueprint+types",
+        prefix, project_id, branch, file
+    )
 }
 
 /// Parse query string into a HashMap.
@@ -81,9 +90,11 @@ fn parse_query(uri: &axum::http::Uri) -> HashMap<String, String> {
     uri.query()
         .map(|q| {
             url::form_urlencoded::parse(q.as_bytes())
-                .map(|(k, v): (std::borrow::Cow<'_, str>, std::borrow::Cow<'_, str>)| {
-                    (k.into_owned(), v.into_owned())
-                })
+                .map(
+                    |(k, v): (std::borrow::Cow<'_, str>, std::borrow::Cow<'_, str>)| {
+                        (k.into_owned(), v.into_owned())
+                    },
+                )
                 .collect()
         })
         .unwrap_or_default()
@@ -168,7 +179,9 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
             if name == "host" || name == "transfer-encoding" || name == "connection" {
                 return None;
             }
-            v.to_str().ok().map(|val| (name.to_string(), val.to_string()))
+            v.to_str()
+                .ok()
+                .map(|val| (name.to_string(), val.to_string()))
         })
         .collect();
 
