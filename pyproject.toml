@@ -41,6 +41,10 @@ include = ["unfurl*"]
 target = "unfurl.tosca_solver"
 path = "rust/solver/Cargo.toml"
 
+[[tool.setuptools-rust.bins]]
+target = "unfurl-server"
+path = "rust/server/Cargo.toml"
+
 [tool.setuptools.dynamic]
 readme = {file = ["README.md"], content-type = "text/markdown"}
 dependencies = {file = ["requirements.txt", "tosca-parser/requirements.txt"]}

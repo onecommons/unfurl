@@ -162,9 +162,9 @@ CLOUD_TEST_SERVER = "https://unfurl.cloud"
 def _next_port():
     global _server_port
     # When the Rust proxy is active each server occupies TWO ports (N=Rust front-end,
-    # N+1=Python backend).  Increment by 2 so consecutive tests don't race on the
-    # previous test's backend port.
-    _server_port += 2 if os.environ.get("UNFURL_TEST_RUST_SERVER") else 1
+    # N+1=Python backend).  Always increment by 2 so parametrized redis-rust variants
+    # never conflict with the next test's port.
+    _server_port += 2
     return _server_port
 
 
@@ -219,15 +219,16 @@ def _rust_extra_env() -> dict:
     Forwards Redis config explicitly so spawn-based child processes and the Rust
     subprocess all use the same cache backend and key prefix.
     """
-    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
-        print("UNFURL_TEST_RUST_SERVER not set, running server without Rust proxy")
+    rust_env = os.environ.get("UNFURL_TEST_RUST_SERVER")
+    if rust_env == "0":
+        print("UNFURL_TEST_RUST_SERVER=0, running server without Rust proxy")
         return {"UNFURL_RUST_SERVER": "0"}
     if not UNFURL_TEST_REDIS_URL:
         raise RuntimeError(
             "UNFURL_TEST_RUST_SERVER=1 requires UNFURL_TEST_REDIS_URL to be set. "
             "The Rust proxy requires Redis for correct operation of write endpoints."
         )
-    print("UNFURL_TEST_RUST_SERVER set, running server with Rust proxy")
+    print("running server with Rust proxy")
     return {
         "UNFURL_RUST_SERVER": "1",
         "CACHE_TYPE": "RedisCache",
@@ -260,7 +261,9 @@ def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw)
         raise
 
 
-def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
+def start_server_process(
+    process_obj, port, hosts=(HOST, "::1"), timeout=12.0, is_rust=False
+):
     """Start a server process and wait for it to be reachable.
 
     Args:
@@ -310,7 +313,7 @@ def start_server_process(process_obj, port, hosts=(HOST, "::1"), timeout=12.0):
                     # almost instantly, but Python/waitress takes longer on port+1.
                     # Wait for the backend port too so the first proxied request
                     # doesn't arrive before waitress is ready.
-                    if os.environ.get("UNFURL_TEST_RUST_SERVER"):
+                    if is_rust:
                         backend_port = port + 1
                         deadline = time.time() + timeout
                         while time.time() < deadline:
@@ -358,8 +361,41 @@ def start_envvar_server(port):
     return httpd, env_var_url
 
 
-@pytest.fixture()
-def runner():
+def _get_server_params():
+    """Three pytest.param variants: no-redis, redis, redis-rust."""
+    if not os.getenv("UNFURL_TEST_REDIS_URL"):
+        return ["no-redis"]
+    if os.getenv("UNFURL_TEST_RUST_SERVER") == "0":
+        return ["redis", "no-redis"]
+    return ["no-redis", "redis", "redis-rust"]
+
+
+def _env_for(variant: str) -> dict:
+    """Convert a server variant string to an env dict for serve_server."""
+    base_redis = {
+        "CACHE_TYPE": "RedisCache",
+        "CACHE_REDIS_URL": UNFURL_TEST_REDIS_URL or "",
+        "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
+        "CACHE_DEFAULT_TIMEOUT": "120",
+    }
+    if variant == "redis-rust":
+        return {
+            **base_redis,
+            "UNFURL_RUST_SERVER": "1",
+            "UNFURL_LOGGING": os.environ.get("UNFURL_LOGGING", "debug"),
+        }
+    if variant == "redis":
+        return {**base_redis, "UNFURL_RUST_SERVER": "0"}
+    # no-redis
+    return {"UNFURL_RUST_SERVER": "0"}
+
+
+server_env = _get_server_params()
+
+
+@pytest.fixture(params=_get_server_params())
+def runner(request):
+    server_env = request.param
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
         # server.serve(HOST, _static_server_port, 'secret', 'ensemble', {})
@@ -370,11 +406,15 @@ def runner():
         server_process = ctx.Process(
             target=serve_server,
             args=(HOST, _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
+            kwargs={"error_queue": error_queue, "extra_env": _env_for(server_env)},
         )
         server_process._error_queue = error_queue
         try:
-            start_server_process(server_process, _static_server_port)
+            start_server_process(
+                server_process,
+                _static_server_port,
+                is_rust=(server_env == "redis-rust"),
+            )
 
             yield server_process
         finally:
@@ -389,7 +429,7 @@ def commit_foo(val: str):
     os.system(f"git commit -m'{val}'")
 
 
-def set_up_deployment(runner, deployment):
+def set_up_deployment(runner, deployment, server_env=None):
     # create git repo in "remote" and bare clone of it in "remote.git"
     # configure the server to clone into "server" and push into "remote.git"
     init_project(
@@ -424,11 +464,14 @@ def set_up_deployment(runner, deployment):
             {"home": ""},
             os.path.abspath("remote.git"),
         ),
-        kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
+        kwargs={
+            "error_queue": error_queue,
+            "extra_env": _env_for(server_env or "no-redis"),
+        },
     )
     p._error_queue = error_queue
     try:
-        start_server_process(p, port)
+        start_server_process(p, port, is_rust=(server_env == "redis-rust"))
 
         assert repo.revision
         return p, port, repo.revision
@@ -493,7 +536,8 @@ def test_server_authentication(runner: Process):
     assert res.json()["code"] == "UNAUTHORIZED"
 
 
-def test_server_export_local():
+@pytest.mark.parametrize("server_env", server_env)
+def test_server_export_local(server_env):
     runner = CliRunner()
     port = _next_port()
     with runner.isolated_filesystem() as tmpdir:
@@ -502,11 +546,11 @@ def test_server_export_local():
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
-            kwargs={"error_queue": error_queue, "extra_env": _rust_extra_env()},
+            kwargs={"error_queue": error_queue, "extra_env": _env_for(server_env)},
         )
         p._error_queue = error_queue
         try:
-            start_server_process(p, port)
+            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
             init_project(
                 runner,
                 args=["init", "--mono"],
@@ -538,9 +582,10 @@ def _strip_sourceinfo(export, log=False):
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_server_export_remote():
+@pytest.mark.parametrize("server_env", server_env)
+def test_server_export_remote(server_env):
     runner = CliRunner()
-    use_rust = bool(os.environ.get("UNFURL_TEST_RUST_SERVER"))
+    use_rust = server_env == "redis-rust"
     with runner.isolated_filesystem():
         port = _next_port()
         ctx = get_context()
@@ -548,7 +593,7 @@ def test_server_export_remote():
         # When the Rust proxy is active, redirect its logs to a temp file
         # so we can assert on cache hit/miss messages.
         rust_log_file = None
-        extra_env = _rust_extra_env()
+        extra_env = _env_for(server_env)
         if use_rust:
             rust_log_fd, rust_log_file = tempfile.mkstemp(
                 prefix="rust-server-", suffix=".log"
@@ -564,7 +609,7 @@ def test_server_export_remote():
         )
         p._error_queue = error_queue
         try:
-            start_server_process(p, port)
+            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
             run_cmd(
                 runner,
                 [
@@ -655,7 +700,7 @@ def test_server_export_remote():
                     ).cache_key()
                     if use_rust:
                         # Rust key includes the cache prefix
-                        cache_prefix = os.environ.get("CACHE_KEY_PREFIX", "ufsv::")
+                        cache_prefix = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
                         rust_key = f"{cache_prefix}{key}"
                         assert rust_log_file, (
                             "Rust log file should be set when UNFURL_TEST_RUST_SERVER=1"
@@ -746,7 +791,8 @@ def test_server_export_remote():
                 timeout=15.0,
             )
             # Save Redis cache entries as fixtures for Rust unit tests.
-            _save_rust_fixtures()
+            if use_rust:
+                _save_rust_fixtures()
         finally:
             p.terminate()
             p.join()
@@ -776,15 +822,17 @@ def test_populate_cache(runner: Process):
         assert res.status_code == 200
         assert res.content == b"OK"
 
-
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_server_update_deployment():
+@pytest.mark.parametrize("server_env", server_env)
+def test_server_update_deployment(server_env):
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
             initial_deployment = deployment.format("initial")
-            p, port, last_commit = set_up_deployment(runner, initial_deployment)
+            p, port, last_commit = set_up_deployment(
+                runner, initial_deployment, server_env=server_env
+            )
 
             target_patch = patch.format("target")
             res = requests.post(
@@ -922,13 +970,16 @@ def test_server_update_deployment():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_get_types():
+@pytest.mark.parametrize("server_env", server_env)
+def test_get_types(server_env):
     """GET /types returns a GraphQL-style JSON database of TOSCA resource types."""
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
-            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env=server_env
+            )
             res = requests.get(
                 f"http://{HOST}:{port}/types",
                 params={
@@ -947,7 +998,8 @@ def test_get_types():
                 p.join()
 
 
-def test_empty_cache():
+@pytest.mark.parametrize("server_env", server_env)
+def test_empty_cache(server_env):
     """POST /empty_cache clears all cache entries when called with the admin project."""
     runner = CliRunner()
     port = _next_port()
@@ -964,11 +1016,14 @@ def test_empty_cache():
                     # Pass via extra_env so it reaches the child regardless of
                     # multiprocessing start method (forkserver on Linux py3.14+
                     # does not inherit os.environ changes made after the forkserver starts).
-                    "extra_env": {"UNFURL_SERVER_ADMIN_PROJECT": "admin/project", **_rust_extra_env()},
+                    "extra_env": {
+                        "UNFURL_SERVER_ADMIN_PROJECT": "admin/project",
+                        **_env_for(server_env),
+                    },
                 },
             )
             p._error_queue = error_queue
-            start_server_process(p, port)
+            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
 
             # Authorized: correct admin project → 200 OK
             res = requests.post(
@@ -999,13 +1054,16 @@ def test_empty_cache():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_update_environment():
+@pytest.mark.parametrize("server_env", server_env)
+def test_update_environment(server_env):
     """POST /update_environment adds an environment to unfurl.yaml."""
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
-            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env=server_env
+            )
 
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
             res = requests.post(
@@ -1028,13 +1086,16 @@ def test_update_environment():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_delete_environment():
+@pytest.mark.parametrize("server_env", server_env)
+def test_delete_environment(server_env):
     """POST /delete_environment removes a previously created environment from unfurl.yaml."""
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
-            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env=server_env
+            )
 
             # First create the environment
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
@@ -1070,13 +1131,16 @@ def test_delete_environment():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_delete_deployment():
+@pytest.mark.parametrize("server_env", server_env)
+def test_delete_deployment(server_env):
     """POST /delete_deployment removes an ensemble registration from unfurl.yaml."""
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
-            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env=server_env
+            )
 
             # Create a provider so there is a registered deployment path to delete
             provider_patch = [{"name": "gcp", "__typename": "DeploymentEnvironment"}]
@@ -1122,13 +1186,16 @@ def test_delete_deployment():
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_create_ensemble():
+@pytest.mark.parametrize("server_env", server_env)
+def test_create_ensemble(server_env):
     """POST /create_ensemble creates a new ensemble at the given deployment path."""
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
-            p, port, last_commit = set_up_deployment(runner, deployment.format("initial"))
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env=server_env
+            )
 
             res = requests.post(
                 f"http://{HOST}:{port}/create_ensemble?auth_project=remote",
@@ -1156,8 +1223,8 @@ def test_find_rust_server_bin():
 
     Build it first with: cd rust && cargo build -p unfurl-server
     """
-    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
-        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+    if os.environ.get("UNFURL_TEST_RUST_SERVER") == "0":
+        pytest.skip("Skipping Rust server tests, UNFURL_TEST_RUST_SERVER=0 is set")
     from unfurl.server.serve import _find_rust_server_bin
 
     bin_path = _find_rust_server_bin()
@@ -1177,8 +1244,8 @@ def test_rust_server_bad_redis():
     """
     import subprocess
 
-    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
-        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+    if os.environ.get("UNFURL_TEST_RUST_SERVER") == "0":
+        pytest.skip("Skipping Rust server tests, UNFURL_TEST_RUST_SERVER=0 is set")
     from unfurl.server.serve import _find_rust_server_bin
 
     bin_path = _find_rust_server_bin()
@@ -1208,8 +1275,8 @@ def test_rust_server_bad_redis():
 
 def test_rust_server_proxy():
     """Verify Rust proxy forwards /health correctly. Requires UNFURL_TEST_RUST_SERVER=1."""
-    if not os.environ.get("UNFURL_TEST_RUST_SERVER"):
-        pytest.skip("Set UNFURL_TEST_RUST_SERVER=1 to run Rust server tests")
+    if os.environ.get("UNFURL_TEST_RUST_SERVER") == "0":
+        pytest.skip("Skipping Rust server tests, UNFURL_TEST_RUST_SERVER=0 is set")
 
     port = _next_port()
     backend_port = port + 1  # Python waitress shifts to port+1 when Rust proxy is active
@@ -1233,7 +1300,7 @@ def test_rust_server_proxy():
         },
     )
     p._error_queue = error_queue
-    start_server_process(p, port)
+    start_server_process(p, port, is_rust=True)
     try:
         # /health requires Authorization when a secret is configured.
         resp = requests.get(
