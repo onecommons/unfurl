@@ -22,7 +22,7 @@ import pytest
 from tests.utils import init_project, run_cmd
 from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
-from unfurl.util import change_cwd, get_package_digest
+from unfurl.util import change_cwd, get_package_digest, clean_output
 from base64 import b64encode
 import logging
 import tempfile
@@ -315,15 +315,23 @@ def start_server_process(
                     # doesn't arrive before waitress is ready.
                     if is_rust:
                         backend_port = port + 1
-                        deadline = time.time() + timeout
-                        while time.time() < deadline:
+                        backend_deadline = time.time() + timeout
+                        backend_connected = False
+                        while time.time() < backend_deadline:
                             try:
                                 with socket.create_connection(
                                     (HOST, backend_port), timeout=1.0
                                 ):
+                                    backend_connected = True
                                     break
                             except OSError:
                                 time.sleep(0.1)
+                        if not backend_connected:
+                            raise RuntimeError(
+                                f"Python backend for the Rust server not reachable on port "
+                                f"{backend_port} after {timeout}s — "
+                                "unfurl-server binary may not have started correctly"
+                            )
                     return process_obj
             except Exception as e:
                 last_exc = e
@@ -709,11 +717,26 @@ def test_server_export_remote(server_env):
                             _f.seek(log_offset)
                             new_log = _f.read()
                         print(new_log)
+                        new_log = clean_output(new_log)
                         if msg == "cache miss for":
                             assert f"cache miss (no entry): {rust_key}" in new_log, (
                                 f"Expected 'cache miss (no entry): {rust_key}' in Rust log for {export_format}:\n{new_log}"
                             )
                         else:
+                            # Check for etag mismatch first to give a diagnostic message
+                            mismatch_marker = f"cache hit etag mismatch: {rust_key}"
+                            assert mismatch_marker not in new_log, (
+                                f"Rust ETag mismatch for {export_format} "
+                                f"(if_none_match={etag!r}): "
+                                + next(
+                                    (
+                                        line
+                                        for line in new_log.splitlines()
+                                        if "etag mismatch" in line
+                                    ),
+                                    mismatch_marker,
+                                )
+                            )
                             assert f"cache hit etag match: {rust_key}" in new_log, (
                                 f"Expected 'cache hit etag match: {rust_key}' in Rust log for {export_format}:\n{new_log}"
                             )

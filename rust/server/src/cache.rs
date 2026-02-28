@@ -105,15 +105,37 @@ pub(crate) fn deserialize_cache_value(
     let items = match &pickle_val {
         serde_pickle::Value::Tuple(v) => v.as_slice(),
         serde_pickle::Value::List(v) => v.as_slice(),
-        _ => return None,
+        other => {
+            tracing::warn!(
+                "cache ignored - unexpected pickle type for {}: {:?}",
+                key,
+                std::mem::discriminant(other)
+            );
+            return None;
+        }
     };
 
     if items.len() < 5 {
+        tracing::warn!(
+            "cache ignored - pickle tuple too short ({} fields) for {}",
+            items.len(),
+            key
+        );
         return None;
     }
 
     // Field 2: latest_commit -- must match the request's latest_commit param.
-    let cached_commit = pickle_string(&items[2])?;
+    let cached_commit = match pickle_string(&items[2]) {
+        Some(s) => s,
+        None => {
+            tracing::warn!(
+                "cache ignored - latest_commit field is not a string (type: {:?}) for {}",
+                std::mem::discriminant(&items[2]),
+                key
+            );
+            return None;
+        }
+    };
     if let Some(req_commit) = latest_commit {
         if !req_commit.is_empty() && cached_commit != req_commit {
             tracing::debug!(

@@ -131,6 +131,12 @@ async fn handle_cached_get(
                 tracing::info!("cache hit etag match: {}", key);
                 return StatusCode::NOT_MODIFIED.into_response();
             }
+            tracing::info!(
+                "cache hit etag mismatch: {} if_none_match={:?} computed_etag={}",
+                key,
+                if_none_match,
+                etag
+            );
             let mut response = Json(json_val).into_response();
             if let Ok(hv) = HeaderValue::from_str(&etag) {
                 response.headers_mut().insert(header::ETAG, hv);
