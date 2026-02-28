@@ -25,6 +25,11 @@ pub async fn try_cache(
     package_digest: &str,
 ) -> Option<(JsonValue, String)> {
     tracing::debug!("try_cache: key={} latest_commit={:?}", key, latest_commit);
+    if latest_commit.is_none() {
+        tracing::debug!("cache ignored - no latest_commit");
+        // TODO check pull cache if stale pulls are ok (CACHE_DEFAULT_PULL_TIMEOUT is set)
+        return None;
+    }
     // Use Option<Vec<u8>> so that a missing key (nil reply) decodes to None
     // instead of an Err, avoiding a silent cache-miss when the key is absent.
     let get_fut = conn.get::<_, Option<Vec<u8>>>(key);
