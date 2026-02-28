@@ -2839,6 +2839,18 @@ def serve(
         project_or_ensemble_path (str): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
+    # Re-read CACHE_KEY_PREFIX from env.  Module-level flask_config was
+    # evaluated at import time; if the caller (e.g. tests) modified os.environ
+    # after import, the prefix must be patched so Python and Rust agree.
+    _env_prefix = os.environ.get("CACHE_KEY_PREFIX")
+    if _env_prefix is not None and _env_prefix != app.config.get("CACHE_KEY_PREFIX"):
+        app.config["CACHE_KEY_PREFIX"] = _env_prefix
+        flask_config["CACHE_KEY_PREFIX"] = _env_prefix
+        # Patch the backend's key_prefix directly instead of reinitializing
+        # the whole cache, which would disrupt connection state.
+        if hasattr(cache, "cache") and hasattr(cache.cache, "key_prefix"):
+            cache.cache.key_prefix = _env_prefix
+
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root

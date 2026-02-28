@@ -168,7 +168,7 @@ def _next_port():
     return _server_port
 
 
-def _save_rust_fixtures() -> None:
+def _save_rust_fixtures(cache_prefix: str = "") -> None:
     """Dump cached deployment and blueprint pickle values from Redis to
     rust/server/tests/fixtures/ so the Rust unit tests can use them.
 
@@ -184,7 +184,8 @@ def _save_rust_fixtures() -> None:
     )
     os.makedirs(fixtures_dir, exist_ok=True)
 
-    cache_prefix = os.environ.get("CACHE_KEY_PREFIX", "ufsv::")
+    if not cache_prefix:
+        cache_prefix = os.environ.get("CACHE_KEY_PREFIX", "ufsv::")
     r = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
     try:
         keys = r.keys(f"{cache_prefix}*")
@@ -208,7 +209,7 @@ def _save_rust_fixtures() -> None:
                     print(f"_save_rust_fixtures: saved {key_str} -> {dest}")
 
 
-def _rust_extra_env() -> dict:
+def _rust_extra_env(name: str = "") -> dict:
     """Extra env vars to enable the Rust proxy when UNFURL_TEST_RUST_SERVER=1.
 
     Redis is required for correct Rust proxy operation:
@@ -235,7 +236,7 @@ def _rust_extra_env() -> dict:
         "CACHE_REDIS_URL": UNFURL_TEST_REDIS_URL,
         # Forward the unique per-run prefix set by module-level code so all
         # processes (Python server, Rust subprocess) share the same namespace.
-        "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
+        "CACHE_KEY_PREFIX": _variant_prefix(name),
         "CACHE_DEFAULT_TIMEOUT": "120",
         # Forward UNFURL_LOGGING so _start_rust_server can map it to RUST_LOG.
         "UNFURL_LOGGING": os.environ.get("UNFURL_LOGGING", "debug"),
@@ -378,12 +379,23 @@ def _get_server_params():
     return ["no-redis", "redis", "redis-rust"]
 
 
-def _env_for(variant: str) -> dict:
-    """Convert a server variant string to an env dict for serve_server."""
+def _variant_prefix(name: str) -> str:
+    """Build a unique cache key prefix by appending `name` to the base module-level prefix."""
+    base = os.environ.get("CACHE_KEY_PREFIX", "ufsv::").rstrip(":")
+    return f"{base}-{name}::" if name else f"{base}::"
+
+
+def _env_for(variant: str, name: str = "") -> dict:
+    """Convert a server variant string to an env dict for serve_server.
+
+    `name` is appended to CACHE_KEY_PREFIX so each test/variant has an isolated
+    Redis namespace and cannot read stale entries written by a different test.
+    """
+    prefix = _variant_prefix(f"{name}-{variant}" if name else variant)
     base_redis = {
         "CACHE_TYPE": "RedisCache",
         "CACHE_REDIS_URL": UNFURL_TEST_REDIS_URL or "",
-        "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
+        "CACHE_KEY_PREFIX": prefix,
         "CACHE_DEFAULT_TIMEOUT": "120",
     }
     if variant == "redis-rust":
@@ -414,7 +426,10 @@ def runner(request):
         server_process = ctx.Process(
             target=serve_server,
             args=(HOST, _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue, "extra_env": _env_for(server_env)},
+            kwargs={
+                "error_queue": error_queue,
+                "extra_env": _env_for(server_env, "runner"),
+            },
         )
         server_process._error_queue = error_queue
         try:
@@ -437,7 +452,7 @@ def commit_foo(val: str):
     os.system(f"git commit -m'{val}'")
 
 
-def set_up_deployment(runner, deployment, server_env=None):
+def set_up_deployment(runner, deployment, server_env=None, name=""):
     # create git repo in "remote" and bare clone of it in "remote.git"
     # configure the server to clone into "server" and push into "remote.git"
     init_project(
@@ -474,7 +489,7 @@ def set_up_deployment(runner, deployment, server_env=None):
         ),
         kwargs={
             "error_queue": error_queue,
-            "extra_env": _env_for(server_env or "no-redis"),
+            "extra_env": _env_for(server_env or "no-redis", name),
         },
     )
     p._error_queue = error_queue
@@ -554,7 +569,10 @@ def test_server_export_local(server_env):
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
-            kwargs={"error_queue": error_queue, "extra_env": _env_for(server_env)},
+            kwargs={
+                "error_queue": error_queue,
+                "extra_env": _env_for(server_env, "export-local"),
+            },
         )
         p._error_queue = error_queue
         try:
@@ -601,7 +619,7 @@ def test_server_export_remote(server_env):
         # When the Rust proxy is active, redirect its logs to a temp file
         # so we can assert on cache hit/miss messages.
         rust_log_file = None
-        extra_env = _env_for(server_env)
+        extra_env = _env_for(server_env, "export-remote")
         if use_rust:
             rust_log_fd, rust_log_file = tempfile.mkstemp(
                 prefix="rust-server-", suffix=".log"
@@ -815,7 +833,7 @@ def test_server_export_remote(server_env):
             )
             # Save Redis cache entries as fixtures for Rust unit tests.
             if use_rust:
-                _save_rust_fixtures()
+                _save_rust_fixtures(extra_env.get("CACHE_KEY_PREFIX", ""))
         finally:
             p.terminate()
             p.join()
@@ -854,7 +872,10 @@ def test_server_update_deployment(server_env):
         try:
             initial_deployment = deployment.format("initial")
             p, port, last_commit = set_up_deployment(
-                runner, initial_deployment, server_env=server_env
+                runner,
+                initial_deployment,
+                server_env=server_env,
+                name="update-deployment",
             )
 
             target_patch = patch.format("target")
@@ -1001,7 +1022,10 @@ def test_get_types(server_env):
         p = None
         try:
             p, port, last_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env=server_env
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="get-types",
             )
             res = requests.get(
                 f"http://{HOST}:{port}/types",
@@ -1041,7 +1065,7 @@ def test_empty_cache(server_env):
                     # does not inherit os.environ changes made after the forkserver starts).
                     "extra_env": {
                         "UNFURL_SERVER_ADMIN_PROJECT": "admin/project",
-                        **_env_for(server_env),
+                        **_env_for(server_env, "empty-cache"),
                     },
                 },
             )
@@ -1085,7 +1109,10 @@ def test_update_environment(server_env):
         p = None
         try:
             p, port, last_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env=server_env
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="update-env",
             )
 
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
@@ -1117,7 +1144,10 @@ def test_delete_environment(server_env):
         p = None
         try:
             p, port, last_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env=server_env
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="delete-env",
             )
 
             # First create the environment
@@ -1162,7 +1192,10 @@ def test_delete_deployment(server_env):
         p = None
         try:
             p, port, last_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env=server_env
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="delete-deployment",
             )
 
             # Create a provider so there is a registered deployment path to delete
@@ -1217,7 +1250,10 @@ def test_create_ensemble(server_env):
         p = None
         try:
             p, port, last_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env=server_env
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="create-ensemble",
             )
 
             res = requests.post(
@@ -1310,7 +1346,7 @@ def test_rust_server_proxy():
     # _rust_extra_env() already includes Redis config and errors if Redis is absent.
     # Capture Rust server stderr to a log file so we can assert on log messages.
     extra_env = {
-        **_rust_extra_env(),
+        **_rust_extra_env("rust-proxy"),
         "UNFURL_LOGGING": "debug",
         "UNFURL_LOGFILE": rust_log_file,
     }
