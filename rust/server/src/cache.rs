@@ -24,9 +24,9 @@ pub async fn try_cache(
     timeout_secs: u64,
     package_digest: &str,
 ) -> Option<(JsonValue, String)> {
-    tracing::debug!("try_cache: key={} latest_commit={:?}", key, latest_commit);
+    tracing::info!("try_cache: key={} latest_commit={:?}", key, latest_commit);
     if latest_commit.is_none() {
-        tracing::debug!("cache ignored - no latest_commit");
+        tracing::info!("cache ignored - no latest_commit");
         // TODO check pull cache if stale pulls are ok (CACHE_DEFAULT_PULL_TIMEOUT is set)
         return None;
     }
@@ -40,20 +40,33 @@ pub async fn try_cache(
                 tracing::warn!("Redis GET timed out for key: {}", key);
                 Ok(None)
             })
+            .map_err(|e| {
+                tracing::warn!("Redis GET error (with timeout) for {}: {}", key, e);
+                e
+            })
             .ok()?
     } else {
-        get_fut.await.ok()?
+        get_fut
+            .await
+            .map_err(|e| {
+                tracing::warn!("Redis GET error for {}: {}", key, e);
+                e
+            })
+            .ok()?
     };
     let raw = match raw_opt {
         None => {
-            tracing::info!("cache miss (no entry): {}", key);
+            tracing::info!("cache miss (no entry / nil): {}", key);
             return None;
         }
         Some(b) if b.is_empty() => {
-            tracing::info!("cache miss (no entry): {}", key);
+            tracing::info!("cache miss (empty value): {}", key);
             return None;
         }
-        Some(b) => b,
+        Some(b) => {
+            tracing::info!("cache raw hit: {} ({} bytes)", key, b.len());
+            b
+        }
     };
     // cachelib's RedisSerializer prepends b"!" before the pickle payload.
     let payload = if raw.first() == Some(&b'!') {
@@ -64,7 +77,7 @@ pub async fn try_cache(
     let (json_val, etag, has_deps) =
         deserialize_cache_value(payload, latest_commit, key, package_digest)?;
     if has_deps {
-        tracing::debug!("cache ignored - deps not empty: {}", key);
+        tracing::info!("cache ignored - deps not empty: {}", key);
         return None;
     }
     Some((json_val, etag))
@@ -138,7 +151,7 @@ pub(crate) fn deserialize_cache_value(
     };
     if let Some(req_commit) = latest_commit {
         if !req_commit.is_empty() && cached_commit != req_commit {
-            tracing::debug!(
+            tracing::info!(
                 "cache ignored - commit mismatch: {} (request={}, cached={})",
                 key,
                 req_commit,

@@ -271,6 +271,15 @@ def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw)
     """
     if extra_env:
         os.environ.update(extra_env)
+    # With forkserver/spawn, the child's logging isn't captured by pytest.
+    # If a log file path is provided, add a FileHandler so Python server logs
+    # are written to the same file as the Rust server logs (or a separate one).
+    _py_log_file = os.environ.get("UNFURL_SERVER_PY_LOG")
+    if _py_log_file:
+        fh = logging.FileHandler(_py_log_file)
+        fh.setLevel(logging.DEBUG)
+        fh.setFormatter(logging.Formatter("%(levelname)-8s %(name)s %(message)s"))
+        logging.getLogger().addHandler(fh)
     try:
         return server.serve(*args, **kw)
     except Exception:
@@ -638,7 +647,14 @@ def test_server_export_remote(server_env):
         # When the Rust proxy is active, redirect its logs to a temp file
         # so we can assert on cache hit/miss messages.
         rust_log_file = None
+        py_log_file = None
         extra_env = _env_for(server_env, "export-remote")
+        # Always capture Python server logs to a file so they appear in CI
+        # output (the child process's logging is not captured by pytest with
+        # forkserver/spawn start methods).
+        py_log_fd, py_log_file = tempfile.mkstemp(prefix="py-server-", suffix=".log")
+        os.close(py_log_fd)
+        extra_env["UNFURL_SERVER_PY_LOG"] = py_log_file
         if use_rust:
             rust_log_fd, rust_log_file = tempfile.mkstemp(
                 prefix="rust-server-", suffix=".log"
@@ -718,6 +734,31 @@ def test_server_export_remote(server_env):
                         assert (
                             _strip_sourceinfo(res.json()) == expected
                         )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+                        # Verify Python actually stored the cache entry in Redis.
+                        if use_rust and UNFURL_TEST_REDIS_URL:
+                            import redis as _redis_mod
+
+                            _r = _redis_mod.from_url(UNFURL_TEST_REDIS_URL)
+                            _file_path = server._get_filepath(export_format, "")
+                            _ck = server.CacheEntry(
+                                project_id, "main", _file_path, export_format
+                            ).cache_key()
+                            _pfx = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
+                            _full = f"{_pfx}{_ck}"
+                            _val = _r.get(_full)
+                            _keys = _r.keys(f"{_pfx}*")
+                            print(
+                                f"[DEBUG] Redis check after cache miss: "
+                                f"key={_full!r} exists={_val is not None} "
+                                f"len={len(_val) if _val else 0} "
+                                f"all_keys_with_prefix={_keys!r}"
+                            )
+                            assert _val is not None, (
+                                f"Python server did not store cache entry in Redis.\n"
+                                f"  Expected key: {_full}\n"
+                                f"  Keys with prefix: {_keys}"
+                            )
+                            _r.close()
                     else:
                         # Cache hit: poll until server returns 304 via ETag match.
                         # Rust computes the same ETag as Python and honours If-None-Match,
@@ -755,7 +796,7 @@ def test_server_export_remote(server_env):
                         # buffered so the entry may not appear immediately after
                         # the HTTP response arrives.
                         if msg == "cache miss for":
-                            expected_pattern = f"cache miss (no entry): {rust_key}"
+                            expected_pattern = f"cache miss (no entry / nil): {rust_key}"
                         else:
                             expected_pattern = f"cache hit etag match: {rust_key}"
                         new_log = _poll_rust_log(
@@ -860,6 +901,16 @@ def test_server_export_remote(server_env):
         finally:
             p.terminate()
             p.join()
+            # Print Python server logs so they appear in CI output.
+            print("ASDFASDFASDEFASFASDEFSAD", py_log_file, flush=True)
+            if py_log_file and os.path.exists(py_log_file):
+                with open(py_log_file) as _f:
+                    py_log = _f.read()
+                if py_log:
+                    print(f"\n=== Python server log ({py_log_file}) ===")
+                    print(py_log[-5000:])  # last 5000 chars
+                    print("=== end Python server log ===\n")
+                os.unlink(py_log_file)
             if rust_log_file and os.path.exists(rust_log_file):
                 os.unlink(rust_log_file)
 

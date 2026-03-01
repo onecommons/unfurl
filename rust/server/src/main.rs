@@ -45,10 +45,12 @@ async fn main() {
 
     let config = Config::parse();
     tracing::info!(
-        "unfurl-server starting on {}:{} -> backend {}",
+        "unfurl-server starting on {}:{} -> backend {} (RUST_LOG={:?}, cache_prefix={:?})",
         config.host,
         config.port,
-        config.backend_url()
+        config.backend_url(),
+        std::env::var("RUST_LOG").unwrap_or_default(),
+        config.cache_key_prefix,
     );
 
     // Optional Redis connection for cache lookups.

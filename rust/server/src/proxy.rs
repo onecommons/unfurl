@@ -56,10 +56,20 @@ pub async fn forward(client: &Client, backend_url: &str, req: Request) -> Respon
     }
     builder = builder.body(body_bytes);
 
+    let target_str = target.to_string();
     match builder.send().await {
-        Ok(resp) => convert_response(resp).await,
+        Ok(resp) => {
+            let status = resp.status();
+            tracing::info!(
+                "proxy {} {} -> backend status {}",
+                method,
+                target_str,
+                status
+            );
+            convert_response(resp).await
+        }
         Err(e) => {
-            tracing::error!("backend request failed: {}", e);
+            tracing::error!("proxy {} {} -> backend error: {}", method, target_str, e);
             (StatusCode::BAD_GATEWAY, "bad gateway").into_response()
         }
     }

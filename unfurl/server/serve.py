@@ -876,7 +876,11 @@ class CacheEntry:
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
         """
         full_key = self.cache_key()
-        prefixed_key = flask_config["CACHE_KEY_PREFIX"] + full_key
+        if hasattr(cache, "cache") and hasattr(cache.cache, "key_prefix"):
+            prefixed_key = cache.cache.key_prefix + full_key
+        else:
+            prefixed_key = full_key
+
         # note: if CacheValue's definition changes then cache.get() will return None because it catches PickleError exceptions
         value = cast(Optional[CacheValue], cache.get(full_key))
         self.value = value
@@ -2742,7 +2746,9 @@ def _find_rust_server_bin() -> Optional[str]:
         return candidate
 
     # 4. Cargo build output (development: rust/target/{release,debug}/unfurl-server)
-    for build_type in ("release", "debug"):
+    # Prefer debug over release so that `cargo build` (without --release) is picked up
+    # during development; CI/production builds use release via PATH or explicit env var.
+    for build_type in ("debug", "release"):
         candidate = os.path.join(
             parent_dir, "rust", "target", build_type, "unfurl-server"
         )
@@ -2844,12 +2850,17 @@ def serve(
     # after import, the prefix must be patched so Python and Rust agree.
     _env_prefix = os.environ.get("CACHE_KEY_PREFIX")
     if _env_prefix is not None and _env_prefix != app.config.get("CACHE_KEY_PREFIX"):
+        logger.info(
+            "CACHE_KEY_PREFIX changed: %r -> %r",
+            app.config.get("CACHE_KEY_PREFIX"),
+            _env_prefix,
+        )
         app.config["CACHE_KEY_PREFIX"] = _env_prefix
         flask_config["CACHE_KEY_PREFIX"] = _env_prefix
-        # Patch the backend's key_prefix directly instead of reinitializing
-        # the whole cache, which would disrupt connection state.
-        if hasattr(cache, "cache") and hasattr(cache.cache, "key_prefix"):
-            cache.cache.key_prefix = _env_prefix
+        # Reinitialize the cache backend so it picks up the new prefix.
+        # This is safe because only CACHE_KEY_PREFIX changed; the cache type
+        # and connection settings are unchanged.
+        cache.init_app(app)
 
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options

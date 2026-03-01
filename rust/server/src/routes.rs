@@ -144,8 +144,9 @@ async fn handle_cached_get(
             return response;
         }
     } else {
-        tracing::debug!("no Redis configured, skipping cache for: {}", key);
+        tracing::info!("no Redis configured, skipping cache for: {}", key);
     }
+    tracing::info!("cache miss, proxying to backend: {}", key);
     proxy::forward(&state.client, &state.config.backend_url(), req).await
 }
 
@@ -243,6 +244,7 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
 
 /// All other endpoints -- proxy transparently to Python.
 pub async fn handle_fallback(State(state): State<AppState>, req: Request) -> Response {
+    tracing::info!("fallback handler: {} {}", req.method(), req.uri());
     proxy::forward(&state.client, &state.config.backend_url(), req).await
 }
 
