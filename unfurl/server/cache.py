@@ -28,7 +28,7 @@ from .serve import (
     Cache,
     _get_local_project_dir,
     _get_project_repo,
-    cache,
+    get_cache,
     DEFAULT_BRANCH,
     project_id_from_urlresult,
 )
@@ -76,7 +76,11 @@ def load_yaml(
     # this will add this cache_dep to the root_cache_request's value
     # XXX create package from url, branch and latest_commit to decide if a cache_dep is need
     dep = cache_entry.make_cache_dep(cache_entry.stale_pull_age, None)
-    return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
+    cache = get_cache()
+    if cache:
+        return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
+    else:
+        return _work(cache_entry, latest_commit)[:2]
 
 
 def get_cloudmap_types(
@@ -155,6 +159,8 @@ def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commi
     ) -> bool:
         return os.path.isdir(working_dir)
 
+    cache = get_cache()
+    assert cache
     cache_entry = CacheEntry(
         project_id,
         branch,
@@ -169,7 +175,10 @@ def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commi
 
 def get_remote_tags_cached(url, pattern, args) -> List[str]:
     key = normalize_git_url_hard(url)
-    tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
+    tags = None
+    cache = get_cache()
+    if cache is not None:
+        tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
     if tags is not None:
         return tags
     else:
@@ -186,7 +195,8 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
                 url = add_user_to_url(url, username, password)
         tags = get_remote_tags(url, pattern)
         timeout = current_app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
-        cache.set("tags:" + key + ":" + pattern, tags, timeout)
+        if cache:
+            cache.set("tags:" + key + ":" + pattern, tags, timeout)
         return tags
 
 
@@ -347,6 +357,8 @@ class ServerCacheResolver(SimpleCacheResolver):
                     cache_entry.stale_pull_age,
                     repo_view.package if repo_view.package else None,
                 )
+            cache = get_cache()
+            assert cache
             err, doc = cache_entry.get_or_set(
                 cache, _work, latest_commit, cache_dependency=dep
             )

@@ -45,7 +45,6 @@ from typing import (
     cast,
     Callable,
 )
-from cachelib.redis import RedisCache
 from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
@@ -59,6 +58,8 @@ from flask_cors import CORS
 
 import git
 from git.objects import Commit
+
+from ..job import assert_not_none
 
 from ..graphql import (
     ImportDef,
@@ -101,6 +102,8 @@ from .. import init
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 import tosca
+if TYPE_CHECKING:
+    from cachelib.redis import RedisCache
 
 __logfile = os.getenv("UNFURL_LOGFILE")
 if __logfile:
@@ -108,63 +111,93 @@ if __logfile:
 logger = getLogger("unfurl.server")
 
 
-# note: export FLASK_ENV=development to see error stacks
-# see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
-flask_config: Dict[str, Any] = {
-    "CACHE_TYPE": os.environ.get("CACHE_TYPE", "simple"),
-    "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
-}
-# default: never cache entries never expire
-flask_config["CACHE_DEFAULT_TIMEOUT"] = int(
-    os.environ.get("CACHE_DEFAULT_TIMEOUT") or 0
-)
-if flask_config["CACHE_TYPE"] == "RedisCache":
-    if "CACHE_REDIS_URL" in os.environ:
-        flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
-    else:
-        flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get("CACHE_REDIS_PASSWORD")
-        flask_config["CACHE_REDIS_HOST"] = os.environ["CACHE_REDIS_HOST"]
-        flask_config["CACHE_REDIS_PORT"] = int(
-            os.environ.get("CACHE_REDIS_PORT") or 6379
-        )
-        flask_config["CACHE_REDIS_DB"] = int(os.environ.get("CACHE_REDIS_DB") or 0)
 app = APIFlask(__name__, title="Unfurl Server API", version=__version__())
-app.config.from_mapping(flask_config)
-cache = Cache(app)
-logger.verbose("created cache %s", flask_config["CACHE_TYPE"])
-app.config["UNFURL_OPTIONS"] = {}
-app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
-app.config["UNFURL_CLOUD_SERVER"] = (
-    os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
-)
-app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
-app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
-    os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
-)
-app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
-    os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
-)
-app.config["CACHE_CONTROL_SERVE_STALE"] = int(
-    os.environ.get("CACHE_CONTROL_SERVE_STALE") or 0  # 2592000 (1 month)
-)
-cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
-if not cors:
-    ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
-    cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
-if cors:
-    CORS(app, origins=cors.split())
-os.environ["GIT_TERMINAL_PROMPT"] = "0"
 
-git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
-if git_user_name:
-    git_user_full_name = (
-        f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
+
+def configure_app(app: APIFlask = app) -> Cache:
+    """
+    Configure the Flask app and cache based on environment variables.
+     - CACHE_TYPE: the type of cache to use (e.g. "simple", "redis")
+     - CACHE_KEY_PREFIX: a prefix to add to all cache keys (default: "ufsv::")
+     - CACHE_DEFAULT_TIMEOUT: default cache timeout in seconds (default: 0, which means never expire)
+     - CACHE_REDIS_URL or CACHE_REDIS_HOST, CACHE_REDIS_PORT, etc. for RedisCache configuration
+     - UNFURL_CLONE_ROOT: root directory for cloning git repositories (default: current directory)
+     - UNFURL_CLOUD_SERVER: URL of the unfurl cloud server (default: https://unfurl.cloud)
+     - UNFURL_SERVE_SECRET: optional secret for authenticating requests
+     - UNFURL_SERVE_CORS: optional comma-separated list of allowed CORS origins (default: origin of UNFURL_CLOUD_SERVER)
+     - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries (default: 120)
+     - CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT: default timeout in seconds for fetching remote tags when validating package dependencies in cache entries (default: 300)
+     - CACHE_CONTROL_SERVE_STALE: if set to a positive integer, allows serving stale cache entries while asynchronously refreshing them in the background if they are older than this many seconds (default: 0, which means don't serve stale entries)
+    """
+    # note: export FLASK_ENV=development to see error stacks
+    # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
+    flask_config: Dict[str, Any] = {
+        "CACHE_TYPE": os.environ.get("CACHE_TYPE", "simple"),
+        "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
+    }
+    # default: never cache entries never expire
+    flask_config["CACHE_DEFAULT_TIMEOUT"] = int(
+        os.environ.get("CACHE_DEFAULT_TIMEOUT") or 0
     )
-    os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
-    os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
-    os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+    if flask_config["CACHE_TYPE"] == "RedisCache":
+        if "CACHE_REDIS_URL" in os.environ:
+            flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
+        else:
+            flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get(
+                "CACHE_REDIS_PASSWORD"
+            )
+            flask_config["CACHE_REDIS_HOST"] = os.environ["CACHE_REDIS_HOST"]
+            flask_config["CACHE_REDIS_PORT"] = int(
+                os.environ.get("CACHE_REDIS_PORT") or 6379
+            )
+            flask_config["CACHE_REDIS_DB"] = int(os.environ.get("CACHE_REDIS_DB") or 0)
+    app.config.from_mapping(flask_config)
+    cache = Cache(app)
+    logger.verbose("created cache %s", flask_config["CACHE_TYPE"])
+    app.config["UNFURL_OPTIONS"] = {}
+    app.config["UNFURL_CLONE_ROOT"] = os.getenv("UNFURL_CLONE_ROOT") or "."
+    app.config["UNFURL_CLOUD_SERVER"] = (
+        os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
+    )
+    app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
+    app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
+        os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
+    )
+    app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"] = int(
+        os.environ.get("CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT") or 300
+    )
+    app.config["CACHE_CONTROL_SERVE_STALE"] = int(
+        os.environ.get("CACHE_CONTROL_SERVE_STALE") or 0  # 2592000 (1 month)
+    )
+    global _cache_inflight_timeout
+    _cache_inflight_timeout = int(os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120)
+    cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
+    if not cors:
+        ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
+        cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
+    if cors:
+        CORS(app, origins=cors.split())
+    os.environ["GIT_TERMINAL_PROMPT"] = "0"
+
+    git_user_name = os.environ.get("UNFURL_SET_GIT_USER")
+    if git_user_name:
+        git_user_full_name = f"{git_user_name} unfurl-server-{semver_prerelease()}+{get_package_digest()}"
+        os.environ["GIT_AUTHOR_NAME"] = git_user_full_name
+        os.environ["GIT_COMMITTER_NAME"] = git_user_full_name
+        os.environ["EMAIL"] = f"{git_user_name}-unfurl-server+noreply@unfurl.cloud"
+
+    if os.environ.get("CACHE_CLEAR_ON_START"):
+        prefix = os.environ.get("CACHE_CLEAR_ON_START")
+        # if set, use the given prefix, otherwise the current prefix
+        if prefix in ["1", "true"]:
+            prefix = app.config["CACHE_KEY_PREFIX"]
+        clear_all(cache, prefix)
+
+    return cache
+
 
 UNFURL_SERVER_DEBUG_PATCH = os.environ.get("UNFURL_TEST_SERVER_DEBUG_PATCH")
+DEFAULT_BRANCH = "main"
 
 
 def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
@@ -191,7 +224,7 @@ def clear_cache(cache: Cache, starts_with: str) -> Optional[List[Any]]:
 
 def clear_all(cache, prefix) -> None:
     backend = cache.cache
-    redis = cast(Optional[RedisCache], getattr(backend, "_write_client", None))
+    redis = cast(Optional["RedisCache"], getattr(backend, "_write_client", None))
     if redis:
         keys = redis.keys(pattern=prefix + "*")  # type: ignore
         logger.info(f"clearing cache with prefix {prefix}, found {len(keys)} keys")
@@ -199,16 +232,6 @@ def clear_all(cache, prefix) -> None:
             redis.delete(*keys)
     else:
         clear_cache(cache, "")
-
-
-if os.environ.get("CACHE_CLEAR_ON_START"):
-    prefix = os.environ.get("CACHE_CLEAR_ON_START")
-    # if set, use the given prefix, otherwise the current prefix
-    if prefix in ["1", "true"]:
-        prefix = flask_config["CACHE_KEY_PREFIX"]
-    clear_all(cache, prefix)
-
-DEFAULT_BRANCH = "main"
 
 
 def _set_local_projects(
@@ -332,8 +355,16 @@ def set_current_ensemble_git_url(gui: bool = False):
     return None
 
 
+_cache: Optional[Cache] = None
+
+
+def get_cache() -> Optional[Cache]:
+    return _cache
+
+
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
+    _cache = configure_app()
     set_current_ensemble_git_url()
 
 
@@ -447,9 +478,8 @@ def _clone_repo(
 
 
 _cache_inflight_sleep_duration = 0.2
-_cache_inflight_timeout = int(
-    os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120
-)  # should match request timeout
+# should match request timeout
+_cache_inflight_timeout = 120
 
 
 @dataclass
@@ -512,7 +542,7 @@ class CacheItemDependency:
 
         cache_entry = self.to_entry()
         # get dep's repo, pulls if last pull greater than stale_pull_age
-        repo = cache_entry.pull(cache, self.stale_pull_age)
+        repo = cache_entry.pull(assert_not_none(get_cache()), self.stale_pull_age)
         if repo.revision != self.latest_commit:
             # the repository has changed, check to see if files this cache entry uses has changed
             # note: we don't need the cache value to be present in the cache since we have the commit info already
@@ -639,6 +669,12 @@ class CacheEntry:
     value: Optional[CacheValue] = None
     pull_state: Optional[str] = None
     owns_repo: bool = False
+    cache: Optional[Cache] = None
+
+    def __getstate__(self) -> dict:
+        state = self.__dict__.copy()
+        state.pop("cache", None)
+        return state
 
     def _set_project_repo(self) -> Optional[GitRepo]:
         self.repo = _get_project_repo(
@@ -843,7 +879,7 @@ class CacheEntry:
         except Exception:
             # commit not in repo, repo probably is out of date
             return True, self.pull(
-                cache, shallow_since=commit_date
+                assert_not_none(get_cache()), shallow_since=commit_date
             )  # raises if pull fails
 
     def is_commit_older_than(self, older: str, newer: str, commit_date: int) -> bool:
@@ -865,7 +901,7 @@ class CacheEntry:
             # return true if the client supplied an older commit than the one the cache last saw
             return not self.is_commit_older_than(older, newer, commit_date)
         else:
-            repo = self.pull(cache, self.stale_pull_age)
+            repo = self.pull(assert_not_none(get_cache()), self.stale_pull_age)
             return older == repo.revision
 
     def get_cache(
@@ -1076,6 +1112,9 @@ class CacheEntry:
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
     ) -> Tuple[Optional[Any], Any]:
+        """
+        Returns Err | None, Value | None
+        """
         try:
             if (
                 latest_commit is None and not self.stale_pull_age
@@ -1433,7 +1472,7 @@ def _export(
             # blueprint exports can depend on more than just the file in the key
             cache_entry.directives = CacheDirective(check_file=False)
         err, json_summary = cache_entry.get_or_set(
-            cache,
+            assert_not_none(get_cache()),
             _export_cache_work,
             latest_commit,
         )
@@ -1454,7 +1493,7 @@ def _export(
                         # don't need to set root_entry since deployments depend on the same commit
                     )
                     derr, djson = dcache_entry.get_or_set(
-                        cache, _export_cache_work, latest_commit
+                        assert_not_none(get_cache()), _export_cache_work, latest_commit
                     )
                     if derr:
                         derrors = True
@@ -1568,6 +1607,7 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
         removed,
         visibility,
     )
+    cache = assert_not_none(get_cache())
     if removed and removed not in ["0", "false"]:
         cache_entry.delete_cache(cache)
         cache_entry._cancel_inflight(cache)
@@ -1599,7 +1639,8 @@ def empty_cache(query: EmptyCacheQuery) -> ResponseReturnValue:
     admin_project = os.environ.get("UNFURL_SERVER_ADMIN_PROJECT")
     if not project_id or project_id != admin_project:
         return create_error_response("UNAUTHORIZED", "Unauthorized project")
-    prefix = request.args.get("cache_prefix", flask_config["CACHE_KEY_PREFIX"])
+    prefix = request.args.get("cache_prefix", app.config["CACHE_KEY_PREFIX"])
+    cache = assert_not_none(get_cache())
     clear_all(cache, prefix)
     return "OK"
 
@@ -1626,6 +1667,7 @@ def _clear_project(project_id: str) -> ResponseReturnValue:
                 rmtree(project_dir, logger)
         if not found:
             logger.info("clear_project: %s not found", project_id)
+    cache = assert_not_none(get_cache())
     cleared = clear_cache(cache, project_id + ":")
     if cleared is None:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred")
@@ -1762,7 +1804,7 @@ def _do_export(
     parent_localenv = args.get("parent_localenv")
     if not parent_localenv:
         err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
-            cache,
+            assert_not_none(get_cache()),
             project_id,
             cache_entry.branch or "",
             deployment_path,
@@ -2222,7 +2264,7 @@ def _patch_environment(body: dict, project_id: str) -> ResponseReturnValue:
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)
     err, readonly_localEnv = _localenv_from_cache_checked(
-        cache, project_id, branch, "", latest_commit, body
+        assert_not_none(get_cache()), project_id, branch, "", latest_commit, body
     )
     if err:
         return err
@@ -2283,9 +2325,9 @@ def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
         branch = body.get("branch")
         file_path = _get_filepath(format, body.get("deployment_path") or "")
         entry = CacheEntry(project_id, branch, file_path, format)
-        success = entry.delete_cache(cache)
+        success = entry.delete_cache(assert_not_none(get_cache()))
         logger.debug(f"invalidate cache: delete {entry.cache_key()}: {success}")
-        was_inflight = entry._cancel_inflight(cache)
+        was_inflight = entry._cancel_inflight(assert_not_none(get_cache()))
         logger.debug(
             f"invalidate cache: cancel inflight {entry.cache_key()}: {was_inflight}"
         )
@@ -2391,7 +2433,13 @@ def _patch_ensemble(
 
     latest_commit = body.get("latest_commit") or ""
     err, parent_localenv = _localenv_from_cache_checked(
-        cache, project_id, branch, "", latest_commit, body, check_lastcommit
+        assert_not_none(get_cache()),
+        project_id,
+        branch,
+        "",
+        latest_commit,
+        body,
+        check_lastcommit,
     )
     if err:
         if existing_repo:
@@ -2718,17 +2766,11 @@ def _find_rust_server_bin() -> Optional[str]:
 
     Search order:
 
-    1. ``UNFURL_RUST_SERVER_BIN`` env var (explicit path)
     2. ``PATH`` via ``shutil.which``
     3. Alongside the installed unfurl package (distribution installs)
     4. Cargo target directories relative to the repo root (development installs),
        preferring release over debug
     """
-    # 1. Explicit env var
-    explicit: Optional[str] = os.environ.get("UNFURL_RUST_SERVER_BIN")
-    if explicit:
-        return explicit if os.path.isfile(explicit) and os.access(explicit, os.X_OK) else None
-
     # 2. PATH
     found = shutil.which("unfurl-server")
     if found:
@@ -2758,7 +2800,7 @@ def _find_rust_server_bin() -> Optional[str]:
     return None
 
 
-def _start_rust_server(
+def _start_proxy_server(
     host: str, port: int, options: dict
 ) -> Optional[subprocess.Popen[bytes]]:
     """Start the Rust unfurl-server binary if available and UNFURL_RUST_SERVER != '0'."""
@@ -2845,23 +2887,8 @@ def serve(
         project_or_ensemble_path (str): The path of the ensemble or project to base requests on
         options (dict): Additional options to pass to the server (as passed to the unfurl CLI)
     """
-    # Re-read CACHE_KEY_PREFIX from env.  Module-level flask_config was
-    # evaluated at import time; if the caller (e.g. tests) modified os.environ
-    # after import, the prefix must be patched so Python and Rust agree.
-    _env_prefix = os.environ.get("CACHE_KEY_PREFIX")
-    if _env_prefix is not None and _env_prefix != app.config.get("CACHE_KEY_PREFIX"):
-        logger.info(
-            "CACHE_KEY_PREFIX changed: %r -> %r",
-            app.config.get("CACHE_KEY_PREFIX"),
-            _env_prefix,
-        )
-        app.config["CACHE_KEY_PREFIX"] = _env_prefix
-        flask_config["CACHE_KEY_PREFIX"] = _env_prefix
-        # Reinitialize the cache backend so it picks up the new prefix.
-        # This is safe because only CACHE_KEY_PREFIX changed; the cache type
-        # and connection settings are unchanged.
-        cache.init_app(app)
-
+    global _cache
+    _cache = configure_app()
     app.config["UNFURL_SECRET"] = secret
     app.config["UNFURL_OPTIONS"] = options
     app.config["UNFURL_CLONE_ROOT"] = clone_root
@@ -2918,7 +2945,7 @@ def serve(
     try:
         import signal
 
-        rust_proc = _start_rust_server(host, port, options)
+        rust_proc = _start_proxy_server(host, port, options)
 
         if rust_proc:
             # Ensure the Rust subprocess is reaped when this process receives SIGTERM
