@@ -262,7 +262,9 @@ def _rust_extra_env(name: str = "") -> dict:
     }
 
 
-def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw):
+def serve_server(
+    *args, error_queue: Queue = None, extra_env: dict = None, py_log_file=None, **kw
+):
     """Wrapper around server.serve that forwards child start errors to a Queue.
 
     extra_env: env vars to set in the child process before starting the server.
@@ -274,9 +276,8 @@ def serve_server(*args, error_queue: Queue = None, extra_env: dict = None, **kw)
     # With forkserver/spawn, the child's logging isn't captured by pytest.
     # If a log file path is provided, add a FileHandler so Python server logs
     # are written to the same file as the Rust server logs (or a separate one).
-    _py_log_file = os.environ.get("UNFURL_SERVER_PY_LOG")
-    if _py_log_file:
-        fh = logging.FileHandler(_py_log_file)
+    if py_log_file:
+        fh = logging.FileHandler(py_log_file)
         fh.setLevel(logging.DEBUG)
         fh.setFormatter(logging.Formatter("%(levelname)-8s %(name)s %(message)s"))
         logging.getLogger().addHandler(fh)
@@ -435,7 +436,7 @@ def _env_for(variant: str, name: str = "") -> dict:
     if variant == "redis":
         return {**base_redis, "UNFURL_RUST_SERVER": "0"}
     # no-redis
-    return {"UNFURL_RUST_SERVER": "0"}
+    return {"UNFURL_RUST_SERVER": "0", "CACHE_KEY_PREFIX": prefix}
 
 
 server_env = _get_server_params()
@@ -446,8 +447,6 @@ def runner(request):
     server_env = request.param
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        # server.serve(HOST, _static_server_port, 'secret', 'ensemble', {})
-        # "url": ,
         os.environ["UNFURL_LOGGING"] = "TRACE"
         ctx = get_context()
         error_queue = ctx.Queue()
@@ -651,10 +650,9 @@ def test_server_export_remote(server_env):
         extra_env = _env_for(server_env, "export-remote")
         # Always capture Python server logs to a file so they appear in CI
         # output (the child process's logging is not captured by pytest with
-        # forkserver/spawn start methods).
+        # forkserver/spawn start methods) and caplog, capsys, capfd fixtures won't work
         py_log_fd, py_log_file = tempfile.mkstemp(prefix="py-server-", suffix=".log")
         os.close(py_log_fd)
-        extra_env["UNFURL_SERVER_PY_LOG"] = py_log_file
         if use_rust:
             rust_log_fd, rust_log_file = tempfile.mkstemp(
                 prefix="rust-server-", suffix=".log"
@@ -666,7 +664,11 @@ def test_server_export_remote(server_env):
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", ".", {"home": ""}, CLOUD_TEST_SERVER),
-            kwargs={"error_queue": error_queue, "extra_env": extra_env},
+            kwargs={
+                "error_queue": error_queue,
+                "extra_env": extra_env,
+                "py_log_file": py_log_file,
+            },
         )
         p._error_queue = error_queue
         try:
@@ -687,9 +689,14 @@ def test_server_export_remote(server_env):
                 # try twice, second attempt should be cached
                 cleaned_output = "0"
                 etag = ""
+                _pfx = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
+                project_id = "onecommons/project-templates/dashboard"
+                file_path = server._get_filepath(export_format, "")
+                key = server.CacheEntry(
+                    project_id, "main", file_path, export_format
+                ).cache_key()
                 for msg in ("cache miss for", "cache hit for"):
                     # test caching
-                    project_id = "onecommons/project-templates/dashboard"
                     # Snapshot log position before this iteration so assertions
                     # only inspect entries produced by the current request(s).
                     log_offset = 0
@@ -713,6 +720,7 @@ def test_server_export_remote(server_env):
                         assert res.status_code == 200
                         etag = res.headers.get("Etag") or ""
                         assert etag
+
                         # don't bother re-exporting the second time
                         exported = run_cmd(
                             runner,
@@ -727,32 +735,23 @@ def test_server_export_remote(server_env):
                             env={"UNFURL_LOGGING": "critical"},
                         )
                         assert exported
-                        # Strip out output from the http server
+
+                        # check that export matches the server response (after stripping _sourceinfo which includes non-deterministic file paths)
                         output = exported.output
                         cleaned_output = output[max(output.find("{"), 0) :]
                         expected = _strip_sourceinfo(json.loads(cleaned_output))
                         assert (
                             _strip_sourceinfo(res.json()) == expected
                         )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
+
                         # Verify Python actually stored the cache entry in Redis.
                         if use_rust and UNFURL_TEST_REDIS_URL:
                             import redis as _redis_mod
 
                             _r = _redis_mod.from_url(UNFURL_TEST_REDIS_URL)
-                            _file_path = server._get_filepath(export_format, "")
-                            _ck = server.CacheEntry(
-                                project_id, "main", _file_path, export_format
-                            ).cache_key()
-                            _pfx = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
-                            _full = f"{_pfx}{_ck}"
+                            _full = f"{_pfx}{key}"
                             _val = _r.get(_full)
                             _keys = _r.keys(f"{_pfx}*")
-                            print(
-                                f"[DEBUG] Redis check after cache miss: "
-                                f"key={_full!r} exists={_val is not None} "
-                                f"len={len(_val) if _val else 0} "
-                                f"all_keys_with_prefix={_keys!r}"
-                            )
                             assert _val is not None, (
                                 f"Python server did not store cache entry in Redis.\n"
                                 f"  Expected key: {_full}\n"
@@ -779,11 +778,14 @@ def test_server_export_remote(server_env):
                             expected=304,
                             timeout=15.0,
                         )
+                    with open(py_log_file) as _f:
+                        py_log = _f.read()
+                        if not ("cache hit for" and use_rust):
+                            log_msg = f"{msg} {_pfx}{key}"
+                            assert log_msg in py_log, (
+                                f"{log_msg} not found in Python log:\n{py_log}"
+                            )
 
-                    file_path = server._get_filepath(export_format, "")
-                    key = server.CacheEntry(
-                        project_id, "main", file_path, export_format
-                    ).cache_key()
                     if use_rust:
                         # Rust key includes the cache prefix
                         cache_prefix = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
@@ -796,13 +798,15 @@ def test_server_export_remote(server_env):
                         # buffered so the entry may not appear immediately after
                         # the HTTP response arrives.
                         if msg == "cache miss for":
-                            expected_pattern = f"cache miss (no entry / nil): {rust_key}"
+                            expected_pattern = (
+                                f"cache miss (no entry / nil): {rust_key}"
+                            )
                         else:
                             expected_pattern = f"cache hit etag match: {rust_key}"
                         new_log = _poll_rust_log(
                             rust_log_file, log_offset, expected_pattern
                         )
-                        print(new_log)
+                        # print(new_log)
                         new_log = clean_output(new_log)
                         if msg != "cache miss for":
                             # Check for etag mismatch first to give a diagnostic message
@@ -822,12 +826,6 @@ def test_server_export_remote(server_env):
                         assert expected_pattern in new_log, (
                             f"Expected {expected_pattern!r} in Rust log for {export_format}:\n{new_log}"
                         )
-
-            # XXX
-            # caplog, capsys, capfd capture log messages from uvicorn but not from the request workers
-            # pytest -s does output those messages to the console if set_start_method is set to "fork"
-            # visually confirmed this assert:
-            # assert f"{msg} {key}" in caplog.text
 
             # test with a blueprint
             run_cmd(
@@ -902,15 +900,14 @@ def test_server_export_remote(server_env):
             p.terminate()
             p.join()
             # Print Python server logs so they appear in CI output.
-            print("ASDFASDFASDEFASFASDEFSAD", py_log_file, flush=True)
-            if py_log_file and os.path.exists(py_log_file):
-                with open(py_log_file) as _f:
-                    py_log = _f.read()
-                if py_log:
-                    print(f"\n=== Python server log ({py_log_file}) ===")
-                    print(py_log[-5000:])  # last 5000 chars
-                    print("=== end Python server log ===\n")
-                os.unlink(py_log_file)
+            # if os.path.exists(py_log_file):
+            #     with open(py_log_file) as _f:
+            #         py_log = _f.read()
+            #     if py_log:
+            #         print(f"\n=== Python server log ({py_log_file}) ===")
+            #         print(py_log[-5000:])  # last 5000 chars
+            #         print("=== end Python server log ===\n")
+            #     os.unlink(py_log_file)
             if rust_log_file and os.path.exists(rust_log_file):
                 os.unlink(rust_log_file)
 
