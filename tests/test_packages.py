@@ -16,6 +16,7 @@ from unfurl.packages import (
 from unfurl.repo import get_remote_tags
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
+from unfurl.yamlloader import get_tags_from_proxy
 
 
 def _build_package_specs(env_package_spec):
@@ -260,6 +261,16 @@ def test_remote_tags():
     finally:
         if UNFURL_PACKAGE_RULES:
             os.environ["UNFURL_PACKAGE_RULES"] = UNFURL_PACKAGE_RULES
+
+
+def test_get_tags_from_proxy():
+    tags = get_tags_from_proxy("unfurl.cloud/onecommons/blueprints/baserow")
+    assert tags == ["v1.0.0", "v0.1.0"]
+    # make missing packages return None instead of empty list:
+    tags = get_tags_from_proxy("unfurl.cloud/onecommons/blueprints/nonexistent")
+    assert tags is None
+    tags = get_tags_from_proxy("https://gitlab.com/onecommons/std.git")
+    assert tags[-1] == "v1.0.0", tags
 
 
 _ENSEMBLE_TPL = """

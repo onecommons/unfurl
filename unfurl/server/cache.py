@@ -46,7 +46,11 @@ from ..repo import (
     split_git_url,
     get_remote_tags,
 )
-from ..yamlloader import ImportResolver_Context, SimpleCacheResolver
+from ..yamlloader import (
+    ImportResolver_Context,
+    SimpleCacheResolver,
+    get_tags_from_proxy,
+)
 from ..packages import is_semver
 
 logger = getLogger("unfurl.server")
@@ -173,6 +177,7 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
     if tags is not None:
         return tags
     else:
+        private = False
         base_url = current_app.config["UNFURL_CLOUD_SERVER"] and normalize_git_url_hard(
             current_app.config["UNFURL_CLOUD_SERVER"]
         )
@@ -183,8 +188,12 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
                 args.get("private_token", args.get("password")),
             )
             if username and password:
+                private = True
                 url = add_user_to_url(url, username, password)
-        tags = get_remote_tags(url, pattern)
+        if not private:
+            tags = get_tags_from_proxy(url, pattern)
+        if tags is None:
+            tags = get_remote_tags(url, pattern)
         timeout = current_app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
         cache.set("tags:" + key + ":" + pattern, tags, timeout)
         return tags
