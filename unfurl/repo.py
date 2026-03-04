@@ -190,6 +190,7 @@ def memoized_remote_tags(url: str, pattern: str = "*") -> List[str]:
 
 # git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
 def get_remote_tags(url: str, pattern: str = "*") -> List[str]:
+    # return order descending: [v1.0.0, v0.1.0]
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
     # -v:refname is version sort in reverse order
@@ -661,7 +662,7 @@ class RepoView:
         return ""
 
     def get_repo_status(self, dirty=False):
-        if self.repo and (not dirty or self.is_dirty()):
+        if self.gitrepo and (not dirty or self.is_dirty()):
             git_status = self.git_status()
             if self.name:
                 header = f"for {self.name} at {self.working_dir}"
@@ -845,6 +846,7 @@ class GitRepo(Repo):
 
     @property
     def revision(self) -> str:
+        """Return the current commit hash, or an empty string if there is no valid head (e.g. in an empty repository)"""
         if not self.repo.head.is_valid():
             return ""
         return self.repo.head.commit.hexsha
