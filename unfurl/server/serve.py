@@ -67,6 +67,7 @@ from ..graphql import (
     project_id_from_urlresult,
 )
 from .schemas import (
+    BatchPatchBody,
     ClearProjectQuery,
     EmptyCacheQuery,
     ExportQuery,
@@ -591,6 +592,8 @@ class CacheValue(NamedTuple):
     latest_commit: str
     deps: CacheItemDependencies
     last_commit_date: int
+    queueid: int = 0  # > 1 when the value hasn't been committed yet
+    queued_commit: str = ""  # set after a queued value is committed
 
     def make_etag(self) -> str:
         etag = int(self.last_commit or "0", 16) ^ int(get_package_digest() or "0", 16)
@@ -931,6 +934,8 @@ class CacheEntry:
             cached_latest_commit,
             self._deps,
             cached_last_commit_date,
+            queueid,
+            queueid_commit,
         ) = value
         if latest_commit == cached_latest_commit:
             # this is the latest
@@ -938,6 +943,13 @@ class CacheEntry:
             self.hit = True
             return value, None
         else:
+            if self.stale_pull_age == -1:
+                # if stale_pull_age is -1, we never want to pull, so just treat as stale cache hit
+                logger.info(
+                    "cache hist for %s (stale_pull_age is -1)",
+                    prefixed_key,
+                )
+                return value, True
             # cache might be out of date, let's check by getting the commit info for the file path
             try:
                 at_latest = self.at_latest(
@@ -1140,6 +1152,9 @@ class CacheEntry:
                             )
                         return None, cache_value.value
                     logger.debug(f"validation failed for {self.cache_key()}")
+                elif self.stale_pull_age == -1:
+                    # if stale_pull_age is -1, we never want to pull, so just return the stale value
+                    return None, cache_value.value
                 # otherwise in cache but stale or invalid, fall thru to redo work
                 # XXX? check date to see if its recent enough to serve anyway
                 # if _get_committed_date(stale) - time.time() < stale_ok_age:
@@ -1457,7 +1472,11 @@ def _export(
         else:
             extra = ""
     repo = _get_project_repo(project_id, branch, args)
-    stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
+    stale_pull_age = (
+        -1
+        if request.args.get("stale") == "ok"
+        else app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
+    )
     cache_entry = CacheEntry(
         project_id,
         branch,
@@ -2172,6 +2191,77 @@ def create_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     return _patch_ensemble(body, True, get_project_id(request))
 
 
+@app.post("/batch_patch")
+@app.doc(
+    summary="Apply a batch of write requests",
+    description=(
+        "Used by the Rust proxy to forward a batch of write requests that "
+        "share the same branch and latest_commit.  Each request in the "
+        "``requests`` list is applied in order; a single push is performed "
+        "at the end."
+    ),
+    tags=["Project"],
+    responses=PATCH_RESPONSES,
+)
+@app.input(BatchPatchBody, location="json", arg_name="body_schema")
+@app.output(PatchResponse)
+def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
+    body = _get_body(request)
+    project_id = get_project_id(request)
+    batch_requests = body.get("requests", [])
+    latest_commit = body.get("latest_commit") or ""
+    branch = body.get("branch", DEFAULT_BRANCH)
+    logger.info(
+        "batch_patch: project=%s branch=%s requests=%d",
+        project_id,
+        branch,
+        len(batch_requests),
+    )
+    err, readonly_localEnv = _localenv_from_cache_checked(
+        assert_not_none(get_cache()),
+        project_id,
+        branch,
+        "",
+        latest_commit,
+        body,
+        False,
+    )
+    if err:
+        return err
+    assert readonly_localEnv and readonly_localEnv.project
+    last_body = body  # track last body for credentials
+    for req in batch_requests:
+        endpoint = req.get("endpoint", "")
+        # The request body is the req dict itself (endpoint + original body fields).
+        req_body = req
+        last_body = req_body
+        create = endpoint in ("create_ensemble", "create_provider")
+        if endpoint in (
+            "create_provider",
+            "update_environment",
+            "delete_environment",
+            "delete_deployment",
+        ):
+            result = _patch_environment(req_body, project_id, batched=True)
+            if isinstance(result, tuple):
+                return result  # error response
+        if create or endpoint == "update_ensemble":
+            result = _patch_ensemble(
+                req_body, create, project_id, check_lastcommit=False, batched=True
+            )
+            if isinstance(result, tuple):
+                return result  # error response
+    repo = readonly_localEnv.project.project_repoview.gitrepo
+    assert repo
+    username = last_body.get("username")
+    password = last_body.get("private_token", last_body.get("password"))
+    if not app.config.get("UNFURL_GUI_MODE"):
+        err = _push_changes(repo, username, password, latest_commit)
+        if err:
+            return err
+    return _patch_response(repo)
+
+
 def update_deployment(project, key, patch_inner, save, deleted=False):
     localConfig = project.localConfig
     deployment_path = os.path.join(project.projectRoot, key, "ensemble.yaml")
@@ -2258,18 +2348,27 @@ def _apply_environment_patch(
     return None
 
 
-def _patch_environment(body: dict, project_id: str) -> ResponseReturnValue:
+def _patch_environment(
+    body: dict, project_id: str, batched=False
+) -> ResponseReturnValue:
     patch = body.get("patch")
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)
     err, readonly_localEnv = _localenv_from_cache_checked(
-        assert_not_none(get_cache()), project_id, branch, "", latest_commit, body
+        assert_not_none(get_cache()),
+        project_id,
+        branch,
+        "",
+        latest_commit,
+        body,
+        check_lastcommit=not batched,
     )
     if err:
         return err
     assert readonly_localEnv and readonly_localEnv.project
-    invalidate_cache(body, "environments", project_id)
+    if not batched:
+        invalidate_cache(body, "environments", project_id)
     # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
     home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
         "UNFURL_OPTIONS"
@@ -2305,6 +2404,7 @@ def _patch_environment(body: dict, project_id: str) -> ResponseReturnValue:
                 username,
                 password,
                 starting_revision,
+                batched,
             )
             if err:
                 return err  # err will be an error response
@@ -2400,7 +2500,11 @@ def _get_commit_msg(body, default_msg):
 
 
 def _patch_ensemble(
-    body: dict, create: bool, project_id: str, check_lastcommit: bool = True
+    body: dict,
+    create: bool,
+    project_id: str,
+    check_lastcommit: bool = True,
+    batched: bool = False,
 ) -> ResponseReturnValue:
     from .cache import ServerCacheResolver
 
@@ -2455,7 +2559,8 @@ def _patch_ensemble(
         parent_localenv.project.project_repoview.repo.working_dir, deployment_path
     )
 
-    invalidate_cache(body, "deployment", project_id)
+    if not batched:
+        invalidate_cache(body, "deployment", project_id)
     if existing_repo:
         was_dirty = existing_repo.is_dirty()
         existing_repo.repo.__del__()
@@ -2522,7 +2627,7 @@ def _patch_ensemble(
         committed = manifest.commit(commit_msg, True, ensemble_only=True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
-            if manifest.repo and not app.config.get("UNFURL_GUI_MODE"):
+            if manifest.repo and not app.config.get("UNFURL_GUI_MODE") and not batched:
                 err = _push_changes(
                     manifest.repo, username, password, starting_revision
                 )
@@ -2668,12 +2773,13 @@ def _commit_and_push(
     username: str,
     password: str,
     starting_revision: str,
+    batched: bool = False,
 ):
     repo.add_all(full_path)
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg)
     logger.info("committed %s: %s", full_path, commit_msg)
-    if app.config.get("UNFURL_GUI_MODE"):
+    if app.config.get("UNFURL_GUI_MODE") or batched:
         return None  # don't push
     if password:
         url = add_user_to_url(repo.url, username, password)

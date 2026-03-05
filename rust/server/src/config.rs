@@ -66,6 +66,13 @@ pub struct Config {
     /// Used together with the cached `last_commit` to compute ETags.
     #[arg(long, env = "UNFURL_PACKAGE_DIGEST", default_value = "")]
     pub package_digest: String,
+
+    /// Batch window in seconds for consolidating PATCH requests to the same
+    /// project.  Items enqueued within this window are merged before being
+    /// forwarded to the backend.  0 disables batching (each item is forwarded
+    /// individually).  Default: 5 seconds.
+    #[arg(long, env = "UNFURL_BATCH_WINDOW_SECS", default_value_t = 5)]
+    pub batch_window_secs: u64,
 }
 
 impl Config {
@@ -94,9 +101,24 @@ impl Config {
         ))
     }
 
-    /// Redis key prefix for the write queue.
+    /// Redis key prefix for the write queue (legacy, still used as fallback).
     pub fn queue_key(&self) -> String {
         format!("{}patch_queue", self.cache_key_prefix)
+    }
+
+    /// Redis key for the per-project batch list.
+    pub fn batch_list_key(&self, project_id: &str) -> String {
+        format!("{}batch:{}", self.cache_key_prefix, project_id)
+    }
+
+    /// Redis sorted set tracking projects whose batch window has expired.
+    pub fn batch_ready_set_key(&self) -> String {
+        format!("{}batch_ready", self.cache_key_prefix)
+    }
+
+    /// Redis key prefix for distributed batch processing locks.
+    pub fn batch_lock_prefix(&self) -> String {
+        format!("{}batch_lock:", self.cache_key_prefix)
     }
 
     /// Return the effective Redis URL with any password redacted for logging.
@@ -144,6 +166,7 @@ mod tests {
             proxy_timeout_secs: 120,
             redis_timeout_secs: 5,
             package_digest: String::new(),
+            batch_window_secs: 5,
         }
     }
 

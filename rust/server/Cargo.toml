@@ -9,6 +9,10 @@ description = "Rust HTTP proxy server for unfurl"
 homepage = "https://github.com/onecommons/unfurl"
 repository = "https://github.com/onecommons/unfurl"
 
+[lib]
+name = "unfurl_server"
+path = "src/lib.rs"
+
 [[bin]]
 name = "unfurl-server"
 path = "src/main.rs"
@@ -30,6 +34,7 @@ progenitor-client = "0.13"
 http = "1"
 bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
+urlencoding = "2"
 regress = "0.10"
 uuid = { version = "1", features = ["serde"] }
 

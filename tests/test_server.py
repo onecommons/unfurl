@@ -400,12 +400,12 @@ def start_envvar_server(port):
 
 
 def _get_server_params():
-    """Three pytest.param variants: no-redis, redis, redis-rust."""
+    """Pytest.param variants: no-redis, redis, redis-rust, queue-rust."""
     if not os.getenv("UNFURL_TEST_REDIS_URL"):
         return ["no-redis"]
     if os.getenv("UNFURL_TEST_RUST_SERVER") == "0":
         return ["redis", "no-redis"]
-    return ["no-redis", "redis", "redis-rust"]
+    return ["no-redis", "redis", "redis-rust", "queue-rust"]
 
 
 def _variant_prefix(name: str) -> str:
@@ -427,16 +427,66 @@ def _env_for(variant: str, name: str = "") -> dict:
         "CACHE_KEY_PREFIX": prefix,
         "CACHE_DEFAULT_TIMEOUT": "120",
     }
-    if variant == "redis-rust":
+    if "rust" in variant:
         return {
             **base_redis,
             "UNFURL_RUST_SERVER": "1",
             "UNFURL_LOGGING": os.environ.get("UNFURL_LOGGING", "debug"),
+            "UNFURL_BATCH_WINDOW_SECS": "1",
         }
     if variant == "redis":
         return {**base_redis, "UNFURL_RUST_SERVER": "0"}
     # no-redis
     return {"UNFURL_RUST_SERVER": "0", "CACHE_KEY_PREFIX": prefix}
+
+
+QUEUE_SLEEP = 3.5  # seconds to wait for batch queue drain + backend processing (window=1s + poll + processing)
+
+
+def _dump_server_logs(p, label=""):
+    """Print server log files stored on the process object for diagnostics."""
+    prefix = f"[{label}] " if label else ""
+    for attr, name in [("_py_log_file", "Python"), ("_rust_log_file", "Rust")]:
+        path = getattr(p, attr, None)
+        if path and os.path.exists(path):
+            with open(path) as f:
+                contents = f.read()
+            if contents:
+                print(f"\n=== {prefix}{name} server log ({path}) ===")
+                print(contents[-5000:])
+                print(f"=== end {name} server log ===\n")
+
+
+def _post_write(url, json_body, server_env):
+    """POST a write request, adding queueid for queue-rust variant."""
+    if server_env == "queue-rust":
+        json_body = {**json_body, "queueid": "0"}
+    return requests.post(url, json=json_body)
+
+
+def _assert_commit(res, last_commit, server_env):
+    """Assert the POST response has a new commit, or 'queued' for queue-rust.
+
+    Returns the new commit hash, or None for queue-rust (caller must sleep).
+    """
+    assert res.status_code == 200, res.json()
+    if server_env == "queue-rust":
+        assert res.json().get("queued"), f"expected 'queued' in response: {res.json()}"
+        return None
+    new_commit = res.json()["commit"]
+    assert new_commit and new_commit != last_commit
+    return new_commit
+
+
+def _wait_for_queue(server_env):
+    """Sleep to let the batch queue drain if using queue-rust variant."""
+    if server_env == "queue-rust":
+        time.sleep(QUEUE_SLEEP)
+
+
+def _get_latest_commit(bare_repo_path="remote.git"):
+    """Read the latest commit from the bare repo after a queued batch has been processed."""
+    return GitRepo(Repo(bare_repo_path)).revision
 
 
 server_env = _get_server_params()
@@ -463,7 +513,7 @@ def runner(request):
             start_server_process(
                 server_process,
                 _static_server_port,
-                is_rust=(server_env == "redis-rust"),
+                is_rust=("rust" in server_env),
             )
 
             yield server_process
@@ -500,6 +550,22 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
     assert repo.repo.create_remote("origin", "../remote.git")
     port = _next_port()
 
+    use_rust = server_env and "rust" in server_env
+    extra_env = _env_for(server_env or "no-redis", name)
+
+    # Capture server logs to temp files for diagnostics.
+    rust_log_file = None
+    py_log_file = None
+    py_log_fd, py_log_file = tempfile.mkstemp(prefix="py-server-", suffix=".log")
+    os.close(py_log_fd)
+    if use_rust:
+        rust_log_fd, rust_log_file = tempfile.mkstemp(
+            prefix="rust-server-", suffix=".log"
+        )
+        os.close(rust_log_fd)
+        extra_env["UNFURL_LOGFILE"] = rust_log_file
+        extra_env["UNFURL_LOGGING"] = os.environ.get("UNFURL_LOGGING", "debug")
+
     os.makedirs("server")
     ctx = get_context()
     error_queue = ctx.Queue()
@@ -516,12 +582,16 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
         ),
         kwargs={
             "error_queue": error_queue,
-            "extra_env": _env_for(server_env or "no-redis", name),
+            "extra_env": extra_env,
+            "py_log_file": py_log_file,
         },
     )
     p._error_queue = error_queue
+    # Stash log file paths on the process for callers to read.
+    p._py_log_file = py_log_file
+    p._rust_log_file = rust_log_file
     try:
-        start_server_process(p, port, is_rust=(server_env == "redis-rust"))
+        start_server_process(p, port, is_rust=use_rust)
 
         assert repo.revision
         return p, port, repo.revision
@@ -603,7 +673,7 @@ def test_server_export_local(server_env):
         )
         p._error_queue = error_queue
         try:
-            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
+            start_server_process(p, port, is_rust=("rust" in server_env))
             init_project(
                 runner,
                 args=["init", "--mono"],
@@ -638,7 +708,7 @@ def _strip_sourceinfo(export, log=False):
 @pytest.mark.parametrize("server_env", server_env)
 def test_server_export_remote(server_env):
     runner = CliRunner()
-    use_rust = server_env == "redis-rust"
+    use_rust = "rust" in server_env
     with runner.isolated_filesystem():
         port = _next_port()
         ctx = get_context()
@@ -672,7 +742,7 @@ def test_server_export_remote(server_env):
         )
         p._error_queue = error_queue
         try:
-            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
+            start_server_process(p, port, is_rust=("rust" in server_env))
             run_cmd(
                 runner,
                 [
@@ -937,6 +1007,8 @@ def test_populate_cache(runner: Process):
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize("server_env", server_env)
 def test_server_update_deployment(server_env):
+    if server_env == "queue-rust":
+        pytest.skip("test_server_update_deployment not yet supported with queue-rust")
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
@@ -1141,7 +1213,7 @@ def test_empty_cache(server_env):
                 },
             )
             p._error_queue = error_queue
-            start_server_process(p, port, is_rust=(server_env == "redis-rust"))
+            start_server_process(p, port, is_rust=("rust" in server_env))
 
             # Authorized: correct admin project → 200 OK
             res = requests.post(
@@ -1187,20 +1259,24 @@ def test_update_environment(server_env):
             )
 
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/update_environment?auth_project=remote",
-                json={"patch": env_patch, "latest_commit": last_commit},
+                {"patch": env_patch, "latest_commit": last_commit},
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            new_commit = res.json()["commit"]
-            assert new_commit and new_commit != last_commit
+            new_commit = _assert_commit(res, last_commit, server_env)
+            _wait_for_queue(server_env)
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
             with open("unfurl.yaml") as f:
                 data = yaml.load(f.read())
-            assert "staging" in data.get("environments", {}), data
+            envs = data.get("environments", {})
+            if envs is None:
+                _dump_server_logs(p, "update-env")
+            assert envs and "staging" in envs, data
         finally:
+            _dump_server_logs(p, "update-env")
             if p:
                 p.terminate()
                 p.join()
@@ -1223,25 +1299,35 @@ def test_delete_environment(server_env):
 
             # First create the environment
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/update_environment?auth_project=remote",
-                json={"patch": env_patch, "latest_commit": last_commit},
+                {"patch": env_patch, "latest_commit": last_commit},
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            last_commit = res.json()["commit"]
-            assert last_commit
+            new_commit = _assert_commit(res, last_commit, server_env)
+            if new_commit:
+                last_commit = new_commit
 
             # Now delete it
             del_patch = [
                 {"name": "staging", "__typename": "DeploymentEnvironment", "__deleted": True}
             ]
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/delete_environment?auth_project=remote",
-                json={"patch": del_patch, "latest_commit": last_commit},
+                {"patch": del_patch, "latest_commit": last_commit},
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            new_commit = res.json()["commit"]
-            assert new_commit and new_commit != last_commit
+            _assert_commit(res, last_commit, server_env)
+            _wait_for_queue(server_env)
+
+            # Verify both patches were batched together in a single batch_patch call.
+            if server_env == "queue-rust":
+                assert p._rust_log_file
+                with open(p._rust_log_file) as f:
+                    rust_log = f.read()
+                assert "requests=2" in rust_log, (
+                    f"expected requests=2 in Rust log:\n{rust_log[-2000:]}"
+                )
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
@@ -1249,6 +1335,7 @@ def test_delete_environment(server_env):
                 data = yaml.load(f.read())
             assert "staging" not in data.get("environments", {}), data
         finally:
+            _dump_server_logs(p, "delete-env")
             if p:
                 p.terminate()
                 p.join()
@@ -1271,18 +1358,19 @@ def test_delete_deployment(server_env):
 
             # Create a provider so there is a registered deployment path to delete
             provider_patch = [{"name": "gcp", "__typename": "DeploymentEnvironment"}]
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/create_provider?auth_project=remote",
-                json={
+                {
                     "environment": "gcp",
                     "deployment_path": "environments/gcp/primary_provider",
                     "patch": provider_patch,
                     "latest_commit": last_commit,
                 },
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            last_commit = res.json()["commit"]
-            assert last_commit
+            new_commit = _assert_commit(res, last_commit, server_env)
+            if new_commit:
+                last_commit = new_commit
 
             # Remove the ensemble registration via /delete_deployment
             del_patch = [
@@ -1292,21 +1380,34 @@ def test_delete_deployment(server_env):
                     "__deleted": True,
                 }
             ]
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/delete_deployment?auth_project=remote",
-                json={"patch": del_patch, "latest_commit": last_commit},
+                {"patch": del_patch, "latest_commit": last_commit},
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            new_commit = res.json()["commit"]
-            assert new_commit and new_commit != last_commit
+            _assert_commit(res, last_commit, server_env)
+            _wait_for_queue(server_env)
+
+            # Verify both patches were batched together in a single batch_patch call.
+            if server_env == "queue-rust":
+                assert p._rust_log_file
+                with open(p._rust_log_file) as f:
+                    rust_log = f.read()
+                assert "requests=2" in rust_log, (
+                    f"expected requests=2 in Rust log:\n{rust_log[-2000:]}"
+                )
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
             with open("unfurl.yaml") as f:
                 data = yaml.load(f.read())
             ensemble_files = [e.get("file", "") for e in data.get("ensembles", [])]
-            assert not any("primary_provider" in f for f in ensemble_files), data
+            assert not any("primary_provider" in f for f in ensemble_files), (
+                ensemble_files,
+                data,
+            )
         finally:
+            _dump_server_logs(p, "delete-deployment")
             if p:
                 p.terminate()
                 p.join()
@@ -1327,22 +1428,23 @@ def test_create_ensemble(server_env):
                 name="create-ensemble",
             )
 
-            res = requests.post(
+            res = _post_write(
                 f"http://{HOST}:{port}/create_ensemble?auth_project=remote",
-                json={
+                {
                     "patch": [],
                     "deployment_path": "deployments/new-app",
                     "latest_commit": last_commit,
                 },
+                server_env,
             )
-            assert res.status_code == 200, res.json()
-            new_commit = res.json()["commit"]
-            assert new_commit and new_commit != last_commit
+            _assert_commit(res, last_commit, server_env)
+            _wait_for_queue(server_env)
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
             assert os.path.exists("deployments/new-app/ensemble.yaml"), os.listdir(".")
         finally:
+            _dump_server_logs(p, "create-ensemble")
             if p:
                 p.terminate()
                 p.join()

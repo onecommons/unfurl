@@ -171,19 +171,30 @@ pub async fn handle_types(State(state): State<AppState>, req: Request) -> Respon
 // Write / queue handlers
 // ---------------------------------------------------------------------------
 
-/// POST write endpoints -- enqueue to Redis and return immediately.
+/// POST write endpoints -- enqueue to Redis batch list and return immediately.
 pub async fn handle_write(State(state): State<AppState>, req: Request) -> Response {
+    // Capture the full path + query string for forwarding.
     let endpoint = req
         .uri()
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| req.uri().path().to_string());
+
+    // Extract project_id from the query string for per-project batching.
+    let params = parse_query(req.uri());
+    let project_id = params.get("auth_project").cloned().unwrap_or_default();
+
     let headers_map: HashMap<String, String> = req
         .headers()
         .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str();
-            if name == "host" || name == "transfer-encoding" || name == "connection" {
+            if name == "host"
+                || name == "transfer-encoding"
+                || name == "connection"
+                || name == "content-length"
+                || name == "content-type"
+            {
                 return None;
             }
             v.to_str()
@@ -218,8 +229,7 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
                 headers: headers_map,
             };
             let mut conn = redis.clone();
-            let queue_key = state.config.queue_key();
-            if let Err(e) = queue::enqueue(&mut conn, &queue_key, &item).await {
+            if let Err(e) = queue::enqueue(&mut conn, &state.config, &project_id, &item).await {
                 tracing::error!("failed to enqueue: {}", e);
                 return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
             }
@@ -229,7 +239,7 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
 
     // Proxy directly to Python backend (Redis unavailable, or queue disabled).
     // Preserve full path + query string from the original request.
-    let path_and_query = req_path_query(&endpoint, "");
+    let path_and_query = ensure_leading_slash(&endpoint);
     let proxy_req = Request::builder()
         .method(axum::http::Method::POST)
         .uri(format!("{}{}", state.config.backend_url(), path_and_query))
@@ -249,7 +259,7 @@ pub async fn handle_fallback(State(state): State<AppState>, req: Request) -> Res
 }
 
 /// Helper: ensure path starts with `/`.
-fn req_path_query(path: &str, _default_query: &str) -> String {
+fn ensure_leading_slash(path: &str) -> String {
     if path.starts_with('/') {
         path.to_string()
     } else {

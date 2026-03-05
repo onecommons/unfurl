@@ -33,16 +33,10 @@ from .serve import (
     project_id_from_urlresult,
 )
 
-CLOUDMAP_BRANCH = "main"
-
 from ..repo import (
-    GitRepo,
-    Repo,
     RepoView,
     add_user_to_url,
-    normalize_git_url,
     normalize_git_url_hard,
-    sanitize_url,
     split_git_url,
     get_remote_tags,
 )
@@ -54,6 +48,7 @@ from ..yamlloader import (
 from ..packages import is_semver
 
 logger = getLogger("unfurl.server")
+CLOUDMAP_BRANCH = "main"
 
 
 def load_yaml(

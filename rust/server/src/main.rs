@@ -95,19 +95,19 @@ async fn main() {
         None => None,
     };
 
-    // Spawn queue worker with its own *separate* connection so that BLPOP 0
-    // does not block the shared cache connection.
+    // Spawn batch worker with its own *separate* connection so that its
+    // polling loop does not block the shared cache connection.
     if redis_conn.is_some() {
         if let Some(ref client) = redis_client_opt {
             match client.get_multiplexed_async_connection().await {
                 Ok(worker_conn) => {
-                    let queue_key = config.queue_key();
+                    let worker_config = config.clone();
                     let backend = config.backend_url();
                     let http_client = reqwest::Client::new();
                     tokio::spawn(async move {
-                        queue::run_worker(worker_conn, queue_key, backend, http_client).await;
+                        queue::run_worker(worker_conn, worker_config, backend, http_client).await;
                     });
-                    tracing::info!("queue worker started");
+                    tracing::info!("batch worker started");
                 }
                 Err(e) => {
                     tracing::error!("Redis worker connection failed: {}", e);

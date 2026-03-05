@@ -188,6 +188,26 @@ class PatchEnsembleBody(PatchEnvironmentBody):
     )
 
 
+class BatchPatchBody(BaseModel):
+    """JSON body for /batch_patch -- used by the Rust proxy to forward
+    a batch of write requests that share the same branch and latest_commit.
+
+    The ``requests`` list preserves the original submission order so the
+    Python backend can apply each operation sequentially before pushing once.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    latest_commit: Optional[str] = Field(
+        default=None,
+        description="Latest known commit hash for optimistic concurrency checks",
+    )
+    branch: str = Field(default="main", description="Target branch")
+    requests: List[Dict[str, Any]] = Field(
+        description="Ordered list of original requests, each with 'endpoint' and the original body fields"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Response schemas
 # ---------------------------------------------------------------------------
