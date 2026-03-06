@@ -77,7 +77,10 @@ class ExportQuery(ExportBaseQuery):
         default=False,
         description="Include all deployment exports embedded in the response",
     )
-
+    stale: Optional[Literal["ok"]] = Field(
+        default=None,
+        description="Return any cache hit without checking if it's out of date.",
+    )
 
 class TypesQuery(ExportBaseQuery):
     """Query parameters for /types."""
@@ -124,11 +127,6 @@ class EmptyCacheQuery(ProjectQuery):
 
 class ClearProjectQuery(ProjectQuery):
     """Query parameters for /clear_project_file_cache."""
-
-    auth_project: Optional[str] = Field(
-        default=None,
-        description="Project ID whose cache entries and cloned files will be removed",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +203,10 @@ class BatchPatchBody(BaseModel):
     branch: str = Field(default="main", description="Target branch")
     requests: List[Dict[str, Any]] = Field(
         description="Ordered list of original requests, each with 'endpoint' and the original body fields"
+    )
+    queueid: Optional[int] = Field(
+        default=None,
+        description="Current queueid from the Rust proxy; Python updates the Redis queue key with '{new_commit},{queueid}' after committing",
     )
 
 

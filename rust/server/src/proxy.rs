@@ -12,7 +12,12 @@ use reqwest::Client;
 
 /// Forward an incoming request to the Python backend and stream the
 /// response back to the client.
-pub async fn forward(client: &Client, backend_url: &str, req: Request) -> Response {
+pub async fn forward(
+    client: &Client,
+    backend_url: &str,
+    req: Request,
+    max_body_bytes: usize,
+) -> Response {
     // Build the target URL preserving path and query string.
     let path_and_query = req
         .uri()
@@ -31,7 +36,7 @@ pub async fn forward(client: &Client, backend_url: &str, req: Request) -> Respon
     // Build the proxied request.
     let method = req.method().clone();
     let headers = req.headers().clone();
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(req.into_body(), max_body_bytes).await {
         Ok(b) => b,
         Err(e) => {
             tracing::error!("failed to read request body: {}", e);

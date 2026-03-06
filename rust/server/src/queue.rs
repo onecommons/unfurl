@@ -8,6 +8,7 @@
 //! `latest_commit`, `branch`, and `deployment_path`), and forwards
 //! merged batches to the Python backend's `/batch_patch` endpoint.
 
+use once_cell::sync::Lazy;
 use redis::AsyncCommands;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -15,6 +16,9 @@ use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 
 use crate::config::Config;
+
+static ENQUEUE: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(ENQUEUE_SCRIPT));
+static INC_QUEUEID: Lazy<redis::Script> = Lazy::new(|| redis::Script::new(INC_QUEUEID_SCRIPT));
 
 /// Payload stored in the Redis per-project batch list.
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -57,6 +61,70 @@ end
 return len
 "#;
 
+/// Lua script for atomic queueid validation and increment.
+///
+/// KEYS[1] = queue key: "queue:{project_id}:{latest_commit}"
+/// ARGV[1] = client's queueid (integer as string)
+/// ARGV[2] = "queue:{project_id}:" prefix for checking newer commits
+///
+/// The queue key value is either:
+///   - A plain integer queueid (e.g. "1")
+///   - "{new_commit},{last_queueid}" after batch_patch commits
+///
+/// Returns one of:
+///   - "error" on conflict (stale queueid or newer patch in flight)
+///   - "{new_queueid}" when incrementing on current commit
+///   - "{new_commit},{new_queueid}" when a new commit was produced
+const INC_QUEUEID_SCRIPT: &str = r#"
+local queue_key = KEYS[1]
+local queueid = tonumber(ARGV[1])
+local prefix = ARGV[2]
+
+local current = redis.call('GET', queue_key)
+if not current then
+    if queueid > 0 then
+        -- previous patch in flight should have created the key
+        return "error"
+    end
+    -- first patch: create and set to 1
+    redis.call('SET', queue_key, '1')
+    return "1"
+end
+
+-- parse current value: either "queueid" or "new_commit,last_queueid"
+local new_commit = nil
+local last_queueid = nil
+local comma = string.find(current, ',')
+if comma then
+    new_commit = string.sub(current, 1, comma - 1)
+    last_queueid = tonumber(string.sub(current, comma + 1))
+else
+    last_queueid = tonumber(current)
+end
+
+if last_queueid > queueid then
+    -- there was a newer patch
+    return "error"
+end
+
+if new_commit then
+    -- batch_patch produced a new commit; check if there's already a newer queue
+    local newer_key = prefix .. new_commit
+    local newer = redis.call('GET', newer_key)
+    if newer then
+        -- there's already a newer patch in flight
+        return "error"
+    end
+    -- start a new queue on the new commit
+    redis.call('SET', newer_key, '1')
+    return new_commit .. ',1'
+end
+
+-- increment queueid on current commit
+local new_queueid = redis.call('INCR', queue_key)
+return tostring(new_queueid)
+"#;
+
 /// Maximum number of items to drain in a single LPOP call.
 /// This is a safety cap; in practice batch lists are much shorter.
 const DRAIN_BATCH_SIZE: usize = 1000;
@@ -67,6 +135,59 @@ const WORKER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_mill
 // ---------------------------------------------------------------------------
 // Enqueue
 // ---------------------------------------------------------------------------
+
+/// Result of `inc_queueid`: either a new queueid (with an optional new
+/// commit hash) or a conflict error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueIdResult {
+    /// The queueid was incremented on the current commit.
+    Ok { new_queueid: i64 },
+    /// A new commit was produced by batch_patch; the client should use the
+    /// new commit hash going forward.
+    NewCommit {
+        new_commit: String,
+        new_queueid: i64,
+    },
+    /// Conflict: stale queueid or newer patch already in flight.
+    Conflict,
+}
+
+/// Atomically validate and increment the queueid for a project+commit.
+///
+/// The queue key `queue:{project_id}:{latest_commit}` tracks the sequence
+/// of patches against a given commit.  When `batch_patch` commits, the
+/// Python server replaces the value with `"{new_commit},{queueid}"`.
+pub async fn inc_queueid(
+    conn: &mut redis::aio::MultiplexedConnection,
+    project_id: &str,
+    latest_commit: &str,
+    queueid: i64,
+) -> Result<QueueIdResult, redis::RedisError> {
+    let queue_key = format!("queue:{}:{}", project_id, latest_commit);
+    let prefix = format!("queue:{}:", project_id);
+
+    let result: String = INC_QUEUEID
+        .key(&queue_key)
+        .arg(queueid)
+        .arg(&prefix)
+        .invoke_async(conn)
+        .await?;
+
+    if result == "error" {
+        return Ok(QueueIdResult::Conflict);
+    }
+
+    if let Some((commit, qid_str)) = result.split_once(',') {
+        let new_queueid = qid_str.parse::<i64>().unwrap_or(0);
+        Ok(QueueIdResult::NewCommit {
+            new_commit: commit.to_string(),
+            new_queueid,
+        })
+    } else {
+        let new_queueid = result.parse::<i64>().unwrap_or(0);
+        Ok(QueueIdResult::Ok { new_queueid })
+    }
+}
 
 /// Push a write request onto the per-project batch list and register the
 /// batch deadline in the ready set (atomically via Lua).
@@ -80,7 +201,7 @@ pub async fn enqueue(
     let ready_key = config.batch_ready_set_key();
     let payload = serde_json::to_string(item).unwrap_or_default();
 
-    redis::Script::new(ENQUEUE_SCRIPT)
+    ENQUEUE
         .key(list_key)
         .key(ready_key)
         .arg(payload)
@@ -121,6 +242,10 @@ struct PartitionedBatch {
     branch: String,
     /// The individual requests in submission order.
     requests: Vec<BatchRequest>,
+    /// Current queueid for this partition (read from Redis before sending).
+    /// Python uses this to update the queue key after committing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    queueid: Option<i64>,
 }
 
 /// Extract the endpoint name from a full path+query string.
@@ -163,6 +288,7 @@ fn consolidate(items: Vec<QueueItem>) -> Vec<(PartitionedBatch, HashMap<String, 
                 latest_commit: key.latest_commit.clone(),
                 branch: key.branch.clone(),
                 requests: vec![req],
+                queueid: None,
             };
             groups.push((key, batch, item.headers));
         }
@@ -234,19 +360,17 @@ pub async fn run_worker(
             // Try to acquire a distributed lock so only one worker processes
             // this project's batch.
             let lock_key = format!("{}{}", lock_prefix, list_key);
-            let acquired: bool = match redis::cmd("SET")
-                .arg(&lock_key)
-                .arg("1")
-                .arg("NX")
-                .arg("EX")
-                .arg(30_u64) // lock TTL
-                .query_async(&mut conn)
-                .await
-            {
-                Ok(Some(redis::Value::Okay)) => true,
-                Ok(Some(_)) => true,
-                _ => false,
-            };
+            let acquired: bool = matches!(
+                redis::cmd("SET")
+                    .arg(&lock_key)
+                    .arg("1")
+                    .arg("NX")
+                    .arg("EX")
+                    .arg(config.proxy_timeout_secs)
+                    .query_async(&mut conn)
+                    .await,
+                Ok(Some(redis::Value::Okay)) | Ok(Some(_))
+            );
             if !acquired {
                 continue; // another worker is handling this batch
             }
@@ -297,7 +421,16 @@ pub async fn run_worker(
                 .map(|(_, pid)| pid)
                 .unwrap_or("");
 
-            for (batch, headers) in batches {
+            for (mut batch, headers) in batches {
+                // Read the current queueid from Redis so Python can update
+                // the queue key after committing.
+                let queue_key = format!("queue:{}:{}", project_id, batch.latest_commit);
+                if let Ok(Some(val)) = conn.get::<&str, Option<String>>(&queue_key).await {
+                    // Value is either "N" or "commit,N" — we want the integer part.
+                    let qid_str = val.rsplit(',').next().unwrap_or(&val);
+                    batch.queueid = qid_str.parse::<i64>().ok();
+                }
+
                 let url = format!(
                     "{}/batch_patch?auth_project={}",
                     backend_url,

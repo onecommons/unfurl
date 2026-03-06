@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use unfurl_server::config::Config;
-use unfurl_server::queue::{self, QueueItem};
+use unfurl_server::queue::{self, QueueIdResult, QueueItem};
 
 /// Return the Redis URL from the environment, or `None` to skip.
 fn redis_url() -> Option<String> {
@@ -36,6 +36,7 @@ fn test_config(prefix: &str, batch_window_secs: u64) -> Config {
         proxy_timeout_secs: 10,
         redis_timeout_secs: 5,
         package_digest: String::new(),
+        max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs,
     }
 }
@@ -518,4 +519,206 @@ async fn test_new_items_after_drain_start_fresh_window() {
 
     worker_handle.abort();
     cleanup_keys(&mut conn, prefix).await;
+}
+
+// ---------------------------------------------------------------------------
+// inc_queueid tests
+// ---------------------------------------------------------------------------
+
+/// Helper to clean up queue keys.
+async fn cleanup_queue_keys(conn: &mut redis::aio::MultiplexedConnection, project_id: &str) {
+    let pattern = format!("queue:{}:*", project_id);
+    let keys: Vec<String> = redis::cmd("KEYS")
+        .arg(&pattern)
+        .query_async(conn)
+        .await
+        .unwrap_or_default();
+    if !keys.is_empty() {
+        let mut cmd = redis::cmd("DEL");
+        for k in &keys {
+            cmd.arg(k);
+        }
+        let _: Result<i64, _> = cmd.query_async(conn).await;
+    }
+}
+
+#[tokio::test]
+async fn test_inc_queueid_first_patch() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "qid_first";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // First patch with queueid=0 should succeed and return 1.
+    let result = queue::inc_queueid(&mut conn, project, "abc123", 0)
+        .await
+        .unwrap();
+    assert_eq!(result, QueueIdResult::Ok { new_queueid: 1 });
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_inc_queueid_sequential_increments() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "qid_seq";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // First patch.
+    let r1 = queue::inc_queueid(&mut conn, project, "abc", 0)
+        .await
+        .unwrap();
+    assert_eq!(r1, QueueIdResult::Ok { new_queueid: 1 });
+
+    // Second patch with queueid=1 should return 2.
+    let r2 = queue::inc_queueid(&mut conn, project, "abc", 1)
+        .await
+        .unwrap();
+    assert_eq!(r2, QueueIdResult::Ok { new_queueid: 2 });
+
+    // Third patch with queueid=2 should return 3.
+    let r3 = queue::inc_queueid(&mut conn, project, "abc", 2)
+        .await
+        .unwrap();
+    assert_eq!(r3, QueueIdResult::Ok { new_queueid: 3 });
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_inc_queueid_stale_conflict() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "qid_stale";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // Create initial queue.
+    let _ = queue::inc_queueid(&mut conn, project, "abc", 0)
+        .await
+        .unwrap();
+    let _ = queue::inc_queueid(&mut conn, project, "abc", 1)
+        .await
+        .unwrap();
+
+    // Stale queueid=0 should conflict (current is 2, not 0).
+    let r = queue::inc_queueid(&mut conn, project, "abc", 0)
+        .await
+        .unwrap();
+    assert_eq!(r, QueueIdResult::Conflict);
+
+    // Stale queueid=1 should also conflict (current is 2, not 1).
+    let r = queue::inc_queueid(&mut conn, project, "abc", 1)
+        .await
+        .unwrap();
+    assert_eq!(r, QueueIdResult::Conflict);
+
+    // Correct queueid=2 should succeed and return 3.
+    let r = queue::inc_queueid(&mut conn, project, "abc", 2)
+        .await
+        .unwrap();
+    assert_eq!(r, QueueIdResult::Ok { new_queueid: 3 });
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_inc_queueid_missing_key_with_nonzero() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "qid_missing";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // queueid > 0 but no key exists → conflict.
+    let r = queue::inc_queueid(&mut conn, project, "abc", 1)
+        .await
+        .unwrap();
+    assert_eq!(r, QueueIdResult::Conflict);
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_inc_queueid_new_commit_redirect() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "qid_newcommit";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // Simulate: first patch queued.
+    let _ = queue::inc_queueid(&mut conn, project, "commit_a", 0)
+        .await
+        .unwrap();
+
+    // Simulate: batch_patch committed and stored "commit_b,1" in the key.
+    let queue_key = format!("queue:{}:commit_a", project);
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("commit_b,1")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // Next patch with queueid=1 should get redirected to commit_b.
+    let r = queue::inc_queueid(&mut conn, project, "commit_a", 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        r,
+        QueueIdResult::NewCommit {
+            new_commit: "commit_b".into(),
+            new_queueid: 1,
+        }
+    );
+
+    // Verify the new key was created.
+    let new_key = format!("queue:{}:commit_b", project);
+    let val: String = redis::cmd("GET")
+        .arg(&new_key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(val, "1");
+
+    cleanup_queue_keys(&mut conn, project).await;
 }

@@ -31,6 +31,7 @@ import shutil
 import subprocess
 import time
 import traceback
+import signal
 from typing import (
     Dict,
     Iterable,
@@ -233,6 +234,25 @@ def clear_all(cache, prefix) -> None:
             redis.delete(*keys)
     else:
         clear_cache(cache, "")
+
+
+def _update_queue_key(
+    project_id: str, latest_commit: str, new_commit: str, queueid: int
+) -> None:
+    """Update the Redis queue key after batch_patch commits.
+
+    Sets ``queue:{project_id}:{latest_commit}`` to ``"{new_commit},{queueid}"``
+    so subsequent ``inc_queueid`` calls redirect clients to the new commit.
+    """
+    cache = get_cache()
+    assert cache
+    queue_key = f"queue:{project_id}:{latest_commit}"
+    value = f"{new_commit},{queueid}"
+    try:
+        cache.set(queue_key, value)
+        logger.debug("updated queue key %s = %s", queue_key, value)
+    except Exception as exc:
+        logger.error("failed to update queue key %s: %s", queue_key, exc)
 
 
 def _set_local_projects(
@@ -2259,6 +2279,12 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
         err = _push_changes(repo, username, password, latest_commit)
         if err:
             return err
+    # Update the Redis queue key so subsequent inc_queueid calls
+    # redirect clients to the new commit.
+    batch_queueid = body.get("queueid")
+    if batch_queueid is not None and repo:
+        new_commit = repo.revision
+        _update_queue_key(project_id, latest_commit, new_commit, batch_queueid)
     return _patch_response(repo)
 
 
@@ -2906,9 +2932,7 @@ def _find_rust_server_bin() -> Optional[str]:
     return None
 
 
-def _start_proxy_server(
-    host: str, port: int, options: dict
-) -> Optional[subprocess.Popen[bytes]]:
+def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes]]:
     """Start the Rust unfurl-server binary if available and UNFURL_RUST_SERVER != '0'."""
     if os.environ.get("UNFURL_RUST_SERVER") == "0":
         return None
@@ -2969,6 +2993,23 @@ def _start_proxy_server(
             )
     # Attach the file handle so the caller can close it if needed.
     proc._log_fh = log_fh  # type: ignore[attr-defined]
+
+    # Ensure the Rust subprocess is reaped when this process receives SIGTERM
+    # (e.g. when the test runner calls p.terminate()).  Without this handler
+    # Python exits immediately on SIGTERM without running the finally block,
+    # leaving the Rust process as an orphan that holds onto the port.
+    _prev_sigterm = signal.getsignal(signal.SIGTERM)
+
+    def _sigterm_handler(signum: int, frame: object) -> None:
+        proc.terminate()  # type: ignore[union-attr]
+        try:
+            proc.wait(timeout=5)  # type: ignore[union-attr]
+        except subprocess.TimeoutExpired:
+            proc.kill()  # type: ignore[union-attr]
+        signal.signal(signal.SIGTERM, _prev_sigterm)
+        raise SystemExit(0)
+
+    signal.signal(signal.SIGTERM, _sigterm_handler)
     return proc
 
 
@@ -3049,27 +3090,8 @@ def serve(
     # Optionally start the Rust proxy server in front of waitress.
     rust_proc = None
     try:
-        import signal
-
-        rust_proc = _start_proxy_server(host, port, options)
-
-        if rust_proc:
-            # Ensure the Rust subprocess is reaped when this process receives SIGTERM
-            # (e.g. when the test runner calls p.terminate()).  Without this handler
-            # Python exits immediately on SIGTERM without running the finally block,
-            # leaving the Rust process as an orphan that holds onto the port.
-            _prev_sigterm = signal.getsignal(signal.SIGTERM)
-
-            def _sigterm_handler(signum: int, frame: object) -> None:
-                rust_proc.terminate()  # type: ignore[union-attr]
-                try:
-                    rust_proc.wait(timeout=5)  # type: ignore[union-attr]
-                except subprocess.TimeoutExpired:
-                    rust_proc.kill()  # type: ignore[union-attr]
-                signal.signal(signal.SIGTERM, _prev_sigterm)
-                raise SystemExit(0)
-
-            signal.signal(signal.SIGTERM, _sigterm_handler)
+        if app.config["CACHE_TYPE"] == "RedisCache":
+            rust_proc = _start_proxy_server(host, port)
 
         # Start single-threaded WSGI server
         waitress.serve(

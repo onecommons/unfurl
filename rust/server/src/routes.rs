@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use crate::cache;
 use crate::proxy;
-use crate::queue::{self, QueueItem};
+use crate::queue::{self, QueueIdResult, QueueItem};
 use crate::AppState;
 
 // ---------------------------------------------------------------------------
@@ -147,7 +147,13 @@ async fn handle_cached_get(
         tracing::info!("no Redis configured, skipping cache for: {}", key);
     }
     tracing::info!("cache miss, proxying to backend: {}", key);
-    proxy::forward(&state.client, &state.config.backend_url(), req).await
+    proxy::forward(
+        &state.client,
+        &state.config.backend_url(),
+        req,
+        state.config.max_body_bytes,
+    )
+    .await
 }
 
 /// GET /export -- try Redis cache first, fall back to proxying.
@@ -204,7 +210,8 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
         .collect();
 
     // Read body.
-    let body_bytes = match axum::body::to_bytes(req.into_body(), 10 * 1024 * 1024).await {
+    let body_bytes = match axum::body::to_bytes(req.into_body(), state.config.max_body_bytes).await
+    {
         Ok(b) => b,
         Err(e) => {
             tracing::error!("failed to read write request body: {}", e);
@@ -217,23 +224,83 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
     // Use the Redis queue only when Redis is available AND the request body
     // contains a non-null, non-empty "queueid" field.  When queueid is absent
     // the write request is proxied synchronously to the Python backend.
-    let has_queueid = body
+    let client_queueid = body
         .get("queueid")
         .and_then(|v| v.as_str())
-        .is_some_and(|s| !s.is_empty());
-    if has_queueid {
+        .filter(|s| !s.is_empty())
+        .and_then(|s| s.parse::<i64>().ok());
+    if let Some(queueid) = client_queueid {
         if let Some(ref redis) = state.redis {
-            let item = QueueItem {
-                endpoint: endpoint.clone(),
-                body,
-                headers: headers_map,
-            };
+            let latest_commit = body
+                .get("latest_commit")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+
+            // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
-            if let Err(e) = queue::enqueue(&mut conn, &state.config, &project_id, &item).await {
-                tracing::error!("failed to enqueue: {}", e);
-                return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+            let qid_result =
+                match queue::inc_queueid(&mut conn, &project_id, latest_commit, queueid).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        tracing::error!("inc_queueid Redis error: {}", e);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+                    }
+                };
+
+            match qid_result {
+                QueueIdResult::Conflict => {
+                    tracing::info!(
+                        "queueid conflict: project={} commit={} queueid={}",
+                        project_id,
+                        latest_commit,
+                        queueid
+                    );
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(json!({"error": "CONFLICT", "message": "stale queueid"})),
+                    )
+                        .into_response();
+                }
+                QueueIdResult::Ok { new_queueid } => {
+                    let mut updated_body = body;
+                    updated_body["queueid"] = serde_json::Value::String(new_queueid.to_string());
+                    let item = QueueItem {
+                        endpoint: endpoint.clone(),
+                        body: updated_body,
+                        headers: headers_map,
+                    };
+                    if let Err(e) =
+                        queue::enqueue(&mut conn, &state.config, &project_id, &item).await
+                    {
+                        tracing::error!("failed to enqueue: {}", e);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+                    }
+                    return Json(json!({"queueid": new_queueid})).into_response();
+                }
+                QueueIdResult::NewCommit {
+                    new_commit,
+                    new_queueid,
+                } => {
+                    // Update the body's latest_commit and queueid before enqueuing
+                    // so the worker sends the correct values to batch_patch.
+                    let mut updated_body = body;
+                    updated_body["latest_commit"] = serde_json::Value::String(new_commit.clone());
+                    updated_body["queueid"] = serde_json::Value::String(new_queueid.to_string());
+                    let item = QueueItem {
+                        endpoint: endpoint.clone(),
+                        body: updated_body,
+                        headers: headers_map,
+                    };
+                    if let Err(e) =
+                        queue::enqueue(&mut conn, &state.config, &project_id, &item).await
+                    {
+                        tracing::error!("failed to enqueue: {}", e);
+                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+                    }
+                    return Json(json!({"queueid": new_queueid, "commit": new_commit}))
+                        .into_response();
+                }
             }
-            return Json(json!({"queued": true})).into_response();
         }
     }
 
@@ -245,7 +312,13 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
         .uri(format!("{}{}", state.config.backend_url(), path_and_query))
         .body(Body::from(body_bytes))
         .unwrap();
-    proxy::forward(&state.client, &state.config.backend_url(), proxy_req).await
+    proxy::forward(
+        &state.client,
+        &state.config.backend_url(),
+        proxy_req,
+        state.config.max_body_bytes,
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -255,7 +328,13 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
 /// All other endpoints -- proxy transparently to Python.
 pub async fn handle_fallback(State(state): State<AppState>, req: Request) -> Response {
     tracing::info!("fallback handler: {} {}", req.method(), req.uri());
-    proxy::forward(&state.client, &state.config.backend_url(), req).await
+    proxy::forward(
+        &state.client,
+        &state.config.backend_url(),
+        req,
+        state.config.max_body_bytes,
+    )
+    .await
 }
 
 /// Helper: ensure path starts with `/`.

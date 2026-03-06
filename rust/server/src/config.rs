@@ -67,6 +67,11 @@ pub struct Config {
     #[arg(long, env = "UNFURL_PACKAGE_DIGEST", default_value = "")]
     pub package_digest: String,
 
+    /// Maximum request body size in bytes for proxied and write requests.
+    /// Default: 10 MiB (10485760 bytes).
+    #[arg(long, env = "UNFURL_MAX_BODY_BYTES", default_value_t = 10 * 1024 * 1024)]
+    pub max_body_bytes: usize,
+
     /// Batch window in seconds for consolidating PATCH requests to the same
     /// project.  Items enqueued within this window are merged before being
     /// forwarded to the backend.  0 disables batching (each item is forwarded
@@ -166,6 +171,7 @@ mod tests {
             proxy_timeout_secs: 120,
             redis_timeout_secs: 5,
             package_digest: String::new(),
+            max_body_bytes: 10 * 1024 * 1024,
             batch_window_secs: 5,
         }
     }

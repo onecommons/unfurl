@@ -2445,6 +2445,7 @@ dependencies = [
  "chrono",
  "clap",
  "http",
+ "once_cell",
  "openapiv3",
  "prettyplease",
  "progenitor",

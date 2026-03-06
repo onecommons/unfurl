@@ -457,25 +457,30 @@ def _dump_server_logs(p, label=""):
                 print(f"=== end {name} server log ===\n")
 
 
-def _post_write(url, json_body, server_env):
+def _post_write(url, json_body, server_env, queueid=0):
     """POST a write request, adding queueid for queue-rust variant."""
     if server_env == "queue-rust":
-        json_body = {**json_body, "queueid": "0"}
+        json_body = {**json_body, "queueid": str(queueid)}
     return requests.post(url, json=json_body)
 
 
 def _assert_commit(res, last_commit, server_env):
-    """Assert the POST response has a new commit, or 'queued' for queue-rust.
+    """Assert the POST response has a new commit, or a queueid for queue-rust.
 
-    Returns the new commit hash, or None for queue-rust (caller must sleep).
+    Returns (new_commit, new_queueid) for queue-rust,
+    or (new_commit, None) for other variants.
     """
     assert res.status_code == 200, res.json()
+    data = res.json()
     if server_env == "queue-rust":
-        assert res.json().get("queued"), f"expected 'queued' in response: {res.json()}"
-        return None
-    new_commit = res.json()["commit"]
+        new_queueid = data.get("queueid")
+        assert new_queueid is not None, f"expected 'queueid' in response: {data}"
+        # The response may include a new latest_commit if batch_patch produced one.
+        new_commit = data.get("commit")
+        return new_commit, new_queueid
+    new_commit = data["commit"]
     assert new_commit and new_commit != last_commit
-    return new_commit
+    return new_commit, None
 
 
 def _wait_for_queue(server_env):
@@ -1007,8 +1012,6 @@ def test_populate_cache(runner: Process):
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize("server_env", server_env)
 def test_server_update_deployment(server_env):
-    if server_env == "queue-rust":
-        pytest.skip("test_server_update_deployment not yet supported with queue-rust")
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
@@ -1022,15 +1025,23 @@ def test_server_update_deployment(server_env):
             )
 
             target_patch = patch.format("target")
-            res = requests.post(
+            queueid = 0
+            res = _post_write(
                 f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
-                json={"patch": json.loads(target_patch), "latest_commit": last_commit},
+                {"patch": json.loads(target_patch), "latest_commit": last_commit},
+                server_env,
+                queueid=queueid,
             )
-            assert res.status_code == 200
-            new_commit = res.json()["commit"]
-            assert last_commit != new_commit
-            last_commit = new_commit
-            # os.system("git --git-dir server/public/remote/main/.git log -p")
+            new_commit, queueid = _assert_commit(res, last_commit, server_env)
+            # For queue-rust, new_commit may be None (only queueid returned).
+            if new_commit:
+                last_commit = new_commit
+
+            _wait_for_queue(server_env)
+
+            # After queue drains, get the actual commit from the bare repo.
+            if server_env == "queue-rust":
+                last_commit = _get_latest_commit()
 
             res = requests.get(
                 f"http://{HOST}:{port}/export",
@@ -1051,7 +1062,7 @@ def test_server_update_deployment(server_env):
             os.chdir("remote")
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
-            os.system("git pull ../remote.git")
+            assert not os.waitstatus_to_exitcode(os.system("git pull ../remote.git"))
 
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
@@ -1069,7 +1080,8 @@ def test_server_update_deployment(server_env):
             # test that the server recovers from a bad repo before trying to patch
             # by creating a conflict between the server's local repo and the remote repo
             commit_foo("bar")
-            os.system("git push ../remote.git")  # push to remote.git
+            # push to remote.git
+            assert not os.waitstatus_to_exitcode(os.system("git push ../remote.git"))
             client_repo = GitRepo(Repo.init("."))
             last_commit = client_repo.revision
 
@@ -1078,21 +1090,29 @@ def test_server_update_deployment(server_env):
             os.chdir("../../../remote")
 
             # test deleting
-
-            res = requests.post(
+            # For queue-rust, reset queueid since last_commit changed (new key).
+            queueid = 0
+            res = _post_write(
                 f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
-                json={
+                {
                     "patch": json.loads(delete_patch),
                     "latest_commit": last_commit,
                 },
+                server_env,
+                queueid=queueid,
             )
-            assert res.status_code == 200
-            last_commit = res.json()["commit"]
-            assert last_commit
+            new_commit, queueid = _assert_commit(res, last_commit, server_env)
+            if new_commit:
+                last_commit = new_commit
+
+            _wait_for_queue(server_env)
+
+            if server_env == "queue-rust":
+                last_commit = _get_latest_commit("../remote.git")
 
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
-            os.system("git pull  ../remote.git")
+            assert not os.waitstatus_to_exitcode(os.system("git pull  ../remote.git"))
             with open("ensemble/ensemble.yaml", "r") as f:
                 data = yaml.load(f.read())
                 assert not data["spec"]["service_template"]["topology_template"][
@@ -1117,9 +1137,11 @@ def test_server_update_deployment(server_env):
                     "__typename": "DeploymentEnvironment",
                 }
             ]
-            res = requests.post(
+            # For queue-rust, reset queueid since last_commit changed again.
+            queueid = 0
+            res = _post_write(
                 f"http://{HOST}:{port}/create_provider?auth_project=remote",
-                json={
+                {
                     "environment": "gcp",
                     "deployment_blueprint": None,
                     "deployment_path": "environments/gcp/primary_provider",
@@ -1127,11 +1149,18 @@ def test_server_update_deployment(server_env):
                     "commit_msg": "Create environment gcp",
                     "latest_commit": last_commit,
                 },
+                server_env,
+                queueid=queueid,
             )
-            assert res.status_code == 200
-            assert res.content.startswith(b'{"commit":')
+            new_commit, queueid = _assert_commit(res, last_commit, server_env)
+            if new_commit:
+                last_commit = new_commit
 
-            assert not os.system("git pull --commit --no-edit origin main")
+            _wait_for_queue(server_env)
+
+            assert not os.waitstatus_to_exitcode(
+                os.system("git pull --commit --no-edit origin main")
+            )
             with open("unfurl.yaml", "r") as f:
                 data = yaml.load(f.read())
                 # check that the environment was added and an ensemble was created
@@ -1264,7 +1293,7 @@ def test_update_environment(server_env):
                 {"patch": env_patch, "latest_commit": last_commit},
                 server_env,
             )
-            new_commit = _assert_commit(res, last_commit, server_env)
+            new_commit, _ = _assert_commit(res, last_commit, server_env)
             _wait_for_queue(server_env)
 
             os.chdir("remote")
@@ -1298,15 +1327,19 @@ def test_delete_environment(server_env):
             )
 
             # First create the environment
+            queueid = 0
             env_patch = [{"name": "staging", "__typename": "DeploymentEnvironment"}]
             res = _post_write(
                 f"http://{HOST}:{port}/update_environment?auth_project=remote",
                 {"patch": env_patch, "latest_commit": last_commit},
                 server_env,
+                queueid=queueid,
             )
-            new_commit = _assert_commit(res, last_commit, server_env)
+            new_commit, new_queueid = _assert_commit(res, last_commit, server_env)
             if new_commit:
                 last_commit = new_commit
+            if new_queueid is not None:
+                queueid = new_queueid
 
             # Now delete it
             del_patch = [
@@ -1316,6 +1349,7 @@ def test_delete_environment(server_env):
                 f"http://{HOST}:{port}/delete_environment?auth_project=remote",
                 {"patch": del_patch, "latest_commit": last_commit},
                 server_env,
+                queueid=queueid,
             )
             _assert_commit(res, last_commit, server_env)
             _wait_for_queue(server_env)
@@ -1357,6 +1391,7 @@ def test_delete_deployment(server_env):
             )
 
             # Create a provider so there is a registered deployment path to delete
+            queueid = 0
             provider_patch = [{"name": "gcp", "__typename": "DeploymentEnvironment"}]
             res = _post_write(
                 f"http://{HOST}:{port}/create_provider?auth_project=remote",
@@ -1367,10 +1402,13 @@ def test_delete_deployment(server_env):
                     "latest_commit": last_commit,
                 },
                 server_env,
+                queueid=queueid,
             )
-            new_commit = _assert_commit(res, last_commit, server_env)
+            new_commit, new_queueid = _assert_commit(res, last_commit, server_env)
             if new_commit:
                 last_commit = new_commit
+            if new_queueid is not None:
+                queueid = new_queueid
 
             # Remove the ensemble registration via /delete_deployment
             del_patch = [
@@ -1384,6 +1422,7 @@ def test_delete_deployment(server_env):
                 f"http://{HOST}:{port}/delete_deployment?auth_project=remote",
                 {"patch": del_patch, "latest_commit": last_commit},
                 server_env,
+                queueid=queueid,
             )
             _assert_commit(res, last_commit, server_env)
             _wait_for_queue(server_env)
@@ -1436,8 +1475,10 @@ def test_create_ensemble(server_env):
                     "latest_commit": last_commit,
                 },
                 server_env,
+                queueid=0,
             )
             _assert_commit(res, last_commit, server_env)
+            # result unused; single write doesn't need chaining
             _wait_for_queue(server_env)
 
             os.chdir("remote")
