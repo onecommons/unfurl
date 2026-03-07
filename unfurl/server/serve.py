@@ -144,7 +144,7 @@ def configure_app(app: APIFlask = app) -> Cache:
     if flask_config["CACHE_TYPE"] == "RedisCache":
         if "CACHE_REDIS_URL" in os.environ:
             flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
-        else:
+        elif "CACHE_REDIS_HOST" in os.environ:
             flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get(
                 "CACHE_REDIS_PASSWORD"
             )
@@ -153,6 +153,10 @@ def configure_app(app: APIFlask = app) -> Cache:
                 os.environ.get("CACHE_REDIS_PORT") or 6379
             )
             flask_config["CACHE_REDIS_DB"] = int(os.environ.get("CACHE_REDIS_DB") or 0)
+        else:
+            raise UnfurlError(
+                "CACHE_REDIS_URL or CACHE_REDIS_HOST environment variable must be set for RedisCache"
+            )
     app.config.from_mapping(flask_config)
     cache = Cache(app)
     logger.verbose("created cache %s", flask_config["CACHE_TYPE"])
@@ -1735,7 +1739,7 @@ def _make_readonly_localenv(
         # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
         if app.config.get("UNFURL_CURRENT_WORKING_DIR", clone_root) != clone_root:
             home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR")
-        else:
+        else:  # when invoked from the command line UNFURL_OPTIONS are set to the cli options
             home_dir = current_app.config["UNFURL_OPTIONS"].get("home")
         local_env = LocalEnv(
             clone_location,

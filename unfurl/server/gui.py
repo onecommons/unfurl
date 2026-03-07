@@ -102,14 +102,14 @@ def serve_document(
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
+    parsed = None
+    user = ""
+    origin = ""
     if localrepo_is_dashboard and localrepo.url:
         parsed = urlparse(normalize_git_url(localrepo.url))
-        [user, _, *_] = re.split(r"[@:]", parsed.netloc)
+        if parsed.netloc:  # skip file: urls
+            [user, _, *_] = re.split(r"[@:]", parsed.netloc)
         origin = f"{parsed.scheme}://{parsed.hostname}"
-    else:
-        parsed = None
-        user = ""
-        origin = None
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
     projectPath = server_fragment[0].lstrip("/")
@@ -158,6 +158,7 @@ def _get_project_path(repo: Repo):
 
 
 def proxy_webpack(url):
+    logger.trace(f"Proxying request to webpack dev server: {url}")
     res = requests.request(  # ref. https://stackoverflow.com/a/36601467/248616
         method=request.method,
         url=url,
@@ -287,11 +288,16 @@ def create_routes(localenv: LocalEnv):
         "UNFURL_GUI_WEBPACK_ORIGIN"
     )
     if development_mode:
-        ufgui_dir = os.getenv("UNFURL_GUI_DIR", ".")
-        logger.info(
-            "Development mode detected, not downloading compiled assets, using %s instead.",
-            ufgui_dir,
-        )
+        ufgui_dir = os.getenv("UNFURL_GUI_DIR")
+        if not ufgui_dir:
+            raise UnfurlError(
+                "UNFURL_GUI_DIR must be set if UNFURL_GUI_WEBPACK_ORIGIN is set."
+            )
+        else:
+            logger.info(
+                "Development mode detected, not downloading compiled assets, using %s instead.",
+                ufgui_dir,
+            )
         # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
         webpack_origin = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN", "")
         dist_dir = os.path.join(ufgui_dir, "dist")
