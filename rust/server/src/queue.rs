@@ -313,7 +313,7 @@ pub async fn run_worker(
     let ready_key = config.batch_ready_set_key();
     let lock_prefix = config.batch_lock_prefix();
 
-    tracing::info!(
+    tracing::debug!(
         "batch worker started (window={}s, ready_set={})",
         config.batch_window_secs,
         ready_key,
@@ -400,7 +400,7 @@ pub async fn run_worker(
                 continue;
             }
 
-            tracing::info!("draining {} items from batch {}", raw_items.len(), list_key);
+            tracing::debug!("draining {} items from batch {}", raw_items.len(), list_key);
 
             let items: Vec<QueueItem> = raw_items
                 .iter()
@@ -436,7 +436,7 @@ pub async fn run_worker(
                     backend_url,
                     urlencoding::encode(project_id)
                 );
-                tracing::info!(
+                tracing::debug!(
                     "forwarding batch to {} (requests={})",
                     url,
                     batch.requests.len()

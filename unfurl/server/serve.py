@@ -2266,12 +2266,16 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
             "delete_environment",
             "delete_deployment",
         ):
-            result = _patch_environment(req_body, project_id, batched=True)
+            result = _patch_environment(req_body, project_id, batched=readonly_localEnv)
             if isinstance(result, tuple):
                 return result  # error response
         if create or endpoint == "update_ensemble":
             result = _patch_ensemble(
-                req_body, create, project_id, check_lastcommit=False, batched=True
+                req_body,
+                create,
+                project_id,
+                check_lastcommit=False,
+                batched=readonly_localEnv,
             )
             if isinstance(result, tuple):
                 return result  # error response
@@ -2379,25 +2383,27 @@ def _apply_environment_patch(
 
 
 def _patch_environment(
-    body: dict, project_id: str, batched=False
+    body: dict, project_id: str, batched: Optional[LocalEnv] = None
 ) -> ResponseReturnValue:
     patch = body.get("patch")
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)
-    err, readonly_localEnv = _localenv_from_cache_checked(
-        assert_not_none(get_cache()),
-        project_id,
-        branch,
-        "",
-        latest_commit,
-        body,
-        check_lastcommit=not batched,
-    )
-    if err:
-        return err
+    if batched:
+        readonly_localEnv: Optional[LocalEnv] = batched
+    else:
+        err, readonly_localEnv = _localenv_from_cache_checked(
+            assert_not_none(get_cache()),
+            project_id,
+            branch,
+            "",
+            latest_commit,
+            body,
+        )
+        if err:
+            return err
     assert readonly_localEnv and readonly_localEnv.project
-    if not batched:
+    if batched is None:  # XXX
         invalidate_cache(body, "environments", project_id)
     # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
     home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
@@ -2434,7 +2440,7 @@ def _patch_environment(
                 username,
                 password,
                 starting_revision,
-                batched,
+                bool(batched),
             )
             if err:
                 return err  # err will be an error response
@@ -2534,7 +2540,7 @@ def _patch_ensemble(
     create: bool,
     project_id: str,
     check_lastcommit: bool = True,
-    batched: bool = False,
+    batched: Optional[LocalEnv] = None,
 ) -> ResponseReturnValue:
     from .cache import ServerCacheResolver
 
@@ -2566,20 +2572,23 @@ def _patch_ensemble(
         return create_error_response("UNAUTHORIZED", "Missing credentials")
 
     latest_commit = body.get("latest_commit") or ""
-    err, parent_localenv = _localenv_from_cache_checked(
-        assert_not_none(get_cache()),
-        project_id,
-        branch,
-        "",
-        latest_commit,
-        body,
-        check_lastcommit,
-    )
-    if err:
-        if existing_repo:
-            existing_repo.repo.__del__()
-            gc.collect()
-        return err
+    if batched:
+        parent_localenv: Optional[LocalEnv] = batched
+    else:
+        err, parent_localenv = _localenv_from_cache_checked(
+            assert_not_none(get_cache()),
+            project_id,
+            branch,
+            "",
+            latest_commit,
+            body,
+            check_lastcommit,
+        )
+        if err:
+            if existing_repo:
+                existing_repo.repo.__del__()
+                gc.collect()
+            return err
     assert (
         parent_localenv
         and parent_localenv.project
@@ -2589,7 +2598,7 @@ def _patch_ensemble(
         parent_localenv.project.project_repoview.repo.working_dir, deployment_path
     )
 
-    if not batched:
+    if batched is None:  # XXX
         invalidate_cache(body, "deployment", project_id)
     if existing_repo:
         was_dirty = existing_repo.is_dirty()
@@ -2937,7 +2946,7 @@ def _find_rust_server_bin() -> Optional[str]:
 
 
 def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes]]:
-    """Start the Rust unfurl-server binary if available and UNFURL_RUST_SERVER != '0'."""
+    """Start the unfurl-server binary if available and UNFURL_RUST_SERVER != '0'."""
     if os.environ.get("UNFURL_RUST_SERVER") == "0":
         return None
 
@@ -2955,19 +2964,19 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     env.setdefault("UNFURL_PACKAGE_DIGEST", get_package_digest())
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
     if "RUST_LOG" not in env:
-        _level_map = {
-            "debug": "debug",
-            "verbose": "debug",
-            "info": "info",
-            "warning": "warn",
-            "warn": "warn",
-            "error": "error",
-            "critical": "error",
-        }
-        unfurl_level = env.get("UNFURL_LOGGING", "info").lower()
-        env["RUST_LOG"] = _level_map.get(unfurl_level, "info")
+        level = get_console_log_level()
+        if level == Levels.TRACE:
+            env["RUST_LOG"] = "trace"
+        elif level < Levels.INFO:
+            env["RUST_LOG"] = "debug"
+        elif level >= Levels.ERROR:
+            env["RUST_LOG"] = "error"
+        elif level == Levels.WARNING:
+            env["RUST_LOG"] = "warn"
+        else:
+            env["RUST_LOG"] = "info"
     logger.info(
-        "Starting Rust unfurl-server on %s:%d (backend port: %d)",
+        "Starting unfurl-server on %s:%d (backend port: %d)",
         host,
         port,
         backend_port,
@@ -2976,24 +2985,27 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     stderr_target = None
     log_fh = None
     if log_file_path:
-        logger.debug("Redirecting Rust server stderr to %s", log_file_path)
+        logger.debug("Redirecting unfurl-server stderr to %s", log_file_path)
         log_fh = open(log_file_path, "ab")
         stderr_target = log_fh
     else:
-        logger.debug("UNFURL_LOGFILE not set, Rust logs go to stderr")
+        logger.debug("UNFURL_LOGFILE not set, unfurl-server logs go to stderr")
     logger.debug(
         "stderr_target=%r, log_fh=%r, log_file_path=%r",
         stderr_target,
         log_fh,
         log_file_path,
     )
+    logger.debug("unfurl-server binary: %s", bin_path)
     proc = subprocess.Popen([bin_path], env=env, stderr=stderr_target)
     if log_fh:
         time.sleep(0.5)
         log_fh.flush()
         if log_file_path:
             logger.debug(
-                "Log file size after Popen: %d", os.path.getsize(log_file_path)
+                "Log file size after Popen: %d (pid=%d)",
+                os.path.getsize(log_file_path),
+                proc.pid,
             )
     # Attach the file handle so the caller can close it if needed.
     proc._log_fh = log_fh  # type: ignore[attr-defined]

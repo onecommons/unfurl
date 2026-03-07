@@ -128,11 +128,11 @@ async fn handle_cached_get(
                 .get(header::IF_NONE_MATCH)
                 .and_then(|v| v.to_str().ok());
             if if_none_match == Some(etag.as_str()) {
-                tracing::info!("cache hit etag match: {}", key);
+                tracing::info!("cache hit, etag matched: {}", key);
                 return StatusCode::NOT_MODIFIED.into_response();
             }
             tracing::info!(
-                "cache hit etag mismatch: {} if_none_match={:?} computed_etag={}",
+                "cache hit {} if_none_match={:?} setting etag={}",
                 key,
                 if_none_match,
                 etag
@@ -143,10 +143,10 @@ async fn handle_cached_get(
             }
             return response;
         }
+        tracing::info!("cache miss, proxying to backend: {}", key);
     } else {
-        tracing::info!("no Redis configured, skipping cache for: {}", key);
+        tracing::debug!("no Redis configured, skipping cache for: {}", key);
     }
-    tracing::info!("cache miss, proxying to backend: {}", key);
     proxy::forward(
         &state.client,
         &state.config.backend_url(),
@@ -161,7 +161,6 @@ pub async fn handle_export(State(state): State<AppState>, req: Request) -> Respo
     let params = parse_query(req.uri());
     let latest_commit = params.get("latest_commit").cloned();
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
-    tracing::info!("handle_export: key={} redis={}", key, state.redis.is_some());
     handle_cached_get(state, req, key, latest_commit).await
 }
 
@@ -327,7 +326,7 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
 
 /// All other endpoints -- proxy transparently to Python.
 pub async fn handle_fallback(State(state): State<AppState>, req: Request) -> Response {
-    tracing::info!("fallback handler: {} {}", req.method(), req.uri());
+    tracing::trace!("fallback handler: {} {}", req.method(), req.uri());
     proxy::forward(
         &state.client,
         &state.config.backend_url(),

@@ -65,7 +65,7 @@ pub async fn forward(
     match builder.send().await {
         Ok(resp) => {
             let status = resp.status();
-            tracing::info!(
+            tracing::debug!(
                 "proxy {} {} -> backend status {}",
                 method,
                 target_str,
@@ -80,12 +80,30 @@ pub async fn forward(
     }
 }
 
+/// RFC 2616 / RFC 7230 hop-by-hop headers that must not be forwarded by a proxy.
+fn is_hop_by_hop(name: &str) -> bool {
+    matches!(
+        name,
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailers"
+            | "transfer-encoding"
+            | "upgrade"
+    )
+}
+
 /// Convert a reqwest::Response into an axum Response.
 async fn convert_response(resp: reqwest::Response) -> Response {
     let status =
         StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     let mut headers = HeaderMap::new();
     for (name, value) in resp.headers().iter() {
+        if is_hop_by_hop(name.as_str()) {
+            continue;
+        }
         if let Ok(v) = HeaderValue::from_bytes(value.as_bytes()) {
             headers.insert(name.clone(), v);
         }

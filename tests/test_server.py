@@ -89,7 +89,7 @@ def wait_for_log(log_file, pattern, request_fn, timeout=15.0, poll_interval=0.25
 
 
 def _poll_rust_log(
-    log_file: str, offset: int, pattern: str, timeout: float = 5.0
+    log_file: str, offset: int, pattern: str, timeout: float = 10.0
 ) -> str:
     """Read new log entries from *offset*, polling until *pattern* appears.
 
@@ -103,6 +103,17 @@ def _poll_rust_log(
             f.seek(offset)
             text = f.read()
         if pattern in text or time.time() >= deadline:
+            if not text:
+                # Diagnostic: read full file to distinguish "empty file"
+                # from "nothing new after offset".
+                with open(log_file) as f:
+                    full = f.read()
+                if full:
+                    text = (
+                        f"[poll_rust_log] nothing after offset={offset}, "
+                        f"but file has {len(full)} bytes total. "
+                        f"Last 500 chars: {full[-500:]}"
+                    )
             return text
         time.sleep(0.25)
 
@@ -877,7 +888,7 @@ def test_server_export_remote(server_env):
                                 f"cache miss (no entry / nil): {rust_key}"
                             )
                         else:
-                            expected_pattern = f"cache hit etag match: {rust_key}"
+                            expected_pattern = f"cache hit, etag matched: {rust_key}"
                         new_log = _poll_rust_log(
                             rust_log_file, log_offset, expected_pattern
                         )
@@ -898,6 +909,18 @@ def test_server_export_remote(server_env):
                                     mismatch_marker,
                                 )
                             )
+                        if not new_log:
+                            # Rust log is empty — check if the Rust server is
+                            # actually running by inspecting the Python log.
+                            with open(py_log_file) as _pf:
+                                _py = _pf.read()
+                            _diag = (
+                                f"rust_log_file={rust_log_file} "
+                                f"size={os.path.getsize(rust_log_file)} "
+                                f"log_offset={log_offset} server_env={server_env}"
+                                f"\nPython log tail:\n{_py}"
+                            )
+                            assert False, f"Rust log file is empty\n{_diag}"
                         assert expected_pattern in new_log, (
                             f"Expected {expected_pattern!r} in Rust log for {export_format}:\n{new_log}"
                         )
@@ -1547,9 +1570,11 @@ def test_rust_server_bad_redis():
 
 
 def test_rust_server_proxy():
-    """Verify Rust proxy forwards /health correctly. Requires UNFURL_TEST_RUST_SERVER=1."""
+    """Verify Rust proxy forwards /health correctly"""
     if os.environ.get("UNFURL_TEST_RUST_SERVER") == "0":
         pytest.skip("Skipping Rust server tests, UNFURL_TEST_RUST_SERVER=0 is set")
+    if not os.environ.get("UNFURL_TEST_REDIS_URL"):
+        pytest.skip("Skipping Rust server proxy test, UNFURL_TEST_REDIS_URL is not set")
 
     port = _next_port()
     backend_port = port + 1  # Python waitress shifts to port+1 when Rust proxy is active

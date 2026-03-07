@@ -80,7 +80,7 @@ jobs:
           git config --global protocol.file.allow always
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
-          if [[ "$PY_V" == "py311" ]]; then
+          if [[ "$PY_V" == "py314" ]]; then
             tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-report term --cov-append
           else
             tox -e $PY_V -v -- -vv -n auto --dist loadfile
@@ -92,7 +92,7 @@ jobs:
           cargo clippy --manifest-path rust/Cargo.toml
           cargo test --no-default-features --manifest-path rust/Cargo.toml
       - name: upload code coverage report
-        if: matrix.python == 3.11
+        if: matrix.python == 3.14
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage_report_py${{ matrix.python }}

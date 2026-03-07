@@ -34,14 +34,28 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // Initialise tracing.  Write to stderr so that Python can redirect it to a
-    // log file via subprocess.Popen(stderr=...) without mixing with app output.
-    tracing_subscriber::fmt()
-        .with_writer(std::io::stderr)
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    // Initialise tracing.  If UNFURL_LOGFILE is set, write directly to that
+    // file (line-buffered) so readers can see output immediately.  Otherwise
+    // write to stderr so Python can redirect it via subprocess.Popen(stderr=…).
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    if let Ok(log_path) = std::env::var("UNFURL_LOGFILE") {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_path)
+            .unwrap_or_else(|e| panic!("cannot open UNFURL_LOGFILE {log_path:?}: {e}"));
+        tracing_subscriber::fmt()
+            .with_writer(std::sync::Mutex::new(std::io::LineWriter::new(file)))
+            .with_env_filter(env_filter)
+            .with_ansi(false)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_writer(std::io::stderr)
+            .with_env_filter(env_filter)
+            .init();
+    };
 
     let config = Config::parse();
     tracing::info!(
@@ -107,7 +121,7 @@ async fn main() {
                     tokio::spawn(async move {
                         queue::run_worker(worker_conn, worker_config, backend, http_client).await;
                     });
-                    tracing::info!("batch worker started");
+                    tracing::debug!("batch worker started");
                 }
                 Err(e) => {
                     tracing::error!("Redis worker connection failed: {}", e);
