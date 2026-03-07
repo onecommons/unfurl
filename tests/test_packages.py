@@ -1,3 +1,4 @@
+import json
 import os
 import traceback
 from click.testing import CliRunner
@@ -8,6 +9,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.packages import (
     PackageSpec,
     Package,
+    ProxiedRepo,
     get_package_id_from_url,
     get_package_from_url,
     reverse_rules_for_canonical,
@@ -296,6 +298,164 @@ def test_unfurl_dependencies():
     with pytest.raises(UnfurlError) as err:
         YamlManifest(ENSEMBLE_UNFURL_FUTURE)  # fails
     assert "was specified but the running version is" in str(err)
+
+
+_SAMPLE_INFO = {
+    "Version": "v1.0.0",
+    "Time": "2024-01-12T16:15:59Z",
+    "Origin": {
+        "VCS": "git",
+        "URL": "https://unfurl.cloud/onecommons/blueprints/baserow.git",
+        "Hash": "f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030",
+        "Ref": "refs/tags/v1.0.0",
+    },
+}
+
+
+@pytest.fixture
+def proxied_repo(tmp_path):
+    """Create a ProxiedRepo with sample metadata and a dummy file."""
+    proxied_dir = tmp_path / ".proxied"
+    proxied_dir.mkdir()
+    (proxied_dir / "info.json").write_text(json.dumps(_SAMPLE_INFO))
+    (tmp_path / "dummy.txt").write_text("hello")
+    return ProxiedRepo(str(tmp_path))
+
+
+def test_proxied_repo_properties(proxied_repo):
+    assert os.path.isdir(proxied_repo.working_dir)
+    assert proxied_repo.revision == "f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030"
+    assert proxied_repo.current_tag == "v1.0.0"
+    assert proxied_repo.url == "https://unfurl.cloud/onecommons/blueprints/baserow.git"
+
+
+def test_proxied_repo_resolve_rev_spec(proxied_repo):
+    full_hash = "f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030"
+    # Exact hash
+    assert proxied_repo.resolve_rev_spec(full_hash) == full_hash
+    # Tag
+    assert proxied_repo.resolve_rev_spec("v1.0.0") == full_hash
+    # Hash prefix (7+ chars)
+    assert proxied_repo.resolve_rev_spec("f3d902a") == full_hash
+    # Non-match
+    assert proxied_repo.resolve_rev_spec("v2.0.0") is None
+    assert proxied_repo.resolve_rev_spec("abc") is None
+
+
+def test_proxied_repo_find_remote_url(proxied_repo):
+    origin = "https://unfurl.cloud/onecommons/blueprints/baserow.git"
+    # No filter
+    assert proxied_repo.find_remote_url() == origin
+    # URL match
+    assert proxied_repo.find_remote_url(url="unfurl.cloud") == origin
+    # URL mismatch
+    assert proxied_repo.find_remote_url(url="github.com") is None
+    # Host match
+    assert proxied_repo.find_remote_url(host="unfurl.cloud") == origin
+    # Host mismatch
+    assert proxied_repo.find_remote_url(host="github.com") is None
+
+
+def test_proxied_repo_clone(proxied_repo, tmp_path):
+    clone_path = str(tmp_path / "clone")
+    cloned = proxied_repo.clone(clone_path)
+    assert isinstance(cloned, ProxiedRepo)
+    assert cloned.working_dir == clone_path
+    assert cloned.revision == proxied_repo.revision
+    assert cloned.current_tag == proxied_repo.current_tag
+    assert os.path.exists(os.path.join(clone_path, "dummy.txt"))
+
+
+def test_proxied_repo_missing_info(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        ProxiedRepo(str(tmp_path))
+
+
+def test_get_proxy_url():
+    url = ProxiedRepo.get_proxy_url("https://unfurl.cloud/onecommons/blueprints/baserow.git")
+    assert url == "https://proxy.golang.org/unfurl.cloud/onecommons/blueprints/baserow/"
+
+    # Custom GOPROXY
+    old = os.environ.get("GOPROXY")
+    try:
+        os.environ["GOPROXY"] = "https://custom.proxy/"
+        url = ProxiedRepo.get_proxy_url("https://unfurl.cloud/onecommons/blueprints/baserow.git")
+        assert url == "https://custom.proxy/unfurl.cloud/onecommons/blueprints/baserow/"
+
+        # GOPROXY=direct
+        os.environ["GOPROXY"] = "direct"
+        assert ProxiedRepo.get_proxy_url("https://unfurl.cloud/onecommons/blueprints/baserow.git") is None
+    finally:
+        if old is None:
+            os.environ.pop("GOPROXY", None)
+        else:
+            os.environ["GOPROXY"] = old
+
+    # Invalid URL (relative path)
+    assert ProxiedRepo.get_proxy_url("./local/path") is None
+
+
+def test_proxied_repo_create_repo(tmp_path):
+    """Integration test: download a real package from Go proxy."""
+    working_dir = str(tmp_path / "baserow")
+    repo = ProxiedRepo.create_repo(
+        "https://unfurl.cloud/onecommons/blueprints/baserow.git",
+        "v1.0.0",
+        working_dir,
+    )
+    assert repo is not None
+    assert isinstance(repo, ProxiedRepo)
+    assert repo.url == "https://unfurl.cloud/onecommons/blueprints/baserow.git"
+    assert repo.current_tag == "v1.0.0"
+    assert repo.revision  # should be a git hash
+    # Verify files were extracted
+    assert os.path.exists(os.path.join(working_dir, ".proxied", "info.json"))
+    # The baserow blueprint should have at least one file
+    extracted = [
+        f for f in os.listdir(working_dir) if f != ".proxied"
+    ]
+    assert len(extracted) > 0, "Expected extracted files from zip"
+
+
+def test_proxied_repo_create_repo_failure(tmp_path):
+    """Nonexistent package should return None."""
+    working_dir = str(tmp_path / "nonexistent")
+    repo = ProxiedRepo.create_repo(
+        "https://unfurl.cloud/onecommons/blueprints/this-does-not-exist.git",
+        "v99.99.99",
+        working_dir,
+    )
+    assert repo is None
+
+
+def test_proxied_repo_convert_to_git(tmp_path):
+    """Integration test: create a proxied repo then convert it to a real git repo."""
+    working_dir = str(tmp_path / "baserow")
+    proxied = ProxiedRepo.create_repo(
+        "https://unfurl.cloud/onecommons/blueprints/baserow.git",
+        "v1.0.0",
+        working_dir,
+    )
+    assert proxied is not None
+    original_revision = proxied.revision
+    original_files = sorted(f for f in os.listdir(working_dir) if f != ".proxied")
+
+    repo_view = proxied.convert_to_git()
+
+    # .proxied directory should be gone
+    assert not os.path.exists(os.path.join(working_dir, ".proxied"))
+    # .git directory should exist
+    assert os.path.isdir(os.path.join(working_dir, ".git"))
+    # Original files should still be present
+    current_files = sorted(f for f in os.listdir(working_dir) if f not in (".git",))
+    assert current_files == original_files
+    # RepoView should have the correct url and revision
+    assert "unfurl.cloud" in repo_view.url
+    git_repo = repo_view.repo
+    assert git_repo is not None
+    assert git_repo.revision == original_revision
+    # Working tree should be clean (no modifications)
+    assert not git_repo.repo.is_dirty()
 
 
 if __name__ == "__main__":

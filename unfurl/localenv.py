@@ -28,7 +28,7 @@ from typing import (
 )
 from ansible.parsing.vault import VaultLib
 from tosca import JsonObject
-from .packages import Package, PackageSpec
+from .packages import Package, PackageSpec, ProxiedRepo
 from .repo import (
     GitRepo,
     Repo,
@@ -396,9 +396,14 @@ class Project:
             #         candidate = (repo, filePath, revision, bare)
         return candidate, None, None
 
-    def create_working_dir(self, gitUrl: str, ref: Optional[str] = None) -> Repo:
+    def create_working_dir(
+        self, gitUrl: str, ref: Optional[str] = None, package: Optional[Package] = None
+    ) -> Repo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
-        repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
+        if package and package.has_semver(True):
+            repo = ProxiedRepo.create_working_dir(gitUrl, localRepoPath, ref)
+        else:
+            repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()
         return repo
@@ -1643,7 +1648,9 @@ class LocalEnv:
             return None
         return repo_or_url.repo
 
-    def _create_working_dir(self, repoURL, revision, basepath) -> Optional[Repo]:
+    def _create_working_dir(
+        self, repoURL, revision, basepath, package: Optional[Package] = None
+    ) -> Optional[Repo]:
         start = project = self.project or self.homeProject
         if not start:
             logger.warning(
@@ -1652,11 +1659,11 @@ class LocalEnv:
             return None
         while project:
             if basepath is None or project.is_path_in_project(basepath):
-                repo = project.create_working_dir(repoURL, revision)
+                repo = project.create_working_dir(repoURL, revision, package)
                 break
             project = project.parentProject
         else:  # no break
-            repo = start.create_working_dir(repoURL, revision)
+            repo = start.create_working_dir(repoURL, revision, package)
         return repo
 
     def find_or_create_working_dir(
@@ -1693,7 +1700,7 @@ class LocalEnv:
             if url.startswith("git-local://"):
                 return None, None, None
 
-            repo = self._create_working_dir(url, revision, basepath)
+            repo = self._create_working_dir(url, revision, basepath, package)
             created = True
             if not repo:
                 return None, None, None
@@ -1738,8 +1745,9 @@ class LocalEnv:
             project = project.parentProject
         return candidate
 
+    # note: currently unused
     def link_repo(
-        self, base_path: str, name: str, url: str, revision
+        self, base_path: str, name: str, url: str, revision: Optional[str]
     ) -> Tuple[str, str]:
         # return link name, target path
         if base_path:

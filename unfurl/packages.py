@@ -57,15 +57,22 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
 
+import json
 import os.path
 import re
+import shutil
+import zipfile
+from io import BytesIO
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from git import GitCommandError
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from urllib.parse import urlparse
 
 from .repo import (
     RepoView,
+    Repo,
+    GitRepo,
+    git,
     split_git_url,
     get_remote_tags,
     sanitize_url,
@@ -683,3 +690,161 @@ def apply_lock(lock_dict, package: Package) -> bool:
     # and so if the package doesn't have an explicit revision set
     # resolve_package will search for tags and reset missing and discovered
     return False
+
+class ProxiedRepo(Repo):
+    """
+    A package downloaded via a Go module proxy.
+
+    .proxied/info.json contains metadata about the package and its origin, for example:
+
+    {"Version":"v1.0.0","Time":"2024-01-12T16:15:59Z",
+    "Origin":{
+      "VCS":"git",
+      "URL":"https://unfurl.cloud/onecommons/blueprints/baserow.git",
+      "Hash":"f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030",
+      "Ref":"refs/tags/v1.0.0"}
+    }
+
+    (where Hash is the commit for the Ref)
+    """
+
+    def __init__(self, working_dir: str):
+        self._working_dir = working_dir
+        info_path = os.path.join(working_dir, ".proxied", "info.json")
+        with open(info_path) as f:
+            self._info: dict = json.load(f)
+        self.url: str = self._info.get("Origin", {}).get("URL", "")
+
+    @property
+    def working_dir(self) -> str:
+        return self._working_dir
+
+    @property
+    def revision(self) -> str:
+        return self._info.get("Origin", {}).get("Hash", "")
+
+    @property
+    def current_tag(self) -> str:
+        ref = self._info.get("Origin", {}).get("Ref", "")
+        if ref.startswith("refs/tags/"):
+            return ref[len("refs/tags/") :]
+        return ref
+
+    def resolve_rev_spec(self, revision: str) -> Optional[str]:
+        hash = self.revision
+        tag = self.current_tag
+        version = self._info.get("Version", "")
+        if revision in (hash, tag, version):
+            return hash
+        if hash.startswith(revision) and len(revision) >= 7:
+            return hash
+        return None
+
+    def find_remote_url(
+        self, *, url: Optional[str] = None, host: Optional[str] = None
+    ) -> Optional[str]:
+        origin_url = self.url
+        if url and url not in origin_url:
+            return None
+        if host:
+            parsed = urlparse(origin_url)
+            if parsed.hostname != host:
+                return None
+        return origin_url
+
+    def clone(self, newPath: str) -> "ProxiedRepo":
+        shutil.copytree(self._working_dir, newPath)
+        return ProxiedRepo(newPath)
+
+    def convert_to_git(self) -> "RepoView":
+        """Convert this proxied working directory into a real git repo.
+
+        Clones the origin as a bare repo into .git, converts it to non-bare,
+        resets the index to match the working tree, and removes the .proxied
+        metadata directory.
+        """
+        git_dir = os.path.join(self._working_dir, ".git")
+        git.Repo.clone_from(self.url, git_dir, bare=True)
+
+        # Use raw git commands — the Repo object from clone_from still
+        # sees core.bare=true, so we drive everything through git directly.
+        g = git.cmd.Git(self._working_dir)  # type: ignore
+        g.execute(["git", "config", "--local", "--bool", "core.bare", "false"])
+        # Point HEAD at the pinned revision and rebuild the index.
+        # The working tree files were extracted from the proxy zip and should
+        # match this commit, so we use read-tree to populate the index without
+        # touching the working tree.
+        g.execute(["git", "reset", "HEAD", "--", "."])
+
+        # Clean up proxied metadata
+        proxied_dir = os.path.join(self._working_dir, ".proxied")
+        if os.path.isdir(proxied_dir):
+            shutil.rmtree(proxied_dir)
+
+        return GitRepo(git.Repo(self._working_dir)).as_repo_view()
+
+    @staticmethod
+    def get_proxy_url(git_url: str, proxy_url: Optional[str] = None) -> Optional[str]:
+        if GOPROXY := os.getenv("GOPROXY"):
+            if "direct" == GOPROXY:
+                return None
+            else:
+                proxy_url = GOPROXY.split(",")[0]
+        else:
+            proxy_url = "https://proxy.golang.org/"
+
+        package_info = get_package_id_from_url(git_url)
+        if not package_info.package_id:
+            return None
+        return f"{proxy_url}{package_info.package_id}/"
+
+    @classmethod
+    def create_repo(
+        cls, url: str, revision: str, working_dir: str
+    ) -> Optional["ProxiedRepo"]:
+        from .yamlloader import urlopen
+
+        base_url = cls.get_proxy_url(url)
+        if not base_url:
+            return None
+
+        os.makedirs(os.path.join(working_dir, ".proxied"), exist_ok=True)
+
+        # Download metadata
+        info_url = f"{base_url}@v/{revision}.info"
+        try:
+            info_data = urlopen(info_url).read()
+        except Exception:
+            logger.debug("Failed to download proxy metadata from %s", info_url)
+            return None
+        info_path = os.path.join(working_dir, ".proxied", "info.json")
+        with open(info_path, "wb") as f:
+            f.write(info_data)
+
+        # Download and extract zip
+        zip_url = f"{base_url}@v/{revision}.zip"
+        try:
+            zip_data = urlopen(zip_url).read()
+        except Exception:
+            logger.debug("Failed to download proxy zip from %s", zip_url)
+            return None
+
+        package_info = get_package_id_from_url(url)
+        prefix = f"{package_info.package_id}@{revision}/"
+        with zipfile.ZipFile(BytesIO(zip_data)) as zf:
+            for member in zf.infolist():
+                if member.is_dir():
+                    continue
+                # Strip the package_id@version/ prefix
+                if member.filename.startswith(prefix):
+                    rel_path = member.filename[len(prefix) :]
+                else:
+                    rel_path = member.filename
+                if not rel_path:
+                    continue
+                dest = os.path.join(working_dir, rel_path)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(member) as src, open(dest, "wb") as dst:
+                    dst.write(src.read())
+
+        return cls(working_dir)

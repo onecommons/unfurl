@@ -72,6 +72,7 @@ from .repo import (
 )
 from .packages import (
     PackageSpec,
+    ProxiedRepo,
     UnfurlPackageUpdateNeeded,
     extract_package,
     find_canonical,
@@ -301,20 +302,16 @@ def urlopen(url):
 def get_tags_from_proxy(
     url: str, pattern: str = "*", proxy_url=None
 ) -> Optional[List[str]]:
-    # return order descending: [v1.0.0, v0.1.0]
-    if GOPROXY := os.getenv("GOPROXY"):
-        if "direct" == GOPROXY:
-            return None
-        else:
-            proxy_url = GOPROXY.split(",")[0]
-    else:
-        proxy_url = "https://proxy.golang.org/"
-
-    package_info = get_package_id_from_url(url)
-    if not package_info.package_id:
+    base_url = ProxiedRepo.get_proxy_url(url)
+    if not base_url:
         return None
+
     try:
-        proxy = f"{proxy_url}{package_info.package_id}/@v/list"
+        logger.debug(
+            "Getting remote tags from proxy for: %s",
+            url,
+        )
+        proxy = f"{base_url}@v/list"
         tags = urlopen(proxy).read().decode("utf8").splitlines()
         if pattern != "*":
             tags = [tag for tag in tags if fnmatch.fnmatch(tag, pattern)]
@@ -329,7 +326,7 @@ def get_tags_from_proxy(
     except Exception as err:
         logger.warning(
             "Couldn't get remote tags from proxy for package %s: %s",
-            package_info.package_id,
+            url,
             err,
         )
         return None

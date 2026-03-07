@@ -258,8 +258,15 @@ class Repo(abc.ABC):
     ) -> Optional[str]:
         if gitDir in dirs and is_git_worktree(root, gitDir):
             assert os.path.isdir(root), root
-            repo = GitRepo(git.Repo(root))
+            repo: Repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
+            working_dirs[key] = repo.as_repo_view()
+            return key
+        if ".proxied" in dirs:
+            from .packages import ProxiedRepo
+
+            key = os.path.abspath(root)
+            repo = ProxiedRepo(key)
             working_dirs[key] = repo.as_repo_view()
             return key
         return None
@@ -293,7 +300,7 @@ class Repo(abc.ABC):
     def find_remote_url(self, *, url=None, host=None) -> Optional[str]: ...
 
     @abc.abstractmethod
-    def clone(self, newPath: str) -> "GitRepo": ...
+    def clone(self, newPath: str) -> "Repo": ...
 
     def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
         hard = 2 if sanitize else 0
@@ -339,8 +346,8 @@ class Repo(abc.ABC):
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
-    def as_repo_view(self, name=""):
-        return RepoView(dict(name=name, url=self.url), cast(GitRepo, self))
+    def as_repo_view(self, name="") -> "RepoView":
+        return RepoView(dict(name=name, url=self.url), self)
 
     def is_local_only(self):
         return self.url.startswith("git-local://") or os.path.isabs(self.url)

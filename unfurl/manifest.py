@@ -153,12 +153,12 @@ class Manifest(AttributeManager):
         # save separate reference for pickling cache
         self.overrides: Dict[str, Any] = localEnv.overrides if localEnv else {}
         self.path: Optional[str] = path
-        self.repo = self._find_repo()
-        self.currentCommitId = self.repo and self.repo.revision
+        self.repo: Optional["GitRepo"] = self._find_repo()
+        self.currentCommitId: Optional[str] = self.repo and self.repo.revision or None
         # self.revisions = RevisionManager(self)
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
         self.tosca: Optional[ToscaSpec] = None
-        self.specDigest = None
+        self.specDigest: Optional[str] = None
         self.repositories: Dict[str, RepoView] = {}
         self.package_specs: List[PackageSpec] = []
         self.packages: PackagesType = {}
