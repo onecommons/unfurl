@@ -28,7 +28,7 @@ from typing import (
 )
 from ansible.parsing.vault import VaultLib
 from tosca import JsonObject
-from .packages import Package, PackageSpec, ProxiedRepo
+from .packages import Package, PackageSpec, ProxiedRepo, is_semver
 from .repo import (
     GitRepo,
     Repo,
@@ -400,9 +400,11 @@ class Project:
         self, gitUrl: str, ref: Optional[str] = None, package: Optional[Package] = None
     ) -> Repo:
         localRepoPath = self._create_path_for_git_repo(gitUrl)
-        if package and package.has_semver(True):
-            repo = ProxiedRepo.create_working_dir(gitUrl, localRepoPath, ref)
+        if package and ref and is_semver(ref, True):
+            repo = ProxiedRepo.create_repo(gitUrl, localRepoPath, ref)
         else:
+            repo = None
+        if not repo:
             repo = Repo.create_working_dir(gitUrl, localRepoPath, ref)
         # add to workingDirs
         self.workingDirs[os.path.abspath(localRepoPath)] = repo.as_repo_view()

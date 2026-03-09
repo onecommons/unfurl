@@ -314,11 +314,16 @@ _SAMPLE_INFO = {
 
 @pytest.fixture
 def proxied_repo(tmp_path):
-    """Create a ProxiedRepo with sample metadata and a dummy file."""
+    """Create a ProxiedRepo with sample metadata, a dummy file, and files.json."""
+    import zlib
+
     proxied_dir = tmp_path / ".proxied"
     proxied_dir.mkdir()
     (proxied_dir / "info.json").write_text(json.dumps(_SAMPLE_INFO))
-    (tmp_path / "dummy.txt").write_text("hello")
+    content = b"hello"
+    (tmp_path / "dummy.txt").write_bytes(content)
+    crc = zlib.crc32(content) & 0xFFFFFFFF
+    (proxied_dir / "files.json").write_text(json.dumps({"dummy.txt": crc}))
     return ProxiedRepo(str(tmp_path))
 
 
@@ -366,6 +371,80 @@ def test_proxied_repo_clone(proxied_repo, tmp_path):
     assert os.path.exists(os.path.join(clone_path, "dummy.txt"))
 
 
+def test_proxied_repo_is_dirty_clean(proxied_repo):
+    """Unmodified repo is not dirty."""
+    assert not proxied_repo.is_dirty()
+    assert not proxied_repo.is_dirty(untracked_files=True)
+
+
+def test_proxied_repo_is_dirty_modified(proxied_repo):
+    """Modifying a tracked file makes the repo dirty."""
+    dummy = os.path.join(proxied_repo.working_dir, "dummy.txt")
+    with open(dummy, "w") as f:
+        f.write("modified content")
+    assert proxied_repo.is_dirty()
+
+
+def test_proxied_repo_is_dirty_deleted(proxied_repo):
+    """Deleting a tracked file makes the repo dirty."""
+    os.remove(os.path.join(proxied_repo.working_dir, "dummy.txt"))
+    assert proxied_repo.is_dirty()
+
+
+def test_proxied_repo_is_dirty_untracked(proxied_repo):
+    """Untracked file only counts when untracked_files=True."""
+    new_file = os.path.join(proxied_repo.working_dir, "new_file.txt")
+    with open(new_file, "w") as f:
+        f.write("I'm new")
+    # Without untracked_files, still clean (tracked files unchanged).
+    assert not proxied_repo.is_dirty(untracked_files=False)
+    # With untracked_files, now dirty.
+    assert proxied_repo.is_dirty(untracked_files=True)
+
+
+def test_proxied_repo_is_dirty_gitignore(proxied_repo):
+    """Files matching .gitignore patterns are not considered untracked."""
+    gitignore = os.path.join(proxied_repo.working_dir, ".gitignore")
+    with open(gitignore, "w") as f:
+        f.write("*.log\nbuild/\n")
+    # Create files matching the ignore patterns.
+    with open(os.path.join(proxied_repo.working_dir, "debug.log"), "w") as f:
+        f.write("log data")
+    build_dir = os.path.join(proxied_repo.working_dir, "build")
+    os.makedirs(build_dir)
+    with open(os.path.join(build_dir, "output.o"), "w") as f:
+        f.write("binary")
+    # .gitignore itself is untracked, so we expect dirty.
+    assert proxied_repo.is_dirty(untracked_files=True)
+    # But if we only check ignored files (remove .gitignore from untracked),
+    # add .gitignore to the ignore list too.
+    with open(gitignore, "w") as f:
+        f.write("*.log\nbuild/\n.gitignore\n")
+    assert not proxied_repo.is_dirty(untracked_files=True)
+
+
+def test_proxied_repo_is_dirty_path_filter(proxied_repo):
+    """The path parameter restricts dirty checks to a subdirectory."""
+    subdir = os.path.join(proxied_repo.working_dir, "sub")
+    os.makedirs(subdir)
+    with open(os.path.join(subdir, "extra.txt"), "w") as f:
+        f.write("extra")
+    # Untracked file is in "sub/", not in root "dummy.txt" area.
+    assert not proxied_repo.is_dirty(untracked_files=True, path="dummy")
+    assert proxied_repo.is_dirty(untracked_files=True, path="sub")
+
+
+def test_proxied_repo_is_dirty_no_files_json(tmp_path):
+    """When files.json doesn't exist, is_dirty returns False."""
+    proxied_dir = tmp_path / ".proxied"
+    proxied_dir.mkdir()
+    (proxied_dir / "info.json").write_text(json.dumps(_SAMPLE_INFO))
+    (tmp_path / "dummy.txt").write_text("hello")
+    repo = ProxiedRepo(str(tmp_path))
+    assert not repo.is_dirty()
+    assert not repo.is_dirty(untracked_files=True)
+
+
 def test_proxied_repo_missing_info(tmp_path):
     with pytest.raises(FileNotFoundError):
         ProxiedRepo(str(tmp_path))
@@ -410,11 +489,26 @@ def test_proxied_repo_create_repo(tmp_path):
     assert repo.revision  # should be a git hash
     # Verify files were extracted
     assert os.path.exists(os.path.join(working_dir, ".proxied", "info.json"))
+    # Verify files.json was created with CRC-32 checksums
+    files_json_path = os.path.join(working_dir, ".proxied", "files.json")
+    assert os.path.exists(files_json_path)
+    with open(files_json_path) as f:
+        file_checksums = json.load(f)
+    assert len(file_checksums) > 0, "files.json should list extracted files"
+    # Every value should be a non-negative integer (CRC-32)
+    for rel_path, crc in file_checksums.items():
+        assert isinstance(crc, int) and crc >= 0, f"Bad CRC for {rel_path}: {crc}"
+        assert os.path.exists(os.path.join(working_dir, rel_path)), (
+            f"files.json references missing file: {rel_path}"
+        )
     # The baserow blueprint should have at least one file
     extracted = [
         f for f in os.listdir(working_dir) if f != ".proxied"
     ]
     assert len(extracted) > 0, "Expected extracted files from zip"
+    # Freshly created repo should not be dirty
+    assert not repo.is_dirty()
+    assert not repo.is_dirty(untracked_files=True)
 
 
 def test_proxied_repo_create_repo_failure(tmp_path):
@@ -440,7 +534,7 @@ def test_proxied_repo_convert_to_git(tmp_path):
     original_revision = proxied.revision
     original_files = sorted(f for f in os.listdir(working_dir) if f != ".proxied")
 
-    repo_view = proxied.convert_to_git()
+    git_repo = proxied.convert_to_git()
 
     # .proxied directory should be gone
     assert not os.path.exists(os.path.join(working_dir, ".proxied"))
@@ -450,9 +544,7 @@ def test_proxied_repo_convert_to_git(tmp_path):
     current_files = sorted(f for f in os.listdir(working_dir) if f not in (".git",))
     assert current_files == original_files
     # RepoView should have the correct url and revision
-    assert "unfurl.cloud" in repo_view.url
-    git_repo = repo_view.repo
-    assert git_repo is not None
+    assert "unfurl.cloud" in git_repo.url
     assert git_repo.revision == original_revision
     # Working tree should be clean (no modifications)
     assert not git_repo.repo.is_dirty()

@@ -25,3 +25,4 @@ tenacity>=6.1.0 # Apache-2.0
 urllib3>=1.25.4,<1.27 ; python_version < "3.10"
 # pin because kubernetes package is incompatible with urllib3 2.6:
 urllib3==2.5.0 ; python_version >= "3.10" 
+pathspec>=1.0.0 # MPL 2.0

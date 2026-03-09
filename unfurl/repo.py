@@ -302,6 +302,22 @@ class Repo(abc.ABC):
     @abc.abstractmethod
     def clone(self, newPath: str) -> "Repo": ...
 
+    def is_dirty(
+        self, untracked_files: bool = False, path: Optional[str] = None
+    ) -> bool:
+        """Check if the working directory has been modified.
+
+        Args:
+            untracked_files: If True, files not listed in ``files.json``
+                (and not matched by any ``.gitignore``) are considered dirty.
+            path: Optional relative path to restrict the check to.
+
+        Returns:
+            True if any tracked file has been modified or deleted, or (when
+            *untracked_files* is True) if untracked files exist.
+        """
+        return False
+
     def get_url_with_path(self, path: str, sanitize: bool = False, revision: str = ""):
         hard = 2 if sanitize else 0
         if os.path.isabs(path):

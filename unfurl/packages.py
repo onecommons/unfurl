@@ -61,13 +61,14 @@ import json
 import os.path
 import re
 import shutil
+import zlib
 import zipfile
 from io import BytesIO
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from git import GitCommandError
 from typing_extensions import Literal, Self
 from urllib.parse import urlparse
-
+import pathspec
 from .repo import (
     RepoView,
     Repo,
@@ -691,6 +692,40 @@ def apply_lock(lock_dict, package: Package) -> bool:
     # resolve_package will search for tags and reset missing and discovered
     return False
 
+
+def _file_crc32(filepath: str) -> int:
+    """Compute CRC-32 of a file, matching the format used by zipfile."""
+    crc = 0
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            crc = zlib.crc32(chunk, crc)
+    return crc & 0xFFFFFFFF
+
+
+def _load_gitignore_spec(root: str) -> Optional["pathspec.PathSpec"]:
+    """Load all .gitignore files under *root* into a single PathSpec matcher.
+
+    Returns None if no .gitignore files are found.
+    """
+    patterns: List[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        if ".gitignore" in filenames:
+            gi_path = os.path.join(dirpath, ".gitignore")
+            rel_dir = os.path.relpath(dirpath, root)
+            with open(gi_path) as f:
+                for line in f:
+                    line = line.rstrip("\n\r")
+                    if not line or line.startswith("#"):
+                        continue
+                    # Prefix pattern with its directory so it matches correctly.
+                    if rel_dir != ".":
+                        line = os.path.join(rel_dir, line)
+                    patterns.append(line)
+    if not patterns:
+        return None
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
+
+
 class ProxiedRepo(Repo):
     """
     A package downloaded via a Go module proxy.
@@ -754,9 +789,81 @@ class ProxiedRepo(Repo):
 
     def clone(self, newPath: str) -> "ProxiedRepo":
         shutil.copytree(self._working_dir, newPath)
+        Repo.ignore_dir(newPath)
         return ProxiedRepo(newPath)
 
-    def convert_to_git(self) -> "RepoView":
+    def is_dirty(
+        self, untracked_files: bool = False, path: Optional[str] = None
+    ) -> bool:
+        """Check if the working directory has been modified.
+
+        Compares the current files' CRC-32 checksums against those recorded
+        in ``.proxied/files.json`` (written by :meth:`create_repo`).
+
+        Args:
+            untracked_files: If True, files not listed in ``files.json``
+                (and not matched by any ``.gitignore``) are considered dirty.
+            path: Optional relative path to restrict the check to.
+
+        Returns:
+            True if any tracked file has been modified or deleted, or (when
+            *untracked_files* is True) if untracked files exist.
+        """
+        files_path = os.path.join(self._working_dir, ".proxied", "files.json")
+        if not os.path.exists(files_path):
+            return False
+        with open(files_path) as f:
+            recorded: Dict[str, int] = json.load(f)
+
+        # Check tracked files for modifications or deletions.
+        for rel, expected_crc in recorded.items():
+            if path and not rel.startswith(path):
+                continue
+            abs_path = os.path.join(self._working_dir, rel)
+            if not os.path.exists(abs_path):
+                return True  # deleted
+            crc = _file_crc32(abs_path)
+            if crc != expected_crc:
+                return True  # modified
+
+        if not untracked_files:
+            return False
+
+        # Walk the tree looking for files not in files.json.
+        recorded_set = set(recorded)
+        for dirpath, dirnames, filenames in os.walk(self._working_dir):
+            # Skip .proxied metadata directory.
+            if ".proxied" in dirnames:
+                dirnames.remove(".proxied")
+            rel_dir = os.path.relpath(dirpath, self._working_dir)
+            if rel_dir == ".":
+                rel_dir = ""
+            for fname in filenames:
+                rel = os.path.join(rel_dir, fname) if rel_dir else fname
+                if path and not rel.startswith(path):
+                    continue
+                if rel in recorded_set:
+                    continue
+                if self.is_path_excluded(rel):
+                    continue
+                return True  # untracked file found
+
+        return False
+
+    def is_path_excluded(self, localPath: str) -> bool:
+        """Check whether *localPath* is excluded by ``.gitignore`` rules.
+
+        Args:
+            localPath: A path relative to the working directory.
+
+        Returns:
+            True if the path matches any ``.gitignore`` pattern found in the
+            working tree.
+        """
+        spec = _load_gitignore_spec(self._working_dir)
+        return spec is not None and spec.match_file(localPath)
+
+    def convert_to_git(self) -> "GitRepo":
         """Convert this proxied working directory into a real git repo.
 
         Clones the origin as a bare repo into .git, converts it to non-bare,
@@ -781,7 +888,7 @@ class ProxiedRepo(Repo):
         if os.path.isdir(proxied_dir):
             shutil.rmtree(proxied_dir)
 
-        return GitRepo(git.Repo(self._working_dir)).as_repo_view()
+        return GitRepo(git.Repo(self._working_dir))
 
     @staticmethod
     def get_proxy_url(git_url: str, proxy_url: Optional[str] = None) -> Optional[str]:
@@ -808,8 +915,6 @@ class ProxiedRepo(Repo):
         if not base_url:
             return None
 
-        os.makedirs(os.path.join(working_dir, ".proxied"), exist_ok=True)
-
         # Download metadata
         info_url = f"{base_url}@v/{revision}.info"
         try:
@@ -817,9 +922,6 @@ class ProxiedRepo(Repo):
         except Exception:
             logger.debug("Failed to download proxy metadata from %s", info_url)
             return None
-        info_path = os.path.join(working_dir, ".proxied", "info.json")
-        with open(info_path, "wb") as f:
-            f.write(info_data)
 
         # Download and extract zip
         zip_url = f"{base_url}@v/{revision}.zip"
@@ -829,8 +931,14 @@ class ProxiedRepo(Repo):
             logger.debug("Failed to download proxy zip from %s", zip_url)
             return None
 
+        os.makedirs(os.path.join(working_dir, ".proxied"), exist_ok=True)
+        info_path = os.path.join(working_dir, ".proxied", "info.json")
+        with open(info_path, "wb") as f:
+            f.write(info_data)
+
         package_info = get_package_id_from_url(url)
         prefix = f"{package_info.package_id}@{revision}/"
+        file_checksums: Dict[str, int] = {}
         with zipfile.ZipFile(BytesIO(zip_data)) as zf:
             for member in zf.infolist():
                 if member.is_dir():
@@ -846,5 +954,12 @@ class ProxiedRepo(Repo):
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with zf.open(member) as src, open(dest, "wb") as dst:
                     dst.write(src.read())
+                file_checksums[rel_path] = member.CRC
 
+        # Save CRC-32 checksums for dirty-checking without git.
+        files_path = os.path.join(working_dir, ".proxied", "files.json")
+        with open(files_path, "w") as f:
+            json.dump(file_checksums, f, indent=2)
+
+        Repo.ignore_dir(working_dir)
         return cls(working_dir)
