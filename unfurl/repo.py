@@ -302,6 +302,21 @@ class Repo(abc.ABC):
     @abc.abstractmethod
     def clone(self, newPath: str) -> "Repo": ...
 
+    @abc.abstractmethod
+    def add_all(self, path) -> None:
+        """Stage all changes (tracked and untracked) under *path*."""
+        ...
+
+    @abc.abstractmethod
+    def add_relative_path(self, path: str) -> None:
+        """Stage the given *files*."""
+        ...
+
+    @abc.abstractmethod
+    def commit(self, msg: str) -> Optional[Commit]:
+        """Create a commit from the current index with *msg*.  Return None if there are no changes to commit."""
+        ...
+
     def is_dirty(
         self, untracked_files: bool = False, path: Optional[str] = None
     ) -> bool:
@@ -310,7 +325,7 @@ class Repo(abc.ABC):
         Args:
             untracked_files: If True, files not listed in ``files.json``
                 (and not matched by any ``.gitignore``) are considered dirty.
-            path: Optional relative path to restrict the check to.
+            path: Optional absolute path to restrict the check to.
 
         Returns:
             True if any tracked file has been modified or deleted, or (when
@@ -341,6 +356,15 @@ class Repo(abc.ABC):
         return None
 
     def is_path_excluded(self, localPath) -> bool:
+        """Check whether *localPath* is excluded by ``.gitignore`` rules.
+
+        Args:
+            localPath: A path relative to the working directory.
+
+        Returns:
+            True if the path matches any ``.gitignore`` pattern found in the
+            working tree.
+        """
         return False
 
     def find_path(
@@ -445,7 +469,7 @@ class Repo(abc.ABC):
         return GitRepo(repo)
 
 
-def commit_secrets(working_dir, yaml, repo: Optional["GitRepo"]) -> List[Path]:
+def commit_secrets(working_dir, yaml, repo: Optional["Repo"]) -> List[Path]:
     vault = yaml and getattr(yaml.representer, "vault", None)
     if not vault or not vault.secrets:
         return []
@@ -462,7 +486,7 @@ def commit_secrets(working_dir, yaml, repo: Optional["GitRepo"]) -> List[Path]:
 
 
 def find_dirty_secrets(
-    working_dir: str, repo: Optional["GitRepo"]
+    working_dir: str, repo: Optional["Repo"]
 ) -> Iterator[Tuple[Path, Path]]:
     for root, dirs, files in os.walk(working_dir):
         if "secrets" not in Path(root).parts:
@@ -483,7 +507,7 @@ def find_dirty_secrets(
 
 
 class RepoView:
-    # view of Repo optionally filtered by path
+    # view of Repo optionally filtered by path (relative to the repo root)
     # XXX and revision too
     def __init__(
         self, repository: Union[dict, Repository], repo: Optional[Repo], path=""
@@ -593,12 +617,12 @@ class RepoView:
             return self.repo.url
         return ""
 
-    def is_dirty(self, path="") -> bool:
-        if self.read_only or not self.gitrepo:
+    def is_dirty(self, path: Optional[str] = None) -> bool:
+        if self.read_only or not self.repo:
             return False
-        if self.gitrepo.is_dirty(untracked_files=True, path=path or self.path):
+        if self.repo.is_dirty(untracked_files=True, path=path or self.working_dir):
             return True
-        for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.gitrepo):
+        for filepath, dotsecrets in find_dirty_secrets(self.working_dir, self.repo):
             return True
         return False
 
@@ -607,8 +631,8 @@ class RepoView:
             self.file_refs.append(file_name)
 
     def add_all(self):
-        assert not self.read_only and self.gitrepo
-        self.gitrepo.repo.git.add("--all", self.path or ".")
+        assert not self.read_only and self.repo
+        self.repo.add_all(os.path.abspath(self.working_dir))
 
     def load_secrets(self, _loader):
         if self._loaded_secrets or not self.gitrepo:
@@ -652,18 +676,18 @@ class RepoView:
         self._loaded_secrets = not failed
 
     def save_secrets(self) -> List[Path]:
-        return commit_secrets(self.working_dir, self.yaml, self.gitrepo)
+        return commit_secrets(self.working_dir, self.yaml, self.repo)
 
     def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
         assert not self.read_only
-        repo = assert_not_none(self.gitrepo)
+        repo = assert_not_none(self.repo)
         if self.yaml and save_secrets:
             for saved in self.save_secrets():
                 local_path = str(saved.relative_to(repo.working_dir))
-                repo.repo.git.add(local_path)
+                repo.add_relative_path(local_path)
         if add_all:
             self.add_all()
-        repo.repo.index.commit(msg)
+        repo.commit(msg)
         return 1
 
     def git_status(self):
@@ -919,7 +943,7 @@ class GitRepo(Repo):
         if url:
             url = normalize_git_url_hard(url)
         else:
-            assert host
+            assert host, "Must specify url or host"
         for remote in self.repo.remotes:
             if host:
                 if host == urlparse(normalize_git_url(remote.url)).hostname:
@@ -1033,19 +1057,36 @@ class GitRepo(Repo):
         firstCommit = next(self.repo.iter_commits("HEAD", max_parents=0))
         return firstCommit.hexsha
 
-    def add_all(self, path="."):
+    def add_all(self, path: str) -> None:
+        # local files risk confusion: local to repo or local to current working dir?, so require absolute path
+        assert os.path.isabs(path), "expected absolute path: " + path
         path = os.path.relpath(path, self.working_dir)
+        # --all adds, modifies, and removes index entries to match the working tree.
         self.repo.git.add("--all", path)
+
+    def add_relative_path(self, path: str) -> None:
+        self.repo.git.add(path)
+
+    def commit(self, msg: str) -> Optional[Commit]:
+        if self.repo.index.diff("HEAD"):
+            return self.repo.index.commit(msg)
+        return None
 
     def commit_files(self, files: List[str], msg: str) -> Commit:
         # note: this will also commit existing changes in the index
         index = self.repo.index
-        index.add([os.path.abspath(f) for f in files])
+        # local files risk confusion: local to repo or local to current working dir?, so require absolute path
+        assert all(os.path.isabs(f) for f in files), "expected absolute paths: " + str(
+            files
+        )
+        index.add(files)
         return index.commit(msg)
 
     def is_dirty(self, untracked_files=False, path: Optional[str] = None) -> bool:
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")
         # https://gitpython.readthedocs.io/en/stable/reference.html?highlight=is_dirty#git.repo.base.Repo.is_dirty
+        if path:
+            path = os.path.relpath(path, self.working_dir)
         return self.repo.is_dirty(untracked_files=untracked_files, path=path or None)
         # note: if you get git.exc.GitCommandError with "git diff: unknown option `cached'"
         # it's because: https://stackoverflow.com/questions/69470009/git-diff-cached-unknown-option-cached

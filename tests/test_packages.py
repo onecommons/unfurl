@@ -313,7 +313,7 @@ _SAMPLE_INFO = {
 
 
 @pytest.fixture
-def proxied_repo(tmp_path):
+def proxied_repo(tmp_path) -> ProxiedRepo:
     """Create a ProxiedRepo with sample metadata, a dummy file, and files.json."""
     import zlib
 
@@ -327,14 +327,14 @@ def proxied_repo(tmp_path):
     return ProxiedRepo(str(tmp_path))
 
 
-def test_proxied_repo_properties(proxied_repo):
+def test_proxied_repo_properties(proxied_repo: ProxiedRepo):
     assert os.path.isdir(proxied_repo.working_dir)
     assert proxied_repo.revision == "f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030"
     assert proxied_repo.current_tag == "v1.0.0"
     assert proxied_repo.url == "https://unfurl.cloud/onecommons/blueprints/baserow.git"
 
 
-def test_proxied_repo_resolve_rev_spec(proxied_repo):
+def test_proxied_repo_resolve_rev_spec(proxied_repo: ProxiedRepo):
     full_hash = "f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030"
     # Exact hash
     assert proxied_repo.resolve_rev_spec(full_hash) == full_hash
@@ -347,12 +347,10 @@ def test_proxied_repo_resolve_rev_spec(proxied_repo):
     assert proxied_repo.resolve_rev_spec("abc") is None
 
 
-def test_proxied_repo_find_remote_url(proxied_repo):
+def test_proxied_repo_find_remote_url(proxied_repo: ProxiedRepo):
     origin = "https://unfurl.cloud/onecommons/blueprints/baserow.git"
-    # No filter
-    assert proxied_repo.find_remote_url() == origin
     # URL match
-    assert proxied_repo.find_remote_url(url="unfurl.cloud") == origin
+    assert proxied_repo.find_remote_url(url=origin) == origin
     # URL mismatch
     assert proxied_repo.find_remote_url(url="github.com") is None
     # Host match
@@ -361,7 +359,7 @@ def test_proxied_repo_find_remote_url(proxied_repo):
     assert proxied_repo.find_remote_url(host="github.com") is None
 
 
-def test_proxied_repo_clone(proxied_repo, tmp_path):
+def test_proxied_repo_clone(proxied_repo: ProxiedRepo, tmp_path):
     clone_path = str(tmp_path / "clone")
     cloned = proxied_repo.clone(clone_path)
     assert isinstance(cloned, ProxiedRepo)
@@ -371,13 +369,13 @@ def test_proxied_repo_clone(proxied_repo, tmp_path):
     assert os.path.exists(os.path.join(clone_path, "dummy.txt"))
 
 
-def test_proxied_repo_is_dirty_clean(proxied_repo):
+def test_proxied_repo_is_dirty_clean(proxied_repo: ProxiedRepo):
     """Unmodified repo is not dirty."""
     assert not proxied_repo.is_dirty()
     assert not proxied_repo.is_dirty(untracked_files=True)
 
 
-def test_proxied_repo_is_dirty_modified(proxied_repo):
+def test_proxied_repo_is_dirty_modified(proxied_repo: ProxiedRepo):
     """Modifying a tracked file makes the repo dirty."""
     dummy = os.path.join(proxied_repo.working_dir, "dummy.txt")
     with open(dummy, "w") as f:
@@ -385,13 +383,13 @@ def test_proxied_repo_is_dirty_modified(proxied_repo):
     assert proxied_repo.is_dirty()
 
 
-def test_proxied_repo_is_dirty_deleted(proxied_repo):
+def test_proxied_repo_is_dirty_deleted(proxied_repo: ProxiedRepo):
     """Deleting a tracked file makes the repo dirty."""
     os.remove(os.path.join(proxied_repo.working_dir, "dummy.txt"))
     assert proxied_repo.is_dirty()
 
 
-def test_proxied_repo_is_dirty_untracked(proxied_repo):
+def test_proxied_repo_is_dirty_untracked(proxied_repo: ProxiedRepo):
     """Untracked file only counts when untracked_files=True."""
     new_file = os.path.join(proxied_repo.working_dir, "new_file.txt")
     with open(new_file, "w") as f:
@@ -402,7 +400,7 @@ def test_proxied_repo_is_dirty_untracked(proxied_repo):
     assert proxied_repo.is_dirty(untracked_files=True)
 
 
-def test_proxied_repo_is_dirty_gitignore(proxied_repo):
+def test_proxied_repo_is_dirty_gitignore(proxied_repo: ProxiedRepo):
     """Files matching .gitignore patterns are not considered untracked."""
     gitignore = os.path.join(proxied_repo.working_dir, ".gitignore")
     with open(gitignore, "w") as f:
@@ -423,15 +421,15 @@ def test_proxied_repo_is_dirty_gitignore(proxied_repo):
     assert not proxied_repo.is_dirty(untracked_files=True)
 
 
-def test_proxied_repo_is_dirty_path_filter(proxied_repo):
+def test_proxied_repo_is_dirty_path_filter(proxied_repo: ProxiedRepo):
     """The path parameter restricts dirty checks to a subdirectory."""
     subdir = os.path.join(proxied_repo.working_dir, "sub")
     os.makedirs(subdir)
     with open(os.path.join(subdir, "extra.txt"), "w") as f:
         f.write("extra")
     # Untracked file is in "sub/", not in root "dummy.txt" area.
-    assert not proxied_repo.is_dirty(untracked_files=True, path="dummy")
-    assert proxied_repo.is_dirty(untracked_files=True, path="sub")
+    assert not proxied_repo.is_dirty(untracked_files=True, path=os.path.join(proxied_repo.working_dir, "dummy"))
+    assert proxied_repo.is_dirty(untracked_files=True, path=subdir)
 
 
 def test_proxied_repo_is_dirty_no_files_json(tmp_path):
@@ -548,6 +546,152 @@ def test_proxied_repo_convert_to_git(tmp_path):
     assert git_repo.revision == original_revision
     # Working tree should be clean (no modifications)
     assert not git_repo.repo.is_dirty()
+
+
+@pytest.fixture
+def proxied_repo_with_origin(tmp_path) -> ProxiedRepo:
+    """Create a ProxiedRepo whose Origin.URL points to a real local git repo.
+
+    This allows convert_to_git() / _ensure_git() to successfully clone.
+    """
+    import zlib
+
+    # 1. Create a local bare git repo as the "origin"
+    origin_path = str(tmp_path / "origin.git")
+    origin = git.Repo.init(origin_path, bare=True)
+
+    # Create a temporary working copy, add a file, commit, tag, push
+    work = str(tmp_path / "work")
+    work_repo = git.Repo.init(work)
+    dummy = os.path.join(work, "dummy.txt")
+    with open(dummy, "w") as f:
+        f.write("hello")
+    work_repo.index.add(["dummy.txt"])
+    commit = work_repo.index.commit("initial")
+    work_repo.create_remote("origin", origin_path)
+    work_repo.remotes.origin.push("HEAD:refs/heads/main")
+    work_repo.create_tag("v1.0.0")
+    work_repo.remotes.origin.push("v1.0.0")
+
+    # 2. Create the proxied repo directory
+    repo_dir = tmp_path / "proxied"
+    repo_dir.mkdir()
+    proxied_dir = repo_dir / ".proxied"
+    proxied_dir.mkdir()
+
+    info = {
+        "Version": "v1.0.0",
+        "Time": "2024-01-12T16:15:59Z",
+        "Origin": {
+            "VCS": "git",
+            "URL": origin_path,
+            "Hash": commit.hexsha,
+            "Ref": "refs/tags/v1.0.0",
+        },
+    }
+    (proxied_dir / "info.json").write_text(json.dumps(info))
+    content = b"hello"
+    (repo_dir / "dummy.txt").write_bytes(content)
+    crc = zlib.crc32(content) & 0xFFFFFFFF
+    (proxied_dir / "files.json").write_text(json.dumps({"dummy.txt": crc}))
+
+    return ProxiedRepo(str(repo_dir))
+
+
+def test_proxied_repo_commit_no_changes(proxied_repo_with_origin: ProxiedRepo):
+    """Calling commit() with no staged changes converts to git and creates a commit."""
+    repo = proxied_repo_with_origin
+    wd = repo.working_dir
+    # Before commit: .proxied should exist, .git should not
+    assert os.path.isdir(os.path.join(wd, ".proxied"))
+    assert not os.path.isdir(os.path.join(wd, ".git"))
+
+    # this commit is a no-op since nothing changed
+    repo.commit("no op commit")
+
+    # After commit: converted to git, .proxied removed
+    assert not os.path.isdir(os.path.join(wd, ".proxied"))
+    assert os.path.isdir(os.path.join(wd, ".git"))
+    # The commit message should appear in the log
+    git_repo = git.Repo(wd)
+    assert git_repo.head.commit.message == "initial", str(
+        git_repo.head.commit.diff(None, create_patch=True)
+    )
+
+
+def test_proxied_repo_add_all_and_commit(proxied_repo_with_origin, tmp_path):
+    """add_all() stages new files, commit() creates a commit with them."""
+    repo = proxied_repo_with_origin
+    wd = repo.working_dir
+    # Add a new file before committing
+    new_file = os.path.join(wd, "new_file.txt")
+    with open(new_file, "w") as f:
+        f.write("new content")
+
+    repo.as_repo_view().add_all()
+    repo.commit("add new file")
+
+    git_repo = git.Repo(wd)
+    assert "new_file.txt" in [
+        item.path for item in git_repo.head.commit.tree.traverse()
+    ]
+    assert git_repo.head.commit.message == "add new file", (
+        git_repo.head.commit.stats.files
+    )
+
+
+def test_proxied_repo_add_files_and_commit(proxied_repo_with_origin):
+    """add_files() stages specific files, commit() creates a commit."""
+    repo = proxied_repo_with_origin
+    wd = repo.working_dir
+    # Create two files but only stage one
+    file_a = os.path.join(wd, "a.txt")
+    file_b = os.path.join(wd, "b.txt")
+    with open(file_a, "w") as f:
+        f.write("aaa")
+    with open(file_b, "w") as f:
+        f.write("bbb")
+
+    repo.add_relative_path("a.txt")
+    repo.commit("add a only")
+
+    git_repo = git.Repo(wd)
+    committed_paths = [item.path for item in git_repo.head.commit.tree.traverse()]
+    assert "a.txt" in committed_paths
+    # b.txt was not staged so should not be committed
+    assert "b.txt" not in committed_paths
+
+
+def test_proxied_repo_clone_after_convert(proxied_repo_with_origin, tmp_path):
+    """After convert_to_git, clone() delegates to GitRepo.clone()."""
+    repo = proxied_repo_with_origin
+    # Convert to git first
+    repo._ensure_git()
+    assert repo._git_repo is not None
+
+    clone_path = str(tmp_path / "clone")
+    cloned = repo.clone(clone_path)
+    # Should be a GitRepo clone, not a ProxiedRepo copytree
+    from unfurl.repo import GitRepo
+
+    assert isinstance(cloned, GitRepo)
+    assert os.path.isdir(os.path.join(clone_path, ".git"))
+
+
+def test_proxied_repo_is_dirty_after_convert(proxied_repo_with_origin):
+    """After convert_to_git, is_dirty() delegates to GitRepo."""
+    repo = proxied_repo_with_origin
+    wd = repo.working_dir
+    # Convert to git
+    repo._ensure_git()
+
+    # Clean state
+    assert not repo.is_dirty()
+
+    # Modify a file — should be dirty via git
+    with open(os.path.join(wd, "dummy.txt"), "w") as f:
+        f.write("changed")
+    assert repo.is_dirty()
 
 
 if __name__ == "__main__":

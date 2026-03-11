@@ -74,6 +74,7 @@ from .repo import (
     Repo,
     GitRepo,
     git,
+    Commit,
     split_git_url,
     get_remote_tags,
     sanitize_url,
@@ -743,6 +744,8 @@ class ProxiedRepo(Repo):
     (where Hash is the commit for the Ref)
     """
 
+    _git_repo: Optional["GitRepo"] = None
+
     def __init__(self, working_dir: str):
         self._working_dir = working_dir
         info_path = os.path.join(working_dir, ".proxied", "info.json")
@@ -778,16 +781,22 @@ class ProxiedRepo(Repo):
     def find_remote_url(
         self, *, url: Optional[str] = None, host: Optional[str] = None
     ) -> Optional[str]:
+        if url:
+            url = normalize_git_url_hard(url)
+        else:
+            assert host, "Must specify url or host"
         origin_url = self.url
-        if url and url not in origin_url:
-            return None
         if host:
             parsed = urlparse(origin_url)
-            if parsed.hostname != host:
-                return None
-        return origin_url
+            if parsed.hostname == host:
+                return origin_url
+        elif normalize_git_url_hard(origin_url) == url:
+            return origin_url
+        return None
 
-    def clone(self, newPath: str) -> "ProxiedRepo":
+    def clone(self, newPath: str) -> "Repo":
+        if self._git_repo:
+            return self._git_repo.clone(newPath)
         shutil.copytree(self._working_dir, newPath)
         Repo.ignore_dir(newPath)
         return ProxiedRepo(newPath)
@@ -797,23 +806,32 @@ class ProxiedRepo(Repo):
     ) -> bool:
         """Check if the working directory has been modified.
 
-        Compares the current files' CRC-32 checksums against those recorded
-        in ``.proxied/files.json`` (written by :meth:`create_repo`).
+        If the repo has been converted to git, delegates to GitRepo.
+        Otherwise compares CRC-32 checksums against ``.proxied/files.json``.
 
         Args:
             untracked_files: If True, files not listed in ``files.json``
                 (and not matched by any ``.gitignore``) are considered dirty.
-            path: Optional relative path to restrict the check to.
+            path: Optional absolute path to restrict the check to.
 
         Returns:
             True if any tracked file has been modified or deleted, or (when
             *untracked_files* is True) if untracked files exist.
         """
+        if self._git_repo:
+            return self._git_repo.is_dirty(untracked_files=untracked_files, path=path)
         files_path = os.path.join(self._working_dir, ".proxied", "files.json")
         if not os.path.exists(files_path):
             return False
         with open(files_path) as f:
             recorded: Dict[str, int] = json.load(f)
+
+        if path:
+            path = os.path.relpath(path, self._working_dir)
+            if path.startswith(".."):
+                return False # path is outside the working dir, so ignore it
+            elif path == ".":
+                path = None
 
         # Check tracked files for modifications or deletions.
         for rel, expected_crc in recorded.items():
@@ -847,7 +865,6 @@ class ProxiedRepo(Repo):
                 if self.is_path_excluded(rel):
                     continue
                 return True  # untracked file found
-
         return False
 
     def is_path_excluded(self, localPath: str) -> bool:
@@ -862,6 +879,12 @@ class ProxiedRepo(Repo):
         """
         spec = _load_gitignore_spec(self._working_dir)
         return spec is not None and spec.match_file(localPath)
+
+    def _ensure_git(self) -> "GitRepo":
+        """Return the underlying GitRepo, converting on first call."""
+        if not self._git_repo:
+            self._git_repo = self.convert_to_git()
+        return self._git_repo
 
     def convert_to_git(self) -> "GitRepo":
         """Convert this proxied working directory into a real git repo.
@@ -889,6 +912,20 @@ class ProxiedRepo(Repo):
             shutil.rmtree(proxied_dir)
 
         return GitRepo(git.Repo(self._working_dir))
+
+    def add_all(self, path: str) -> None:
+        assert os.path.isabs(path), "Path %s must be absolute" % path
+        if self.is_dirty(untracked_files=True, path=path):
+            # only convert to git if there are changes to add
+            self._ensure_git().add_all(path)
+
+    def add_relative_path(self, path: str) -> None:
+        # always converts to git
+        self._ensure_git().add_relative_path(path)
+
+    def commit(self, msg: str) -> Optional[Commit]:
+        # commit always converts to git if there are no changes to commit
+        return self._ensure_git().commit(msg)
 
     @staticmethod
     def get_proxy_url(git_url: str, proxy_url: Optional[str] = None) -> Optional[str]:

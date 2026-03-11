@@ -558,8 +558,8 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
         f.write(deployment)
 
     repo = GitRepo(Repo.init("remote"))
-    repo.add_all("remote")
-    repo.commit_files(["remote/ensemble/ensemble.yaml"], "Add deployment")
+    repo.add_all(repo.working_dir)
+    repo.commit("Add deployment")
 
     # we need a bare repo for push to work
     os.system("git clone --bare remote remote.git")

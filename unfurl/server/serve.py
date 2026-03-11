@@ -1126,7 +1126,7 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             if self.repo:
-                if self.repo.is_dirty(False, self.file_path):
+                if self.repo.is_dirty(False, os.path.join(self.repo.working_dir, self.file_path)):
                     return False
             else:
                 return False
