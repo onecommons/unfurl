@@ -19,6 +19,7 @@ from typing import (
     Iterable,
     Dict,
     List,
+    NamedTuple,
     Optional,
     OrderedDict,
     Tuple,
@@ -74,6 +75,15 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 from .logs import getLogger
 
 logger = getLogger("unfurl")
+
+
+class RepoViewPath(NamedTuple):
+    """Result of :meth:`find_path_in_repos` lookups."""
+
+    repo_view: Optional[RepoView]
+    file_path: Optional[str]
+    revision: Optional[str]
+    bare: Optional[bool]
 
 
 class Project:
@@ -1723,7 +1733,7 @@ class LocalEnv:
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
-    ) -> Tuple[Optional[Repo], Optional[str], Optional[str], Optional[bool]]:
+    ) -> RepoViewPath:
         """If the given path is part of the working directory of a git repository
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
@@ -1731,17 +1741,15 @@ class LocalEnv:
             repo = self.instance_repoview.repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
-                return repo, filePath, repo.revision, False
+                return RepoViewPath(self.instance_repoview, filePath, repo.revision, False)
 
-        candidate: Tuple[
-            Optional[Repo], Optional[str], Optional[str], Optional[bool]
-        ] = (None, None, None, None)
+        candidate = RepoViewPath(None, None, None, None)
         bare: Optional[bool] = False
         project = self.project or self.homeProject
         while project:
             repoview, filePath, bare = project.find_path_in_repos(path, importLoader)
             if repoview:
-                candidate = (repoview.repo, filePath, repoview.revision, bare)
+                candidate = RepoViewPath(repoview, filePath, repoview.revision, bare)
                 if not bare:
                     break
             project = project.parentProject

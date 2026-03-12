@@ -56,6 +56,7 @@ from .util import (
     taketwo,
 )
 from .repo import Repo, normalize_git_url, split_git_url, RepoView, GitRepo
+from .localenv import RepoViewPath
 from .packages import (
     Package,
     PackageSpec,
@@ -809,7 +810,7 @@ class Manifest(AttributeManager):
 
     def find_path_in_repos(
         self, path, importLoader=None
-    ) -> Tuple[Optional[Repo], Optional[str], Optional[str], Optional[bool]]:
+    ) -> RepoViewPath:
         """
         Check if the file path is inside a folder that is managed by a repository.
         If the revision is pinned and doesn't match the repo, it might be bare
@@ -820,8 +821,8 @@ class Manifest(AttributeManager):
             repo = self.repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
-                return repo, filePath, repo.revision, False
-        return None, None, None, None
+                return RepoViewPath(repo.as_repo_view(), filePath, repo.revision, False)
+        return RepoViewPath(None, None, None, None)
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 

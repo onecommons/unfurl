@@ -589,11 +589,11 @@ class FilePath(_ArtifactExternalValue):
 
         manifest: Optional["Manifest"] = options and options.get("manifest")
         if manifest:
-            repo, relPath, revision, bare = manifest.find_path_in_repos(fullpath)
-            if isinstance(repo, GitRepo) and not repo.is_dirty(True, relPath):
+            repo_view, relPath, revision, bare = manifest.find_path_in_repos(fullpath)
+            if repo_view and isinstance(repo_view.repo, GitRepo) and not repo_view.repo.is_dirty(True, fullpath):
                 if relPath:
                     # equivalent to git rev-parse HEAD:path
-                    digest = "git:" + repo.repo.rev_parse("HEAD:" + relPath).hexsha
+                    digest = "git:" + repo_view.repo.repo.rev_parse("HEAD:" + relPath).hexsha
                 else:
                     digest = "git:" + (revision or "HEAD")  # root of repo
                 return digest
