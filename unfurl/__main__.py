@@ -56,7 +56,7 @@ from .projectpaths import Folders
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import UnfurlBadDocumentError, filter_env, get_package_digest
+from .util import UnfurlBadDocumentError, filter_env, get_package_digest, is_relative_to
 
 import rich_click as click
 
@@ -206,7 +206,7 @@ globalOptions = option_group(
         is_flag=True,
         show_envvar=True,
         help="Skip pulling latest upstream changes from existing repositories.",
-        hidden=True
+        hidden=True,
     ),
     click.option(
         "--check-upstream",
@@ -473,7 +473,7 @@ destroyUnmanagedOption = click.option(
 @allJobOptions
 @click.option("--host", help="Name of instance to run the command on.")
 @click.option("--operation", help="TOSCA operation to run.")
-@click.option("--module", help="Ansible module to run. (default: command)")
+@click.option("--module", help="Ansible module to run. (Default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", save=False, cmdline=None, **options):
     """
@@ -1292,14 +1292,18 @@ def clone(ctx, source, dest, **options):
     message = initmod.clone(source, dest, **options)
     click.echo(message)
 
+
 def _validate_var_option(vars):
     names = []
     if vars:
-        for (name, val) in vars:
+        for name, val in vars:
             if name in names:
-                raise ValueError(f'--var option used multiple times with the same name: "{name}"')
+                raise ValueError(
+                    f'--var option used multiple times with the same name: "{name}"'
+                )
             names.append(name)
     return names
+
 
 @project_cli.command(
     short_help="Run a git command across all repositories",
@@ -1380,7 +1384,7 @@ def get_commit_message(committer, default_message):
 
 @project_cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
+@click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("-m", "--message", help="Commit message to use")
 @click.option(
     "--no-edit",
@@ -1420,7 +1424,7 @@ def get_commit_message(committer, default_message):
 )
 def commit(
     ctx,
-    project_or_ensemble_path,
+    path,
     message,
     skip_add,
     no_edit,
@@ -1429,10 +1433,10 @@ def commit(
     update_repositories_only,
     **options,
 ):
-    """Commit any changes to the given project or ensemble."""
+    """Commit any changes to the given project, ensemble or repository."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path,
+        path,
         options.get("home"),
         can_be_empty=True,
         override_environment=options.get("use_environment") or "",
@@ -1441,8 +1445,10 @@ def commit(
     if localEnv.manifestPath and (
         all_repositories
         or not localEnv.project
-        or len(os.path.abspath(project_or_ensemble_path))
-        >= len(localEnv.project.projectRoot)
+        or is_relative_to(
+            os.path.abspath(path),
+            os.path.dirname(localEnv.manifestPath),
+        )
     ):
         ensemble = localEnv.get_manifest(skip_validation=True)
         default_commit_message = ensemble.get_default_commit_message()
@@ -1451,21 +1457,25 @@ def commit(
         else:
             committer = ensemble.repositories["self"]
     else:
-        # otherwise commit the project repository
         ensemble = None
         default_commit_message = "Commit by Unfurl"
         if all_repositories:
             click.echo("aborting: --all-repositories requires an ensemble path")
             return
         else:
-            assert localEnv.project
-            committer = localEnv.project.project_repoview
+            repo_view, _, _, _ = localEnv.find_path_in_repos(path)
+            if repo_view:
+                committer = repo_view
+            else:
+                # otherwise commit the project repository
+                assert localEnv.project
+                committer = localEnv.project.project_repoview
             if (
                 localEnv.manifestPath
                 and committer.repo
                 and committer.repo.find_repo_path(localEnv.manifestPath)
             ):
-                # ensemble is in the project repository
+                # ensemble is in the repository
                 ensemble = localEnv.get_manifest(skip_validation=True)
 
     # stage changes before invoking the commit editor
