@@ -82,7 +82,7 @@ from .schemas import (
     PATCH_RESPONSES,
 )
 from ..manifest import relabel_dict
-from ..packages import Package, get_package_from_url
+from ..packages import Package, get_package_from_url, ProxiedRepo
 
 from ..projectpaths import rmtree, Folders
 from ..localenv import LocalEnv, Project
@@ -458,14 +458,15 @@ def _get_managed_project_repo_dir(
 
 def _get_project_repo(
     project_id: str, branch: str, args: Optional[dict]
-) -> Optional[GitRepo]:
+) -> Optional[Repo]:
     path = _get_project_repo_dir(project_id, branch, args)
-    git_path = os.path.join(path, ".git")
-    if os.path.isdir(git_path):
+    if os.path.isdir(path):
         if os.path.isfile(path + ".lock"):
             logger.warning("can't get repo: %s found", path + ".lock")
             return None  # in the middle of cloning this repo
-        repo = GitRepo(git.Repo(path))
+        repo = Repo.make_repo(path)
+        if not repo:
+            return None
         if args:
             # make sure we are using the latest credentials:
             username, password = (
@@ -473,10 +474,10 @@ def _get_project_repo(
                 args.get("private_token", args.get("password")),
             )
             if username and password:
-                repo.set_url_credentials(username, password, True)
+                repo.set_url_credentials(username, password, True)  # type: ignore
         return repo
     else:
-        logger.warning("git repo not found: %s", git_path)
+        logger.warning("repo not found: %s", path)
     return None
 
 
@@ -571,8 +572,8 @@ class CacheItemDependency:
         if repo.revision != self.latest_commit:
             # the repository has changed, check to see if files this cache entry uses has changed
             # note: we don't need the cache value to be present in the cache since we have the commit info already
-            last_commit_for_entry, _ = cache_entry._set_commit_info(self.file_paths)
-            if last_commit_for_entry not in self.last_commits:
+            cache_entry._set_commit_info(self.file_paths)
+            if cache_entry.last_commit not in self.last_commits:
                 # there's a newer version of files used by the cache entry
                 logger.debug(f"dependency {self.dep_key()} changed")
                 return True
@@ -640,7 +641,7 @@ class InflightCacheValue(NamedTuple):
     time: float
 
 
-def _get_committed_date(commit: Commit):
+def _get_committed_date(commit: Commit) -> int:
     try:
         return commit.committed_date
     except ValueError:
@@ -682,7 +683,7 @@ class CacheEntry:
     branch: Optional[str]
     file_path: str  # relative to project root
     key: str
-    repo: Optional[GitRepo] = None
+    repo: Optional[Repo] = None
     strict: bool = False
     args: Optional[dict] = None
     stale_pull_age: int = 0
@@ -690,7 +691,9 @@ class CacheEntry:
     _deps: CacheItemDependencies = field(default_factory=dict)
     root_entry: Optional["CacheEntry"] = None
     # following are set by get_cache() or set_cache():
-    commitinfo: Union[Literal[False], Optional["Commit"]] = None
+    # commitinfo: Union[Literal[False], "Commit", None] = None
+    last_commit: Optional[str] = None
+    last_commit_date: int = 0
     hit: Optional[bool] = None
     directives: Optional[CacheDirective] = None
     value: Optional[CacheValue] = None
@@ -703,7 +706,7 @@ class CacheEntry:
         state.pop("cache", None)
         return state
 
-    def _set_project_repo(self) -> Optional[GitRepo]:
+    def _set_project_repo(self) -> Optional[Repo]:
         self.repo = _get_project_repo(
             self.project_id,
             self.branch or DEFAULT_BRANCH,
@@ -724,13 +727,13 @@ class CacheEntry:
         return cache.delete(full_key)
 
     @property
-    def checked_repo(self) -> GitRepo:
+    def checked_repo(self) -> Repo:
         if not self.repo:
             self._set_project_repo()
         assert self.repo, self.project_id
         return self.repo
 
-    def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> GitRepo:
+    def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> Repo:
         if local_developer_mode():
             if not self.repo:
                 self._set_project_repo()
@@ -745,7 +748,7 @@ class CacheEntry:
                         self.repo.working_dir,
                         exc_info=True,
                     )
-                    if self.repo:
+                    if isinstance(self.repo, GitRepo):
                         self.repo.repo.__del__()
                         self.repo = None
                         gc.collect()
@@ -762,7 +765,7 @@ class CacheEntry:
             logger.debug(f"pull cache hit found for {repo_key}: {val}")
             last_check, action = cast(PullCacheEntry, val)
             self.pull_state = action
-            if action == "detached":
+            if action == "detached" or action == "proxied":
                 # using a local development repo that's on a different branch or
                 # we checked out a tag not a branch, no pull is needed
                 return self.checked_repo
@@ -794,7 +797,9 @@ class CacheEntry:
                 self._set_project_repo()
             repo = self.repo
             if repo:
-                if repo.remote:
+                if not isinstance(repo, GitRepo):
+                    action = "proxied"
+                elif repo.remote:
                     logger.info(f"pulling repo for {repo_key}")
                     try:
                         action = pull(repo, branch, shallow_since)
@@ -828,26 +833,35 @@ class CacheEntry:
             cache.set(repo_key, (time.time(), "failed"))
             raise
 
-    def _set_commit_info(self, paths=None) -> Tuple[str, int]:
-        repo = self.checked_repo
+    def _set_commit_info(self, paths: Optional[List[str]] = None) -> None:
         if paths is None:
             paths = []
             if self.file_path:  # if no file_path, just get the latest commit
                 paths.append(self.file_path)
-        # note: self.file_path can be a directory
-        commits = list(
-            repo.repo.iter_commits(self.branch or "HEAD", paths, max_count=1)
-        )
-        if commits:
-            self.commitinfo = commits[0]
-            new_commit = self.commitinfo.hexsha
-            new_commit_date = _get_committed_date(self.commitinfo)
+        repo = self.checked_repo
+        if isinstance(repo, GitRepo):
+            # note: self.file_path can be a directory
+            commits = list(
+                repo.repo.iter_commits(self.branch or "HEAD", paths, max_count=1)
+            )
+            if commits:
+                commitinfo = commits[0]
+                self.last_commit = commitinfo.hexsha
+                self.last_commit_date = _get_committed_date(commitinfo)
         else:
+            assert isinstance(repo, ProxiedRepo)
+            files = repo.files
+            if files and set(files).intersection(paths):
+                self.last_commit_date = int(repo.revision_time)
+                self.last_commit = repo.revision
+                commits = paths  # type: ignore
+            else:
+                commits = []
+        if not commits:
             # file doesn't exist
-            new_commit = ""  # not found
-            new_commit_date = 0
-            self.commitinfo = False  # treat as cache miss
-        return new_commit, new_commit_date
+            # treat as cache miss
+            self.last_commit = ""  # not found
+            self.last_commit_date = 0
 
     def set_cache(self, cache: Cache, directives: CacheDirective, value: Any) -> str:
         self.directives = directives
@@ -856,14 +870,8 @@ class CacheEntry:
             return latest_commit or ""
         full_key = self.cache_key()
         try:
-            if self.commitinfo is None:
-                last_commit, last_commit_date = self._set_commit_info()
-            elif self.commitinfo:
-                last_commit = self.commitinfo.hexsha
-                last_commit_date = _get_committed_date(self.commitinfo)
-            else:
-                last_commit = ""
-                last_commit_date = 0
+            if self.last_commit is None:
+                self._set_commit_info()
         except git.exc.GitCommandError as e:  # type: ignore
             # this can happen if the repository is detached or on a different branch (in developer mode)
             # e.g.   cmdline: git rev-list --max-count=1 main -- ensemble.yaml
@@ -878,15 +886,15 @@ class CacheEntry:
             value = "not_stored"  # XXX
         self.value = CacheValue(
             value,
-            last_commit,
-            latest_commit or last_commit,
+            self.last_commit or "",
+            latest_commit or self.last_commit or "",
             self._deps,
-            last_commit_date,
+            self.last_commit_date,
         )
         logger.info(
             "setting cache with %s with %s deps %s",
             full_key,
-            last_commit,
+            self.last_commit,
             [dep.project_id for dep in self.value.deps.values()],
         )
         cache.set(
@@ -894,13 +902,15 @@ class CacheEntry:
             self.value,
             timeout=directives.timeout,
         )
-        return last_commit
+        return self.last_commit or ""
 
     def _pull_if_missing_commit(
         self, commit: str, commit_date: int
-    ) -> Tuple[bool, GitRepo]:
+    ) -> Tuple[bool, Repo]:
         try:
             repo = self.checked_repo
+            if not isinstance(repo, GitRepo):
+                return False, repo
             repo.repo.commit(commit)
             return False, repo
         except Exception:
@@ -919,7 +929,10 @@ class CacheEntry:
         # if "older..newer" is true iter_commits (git rev-list) will list
         # newer commits up to and including "newer", newest first
         # otherwise the list will be empty
-        if list(self.repo.repo.iter_commits(f"{older}..{newer}", max_count=1)):
+        repo = self.repo
+        if isinstance(repo, GitRepo) and list(
+            repo.repo.iter_commits(f"{older}..{newer}", max_count=1)
+        ):
             return True
         return False
 
@@ -933,7 +946,7 @@ class CacheEntry:
 
     def get_cache(
         self, cache: Cache, latest_commit: Optional[str]
-    ) -> Tuple[Optional[CacheValue], Union[bool, Optional["Commit"]]]:
+    ) -> Tuple[Optional[CacheValue], Optional[bool]]:
         """Look up a cached value and then check if it out of date by checking if the file path in the key was modified after the given commit
         (also store the last_commit so we don't have to do that check everytime)
         we assume latest_commit is the last commit the client has seen but it might be older than the local copy
@@ -1018,15 +1031,15 @@ class CacheEntry:
                 )
                 return None, None  # treat as cache miss
             # the latest_commit is newer than the cached_latest_commit, check if the file has changed
-            new_commit, new_commit_date = self._set_commit_info()
-            if new_commit == last_commit:
+            self._set_commit_info()
+            if self.last_commit == last_commit:
                 # the file hasn't changed, let's update the cache with latest_commit so we don't have to do this check again
                 value = CacheValue(
                     response,
-                    last_commit,
+                    self.last_commit or "",
                     latest_commit or cached_latest_commit,
                     self._deps,
-                    new_commit_date,
+                    self.last_commit_date,
                 )
                 cache.set(
                     full_key,
@@ -1039,7 +1052,7 @@ class CacheEntry:
             else:
                 # stale -- up to the caller to do something about it, e.g. update or delete the key
                 logger.info("stale cache hit for %s with %s", prefixed_key, latest_commit)
-                return value, self.commitinfo
+                return value, bool(self.last_commit)
 
     def _set_inflight(
         self, cache: Cache, latest_commit: Optional[str]
@@ -1101,14 +1114,10 @@ class CacheEntry:
             latest_commit = latest
         self.directives = CacheDirective(store=cacheable, latest_commit=latest_commit)
         if not err and self.root_entry and cache_dependency:
-            if self.commitinfo is None:
-                last_commit, _ = self._set_commit_info()
-            elif self.commitinfo:
-                last_commit = self.commitinfo.hexsha
-            else:
-                last_commit = ""
+            if self.last_commit is None:
+                self._set_commit_info()
             self.root_entry.add_cache_dep(
-                cache_dependency, latest_commit or "", last_commit
+                cache_dependency, latest_commit or "", self.last_commit or ""
             )
         return err, value, self.directives
 
@@ -1223,9 +1232,13 @@ class CacheEntry:
             return err, value
         finally:
             if self.owns_repo and self.repo:
-                self.repo.repo.__del__()
-                self.repo = None
-                gc.collect()
+                self._cleanup()
+
+    def _cleanup(self) -> None:
+        if isinstance(self.repo, GitRepo):
+            self.repo.repo.__del__()
+        self.repo = None
+        gc.collect()
 
     def add_cache_dep(
         self, dep: CacheItemDependency, latest_commit: str, last_commit: str
@@ -1329,7 +1342,7 @@ def get_project_url(project_id: str, username=None, password=None, branch=None) 
     return url
 
 
-def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[GitRepo]:
+def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Repo]:
     """
     Clones or pulls the latest from the given project repository and returns the repository's working directory
     or None if clone failed.
@@ -1338,7 +1351,7 @@ def _stage(project_id: str, branch: str, args: dict, pull: bool) -> Optional[Git
     repo = _get_project_repo(project_id, branch, args)
     if repo:
         logger.info(f"found repo at {repo.working_dir}")
-        if pull and not repo.is_dirty():
+        if pull and isinstance(repo, GitRepo) and not repo.is_dirty():
             repo.pull(with_exceptions=True)
     else:
         # repo doesn't exists, clone it
@@ -1592,7 +1605,7 @@ def _export(
             else:
                 return err
     finally:
-        if repo:
+        if isinstance(repo, GitRepo):
             repo.repo.__del__()
             gc.collect()
 
@@ -1724,12 +1737,13 @@ def _make_readonly_localenv(
     parent_localenv=None,
     requested_format: Optional[str] = None,
 ):
+    gui_local_env = app.config.get("UNFURL_GUI_MODE")
     try:
         # we don't want to decrypt secrets because the export is cached and shared
         overrides: Dict[str, Any] = dict(
             UNFURL_SKIP_VAULT_DECRYPT=True,
             # XXX enable skipping when deps support private repositories
-            UNFURL_SKIP_UPSTREAM_CHECK=bool(app.config.get("UNFURL_GUI_MODE")),
+            UNFURL_SKIP_UPSTREAM_CHECK=bool(gui_local_env),
             apply_url_credentials=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
@@ -1745,7 +1759,7 @@ def _make_readonly_localenv(
             clone_location,
             home_dir,
             can_be_empty=True,
-            parent=parent_localenv,
+            parent=parent_localenv or gui_local_env,
             readonly=True,
             overrides=overrides,
         )
@@ -2585,7 +2599,7 @@ def _patch_ensemble(
             check_lastcommit,
         )
         if err:
-            if existing_repo:
+            if isinstance(existing_repo, GitRepo):
                 existing_repo.repo.__del__()
                 gc.collect()
             return err
@@ -2602,7 +2616,8 @@ def _patch_ensemble(
         invalidate_cache(body, "deployment", project_id)
     if existing_repo:
         was_dirty = existing_repo.is_dirty()
-        existing_repo.repo.__del__()
+        if isinstance(existing_repo, GitRepo):
+            existing_repo.repo.__del__()
         existing_repo = None
         gc.collect()
     else:
@@ -2854,8 +2869,9 @@ def _fetch_working_dir(
             repo = _stage(project_path, branch, args, pull)
             if repo:
                 clone_location = repo.working_dir
-                repo.repo.__del__()
-                gc.collect()
+                if isinstance(repo, GitRepo):
+                    repo.repo.__del__()
+                    gc.collect()
             else:
                 clone_location = None
         if not clone_location:
@@ -2976,10 +2992,12 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
         else:
             env["RUST_LOG"] = "info"
     logger.info(
-        "Starting unfurl-server on %s:%d (backend port: %d)",
+        "Starting unfurl-server on %s:%d (backend port: %d) with %s RUST_LOG=%s",
         host,
         port,
         backend_port,
+        get_console_log_level(),
+        env["RUST_LOG"],
     )
     log_file_path = env.get("UNFURL_LOGFILE")
     stderr_target = None

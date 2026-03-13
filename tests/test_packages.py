@@ -433,14 +433,13 @@ def test_proxied_repo_is_dirty_path_filter(proxied_repo: ProxiedRepo):
 
 
 def test_proxied_repo_is_dirty_no_files_json(tmp_path):
-    """When files.json doesn't exist, is_dirty returns False."""
+    """When files.json doesn't exist, is_dirty returns True."""
     proxied_dir = tmp_path / ".proxied"
     proxied_dir.mkdir()
     (proxied_dir / "info.json").write_text(json.dumps(_SAMPLE_INFO))
-    (tmp_path / "dummy.txt").write_text("hello")
     repo = ProxiedRepo(str(tmp_path))
-    assert not repo.is_dirty()
-    assert not repo.is_dirty(untracked_files=True)
+    assert repo.is_dirty()
+    assert repo.is_dirty(untracked_files=True)
 
 
 def test_proxied_repo_missing_info(tmp_path):

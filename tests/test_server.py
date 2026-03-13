@@ -284,6 +284,19 @@ def serve_server(
     """
     if extra_env:
         os.environ.update(extra_env)
+        # unfurl's logs.initialize_logging() ran at import time (possibly in a
+        # forkserver template before UNFURL_LOGGING was set). Re-apply the level
+        # now so the in-process LOGGING dict — and anything that reads it via
+        # get_console_log_level(), like _start_proxy_server's RUST_LOG mapping —
+        # reflects the updated env.
+        loglevel_env = extra_env.get("UNFURL_LOGGING")
+        if loglevel_env:
+            from unfurl.logs import Levels, set_console_log_level
+
+            try:
+                set_console_log_level(Levels[loglevel_env.upper()])
+            except KeyError:
+                pass
     # With forkserver/spawn, the child's logging isn't captured by pytest.
     # If a log file path is provided, add a FileHandler so Python server logs
     # are written to the same file as the Rust server logs (or a separate one).

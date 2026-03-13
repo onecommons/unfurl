@@ -398,6 +398,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     Therefore, it is recommended that public blueprints give repositories unique names.
     """
 
+    # actually clone of repositories happens in _resolve_repo_to_path()
+
     safe_mode: bool = False
 
     def __init__(
@@ -709,6 +711,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         repository_name,
         source_info: Optional[toscaparser.imports.SourceInfo] = None,
     ) -> str:
+        # if source_info is provided, return a namespace id, otherwise return the url or file path for the repository or ensemble root
         if repository_name:
             if self.manifest and repository_name not in importsLoader.repositories:
                 importsLoader.repositories[repository_name] = (
@@ -733,6 +736,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def _get_namespace_from_source_info(
         self, url, source_info: toscaparser.imports.SourceInfo
     ) -> str:
+        # url is ignored if source_info has a path that can be resolved to a repository, otherwise url is used as the namespace id
+        # may update source_info with "file" and "namespace_uri"
         from .graphql import get_namespace_id
 
         path = source_info["path"]

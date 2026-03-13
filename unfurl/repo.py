@@ -256,19 +256,23 @@ class Repo(abc.ABC):
     def update_git_working_dirs(
         working_dirs, root, dirs, gitDir=".git"
     ) -> Optional[str]:
-        if gitDir in dirs and is_git_worktree(root, gitDir):
-            assert os.path.isdir(root), root
-            repo: Repo = GitRepo(git.Repo(root))
-            key = os.path.abspath(root)
+        key = os.path.abspath(root)
+        repo = Repo.make_repo(root, gitDir)
+        if repo:
             working_dirs[key] = repo.as_repo_view()
             return key
-        if ".proxied" in dirs:
+        else:
+            return None
+
+    @staticmethod
+    def make_repo(root, gitDir=".git") -> Optional["Repo"]:
+        key = os.path.abspath(root)
+        if is_git_worktree(root, gitDir):
+            return GitRepo(git.Repo(key))
+        elif os.path.exists(os.path.join(root, ".proxied")):
             from .packages import ProxiedRepo
 
-            key = os.path.abspath(root)
-            repo = ProxiedRepo(key)
-            working_dirs[key] = repo.as_repo_view()
-            return key
+            return ProxiedRepo(key)
         return None
 
     @staticmethod

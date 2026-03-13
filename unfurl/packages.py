@@ -63,6 +63,7 @@ import re
 import shutil
 import zlib
 import zipfile
+import datetime
 from io import BytesIO
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from git import GitCommandError
@@ -745,6 +746,7 @@ class ProxiedRepo(Repo):
     """
 
     _git_repo: Optional["GitRepo"] = None
+    _files: Optional[Dict[str, int]] = None
 
     def __init__(self, working_dir: str):
         self._working_dir = working_dir
@@ -767,6 +769,24 @@ class ProxiedRepo(Repo):
         if ref.startswith("refs/tags/"):
             return ref[len("refs/tags/") :]
         return ref
+
+    @property
+    def files(self) -> Optional[Dict[str, int]]:
+        if self._files is None:
+            files_path = os.path.join(self._working_dir, ".proxied", "files.json")
+            if not os.path.exists(files_path):
+                self._files = None
+            else:
+                with open(files_path) as f:
+                    self._files = json.load(f)
+        return self._files
+
+    @property
+    def revision_time(self) -> float:
+        timestamp = self._info.get("Time")
+        if not timestamp:
+            return 0
+        return datetime.datetime.fromisoformat(timestamp).timestamp()
 
     def resolve_rev_spec(self, revision: str) -> Optional[str]:
         hash = self.revision
@@ -820,11 +840,10 @@ class ProxiedRepo(Repo):
         """
         if self._git_repo:
             return self._git_repo.is_dirty(untracked_files=untracked_files, path=path)
-        files_path = os.path.join(self._working_dir, ".proxied", "files.json")
-        if not os.path.exists(files_path):
-            return False
-        with open(files_path) as f:
-            recorded: Dict[str, int] = json.load(f)
+
+        files = self.files
+        if files is None:
+            return True
 
         if path:
             path = os.path.relpath(path, self._working_dir)
@@ -834,7 +853,7 @@ class ProxiedRepo(Repo):
                 path = None
 
         # Check tracked files for modifications or deletions.
-        for rel, expected_crc in recorded.items():
+        for rel, expected_crc in files.items():
             if path and not rel.startswith(path):
                 continue
             abs_path = os.path.join(self._working_dir, rel)
@@ -848,7 +867,6 @@ class ProxiedRepo(Repo):
             return False
 
         # Walk the tree looking for files not in files.json.
-        recorded_set = set(recorded)
         for dirpath, dirnames, filenames in os.walk(self._working_dir):
             # Skip .proxied metadata directory.
             if ".proxied" in dirnames:
@@ -860,7 +878,7 @@ class ProxiedRepo(Repo):
                 rel = os.path.join(rel_dir, fname) if rel_dir else fname
                 if path and not rel.startswith(path):
                     continue
-                if rel in recorded_set:
+                if rel in files:
                     continue
                 if self.is_path_excluded(rel):
                     continue
