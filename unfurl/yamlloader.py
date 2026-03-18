@@ -628,7 +628,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 # don't create another Repository instance
                 return self.manifest.repositories[name].repository
             else:
-                name = unique_name(name, list(self.manifest.repositories))
+                name = unique_name(name, self.manifest.repositories)
 
         if tpl is None:
             return None

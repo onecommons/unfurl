@@ -2019,6 +2019,12 @@ def serve(
     is_flag=True,
     help="Do not modify the repository host, just do a dry run.",
 )
+@click.option(
+    "--commit",
+    default=False,
+    is_flag=True,
+    help="Commit changes to the cloud map repository.",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -2031,6 +2037,7 @@ def cloudmap(
     force: bool = False,
     dryrun: bool = False,
     repository: str = "",
+    commit: bool = False,
     **options,
 ):
     """Manage a cloud map.
@@ -2047,12 +2054,12 @@ def cloudmap(
     if not host_name:
         print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
         return
+    # get the host first so we know branch to use in the cloud map repository
     host = CloudMap.get_host(
         localEnv, host_name, namespace or "", clone_root or "", visibility, repository
     )
-    # get the host first so we know branch to use in the cloud map repository
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root, host.name, namespace or "", skip_analysis
+        localEnv, cloudmap, clone_root, host.name, skip_analysis, commit
     )
     host.dryrun = dryrun
     if options.get("import") or sync:

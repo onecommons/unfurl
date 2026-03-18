@@ -90,6 +90,7 @@ from .spec import NodeSpec, TopologySpec, ToscaSpec
 
 from .support import ContainerImage
 from .configurator import Configurator, TaskView
+from .util import load_class_from_file
 from .oci import (
     build_oci_purl,
     create_oci_artifact,
@@ -1357,39 +1358,69 @@ class CloudMapDB:
         assert self.config.path
         self._load(self.config.path)
 
-    def save(self):
+    def save(self) -> bool:
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
-        self.db.pop("metadata", None)
+        changed = False
+        old_metadata = self.db.pop("metadata", None)
         if self.metadata:
-            self.db["metadata"] = {k: self.metadata[k] for k in sorted(self.metadata)}
-        self.db["repositories"] = {
+            new_metadata = {k: self.metadata[k] for k in sorted(self.metadata)}
+            if new_metadata != old_metadata:
+                changed = True
+            self.db["metadata"] = new_metadata
+        elif old_metadata:
+            changed = True
+
+        old_repositories = self.db.pop("repositories", None)
+        new_repositories = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
-        self.db.pop("artifacts", None)
+        if new_repositories != old_repositories:
+            changed = True
+        self.db["repositories"] = new_repositories
+
+        old_artifacts = self.db.pop("artifacts", None)
         if self.artifacts:
-            self.db["artifacts"] = {
+            new_artifacts = {
                 url: val.asdict()
                 for url, val in sorted(self.artifacts.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("services", None)
+            if new_artifacts != old_artifacts:
+                changed = True
+            self.db["artifacts"] = new_artifacts
+        elif old_artifacts:
+            changed = True
+
+        old_services = self.db.pop("services", None)
         if self.services:
-            self.db["services"] = {
+            new_services = {
                 url: val.asdict()
                 for url, val in sorted(self.services.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("instantiations", None)
+            if new_services != old_services:
+                changed = True
+            self.db["services"] = new_services
+        elif old_services:
+            changed = True
+
+        old_instantiations = self.db.pop("instantiations", None)
         if self.instantiations:
-            self.db["instantiations"] = {
+            new_instantiations = {
                 key: val.asdict()
                 for key, val in sorted(self.instantiations.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("types", None)
+            if new_instantiations != old_instantiations:
+                changed = True
+            self.db["instantiations"] = new_instantiations
+        elif old_instantiations:
+            changed = True
+
+        old_types = self.db.pop("types", None)
         if self.types:
-            self.db["types"] = {
+            new_types = {
                 name: (
                     self.types[name].asdict()
                     if isinstance(self.types[name], CloudType)
@@ -1397,7 +1428,14 @@ class CloudMapDB:
                 )
                 for name in sorted(self.types)
             }
+            if new_types != old_types:
+                changed = True
+            self.db["types"] = new_types
+        elif old_types:
+            changed = True
+
         self.config.save()
+        return changed
 
     def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
         if not artifact_type:
@@ -2602,26 +2640,47 @@ class CloudMap:
 
     def __init__(
         self,
-        repo: GitRepo,
+        repo: Optional[GitRepo],
         host_branch: str,
         source_branch: str = "main",
         localrepo_root: str = "",
         path: str = "",
         skip_analysis: bool = False,
+        commit: bool = False,
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
-        custom_analyzers: Optional[List[Type[Notable]]] = None,
     ):
+        """Initialize a CloudMap bound to a local cloudmap git checkout.
+
+        Args:
+            repo: Local git repository that contains the cloudmap file.
+            host_branch:  Working cloudmap branch (default to ``hosts/{host_name}``)
+            source_branch: Source-of-truth cloudmap branch used for exporting to a host.
+            localrepo_root: Root directory for local repository clones used by sync.
+            path: Path to the cloudmap file relative to the ``repo`` root.
+            skip_analysis: Skip repository content analysis when True.
+            logger: Logger used for cloudmap operations.
+            local_env: Optional local environment used for context and config.
+            custom_analyzers: Optional additional Notable analyzers.
+        """
         self.logger = logger
-        self.repo = repo
-        self.host_branch = host_branch
+        self.host_branch = host_branch or source_branch
         self.source_branch = source_branch
         self.local_env = local_env
-        self.custom_analyzers = custom_analyzers or []
+        project_path = (
+            local_env and local_env.project and local_env.project.projectRoot
+        ) or "."
+        base_path = repo.working_dir if repo else project_path
+        # Load custom analyzers after repo is available
+        self.custom_analyzers = self._load_custom_analyzers(
+            local_env, project_path, logger
+        )
+        self.repo = repo
+        self.commit = commit
 
         self.directory = Directory(
             self,
-            str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
+            str(Path(base_path) / (path or "cloudmap.yaml")),
             localrepo_root,
             skip_analysis,
         )
@@ -2639,31 +2698,34 @@ class CloudMap:
         filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
         return CloudMapDB(filepath)
 
-    @classmethod
-    def from_name(
-        cls,
+    @staticmethod
+    def _checkout_cloudmap(
         local_env: "LocalEnv",
-        name: str,
-        clone_root: Optional[str],
+        url: str,
+        revision: str,
         host_name: str,
-        namespace: str,
-        skip_analysis: bool,
         logger=logger,
-    ) -> "CloudMap":
-        url, path, revision, repository = cls.get_config(local_env, name)
-        if clone_root is None:
-            local_repo_root = repository.get("clone_root") or ""
-        else:
-            local_repo_root = clone_root
+    ) -> Tuple[GitRepo, str]:
+        """Clone or checkout the cloudmap repository locally.
 
-        # what if branch only exists locally?
+        If host_name is provided, checkout a branch named``hosts/{host_name}``. If the host branch does
+        not exist yet on the remote, it is created from ``revision``.
+
+        Returns:
+            Tuple[GitRepo, str]: The checked out local repository and the host branch name, if set.
+        """
+        # XXX what if branch only exists locally?
         if not host_name:
-            branch = revision
+            branch = ""
             branch_exists = True
         else:
             branch = f"hosts/{host_name}"
             local_repo = local_env.find_git_repo(url, branch)
-            if local_repo and branch in local_repo.repo.branches:  # type: ignore  # Unsupported right operand type for in
+            if (
+                local_repo
+                and isinstance(local_repo, GitRepo)
+                and branch in local_repo.repo.branches
+            ):
                 branch_exists = True
             else:
                 try:
@@ -2678,31 +2740,59 @@ class CloudMap:
             logger.verbose(
                 f"Using {'existing' if branch_exists else 'new'} branch {branch} for cloudmap."
             )
+
         if branch_exists:  # branch exists
             # clone or checkout branch
-            repo, _, _ = local_env.find_or_create_working_dir(url, branch)
+            repo, _, _ = local_env.find_or_create_working_dir(url, branch or revision)
         else:
             # clone or checkout main and create branch
             repo, _, _ = local_env.find_or_create_working_dir(
                 url, revision, checkout_args=dict(b=branch)
             )
+
         if not isinstance(repo, GitRepo):
             # XXX add find_or_create_working_dir variant that always returns GitRepo
             raise UnfurlError(f"couldn't clone {url}")
 
-        # Load custom analyzers after repo is available
-        custom_analyzers = cls._load_custom_analyzers(local_env, repo.working_dir, logger)
+        return repo, branch
+
+    @classmethod
+    def from_name(
+        cls,
+        local_env: "LocalEnv",
+        name: str,
+        clone_root: Optional[str],
+        host_name: str,
+        skip_analysis: bool,
+        commit: bool,
+        logger=logger,
+    ) -> "CloudMap":
+        url, path, revision, repository = cls.get_config(local_env, name)
+        if not url:
+            # create new cloudmap file in the project repo
+            assert local_env.project
+            repo = local_env.project.project_repoview.repo
+            assert isinstance(repo, GitRepo)
+            revision = host_branch = repo.active_branch
+        else:
+            repo, host_branch = cls._checkout_cloudmap(
+                local_env, url, revision, host_name, logger
+            )
+        if clone_root is None:
+            local_repo_root = repository.get("clone_root") or ""
+        else:
+            local_repo_root = clone_root
 
         return CloudMap(
             repo,
-            branch,
+            host_branch,
             revision,
             local_repo_root,
             path,
             skip_analysis,
+            commit,
             logger,
             local_env,
-            custom_analyzers,
         )
 
     @staticmethod
@@ -2716,7 +2806,7 @@ class CloudMap:
 
         Args:
             local_env: LocalEnv instance to get cloudmaps config from
-            base_dir: Base directory for resolving relative paths (typically repo.working_dir)
+            base_dir: Base directory for resolving relative paths
             logger: Logger instance for debug/warning/error messages
 
         Returns:
@@ -2725,8 +2815,6 @@ class CloudMap:
         custom_analyzers: List[Type[Notable]] = []
         if not local_env:
             return custom_analyzers
-
-        from .util import load_class_from_file
 
         cloudmaps_config = local_env.get_context().get("cloudmaps", {})
         analyzer_paths = cloudmaps_config.get("analyzers", [])
@@ -2776,13 +2864,18 @@ class CloudMap:
                 # assume name is an url or local path
                 cloudmap_url = name
             repository = {}
-        url, path, revision = split_git_url(cloudmap_url)
-        return (
-            normalize_git_url(url),
-            path,
-            revision or repository.get("revision", "main"),
-            repository,
-        )
+        if not urlparse(cloudmap_url).scheme and not os.path.exists(cloudmap_url):
+            # url is a local path that doesn't exist, return as path
+            # so we create a new cloudmap file
+            return "", cloudmap_url, repository.get("revision", "main"), repository
+        else:
+            url, path, revision = split_git_url(cloudmap_url)
+            return (
+                normalize_git_url(url),
+                path,
+                revision or repository.get("revision", "main"),
+                repository,
+            )
 
     @staticmethod
     def _find_host_config(
@@ -2920,8 +3013,8 @@ class CloudMap:
         """
         Synchronize the cloudmap with the given the repository host.
 
-        First, update a branch named "hosts/{host_name}/{namespace}" with the latest from the repository host.
-        Then merge the host branch into "main".
+        First, update a branch named "hosts/{host.name}" with the latest from the repository host.
+        Then merge the host branch into the default branch (e.g., "main").
         If a conflict is detected, abort with a merge error in the cloudmap repository.
         For example, if a repository branch or tags was changed in both branches there will be a merge conflict.
         If so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run this command.
@@ -2940,6 +3033,7 @@ class CloudMap:
         op_name = "sync" if sync else "export"
         if self.host_branch != self.source_branch:
             if self.repo:
+                # CloudMap.from_name() switches to host_branch but we want to sync the source branch (e.g. main)
                 self.repo.checkout(self.source_branch)
             self.directory.db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
@@ -2951,7 +3045,7 @@ class CloudMap:
             # merge the host branch into main
             # there will be a merge conflict if a repository branch or tags was changed in both branches
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
-            if merge_host and self.repo:
+            if merge_host and self.repo and self.commit:
                 self.repo.repo.git.merge(
                     self.host_branch, m=f"merge changes from syncing {self.host_branch}"
                 )
@@ -2962,20 +3056,23 @@ class CloudMap:
             # since the cloudmap merge was successful this will just be a fast-forward merge
             self.directory.merge_from_host(host)
 
-        # deploy main to the host
+        # deploy source_branch (e.g. main) to the host
         host.to_host(self.directory, True, force=force)
 
         # cloudmap might have changed
         changed = self.save(f"{op_name}ed to {host.name}")
-        if self.repo and self.host_branch != self.source_branch:
-            # set host branch head to match to main because we are even now
+        if self.repo and self.commit and self.host_branch != self.source_branch:
+            # set host branch head to match to the source_branch (e.g. main) because we just synced main to the host
             self.repo.repo.git.branch(self.host_branch, f=True)
         return changed
 
     def save(self, msg: str) -> bool:
-        self.directory.db.save()
-        if not self.repo or not self.directory.db.config.path:
-            return False
+        changed = self.directory.db.save()
+        if not self.directory.db.config.path:
+            return changed
+        if not self.repo or not self.commit:
+            self.logger.verbose("saved cloudmap to %s", self.directory.db.config.path)
+            return changed
         self.repo.repo.index.add(self.directory.db.config.path)
         if self.repo.is_dirty(False, self.directory.db.config.path):
             assert self.directory.db.config.path
@@ -3034,8 +3131,8 @@ class CloudMapConfigurator(Configurator):
             cloudmap_name,
             inputs.get("clone_root") or "",
             "",  # skip name so we don't switch branches to f"hosts/{host.name}"
-            namespace,
             bool(inputs.get("skip_analysis")),
+            bool(inputs.get("commit")),
             task.logger,
         )
         # set this so we can track changes to the repo

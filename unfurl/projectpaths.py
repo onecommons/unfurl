@@ -650,7 +650,7 @@ def get_path(ctx, path, relativeTo=None, mkdir=False):
 
 def _abspath(ctx, path, relativeTo=None, mkdir=False):
     abspath, basedir = _get_path(ctx, path, relativeTo, mkdir)
-    fp = FilePath(abspath, basedir, relativeTo, path)
+    fp = FilePath(abspath, basedir, relativeTo or "", path)
     if not relativeTo or Folders.is_target_relative(relativeTo):
         # we want to be save a representation relative to a repository, the ensemble or project,
         # but not to the current resource or an absolute path

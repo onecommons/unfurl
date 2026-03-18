@@ -33,6 +33,7 @@ import re
 import os
 import fnmatch
 import shutil
+import shlex
 from collections.abc import Mapping, MutableSequence
 import os.path
 from jsonschema import Draft7Validator
@@ -270,8 +271,8 @@ def assert_form(src: Any, types=Mapping, test: bool = True):
     return src
 
 
-_ClassRegistry = {}  # type: ignore
-_shortNameRegistry = {}  # type: ignore
+_ClassRegistry: Dict[str, type] = {}
+_shortNameRegistry: Dict[str, str] = {}
 
 
 def register_short_names(shortNames: Union[Mapping, Iterable]) -> None:
@@ -279,7 +280,10 @@ def register_short_names(shortNames: Union[Mapping, Iterable]) -> None:
 
 
 def register_class(
-    className: str, factory: object, short_name: str = None, replace: bool = True
+    className: str,
+    factory: type,
+    short_name: Optional[str] = None,
+    replace: bool = True,
 ) -> None:
     if short_name:
         _shortNameRegistry[short_name] = className
@@ -289,7 +293,7 @@ def register_class(
     _ClassRegistry[className] = factory
 
 
-def load_module(path: str, full_name: str = None) -> ModuleType:
+def load_module(path: str, full_name: Optional[str] = None) -> ModuleType:
     if full_name is None:
         full_name = re.sub(r"\W", "_", path)  # generate a name from the path
     if full_name in sys.modules:
@@ -324,8 +328,6 @@ def load_class_from_file(
     Example:
         klass = load_class_from_file("notables/custom.py#MyNotable", "/path/to/repo", "Notable class")
     """
-    import shlex
-
     if "#" not in class_path:
         raise UnfurlError(f'Invalid {description} path: "{class_path}" - must use format "file.py#ClassName"')
 
@@ -343,10 +345,10 @@ def load_class_from_file(
         raise UnfurlError(f'Failed to load {description} from "{class_path}": {e}')
 
 
-def load_class(klass: str, defaultModule: str = "__main__") -> object:
+def load_class(klass: str, defaultModule: str = "__main__") -> Optional[type]:
     prefix, sep, suffix = klass.rpartition(".")
     module = importlib.import_module(prefix or defaultModule)
-    return getattr(module, suffix, None)
+    return cast(Optional[type], getattr(module, suffix, None))
 
 
 _shortNameRegistry = {}
@@ -356,7 +358,7 @@ def check_class_registry(kind: str) -> bool:
     return kind in _ClassRegistry or kind in _shortNameRegistry
 
 
-def lookup_class(kind: str) -> object:
+def lookup_class(kind: str) -> Optional[type]:
     if kind in _ClassRegistry:
         return _ClassRegistry[kind]
     elif kind in _shortNameRegistry:
@@ -717,7 +719,7 @@ def taketwo(seq: Iterable[_T]) -> Iterator[Tuple[_T, Optional[_T]]]:
             last = x
 
 
-def unique_name(name: str, existing: Sequence) -> str:
+def unique_name(name: str, existing: Iterable) -> str:
     counter = 1
     basename = name
     while name in existing:

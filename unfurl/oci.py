@@ -119,6 +119,7 @@ class EntitySchema:
     GenericFile = "tosca.artifacts.File"
     ContainerFile = "cloudmap.artifacts.Containerfile"
     CloudBlueprint = "cloudmap.artifacts.tosca.ServiceTemplate"
+    CloudMap = "cloudmap.artifacts.CloudMap"
     TOSCASchema = "cloudmap.artifacts.tosca.TypeLibrary"
     Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
     UnfurlProject = "cloudmap.artifacts.unfurl.Project"

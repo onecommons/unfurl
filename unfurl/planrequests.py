@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 from .util import (
     check_class_registry,
+    load_class_from_file,
     lookup_class,
     load_module,
     find_schema_errors,
@@ -1425,10 +1426,7 @@ def _set_config_spec_args(
     # load the configurator class
     try:
         if "#" in className and len(shlex.split(className)) == 1:
-            path, sep, fragment = className.partition("#")
-            fullpath = os.path.join(base_dir, path)
-            mod = load_module(fullpath)
-            klass = getattr(mod, fragment)  # raise if missing
+            klass = load_class_from_file(className, base_dir)
         elif ":" in className and len(shlex.split(className)) == 1:
             # its a dsl method, handle in ConfigurationSpec.create
             if dry_run and template:

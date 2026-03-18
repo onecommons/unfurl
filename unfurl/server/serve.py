@@ -1907,7 +1907,7 @@ def _apply_imports(
                         break
                 else:
                     # don't use an existing name because the urls won't match
-                    repository = unique_name(repository, repositories)  # type: ignore
+                    repository = unique_name(repository, repositories)
                     logger.debug("adding repository '%s': %s", repository, root)
                     patch_repositories[repository] = repositories[repository] = dict(
                         url=root
@@ -1924,7 +1924,7 @@ def _apply_imports(
                 else:
                     # no repository declared
                     repository = Repo.get_path_for_git_repo(root, name_only=True)
-                    repository = unique_name(repository, repositories)  # type: ignore
+                    repository = unique_name(repository, repositories)
                     logger.debug(
                         "adding generated repository '%s': %s", repository, root
                     )

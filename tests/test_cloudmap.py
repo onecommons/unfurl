@@ -225,11 +225,13 @@ types:
       title: GoogleCloudProject"""
 
 @skip_integration
-def test_create(runner, caplog):
+@pytest.mark.parametrize("commit", ["--commit", ""])
+def test_create(runner: CliRunner, caplog, commit: str):
     run_cmd(
         runner,
         ["--home", ""]
-        + "cloudmap --sync testProvider --namespace feb20a".split(),
+        + f"cloudmap {commit} --sync testProvider --namespace feb20a".split(),
+        print_result=True,
     )
     with change_cwd("cloudmap"):
         with open("cloudmap.yaml") as f:
@@ -241,11 +243,12 @@ def test_create(runner, caplog):
     assert "importing group feb20a" in caplog.text
     assert "importing group feb20a/feb20b" in caplog.text
     assert "syncing to feb20a" in caplog.text
-    assert (
-        "committed: Update hosts/testProvider with latest from testProvider/feb20a"
-        in caplog.text
-    )
-    assert 'nothing to commit for "synced to testProvider"' in caplog.text
+    if commit:
+        assert (
+            "committed: Update hosts/testProvider with latest from testProvider/feb20a"
+            in caplog.text
+        )
+        assert 'nothing to commit for "synced to testProvider"' in caplog.text
 
 
 @skip_integration
@@ -254,7 +257,7 @@ def test_sync(runner, caplog):
     run_cmd(
         runner,
         ["--home", ""]
-        + "cloudmap --sync testProvider --namespace feb20a".split(),
+        + "cloudmap --sync testProvider --commit --namespace feb20a".split(),
     )
     assert UNFURL_TEST_CLOUDMAP_URL
     for msg in [
@@ -1417,17 +1420,6 @@ repositories: {{}}
 
     files_to_commit = ["cloudmap.yaml"]
 
-    # Create custom class file if code is provided
-    if custom_class_code:
-        notables_dir = cloudmap_repo_path / "notables"
-        notables_dir.mkdir()
-
-        # Extract filename from analyzer_config
-        class_file = analyzer_config[0].split("#")[0].split("/")[-1]
-        custom_py = notables_dir / class_file
-        custom_py.write_text(custom_class_code)
-        files_to_commit.append(f"notables/{class_file}")
-
     # Commit the files
     repo.index.add(files_to_commit)
     repo.index.commit("Initial commit")
@@ -1435,6 +1427,16 @@ repositories: {{}}
     # Create unfurl project with custom analyzer config
     project_path = tmp_path / "project"
     project_path.mkdir()
+
+    # Create custom class file if code is provided
+    if custom_class_code:
+        notables_dir = project_path / "notables"
+        notables_dir.mkdir()
+
+        # Extract filename from analyzer_config
+        class_file = analyzer_config[0].split("#")[0].split("/")[-1]
+        custom_py = notables_dir / class_file
+        custom_py.write_text(custom_class_code)
 
     unfurl_yaml = project_path / "unfurl.yaml"
     unfurl_yaml.write_text(f"""apiVersion: unfurl/v1alpha1
@@ -1458,9 +1460,9 @@ environments:
         local_env,
         "cloudmap",
         None,  # clone_root
-        "",    # host_name
-        "",    # namespace
-        False, # skip_analysis
+        "",  # host_name
+        False,  # skip_analysis
+        False,  # commit
     )
 
     # Verify expected number of custom analyzers
