@@ -19,6 +19,7 @@ Registry Auth Tips:
 - gcr.io and *.pkg.dev: username="oauth2accesstoken", password=<oauth access token>
 """
 
+from __future__ import annotations
 from dataclasses import dataclass, asdict, field, InitVar
 from functools import cache, total_ordering
 from typing import (
@@ -148,6 +149,7 @@ ArtifactMappings = {
     "https://slsa.dev/provenance/v0.2": EntitySchema.SlsaProvenance02,
     "https://slsa.dev/provenance/v1": EntitySchema.SlsaProvenance1,
     "https://mobyproject.org/buildkit@v1": EntitySchema.BuildkitProvenance,
+    "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md": EntitySchema.BuildkitProvenance,
     "https://cyclonedx.org/bom/v1.4": EntitySchema.CycloneDxBom,
 }
 
@@ -182,6 +184,8 @@ class CommonMetadata:
     """Date and time on which the resource was created, conforming to RFC 3339."""
     source_url: str = ""
     """Informal pointer to source code"""
+    source_revision: str = ""
+    """Informal pointer to source code revision"""
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
@@ -241,6 +245,8 @@ class ArtifactMetadata(CommonMetadata):
                         setattr(self, field_name, cleaned)
                     except ValueError:
                         pass  # skip invalid URL
+                else:
+                    setattr(self, field_name, cleaned)
 
         # OCI standard annotations
         _set_if_present("source_url", "org.label-schema.vcs-url")
@@ -249,6 +255,7 @@ class ArtifactMetadata(CommonMetadata):
         _set_if_present("spdx_licenses", "org.opencontainers.image.licenses")
         _set_if_present("version", "org.label-schema.version")
         _set_if_present("version", "org.opencontainers.image.version")
+        _set_if_present("source_revision", "org.opencontainers.image.revision")
         _set_if_present("title", "org.label-schema.name")
         _set_if_present("title", "org.opencontainers.image.title")
         _set_if_present("description", "org.label-schema.description")
@@ -257,6 +264,7 @@ class ArtifactMetadata(CommonMetadata):
         _set_if_present("vendor", "org.opencontainers.image.vendor")
         _set_if_present("homepage_url", "org.label-schema.url")
         _set_if_present("homepage_url", "org.opencontainers.image.url")
+        _set_if_present("created", "org.opencontainers.image.created")
 
     def __post_init__(self):
         super().__post_init__()
@@ -755,6 +763,9 @@ def create_oci_artifact(
                     url=artifact_fetch.manifest_url,
                     type=inst_type,
                     digest=artifact_fetch.artifact_digest,
+                    source=metadata.source_url,
+                    source_revision=metadata.source_revision,
+                    instantiated={purl: None},  # link instantiation to artifact
                 )
                 artifact_metadata = predicate.get("metadata")
                 if isinstance(artifact_metadata, dict):

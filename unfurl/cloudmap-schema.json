@@ -82,6 +82,10 @@
           "type": "string",
           "description": "Informal pointer to source code. Use when deployment information is not available."
         },
+        "source_revision": {
+          "type": "string",
+          "description": "Informal pointer to source code revision. Use when deployment information is not available."
+        },
         "spdx_licenses": {
           "type": "string",
           "description": "License(s) as an SPDX License Expression."

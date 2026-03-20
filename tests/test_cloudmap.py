@@ -1659,7 +1659,10 @@ kind: Project
         metadata=ArtifactMetadata(
             description="Official build of Nginx.",
             homepage_url="https://hub.docker.com/_/nginx",
+            source_revision="cffeb933620093bc0c08c0b28c3d5cbaec79d729",
             source_url="https://github.com/nginxinc/docker-nginx.git#cffeb933620093bc0c08c0b28c3d5cbaec79d729:mainline/debian",
+            version="1.27.4",
+            created="2025-02-05T21:27:16Z",
             platforms=[
                 {"architecture": "amd64", "os": "linux"},
                 {"architecture": "arm", "os": "linux"},
@@ -1691,7 +1694,12 @@ kind: Project
                 "cloudmap.artifacts.SpdxDocument": None,
             }
         ),
+        instantiated={
+            "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4": None
+        },
         digest="sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635",
+        source_revision="cffeb933620093bc0c08c0b28c3d5cbaec79d729",
+        source="https://github.com/nginxinc/docker-nginx.git#cffeb933620093bc0c08c0b28c3d5cbaec79d729:mainline/debian",
     )
     assert db.instantiations[instantiation_url] == expected_instantiation
 
