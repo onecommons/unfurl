@@ -22,6 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from typing_extensions import Literal
 from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
@@ -1989,7 +1990,7 @@ def serve(
 @click.option(
     "--clone-root",
     type=click.Path(exists=False),
-    help='Directory to clone repositories to ("" to override config and disable cloning).',
+    help='Directory to clone repositories to (use "" to override config and disable cloning).',
 )
 @click.option(
     "--visibility",
@@ -2006,6 +2007,13 @@ def serve(
     default=False,
     is_flag=True,
     help="Don't analyze files in repositories",
+    hidden=True,
+)
+@click.option(
+    "--analyze",
+    default="default",
+    type=click.Choice(["default", "yes", "no", "save-only"]),
+    help='Analyze files. "save-only" means save locally but don\'t analyze; default is "yes" with --import, "no" with --add',
 )
 @click.option(
     "--force",
@@ -2025,6 +2033,11 @@ def serve(
     is_flag=True,
     help="Commit changes to the cloud map repository.",
 )
+@click.option(
+    "--add",
+    default=None,
+    metavar="URL",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -2038,6 +2051,8 @@ def cloudmap(
     dryrun: bool = False,
     repository: str = "",
     commit: bool = False,
+    add: Optional[str] = None,
+    analyze: Literal["yes", "no", "save-only", "default"] = "default",
     **options,
 ):
     """Manage a cloud map.
@@ -2051,16 +2066,37 @@ def cloudmap(
     localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
-    if not host_name:
-        print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
+    if not add and not host_name:
+        click.echo("nothing to do (use one of --export, --import, --add, or --sync)")
         return
     # get the host first so we know branch to use in the cloud map repository
-    host = CloudMap.get_host(
-        localEnv, host_name, namespace or "", clone_root or "", visibility, repository
-    )
+    if add:
+        host = None
+    else:
+        host = CloudMap.get_host(
+            localEnv,
+            host_name,
+            namespace or "",
+            clone_root or "",
+            visibility,
+            repository,
+        )
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root, host.name, skip_analysis, commit
+        localEnv,
+        cloudmap,
+        clone_root,
+        host.host_branch if host else "",
+        skip_analysis or analyze == "no",
+        commit,
     )
+    if add:
+        r = cloud_map.add_record(add, analyze)
+        if r:
+            cloud_map.save(f"Added {r.__class__.__name__} record for " + r.url)
+        else:
+            click.echo("Failed to add record for " + add)
+        return
+    assert host
     host.dryrun = dryrun
     if options.get("import") or sync:
         changed = cloud_map.from_host(host)

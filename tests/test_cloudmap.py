@@ -4,12 +4,20 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
-from unfurl.oci import EntitySchema, Instantiation, join_resource_url
+from unfurl.oci import (
+    Artifact,
+    ArtifactMetadata,
+    Discovery,
+    EntitySchema,
+    Instantiation,
+    join_resource_url,
+)
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
 from tests.utils import init_project, run_cmd, run_job_cmd
 from unittest.mock import Mock, patch
 from unfurl.cloudmap import (
+    CloudMap,
     GitlabManager,
     GithubManager,
     Repository,
@@ -19,6 +27,7 @@ from unfurl.cloudmap import (
     TypeRefs,
     Service,
 )
+from unfurl.localenv import LocalEnv
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
 
@@ -1400,9 +1409,6 @@ class NotANotable:
 ])
 def test_custom_analyzers(tmp_path, caplog, test_case, custom_class_code, analyzer_config, expected_count, expected_log):
     """Test loading custom Notable analyzer classes from cloudmaps config"""
-    from unfurl.cloudmap import CloudMap, Notable
-    from unfurl.localenv import LocalEnv
-
     # Create a temporary cloudmap repository
     cloudmap_repo_path = tmp_path / "cloudmap"
     cloudmap_repo_path.mkdir()
@@ -1439,7 +1445,7 @@ repositories: {{}}
         custom_py.write_text(custom_class_code)
 
     unfurl_yaml = project_path / "unfurl.yaml"
-    unfurl_yaml.write_text(f"""apiVersion: unfurl/v1alpha1
+    unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
 kind: Project
 environments:
   defaults:
@@ -1453,7 +1459,7 @@ environments:
 
     # Load the LocalEnv with skip_default_ensemble to avoid needing an ensemble
     os.chdir(project_path)
-    local_env = LocalEnv(str(project_path), overrides={"skip_default_ensemble": True})
+    local_env = LocalEnv(str(project_path), can_be_empty=True)
 
     # Create CloudMap instance - this should load (or fail to load) the custom analyzer
     cloudmap = CloudMap.from_name(
@@ -1583,3 +1589,196 @@ def test_release_schedule():
     recreated = Service(url="https://example.com/api", **result)
     assert len(recreated.release_schedule) == 2
     assert recreated.release_schedule[0].url == "https://new-example.com/api"
+
+
+def test_add_record(tmp_path):
+    """Test CloudMap.add_record() correctly identifies and creates Repository, Artifact, and Service records."""
+
+    unfurl_yaml = tmp_path / "unfurl.yaml"
+    unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
+kind: Project
+""")
+
+    # Create a minimal cloudmap YAML file in a temp directory
+    cloudmap_file = tmp_path / "cloudmap.yaml"
+
+    local_env = LocalEnv(str(unfurl_yaml), can_be_empty=True)
+    cm = CloudMap(
+        repo=None,
+        host_branch="main",
+        path=str(cloudmap_file),
+        local_env=local_env,
+        localrepo_root=str(tmp_path),
+    )
+    db = cm.directory.db
+
+    # Case 1: plain git URL without file path → creates a Repository
+    repo_url = "git://gitrepos.org/someorg/somerepo.git"
+    repo = cm.add_record(repo_url, "no")
+    assert isinstance(repo, Repository)
+    expected_repo = Repository(
+        url=repo_url,
+        path="someorg/somerepo",
+        name="somerepo",
+    )
+    assert repo == expected_repo
+    assert db.repositories[repo_url] is repo
+    # Calling again should return the same repository (idempotent)
+    repo2 = cm.add_record(repo_url, "no")
+    assert repo2 is repo
+
+    # Case 2: git URL with a file path fragment → creates Repository + Artifact
+    result = cm.add_record(
+        "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile", "yes"
+    )
+    assert result.notable == {
+        "modules/Dockerfile": {
+            "type": {
+                "cloudmap.artifacts.Containerfile": None,
+            }
+        }
+    }
+    artifact_url = f"{result.url}#:modules/Dockerfile"
+    assert artifact_url in db.artifacts, list(db.artifacts)
+    artifact = db.artifacts[artifact_url]
+    expected_artifact = Artifact(
+        url=artifact_url,
+        type=TypeRefs({EntitySchema.ContainerFile: None}),
+    )
+    assert artifact == expected_artifact
+
+    # Case 3: pkg:oci PURL with pinned tag → creates Artifact + Instantiation via OCI
+    pkg_url = "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4"
+    oci_artifact = cm.add_record(pkg_url, "yes")
+    instantiation_url = "https://registry-1.docker.io/v2/library/nginx/blobs/sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635"
+    expected_oci = Artifact(
+        url=pkg_url,
+        type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+        instantiated_by=[instantiation_url],
+        digest="sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
+        metadata=ArtifactMetadata(
+            description="Official build of Nginx.",
+            homepage_url="https://hub.docker.com/_/nginx",
+            source_url="https://github.com/nginxinc/docker-nginx.git#cffeb933620093bc0c08c0b28c3d5cbaec79d729:mainline/debian",
+            platforms=[
+                {"architecture": "amd64", "os": "linux"},
+                {"architecture": "arm", "os": "linux"},
+                {"architecture": "arm", "os": "linux"},
+                {"architecture": "arm64", "os": "linux"},
+                {"architecture": "386", "os": "linux"},
+                {"architecture": "mips64le", "os": "linux"},
+                {"architecture": "ppc64le", "os": "linux"},
+                {"architecture": "s390x", "os": "linux"},
+            ],
+        ),
+        discovery=Discovery(
+            sources=[
+                "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
+                "https://hub.docker.com/v2/repositories/library/nginx/",
+            ],
+        ),
+    )
+    assert oci_artifact == expected_oci
+    assert db.artifacts[pkg_url] is oci_artifact
+
+    # Verify the Instantiation record was also created
+    assert instantiation_url in db.instantiations
+    expected_instantiation = Instantiation(
+        url=instantiation_url,
+        type=TypeRefs(
+            {
+                "cloudmap.artifacts.InTotoAttestation": None,
+                "cloudmap.artifacts.SpdxDocument": None,
+            }
+        ),
+        digest="sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635",
+    )
+    assert db.instantiations[instantiation_url] == expected_instantiation
+
+    # Case 4: regular HTTPS URL → creates a Service
+    svc_url = "https://example.com/myservice"
+    service = cm.add_record(svc_url, "no")
+    expected_service = Service(url=svc_url)
+    assert service == expected_service
+    assert db.services[svc_url] is service
+    # Calling again is idempotent
+    service2 = cm.add_record(svc_url, "no")
+    assert service2 is service
+
+    # Case 5: missing git repository → should return None and not create a record
+    assert cm.add_record("git://github.com/onecommons/does-not-exist", "no") is None
+
+    # Case 6: git+https scheme URL → treated as git repository
+    gitplus_repo = cm.add_record("git+https://rando.com/org/repo.git", "no")
+    expected_gitplus = Repository(
+        url="git://rando.com/org/repo.git",
+        path="org/repo",
+        name="repo",
+        protocols=["https"],
+    )
+    assert gitplus_repo == expected_gitplus
+
+
+def test_add_record_generic_purl(tmp_path):
+    """Test CloudMap.add_record() with generic (non-OCI/Docker) PURLs."""
+
+    cloudmap_file = tmp_path / "cloudmap.yaml"
+
+    cm = CloudMap(
+        repo=None, host_branch="main", path=str(cloudmap_file), skip_analysis=True
+    )
+    db = cm.directory.db
+
+    # Simple PURL with name and version
+    npm_url = "pkg:npm/express@4.18.2"
+    npm_art = cm.add_record(npm_url, "no")
+    expected_npm = Artifact(
+        url=npm_url,
+        type=TypeRefs({EntitySchema.GenericFile: None}),
+        metadata=ArtifactMetadata(title="express", version="4.18.2"),
+    )
+    assert npm_art == expected_npm
+    assert db.artifacts[npm_url] is npm_art
+
+    # PURL with namespace
+    maven_url = "pkg:maven/org.apache.xmlgraphics/batik-anim@1.9.1"
+    maven_art = cm.add_record(maven_url, "no")
+    expected_maven = Artifact(
+        url=maven_url,
+        type=TypeRefs({EntitySchema.GenericFile: None}),
+        metadata=ArtifactMetadata(title="batik-anim", version="1.9.1"),
+    )
+    assert maven_art == expected_maven
+
+    # PURL without version
+    pypi_url = "pkg:pypi/requests"
+    pypi_art = cm.add_record(pypi_url, "no")
+    expected_pypi = Artifact(
+        url=pypi_url,
+        type=TypeRefs({EntitySchema.GenericFile: None}),
+        metadata=ArtifactMetadata(title="requests"),
+    )
+    assert pypi_art == expected_pypi
+
+    # Idempotent
+    pypi_art2 = cm.add_record(pypi_url, "no")
+    assert pypi_art2 is pypi_art
+
+
+def test_add_record_is_git_url():
+    """Test the _is_git_url static method with various URL formats."""
+    from unfurl.cloudmap import CloudMap
+
+    assert CloudMap._is_git_url("git://github.com/org/repo") is True
+    assert CloudMap._is_git_url("git+https://github.com/org/repo") is True
+    assert CloudMap._is_git_url("git+ssh://github.com/org/repo") is True
+    assert CloudMap._is_git_url("https://github.com/org/repo.git") is True
+    assert CloudMap._is_git_url("https://example.com/repo.git") is True
+    assert CloudMap._is_git_url("https://example.com/repo.git#:path/file") is True
+    assert CloudMap._is_git_url("https://github.com/org/repo") is False
+    assert CloudMap._is_git_url("https://gitlab.com/org/repo") is False
+    assert CloudMap._is_git_url("https://example.com/service") is False
+    assert (
+        CloudMap._is_git_url("pkg:oci/nginx?repository_url=docker.io/library/nginx")
+        is False
+    )

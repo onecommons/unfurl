@@ -751,6 +751,7 @@
     },
     "repositories": {
       "type": "object",
+      "description": "Git repositories. Keys are URLs that start with git://",
       "propertyNames": {
         "description": "URL of the repository using the git:// URL scheme.",
         "pattern": "^[^\\s]*$"
