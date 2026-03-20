@@ -87,7 +87,7 @@ from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_var
 from .projectpaths import _getdir
 from .graphql import ResourceTypesByName, get_deployment_url, TypeName
 from .spec import NodeSpec, TopologySpec, ToscaSpec
-
+from .tosca_plugins.functions import HostConfig, CloudMapInputs, LocalHostConfig
 from .support import ContainerImage
 from .configurator import Configurator, TaskView
 from .util import load_class_from_file
@@ -1869,24 +1869,6 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         return record
 
 
-class HostConfig(TypedDict, total=False):
-    type: Union[
-        Literal["local"], Literal["gitlab"], Literal["unfurl.cloud"], Literal["github"]
-    ]
-    # not used by local:
-    url: Required[str]
-    user: str
-    password: str
-    visibility: str  # "public", "private", "any"
-    save_internal: bool  # save repository host internals
-    canonical_url: str
-
-
-class LocalHostConfig(HostConfig):
-    # use when type = local (LocalRepositoryHost)
-    clone_root: str  # directory containing the repositories
-
-
 def _clean_ci_var(envvar):
     envvar = envvar.copy()
     envvar.pop("project_id")
@@ -3071,28 +3053,20 @@ class CloudMap:
         if not self.directory.db.config.path:
             return changed
         if not self.repo or not self.commit:
-            self.logger.verbose("saved cloudmap to %s", self.directory.db.config.path)
+            self.logger.info(
+                "saved cloudmap to %s: %s", self.directory.db.config.path, msg
+            )
             return changed
         self.repo.repo.index.add(self.directory.db.config.path)
         if self.repo.is_dirty(False, self.directory.db.config.path):
             assert self.directory.db.config.path
             self.repo.commit_files([self.directory.db.config.path], msg)
             self.repo.repo.index.commit(msg)
-            self.logger.debug(f"committed: {msg}")
+            self.logger.verbose(f"committed: {msg}")
             return True
         else:
-            self.logger.debug(f'nothing to commit for "{msg}"')
+            self.logger.verbose(f'nothing to commit for "{msg}"')
             return False
-
-
-class CloudMapInputs(TypedDict, total=False):
-    host: Required[HostConfig]
-    cloudmap: str  # name of cloudmap in the environment
-    namespace: str  # filter by namespace
-    repository: str  # if set just export this repository (identified by url)
-    clone_root: str
-    skip_analysis: bool
-    force: bool
 
 
 class CloudMapConfigurator(Configurator):
@@ -3130,7 +3104,8 @@ class CloudMapConfigurator(Configurator):
             localEnv,
             cloudmap_name,
             inputs.get("clone_root") or "",
-            "",  # skip name so we don't switch branches to f"hosts/{host.name}"
+            # set to switch branches, e.g. to f"hosts/{host.name}"
+            str(inputs.get("host_branch", "")),
             bool(inputs.get("skip_analysis")),
             bool(inputs.get("commit")),
             task.logger,

@@ -29,7 +29,7 @@ from typing import (
     NewType,
     overload,
 )
-from typing_extensions import TypedDict, Unpack
+from typing_extensions import TypedDict, Unpack, Required, Literal
 from urllib.parse import quote, quote_plus
 from tosca import (
     EvalData,
@@ -561,6 +561,34 @@ def urljoin(
 
     return prefix + netloc + (path or "") + query + frag
 
+class HostConfig(TypedDict, total=False):
+    type: Literal["local", "gitlab", "unfurl.cloud", "github"]
+    # not used by local:
+    url: Required[str]
+    user: str
+    password: str
+    visibility: str  # "public", "private", "any"
+    save_internal: bool  # save repository host internals
+    canonical_url: str
+    # omitted or null means default "hosts/{host.name}", set to "" to disable switching branches
+    host_branch: Optional[str]
+
+
+class LocalHostConfig(HostConfig):
+    # use when type = local (LocalRepositoryHost)
+    clone_root: str  # directory containing the repositories
+
+
+class CloudMapInputs(TypedDict, total=False):
+    host: Required[HostConfig]
+    cloudmap: str  # name of cloudmap in the environment
+    namespace: str  # filter by namespace
+    repository: str  # if set just export this repository (identified by url)
+    clone_root: str
+    skip_analysis: bool
+    force: bool
+    host_branch: Optional[str]
+
 
 __all__ = [
     "urljoin",
@@ -571,4 +599,7 @@ __all__ = [
     "generate_string",
     "scalar",
     "scalar_value",
+    "HostConfig",
+    "LocalHostConfig",
+    "CloudMapInputs",
 ]

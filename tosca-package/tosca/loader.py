@@ -361,6 +361,11 @@ class DeniedModule(ModuleType):
                 f"Import of {name} in {__package__} is not permitted", name=name
             )
 
+    def __call__(self, *args, **kwargs):
+        raise ImportError(
+            f"Denied module {object.__getattribute__(self, '__name__')} is not callable"
+        )
+
     def __setattr__(self, name, v):
         raise AttributeError(name)
 
