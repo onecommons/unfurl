@@ -1587,11 +1587,13 @@ class RepositoryHost:
         namespace: str,
         repo_filter: str,
         logger: UnfurlLogger,
+        host_branch: Optional[str] = None,
     ) -> None:
         self.name = name
         self.path = namespace
         self.repo_filter = get_repository_url(repo_filter) if repo_filter else ""
         self.logger = logger
+        self.host_branch = f"hosts/{name}" if host_branch is None else host_branch
 
     def from_host(self, directory: Directory) -> int:
         """
@@ -1782,8 +1784,9 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         namespace: str = "",
         repo_filter: str = "",
         logger=logger,
+        host_branch: Optional[str] = None,
     ) -> None:
-        super().__init__(name, namespace, repo_filter, logger)
+        super().__init__(name, namespace, repo_filter, logger, host_branch)
         _LocalGitRepos.__init__(self, local_repo_root, logger)
 
     def has_repository(self, repo_info: Repository) -> bool:
@@ -1898,7 +1901,9 @@ class GitlabManager(RepositoryHost):
         self.token = token or config.get("password")
         # namespace can be provided in the URL path or as a parameter
         namespace = namespace or parts.path.strip("/")
-        super().__init__(name, namespace, repo_filter, logger)
+        super().__init__(
+            name, namespace, repo_filter, logger, config.get("host_branch")
+        )
         self.visibility = config.get("visibility", "any")
         self.save_internal = bool(config.get("save_internal"))
         self.canonical_url = config.get("canonical_url") or ""
@@ -2294,7 +2299,9 @@ else:
             repo_filter: str = "",
             logger=logger,
         ) -> None:
-            super().__init__(name, namespace, repo_filter, logger)
+            super().__init__(
+                name, namespace, repo_filter, logger, config.get("host_branch")
+            )
             self.visibility = config.get("visibility", "any")
             self.save_internal = config.get("save_internal", False)
             self.canonical_url = config.get("canonical_url", "")
@@ -2685,23 +2692,23 @@ class CloudMap:
         local_env: "LocalEnv",
         url: str,
         revision: str,
-        host_name: str,
+        host_branch: str,
         logger=logger,
     ) -> Tuple[GitRepo, str]:
         """Clone or checkout the cloudmap repository locally.
 
-        If host_name is provided, checkout a branch named``hosts/{host_name}``. If the host branch does
+        If host_branch is provided, checkout that branch. If the host branch does
         not exist yet on the remote, it is created from ``revision``.
 
         Returns:
             Tuple[GitRepo, str]: The checked out local repository and the host branch name, if set.
         """
         # XXX what if branch only exists locally?
-        if not host_name:
+        if not host_branch or host_branch == revision:
             branch = ""
             branch_exists = True
         else:
-            branch = f"hosts/{host_name}"
+            branch = host_branch
             local_repo = local_env.find_git_repo(url, branch)
             if (
                 local_repo
