@@ -62,6 +62,29 @@ if TYPE_CHECKING:
     from .templates.docker import unfurl_datatypes_DockerContainer
 
 class KomposeInputs(ShellInputs):
+    """
+    Use kompose to render a docker-compose template to kubernetes resources
+
+    See `kompose convert` for more information on the conversion process.
+
+    The following inputs are supported:
+
+    :param files: A dictionary of files to write out to the working directory.
+      Each key is the filename and the value is a dictionary with a single key
+      "contents" that contains the contents of the file.
+    :param container: A `unfurl.nodes.Container.Application.Docker` instance
+      that provides the image and other container settings.
+    :param image: The name of the container image to use.
+    :param registry_url: The url of the registry to pull the container image from.
+    :param registry_user: The username to use when pulling the container image.
+    :param registry_password: The password to use when pulling the container image.
+    :param labels: A dictionary of labels to add to the kubernetes service.
+    :param annotations: A dictionary of annotations to add to the kubernetes service.
+    :param expose: If true, create a kubernetes ingress record. If a string,
+      use that string as the host name in the ingress record.
+    :param ingress_extras: Additional configuration for the ingress record.
+    :param env: A dictionary of environment variables to add to the container.
+    """
     files: Union[None, Dict[str, Dict[str, Any]]] = None
     container: Union[None, "unfurl_datatypes_DockerContainer"] = None
     image: Optional[str] = None
@@ -172,6 +195,7 @@ class KomposeConfigurator(ShellConfigurator):
             assert isinstance(compose, dict)
         else:
             container = task.inputs.get_copy("container") or {}
+            assert isinstance(container, dict), type(container)
             compose = render_compose(
                 container,
                 task.inputs.get_copy("image"),
