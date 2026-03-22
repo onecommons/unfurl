@@ -110,15 +110,16 @@ class UnfurlNotable(Notable):
             type_info = None
             typename = ""
             dependencies: dict[str, TypeName] = {}
-            child_artifacts: TypedUrls = {}
+            notables: TypedUrls = {}
             for name, repo_view in manifest.repositories.items():
                 if name not in ("spec", "self", "project", "unfurl"):
                     if repo_view.url.startswith("git-local://") or os.path.isabs(
                         repo_view.url
                     ):
                         continue
-                    child_artifacts[repo_view.url] = None
-                    directory.cloudmap.add_record(repo_view.url, analyze)
+                    giturl = get_repository_url(repo_view.url)
+                    notables[giturl] = None
+                    directory.cloudmap.add_record(giturl, analyze)
 
             if node:
                 types = ResourceTypesByName(
@@ -149,7 +150,7 @@ class UnfurlNotable(Notable):
                     # XXX directory.add_credentials(image)
                     image_artifact = directory.db.add_image_artifact(image)
                     purl = image_artifact.url
-                    child_artifacts[purl] = None
+                    notables[purl] = None
 
             artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
 
@@ -161,7 +162,7 @@ class UnfurlNotable(Notable):
                 version=template_version,
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
-                artifacts=child_artifacts,
+                notables=notables,
                 dependencies={
                     name: TypeRefs({v: None}) for name, v in dependencies.items()
                 },
@@ -298,7 +299,7 @@ class UnfurlNotable(Notable):
         spec_repo_view = manifest.repositories.get("spec")
         analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
 
-        # XXX add inputs from repositories and lock section
+        # XXX add inputs from lock section
         instantiation = Instantiation(
             url=artifact.url,
             revision=repo_info.get_current_commit(),
