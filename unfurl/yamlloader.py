@@ -98,6 +98,8 @@ from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from time import perf_counter
 from jinja2.runtime import DebugUndefined
 
+from .util import validate_tosca_def
+
 if TYPE_CHECKING:
     from .manifest import Manifest
     from .localenv import LocalEnv
@@ -423,6 +425,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             self.solve_topology = solve_topology
         self.readonly = bool(self.local_env and self.local_env.readonly)
+        self.importslist: Optional[List[Union[str, Dict]]] = None
 
     def _solve_topology(self, topology_template):
         assert self.manifest
@@ -463,11 +466,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         importsLoader: toscaparser.imports.ImportsLoader,
         importslist: List[Union[str, Dict]],
     ):
-        while True:
-            try:
-                return super().load_imports(importsLoader, importslist)
-            except UnfurlPackageUpdateNeeded:
-                pass  # reload
+        try:
+            self.importslist = importslist
+            while True:
+                try:
+                    return super().load_imports(importsLoader, importslist)
+                except UnfurlPackageUpdateNeeded:
+                    pass  # reload
+        finally:
+            self.importslist = None
 
     def find_matching_node(self, relTpl, req_name, req_def):
         if self.manifest and self.manifest.tosca:
@@ -1261,6 +1268,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         ).expanded
                     doc.path = path
                     doc.base_dir = get_base_dir(path)
+                    validate = (self.manifest and self.manifest.validate) or True
+                    if self.importslist and validate:
+                        error = validate_tosca_def(doc, "import")
+                        if error:
+                            raise error
+
             if fragment and doc:
                 return _resolve_fragment(doc, fragment), cacheable
             else:

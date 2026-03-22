@@ -13,7 +13,7 @@ from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
-from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
+from unfurl.util import sensitive_str, API_VERSION, UnfurlError, UnfurlValidationError
 from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
 import io
@@ -496,13 +496,12 @@ class ToscaSyntaxTest(unittest.TestCase):
                     Standard:
                       +/configurations:
         """
-        with self.assertRaises(UnfurlValidationError) as err:
+        with self.assertRaises(UnfurlError) as err:
             YamlManifest(ensemble)
 
         assert (
-            'MissingRequiredFieldError: Template "test_node" is missing required field "type"'
-            in str(err.exception)
-        )
+            "type" in str(err.exception) and "required" in str(err.exception).lower()
+        ), f"Expected error about missing 'type', got: {err.exception}"
 
     def test_missing_interface_definition_is_handled_by_unfurl(self):
         ensemble = """

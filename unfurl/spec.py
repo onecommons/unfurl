@@ -7,9 +7,11 @@ TOSCA implementation
 import copy
 from enum import Enum, Flag, auto
 import sys
+import traceback
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.relationshiptype import RelationshipType
+from .yamlloader import UnfurlSchemaError
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -19,6 +21,7 @@ from .util import (
     get_base_dir,
     check_class_registry,
     env_var_value,
+    validate_tosca_def,
 )
 from .eval import Ref, SafeRefContext, map_value, analyze_expr
 from .result import ExternalValue, ResourceRef, ResultsList, serialize_value
@@ -39,7 +42,11 @@ import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 import toscaparser.repositories
-from toscaparser.common.exception import ExceptionCollector, TOSCAException
+from toscaparser.common.exception import (
+    ExceptionCollector,
+    InvalidSchemaError,
+    TOSCAException,
+)
 import os
 from .logs import getLogger, Levels
 import re
@@ -366,6 +373,12 @@ class ToscaSpec:
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
+
+            if not skip_validation:
+                exception = validate_tosca_def(toscaDef)
+                if exception:
+                    setattr(exception, "trace", traceback.extract_stack()[:-1])
+                    ExceptionCollector.exceptions.append(exception)
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(

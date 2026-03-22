@@ -35,8 +35,8 @@ node_types:
       domain:
         type: string
         default: { get_input: domain }
-        ports:
-          type: tosca.datatypes.network.PortSpec
+      port:
+        type: tosca.datatypes.network.PortSpec
     requirements:
       - host:
           capability: tosca.capabilities.Compute
@@ -73,6 +73,10 @@ topology_template:
   node_templates:
     myApp:
       type: MyApplication
+      properties:
+        port:
+          target: 8080
+          source: 80
       artifacts:
         image:
           type: tosca.artifacts.Deployment.Image.Container.Docker

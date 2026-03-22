@@ -190,8 +190,8 @@ repositories:
       issues_url: https://unfurl.cloud/onecommons/std/-/issues
     default_branch: main
     branches:
-      main: d11bc9562d41be1e3da17c5fd60fa288800ef866
-      stable: ff4f8db05551d3f5220ded6b365c62c86f14607e
+      main: f7e321a77adcc06eff3c317833bcc7009d2d3bd3
+      stable: 05d48dc2257da2f5d94351671c14d32385bd19e4
     tags:
       v1.1.1: ff4f8db05551d3f5220ded6b365c62c86f14607e
       v1.1.0: 62ce5b304f12c1a810930d849f17b460cd2999f0

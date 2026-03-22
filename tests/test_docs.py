@@ -11,7 +11,8 @@ import pytest
 from .test_dsl import _to_yaml
 from toscaparser.tosca_template import ToscaTemplate
 from unfurl.localenv import LocalConfig
-from unfurl.yamlmanifest import YamlManifest, _basepath
+from unfurl.yamlmanifest import YamlManifest
+from unfurl.util import _basepath
 from unfurl.yamlloader import YamlConfig
 from unfurl.spec import ToscaSpec
 from tosca import global_state

@@ -17,6 +17,11 @@ from tosca import (
 import unfurl.configurators.shell
 from unfurl.tosca_plugins.expr import concat
 
+tosca_metadata = {
+    "template_name": "hello world",
+    "template_author": "onecommons",
+    "template_version": "1.0.0",
+}
 
 class Inputs(TopologyInputs):
     domain: str
@@ -43,6 +48,7 @@ class DatabaseConnection(tosca.relationships.ConnectsTo):
 
 class MyApplication(tosca.nodes.SoftwareComponent):
     domain: str = Inputs.domain
+    port: "tosca.datatypes.NetworkPortSpec"
 
     private_address: str = Attribute()
 
@@ -92,6 +98,10 @@ myApp = MyApplication(
     "myApp",
     host=[compute],
     db=mydb_connection[mydb],
+    port=tosca.datatypes.NetworkPortSpec(
+        target=tosca.datatypes.NetworkPortDef(8080),
+        source=tosca.datatypes.NetworkPortDef(80),
+    ),
 )
 myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
     "image",

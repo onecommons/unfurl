@@ -1,5 +1,6 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
+from functools import cache
 import inspect
 from pathlib import Path
 import sys
@@ -585,6 +586,34 @@ def validate_schema(
     obj: Any, schema: Mapping, schema_path: Optional[str] = None
 ) -> bool:
     return not find_schema_errors(obj, schema, schema_path)
+
+@cache
+def get_local_schema(format: str, schema_file: str) -> dict:
+    path = os.path.join(_basepath, schema_file)
+    with open(path) as fp:
+        schema = json.load(fp)
+    if format == "blueprint":
+        schema["required"].remove("kind")
+    elif format == "import":
+        schema["required"].remove("tosca_definitions_version")
+    return schema
+
+
+def validate_tosca_def(
+    toscaDef: Dict[str, Any], format=""
+) -> Optional[UnfurlSchemaError]:
+
+    schema = get_local_schema(format, "tosca-schema.json")
+    schema_failed = find_schema_errors(toscaDef, schema)
+    if schema_failed:
+        error_message, errors = schema_failed
+        exception = UnfurlSchemaError(
+            f"TOSCA JSON schema validation failed: {error_message}",
+            schema_failed,
+            toscaDef,
+        )
+        return exception
+    return None
 
 
 def find_schema_errors(
