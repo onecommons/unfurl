@@ -119,6 +119,7 @@ from .util import API_VERSION, UnfurlError
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger, UnfurlLogger
+from unfurl import repo
 
 logger = getLogger("unfurl")
 
@@ -567,6 +568,9 @@ class Notable:
             None  # Artifact ID when added to directory.db.artifacts
         )
 
+    def __repr__(self):
+        return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
+
     def analyze(
         self, directory: "Directory", repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
@@ -624,9 +628,9 @@ class Analyzer:
         for folder in cls.folders:
             self.folders[folder] = cls
 
-    def analyze_local(self, root_dir: str) -> List[Notable]:
+    def analyze_local(self, root_dir: str, start_path: str) -> List[Notable]:
         notables: List[Notable] = []
-        for root, dirs, files in os.walk(root_dir):
+        for root, dirs, files in os.walk(start_path):
             notable = None
             notable_cls = None
             notables_found: List[Type[Notable]] = []
@@ -665,7 +669,7 @@ class Analyzer:
         if root_dir:
             full_path = os.path.join(root_dir, file_path)
             if os.path.isdir(full_path):
-                return self.analyze_local(full_path)
+                return self.analyze_local(root_dir, full_path)
 
         # Try to match a single file or folder name
         dirname, filename = os.path.split(file_path)
@@ -1423,7 +1427,7 @@ class RepositoryHost:
                 dest.git_url(), hard=3
             ):
                 self.logger.warning(
-                    f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
+                    f"{normalize_git_url(dest_remote.url, hard=3)} doesn't match {normalize_git_url(dest.git_url(), hard=3)} for remote '{remote_name}' in {repo.working_dir}"
                 )
                 # XXX should we set the url?
         if self.canonical_url and push_url != dest.git_url():
@@ -1990,7 +1994,7 @@ class GitlabManager(RepositoryHost):
         if self.save_internal and project.avatar_url:
             # these urls point to the instance's uploaded files and aren't portable
             kw["avatar_url"] = project.avatar_url
-        if project.issues_enabled:
+        if getattr(project, "issues_enabled", False):
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
 
         # https://docs.gitlab.com/ee/api/projects.html#get-single-project
@@ -2424,6 +2428,7 @@ class CloudMap:
         self.repo = repo
         self.commit = commit
 
+        self._visited: set[str] = set()
         self.directory = Directory(
             self,
             str(Path(base_path) / (path or "cloudmap.yaml")),
@@ -2683,6 +2688,9 @@ class CloudMap:
                 else:
                     if not hostname:
                         raise UnfurlError(f"invalid url for host: {url}")
+                    hosts = local_env.map_value(
+                        hosts, local_env.get_context().get("variables")
+                    )
                     name, host_config = cls._find_host_config(hosts, hostname)
                 if host_config is None:
                     assert hostname
@@ -2706,9 +2714,10 @@ class CloudMap:
                     namespace = path
             else:
                 raise UnfurlError(f"no repository host named {name} found")
-        host_config = local_env.map_value(
-            host_config, local_env.get_context().get("variables")
-        )
+        else:
+            host_config = local_env.map_value(
+                host_config, local_env.get_context().get("variables")
+            )
         assert host_config
         if visibility:
             host_config["visibility"] = visibility
@@ -2766,31 +2775,37 @@ class CloudMap:
     def add_record(
         self,
         url: str,
-        analyze: Literal["yes", "no", "save-only", "default"] = "no",
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
     ) -> Optional[Union[Repository, Artifact, Service]]:
         """Add a record to the cloudmap from a URL.
 
         Determines the record type based on the URL scheme and structure:
 
-        - Git URLs (git:, git+https:, github.com, .git suffix) → Repository
+        - Git URLs (git:, git+https:, .git suffix, local paths) → Repository
         - Package URLs (pkg:) → Artifact
         - Everything else → Service
 
         Args:
             url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
-            analyze: Whether to analyze the repository ("yes", "no", "save-only") (default: "no").
+            analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
 
         Returns:
             The Repository, Artifact, or Service that was added (or already existed).
         """
         db = self.directory.db
+        if url in self._visited:
+            # Already processed this URL, return existing record if any
+            return (
+                db.get_artifact(url) or db.services.get(url) or db.get_repository(url)
+            )
+        self._visited.add(url)
         parts = urlparse(url)
 
         if not parts.scheme:
-            # No scheme - could be a git URL without scheme or a service URL
+            # No scheme - see if it's a local path inside a git repository
             repo = Repo.find_containing_repo(url)
             if repo:
-                # don't include add "." as a path to examine
+                # don't include "." as a path to examine
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
 
@@ -2887,15 +2902,30 @@ class CloudMap:
         db = self.directory.db
         repo_url, file_path, _revision = split_git_url(url)
         canonical_url = get_repository_url(repo_url)
+        self._visited.add(repo_url)
+        self._visited.add(canonical_url)
+
         current_do_analysis = self.directory.do_analysis
         if file_path:
-            self.directory.do_analysis = False  # don't analyze the whole repo if a file path is specified, just analyze the file
-
+            if analyze == "default":
+                # default to analyzing the file if a file path is specified
+                analyze = "yes"
+                # don't analyze the whole repo if a file path is specified, just analyze the file
+                self.directory.do_analysis = False
         repo_info = db.get_repository(canonical_url)
         download = False
         if analyze == "yes" or analyze == "save-only":
             if not self.directory.repos_root:
-                download = bool(self.directory.find_repo(repo_url, ""))
+                # no download location, so only analyze if the repository is already cloned locally
+                if self.directory.find_repo(repo_url, ""):
+                    download = True
+                else:
+                    download = False
+                    self.logger.warning(
+                        "Cannot analyze %s because the repository is not cloned locally.",
+                        repo_url,
+                    )
+
             else:
                 download = True
         # re-import the repository if need to analyze it
@@ -2964,9 +2994,16 @@ class CloudMap:
                 )
                 if notables:
                     for n in notables:
-                        artifact = n.analyze(self.directory, repo_info, root_path)
-                        if artifact:
-                            db.add_artifact(artifact)
+                        try:
+                            artifact = n.analyze(self.directory, repo_info, root_path)
+                            if artifact:
+                                db.add_artifact(artifact)
+                        except Exception:
+                            self.logger.error(
+                                "Unexpected error analyzing %s.",
+                                repo_info.url,
+                                exc_info=True,
+                            )
                         repo_info.notable[n.path] = n.asdict()
                 else:
                     artifact_url = repo_info.artifact_url(file_path)

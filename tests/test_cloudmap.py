@@ -147,15 +147,78 @@ repositories:
         type:
           cloudmap.artifacts.unfurl.Ensemble:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+  git://unfurl.cloud/onecommons/blueprints/odoo.git:
+    path: onecommons/blueprints/odoo
+    name: Odoo
+    protocols:
+    - https
+    - ssh
+    project_url: https://unfurl.cloud/onecommons/blueprints/odoo
+    metadata:
+      description: Odoo is a suite of business management software tools including
+        CRM, e-commerce, billing, accounting, manufacturing, warehouse, project management,
+        and inventory management. The Community version is a libre software, licensed
+        under the GNU LGPLv3.
+      homepage_url: https://unfurl.cloud/onecommons/blueprints/odoo
+      issues_url: https://unfurl.cloud/onecommons/blueprints/odoo/-/issues
+    default_branch: main
+    branches:
+      main: ce8f368b18f111c3afec3d5e3ceb40a2bb02095d
+    tags:
+      v1.0.0: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
+      v0.1.0: be0da659d7358bc4d24d988f436a5508e098b252
+    notable:
+      ensemble-template.yaml#spec/service_template:
+        type:
+          cloudmap.artifacts.tosca.ServiceTemplate:
+        artifact: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+      unfurl.yaml:
+        type:
+          cloudmap.artifacts.unfurl.Project:
+  git://unfurl.cloud/onecommons/std.git:
+    path: onecommons/std
+    name: std
+    protocols:
+    - https
+    - ssh
+    project_url: https://unfurl.cloud/onecommons/std
+    metadata:
+      topics:
+      - documentation
+      - library
+      homepage_url: https://unfurl.cloud/onecommons/std
+      issues_url: https://unfurl.cloud/onecommons/std/-/issues
+    default_branch: main
+    branches:
+      main: d11bc9562d41be1e3da17c5fd60fa288800ef866
+    tags:
+      v1.1.0: 62ce5b304f12c1a810930d849f17b460cd2999f0
+      v1.0.4: 0882290e21430f852deb8ebfd1f3b418f7a2ce5d
+      v1.0.3: 287356887dd1a44a9fa9b5ace8992259bb0887bf
+      v1.0.2: 14c1b3bfff0670731a329d75c5b05ac5cb8daca7
+      v1.0.1: 254e5a87af19aa7e39cab8a02f6b27df8fcfe348
+      v1.0.0: 8ed0136c658cf22f1aab3242a536470d3c35f28e
+      INITIAL: 0e306c3e627b9c027b0abb6d3969b01126c2ffe1
+    notable:
+      .devcontainer/Containerfile:
+        type:
+          cloudmap.artifacts.Containerfile:
+      dummy-ensemble.yaml:
+        type:
+          cloudmap.artifacts.tosca.TypeLibrary:
+        artifact: git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
+    notable:
+      https://unfurl.cloud/onecommons/std.git:
     digest: git:tree:5fe07694589fe54e2fb60f250e793db684bbeb95
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     notable:
+      %s:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -170,6 +233,31 @@ artifacts:
     metadata:
       title: Odoo
       version: 0.1
+  git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml:
+    type:
+      cloudmap.artifacts.tosca.ServiceTemplate:
+    notable:
+      'https://unfurl.cloud/onecommons/unfurl-types#v0.7.6:':
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
+    instantiates:
+      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+    dependencies:
+      Database:
+        PostgresDB@unfurl.cloud/onecommons/unfurl-types:
+      aws:
+        unfurl.relationships.ConnectsTo.AWSAccount:
+      gcp:
+        unfurl.relationships.ConnectsTo.GoogleCloudProject:
+    metadata:
+      title: Odoo
+      version: 0.1
+  git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
+    type:
+      cloudmap.artifacts.Containerfile:
+  git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
+    type:
+      cloudmap.artifacts.tosca.TypeLibrary:
+    digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:
@@ -184,6 +272,7 @@ services:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     instantiated_by:
     - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+  'https://unfurl.cloud/onecommons/unfurl-types#v0.7.6:': {{}}
 instantiations:
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
@@ -194,6 +283,7 @@ instantiations:
     instantiated:
       https://example.com/oodo:
     inputs:
+      %s:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -234,7 +324,7 @@ types:
       title: GoogleCloudProject"""
 
 @skip_integration
-@pytest.mark.parametrize("commit", ["--commit", ""])
+@pytest.mark.parametrize("commit", ["", "--commit"])
 def test_create(runner: CliRunner, caplog, commit: str):
     run_cmd(
         runner,
@@ -246,7 +336,10 @@ def test_create(runner: CliRunner, caplog, commit: str):
         with open("cloudmap.yaml") as f:
             cloudmap = f.read().rstrip()
             # print("cloudmap\n", cloudmap)
-            assert cloudmap == expected_cloudmap
+            # not sure why one run gets the url with a revision and one doesn't, but handle both cases
+            a = "'https://unfurl.cloud/onecommons/std.git#v1.1.0:'"
+            b = "https://unfurl.cloud/onecommons/std.git"
+            assert cloudmap == expected_cloudmap % ((b, b) if commit else (a, a))
         assert not os.system("git push origin main")
 
     assert "importing group feb20a" in caplog.text
@@ -1629,7 +1722,7 @@ kind: Project
 
     # Case 2: git URL with a file path fragment → creates Repository + Artifact
     result = cm.add_record(
-        "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile", "yes"
+        "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
     )
     assert result.notable == {
         "modules/Dockerfile": {

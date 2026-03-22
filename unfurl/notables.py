@@ -6,7 +6,7 @@ import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional, cast
-
+from typing_extensions import Literal
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 
@@ -19,13 +19,14 @@ from .cloudmap import (
     get_repository_url,
 )
 from .graphql import ResourceTypesByName, get_deployment_url, TypeName
-from .spec import NodeSpec, TopologySpec, ToscaSpec
+from .spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
 from .support import ContainerImage
 from .oci import (
     Artifact,
     EntitySchema,
     Instantiation,
     TypeRefs,
+    TypedUrls,
     filter_dict,
 )
 from .to_json import get_blueprint_path, node_type_to_graphql
@@ -83,6 +84,7 @@ class UnfurlNotable(Notable):
             parent=directory.cloudmap.local_env,
         )
         artifact: Optional[Artifact] = None
+        analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
         if localenv.manifestPath:
             self.artifact_type = self._get_artifacttype(localenv.manifestPath)
             if self.artifact_type != EntitySchema.Ensemble:
@@ -108,7 +110,15 @@ class UnfurlNotable(Notable):
             type_info = None
             typename = ""
             dependencies: dict[str, TypeName] = {}
-            child_artifacts: Dict[str, Optional[TypeRefs]] = {}
+            child_artifacts: TypedUrls = {}
+            for name, repo_view in manifest.repositories.items():
+                if name not in ("spec", "self", "project", "unfurl"):
+                    if repo_view.url.startswith("git-local://") or os.path.isabs(
+                        repo_view.url
+                    ):
+                        continue
+                    child_artifacts[repo_view.url] = None
+                    directory.cloudmap.add_record(repo_view.url, analyze)
 
             if node:
                 types = ResourceTypesByName(
@@ -256,10 +266,15 @@ class UnfurlNotable(Notable):
                 "image"
             )
             if image_name:
-                # remove any {{ }} templating
-                image = ContainerImage.make(re.sub(r"\{\{.*\}\}", "", image_name))
-                if image:
-                    return image
+                if is_function(image_name):
+                    # treat default like a constraint
+                    # evaluate expression as a template expression and if it resolves to
+                    image_name = Ref(image_name).resolve(SafeRefContext(node))
+                if isinstance(image_name, str):
+                    # remove any {{ }} templating
+                    image = ContainerImage.make(re.sub(r"\{\{.*\}\}", "", image_name))
+                    if image:
+                        return image
         return None
 
     def _create_ensemble_instantiation_and_service(
@@ -281,6 +296,7 @@ class UnfurlNotable(Notable):
         """
         # Get spec repository for source information
         spec_repo_view = manifest.repositories.get("spec")
+        analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
 
         # XXX add inputs from repositories and lock section
         instantiation = Instantiation(
@@ -288,7 +304,7 @@ class UnfurlNotable(Notable):
             revision=repo_info.get_current_commit(),
             type=TypeRefs(types={EntitySchema.Ensemble: None}),
             inputs=artifact.notable,
-        )        
+        )
         if spec_repo_view:
             instantiation.source = (
                 get_repository_url(spec_repo_view.url)
@@ -313,6 +329,8 @@ class UnfurlNotable(Notable):
             instantiation.instantiated = {deployment_url: None}
 
         directory.db.add_instantiation(instantiation)
+        if instantiation.source and not directory.db.get_artifact(instantiation.source):
+            directory.cloudmap.add_record(instantiation.source, analyze)
 
     def _get_artifacttype(self, path: str) -> str:
         if path.endswith(DefaultNames.EnsembleTemplate):

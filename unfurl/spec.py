@@ -57,7 +57,7 @@ from typing import (
     cast,
     Any,
 )
-
+from typing_extensions import Self
 from ruamel.yaml.comments import CommentedMap
 from toscaparser import functions
 
@@ -1001,6 +1001,10 @@ class EntitySpec(ResourceRef):
         if key in self.propertyDefs:
             return self._resolve_prop(key)
         raise KeyError(key)
+
+    @property
+    def owner(self) -> Self:
+        return self
 
     @property
     def all(self):
