@@ -193,7 +193,7 @@ repositories:
       main: f7e321a77adcc06eff3c317833bcc7009d2d3bd3
       stable: 05d48dc2257da2f5d94351671c14d32385bd19e4
     tags:
-      v1.1.1: ff4f8db05551d3f5220ded6b365c62c86f14607e
+      v1.1.1: 05d48dc2257da2f5d94351671c14d32385bd19e4
       v1.1.0: 62ce5b304f12c1a810930d849f17b460cd2999f0
       v1.0.4: 0882290e21430f852deb8ebfd1f3b418f7a2ce5d
       v1.0.3: 287356887dd1a44a9fa9b5ace8992259bb0887bf
@@ -224,11 +224,11 @@ repositories:
       abreidenbach/cname-dns-type: b25da294cc2168d4c6be6702c60aae0091c12e11
       abreidenbach/fix-incremental-deploy: addb09e9060bbedc9b50eddc9f337e46900b8166
       jg-changes: 67dd87eaa09d8f7001b9fbce7221485478b2d470
-      main: a4ad5201fb3099ea5d2156679396dec6ea511f11
+      main: 0fff800942311706ff45cbb9b07c0a9ec8121c22
       replace-access-token: a372bc876aed8d52332ca0fb22727c3231f97170
       transitional: 589ca2fe42f9177a0a18081a8ebea3f6b7bef905
     tags:
-      v0.7.7: a4ad5201fb3099ea5d2156679396dec6ea511f11
+      v0.7.7: 0fff800942311706ff45cbb9b07c0a9ec8121c22
       v0.7.6: 2bbeba877bbd28ac0932275ce1254fca374f63d1
       v0.7.5: 3dd6c1b010eb1a6e538851b482bba5ce0998140c
       v0.7.4: 328513a4efebe060b80f654144e6503bd68bdfca
