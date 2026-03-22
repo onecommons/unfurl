@@ -1953,9 +1953,9 @@ class Convert:
             custom_defs = self.custom_defs
         file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
-        tpl["tosca_definitions_version"] = self.template.tpl[
-            "tosca_definitions_version"
-        ]
+        tpl["tosca_definitions_version"] = self.template.tpl.get(
+            "tosca_definitions_version", "tosca_simple_unfurl_1_0_0"
+        )
         if "repositories" in self.template.tpl:
             repositories = self.template.tpl["repositories"]
             tpl.setdefault("repositories", {}).update(repositories)

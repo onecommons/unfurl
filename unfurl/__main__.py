@@ -1512,6 +1512,7 @@ def _stub_resolver(doc, local_env=None):
     repositories = dummy_manifest.repositories_as_tpl()
     doc.setdefault("repositories", {}).update(repositories)
     import_resolver = ImportResolver(dummy_manifest)
+    import_resolver.confine_user_paths = False
     return import_resolver
 
 
@@ -1777,6 +1778,8 @@ def validate(ctx, path, **options):
     """Validate the syntax of the given Unfurl project, ensemble, cloud map, or TOSCA file."""
     options.update(ctx.obj)
     localEnv = None
+    doc_type = None
+    doc = None
     try:
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
         if options.get("as_template") or "template" in path:  # hack!
@@ -1803,33 +1806,43 @@ def validate(ctx, path, **options):
                 localEnv.get_manifest(skip_validation=True)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
-            from tosca.python2yaml import python_src_to_yaml_obj
-            from tosca.loader import install
-
-            install(_stub_resolver({}, localEnv), os.path.dirname(path))
-            with open(path) as f:
-                python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
-        elif e.doc and "tosca_definitions_version" in e.doc:
-            from .manifest import Manifest
-            from .spec import ToscaSpec
-
-            if localEnv and localEnv.project:
-                m = Manifest(path, localEnv=localEnv)
-                # report validation errors instead of aborting
-                m._set_spec(dict(service_template=e.doc), skip_validation=True)
-            else:
-                ToscaSpec(
-                    e.doc,
-                    path=path,
-                    skip_validation=True,
-                    resolver=_stub_resolver(e.doc),
-                )
+            doc_type = "Python"
+        elif e.doc and ("tosca_definitions_version" in e.doc or "node_types" in e.doc):
+            doc = e.doc
+            doc_type = "TOSCA"
         elif e.doc and e.doc.get("kind") == "CloudMap":
-            from .cloudmap import CloudMapDB
-
-            CloudMapDB(path)
+            doc = e.doc
+            doc_type = "CloudMap"
         else:
             raise
+
+    if doc_type == "Python":
+        from tosca.python2yaml import python_src_to_yaml_obj
+        from tosca.loader import install
+
+        install(_stub_resolver({}, localEnv), os.path.dirname(path))
+        with open(path) as f:
+            python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
+    elif doc_type == "TOSCA":
+        assert doc
+        from .manifest import Manifest
+        from .spec import ToscaSpec
+
+        if localEnv and localEnv.project:
+            m = Manifest(path, localEnv=localEnv)
+            # report validation errors instead of aborting
+            m._set_spec(dict(service_template=doc), skip_validation=True)
+        else:
+            ToscaSpec(
+                doc,
+                path=path,
+                skip_validation=True,
+                resolver=_stub_resolver(doc),
+            )
+    elif doc_type == "CloudMap":
+        from .cloudmap import CloudMapDB
+
+        CloudMapDB(path)
 
 
 @info_cli.command()

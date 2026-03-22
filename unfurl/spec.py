@@ -347,6 +347,8 @@ class ToscaSpec:
                 toscaDef["topology_template"] = dict(
                     node_templates={}, relationship_templates={}
                 )
+            if "tosca_definitions_version" not in toscaDef:
+                toscaDef["tosca_definitions_version"] = TOSCA_VERSION
 
             if spec:
                 self.load_instances(toscaDef, spec)
@@ -374,11 +376,10 @@ class ToscaSpec:
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
 
-            if not skip_validation:
-                exception = validate_tosca_def(toscaDef)
-                if exception:
-                    setattr(exception, "trace", traceback.extract_stack()[:-1])
-                    ExceptionCollector.exceptions.append(exception)
+            exception = validate_tosca_def(toscaDef)
+            if exception:
+                setattr(exception, "trace", traceback.extract_stack()[:-1])
+                ExceptionCollector.exceptions.append(exception)
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(

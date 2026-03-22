@@ -1269,10 +1269,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     doc.path = path
                     doc.base_dir = get_base_dir(path)
                     validate = (self.manifest and self.manifest.validate) or True
-                    if self.importslist and validate:
+                    if self.importslist:
                         error = validate_tosca_def(doc, "import")
                         if error:
-                            raise error
+                            if validate:
+                                raise error
+                            else:
+                                logger.warning(
+                                    "TOSCA validation error in imported document %s: %s",
+                                    path,
+                                    error,
+                                )
 
             if fragment and doc:
                 return _resolve_fragment(doc, fragment), cacheable
