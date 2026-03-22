@@ -826,7 +826,7 @@ class CloudMapDB:
         version: str = "",
         description: str = "",
         thumbnail: str = "",
-        artifacts: Optional[Dict[str, Optional[TypeRefs]]] = None,
+        notables: Optional[TypedUrls] = None,
         dependencies: Optional[TypedUrls] = None,
         type_info: Optional[Dict[str, Any]] = None,
         types_dict: Optional[CloudTypeDict] = None,
@@ -875,7 +875,7 @@ class CloudMapDB:
         artifact = Artifact(
             url=artifact_pkg,
             type=TypeRefs({artifact_type: None}),
-            notable=artifacts or {},
+            notable=notables or {},
             instantiates=instantiates,
             dependencies=dependencies or {},
             metadata=metadata,
@@ -1000,7 +1000,7 @@ class CloudMapDB:
                     description=notable_dict.pop("description", ""),
                     thumbnail=notable_dict.pop("thumbnail_url", "")
                     or repo.metadata.thumbnail_url,
-                    artifacts={
+                    notables={
                         build_oci_purl(ContainerImage.split(ref)): None
                         for ref in notable_dict.pop("artifacts", [])
                     },

@@ -145,7 +145,7 @@ repositories:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
       environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
         type:
-          cloudmap.artifacts.unfurl.Ensemble:
+          {EntitySchema.Ensemble}:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
   git://unfurl.cloud/onecommons/blueprints/odoo.git:
     path: onecommons/blueprints/odoo
@@ -170,11 +170,11 @@ repositories:
     notable:
       ensemble-template.yaml#spec/service_template:
         type:
-          cloudmap.artifacts.tosca.ServiceTemplate:
+          {EntitySchema.CloudBlueprint}:
         artifact: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
       unfurl.yaml:
         type:
-          cloudmap.artifacts.unfurl.Project:
+          {EntitySchema.UnfurlProject}:
   git://unfurl.cloud/onecommons/std.git:
     path: onecommons/std
     name: std
@@ -190,8 +190,10 @@ repositories:
       issues_url: https://unfurl.cloud/onecommons/std/-/issues
     default_branch: main
     branches:
-      main: d11bc9562d41be1e3da17c5fd60fa288800ef866
+      main: f7e321a77adcc06eff3c317833bcc7009d2d3bd3
+      stable: 05d48dc2257da2f5d94351671c14d32385bd19e4
     tags:
+      v1.1.1: 05d48dc2257da2f5d94351671c14d32385bd19e4
       v1.1.0: 62ce5b304f12c1a810930d849f17b460cd2999f0
       v1.0.4: 0882290e21430f852deb8ebfd1f3b418f7a2ce5d
       v1.0.3: 287356887dd1a44a9fa9b5ace8992259bb0887bf
@@ -202,23 +204,72 @@ repositories:
     notable:
       .devcontainer/Containerfile:
         type:
-          cloudmap.artifacts.Containerfile:
+          {EntitySchema.ContainerFile}:
       dummy-ensemble.yaml:
         type:
-          cloudmap.artifacts.tosca.TypeLibrary:
+          {EntitySchema.TOSCASchema}:
         artifact: git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
+  git://unfurl.cloud/onecommons/unfurl-types.git:
+    path: onecommons/unfurl-types
+    name: unfurl-types
+    protocols:
+    - https
+    - ssh
+    project_url: https://unfurl.cloud/onecommons/unfurl-types
+    metadata:
+      homepage_url: https://unfurl.cloud/onecommons/unfurl-types
+      issues_url: https://unfurl.cloud/onecommons/unfurl-types/-/issues
+    default_branch: main
+    branches:
+      abreidenbach/cname-dns-type: b25da294cc2168d4c6be6702c60aae0091c12e11
+      abreidenbach/fix-incremental-deploy: addb09e9060bbedc9b50eddc9f337e46900b8166
+      jg-changes: 67dd87eaa09d8f7001b9fbce7221485478b2d470
+      main: 0fff800942311706ff45cbb9b07c0a9ec8121c22
+      replace-access-token: a372bc876aed8d52332ca0fb22727c3231f97170
+      transitional: 589ca2fe42f9177a0a18081a8ebea3f6b7bef905
+    tags:
+      v0.7.7: 0fff800942311706ff45cbb9b07c0a9ec8121c22
+      v0.7.6: 2bbeba877bbd28ac0932275ce1254fca374f63d1
+      v0.7.5: 3dd6c1b010eb1a6e538851b482bba5ce0998140c
+      v0.7.4: 328513a4efebe060b80f654144e6503bd68bdfca
+      v0.7.3: 1a7d90a7797e84b4bc19750d640654b926d37916
+      v0.7.2: dcc4f8cf1c9a0908e7b37e3837db3a6994dd3bbe
+      v0.7.1: 3cdda3d789dce4520a87dead1eb8c812ac00e479
+      v0.7.0: 700993d437992a10e39ecad6a7669aa84d0779d0
+      v0.6.5: e1cff702297589d6130007c11a82e62920f42393
+      v0.6.4: c90b4fb3333a64aae1dd458534e61a9f451e4196
+      v0.6.3: 995a6227eaa8392b9b582f1a2a10e6c1cdc8cdc9
+      v0.6.2: 7924982c690a00117cff421b7afd162a950564cd
+      v0.6.1: 19910bc480d0c45327afd63fba79c6755ce25270
+      v0.6.0: 5687d4c9e2f91b0b256ec36ed4b8867b93442974
+      v0.5.1: f5dd4685b4e7aba04fda158ceb1de5df943132b1
+      v0.5.0: 75ac354f2ebe8a2aa3ca06b057cfc0a6a49c80c5
+      v0.4.1: 1746e6e4cc08ee64ed477c6c0d2968365c1751ba
+      v0.4.0: d8fd4bc3b38e113e9fbfb9495b2e862083931923
+      v0.3.3: 068eb8dc96f879d670336e97ba2551da9eaba2f5
+      v0.3.2: 365441c5f52527c6acfb6eef80470ea1019c6f6a
+      v0.3.1: 1598b16844c814b7ebdcadef936573816cb73132
+      v0.3.0: c27a4b9f2730766b09768cd8dfadd9dbf0c76c82
+      v0.2.0: 3368772296efe28b409f13d793e066b2f5f5f1a6
+      v0.1.0: d0e8f921478f864da2037e1143afe3dd35e590ad
+      before-caddy: aa831e8cfc58c84e5ecfe963afe6c472b1cb9476
+    notable:
+      dummy-ensemble.yaml:
+        type:
+          {EntitySchema.TOSCASchema}:
+        artifact: git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     notable:
-      https://unfurl.cloud/onecommons/std.git:
+      git://unfurl.cloud/onecommons/std.git:
     digest: git:tree:5fe07694589fe54e2fb60f250e793db684bbeb95
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     notable:
-      %s:
+      git://unfurl.cloud/onecommons/std.git:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -237,7 +288,7 @@ artifacts:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
     notable:
-      'https://unfurl.cloud/onecommons/unfurl-types#v0.7.6:':
+      git://unfurl.cloud/onecommons/unfurl-types:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -258,6 +309,10 @@ artifacts:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
+  git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
+    type:
+      cloudmap.artifacts.tosca.TypeLibrary:
+    digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:
@@ -272,7 +327,6 @@ services:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     instantiated_by:
     - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
-  'https://unfurl.cloud/onecommons/unfurl-types#v0.7.6:': {{}}
 instantiations:
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
@@ -283,7 +337,7 @@ instantiations:
     instantiated:
       https://example.com/oodo:
     inputs:
-      %s:
+      git://unfurl.cloud/onecommons/std.git:
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -336,10 +390,7 @@ def test_create(runner: CliRunner, caplog, commit: str):
         with open("cloudmap.yaml") as f:
             cloudmap = f.read().rstrip()
             # print("cloudmap\n", cloudmap)
-            # not sure why one run gets the url with a revision and one doesn't, but handle both cases
-            a = "'https://unfurl.cloud/onecommons/std.git#v1.1.0:'"
-            b = "https://unfurl.cloud/onecommons/std.git"
-            assert cloudmap == expected_cloudmap % ((b, b) if commit else (a, a))
+            assert cloudmap == expected_cloudmap
         assert not os.system("git push origin main")
 
     assert "importing group feb20a" in caplog.text
