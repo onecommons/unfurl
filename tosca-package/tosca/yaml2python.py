@@ -373,7 +373,8 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+        style = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") or ""
+        self.concise = "concise" in style
         self.assign_attr = self.concise
 
     def value2python_repr(self, value, quote=False) -> str:
@@ -1394,7 +1395,7 @@ class Convert:
             else None
         )
         cmd = ""
-        if kw is None or kw["primary"]:
+        if kw is None or kw.get("primary"):
             if isinstance(op.implementation, dict):
                 artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
@@ -1410,7 +1411,7 @@ class Convert:
                     cmd = f"self.{artifact}.execute"
             if not cmd and artifact:
                 cmd = f"self.find_artifact({self.value2python_repr(artifact)}).execute"
-        else:
+        elif "className" in kw:
             cmd = kw["className"]
             module, sep, klass = cmd.rpartition(".")
             if module:
@@ -1426,6 +1427,8 @@ class Convert:
                     cmd = f'self.load_class("{module_path}", "{klass}")'
                 else:
                     self.imports.add_import(module)
+        else:
+            logger.error("could not handle unexpected operation implementation: %s", kw)
         return cmd, kw
 
     def operation2func(
@@ -2179,9 +2182,8 @@ def convert_service_template(
 
     template_tpl = template.tpl
     assert template_tpl
-    if (
-        convert_repositories
-        or os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "include_repositories"
+    if convert_repositories or "include_repositories" in (
+        os.getenv("UNFURL_EXPORT_PYTHON_STYLE") or ""
     ):
         repositories = template_tpl.get("repositories")
         if repositories:
