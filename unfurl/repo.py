@@ -224,12 +224,20 @@ class Repo(abc.ABC):
     url: str = ""
 
     @staticmethod
-    def find_containing_repo(rootDir, gitDir=".git") -> Optional["GitRepo"]:
+    def find_containing_repo(
+        rootDir, gitDir=".git", stop_at: str = ""
+    ) -> Optional["GitRepo"]:
         """
         Walk parents looking for a git repository.
+
+        Args:
+            stop_at: If set, stop searching before reaching this directory.
         """
         current = os.path.abspath(rootDir)
+        stop = os.path.abspath(stop_at) if stop_at else ""
         while current and current != os.sep:
+            if stop and current == stop:
+                return None
             if is_git_worktree(current, gitDir):
                 return GitRepo(git.Repo(current))
             current = os.path.dirname(current)
@@ -253,6 +261,43 @@ class Repo(abc.ABC):
         return working_dirs
 
     @staticmethod
+    def find_git_repos_in_directory(
+        working_dirs: Dict[str, "RepoView"], parent_dir: str, gitDir: str = ".git"
+    ) -> None:
+        """Find git repos among the immediate children of parent_dir, following symlinks.
+
+        For each child directory:
+        - Resolve symlinks and use the real path as the working dir key.
+        - If the child is itself a git repo, add it directly.
+        - Otherwise, find the containing git repo and add a RepoView
+          with a path relative to the git root.
+        """
+        if not os.path.isdir(parent_dir):
+            return
+        for entry in os.listdir(parent_dir):
+            child = os.path.join(parent_dir, entry)
+            if not os.path.isdir(child):
+                continue
+            real_child = os.path.realpath(child)
+            child_contents = os.listdir(real_child)
+            if gitDir in child_contents and is_git_worktree(real_child, gitDir):
+                repo = GitRepo(git.Repo(real_child))
+                if real_child not in working_dirs:
+                    working_dirs[real_child] = repo.as_repo_view()
+            elif os.path.islink(child):
+                # Symlink pointing into a subdirectory of a git repo (not a repo root);
+                # stop before reaching parent_dir to avoid finding the project repo itself
+                containing = Repo.find_containing_repo(
+                    real_child, gitDir, stop_at=os.path.realpath(parent_dir)
+                )
+                if containing:
+                    rel_path = os.path.relpath(real_child, containing.working_dir)
+                    if containing.working_dir not in working_dirs:
+                        working_dirs[containing.working_dir] = containing.as_repo_view(
+                            path=rel_path
+                        )
+
+    @staticmethod
     def update_git_working_dirs(
         working_dirs, root, dirs, gitDir=".git"
     ) -> Optional[str]:
@@ -261,6 +306,7 @@ class Repo(abc.ABC):
             repo = GitRepo(git.Repo(root))
             key = os.path.abspath(root)
             working_dirs[key] = repo.as_repo_view()
+            dirs.remove(gitDir)  # don't visit .git directory
             return key
         return None
 
@@ -339,8 +385,8 @@ class Repo(abc.ABC):
             return abspath[len(repoRoot) + 1 :], revision, bare
         return None, None, None
 
-    def as_repo_view(self, name=""):
-        return RepoView(dict(name=name, url=self.url), cast(GitRepo, self))
+    def as_repo_view(self, name="", path="") -> "RepoView":
+        return RepoView(dict(name=name, url=self.url), self, path)
 
     def is_local_only(self):
         return self.url.startswith("git-local://") or os.path.isabs(self.url)
@@ -487,6 +533,7 @@ class RepoView:
                 path = os.path.normpath(os.path.join(filepath, path))
             if revision:
                 self.revision = revision
+        path = os.path.normpath(path) if path else ""
         self.path = "" if path == "." else path
         if repo and path and self.repository:
             # XXX check that repo.url and repository.url match

@@ -168,6 +168,9 @@ class Project:
             self.projectRoot, True, "tosca_repositories"
         )
         self._set_project_repoview()
+        Repo.find_git_repos_in_directory(
+            self.workingDirs, os.path.join(self.projectRoot, "tosca_repositories")
+        )
 
         if self.project_repoview.gitrepo:
             # Repo.find_git_working_dirs() doesn't look inside git working dirs
