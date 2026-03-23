@@ -387,8 +387,8 @@ class Service:
     """Lifecycle status of the service"""
     metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
     policies: ServicePolicies = field(default_factory=ServicePolicies)
-    instantiated_by: List[str] = field(default_factory=list)
-    """List of URLs referencing an entry in instantiations."""
+    instantiated_by: TypedUrls = field(default_factory=dict)
+    """URLs referencing entries in instantiations with optional type constraints."""
     discovery: Optional[Discovery] = None
     """Metadata discovery information (last_checked, sources)"""
     release_schedule: List[ScheduledRelease] = field(default_factory=list)
@@ -415,6 +415,9 @@ class Service:
         ]
         self.endpoints = TypeRefs.urls_fromdict(self.endpoints)
         self.connections = TypeRefs.urls_fromdict(self.connections)
+        if isinstance(self.instantiated_by, list):
+            self.instantiated_by = {url: None for url in self.instantiated_by}
+        self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         # Convert versions dict entries to Service instances if they're still dicts
         if self.versions:
             new_versions: Dict[str, Service] = {}
@@ -450,6 +453,8 @@ class Service:
             elif k == "endpoints":
                 v = TypeRefs.urls_asdict(v)
             elif k == "connections":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "instantiated_by":
                 v = TypeRefs.urls_asdict(v)
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]

@@ -329,7 +329,7 @@ class UnfurlNotable(Notable):
             service = Service(
                 url=deployment_url,
                 type=TypeRefs(types={typename: None}),
-                instantiated_by=[instantiation.url],
+                instantiated_by={instantiation.url: None},
             )
             directory.db.services[deployment_url] = service
             instantiation.instantiated = {deployment_url: None}

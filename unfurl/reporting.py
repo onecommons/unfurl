@@ -575,7 +575,7 @@ def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
             if record.instantiates and record.instantiates.names():
                 edges.append(("instantiates", record.instantiates.names()))
             if record.instantiated_by:
-                edges.append(("instantiated_by", list(record.instantiated_by)))
+                _add_typed_urls(parent, "instantiated_by", record.instantiated_by, visited)
 
         elif kind == "Instantiation":
             assert isinstance(record, Instantiation)
@@ -593,7 +593,7 @@ def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
             if record.connections:
                 _add_typed_urls(parent, "connections", record.connections, visited)
             if record.instantiated_by:
-                edges.append(("instantiated_by", list(record.instantiated_by)))
+                _add_typed_urls(parent, "instantiated_by", record.instantiated_by, visited)
 
         elif kind == "Type":
             assert isinstance(record, CloudType)

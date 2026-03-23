@@ -326,7 +326,7 @@ services:
     type:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     instantiated_by:
-    - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+      git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
 instantiations:
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
@@ -1181,7 +1181,7 @@ artifacts:
         software.Linux:
           version: ">=5.0"
     instantiated_by:
-    - "#/instantiations/2023-09-24T15:30:00Z"
+      "#/instantiations/2023-09-24T15:30:00Z":
     digest: sha256:abc123
     immutable: false
     metadata:
@@ -1240,7 +1240,7 @@ services:
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
     instantiated_by:
-    - "#/instantiations/2023-09-24T15:31:00Z"
+      "#/instantiations/2023-09-24T15:31:00Z":
     discovery:
       last_checked: "2023-09-24T15:30:00Z"
       sources:
@@ -1798,7 +1798,7 @@ kind: Project
     expected_oci = Artifact(
         url=pkg_url,
         type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
-        instantiated_by=[instantiation_url],
+        instantiated_by={instantiation_url: None},
         digest="sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
         metadata=ArtifactMetadata(
             description="Official build of Nginx.",
