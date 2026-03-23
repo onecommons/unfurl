@@ -1,12 +1,13 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
+from typing_extensions import TypedDict
 from ruamel.yaml.comments import CommentedMap
 
-from .repo import RepoView
+from .repo import RepoLockDict
 
 from . import semver_prerelease
-from .packages import Package, PackageSpec, PackagesType, get_package_id_from_url
+from .packages import Package, PackageSpec, get_package_id_from_url
 from .util import get_package_digest
 from .logs import getLogger
 
@@ -17,17 +18,45 @@ if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
 
 
+class UnfurlRuntimeDict(TypedDict):
+    version: str
+    digest: str
+
+
+class RuntimeDict(TypedDict, total=False):
+    unfurl: UnfurlRuntimeDict
+    toolVersions: Dict[str, List[str]]
+
+
+class EnsembleLockDict(TypedDict):
+    uri: str
+    changeId: Optional[str]
+    digest: str
+    manifest: str
+
+
+class LockDict(TypedDict, total=False):
+    """Dict returned by Lock.lock() representing the full lock state."""
+
+    runtime: RuntimeDict
+    package_rules: List[str]
+    repositories: List[RepoLockDict]
+    ensembles: Dict[str, EnsembleLockDict]
+
+
 class Lock:
-    def __init__(self, ensemble: "YamlManifest"):
+    def __init__(self, ensemble: "YamlManifest") -> None:
         self.ensemble = ensemble
 
-    def find_packages(self):
+    def find_packages(self) -> Iterator[Tuple[str, RepoLockDict]]:
         lock = self.ensemble.manifest.config.get("lock")
         if lock:
             yield from self._find_packages(lock, self.ensemble)
 
     @staticmethod
-    def _find_packages(locked: dict, manifest: "Manifest"):
+    def _find_packages(
+        locked: "LockDict", manifest: "Manifest"
+    ) -> Iterator[Tuple[str, RepoLockDict]]:
         old_format = "package_rules" not in locked
         for repo_dict in locked.get("repositories") or []:
             package_id = repo_dict.get("package_id")
@@ -42,7 +71,9 @@ class Lock:
                     yield package_id, repo_dict
 
     @staticmethod
-    def find_package(lock: dict, manifest: "Manifest", package):
+    def find_package(
+        lock: "LockDict", manifest: "Manifest", package: Package
+    ) -> Optional[RepoLockDict]:
         # we want to find the repository that was originally used for this package
         # each repository in the lock has one package
         # but multiple repositories can point at the same package (tracked in package.repositories)
@@ -64,7 +95,7 @@ class Lock:
     #   make sure the current environment is compatible with this lock:
     #   compare unfurl version and repositories (as packages)
 
-    def lock(self):
+    def lock(self) -> "LockDict":
         """
         lock:
           runtime:
@@ -92,7 +123,7 @@ class Lock:
               digest:
               manifest:
         """
-        lock = CommentedMap()
+        lock: LockDict = CommentedMap()  # type: ignore[assignment]
         lock["runtime"] = self.lock_runtime()
         lock["package_rules"] = [
             spec.as_env_value()
@@ -115,11 +146,11 @@ class Lock:
         #     lock["artifacts"] = artifacts
         return lock
 
-    def lock_repositories(self):
+    def lock_repositories(self) -> List[RepoLockDict]:
         # create lock records for each git repo referenced by package or a Repository
         # (localenv might record more local git repos but don't include ones that weren't referenced)
-        repositories = []
-        repos = set()
+        repositories: List[RepoLockDict] = []
+        repos: set[int] = set()
         for package_id, package in self.ensemble.packages.items():
             if package and package.repositories:
                 repo_view = package.repositories[0]
@@ -133,10 +164,10 @@ class Lock:
                 repositories.append(repo_view.lock())
         return repositories
 
-    def lock_runtime(self):
+    def lock_runtime(self) -> RuntimeDict:
         ensemble = self.ensemble
-        record = CommentedMap()
-        record["unfurl"] = CommentedMap(
+        record: RuntimeDict = CommentedMap()  # type: ignore[assignment]
+        record["unfurl"] = CommentedMap(  # type: ignore[typeddict-item]
             (("version", semver_prerelease()), ("digest", get_package_digest()  or "00000000"))
         )
         if ensemble.localEnv and ensemble.localEnv.toolVersions:
@@ -146,9 +177,9 @@ class Lock:
         # XXX Pipfile.lock: _meta.hash, python version
         return record
 
-    def lock_ensembles(self):
+    def lock_ensembles(self) -> Dict[str, EnsembleLockDict]:
         ensemble = self.ensemble
-        ensembles = CommentedMap()
+        ensembles: Dict[str, EnsembleLockDict] = CommentedMap()  # type: ignore[assignment]
         for name, _import in ensemble.imports.items():
             # skip imports that were added while creating shadow instances
             if ":" in name or not _import.spec or not _import.external_instance:
@@ -159,7 +190,7 @@ class Lock:
                 continue
             manifest = imported[0]
             lastJob = manifest.lastJob or {}
-            ensembles[name] = CommentedMap(
+            ensembles[name] = CommentedMap(  # type: ignore[assignment]
                 [
                     ("uri", manifest.uri),
                     ("changeId", lastJob.get("changeId")),
@@ -169,7 +200,7 @@ class Lock:
             )
         return ensembles
 
-    def lock_task(self, task, artifacts):
+    def lock_task(self, task: Any, artifacts: List[CommentedMap]) -> None:
         # XXX unused
         instance = task.target
         artifactName = "image"

@@ -515,6 +515,9 @@ class DeploymentPaths(TypedDict):
     DeploymentPath: Dict[str, DeploymentPath]
     deployments: NotRequired[List["GraphqlDB"]]
 
+class PackageInfo(TypedDict):
+    version: str
+
 
 class GraphqlDB(Dict[str, GraphqlObjectsByName]):
     def get_types(self) -> ResourceTypesByName:
@@ -607,7 +610,7 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
             deployment["url"] = url
         if primary_resource and primary_resource["title"] == primary_name:
             primary_resource["title"] = deployment["title"]
-        packages = {}
+        packages: Dict[str, PackageInfo] = {}
         for package_id, repo_dict in Lock(manifest).find_packages():
             # lock packages to the last deployed version
             # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
@@ -620,8 +623,8 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                 # old version of lock section YAML, set missing to True
                 version = "(MISSING)"
             if version:
-                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(
-                    version=version
+                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = (
+                    PackageInfo(version=version)
                 )
         if packages:
             deployment["packages"] = packages
