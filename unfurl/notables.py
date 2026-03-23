@@ -5,13 +5,15 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Optional, cast
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 from typing_extensions import Literal
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 
 from .cloudmap import (
     CloudMapDB,
+    CloudType,
+    CloudTypeDict,
     Notable,
     Repository,
     Service,
@@ -23,10 +25,13 @@ from .spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_fun
 from .support import ContainerImage
 from .oci import (
     Artifact,
+    ArtifactMetadata,
+    CommonMetadata,
     EntitySchema,
     Instantiation,
     TypeRefs,
     TypedUrls,
+    build_oci_purl,
     filter_dict,
 )
 from .to_json import get_blueprint_path, node_type_to_graphql
@@ -155,7 +160,7 @@ class UnfurlNotable(Notable):
             artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
 
             # Create main artifact using helper method
-            artifact, cloud_type = CloudMapDB.create_artifact_from_notable(
+            artifact, cloud_type = create_artifact_from_notable(
                 artifact_pkg=artifact_url,
                 artifact_type=self.artifact_type,
                 name=template_name,
@@ -188,7 +193,7 @@ class UnfurlNotable(Notable):
                             )
 
                             dep_cloud_type = (
-                                CloudMapDB.create_cloud_type_from_type_info(
+                                create_cloud_type_from_type_info(
                                     dep_type_info, directory.db.types
                                 )
                             )
@@ -349,5 +354,162 @@ class UnfurlNotable(Notable):
             assert spec.topology
             return spec.topology.get_node_template(node)
         return None
+
+def create_cloud_type_from_type_info(
+    type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
+) -> Optional[CloudType]:
+    """
+    Create a CloudType from type_info dict if it doesn't already exist.
+
+    Args:
+        type_info: Dict with 'name', 'title', 'extends' keys
+        types_dict: Optional dict to check for existing types
+
+    Returns:
+        CloudType if created, None if type_info is empty or type already exists
+    """
+    type_name = type_info.get("name", "")
+    if not type_name:
+        return None
+
+    # Don't create if it already exists
+    if types_dict and type_name in types_dict:
+        return None
+
+    metadata = CommonMetadata()
+    if type_info.get("title"):
+        metadata.title = type_info["title"]
+
+    return CloudType(
+        name=type_name,
+        kind="Component",  # XXX inferred from artifact_type
+        metadata=metadata,
+        extends=type_info.get("extends", []),
+    )
+
+
+def create_artifact_from_notable(
+    artifact_pkg: str,
+    artifact_type: str,
+    name: str = "",
+    version: str = "",
+    description: str = "",
+    thumbnail: str = "",
+    notables: Optional[TypedUrls] = None,
+    dependencies: Optional[TypedUrls] = None,
+    type_info: Optional[Dict[str, Any]] = None,
+    types_dict: Optional[CloudTypeDict] = None,
+    digest: str = "",
+) -> Tuple[Artifact, Optional[CloudType]]:
+    """
+    Create an Artifact from notable metadata fields.
+
+    Args:
+        artifact_pkg: Package URL for the artifact
+        artifact_type: Type identifier for the artifact
+        name: Human-readable name (maps to metadata.title)
+        version: Version string (maps to metadata.version)
+        description: Description (maps to metadata.description)
+        thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
+        artifacts: Map of artifact IDs this artifact references (maps to notable)
+        dependencies: List of dependencies (maps to requires)
+        type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
+        types_dict: Optional dict to check for existing types
+        digest: Digest of the artifact (e.g., "git:blob:abc123")
+
+    Returns:
+        Tuple of (Artifact, Optional[CloudType]) - CloudType is returned if created
+    """
+    # Build artifact metadata
+    metadata = ArtifactMetadata(
+        title=name,
+        version=version,
+        description=description,
+        thumbnail_url=thumbnail,
+    )
+
+    # Handle type field: create CloudType and add to instantiates
+    instantiates = TypeRefs()
+    cloud_type = None
+    if type_info and isinstance(type_info, dict):
+        cloud_type = create_cloud_type_from_type_info(
+            type_info, types_dict
+        )
+        type_name = type_info.get("name", "")
+        if type_name:
+            # Add to artifact's instantiates
+            instantiates.add(type_name)
+
+    # Create the artifact
+    artifact = Artifact(
+        url=artifact_pkg,
+        type=TypeRefs({artifact_type: None}),
+        notable=notables or {},
+        instantiates=instantiates,
+        dependencies=dependencies or {},
+        metadata=metadata,
+        digest=digest,
+    )
+
+    return artifact, cloud_type
+
+
+def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
+    """
+    Migrate old Repository.notable dictionary format to new List[str] format.
+
+    Creates Artifact instances from old inline notable definitions and adds them
+    to db.artifacts and db.types.
+
+    Args:
+        db: CloudMapDB instance to add artifacts and types to
+        repo: Repository with potentially old-format notable dict
+
+    Returns:
+        Notable converted to artifact IDs
+    """
+    migrated_artifact_ids: List[str] = []
+    for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
+        if "artifact_type" in notable_dict:
+            # Create artifact pkg from repository URL + file path
+            artifact_pkg = repo.artifact_url(file_path)
+
+            # Create artifact using helper method
+            artifact, cloud_type = create_artifact_from_notable(
+                artifact_pkg=artifact_pkg,
+                artifact_type=notable_dict.pop("artifact_type", ""),
+                name=notable_dict.pop("name", ""),
+                version=str(notable_dict.pop("version", "") or ""),
+                description=notable_dict.pop("description", ""),
+                thumbnail=notable_dict.pop("thumbnail_url", "")
+                or repo.metadata.thumbnail_url,
+                notables={
+                    build_oci_purl(ContainerImage.split(ref)): None
+                    for ref in notable_dict.pop("artifacts", [])
+                },
+                dependencies={
+                    "": TypeRefs(
+                        {v: None for v in notable_dict.pop("dependencies", [])}
+                    )
+                },
+                type_info=notable_dict.pop("type", None),
+                types_dict=db.types,
+            )
+            while notable_dict:
+                notable_dict.popitem()  # remove any remaining old fields
+            # update notable to new format:
+            notable_dict["type"] = artifact.type
+            notable_dict["artifact"] = artifact_pkg
+
+            # Add CloudType if created
+            if cloud_type:
+                db.types[cloud_type.name] = cloud_type
+
+            # Add to artifacts dict
+            db.artifacts[artifact_pkg] = artifact
+            migrated_artifact_ids.append(artifact_pkg)
+
+    return migrated_artifact_ids
+
 
 Notables = (UnfurlNotable, ContainerBuilderNotable)
