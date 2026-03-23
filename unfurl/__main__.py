@@ -2037,6 +2037,15 @@ def serve(
     "--add",
     default=None,
     metavar="URL",
+    help="Add a single record for the given URL to the cloudmap.",
+)
+@click.option(
+    "--graph",
+    default=None,
+    metavar="URL",
+    is_flag=False,
+    flag_value="",
+    help="Print a graph of cloudmap records starting from URL (or all if empty).",
 )
 def cloudmap(
     ctx,
@@ -2053,6 +2062,7 @@ def cloudmap(
     commit: bool = False,
     add: Optional[str] = None,
     analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    graph: Optional[str] = None,
     **options,
 ):
     """Manage a cloud map.
@@ -2064,10 +2074,18 @@ def cloudmap(
 
     options.update(ctx.obj)
     localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
+    if graph is not None:
+        cloud_map = CloudMap.from_name(
+            localEnv, cloudmap, clone_root, "", True, False
+        )
+        from .reporting import print_cloudmap_graph
+
+        print_cloudmap_graph(cloud_map.directory.db, graph)
+        return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
     if not add and not host_name:
-        click.echo("nothing to do (use one of --export, --import, --add, or --sync)")
+        click.echo("nothing to do (use one of --export, --import, --add, --graph, or --sync)")
         return
     # get the host first so we know branch to use in the cloud map repository
     if add:

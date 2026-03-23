@@ -28,6 +28,7 @@ from .support import Status
 from .logs import SensitiveFilter, getLogger, getConsole
 from rich.console import Console
 from rich.table import Table
+from rich.tree import Tree
 from rich import box
 from rich.segment import Segment
 from rich.markup import escape
@@ -35,6 +36,7 @@ import re
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
+    from .cloudmap import CloudMapDB
     from rich.console import RenderableType
     from rich.style import StyleType
     from .job import Job, ConfigTask
@@ -449,3 +451,228 @@ class JobReporter:
             )
         console.print(table)
         return console.export_text()
+
+
+def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
+    """Print a rich.Tree showing how cloudmap records reference each other."""
+    from .cloudmap import CloudMapDB, Repository, CloudType, Service
+    from .oci import Artifact, Instantiation
+
+    _KIND_STYLES: Dict[str, str] = {
+        "Repository": "green",
+        "Artifact": "cyan",
+        "Instantiation": "yellow",
+        "Service": "magenta",
+        "Type": "blue",
+    }
+
+    def _find_record(url: str) -> Optional[Tuple[str, Any]]:
+        for kind, collection in (
+            ("Service", db.services),
+            ("Instantiation", db.instantiations),
+            ("Artifact", db.artifacts),
+            ("Repository", db.repositories),
+            ("Type", db.types),
+        ):
+            if url in collection:
+                return kind, collection[url]
+        # Try adding .git suffix for git:// URLs missing from repositories
+        if url.startswith("git:") and not url.endswith(".git") and "#" not in url:
+            git_url = url + ".git"
+            if git_url in db.repositories:
+                return "Repository", db.repositories[git_url]
+        return None
+
+    def _find_all_records(url: str) -> List[Tuple[str, Any]]:
+        """Find all records matching a URL across all collections."""
+        results: List[Tuple[str, Any]] = []
+        for kind, collection in (
+            ("Instantiation", db.instantiations),
+            ("Repository", db.repositories),
+            ("Artifact", db.artifacts),
+            ("Service", db.services),
+            ("Type", db.types),
+        ):
+            if url in collection:
+                results.append((kind, collection[url]))
+        return results
+
+    def _label(kind: str, url: str, record: Any, guide_style: str = "") -> str:
+        from .oci import TypeRefs
+
+        title = ""
+        if hasattr(record, "metadata") and hasattr(record.metadata, "title"):
+            title = record.metadata.title or ""
+        elif hasattr(record, "name"):
+            title = record.name
+        prefix = f"{title} " if title and title != url else ""
+        # Show the record's type for Artifact, Instantiation, Service
+        type_str = ""
+        if hasattr(record, "type") and isinstance(record.type, TypeRefs):
+            names = record.type.names()
+            if names or prefix:
+                # Pad so type aligns with URL (after "Kind ")
+                pad = " " * len(kind)
+                styled_pipe = f"[{guide_style}]\u2502[/]" if guide_style else "\u2502"
+                type_str = (
+                    f"\n{styled_pipe}{pad}{escape(prefix)}({escape(', '.join(names))})"
+                )
+        return f"[bold]{kind}[/] {escape(url)}{type_str}"
+
+    def _add_typed_urls(
+        parent: Tree, label: str, typed_urls: Dict[str, Any], visited: set
+    ) -> None:
+        """Add a TypedUrls edge group: key is a label, value has type refs to follow."""
+        from .oci import TypeRefs
+
+        if not typed_urls:
+            return
+        branch = parent.add(f"[dim]{label}[/]")
+        for key, type_refs in typed_urls.items():
+            names: List[str] = []
+            if isinstance(type_refs, TypeRefs):
+                names = type_refs.names()
+            # If the key itself is a resolvable record, follow it
+            if _find_record(key) is not None:
+                _add_child(branch, key, visited)
+                for name in names:
+                    if name != key:
+                        _add_child(branch, name, visited)
+            elif names:
+                # Key is a label (e.g. dependency name), show it with its types
+                key_node = branch.add(f"[dim italic]{escape(key)}[/]")
+                for name in names:
+                    _add_child(key_node, name, visited)
+            else:
+                _add_child(branch, key, visited)
+
+    def _add_edges(parent: Tree, record: Any, kind: str, visited: set) -> None:
+        edges: List[Tuple[str, List[str]]] = []
+
+        if kind == "Repository":
+            assert isinstance(record, Repository)
+            if record.fork_of:
+                edges.append(("fork_of", [record.fork_of]))
+            if record.mirror_of:
+                edges.append(("mirror_of", [record.mirror_of]))
+            if record.service:
+                edges.append(("service", [record.service]))
+            if record.notable:
+                urls = [
+                    nd.get("artifact", "")
+                    for nd in record.notable.values()
+                    if isinstance(nd, dict) and nd.get("artifact")
+                ]
+                if urls:
+                    edges.append(("notable", urls))
+
+        elif kind == "Artifact":
+            assert isinstance(record, Artifact)
+            if record.notable:
+                _add_typed_urls(parent, "notable", record.notable, visited)
+            if record.dependencies:
+                _add_typed_urls(parent, "dependencies", record.dependencies, visited)
+            if record.instantiates and record.instantiates.names():
+                edges.append(("instantiates", record.instantiates.names()))
+            if record.instantiated_by:
+                edges.append(("instantiated_by", list(record.instantiated_by)))
+
+        elif kind == "Instantiation":
+            assert isinstance(record, Instantiation)
+            if record.source:
+                # Render source first before TypedUrls fields
+                source_branch = parent.add("[dim]source[/]")
+                _add_child(source_branch, record.source, visited)
+            if record.instantiated:
+                _add_typed_urls(parent, "instantiated", record.instantiated, visited)
+            if record.inputs:
+                _add_typed_urls(parent, "inputs", record.inputs, visited)
+
+        elif kind == "Service":
+            assert isinstance(record, Service)
+            if record.connections:
+                _add_typed_urls(parent, "connections", record.connections, visited)
+            if record.instantiated_by:
+                edges.append(("instantiated_by", list(record.instantiated_by)))
+
+        elif kind == "Type":
+            assert isinstance(record, CloudType)
+            if record.extends:
+                # Omit self-references, show only first parent
+                filtered = [n for n in record.extends if n != record.name]
+                if filtered:
+                    edges.append(("extends", filtered[:1]))
+            if record.source:
+                edges.append(("source", [record.source]))
+            if record.model:
+                edges.append(("model", [record.model]))
+            if record.implementations:
+                edges.append(("implementations", list(record.implementations)))
+
+        for label, urls in edges:
+            if not urls:
+                continue
+            branch = parent.add(f"[dim]{label}[/]")
+            for url in urls:
+                _add_child(branch, url, visited)
+
+    def _add_child(parent: Tree, url: str, visited: set) -> None:
+        found = _find_record(url)
+        if found is None:
+            if "://" in url or url.startswith("pkg:"):
+                parent.add(f"[dim italic]{escape(url)} \\[missing][/]")
+            else:
+                parent.add(f"[dim italic]{escape(url)}[/]")
+            return
+        child_kind, child_record = found
+        style = _KIND_STYLES.get(child_kind, "")
+        if url in visited:
+            parent.add(f"{_label(child_kind, url, child_record, style)} [dim]\\[seen][/]")
+            return
+        visited.add(url)
+        child_tree = parent.add(
+            _label(child_kind, url, child_record, style), guide_style=style
+        )
+        _add_edges(child_tree, child_record, child_kind, visited)
+
+    console = getConsole()
+
+    if start_url:
+        all_found = _find_all_records(start_url)
+        if not all_found:
+            console.print(f"[red]Record not found:[/] {escape(start_url)}")
+            return
+        visited: set = {start_url}
+        for kind, record in all_found:
+            style = _KIND_STYLES.get(kind, "")
+            root = Tree(_label(kind, start_url, record, style), guide_style=style)
+            _add_edges(root, record, kind, visited)
+            console.print(root)
+    else:
+        root = Tree("[bold]CloudMap[/]")
+        visited = set()
+        for section_name, collection in (
+            ("Repositories", db.repositories),
+            ("Artifacts", db.artifacts),
+            ("Instantiations", db.instantiations),
+            ("Services", db.services),
+            ("Types", db.types),
+        ):
+            if not collection:
+                continue
+            section = root.add(f"[bold]{section_name}[/]")
+            for url, record in collection.items():
+                cls_name = record.__class__.__name__
+                kind = "Type" if cls_name == "CloudType" else cls_name
+                style = _KIND_STYLES.get(kind, "")
+                if url in visited:
+                    section.add(
+                        f"{_label(kind, url, record, style)} [dim]\\[seen][/]"
+                    )
+                    continue
+                visited.add(url)
+                node = section.add(
+                    _label(kind, url, record, style), guide_style=style
+                )
+                _add_edges(node, record, kind, visited)
+        console.print(root)

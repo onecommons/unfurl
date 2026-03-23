@@ -274,6 +274,8 @@ class TypeRefConstraint(TypedDict, total=False):
     status: Literal["unknown", "absent", "present", "failed", "validated"]
     version: Union[int, float, str]
     properties: Dict[str, Any]
+    metadata: Dict[str, Any]
+    model: str
 
 
 TypeRefJson = Dict[
