@@ -95,7 +95,7 @@ class Project:
         assert isinstance(path, str), path
         if os.path.isdir(path):
             path = os.path.join(path, DefaultNames.LocalConfig)
-        self.projectRoot = os.path.abspath(os.path.dirname(path))
+        self.projectRoot = os.path.dirname(os.path.abspath(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(
@@ -1083,6 +1083,7 @@ class LocalEnv:
         override_environment: Optional[str] = None,
         overrides: Optional[Dict[str, Any]] = None,
         readonly: Optional[bool] = False,
+        create_if_missing: bool = False,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -1154,6 +1155,16 @@ class LocalEnv:
             logger.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions: dict = {}
         self.instance_repoview = self._get_instance_repoview()
+        if not self.manifestPath and not self.project and not manifestPath:
+            if self.homeProject:
+                self.project = self.homeProject
+            elif create_if_missing:
+                self.project = Project(DefaultNames.LocalConfig, None, None)
+            else:
+                # this can happen when can_be_empty is True
+                raise UnfurlError(
+                    f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
+                )
         self.config = (
             self.project
             and self.project.localConfig
@@ -1161,14 +1172,6 @@ class LocalEnv:
             and self.homeProject.localConfig
             or LocalConfig()
         )
-        if not self.manifestPath and not self.project and not manifestPath:
-            if self.homeProject:
-                self.project = self.homeProject
-            else:
-                # this can happen when can_be_empty is True
-                raise UnfurlError(
-                    f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
-                )
         self._set_environment(override_environment)
 
     def _set_environment(self, override_environment: Optional[str]) -> None:
