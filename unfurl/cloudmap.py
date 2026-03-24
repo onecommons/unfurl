@@ -163,15 +163,17 @@ class Namespace:
     url: str
     internal_id: Optional[str] = None
     description: str = ""
-    avatar_url: str = ""
+    thumbnail_url: str = ""
     public: Optional[bool] = None
     shared: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         if self.url:
             self.url = validate_url(self.url, "Namespace.url")
-        if self.avatar_url:
-            self.avatar_url = validate_url(self.avatar_url, "Namespace.avatar_url")
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, "Namespace.thumbnail_url"
+            )
 
 
 @dataclass
@@ -888,6 +890,9 @@ class CloudMapDB:
             validate,
             schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
+        # Cloudmap URLs can be very long; prevent ruamel.yaml from using
+        # explicit key syntax ("? key\n:") by raising the simple key limit.
+        self.config.yaml.emitter.MAX_SIMPLE_KEY_LENGTH = 1024
         db = self.config.config
         assert isinstance(db, dict)
         self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
@@ -1783,9 +1788,9 @@ class GitlabManager(RepositoryHost):
             try:
                 # XXX if we have credentials for this host, add them so we can we try to access non-public avatars
                 # if self.visibility != "public":
-                #   gl = get_gl_for_host(repo_info.metadata.avatar_url)
+                #   gl = get_gl_for_host(repo_info.metadata.thumbnail_url)
                 #   if gl:
-                #     response = gl.session.get(avatar_url)
+                #     response = gl.session.get(thumbnail_url)
                 #     avatar = response.content
                 avatar = _urlopen(repo_info.metadata.thumbnail_url).read()
             except Exception:
@@ -1845,7 +1850,7 @@ class GitlabManager(RepositoryHost):
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
         if self.save_internal and project.avatar_url:
             # these urls point to the instance's uploaded files and aren't portable
-            kw["avatar_url"] = project.avatar_url
+            kw["thumbnail_url"] = project.avatar_url
         if getattr(project, "issues_enabled", False):
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
 
@@ -1988,6 +1993,9 @@ else:
             kw: Dict[str, Any] = {}
             if repo.homepage:
                 kw["homepage_url"] = repo.homepage
+            # note: skipping thumbnail_url for GitHub, projects don't have thumbnails (only owners)
+            if repo.has_issues:
+                kw["issues_url"] = self.canonize(repo.html_url + "/issues")
 
             metadata = RepositoryMetadata(
                 description=repo.description or "",
@@ -1995,6 +2003,7 @@ else:
                 spdx_licenses=repo.license.spdx_id if repo.license else "",
                 **kw,
             )
+            metadata.set_lastupdate()
 
             # Build Repository object
             repository = Repository(

@@ -494,7 +494,7 @@ repositories:
         UI.
       issues_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/issues
       homepage_url: https://unfurl.cloud/onecommons/blueprints/cronicle
-      avatar_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar
+      thumbnail_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar
     default_branch: main
     branches:
       main: c927e49f0fa1bc6c957cc16ca9d554b46d1abe73
@@ -636,6 +636,7 @@ class TestGithubManager:
         mock_owner = Mock()
         mock_owner.login = "testuser"
         mock_repo.owner = mock_owner
+        mock_repo.has_issues = True
 
         # Mock branches
         mock_branch_main = Mock()
@@ -675,6 +676,9 @@ class TestGithubManager:
         assert result.metadata.topics == ["python", "testing"]
         assert result.metadata.spdx_licenses == "MIT"
         assert result.metadata.homepage_url == "https://example.com"
+        assert (
+            result.metadata.issues_url == "https://github.com/testuser/test-repo/issues"
+        )
         # Verify branches and tags
         assert result.branches == {"main": "abc123", "develop": "def456"}
         assert result.tags == {"v1.0.0": "tag123", "v2.0.0": "tag456"}
@@ -767,7 +771,9 @@ class TestGithubManager:
         mock_repo.homepage = "https://example.com"
         mock_repo.get_topics.return_value = ["python", "testing"]
         mock_repo.license = mock_license
+        mock_owner.avatar_url = "https://avatars.githubusercontent.com/u/12345"
         mock_repo.owner = mock_owner
+        mock_repo.has_issues = True
         mock_repo.id = 12345
 
         # Mock multiple branches
