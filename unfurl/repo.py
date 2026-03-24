@@ -18,7 +18,7 @@ from typing import (
     cast,
     Iterator,
 )
-from typing_extensions import Literal
+from typing_extensions import Literal, TypedDict
 import git
 import git.exc
 from git.objects import Commit
@@ -505,6 +505,22 @@ def find_dirty_secrets(
                 yield filepath, dotsecrets
 
 
+class RepoLockDict(TypedDict, total=False):
+    """Dict returned by RepoView.lock() representing a locked repository state."""
+
+    url: str
+    commit: str
+    initial: str
+    discovered_revision: str
+    package_id: str
+    revision: str
+    branch: str
+    tag: str
+    name: str
+    origin: str
+    project: str
+
+
 class RepoView:
     # view of Repo optionally filtered by path
     # XXX and revision too
@@ -733,8 +749,8 @@ class RepoView:
         else:
             return self.repo.revision
 
-    def lock(self) -> CommentedMap:
-        record = CommentedMap(
+    def lock(self) -> "RepoLockDict":
+        record: RepoLockDict = CommentedMap(  # type: ignore[assignment]
             [
                 ("url", normalize_git_url(self.url, 1)),
                 ("commit", self.get_current_commit()),

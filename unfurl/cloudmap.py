@@ -163,15 +163,17 @@ class Namespace:
     url: str
     internal_id: Optional[str] = None
     description: str = ""
-    avatar_url: str = ""
+    thumbnail_url: str = ""
     public: Optional[bool] = None
     shared: List[str] = field(default_factory=list)
 
     def __post_init__(self):
         if self.url:
             self.url = validate_url(self.url, "Namespace.url")
-        if self.avatar_url:
-            self.avatar_url = validate_url(self.avatar_url, "Namespace.avatar_url")
+        if self.thumbnail_url:
+            self.thumbnail_url = validate_url(
+                self.thumbnail_url, "Namespace.thumbnail_url"
+            )
 
 
 @dataclass
@@ -387,8 +389,8 @@ class Service:
     """Lifecycle status of the service"""
     metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
     policies: ServicePolicies = field(default_factory=ServicePolicies)
-    instantiated_by: List[str] = field(default_factory=list)
-    """List of URLs referencing an entry in instantiations."""
+    instantiated_by: TypedUrls = field(default_factory=dict)
+    """URLs referencing entries in instantiations with optional type constraints."""
     discovery: Optional[Discovery] = None
     """Metadata discovery information (last_checked, sources)"""
     release_schedule: List[ScheduledRelease] = field(default_factory=list)
@@ -415,6 +417,9 @@ class Service:
         ]
         self.endpoints = TypeRefs.urls_fromdict(self.endpoints)
         self.connections = TypeRefs.urls_fromdict(self.connections)
+        if isinstance(self.instantiated_by, list):
+            self.instantiated_by = {url: None for url in self.instantiated_by}
+        self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         # Convert versions dict entries to Service instances if they're still dicts
         if self.versions:
             new_versions: Dict[str, Service] = {}
@@ -450,6 +455,8 @@ class Service:
             elif k == "endpoints":
                 v = TypeRefs.urls_asdict(v)
             elif k == "connections":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "instantiated_by":
                 v = TypeRefs.urls_asdict(v)
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]
@@ -785,105 +792,6 @@ class CloudMapDB:
     def __init__(self, path=".", contents=None, validate: bool = True) -> None:
         self._load(path, contents, validate)
 
-    @staticmethod
-    def create_cloud_type_from_type_info(
-        type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
-    ) -> Optional[CloudType]:
-        """
-        Create a CloudType from type_info dict if it doesn't already exist.
-
-        Args:
-            type_info: Dict with 'name', 'title', 'extends' keys
-            types_dict: Optional dict to check for existing types
-
-        Returns:
-            CloudType if created, None if type_info is empty or type already exists
-        """
-        type_name = type_info.get("name", "")
-        if not type_name:
-            return None
-
-        # Don't create if it already exists
-        if types_dict and type_name in types_dict:
-            return None
-
-        metadata = CommonMetadata()
-        if type_info.get("title"):
-            metadata.title = type_info["title"]
-
-        return CloudType(
-            name=type_name,
-            kind="Component",  # XXX inferred from artifact_type
-            metadata=metadata,
-            extends=type_info.get("extends", []),
-        )
-
-    @staticmethod
-    def create_artifact_from_notable(
-        artifact_pkg: str,
-        artifact_type: str,
-        name: str = "",
-        version: str = "",
-        description: str = "",
-        thumbnail: str = "",
-        notables: Optional[TypedUrls] = None,
-        dependencies: Optional[TypedUrls] = None,
-        type_info: Optional[Dict[str, Any]] = None,
-        types_dict: Optional[CloudTypeDict] = None,
-        digest: str = "",
-    ) -> Tuple[Artifact, Optional[CloudType]]:
-        """
-        Create an Artifact from notable metadata fields.
-
-        Args:
-            artifact_pkg: Package URL for the artifact
-            artifact_type: Type identifier for the artifact
-            name: Human-readable name (maps to metadata.title)
-            version: Version string (maps to metadata.version)
-            description: Description (maps to metadata.description)
-            thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
-            artifacts: Map of artifact IDs this artifact references (maps to notable)
-            dependencies: List of dependencies (maps to requires)
-            type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
-            types_dict: Optional dict to check for existing types
-            digest: Digest of the artifact (e.g., "git:blob:abc123")
-
-        Returns:
-            Tuple of (Artifact, Optional[CloudType]) - CloudType is returned if created
-        """
-        # Build artifact metadata
-        metadata = ArtifactMetadata(
-            title=name,
-            version=version,
-            description=description,
-            thumbnail_url=thumbnail,
-        )
-
-        # Handle type field: create CloudType and add to instantiates
-        instantiates = TypeRefs()
-        cloud_type = None
-        if type_info and isinstance(type_info, dict):
-            cloud_type = CloudMapDB.create_cloud_type_from_type_info(
-                type_info, types_dict
-            )
-            type_name = type_info.get("name", "")
-            if type_name:
-                # Add to artifact's instantiates
-                instantiates.add(type_name)
-
-        # Create the artifact
-        artifact = Artifact(
-            url=artifact_pkg,
-            type=TypeRefs({artifact_type: None}),
-            notable=notables or {},
-            instantiates=instantiates,
-            dependencies=dependencies or {},
-            metadata=metadata,
-            digest=digest,
-        )
-
-        return artifact, cloud_type
-
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
         """Get a repository by its key (URL)."""
         if isinstance(r, Repository):
@@ -972,62 +880,6 @@ class CloudMapDB:
 
         return artifact
 
-    def _migrate_old_notable_format(self, repo: Repository) -> List[str]:
-        """
-        Migrate old Repository.notable dictionary format to new List[str] format.
-
-        Creates Artifact instances from old inline notable definitions and adds them
-        to self.artifacts and self.types.
-
-        Args:
-            repo: Repository with potentially old-format notable dict
-
-        Returns:
-            Notable converted to artifact IDs
-        """
-        migrated_artifact_ids = []
-        for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
-            if "artifact_type" in notable_dict:
-                # Create artifact pkg from repository URL + file path
-                artifact_pkg = repo.artifact_url(file_path)
-
-                # Create artifact using helper method
-                artifact, cloud_type = self.create_artifact_from_notable(
-                    artifact_pkg=artifact_pkg,
-                    artifact_type=notable_dict.pop("artifact_type", ""),
-                    name=notable_dict.pop("name", ""),
-                    version=str(notable_dict.pop("version", "") or ""),
-                    description=notable_dict.pop("description", ""),
-                    thumbnail=notable_dict.pop("thumbnail_url", "")
-                    or repo.metadata.thumbnail_url,
-                    notables={
-                        build_oci_purl(ContainerImage.split(ref)): None
-                        for ref in notable_dict.pop("artifacts", [])
-                    },
-                    dependencies={
-                        "": TypeRefs(
-                            {v: None for v in notable_dict.pop("dependencies", [])}
-                        )
-                    },
-                    type_info=notable_dict.pop("type", None),
-                    types_dict=self.types,
-                )
-                while notable_dict:
-                    notable_dict.popitem()  # remove any remaining old fields
-                # update notable to new format:
-                notable_dict["type"] = artifact.type
-                notable_dict["artifact"] = artifact_pkg
-
-                # Add CloudType if created
-                if cloud_type:
-                    self.types[cloud_type.name] = cloud_type
-
-                # Add to artifacts dict
-                self.artifacts[artifact_pkg] = artifact
-                migrated_artifact_ids.append(artifact_pkg)
-
-        return migrated_artifact_ids
-
     def _load(self, path: str, contents=None, validate: bool = True) -> None:
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
@@ -1038,6 +890,9 @@ class CloudMapDB:
             validate,
             schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
+        # Cloudmap URLs can be very long; prevent ruamel.yaml from using
+        # explicit key syntax ("? key\n:") by raising the simple key limit.
+        self.config.yaml.emitter.MAX_SIMPLE_KEY_LENGTH = 1024
         db = self.config.config
         assert isinstance(db, dict)
         self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
@@ -1064,7 +919,9 @@ class CloudMapDB:
             repo = Repository(url=r.pop("git", url), **r)
             # Backwards compatibility: migrate old notable dictionary format to new format
             if isinstance(repo.notable, dict):
-                self._migrate_old_notable_format(repo)
+                from .notables import migrate_old_notable_format
+
+                migrate_old_notable_format(self, repo)
             self.add_repository(repo)
 
         # Load services
@@ -1931,9 +1788,9 @@ class GitlabManager(RepositoryHost):
             try:
                 # XXX if we have credentials for this host, add them so we can we try to access non-public avatars
                 # if self.visibility != "public":
-                #   gl = get_gl_for_host(repo_info.metadata.avatar_url)
+                #   gl = get_gl_for_host(repo_info.metadata.thumbnail_url)
                 #   if gl:
-                #     response = gl.session.get(avatar_url)
+                #     response = gl.session.get(thumbnail_url)
                 #     avatar = response.content
                 avatar = _urlopen(repo_info.metadata.thumbnail_url).read()
             except Exception:
@@ -1993,7 +1850,7 @@ class GitlabManager(RepositoryHost):
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
         if self.save_internal and project.avatar_url:
             # these urls point to the instance's uploaded files and aren't portable
-            kw["avatar_url"] = project.avatar_url
+            kw["thumbnail_url"] = project.avatar_url
         if getattr(project, "issues_enabled", False):
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
 
@@ -2136,6 +1993,9 @@ else:
             kw: Dict[str, Any] = {}
             if repo.homepage:
                 kw["homepage_url"] = repo.homepage
+            # note: skipping thumbnail_url for GitHub, projects don't have thumbnails (only owners)
+            if repo.has_issues:
+                kw["issues_url"] = self.canonize(repo.html_url + "/issues")
 
             metadata = RepositoryMetadata(
                 description=repo.description or "",
@@ -2143,6 +2003,7 @@ else:
                 spdx_licenses=repo.license.spdx_id if repo.license else "",
                 **kw,
             )
+            metadata.set_lastupdate()
 
             # Build Repository object
             repository = Repository(
@@ -2806,6 +2667,7 @@ class CloudMap:
             repo = Repo.find_containing_repo(url)
             if repo:
                 # don't include "." as a path to examine
+                self.directory._add_repo(repo)
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
 

@@ -65,6 +65,7 @@ from typing_extensions import Literal
 from urllib.parse import urlparse
 
 from .repo import (
+    RepoLockDict,
     RepoView,
     split_git_url,
     get_remote_tags,
@@ -598,7 +599,7 @@ def resolve_package(
     packages: PackagesType,
     package_specs: List[PackageSpec],
     get_remote_tags=get_remote_tags,
-    lock_dict: Optional[dict] = None,
+    lock_dict: Optional["RepoLockDict"] = None,
 ) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.

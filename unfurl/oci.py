@@ -274,6 +274,8 @@ class TypeRefConstraint(TypedDict, total=False):
     status: Literal["unknown", "absent", "present", "failed", "validated"]
     version: Union[int, float, str]
     properties: Dict[str, Any]
+    metadata: Dict[str, Any]
+    model: str
 
 
 TypeRefJson = Dict[
@@ -553,8 +555,8 @@ class Artifact:
     """Types that this artifact instantiates with optional version constraints (typeRef)"""
     dependencies: TypedUrls = field(default_factory=dict)
     """Types that instantiation may depend on with optional version constraints (typeRef)"""
-    instantiated_by: List[str] = field(default_factory=list)
-    """List of URLs referencing an entry in instantiations."""
+    instantiated_by: TypedUrls = field(default_factory=dict)
+    """URLs referencing entries in instantiations with optional type constraints."""
     digest: str = ""
     """Cryptographic digest of the artifact"""
     immutable: bool = False
@@ -592,6 +594,9 @@ class Artifact:
             self.instantiates = TypeRefs(types=self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
         self.notable = TypeRefs.urls_fromdict(self.notable)
+        if isinstance(self.instantiated_by, list):
+            self.instantiated_by = {url: None for url in self.instantiated_by}
+        self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         self.release_schedule = [
             ScheduledRelease(**item) if isinstance(item, dict) else item
             for item in self.release_schedule
@@ -631,6 +636,8 @@ class Artifact:
             elif k == "instantiates" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "dependencies":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "instantiated_by":
                 v = TypeRefs.urls_asdict(v)
             elif k == "release_schedule" and v:
                 v = [filter_dict(item) for item in v]
@@ -830,7 +837,7 @@ def create_oci_artifact(
         metadata.homepage_url = f"https://{ref.host[len('registry.') :]}/{'/'.join(ref.full_name.split('/')[:2])}"
 
     # Create and return Artifact with instantiation
-    instantiated_by = [instantiation.url] if instantiation else []
+    instantiated_by: TypedUrls = {instantiation.url: None} if instantiation else {}
     artifact_types = TypeRefs()
     artifact_types.add(EntitySchema.OCIImage)
     artifact = Artifact(

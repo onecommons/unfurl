@@ -171,7 +171,7 @@ class ConfigurationSpec:
     def create(self) -> "Configurator":
         className: str = self.className
         if ":" in className:
-            from .dsl import DslMethodConfigurator
+            from .dsl import DslMethodConfigurator, import_module
 
             module_name, qualname, action = className.split(":")
             if tosca.loader.import_resolver:
@@ -179,7 +179,7 @@ class ConfigurationSpec:
             else:
                 assert not tosca.safe_mode(), module_name
             if module_name not in sys.modules:
-                module = importlib.import_module(module_name)
+                module = import_module(module_name)
             else:
                 module = sys.modules[module_name]
             parts = qualname.split(".")

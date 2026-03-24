@@ -234,7 +234,7 @@ def get_simple_valuetype(tosca_type, custom_defs):
         return dt.value_type
 
 
-def get_scalar_unit(value_type, metadata):
+def get_scalar_unit(value_type, metadata) -> Dict[str, str]:
     default_unit = metadata and metadata.get("default_unit")
     if default_unit:
         return {"type": "number", "default_unit": default_unit}
@@ -244,7 +244,7 @@ def get_scalar_unit(value_type, metadata):
     # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
 
-def _update_property_metadata(p: PropertyDef, metadata):
+def _update_property_metadata(p: PropertyDef, metadata) -> PropertyDef:
     property_metadata = metadata.get(p.name)
     if property_metadata:
         # don't modify original
@@ -336,7 +336,9 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: Namespace):
     return schema
 
 
-def _template_visibility(topology: TopologySpec, node_name: str, req_metadata: dict):
+def _template_visibility(
+    topology: TopologySpec, node_name: str, req_metadata: dict
+) -> str:
     entity_tpl = topology.get_node_src(node_name)
     if entity_tpl:
         node_metadata = entity_tpl.get("metadata") or {}

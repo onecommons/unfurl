@@ -1210,7 +1210,16 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if factory is dataclasses.MISSING:
             if self.has_explicit_default_value():
                 return self.default
-            factory = self.get_type_info().collection or self.get_type_info().type
+            type_info = self.get_type_info()
+            if self._tosca_field_type == ToscaFieldType.requirement:
+                for t in type_info.simple_types:
+                    if issubclass(t, Node):
+                        factory = t
+                        break
+                else:
+                    factory = type_info.types[0]
+            else:
+                factory = type_info.collection or type_info.type
         elif hasattr(factory, "_is_template_function"):
             return factory(_DataclassTypeProxy(self.owner, obj))  # type: ignore
         return factory()
@@ -1720,7 +1729,6 @@ _Ref = EvalData
 
 def Eval(value: Any) -> Any:
     "Use this function to specify that a value is or contains a TOSCA function or eval expressions. For example, for property default values."
-    # Field specifier for declaring a TOSCA {name}.
     if global_state.mode == "runtime":
         return value
     else:
