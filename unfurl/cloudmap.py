@@ -2667,6 +2667,7 @@ class CloudMap:
             repo = Repo.find_containing_repo(url)
             if repo:
                 # don't include "." as a path to examine
+                self.directory._add_repo(repo)
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
 

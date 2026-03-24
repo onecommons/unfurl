@@ -675,4 +675,7 @@ def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
                     _label(kind, url, record, style), guide_style=style
                 )
                 _add_edges(node, record, kind, visited)
-        console.print(root)
+        if not visited:
+            console.print("[dim]No records found in CloudMap.[/]")
+        else:
+            console.print(root)

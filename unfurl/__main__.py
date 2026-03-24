@@ -2073,11 +2073,15 @@ def cloudmap(
     from .cloudmap import CloudMap
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
+    local_env = LocalEnv(
+        project,
+        options.get("home"),
+        can_be_empty=True,
+        readonly=True,
+        create_if_missing=True,
+    )
     if graph is not None:
-        cloud_map = CloudMap.from_name(
-            localEnv, cloudmap, clone_root, "", True, False
-        )
+        cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
         from .reporting import print_cloudmap_graph
 
         print_cloudmap_graph(cloud_map.directory.db, graph)
@@ -2092,7 +2096,7 @@ def cloudmap(
         host = None
     else:
         host = CloudMap.get_host(
-            localEnv,
+            local_env,
             host_name,
             namespace or "",
             clone_root or "",
@@ -2100,7 +2104,7 @@ def cloudmap(
             repository,
         )
     cloud_map = CloudMap.from_name(
-        localEnv,
+        local_env,
         cloudmap,
         clone_root,
         host.host_branch if host else "",
