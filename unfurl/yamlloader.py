@@ -1268,11 +1268,20 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                         ).expanded
                     doc.path = path
                     doc.base_dir = get_base_dir(path)
-                    validate = (self.manifest and self.manifest.validate) or True
-                    if self.importslist:
+                    check_schema = True
+                    if (
+                        self.manifest
+                        and self.manifest.tosca
+                        and "no_jsonschema_check" in self.manifest.tosca.validation_mode
+                    ):
+                        check_schema = False
+                    if check_schema and self.importslist:
                         error = validate_tosca_def(doc, "import")
                         if error:
-                            if validate:
+                            raise_error = True
+                            if self.manifest:
+                                raise_error = self.manifest.validate
+                            if raise_error:
                                 raise error
                             else:
                                 logger.warning(

@@ -261,9 +261,11 @@ class Manifest(AttributeManager):
                 if old_type:
                     new.setdefault("metadata", {})["should_implement"] = old_type
                 return new
-
         else:
             replaceStrategy = "replace"  # type: ignore
+            # don't do schema validation for old versions
+            validation_mode += " no_jsonschema_check"
+
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(

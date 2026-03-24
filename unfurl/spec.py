@@ -238,8 +238,6 @@ class ToscaSpec:
     ):
         # need to set a path for the import loader
         mode = self.validation_mode
-        if mode is None:
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
         validate_type_type = False
         if mode is not None:
@@ -328,7 +326,11 @@ class ToscaSpec:
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
         self.default_templates: Set[str] = set()
-        self.validation_mode = validation_mode
+        if validation_mode is None:
+            self.validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
+        else:
+            self.validation_mode = validation_mode
+
         if spec:
             inputs = cast(Dict[str, Any], spec.get("inputs") or {})
         else:
@@ -376,7 +378,11 @@ class ToscaSpec:
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
 
-            exception = validate_tosca_def(toscaDef)
+            # do this after any patching
+            exception = (
+                "no_jsonschema_check" not in self.validation_mode
+                and validate_tosca_def(toscaDef)
+            )
             if exception:
                 setattr(exception, "trace", traceback.extract_stack()[:-1])
                 ExceptionCollector.exceptions.append(exception)
