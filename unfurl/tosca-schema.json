@@ -25,7 +25,14 @@
       "$ref": "#/$defs/metadata"
     },
     "description": {
-      "type": "string",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
       "description": "Optional single-line or multi-line description for the service template and its contents."
     },
     "dsl_definitions": {
