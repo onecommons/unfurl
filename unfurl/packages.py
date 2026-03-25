@@ -501,7 +501,10 @@ class Package:
                 return tags[0]
         return ""  # none found
 
-    def set_version_from_repo(self, get_remote_tags) -> bool:
+    def set_version_from_repo(
+        self, get_remote_tags, default_tag=None
+    ) -> Optional[bool]:
+        """Returns True if version found, False if checked but not found, None if not checked."""
         try:
             revision = self.find_latest_semver_from_repo(get_remote_tags)
         except GitCommandError as e:
@@ -511,8 +514,14 @@ class Package:
                 e.stderr,
             )
             return False
-        if revision is None:  # get_remote_tags didn't check
-            return False
+        if revision is None:
+            # get_remote_tags didn't check
+            if default_tag:
+                prefix = self.version_tag_prefix()
+                if default_tag.startswith(prefix):
+                    revision = default_tag[len(prefix) :]
+            if revision is None:
+                return None
         # remember the result of the search even if we don't set the revision
         if revision:
             self.discovered = True
@@ -646,10 +655,14 @@ def resolve_package(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
         if not package.locked and not package.revision:
+            skipped = True
             if get_remote_tags:
-                # no version specified, use the latest version tagged in the repository
-                package.set_version_from_repo(get_remote_tags)
-            if not changed and not package.revision:
+                # no version specified, use the latest version tagged in the remote repository
+                # if upstream check is disabled use the local current tag
+                tag = repoview.repo.current_tag if repoview.repo else None
+                result = package.set_version_from_repo(get_remote_tags, tag)
+                skipped = result is None  # upstream check was skipped
+            if not skipped and not changed and not package.revision:
                 # don't treat repository as a package
                 repoview.package = False
                 packages[package.package_id] = False
