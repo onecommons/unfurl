@@ -25,15 +25,17 @@ from functools import cache, total_ordering
 from typing import (
     Any,
     Dict,
+    Mapping,
     NamedTuple,
     Optional,
     Tuple,
     List,
     Literal,
-    TypedDict,
+    TypeVar,
     Union,
     cast,
 )
+from typing_extensions import Unpack, TypedDict
 import base64
 import json
 import logging
@@ -76,6 +78,7 @@ def validate_url(url: str, field_name: str = "URL") -> str:
         raise ValueError(f"{field_name} is not a valid URL: {url!r}")
     return url
 
+
 def join_resource_url(base_url: str, join_url: str) -> str:
     assert join_url
     base = urlparse(base_url)
@@ -106,6 +109,7 @@ def join_resource_url(base_url: str, join_url: str) -> str:
             replace["path"] = join.path
     return urlunparse(base._replace(**replace))
 
+
 # ---------------------------
 # Parsing image references
 # ---------------------------
@@ -124,6 +128,8 @@ class EntitySchema:
     TOSCASchema = "cloudmap.artifacts.tosca.TypeLibrary"
     Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
     UnfurlProject = "cloudmap.artifacts.unfurl.Project"
+    Package = "cloudmap.artifacts.unfurl.Package"
+    "Repository with semver, roughly like a language-agnostic go module"
     OCIImage = "cloudmap.artifacts.oci.Image"
     PullRequest = "cloudmap.artifacts.PullRequest"
     CommitMessage = "cloudmap.artifacts.CommitMessage"
@@ -283,6 +289,7 @@ TypeRefJson = Dict[
     Optional[TypeRefConstraint],
 ]
 
+
 @total_ordering
 class TypeRefs:
     """
@@ -298,19 +305,20 @@ class TypeRefs:
 
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
-        return {k: self.types[k] for k in sorted(self.types)}
+        return {k: filter_dict(self.types[k]) or None for k in sorted(self.types)}
 
     def names(self) -> List[str]:
         """Return list of type names."""
         return list(self.types)
 
     def add(
-        self, type_name: Optional[str], constraints: Optional[TypeRefConstraint] = None
-    ) -> None:
+        self, type_name: Optional[str], **kw: Unpack[TypeRefConstraint]
+    ) -> "TypeRefs":
         """Add a type reference with optional constraints."""
         if not type_name:
-            return
-        self.types[type_name] = constraints
+            return self
+        self.types[type_name] = filter_dict(kw) or None
+        return self
 
     def __bool__(self) -> bool:
         """Return True if there are any type references."""
@@ -506,9 +514,15 @@ class Discovery:
         return {k: v for k, v in asdict(self).items() if v}
 
 
-def filter_dict(d: dict) -> dict:
+_M = TypeVar("_M", bound=Mapping[str, Any])
+
+
+# use TypeVar to handle TypedDicts
+def filter_dict(d: Optional[_M]) -> Optional[_M]:
     """Exclude empty values from a dictionary."""
-    return {k: v for k, v in d.items() if v}
+    if d is None:
+        return None
+    return cast(_M, {k: v for k, v in d.items() if v})
 
 
 LifecycleStatus = Literal[
@@ -548,13 +562,15 @@ class ScheduledRelease:
 class Artifact:
     url: str
     type: TypeRefs = field(default_factory=TypeRefs)
-    """Type identifier from types/artifacts with optional version constraints (typeRef)"""
+    """Type identifier from types/artifacts with optional version constraints"""
     notable: TypedUrls = field(default_factory=dict)
-    """"Map of URLs of interesting artifacts or repositories that this artifact incorporates or references."""
+    """"Map of URLs of interesting artifacts that this artifact embeds or incorporates."""
+    references: TypedUrls = field(default_factory=dict)
+    """Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."""
     instantiates: TypeRefs = field(default_factory=TypeRefs)
-    """Types that this artifact instantiates with optional version constraints (typeRef)"""
+    """Types that this artifact instantiates with optional version constraints"""
     dependencies: TypedUrls = field(default_factory=dict)
-    """Types that instantiation may depend on with optional version constraints (typeRef)"""
+    """Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."""
     instantiated_by: TypedUrls = field(default_factory=dict)
     """URLs referencing entries in instantiations with optional type constraints."""
     digest: str = ""
@@ -594,6 +610,7 @@ class Artifact:
             self.instantiates = TypeRefs(types=self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
         self.notable = TypeRefs.urls_fromdict(self.notable)
+        self.references = TypeRefs.urls_fromdict(self.references)
         if isinstance(self.instantiated_by, list):
             self.instantiated_by = {url: None for url in self.instantiated_by}
         self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
@@ -630,6 +647,8 @@ class Artifact:
             elif k == "discovery" and v:
                 v = filter_dict(v)
             elif k == "notable":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "references":
                 v = TypeRefs.urls_asdict(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v

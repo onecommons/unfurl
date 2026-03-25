@@ -240,7 +240,12 @@
         },
         "notable": {
           "type": "object",
-          "description": "Map of URLs of interesting artifacts or repositories that this artifact incorporates or references.",
+          "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
+          "$ref": "#/definitions/typedURLs"
+        },
+        "references": {
+          "type": "object",
+          "description": "Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
           "$ref": "#/definitions/typedURLs"
         },
         "instantiates": {
@@ -249,7 +254,7 @@
         },
         "dependencies": {
           "$ref": "#/definitions/typedURLs",
-          "description": "Instantiation dependencies on including environment context and types of software or services with optional version constraints. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."
+          "description": "Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
         },
         "instantiated_by": {
           "$ref": "#/definitions/typedURLs",

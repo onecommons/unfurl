@@ -509,7 +509,10 @@ def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
         # Show the record's type for Artifact, Instantiation, Service
         type_str = ""
         if hasattr(record, "type") and isinstance(record.type, TypeRefs):
-            names = record.type.names()
+            names = [
+                f"{name}{(' v' + str(ref['version'])).lstrip('v') if ref and 'version' in ref else ''}"
+                for name, ref in record.type.types.items()
+            ]
             if names or prefix:
                 # Pad so type aligns with URL (after "Kind ")
                 pad = " " * len(kind)
@@ -570,6 +573,8 @@ def print_cloudmap_graph(db: "CloudMapDB", start_url: str = "") -> None:
             assert isinstance(record, Artifact)
             if record.notable:
                 _add_typed_urls(parent, "notable", record.notable, visited)
+            if record.references:
+                _add_typed_urls(parent, "references", record.references, visited)
             if record.dependencies:
                 _add_typed_urls(parent, "dependencies", record.dependencies, visited)
             if record.instantiates and record.instantiates.names():

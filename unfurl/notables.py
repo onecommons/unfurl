@@ -309,7 +309,7 @@ class UnfurlNotable(Notable):
             url=artifact.url,
             revision=repo_info.get_current_commit(),
             type=TypeRefs(types={EntitySchema.Ensemble: None}),
-            inputs=artifact.notable,
+            inputs=artifact.references,
         )
         if spec_repo_view:
             instantiation.source = (
@@ -355,6 +355,7 @@ class UnfurlNotable(Notable):
             return spec.topology.get_node_template(node)
         return None
 
+
 def create_cloud_type_from_type_info(
     type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
 ) -> Optional[CloudType]:
@@ -396,6 +397,7 @@ def create_artifact_from_notable(
     description: str = "",
     thumbnail: str = "",
     notables: Optional[TypedUrls] = None,
+    references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
     type_info: Optional[Dict[str, Any]] = None,
     types_dict: Optional[CloudTypeDict] = None,
@@ -411,7 +413,8 @@ def create_artifact_from_notable(
         version: Version string (maps to metadata.version)
         description: Description (maps to metadata.description)
         thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
-        artifacts: Map of artifact IDs this artifact references (maps to notable)
+        notables: Map of artifact IDs this artifact references (maps to notable)
+        references: Map of artifact IDs this artifact references (maps to references)
         dependencies: List of dependencies (maps to requires)
         type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
         types_dict: Optional dict to check for existing types
@@ -432,9 +435,7 @@ def create_artifact_from_notable(
     instantiates = TypeRefs()
     cloud_type = None
     if type_info and isinstance(type_info, dict):
-        cloud_type = create_cloud_type_from_type_info(
-            type_info, types_dict
-        )
+        cloud_type = create_cloud_type_from_type_info(type_info, types_dict)
         type_name = type_info.get("name", "")
         if type_name:
             # Add to artifact's instantiates
@@ -443,8 +444,9 @@ def create_artifact_from_notable(
     # Create the artifact
     artifact = Artifact(
         url=artifact_pkg,
-        type=TypeRefs({artifact_type: None}),
+        type=TypeRefs().add(artifact_type, version=version),
         notable=notables or {},
+        references=references or {},
         instantiates=instantiates,
         dependencies=dependencies or {},
         metadata=metadata,
