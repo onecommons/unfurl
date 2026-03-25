@@ -375,13 +375,40 @@ def normalize_url(url: str) -> str:
 
 
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
-    # XXX assumes .git and https
-    package_id, sep, revision = package_id.partition(".git/")
+    # XXX assumes host url look like https://.*.git
+    # if /v? strip that
+    match = re.match(r".*(/v\d+)$", package_id)
+    version = ""
+    if match:
+        version = match.group(1)[1:]  # strip leading "/"
+        package_id = package_id[: -len(match.group(1))]  # strip "/vN"
+
+    # github.com, bitbucket.org, git.openstack.org (org/repo) git.apache.org (repo)
     repoloc, sep, repopath = package_id.partition(".git/")
-    if repopath or revision or minimum_version:
-        return f"https://{repoloc}.git#{minimum_version or revision or ''}:{repopath}"
+    if repopath and version:
+        version = repopath + "/" + version
+    revision = minimum_version or version or ""
+    if repopath:
+        return f"https://{repoloc}.git#{revision}:{repopath}"
     else:
-        return f"https://{repoloc}.git"
+        parts = package_id.split("/")
+        if len(parts) > 2:
+            # see vcsPaths in https://go.dev/src/cmd/go/internal/vcs/vcs.go for special cases:
+            # XXX "git.apache.org" (repo),
+            for host in (
+                "github.com",
+                "bitbucket.org",
+                "git.openstack.org",
+            ):
+                if package_id.startswith(host + "/"):
+                    subpath = "/".join(parts[3:])
+                    fragment = (
+                        f"#{revision}:{subpath}"
+                        if subpath
+                        else (f"#{revision}" if revision else "")
+                    )
+                    return f"https://{'/'.join(parts[:3])}.git{fragment}"
+        return f"https://{repoloc}.git{'#' + revision if revision else ''}"
 
 
 def get_package_from_url(url_: str):

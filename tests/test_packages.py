@@ -12,6 +12,7 @@ from unfurl.packages import (
     get_package_from_url,
     reverse_rules_for_canonical,
     find_canonical,
+    package_id_to_url,
 )
 from unfurl.repo import get_remote_tags
 from unfurl.util import UnfurlError, taketwo
@@ -63,7 +64,7 @@ def test_package_rules():
         "https://app.dev.unfurl.cloud/onecommons/unfurl-types", env_package_spec
     )
     assert (
-        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main"
     )
     assert " ".join(env_package_spec.split()) == " ".join([
         p.as_env_value() for p in package_specs
@@ -73,7 +74,7 @@ def test_package_rules():
         "https://app.dev.unfurl.cloud/onecommons/unfurl-types.git", env_package_spec
     )
     assert (
-        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main:"
+        package.url == "https://staging.unfurl.cloud/onecommons/unfurl-types.git#main"
     )
 
     package, package_specs = _apply_package_rules(
@@ -174,6 +175,27 @@ def test_find_canonical():
     ]
     for namespace_id, expected in zip(namespaces, expected):
         assert expected == find_canonical(specs, canonical, namespace_id)
+
+
+def test_package_id_from_url():
+    test_cases = [
+        ("github.com/labstack/echo/v4", "https://github.com/labstack/echo.git#v4"),
+        (
+            "example.com/monorepo/foo/bar/v2",
+            "https://example.com/monorepo/foo/bar.git#v2",
+        ),
+        (
+            "example.com/monorepo.git/foo/bar/v2",
+            "https://example.com/monorepo.git#foo/bar/v2:foo/bar",
+        ),
+        (
+            "github.com/aws/aws-sdk-go-v2/service/amp",
+            "https://github.com/aws/aws-sdk-go-v2.git#:service/amp",
+        ),
+    ]
+    for package_id, expected_url in test_cases:
+        url = package_id_to_url(package_id)
+        assert url == expected_url
 
 
 def test_remote_tags():
