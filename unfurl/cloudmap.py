@@ -650,8 +650,9 @@ class Analyzer:
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
-                notable_cls = self.files.get(filename)
-                if notable_cls and notable_cls not in notables_found:
+                file_cls = self.files.get(filename)
+                if file_cls and file_cls not in notables_found:
+                    notable_cls = file_cls
                     notable = notable_cls.init(rel_root, filename)
             if notable:
                 notables.append(notable)

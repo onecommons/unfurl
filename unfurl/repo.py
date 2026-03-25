@@ -509,16 +509,27 @@ class RepoLockDict(TypedDict, total=False):
     """Dict returned by RepoView.lock() representing a locked repository state."""
 
     url: str
-    commit: str
-    initial: str
-    discovered_revision: str
+    "Repository git URL"
     package_id: str
-    revision: str
-    branch: str
-    tag: str
+    "Set if repository is a package"
     name: str
+    "Name or repository (set if package_id is missing)"
+    commit: str
+    "Current git commit hash"
+    initial: str
+    """Initial git commit hash if available"""
+    discovered_revision: str
+    '''Discovered branch or tag or "(MISSING)" or ""'''
+    revision: str
+    """Intended revision (branch or tag) declared by user (or restored from previous lock)"""
+    branch: str
+    "Branch the current commit is on"
+    tag: str
+    "Tag the current commit is on"
     origin: str
+    "Origin Remote URL"
     project: str
+    "Project associated with the repository"
 
 
 class RepoView:

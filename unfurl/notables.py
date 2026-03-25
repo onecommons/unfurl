@@ -31,6 +31,7 @@ from .oci import (
     Instantiation,
     TypeRefs,
     TypedUrls,
+    TypeRefConstraint,
     build_oci_purl,
     filter_dict,
 )
@@ -39,6 +40,7 @@ from .util import UnfurlError, assert_not_none
 from .localenv import LocalEnv
 from .logs import getLogger
 from . import DefaultNames
+from .repo import RepoView
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
@@ -57,6 +59,26 @@ class ContainerBuilderNotable(Notable):
         digest: str = "",
     ) -> None:
         super().__init__(folder, file, digest)
+
+# XXX use this
+def find_images_k8s(resources: List[Dict[str, Any]]) -> List[str]:
+    images: List[str] = []
+
+    def walk(obj: Any) -> None:
+        if isinstance(obj, dict):
+            image = obj.get("image")
+            if isinstance(image, str):
+                images.append(image)
+            for value in obj.values():
+                walk(value)
+        elif isinstance(obj, list):
+            for item in obj:
+                walk(item)
+
+    for resource in resources:
+        walk(resource)
+
+    return images
 
 
 class UnfurlNotable(Notable):
@@ -107,25 +129,24 @@ class UnfurlNotable(Notable):
             template_version = metadata.get("template_version", "")
             template_description = spec.template.description or ""
 
-            node = self._get_root_node(spec)
-            # schema_repo = manifest.repositories.get("types")
-            # schema = schema_repo.url.strip(":") if schema_repo else ""
-
             # Prepare type_info and dependencies
             type_info = None
             typename = ""
             dependencies: dict[str, TypeName] = {}
-            notables: TypedUrls = {}
+            references: TypedUrls = {}
             for name, repo_view in manifest.repositories.items():
                 if name not in ("spec", "self", "project", "unfurl"):
                     if repo_view.url.startswith("git-local://") or os.path.isabs(
                         repo_view.url
                     ):
                         continue
-                    giturl = get_repository_url(repo_view.url)
-                    notables[giturl] = None
+                    if repo_view.package is None:
+                        if manifest.tosca and manifest.tosca.import_resolver:
+                            manifest.tosca.import_resolver._resolve_repoview(repo_view)
+                    giturl = self._add_repository_reference(repo_view, references)
                     directory.cloudmap.add_record(giturl, analyze)
 
+            node = self._get_root_node(spec)
             if node:
                 types = ResourceTypesByName(
                     repo_info.package_id, spec.template.topology_template.custom_defs
@@ -136,10 +157,6 @@ class UnfurlNotable(Notable):
                     assert_not_none(node.toscaEntityTemplate.type_definition),
                 )
                 typename = type_info.get("name", "")
-                # if self.artifact_type != EntitySchema.Ensemble:
-                #     # ensembles are instantiations so don't add instantiates key
-                #     type_info = _type_info
-
                 dependencies = self.find_dependencies(node, types)
                 deployment_blueprints = manifest.get_deployment_blueprints()
                 dependencies.update(
@@ -155,7 +172,7 @@ class UnfurlNotable(Notable):
                     # XXX directory.add_credentials(image)
                     image_artifact = directory.db.add_image_artifact(image)
                     purl = image_artifact.url
-                    notables[purl] = None
+                    references[purl] = None
 
             artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
 
@@ -167,7 +184,7 @@ class UnfurlNotable(Notable):
                 version=template_version,
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
-                notables=notables,
+                references=references,
                 dependencies={
                     name: TypeRefs({v: None}) for name, v in dependencies.items()
                 },
@@ -192,10 +209,8 @@ class UnfurlNotable(Notable):
                                 node.topology, types, type_def
                             )
 
-                            dep_cloud_type = (
-                                create_cloud_type_from_type_info(
-                                    dep_type_info, directory.db.types
-                                )
+                            dep_cloud_type = create_cloud_type_from_type_info(
+                                dep_type_info, directory.db.types
                             )
                             if dep_cloud_type:
                                 directory.db.types[dep_cloud_type.name] = dep_cloud_type
@@ -211,6 +226,27 @@ class UnfurlNotable(Notable):
         else:
             self.artifact_type = EntitySchema.UnfurlProject
         return artifact
+
+    def _add_repository_reference(
+        self,
+        repo_view: RepoView,
+        references: TypedUrls,
+    ) -> str:
+        giturl = get_repository_url(repo_view.url)
+        type_ref = None
+        if repo_view.package:
+            #  treat as a artifact
+            giturl += f"#{repo_view.revision_tag}:."
+            type_ref = TypeRefs().add(
+                EntitySchema.Package, version=repo_view.package.revision or ""
+            )
+        elif repo_view.path:
+            giturl += f"#{repo_view.revision}:{repo_view.path}"
+        else:
+            if repo_view.revision:
+                giturl += f"#{repo_view.revision}"
+        references[giturl] = type_ref
+        return giturl
 
     def get_type_info(
         self,

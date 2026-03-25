@@ -47,7 +47,7 @@ from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
 from .result import serialize_value
 from .support import _Import, ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
-from .lock import Lock
+from .lock import Lock, LockDict
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
 from .spec import (
     ArtifactSpec,
@@ -1175,13 +1175,16 @@ class YamlManifest(ReadOnlyManifest):
                     changed = True
         return changed
 
-    def save_lock(self):
+    def save_lock(self) -> None:
         # modify original to preserve structure and comments
         lock = Lock(self).lock()
         if not self.manifest.config.get("lock"):
             self.manifest.config["lock"] = lock
         else:
             patch_dict(self.manifest.config["lock"], lock)
+
+    def get_lock_section(self) -> Optional[LockDict]:
+        return self.manifest.config.get("lock")
 
     def save_job(
         self, job: "Job"

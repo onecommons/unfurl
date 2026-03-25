@@ -121,7 +121,8 @@ def runner():
 
             yield runner
 
-expected_cloudmap = f"""apiVersion: {API_VERSION}
+expected_cloudmap = """\
+apiVersion: unfurl/v1.0.0
 kind: CloudMap
 repositories:
   git://unfurl.cloud/feb20a/dashboard.git:
@@ -141,11 +142,11 @@ repositories:
     notable:
       ensemble/ensemble.yaml:
         type:
-          {EntitySchema.Ensemble}:
+          cloudmap.artifacts.unfurl.Ensemble:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
       environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
         type:
-          {EntitySchema.Ensemble}:
+          cloudmap.artifacts.unfurl.Ensemble:
         artifact: git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
   git://unfurl.cloud/onecommons/blueprints/odoo.git:
     path: onecommons/blueprints/odoo
@@ -170,11 +171,11 @@ repositories:
     notable:
       ensemble-template.yaml#spec/service_template:
         type:
-          {EntitySchema.CloudBlueprint}:
+          cloudmap.artifacts.tosca.ServiceTemplate:
         artifact: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
       unfurl.yaml:
         type:
-          {EntitySchema.UnfurlProject}:
+          cloudmap.artifacts.unfurl.Project:
   git://unfurl.cloud/onecommons/std.git:
     path: onecommons/std
     name: std
@@ -204,10 +205,10 @@ repositories:
     notable:
       .devcontainer/Containerfile:
         type:
-          {EntitySchema.ContainerFile}:
+          cloudmap.artifacts.Containerfile:
       dummy-ensemble.yaml:
         type:
-          {EntitySchema.TOSCASchema}:
+          cloudmap.artifacts.tosca.TypeLibrary:
         artifact: git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
   git://unfurl.cloud/onecommons/unfurl-types.git:
     path: onecommons/unfurl-types
@@ -256,20 +257,25 @@ repositories:
     notable:
       dummy-ensemble.yaml:
         type:
-          {EntitySchema.TOSCASchema}:
+          cloudmap.artifacts.tosca.TypeLibrary:
         artifact: git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
-    notable:
-      git://unfurl.cloud/onecommons/std.git:
+    references:
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
+        cloudmap.artifacts.unfurl.Package:
+          version: 1.1.1
     digest: git:tree:5fe07694589fe54e2fb60f250e793db684bbeb95
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
-    notable:
-      git://unfurl.cloud/onecommons/std.git:
+        version: 0.1
+    references:
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
+        cloudmap.artifacts.unfurl.Package:
+          version: 1.1.1
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -287,8 +293,11 @@ artifacts:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
-    notable:
-      git://unfurl.cloud/onecommons/unfurl-types:
+        version: 0.1
+    references:
+      git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.:
+        cloudmap.artifacts.unfurl.Package:
+          version: 0.7.7
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -308,11 +317,9 @@ artifacts:
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
-    digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
-    digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:
@@ -337,7 +344,9 @@ instantiations:
     instantiated:
       https://example.com/oodo:
     inputs:
-      git://unfurl.cloud/onecommons/std.git:
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
+        cloudmap.artifacts.unfurl.Package:
+          version: 1.1.1
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
@@ -375,7 +384,8 @@ types:
     - tosca.relationships.ConnectsTo
     - tosca.relationships.Root
     metadata:
-      title: GoogleCloudProject"""
+      title: GoogleCloudProject
+"""
 
 @skip_integration
 @pytest.mark.parametrize("commit", ["", "--commit"])
@@ -390,7 +400,7 @@ def test_create(runner: CliRunner, caplog, commit: str):
         with open("cloudmap.yaml") as f:
             cloudmap = f.read().rstrip()
             # print("cloudmap\n", cloudmap)
-            assert cloudmap == expected_cloudmap
+            assert cloudmap == expected_cloudmap.rstrip()
         assert not os.system("git push origin main")
 
     assert "importing group feb20a" in caplog.text
@@ -1963,21 +1973,17 @@ CloudMap
 │   │   └── notable
 │   │       ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 │   │       │   │        (cloudmap.artifacts.unfurl.Ensemble)
-│   │       │   └── notable
-│   │       │       └── Repository git://unfurl.cloud/onecommons/std.git
-│   │       │           └── notable
-│   │       │               └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
-│   │       │                   │        (cloudmap.artifacts.tosca.TypeLibrary)
+│   │       │   └── references
+│   │       │       └── git://unfurl.cloud/onecommons/std.git#v1.1.1:.
+│   │       │           └── cloudmap.artifacts.unfurl.Package
 │   │       └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │           │             (cloudmap.artifacts.unfurl.Ensemble)
 │   │           ├── source
 │   │           │   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
-│   │           │       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate)
-│   │           │       ├── notable
-│   │           │       │   ├── Repository git://unfurl.cloud/onecommons/unfurl-types
-│   │           │       │   │   └── notable
-│   │           │       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
-│   │           │       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
+│   │           │       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
+│   │           │       ├── references
+│   │           │       │   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
+│   │           │       │   │   └── cloudmap.artifacts.unfurl.Package
 │   │           │       │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │   │           │       │       │        (cloudmap.artifacts.oci.Image)
 │   │           │       ├── dependencies
@@ -2002,25 +2008,29 @@ CloudMap
 │   │           │           └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │           │               │             (cloudmap.artifacts.unfurl.Ensemble) [seen]
 │   │           └── inputs
-│   │               ├── Repository git://unfurl.cloud/onecommons/std.git [seen]
+│   │               ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:.
+│   │               │   └── cloudmap.artifacts.unfurl.Package
 │   │               └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │   │                   │        (cloudmap.artifacts.oci.Image) [seen]
 │   ├── Repository git://unfurl.cloud/onecommons/blueprints/odoo.git
 │   │   └── notable
 │   │       └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
-│   │           │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
-│   ├── Repository git://unfurl.cloud/onecommons/std.git [seen]
+│   │           │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
+│   ├── Repository git://unfurl.cloud/onecommons/std.git
+│   │   └── notable
+│   │       └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
+│   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
 │   └── Repository git://unfurl.cloud/onecommons/unfurl-types.git
 │       └── notable
 │           └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
-│               │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
+│               │        (cloudmap.artifacts.tosca.TypeLibrary)
 ├── Artifacts
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 │   │   │        (cloudmap.artifacts.unfurl.Ensemble) [seen]
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
-│   │   │        Odoo (cloudmap.artifacts.unfurl.Ensemble) [seen]
+│   │   │        Odoo (cloudmap.artifacts.unfurl.Ensemble v0.1) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
-│   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile
 │   │   │        (cloudmap.artifacts.Containerfile)
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
@@ -2043,12 +2053,10 @@ CloudMap
 
 expected_artifact_graph = """\
 Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
-│        Odoo (cloudmap.artifacts.tosca.ServiceTemplate)
-├── notable
-│   ├── Repository git://unfurl.cloud/onecommons/unfurl-types
-│   │   └── notable
-│   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
-│   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
+│        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
+├── references
+│   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
+│   │   └── cloudmap.artifacts.unfurl.Package
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │        (cloudmap.artifacts.oci.Image)
 ├── dependencies
@@ -2074,12 +2082,10 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │             (cloudmap.artifacts.unfurl.Ensemble)
 ├── source
 │   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
-│       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate)
-│       ├── notable
-│       │   ├── Repository git://unfurl.cloud/onecommons/unfurl-types
-│       │   │   └── notable
-│       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
-│       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
+│       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
+│       ├── references
+│       │   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
+│       │   │   └── cloudmap.artifacts.unfurl.Package
 │       │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │       │        (cloudmap.artifacts.oci.Image)
 │       ├── dependencies
@@ -2104,16 +2110,15 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │           └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │               │             (cloudmap.artifacts.unfurl.Ensemble) [seen]
 └── inputs
-    ├── Repository git://unfurl.cloud/onecommons/std.git
-    │   └── notable
-    │       └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
-    │           │        (cloudmap.artifacts.tosca.TypeLibrary)
+    ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:.
+    │   └── cloudmap.artifacts.unfurl.Package
     └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
         │        (cloudmap.artifacts.oci.Image) [seen]
 Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
-│        Odoo (cloudmap.artifacts.unfurl.Ensemble)
-├── notable
-│   ├── Repository git://unfurl.cloud/onecommons/std.git [seen]
+│        Odoo (cloudmap.artifacts.unfurl.Ensemble v0.1)
+├── references
+│   ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:.
+│   │   └── cloudmap.artifacts.unfurl.Package
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │        (cloudmap.artifacts.oci.Image) [seen]
 ├── dependencies
@@ -2137,47 +2142,79 @@ def test_cloudmap_graph(tmp_path):
 
     assert _capture_graph(db) == expected_full_graph
 
-    assert _capture_graph(
-        db, "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml"
-    ) == expected_artifact_graph
+    assert (
+        _capture_graph(
+            db,
+            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        )
+        == expected_artifact_graph
+    )
 
     # URL present in both artifacts and instantiations — shows both trees
-    assert _capture_graph(
-        db, "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml"
-    ) == expected_dual_record_graph
+    assert (
+        _capture_graph(
+            db,
+            "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+        )
+        == expected_dual_record_graph
+    )
 
     assert "Record not found" in _capture_graph(db, "nonexistent://url")
 
 
 if __name__ == "__main__":
-    """Regenerate expected graph outputs and update this file in-place."""
+    """Update this file in-place.
+
+    Usage:
+        python tests/test_cloudmap.py                  # regenerate expected graph outputs
+        python tests/test_cloudmap.py cloudmap.yaml    # replace expected_cloudmap with file contents
+    """
     import re
+    import sys
     import tempfile
     from pathlib import Path
 
-    with tempfile.TemporaryDirectory() as d:
-        p = Path(d) / "cloudmap.yaml"
-        p.write_text(expected_cloudmap)
-        db = CloudMapDB(str(p))
-
-        graphs = {
-            "expected_full_graph": _capture_graph(db),
-            "expected_artifact_graph": _capture_graph(
-                db, "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml"
-            ),
-            "expected_dual_record_graph": _capture_graph(
-                db, "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml"
-            ),
-        }
-
     src = Path(__file__).read_text()
-    for name, value in graphs.items():
-        # Replace: varname = """\<content>"""  (with the backslash-newline after triple-quote)
-        pattern = rf'({re.escape(name)} = """\\)\n.*?(?=""")'
-        replacement = f"{name} = \"\"\"\\\n{value}"
-        src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
-        status = "updated" if count else "NOT FOUND"
-        print(f"{name}: {status}")
 
-    Path(__file__).write_text(src)
-    print(f"\nUpdated {Path(__file__).name}")
+    if len(sys.argv) > 1:
+        # Replace expected_cloudmap with contents of the given file
+        cloudmap_file = Path(sys.argv[1])
+        contents = cloudmap_file.read_text()
+        # Strip the f-string API_VERSION interpolation — store as plain string
+        pattern = r'(expected_cloudmap = )f""".*?"""'
+        replacement = f'expected_cloudmap = """\\\n{contents}"""'
+        src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
+        if count:
+            print(f"expected_cloudmap: updated from {cloudmap_file}")
+        else:
+            print("expected_cloudmap: NOT FOUND in source")
+        Path(__file__).write_text(src)
+        print(f"Updated {Path(__file__).name}")
+    else:
+        # Regenerate expected graph outputs from expected_cloudmap
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "cloudmap.yaml"
+            p.write_text(expected_cloudmap)
+            db = CloudMapDB(str(p))
+
+            graphs = {
+                "expected_full_graph": _capture_graph(db),
+                "expected_artifact_graph": _capture_graph(
+                    db,
+                    "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+                ),
+                "expected_dual_record_graph": _capture_graph(
+                    db,
+                    "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+                ),
+            }
+
+        for name, value in graphs.items():
+            pattern = rf'({re.escape(name)} = """\\)\n.*?(?=""")'
+            replacement = f'{name} = """\\\n{value}'
+            src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
+            status = "updated" if count else "NOT FOUND"
+            print(f"{name}: {status}")
+
+        Path(__file__).write_text(src)
+        print(f"\nUpdated {Path(__file__).name}")
