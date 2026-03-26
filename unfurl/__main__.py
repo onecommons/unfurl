@@ -1040,7 +1040,7 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         return
 
     if not projectdir:
-        # if creating a new project in an existing repository use '.unfurl' as the default name
+        # if creating a new project in an existing repository use '_unfurl' as the default name
         if options.get("existing"):
             projectdir = DefaultNames.ProjectDirectory
         else:  # otherwise use the current directory

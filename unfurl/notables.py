@@ -88,7 +88,7 @@ class UnfurlNotable(Notable):
         DefaultNames.Ensemble,
         "dummy-ensemble.yaml",  # DefaultNames.ServiceTemplate,  # XXX fix unfurl-types hack
     ]
-    folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
+    folders = [DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory, DefaultNames.EnsembleDirectory]
 
     def __init__(
         self,

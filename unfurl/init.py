@@ -397,7 +397,7 @@ def _find_external_project(
     externalProject = find_project(ensembleRepo.working_dir, homePath)
     if externalProject:
         dirname, ensembleDirName = os.path.split(projectdir)
-        if ensembleDirName == DefaultNames.ProjectDirectory:
+        if ensembleDirName in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             ensembleDirName = os.path.basename(dirname)
         relPath = externalProject.get_relative_path(
             os.path.join(ensembleRepo.working_dir, ensembleDirName)
@@ -732,8 +732,10 @@ def _from_localenv(
 
 def _find_templates(sourceProject: Project, sourcePath: str):
     # look for an ensemble-template or service_template in source path
-    if os.path.isdir(os.path.join(sourcePath, DefaultNames.ProjectDirectory)):
-        sourcePath = os.path.join(sourcePath, DefaultNames.ProjectDirectory)
+    for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+        if os.path.isdir(os.path.join(sourcePath, project_dir_name)):
+            sourcePath = os.path.join(sourcePath, project_dir_name)
+            break
     template = _looks_like(sourcePath, DefaultNames.EnsembleTemplate)
     if template:
         sourceDir = sourceProject.get_relative_path(template[0])

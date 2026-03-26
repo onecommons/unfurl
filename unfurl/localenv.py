@@ -237,6 +237,11 @@ class Project:
             )
             if os.path.exists(test):
                 return test
+            test = os.path.join(
+                current, DefaultNames.HiddenProjectDirectory, DefaultNames.LocalConfig
+            )
+            if os.path.exists(test):
+                return test
             if current == os.sep:
                 break
             current = os.path.dirname(current)
@@ -609,7 +614,7 @@ class Project:
     @staticmethod
     def get_name_from_dir(projectRoot: str) -> str:
         dirname, name = os.path.split(projectRoot)
-        if not name or name == DefaultNames.ProjectDirectory:
+        if not name or name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             name = os.path.basename(dirname)
         # make sure this conforms to project name syntax in json-schema:
         #       ^[A-Za-z._][A-Za-z0-9._:\\-]*$
@@ -1281,7 +1286,7 @@ class LocalEnv:
 
         # projects can be nested (handle stand-alone ensemble repositories)
         dirname, tail = os.path.split(project.projectRoot)
-        if tail == DefaultNames.ProjectDirectory:
+        if tail in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             dirname = os.path.dirname(dirname)
         parent_project = self.find_project(dirname, stop_at)
         if parent_project and parent_project is not self.homeProject:
@@ -1458,9 +1463,10 @@ class LocalEnv:
             if os.path.exists(test):
                 return manifest_path, self.get_project(test, self.homeProject)
             else:
-                test = os.path.join(path, DefaultNames.ProjectDirectory)
-                if os.path.exists(test):
-                    return manifest_path, self.get_project(test, self.homeProject)
+                for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+                    test = os.path.join(path, project_dir_name)
+                    if os.path.exists(test):
+                        return manifest_path, self.get_project(test, self.homeProject)
                 return manifest_path, None
         else:
             assert os.path.isfile(path)
@@ -1513,9 +1519,10 @@ class LocalEnv:
             if os.path.exists(test):
                 return manifest_path, self.get_project(test, self.homeProject)
 
-            test = os.path.join(current, DefaultNames.ProjectDirectory)
-            if os.path.exists(test):
-                return manifest_path, self.get_project(test, self.homeProject)
+            for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+                test = os.path.join(current, project_dir_name)
+                if os.path.exists(test):
+                    return manifest_path, self.get_project(test, self.homeProject)
 
             if manifest_path:
                 return manifest_path, None
