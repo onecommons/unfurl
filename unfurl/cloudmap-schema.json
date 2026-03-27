@@ -82,6 +82,10 @@
           "type": "string",
           "description": "Informal pointer to source code. Use when deployment information is not available."
         },
+        "source_ref": {
+          "type": "string",
+          "description": "Informal pointer to source ref (branch or tag name)."
+        },
         "source_revision": {
           "type": "string",
           "description": "Informal pointer to source code revision. Use when deployment information is not available."
@@ -422,6 +426,10 @@
         "source": {
           "type": "string",
           "description": "Repository or artifact URL."
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "If source URL references a repository, the branch or tag name."
         },
         "source_revision": {
           "type": "string",

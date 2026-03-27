@@ -8,6 +8,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.projectpaths import rmtree
 from unfurl.repo import (
     split_git_url,
+    split_git_url_with_commit,
     is_url_or_git_path,
     RepoView,
     normalize_git_url,
@@ -462,6 +463,17 @@ unfurl.yaml
                     assert rv.url.strip("#:") == rv.as_git_url().strip("#:"), url
             else:
                 self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
+
+    def test_split_git_url_with_commit(self):
+        cases = {
+            "https://example.com/repo.git#v1.0.0": ("https://example.com/repo.git", "", "v1.0.0", ""),
+            "https://example.com/repo.git#~abc123": ("https://example.com/repo.git", "", "", "abc123"),
+            "https://example.com/repo.git#v1.0.0~abc123": ("https://example.com/repo.git", "", "v1.0.0", "abc123"),
+            "https://example.com/repo.git#v1.0.0~abc123:src/main.py": ("https://example.com/repo.git", "src/main.py", "v1.0.0", "abc123"),
+            "https://example.com/repo.git#~abc123:src/main.py": ("https://example.com/repo.git", "src/main.py", "", "abc123"),
+        }
+        for url, expected in cases.items():
+            self.assertEqual(split_git_url_with_commit(url), expected, url)
 
     def test_home_template(self):
         # test creating and deploying the home template

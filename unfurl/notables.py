@@ -550,4 +550,39 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
     return migrated_artifact_ids
 
 
-Notables = (UnfurlNotable, ContainerBuilderNotable)
+class GitLabPipelineNotable(Notable):
+    files = (".gitlab-ci.yml",)
+    artifact_type = EntitySchema.GitLabPipeline
+
+
+class GitHubWorkflowNotable(Notable):
+    folders = (".github",)
+    artifact_type = EntitySchema.GitHubWorkflow
+
+    def analyze(
+        self, directory: Directory, repo_info: Repository, root_path: str
+    ) -> Optional[Artifact]:
+        # self.folder is the parent of .github (e.g. ".")
+        workflows_dir = os.path.join(root_path, self.folder, ".github", "workflows")
+        if not os.path.isdir(workflows_dir):
+            return None
+        # Create artifact pointing to the workflows directory
+        workflows_path = os.path.join(self.folder, ".github", "workflows")
+        if workflows_path.startswith("./"):
+            workflows_path = workflows_path[2:]
+        artifact_url = repo_info.artifact_url(workflows_path)
+        return Artifact(
+            url=artifact_url,
+            type=TypeRefs({self.artifact_type: None}),
+        )
+
+    @property
+    def path(self) -> str:
+        # Override to report .github/workflows as the notable path
+        base = os.path.join(self.folder, ".github", "workflows")
+        if base.startswith("./"):
+            base = base[2:]
+        return base
+
+
+Notables = (UnfurlNotable, ContainerBuilderNotable, GitLabPipelineNotable, GitHubWorkflowNotable)

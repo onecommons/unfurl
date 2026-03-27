@@ -140,6 +140,9 @@ repositories:
     branches:
       main: 4551885dfab39991cfdb958cb79fcb6aa282481d
     notable:
+      .gitlab-ci.yml:
+        type:
+          cloudmap.artifacts.ci.GitLabPipeline:
       ensemble/ensemble.yaml:
         type:
           cloudmap.artifacts.unfurl.Ensemble:
@@ -169,6 +172,9 @@ repositories:
       v1.0.0: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
       v0.1.0: be0da659d7358bc4d24d988f436a5508e098b252
     notable:
+      .gitlab-ci.yml:
+        type:
+          cloudmap.artifacts.ci.GitLabPipeline:
       ensemble-template.yaml#spec/service_template:
         type:
           cloudmap.artifacts.tosca.ServiceTemplate:
@@ -206,6 +212,9 @@ repositories:
       .devcontainer/Containerfile:
         type:
           cloudmap.artifacts.Containerfile:
+      .gitlab-ci.yml:
+        type:
+          cloudmap.artifacts.ci.GitLabPipeline:
       dummy-ensemble.yaml:
         type:
           cloudmap.artifacts.tosca.TypeLibrary:
@@ -255,11 +264,17 @@ repositories:
       v0.1.0: d0e8f921478f864da2037e1143afe3dd35e590ad
       before-caddy: aa831e8cfc58c84e5ecfe963afe6c472b1cb9476
     notable:
+      .gitlab-ci.yml:
+        type:
+          cloudmap.artifacts.ci.GitLabPipeline:
       dummy-ensemble.yaml:
         type:
           cloudmap.artifacts.tosca.TypeLibrary:
         artifact: git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 artifacts:
+  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:
+    type:
+      cloudmap.artifacts.ci.GitLabPipeline:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
@@ -290,6 +305,9 @@ artifacts:
     metadata:
       title: Odoo
       version: 0.1
+  git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
+    type:
+      cloudmap.artifacts.ci.GitLabPipeline:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
@@ -308,18 +326,27 @@ artifacts:
         unfurl.relationships.ConnectsTo.AWSAccount:
       gcp:
         unfurl.relationships.ConnectsTo.GoogleCloudProject:
+    digest: git:blob:79a33678461da4788790a2d005402a16481b0a85
     metadata:
       title: Odoo
       version: 0.1
   git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
     type:
       cloudmap.artifacts.Containerfile:
+  git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
+    type:
+      cloudmap.artifacts.ci.GitLabPipeline:
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
+    digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
+  git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
+    type:
+      cloudmap.artifacts.ci.GitLabPipeline:
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
+    digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:
@@ -1952,6 +1979,45 @@ def test_add_record_is_git_url():
     )
 
 
+def test_find_host_config_longest_path_match():
+    """_find_host_config should prefer the host whose URL path is the longest prefix match."""
+    hosts = {
+        "broad": {"url": "https://gitlab.com", "type": "gitlab"},
+        "org": {"url": "https://gitlab.com/myorg", "type": "gitlab"},
+        "team": {"url": "https://gitlab.com/myorg/team", "type": "gitlab"},
+        "other": {"url": "https://other.com/foo", "type": "gitlab"},
+    }
+
+    # Exact org match
+    name, config = CloudMap._find_host_config(hosts, "gitlab.com", "myorg/repo")
+    assert name == "org"
+
+    # Deeper path matches team
+    name, config = CloudMap._find_host_config(hosts, "gitlab.com", "myorg/team/repo")
+    assert name == "team"
+
+    # Path not under any org falls back to broad
+    name, config = CloudMap._find_host_config(hosts, "gitlab.com", "other-org/repo")
+    assert name == "broad"
+
+    # No hostname match
+    name, config = CloudMap._find_host_config(hosts, "example.com", "foo")
+    assert config is None
+
+    # No path given — broad wins as fallback
+    name, config = CloudMap._find_host_config(hosts, "gitlab.com")
+    assert name == "broad"
+
+    # Different host entirely
+    name, config = CloudMap._find_host_config(hosts, "other.com", "foo/bar")
+    assert name == "other"
+
+    # Single host, no path in config — always matches
+    single = {"only": {"url": "https://gitlab.com", "type": "gitlab"}}
+    name, config = CloudMap._find_host_config(single, "gitlab.com", "anything/here")
+    assert name == "only"
+
+
 def _capture_graph(db: CloudMapDB, start_url: str = "") -> str:
     """Capture print_cloudmap_graph output as plain text (no color/markup)."""
     from unfurl.reporting import print_cloudmap_graph
@@ -2025,16 +2091,24 @@ CloudMap
 │           └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 │               │        (cloudmap.artifacts.tosca.TypeLibrary)
 ├── Artifacts
+│   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml
+│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 │   │   │        (cloudmap.artifacts.unfurl.Ensemble) [seen]
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │   │        Odoo (cloudmap.artifacts.unfurl.Ensemble v0.1) [seen]
+│   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
+│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile
 │   │   │        (cloudmap.artifacts.Containerfile)
+│   ├── Artifact git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml
+│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
 │   │   │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
+│   ├── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml
+│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 │   │   │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
@@ -2168,6 +2242,9 @@ if __name__ == "__main__":
     Usage:
         python tests/test_cloudmap.py                  # regenerate expected graph outputs
         python tests/test_cloudmap.py cloudmap.yaml    # replace expected_cloudmap with file contents
+
+    To rebuild "expected_cloudmap" run test_create[] with $UNFURL_TEST_TMPDIR set, the cloudmap.yaml path will look like:
+    $UNFURL_TEST_TMPDIR/tmpkjk37eir/project/cloudmap/cloudmap.yaml
     """
     import re
     import sys
@@ -2180,10 +2257,9 @@ if __name__ == "__main__":
         # Replace expected_cloudmap with contents of the given file
         cloudmap_file = Path(sys.argv[1])
         contents = cloudmap_file.read_text()
-        # Strip the f-string API_VERSION interpolation — store as plain string
-        pattern = r'(expected_cloudmap = )f""".*?"""'
+        pattern = r'(expected_cloudmap = )""".*?"""'
         replacement = f'expected_cloudmap = """\\\n{contents}"""'
-        src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
+        src, count = re.subn(pattern, replacement, src, count=1, flags=re.DOTALL)
         if count:
             print(f"expected_cloudmap: updated from {cloudmap_file}")
         else:

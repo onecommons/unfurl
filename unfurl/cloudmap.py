@@ -50,6 +50,7 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 """
 
 import collections
+from itertools import islice
 from dataclasses import dataclass, field, asdict, InitVar
 from operator import attrgetter
 from pathlib import Path
@@ -96,6 +97,10 @@ from .oci import (
     EntitySchema,
     Discovery,
     Instantiation,
+    PipelineArtifact,
+    PipelineRunProperties,
+    PipelineVariable,
+    TypeRefConstraint,
     TypeRefs,
     TypeRefJson,
     TypedUrls,
@@ -114,6 +119,7 @@ from .repo import (
     normalize_git_url,
     sanitize_url,
     split_git_url,
+    split_git_url_with_commit,
 )
 from .util import API_VERSION, UnfurlError
 from .localenv import LocalEnv
@@ -175,6 +181,16 @@ class Namespace:
                 self.thumbnail_url, "Namespace.thumbnail_url"
             )
 
+ProjectStatus = Literal[
+    "concept",
+    "WIP",
+    "suspended",
+    "abandoned",
+    "active",
+    "inactive",
+    "unsupported",
+    "moved",
+]
 
 @dataclass
 class RepositoryMetadata(CommonMetadata):
@@ -188,18 +204,7 @@ class RepositoryMetadata(CommonMetadata):
     ci_variables: Optional[dict] = None
     lastupdate_time: Optional[str] = None
     lastupdate_digest: Optional[str] = None
-    project_status: Optional[
-        Literal[
-            "concept",
-            "WIP",
-            "suspended",
-            "abandoned",
-            "active",
-            "inactive",
-            "unsupported",
-            "moved",
-        ]
-    ] = None
+    project_status: Optional[ProjectStatus] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -567,7 +572,7 @@ class Notable:
         file: str,
         digest: str = "",
     ):
-        self.folder = folder
+        self.folder = "" if folder == "." else folder
         self.file = file
         self.digest = digest
         self.fragment = ""
@@ -1173,14 +1178,16 @@ class Directory(_LocalGitRepos):
         for n in notables:
             artifact = n.analyze(self, repo_info, repo.working_dir)
             if artifact:
+                # XXX what to do if self.db.get_artifact(artifact.url)?
+                # (currently we want to give this priority for the git digest)
                 self.db.add_artifact(artifact)
-            # XXX
-            #   if artifact.source:
-            #     url = artifact.source.location
-            #     if url and not self.db.find_repository(url):
-            #         host = self.cloudmap.get_host_for_url(url)
-            #         if host:
-            #             host.import_project_url(url, self, download=False)
+                url = artifact.metadata.source_url
+                if (
+                    url
+                    and CloudMap._is_git_url(url)
+                    and not self.db.get_repository(url)
+                ):
+                    self.cloudmap.add_record(url, "no")
         repo_info.add_notables(notables)
         return notables
 
@@ -1192,6 +1199,9 @@ class RepositoryHost:
     dryrun: bool = False
     repo_filter: str = ""
     hostname: str = ""
+
+    MAX_GIT_REFS = 100
+    DEFAULT_PIPELINE_LIMIT = 50
 
     def __init__(
         self,
@@ -1387,6 +1397,25 @@ class RepositoryHost:
                     f"Unexpected error updating upstream git for {repo_info.url}",
                     exc_info=True,
                 )
+
+    def get_pipeline_runs(
+        self,
+        repo_info: "Repository",
+        ref: str = "",
+        commit: str = "",
+        limit: int = 0,
+    ) -> Iterable[Instantiation]:
+        f"""Return pipeline/workflow run Instantiations for the given repository.
+
+        Results are ordered newest-first (by creation time descending).
+
+        Args:
+            repo_info: The Repository record
+            ref: Git ref (branch or tag name) to filter runs
+            commit: Git commit SHA to filter runs
+            limit: Max number of runs to return (default: {self.DEFAULT_PIPELINE_LIMIT})
+        """
+        return []
 
 
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
@@ -1854,6 +1883,7 @@ class GitlabManager(RepositoryHost):
             kw["thumbnail_url"] = project.avatar_url
         if getattr(project, "issues_enabled", False):
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
+        forked_from = getattr(project, "forked_from_project", None)
 
         # https://docs.gitlab.com/ee/api/projects.html#get-single-project
         metadata = RepositoryMetadata(
@@ -1882,15 +1912,186 @@ class GitlabManager(RepositoryHost):
             default_branch=project.default_branch,
             project_url=self.canonize(project.web_url),
             metadata=metadata,
+            fork_of=get_repository_url(self.canonize(forked_from["http_url_to_repo"]))
+            if forked_from
+            else None,
             private=self._get_project_visibility(project) != "public",
             branches={
-                b.name: b.commit["id"] for b in project.branches.list(iterator=True)
+                b.name: b.commit["id"]
+                for b in islice(
+                    project.branches.list(per_page=100, iterator=True),
+                    self.MAX_GIT_REFS,
+                )
             },
-            tags={t.name: t.commit["id"] for t in project.tags.list(iterator=True)},
+            tags={
+                t.name: t.commit["id"]
+                for t in islice(
+                    project.tags.list(per_page=100, iterator=True), self.MAX_GIT_REFS
+                )
+            },
         )
         if self.save_internal:
             repository.internal_id = str(project.get_id())
         return repository
+
+    def get_pipeline_runs(
+        self,
+        repo_info: "Repository",
+        ref: str = "",
+        commit: str = "",
+        limit: int = 0,
+    ) -> Iterable[Instantiation]:
+        limit = limit or self.DEFAULT_PIPELINE_LIMIT
+        project_path = self.extract_project_path(repo_info.url)
+        project = self.gitlab.projects.get(project_path)
+
+        kwargs: Dict[str, Any] = {}
+        if ref:
+            kwargs["ref"] = ref
+        if commit:
+            kwargs["sha"] = commit
+
+        pipelines = project.pipelines.list(
+            order_by="id", sort="desc", iterator=True, **kwargs
+        )
+
+        count = 0
+        for pipeline in pipelines:
+            if limit and count >= limit:
+                break
+            full_pipeline = project.pipelines.get(pipeline.id)
+
+            properties = _gitlab_pipeline_properties(project, full_pipeline)
+
+            instantiation = Instantiation(
+                url=full_pipeline.web_url,
+                type=TypeRefs(
+                    {
+                        EntitySchema.CIPipelineRun: TypeRefConstraint(
+                            properties=cast(Dict[str, Any], properties)
+                        )
+                    }
+                ),
+                source=repo_info.artifact_url(".gitlab-ci.yml"),
+                source_ref=full_pipeline.ref,
+                source_revision=full_pipeline.sha,
+                revision=full_pipeline.sha,
+                status=_map_ci_status(full_pipeline.status),
+                metadata=CommonMetadata(
+                    title=f"Pipeline #{full_pipeline.id}",
+                    description=full_pipeline.status,
+                ),
+            )
+            count += 1
+            yield instantiation
+
+
+def _gitlab_pipeline_properties(
+    project: Any, full_pipeline: Any
+) -> PipelineRunProperties:
+    """Extract properties from a GitLab pipeline for the CIPipelineRun type constraint."""
+    artifacts: List[PipelineArtifact] = []
+    artifacts_expire_at = ""
+    variables: List[PipelineVariable] = []
+
+    # Fetch job-level artifacts
+    try:
+        jobs = full_pipeline.jobs.list(get_all=True)
+        for job in jobs:
+            job_artifacts = getattr(job, "artifacts", None)
+            if job_artifacts:
+                expire_at = str(getattr(job, "artifacts_expire_at", "") or "")
+                for art in job_artifacts:
+                    artifacts.append(
+                        PipelineArtifact(
+                            name=f"{job.name}/{art.get('filename', '')}",
+                            url=f"{project.web_url}/-/jobs/{job.id}/artifacts/download",
+                            size=art.get("size", 0),
+                            expires_at=expire_at,
+                        )
+                    )
+                if not artifacts_expire_at and expire_at:
+                    artifacts_expire_at = expire_at
+    except Exception:
+        pass
+
+    # Fetch pipeline variables (GitLab only)
+    try:
+        raw_variables = full_pipeline.variables.list(get_all=True)
+        variables = [PipelineVariable(key=v.key, value=v.value) for v in raw_variables]
+    except Exception:
+        pass
+
+    return PipelineRunProperties(
+        id=full_pipeline.id,
+        log_url=full_pipeline.web_url,
+        artifacts=artifacts,
+        artifacts_expire_at=artifacts_expire_at,
+        variables=variables,
+    )
+
+
+def _github_run_properties(run: Any) -> PipelineRunProperties:
+    """Extract properties from a GitHub workflow run for the CIPipelineRun type constraint."""
+    artifacts: List[PipelineArtifact] = []
+    artifacts_expire_at = ""
+
+    # Fetch artifacts
+    try:
+        for art in run.get_artifacts():
+            expire_str = str(art.expires_at) if art.expires_at else ""
+            artifacts.append(
+                PipelineArtifact(
+                    name=art.name,
+                    url=art.archive_download_url,
+                    size=art.size_in_bytes,
+                    expires_at=expire_str,
+                )
+            )
+            if not artifacts_expire_at and expire_str:
+                artifacts_expire_at = expire_str
+    except Exception:
+        pass
+
+    return PipelineRunProperties(
+        id=run.id,
+        log_url=run.logs_url,
+        artifacts=artifacts,
+        artifacts_expire_at=artifacts_expire_at,
+    )
+
+
+InstantiationStatus = Literal[
+    "draft",
+    "model",
+    "planned",
+    "WIP",
+    "observed",
+    "verifiable",
+    "verified",
+    "reproducible",
+    "reproduced",
+]
+
+_CI_STATUS_MAP: Dict[
+    str,
+    InstantiationStatus,
+] = {
+    "success": "verified",
+    "failed": "observed",
+    "running": "WIP",
+    "pending": "planned",
+    "canceled": "observed",
+    "cancelled": "observed",
+    "skipped": "observed",
+}
+
+
+def _map_ci_status(
+    status: str,
+) -> Optional[InstantiationStatus]:
+    """Map GitHub/GitLab CI status to Instantiation status."""
+    return _CI_STATUS_MAP.get(status)
 
 
 # PyGithub is optional - only needed for GitHub integration
@@ -2016,9 +2217,18 @@ else:
                 default_branch=repo.default_branch or "main",
                 project_url=self.canonize(repo.html_url),
                 metadata=metadata,
+                fork_of=get_repository_url(self.canonize(repo.parent.clone_url))
+                if repo.fork and repo.parent
+                else None,
                 private=repo.private,
-                branches={b.name: b.commit.sha for b in repo.get_branches()},
-                tags={t.name: t.commit.sha for t in repo.get_tags()},
+                branches={
+                    b.name: b.commit.sha
+                    for b in islice(repo.get_branches(), self.MAX_GIT_REFS)
+                },
+                tags={
+                    t.name: t.commit.sha
+                    for t in islice(repo.get_tags(), self.MAX_GIT_REFS)
+                },
             )
 
             if self.save_internal:
@@ -2242,6 +2452,56 @@ else:
                     )
 
             return changed
+
+        def get_pipeline_runs(
+            self,
+            repo_info: "Repository",
+            ref: str = "",
+            commit: str = "",
+            limit: int = 0,
+        ) -> Iterable[Instantiation]:
+            limit = limit or self.DEFAULT_PIPELINE_LIMIT
+            project_path = self.extract_project_path(repo_info.url)
+            gh_repo = self.github.get_repo(project_path)
+
+            kwargs: Dict[str, Any] = {}
+            if ref:
+                kwargs["branch"] = ref  # tags too
+            if commit:
+                kwargs["head_sha"] = commit
+
+            runs = gh_repo.get_workflow_runs(**kwargs)
+
+            count = 0
+            for run in runs:
+                if limit and count >= limit:
+                    break
+
+                properties = _github_run_properties(run)
+
+                instantiation = Instantiation(
+                    url=run.html_url,
+                    type=TypeRefs(
+                        {
+                            EntitySchema.CIPipelineRun: TypeRefConstraint(
+                                properties=cast(Dict[str, Any], properties)
+                            )
+                        }
+                    ),
+                    source=repo_info.artifact_url(
+                        run.path
+                    ),  # e.g. ".github/workflows/ci.yml"
+                    source_ref=run.head_branch,
+                    source_revision=run.head_sha,
+                    revision=run.head_sha,
+                    status=_map_ci_status(run.conclusion or run.status),
+                    metadata=CommonMetadata(
+                        title=run.name or run.display_title,
+                        description=f"{run.event}: {run.conclusion or run.status}",
+                    ),
+                )
+                count += 1
+                yield instantiation
 
 
 class CloudMap:
@@ -2492,16 +2752,42 @@ class CloudMap:
 
     @staticmethod
     def _find_host_config(
-        hosts: Dict[str, HostConfig], host_name: str
+        hosts: Dict[str, HostConfig],
+        host_name: str,
+        path: str = "",
     ) -> Tuple[str, Optional[HostConfig]]:
+        """Find the best matching host config for a given hostname.
+
+        When multiple host configs share the same hostname, the one whose URL
+        path is the longest prefix of *path* wins.  This lets narrower configs
+        (e.g. ``https://gitlab.com/myorg``) take priority over broader ones
+        (e.g. ``https://gitlab.com``).
+        """
+        best_name = ""
+        best_config: Optional[HostConfig] = None
+        best_match_len = -1
         for name, host_config in hosts.items():
             if "url" not in host_config:
                 continue
-            host_url = host_config["url"]
-            host_parsed = urlparse(host_url)
-            if host_parsed.hostname == host_name:
-                return name, host_config
-        return "", None
+            host_parsed = urlparse(host_config["url"])
+            if host_parsed.hostname != host_name:
+                continue
+            host_path = host_parsed.path.strip("/")
+            if not host_path:
+                # Host with no path matches anything but with lowest priority
+                if best_match_len < 0:
+                    best_name, best_config, best_match_len = name, host_config, 0
+            elif path.startswith(host_path) or path.startswith(host_path + "/"):
+                if len(host_path) > best_match_len:
+                    best_name, best_config, best_match_len = (
+                        name,
+                        host_config,
+                        len(host_path),
+                    )
+            elif best_match_len < 0:
+                # No path match yet; keep as fallback over nothing
+                best_name, best_config, best_match_len = name, host_config, 0
+        return best_name, best_config
 
     @classmethod
     def get_host(
@@ -2553,7 +2839,7 @@ class CloudMap:
                     hosts = local_env.map_value(
                         hosts, local_env.get_context().get("variables")
                     )
-                    name, host_config = cls._find_host_config(hosts, hostname)
+                    name, host_config = cls._find_host_config(hosts, hostname, path)
                 if host_config is None:
                     assert hostname
                     if hostname.endswith("github.com"):
@@ -2595,6 +2881,7 @@ class CloudMap:
         clone_root: str = "",
         logger=logger,
     ) -> RepositoryHost:
+        logger.info(f'Using repository host: "{name}"')
         if host_config["type"] == "local":
             clone_root = (
                 clone_root or cast(LocalHostConfig, host_config).get("clone_root") or ""
@@ -2763,7 +3050,8 @@ class CloudMap:
         analyze: Literal["yes", "no", "save-only", "default"],
     ) -> Optional[Repository]:
         db = self.directory.db
-        repo_url, file_path, _revision = split_git_url(url)
+        host: Optional[RepositoryHost] = None
+        repo_url, file_path, revision, commit = split_git_url_with_commit(url)
         canonical_url = get_repository_url(repo_url)
         self._visited.add(repo_url)
         self._visited.add(canonical_url)
@@ -2859,7 +3147,7 @@ class CloudMap:
                     for n in notables:
                         try:
                             artifact = n.analyze(self.directory, repo_info, root_path)
-                            if artifact:
+                            if artifact and not db.get_artifact(artifact.url):
                                 db.add_artifact(artifact)
                         except Exception:
                             self.logger.error(
@@ -2870,7 +3158,7 @@ class CloudMap:
                         repo_info.notable[n.path] = n.asdict()
                 else:
                     artifact_url = repo_info.artifact_url(file_path)
-                    if artifact_url not in db.artifacts:
+                    if not db.get_artifact(artifact_url):
                         artifact = Artifact(
                             url=artifact_url,
                             type=TypeRefs({EntitySchema.GenericFile: None}),
@@ -2878,6 +3166,34 @@ class CloudMap:
                         db.add_artifact(artifact)
                     if file_path not in repo_info.notable:
                         repo_info.notable[file_path] = {}
+
+        # Fetch pipeline runs if a ref or commit was specified in the URL
+        if repo_info and (revision or commit):
+            # Resolve ref to commit SHA from the repository's branches/tags
+            if revision and not commit:
+                commit = repo_info.branches.get(
+                    revision, repo_info.tags.get(revision, "")
+                )
+            if not host and self.local_env:
+                host = CloudMap.get_host(
+                    self.local_env,
+                    repo_url,
+                    namespace="",
+                    repos_root=self.directory.repos_root,
+                    repo_filter=canonical_url,
+                )
+            if host:
+                try:
+                    for instantiation in host.get_pipeline_runs(
+                        repo_info, ref=revision, commit=commit
+                    ):
+                        db.add_instantiation(instantiation)
+                except Exception:
+                    self.logger.error(
+                        "Failed to fetch pipeline runs for %s",
+                        sanitize_url(repo_url),
+                        exc_info=True,
+                    )
 
         # restore original analysis setting
         self.directory.do_analysis = current_do_analysis

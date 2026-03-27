@@ -147,6 +147,9 @@ class EntitySchema:
     "Generic grouping of artifacts (use notable to declare members)"
     AbstractBlueprint = "cloudmap.artifacts.AbstractBlueprint"
     "Artifact definition that does not correspond to a concrete artifact"
+    GitHubWorkflow = "cloudmap.artifacts.ci.GitHubWorkflow"
+    GitLabPipeline = "cloudmap.artifacts.ci.GitLabPipeline"
+    CIPipelineRun = "cloudmap.artifacts.ci.PipelineRun"
 
 
 ArtifactMappings = {
@@ -190,6 +193,8 @@ class CommonMetadata:
     """Date and time on which the resource was created, conforming to RFC 3339."""
     source_url: str = ""
     """Informal pointer to source code"""
+    source_ref: str = ""
+    """Informal pointer to source ref (branch or tag name)"""
     source_revision: str = ""
     """Informal pointer to source code revision"""
 
@@ -275,9 +280,36 @@ class ArtifactMetadata(CommonMetadata):
     def __post_init__(self):
         super().__post_init__()
 
+TypeRefStatus = Literal["unknown", "absent", "present", "failed", "validated"]
+
+class PipelineArtifact(TypedDict):
+    """An artifact produced by a CI pipeline job or workflow run."""
+
+    name: str
+    url: str
+    size: int
+    expires_at: str
+
+
+class PipelineVariable(TypedDict):
+    """A CI pipeline variable (GitLab only)."""
+
+    key: str
+    value: str
+
+
+class PipelineRunProperties(TypedDict, total=False):
+    """Properties for a CIPipelineRun type constraint."""
+
+    id: int
+    log_url: str
+    artifacts: List[PipelineArtifact]
+    artifacts_expire_at: str
+    variables: List[PipelineVariable]
+
 
 class TypeRefConstraint(TypedDict, total=False):
-    status: Literal["unknown", "absent", "present", "failed", "validated"]
+    status: TypeRefStatus
     version: Union[int, float, str]
     properties: Dict[str, Any]
     metadata: Dict[str, Any]
@@ -409,6 +441,8 @@ class Instantiation:
     """If instantiation URL references a repository, source control revision of that repository."""
     source: str = ""
     """Repository or artifact URL."""
+    source_ref: str = ""
+    """If source URL references a repository, the branch or tag name."""
     source_revision: str = ""
     """If source URL references a repository, the source control revision of that repository."""
     instantiated: TypedUrls = field(default_factory=dict)
