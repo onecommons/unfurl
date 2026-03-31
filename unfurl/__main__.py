@@ -373,6 +373,12 @@ readonlyJobControlOptions = option_group(
         default="never",
         help="Set exit code to 64 if job ends at given status. (Default: never)",
     ),
+    click.option(
+        "--timeout",
+        type=float,
+        default=0,
+        help="Abort the job after this many seconds. 0 means no timeout. (Default: 0)",
+    ),
     rich_group=job_control_group_label,
 )
 jobControlOptions = option_group(

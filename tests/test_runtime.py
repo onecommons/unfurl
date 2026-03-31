@@ -706,3 +706,111 @@ spec:
 ])
 def test_should_include_path(include_paths, exclude_paths, target_path, expected):
     assert should_include_path(include_paths, exclude_paths, target_path) == expected
+
+
+ENSEMBLE_JOB_TIMEOUT = """\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        first_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                inputs:
+                  command: echo first
+        slow_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                  timeout: 1
+                inputs:
+                  command: sleep 0.3
+        fast_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                inputs:
+                  command: echo done
+"""
+
+
+def test_job_timeout():
+    """Job --timeout aborts before running tasks past the deadline."""
+    import time
+
+    runner = Runner(YamlManifest(ENSEMBLE_JOB_TIMEOUT))
+    start = time.time()
+
+    job = runner.run(JobOptions(timeout=0.2, startTime=1))
+
+    elapsed = time.time() - start
+    # Should abort around the timeout, not wait for the full sleep
+    assert elapsed < 0.5, f"Job took too long: {elapsed:.1f}s"
+
+    summary = job.json_summary()
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "error",
+            "total": 3,
+            "ok": 1,
+            "error": 2,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 2,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "ok",
+                "target": "first_node",
+                "operation": "create",
+                "template": "first_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "ok",
+                "targetState": "created",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "error",
+                "target": "slow_node",
+                "operation": "create",
+                "template": "slow_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "unknown",
+                "targetState": "creating",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "error",
+                "target": "fast_node",
+                "operation": "create",
+                "template": "fast_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "pending",
+                "targetState": "creating",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+        ],
+    }

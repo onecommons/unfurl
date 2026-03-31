@@ -112,7 +112,7 @@ class ConfigurationSpec:
         majorVersion=0,
         minorVersion="",
         workflow=Defaults.workflow,
-        timeout: Optional[int] = None,
+        timeout: Optional[float] = None,
         operation_host: Optional[str] = None,
         environment: Optional[Dict[str, str]] = None,
         inputs: Optional[Dict[str, Any]] = None,
@@ -453,7 +453,7 @@ class TaskRequest(PlanRequest):
         self.required = required
         self.error = configSpec.name == "#error"
         self.startState = startState
-        self.task = None
+        self.task: Optional["ConfigTask"] = None
         self._completed = False
 
     def __completed():  # type: ignore
@@ -496,7 +496,7 @@ class TaskRequest(PlanRequest):
         workflow = self.group and self.group.workflow
         if not workflow:  # not in a group or not in a mutable workflow
             return
-        explicit_status: Optional[Status] = task.result and task.result.status
+        explicit_status: Optional[Status] = task.result and task.result.status or None
         if explicit_status is None:
             # even though we didn't modify the target this is the last op and the task succeeded
             # so assume the target is that the workflow's final state

@@ -159,6 +159,7 @@ class JobOptions:
     message: Optional[str] = None
     commit: bool = False
     skip_local_install: bool = False
+    timeout: float = 0  # seconds; 0 means no timeout
     push = False
     template: Optional[str] = None
     add: bool = True
@@ -198,6 +199,7 @@ class JobOptions:
         destroyunmanaged=False,
         append=None,
         replace=None,
+        timeout=0,
         workflow=workflow,
         vars=None,
         use_environment=None,
@@ -269,7 +271,7 @@ class ConfigTask(TaskView, ConfigChange):
         self.generator: Optional[Generator] = None
         self.job = job
         self.change_list: List[AttributesChanges] = []
-        self.result: Any = None
+        self.result: Optional[ConfiguratorResult] = None
         self.outputs: Optional[dict] = None
         # for summary:
         self.modified_target: bool = False
@@ -777,6 +779,7 @@ class Job(ConfigChange):
         self.task_count = 0
         self.external_requests: Optional[List[Tuple[Any, List[JobRequest]]]] = None
         self.external_jobs: Optional[List["Job"]] = None
+        self._deadline: float = 0.0  # monotonic timestamp; 0 means no deadline
 
     def get_operational_dependencies(self) -> Iterable[ConfigTask]:
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -874,7 +877,16 @@ class Job(ConfigChange):
             self.local_status = Status.error
             return self.rootResource
 
+        timeout = self.jobOptions.timeout
+        if timeout > 0:
+            self._deadline = time.time() + timeout
+
         while ready or notReady or self.jobRequestQueue:
+            if self._deadline and time.time() >= self._deadline:
+                logger.error("Aborting job: timeout of %g seconds exceeded", timeout)
+                self.local_status = Status.error
+                return self.rootResource
+
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready, notReady)
@@ -1182,6 +1194,8 @@ class Job(ConfigChange):
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
+        if self._deadline:
+            childJob._deadline = self._deadline
         childJob._run_requests()
         return childJob
 
@@ -1447,7 +1461,7 @@ class Job(ConfigChange):
             #     req.startState,
             # )
             end_collapsible(hash(req))
-            task_success = task.result and task.result.success
+            task_success = task.result and task.result.success or False
             status = task.target.status.name.upper()
             state_status = (
                 f" State: {task.target.state.name}" if task.target.state else ""
@@ -1519,6 +1533,17 @@ class Job(ConfigChange):
         ok, errors = self.can_run_task(task, not_ready)
         if not ok:
             return task.finished(ConfiguratorResult(False, False, result=errors))
+
+        if self._deadline:
+            time_remaining = self._deadline - time.time()
+            if time_remaining <= 0:
+                return task.finished(
+                    ConfiguratorResult(False, False, result="job timeout exceeded")
+                )
+            task_timeout = task.configSpec.timeout
+            capped = time_remaining
+            if task_timeout is None or capped < task_timeout:
+                task.configSpec.timeout = capped
 
         task.start()
         change: Union[ConfigTask, Job, None] = None
