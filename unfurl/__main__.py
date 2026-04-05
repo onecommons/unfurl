@@ -2066,6 +2066,12 @@ def serve(
     flag_value="",
     help="Print a graph of cloudmap records starting from URL (or all if empty).",
 )
+@click.option(
+    "--graph-format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format for --graph (default: text).",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -2082,6 +2088,7 @@ def cloudmap(
     add: Optional[str] = None,
     analyze: Literal["yes", "no", "save-only", "default"] = "default",
     graph: Optional[str] = None,
+    graph_format: str = "text",
     **options,
 ):
     """Manage a cloud map.
@@ -2101,9 +2108,13 @@ def cloudmap(
     )
     if graph is not None:
         cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
-        from .reporting import print_cloudmap_graph
+        from .reporting import cloudmap_graph_json, cloudmap_graph_console
 
-        print_cloudmap_graph(cloud_map.directory.db, graph)
+        if graph_format == "json":
+            result = cloudmap_graph_json(cloud_map.directory.db, graph)
+            click.echo(json.dumps(result, indent=2))
+        else:
+            cloudmap_graph_console(cloud_map.directory.db, graph)
         return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")

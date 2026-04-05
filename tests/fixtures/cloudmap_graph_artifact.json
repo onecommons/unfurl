@@ -1,0 +1,88 @@
+{
+  "roots": [
+    {
+      "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+      "kind": "Artifact"
+    }
+  ],
+  "sections": {
+    "Artifacts": {
+      "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml": {
+        "kind": "Artifact",
+        "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        "rels": {
+          "references": [
+            {
+              "url": "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.",
+              "missing": true,
+              "type_refs": [
+                {
+                  "type": "cloudmap.artifacts.unfurl.Package",
+                  "constraints": {
+                    "version": "0.7.7"
+                  }
+                }
+              ]
+            },
+            {
+              "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+              "kind": "Artifact"
+            }
+          ],
+          "dependencies": [
+            {
+              "type": "PostgresDB@unfurl.cloud/onecommons/unfurl-types",
+              "label": "Database"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.AWSAccount",
+              "label": "aws"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+              "label": "gcp"
+            }
+          ],
+          "instantiates": [
+            {
+              "type": "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+            }
+          ]
+        }
+      },
+      "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest": {
+        "kind": "Artifact",
+        "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest"
+      }
+    },
+    "Types": {
+      "unfurl.relationships.ConnectsTo.AWSAccount": {
+        "kind": "Type",
+        "url": "unfurl.relationships.ConnectsTo.AWSAccount",
+        "rels": {
+          "extends": [
+            "unfurl.relationships.ConnectsTo.CloudAccount"
+          ]
+        }
+      },
+      "unfurl.relationships.ConnectsTo.GoogleCloudProject": {
+        "kind": "Type",
+        "url": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+        "rels": {
+          "extends": [
+            "unfurl.relationships.ConnectsTo.CloudAccount"
+          ]
+        }
+      },
+      "Odoo@unfurl.cloud/onecommons/blueprints/odoo": {
+        "kind": "Type",
+        "url": "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+        "rels": {
+          "extends": [
+            "unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types"
+          ]
+        }
+      }
+    }
+  }
+}

@@ -72,6 +72,7 @@ These objects are exported as JSON by the `export` command and by unfurl server 
         icon: String
         inputsSchema: Required[JSON]
         requirementsFilter: [RequirementConstraint!]
+        node_filter: JSON
     }
 
     type ResourceTemplate {
@@ -254,6 +255,7 @@ class Deployment(GraphqlObject, total=False):
     summary: str
     workflow: str
     deployTime: str
+    # Dict[str, PackageInfo]:
     packages: JsonType
 
 
@@ -266,6 +268,7 @@ class RequirementConstraint(GraphqlObject):
     icon: str
     inputsSchema: JsonType
     requirementsFilter: NotRequired[List["RequirementConstraint"]]
+    # see nodeFilterDefinition in tosca-schema.json
     node_filter: NotRequired[Dict[str, Any]]
 
 
@@ -315,6 +318,7 @@ class DeploymentEnvironment(TypedDict, total=False):
     connections: ResourceTemplatesByName
     instances: Required[ResourceTemplatesByName]
     primary_provider: Optional[ResourceTemplate]
+    # see repositories definition in tosca-schema.json
     repositories: JsonType
 
 
@@ -485,9 +489,11 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return typedef
 
 
+# "ensembles" in unfurl-schema config
 class DeploymentPath(GraphqlObject):
     environment: str
     project_id: NotRequired[str]
+    # id, flags {}, commit_id "", variables, upstream_commit_id, upstream_pipeline_id, upstream_project_id
     pipelines: List[JsonType]
     incremental_deploy: bool
 
