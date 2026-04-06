@@ -406,6 +406,12 @@ def test_server_export_local():
                 )
                 assert exported
                 assert res.json() == json.loads(exported.output)
+
+            # Error: invalid format (rejected by schema validation)
+            res = requests.get(
+                f"http://{HOST}:{port}/export?format=invalid"
+            )
+            assert res.status_code == 422
         finally:
             p.terminate()
             p.join()
@@ -858,6 +864,16 @@ def test_update_environment():
             with open("unfurl.yaml") as f:
                 data = yaml.load(f.read())
             assert "staging" in data.get("environments", {}), data
+
+            # Error: reserved environment name
+            bad_patch = [{"name": "tasks", "__typename": "DeploymentEnvironment"}]
+            res = requests.post(
+                f"http://{HOST}:{port}/update_environment?auth_project=remote",
+                json={"patch": bad_patch, "latest_commit": new_commit},
+            )
+            assert res.status_code == 400
+            assert res.json()["code"] == "BAD_REQUEST"
+            assert "reserved" in res.json()["message"]
         finally:
             if p:
                 p.terminate()
@@ -986,6 +1002,69 @@ def test_create_ensemble():
             if p:
                 p.terminate()
                 p.join()
+
+
+def test_server_cloudmap():
+    """Test /cloudmap endpoint returns expected JSON graph."""
+    from pathlib import Path
+
+    fixture_dir = Path(__file__).parent / "fixtures"
+    cloudmap_content = (fixture_dir / "expected_cloudmap.yaml").read_text()
+
+    runner = CliRunner()
+    port = _next_port()
+    with runner.isolated_filesystem() as tmpdir:
+        # Create a git repo with cloudmap.yaml at CWD
+        with open("cloudmap.yaml", "w") as f:
+            f.write(cloudmap_content)
+        repo = GitRepo(Repo.init("."))
+        repo.add_all(".")
+        repo.commit_files(["cloudmap.yaml"], "Add cloudmap")
+
+        ctx = get_context()
+        error_queue = ctx.Queue()
+        p = ctx.Process(
+            target=serve_server,
+            args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
+            kwargs={"error_queue": error_queue},
+        )
+        p._error_queue = error_queue
+        try:
+            start_server_process(p, port)
+            base = f"http://{HOST}:{port}/cloudmap"
+
+            # Full graph
+            res = requests.get(base)
+            assert res.status_code == 200
+            expected_full = json.loads(
+                (fixture_dir / "cloudmap_graph.json").read_text()
+            )
+            assert res.json() == expected_full
+
+            # Single artifact query
+            artifact_url = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml"
+            res = requests.get(base, params={"url": artifact_url})
+            assert res.status_code == 200
+            expected_artifact = json.loads(
+                (fixture_dir / "cloudmap_graph_artifact.json").read_text()
+            )
+            assert res.json() == expected_artifact
+
+            # Dual record query (URL in both artifacts and instantiations)
+            dual_url = "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml"
+            res = requests.get(base, params={"url": dual_url})
+            assert res.status_code == 200
+            expected_dual = json.loads(
+                (fixture_dir / "cloudmap_graph_dual.json").read_text()
+            )
+            assert res.json() == expected_dual
+
+            # Not found
+            res = requests.get(base, params={"url": "nonexistent://url"})
+            assert res.status_code == 404
+        finally:
+            p.terminate()
+            p.join()
 
 
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed

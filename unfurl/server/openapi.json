@@ -1,6 +1,146 @@
 {
   "components": {
     "schemas": {
+      "CloudMapResponse": {
+        "additionalProperties": true,
+        "description": "Pydantic wrapper for :class:`GraphJson`, used by ``@app.output``.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Error message when the record is not found",
+            "title": "Error"
+          },
+          "roots": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CloudMapResponse.RecordRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "List of root record references (single-record mode)",
+            "title": "Roots"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/CloudMapResponse.GraphNodeJson"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of section name \u2192 {url \u2192 GraphNodeJson}",
+            "title": "Sections"
+          }
+        },
+        "title": "CloudMapResponse",
+        "type": "object"
+      },
+      "CloudMapResponse.GraphNodeJson": {
+        "additionalProperties": true,
+        "description": "A node in the JSON graph representation.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "rels": {
+            "additionalProperties": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CloudMapResponse.RecordRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudMapResponse.TypeRefJson"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Rels",
+            "type": "object"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "GraphNodeJson",
+        "type": "object"
+      },
+      "CloudMapResponse.RecordRef": {
+        "additionalProperties": true,
+        "description": "A reference to a record in the graph, used in relationship lists.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "boolean"
+          },
+          "type_refs": {
+            "items": {
+              "$ref": "#/components/schemas/CloudMapResponse.TypeRefJson"
+            },
+            "title": "Type Refs",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "RecordRef",
+        "type": "object"
+      },
+      "CloudMapResponse.TypeRefJson": {
+        "additionalProperties": true,
+        "description": "A type reference in the graph, used in relationship lists.",
+        "properties": {
+          "constraints": {
+            "additionalProperties": true,
+            "title": "Constraints",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "TypeRefJson",
+        "type": "object"
+      },
       "ExportResponse": {
         "additionalProperties": true,
         "description": "GraphQL-style JSON database returned by /export and /types.\n\nEach top-level key maps to a dict of named GraphQL objects of that type,\nreflecting the GraphQL schema defined in unfurl/graphql.py.",
@@ -1236,6 +1376,75 @@
         "summary": "Clear cache and cloned files for a project",
         "tags": [
           "Cache"
+        ]
+      }
+    },
+    "/cloudmap": {
+      "get": {
+        "description": "Return the CloudMap dependency graph as JSON, optionally filtered to a single URL.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional artifact or instantiation URL to filter the graph to",
+              "title": "Url"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudMapResponse"
+                }
+              }
+            },
+            "description": "CloudMap dependency graph as JSON"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "CloudMap graph",
+        "tags": [
+          "Export"
         ]
       }
     },

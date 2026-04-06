@@ -48,7 +48,7 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
 from apiflask import APIFlask
-from flask import Request, Response, current_app, jsonify, request
+from flask import Request, Response, current_app, jsonify, make_response, request
 import flask.json
 from flask.typing import ResponseReturnValue
 from flask_caching import Cache
@@ -64,6 +64,8 @@ from ..graphql import (
 )
 from .schemas import (
     ClearProjectQuery,
+    CloudMapQuery,
+    CloudMapResponse,
     EmptyCacheQuery,
     ExportQuery,
     ExportResponse,
@@ -550,9 +552,14 @@ class CacheValue(NamedTuple):
         return _make_etag(hex(etag))
 
 
+# Error returned by CacheEntry.get_or_set
+# None on success, an Exception, or a Response with an error status code.
+CacheError = Union[None, Exception, Response]
+
 CacheWorkCallable = Callable[
-    ["CacheEntry", Optional[str]], Tuple[Optional[Any], Any, bool]
+    ["CacheEntry", Optional[str]], Tuple[CacheError, Any, bool]
 ]
+
 
 PullCacheEntry = Tuple[float, str]
 
@@ -976,7 +983,7 @@ class CacheEntry:
         work: CacheWorkCallable,
         latest_commit: Optional[str],
         cache_dependency: Optional[CacheItemDependency] = None,
-    ) -> Tuple[Optional[Any], Any, CacheDirective]:
+    ) -> Tuple[CacheError, Any, CacheDirective]:
         try:
             self._deps = {}
             # NB: work shouldn't modify the working directory
@@ -1049,7 +1056,7 @@ class CacheEntry:
         latest_commit: Optional[str],
         validate: Optional[Callable] = None,
         cache_dependency: Optional[CacheItemDependency] = None,
-    ) -> Tuple[Optional[Any], Any]:
+    ) -> Tuple[CacheError, Any]:
         try:
             if (
                 latest_commit is None and not self.stale_pull_age
@@ -1286,7 +1293,7 @@ def format_from_path(path: str) -> str:
 
 def _export_cache_work(
     cache_entry: CacheEntry, latest_commit: Optional[str]
-) -> Tuple[Any, Any, bool]:
+) -> Tuple[CacheError, Any, bool]:
     format, sep, extra = cache_entry.key.partition("+")
     err, val = _do_export(
         cache_entry.project_id,
@@ -1517,6 +1524,34 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
     return _export(request, "blueprint", filename, True, _add_types)
 
 
+@app.get("/cloudmap")
+@app.doc(
+    summary="CloudMap graph",
+    description="Return the CloudMap dependency graph as JSON, optionally filtered to a single URL.",
+    tags=["Export"],
+)
+@app.input(CloudMapQuery, location="query", arg_name="query")
+@app.output(CloudMapResponse, description="CloudMap dependency graph as JSON")
+def get_cloudmap(query: CloudMapQuery) -> ResponseReturnValue:
+    from .cache import CLOUDMAP_BRANCH, load_yaml
+
+    from ..cloudmap import CloudMapDB
+    from ..reporting import cloudmap_graph_json
+
+    project_id = get_project_id(request)
+    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml")
+    if doc is None:
+        if isinstance(err, Response):
+            return err
+        return make_response(jsonify(error=str(err)), 500)
+    db = CloudMapDB("", doc, False)
+    url = request.args.get("url") or ""
+    result = cloudmap_graph_json(db, url)
+    if "error" in result:
+        return make_response(jsonify(result), 404)
+    return result
+
+
 @app.post("/populate_cache")
 @app.doc(summary="Populate export cache for a project file", tags=["Cache"])
 @app.input(PopulateCacheQuery, location="query", arg_name="query")
@@ -1659,11 +1694,11 @@ def _localenv_from_cache(
     deployment_path: str,
     latest_commit: Optional[str],
     args: dict,
-) -> Tuple[Any, Optional[LocalEnv], CacheEntry]:
+) -> Tuple[CacheError, Optional[LocalEnv], CacheEntry]:
     # we want to make cloning a repo cache work to prevent concurrent cloning
     def _cache_localenv_work(
         cache_entry: CacheEntry, latest_commit: Optional[str]
-    ) -> Tuple[Any, Any, bool]:
+    ) -> Tuple[CacheError, Any, bool]:
         # don't try to pull -- cache will have already pulled if latest_commit wasn't in the repo
         clone_location = _fetch_working_dir(cache_entry.project_id, branch, args, False)
         if clone_location is None:
@@ -1731,7 +1766,7 @@ def _do_export(
     cache_entry: CacheEntry,
     latest_commit: Optional[str],
     args: dict,
-) -> Tuple[Optional[Any], Optional[Any]]:
+) -> Tuple[CacheError, Optional[Any]]:
     # assert cache_entry.branch
     parent_localenv = args.get("parent_localenv")
     if not parent_localenv:
@@ -2129,7 +2164,7 @@ def _patch_response(repo: Optional[GitRepo]) -> Response:
 
 def _apply_environment_patch(
     patch: list, local_env: LocalEnv
-) -> Optional[Tuple[Any, int]]:
+) -> Optional[Response]:
     project = local_env.project
     assert project
     localConfig = project.localConfig
@@ -2649,7 +2684,7 @@ def _fetch_working_dir(
 
 def create_error_response(
     code: str, message: str, err: Optional[Exception] = None
-) -> Tuple[Response, int]:
+) -> Response:
     http_code = 400  # Default to BAD_REQUEST
     if code == "BAD_REQUEST":
         http_code = 400
@@ -2668,7 +2703,7 @@ def create_error_response(
         response["details"] = "".join(
             traceback.TracebackException.from_exception(err).format()
         )
-    return jsonify(response), http_code
+    return make_response(jsonify(response), http_code)
 
 
 def enter_safe_mode():

@@ -16,7 +16,7 @@ from typing import (
     overload,
     Mapping,
 )
-from typing_extensions import Literal, TypedDict
+from typing_extensions import Literal
 from .result import Results
 from .runtime import EntityInstance, NodeInstance
 from .planrequests import (
@@ -920,33 +920,13 @@ class RichTreeVisitor(CloudMapGraphVisitor):
         self.console.print(f"[red]Record not found:[/] {escape(url)}")
 
 
-class TypeRefJson(TypedDict, total=False):
-    """A type reference in the graph, used in relationship lists."""
-
-    type: str
-    constraints: Dict[str, Any]
-    label: str
-
-
-class RecordRef(TypedDict, total=False):
-    """A reference to a record in the graph, used in relationship lists."""
-
-    url: str
-    kind: str
-    missing: bool
-    type_refs: List[TypeRefJson]
-
-
-RelEntry = Union[RecordRef, TypeRefJson, str]
-
-
-class GraphNodeJson(TypedDict, total=False):
-    """A node in the JSON graph representation."""
-
-    kind: str
-    url: str
-    rels: Dict[str, List[RelEntry]]
-
+from .server.schemas import (
+    GraphJson,
+    GraphNodeJson,
+    RecordRef,
+    RelEntry,
+    TypeRefJson,
+)
 
 _SECTION_FOR_KIND: Dict[str, str] = {
     "Repository": "Repositories",
@@ -955,19 +935,6 @@ _SECTION_FOR_KIND: Dict[str, str] = {
     "Service": "Services",
     "Type": "Types",
 }
-
-
-class GraphJson(TypedDict, total=False):
-    """Top-level JSON graph structure.
-
-    In section mode (full graph), ``sections`` maps section names to dicts of
-    url → GraphNodeJson.  In single-record mode, ``roots`` lists the queried
-    record refs and all encountered records are stored in ``sections``.
-    """
-
-    sections: Dict[str, Dict[str, GraphNodeJson]]
-    roots: List[RecordRef]
-    error: str
 
 
 class JsonGraphVisitor(CloudMapGraphVisitor):
