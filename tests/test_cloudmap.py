@@ -2272,7 +2272,6 @@ if __name__ == "__main__":
     import json
     import re
     import sys
-    import tempfile
     from pathlib import Path
 
     src = Path(__file__).read_text()
@@ -2289,45 +2288,52 @@ if __name__ == "__main__":
         else:
             print("expected_cloudmap: NOT FOUND in source")
         Path(__file__).write_text(src)
+        fixture_dir = Path(__file__).parent / "fixtures"
+        fixture_dir.mkdir(exist_ok=True)
+        (fixture_dir / "expected_cloudmap.yaml").write_text(contents)
+        print(
+            f"expected_cloudmap.yaml: updated ({fixture_dir / 'expected_cloudmap.yaml'})"
+        )
         print(f"Updated {Path(__file__).name}")
     else:
         # Regenerate expected graph outputs from expected_cloudmap
-        with tempfile.TemporaryDirectory() as d:
-            p = Path(d) / "cloudmap.yaml"
-            p.write_text(expected_cloudmap)
-            db = CloudMapDB(str(p))
+        fixture_dir = Path(__file__).parent / "fixtures"
+        fixture_dir.mkdir(exist_ok=True)
+        cloudmap_fixture = fixture_dir / "expected_cloudmap.yaml"
+        cloudmap_fixture.write_text(expected_cloudmap)
+        print(f"expected_cloudmap.yaml: updated ({cloudmap_fixture})")
 
-            graphs = {
-                "expected_full_graph": _capture_graph(db),
-                "expected_artifact_graph": _capture_graph(
-                    db,
-                    "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
-                ),
-                "expected_dual_record_graph": _capture_graph(
-                    db,
-                    "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
-                ),
-            }
+        db = CloudMapDB(str(cloudmap_fixture))
 
-            # Regenerate JSON graph fixtures
-            from unfurl.reporting import cloudmap_graph_json
+        graphs = {
+            "expected_full_graph": _capture_graph(db),
+            "expected_artifact_graph": _capture_graph(
+                db,
+                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+            ),
+            "expected_dual_record_graph": _capture_graph(
+                db,
+                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+            ),
+        }
 
-            fixture_dir = Path(__file__).parent / "fixtures"
-            for name, start_url in [
-                ("cloudmap_graph.json", None),
-                (
-                    "cloudmap_graph_artifact.json",
-                    "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
-                ),
-                (
-                    "cloudmap_graph_dual.json",
-                    "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
-                ),
-            ]:
-                result = cloudmap_graph_json(db, start_url)
-                fixture_path = fixture_dir / name
-                fixture_path.write_text(json.dumps(result, indent=2) + "\n")
-                print(f"{name}: updated ({fixture_path})")
+        # Regenerate JSON graph fixtures
+        from unfurl.reporting import cloudmap_graph_json
+        for name, start_url in [
+            ("cloudmap_graph.json", None),
+            (
+                "cloudmap_graph_artifact.json",
+                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+            ),
+            (
+                "cloudmap_graph_dual.json",
+                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+            ),
+        ]:
+            result = cloudmap_graph_json(db, start_url)
+            fixture_path = fixture_dir / name
+            fixture_path.write_text(json.dumps(result, indent=2) + "\n")
+            print(f"{name}: updated ({fixture_path})")
 
         for name, value in graphs.items():
             pattern = rf'({re.escape(name)} = """\\)\n.*?(?=""")'
