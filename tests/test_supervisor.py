@@ -19,6 +19,28 @@ SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 
 class SupervisorTest(unittest.TestCase):
+    @staticmethod
+    def _kill_supervisord(base_dir: str = "."):
+        """Kill supervisord if running, using pid file or subprocess scan."""
+        pid_path = os.path.join(base_dir, "supervisord/local/supervisord.pid")
+        if os.path.exists(pid_path):
+            try:
+                with open(pid_path) as f:
+                    pid = int(f.read().strip())
+                print("killing supervisord pid", pid)
+                os.kill(pid, signal.SIGTERM)
+                # Wait for it to actually exit
+                for _ in range(20):
+                    try:
+                        os.kill(pid, 0)  # check if still alive
+                        time.sleep(0.1)
+                    except OSError:
+                        break
+                else:
+                    os.kill(pid, signal.SIGKILL)
+            except (OSError, ValueError) as e:
+                print(f"cleanup: ignoring error killing supervisord: {e}")
+
     def test_supervisor(self):
         cli_runner = CliRunner()
         with cli_runner.isolated_filesystem(SAVE_TMP) as dir:
@@ -80,12 +102,7 @@ class SupervisorTest(unittest.TestCase):
                     summary["job"],
                 )
             finally:
-                # NOTE: to manually kill: pkill -lf supervisord
-                if os.path.exists("supervisord/local/supervisord.pid"):
-                    with open("supervisord/local/supervisord.pid") as f:
-                        pid = int(f.read())
-                        print("killing", pid)
-                        os.kill(pid, signal.SIGINT)
+                self._kill_supervisord()
 
 
 class TestSupervisorLifecycle:
@@ -96,9 +113,4 @@ class TestSupervisorLifecycle:
             for job in jobs:
                 assert job.status == Status.ok, job.workflow
         finally:
-            # NOTE: to manually kill: pkill -lf supervisord
-            if os.path.exists("supervisord/local/supervisord.pid"):
-                with open("supervisord/local/supervisord.pid") as f:
-                    pid = int(f.read())
-                    print("killing", pid)
-                    os.kill(pid, signal.SIGINT)
+            SupervisorTest._kill_supervisord()
