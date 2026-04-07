@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from unfurl.configurator import Status
+from unfurl.configurator import Status, Cancel
 from unfurl.configurators.shell import ShellConfigurator, subprocess
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
@@ -238,3 +238,197 @@ spec:
                       description: Test output parameter
 """
 
+ENSEMBLE_BACKGROUND = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+    inputs:
+      command: echo hello
+      background: true
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+ENSEMBLE_BACKGROUND_SLOW = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+    inputs:
+      command: sleep 2 && echo done
+      background: true
+      initial_sleep: 0.1
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+ENSEMBLE_BACKGROUND_TIMEOUT = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+      timeout: 1
+    inputs:
+      command: sleep 30
+      background: true
+      initial_sleep: 0.1
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+
+def test_background_quick_command():
+    """Quick command completes during initial_sleep, no resume needed."""
+    runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND))
+    job = runner.run(JobOptions(instance="test_node"))
+    assert job.status == Status.ok
+    task = list(job.workDone.values())[0]
+    assert "hello" in task.result.result["stdout"]
+
+
+def test_background_slow_command(caplog):
+    """Slow command triggers resume cycles, eventually completes without re-rendering."""
+    runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_SLOW))
+    with caplog.at_level("DEBUG"):
+        job = runner.run(JobOptions(instance="test_node"))
+    assert job.status == Status.ok
+    task = list(job.workDone.values())[0]
+    assert "done" in task.result.result["stdout"]
+    # Verify the task was only rendered once (not re-rendered on each resume cycle)
+    render_count = sum(
+        1
+        for r in caplog.records
+        if "rendering" in r.message and "test_node" in r.message
+    )
+    assert render_count == 1, f"Expected 1 render, got {render_count}"
+
+
+def test_background_cancel_on_job_timeout(caplog):
+    """Job timeout sends Cancel to background shell, result is collected."""
+    runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_SLOW))
+    with caplog.at_level("DEBUG"):
+        job = runner.run(JobOptions(instance="test_node", timeout=1))
+    assert job.status == Status.error
+    task = list(job.workDone.values())[0]
+    assert not task.result.success
+    # Verify the Cancel path ran _handle_result (process was terminated and result collected)
+    assert any("shell task run failure" in r.message for r in caplog.records)
+    assert any("Background shell cancelled" in r.message for r in caplog.records)
+    result = task.result.result
+    assert result["returncode"] is not None
+    assert "stderr" in result
+    assert "stdout" in result
+    assert isinstance(result["error"], Cancel)
+    assert isinstance(result["timeout"], float)
+    assert result["timeout"] > 0
+
+
+def test_background_cancel_on_task_timeout():
+    """Task timeout terminates background shell, result variables are captured."""
+    runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_TIMEOUT))
+    job = runner.run(JobOptions(instance="test_node"))
+    assert job.status == Status.error
+    task = list(job.workDone.values())[0]
+    result = task.result.result
+    assert isinstance(result["cmd"], str)
+    assert result["returncode"] is not None
+    assert "stderr" in result
+    assert "stdout" in result
+    assert result["timeout"] == 1
+
+
+def test_background_with_initial_sleep():
+    """initial_sleep lets quick processes finish without resume overhead."""
+    ensemble = ENSEMBLE_BACKGROUND.replace(
+        "background: true", "background: true\n      initial_sleep: 5"
+    )
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node"))
+    assert job.status == Status.ok
+    task = list(job.workDone.values())[0]
+    assert "hello" in task.result.result["stdout"]
+    # echo hello finishes within initial_sleep, should complete in one pass
+
+
+ENSEMBLE_BACKGROUND_RESULT_VARS = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation:
+                    primary:
+                      type: unfurl.artifacts.ShellExecutable
+                      file: dummy.sh
+                      contents: |
+                        echo '{{"a_output": 42}}'
+                      properties:
+                        outputsTemplate: "{{{{ stdout | from_json }}}}"
+                        resultTemplate: |
+                          {{% if returncode == 0 and stdout | from_json %}}
+                          readyState:
+                            local: ok
+                          {{% endif %}}
+                  inputs:
+                    background: true
+                    {extra_inputs}
+                  outputs:
+                    a_output:
+                      type: integer
+                      description: Test output parameter
+"""
+
+
+@pytest.mark.parametrize("initial_sleep", [0, 1], ids=["resume-loop", "initial-sleep"])
+def test_background_result_variables(initial_sleep):
+    """Background shell sets the same result variables (returncode, stdout, etc.) as blocking shell."""
+    extra = f"initial_sleep: {initial_sleep}" if initial_sleep else ""
+    ensemble = ENSEMBLE_BACKGROUND_RESULT_VARS.format(extra_inputs=extra)
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(skip_save=True))
+    assert job.status == Status.ok, job.json_summary()
+    task = list(job.workDone.values())[0]
+    # Verify outputs were extracted from stdout via outputsTemplate
+    assert task.outputs == {"a_output": 42}
+    # Verify result dict has the expected keys
+    result = task.result.result
+    assert result["returncode"] == 0
+    assert "a_output" in result["stdout"]
+    assert result["error"] is None
+    assert result["timeout"] is None
+    assert isinstance(result["cmd"], str)

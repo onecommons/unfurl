@@ -21,9 +21,11 @@ inputs:
 # see also 13.4.1 Shell scripts p 360
 # XXX add support for a stdin parameter
 
+import time
+
 from ..eval import map_value
 from ..logs import truncate, DEFAULT_TRUNCATE_LENGTH
-from ..configurator import Status, TaskView
+from ..configurator import Cancel, ConfiguratorResult, Status, TaskView
 from ..util import which, clean_output
 from . import TemplateConfigurator, TemplateInputs
 from ansible.utils.unsafe_proxy import AnsibleUnsafeText
@@ -31,6 +33,7 @@ import os
 import sys
 import shlex
 import re
+import types
 from typing import (
     Any,
     Callable,
@@ -49,6 +52,15 @@ if TYPE_CHECKING:
 
 # logging to file doesn't call logging.truncate(), so manually truncate potentially huge output
 FILELOG_TRUNCATE_LENGTH = DEFAULT_TRUNCATE_LENGTH
+
+
+def _terminate_process(proc: subprocess.Popen, grace_period: float = 5) -> None:
+    proc.terminate()
+    try:
+        proc.wait(timeout=grace_period)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait()
 
 
 def _log_output(task: TaskView, result, attr: str):
@@ -367,6 +379,11 @@ class ShellConfigurator(TemplateConfigurator):
         return [cmd, cwd]
 
     def run(self, task: TaskView):
+        if task.inputs.get("background") or os.environ.get(
+            "UNFURL_TEST_SHELL_BACKGROUND"
+        ):
+            yield from self._run_background(task)
+            return
         cmd, cwd = task.rendered
         task.logger.trace("executing %s", cmd)
         params = task.inputs
@@ -395,6 +412,125 @@ class ShellConfigurator(TemplateConfigurator):
             status=status,
             result=result.__dict__,
             outputs=outputs,
+        )
+
+    def _run_background(self, task: TaskView):
+        cmd, cwd = task.rendered
+        params = task.inputs
+        isString = isinstance(cmd, str)
+        shell = params.get("shell", isString)
+        env = task.environ
+        keeplines = params.get("keeplines", False)
+        input_data = params.get("input")
+
+        cmdStr, cmd_list = self._cmd(cmd, keeplines)
+        use_shell = bool(shell)
+        executable = shell if isinstance(shell, str) else None
+
+        kwargs: dict = {}
+        if input_data is not None:
+            kwargs["stdin"] = subprocess.PIPE
+            if isinstance(input_data, str):
+                input_data = input_data.encode()
+
+        task_timeout = task.configSpec.timeout
+        deadline = (time.monotonic() + task_timeout) if task_timeout else 0.0
+
+        task.logger.verbose("starting background shell: %s", cmdStr)
+        proc = subprocess.Popen(
+            cmdStr if use_shell else cmd_list,
+            shell=use_shell,
+            executable=executable,
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            **kwargs,
+        )
+
+        if input_data is not None:
+            assert proc.stdin is not None
+            proc.stdin.write(input_data)
+            proc.stdin.close()
+
+        initial_sleep = params.get("initial_sleep", 0)
+        if initial_sleep:
+            if task_timeout:
+                initial_sleep = min(initial_sleep, task_timeout)
+            try:
+                proc.wait(timeout=initial_sleep)
+            except subprocess.TimeoutExpired:
+                pass
+
+        if proc.poll() is not None:
+            result = self._collect_background_result(proc, cmdStr)
+            success, status, outputs = self._process_result(task, result, cwd)
+            yield self.done(
+                task,
+                success=success,
+                status=status,
+                result=result.__dict__,
+                outputs=outputs,
+            )
+            return
+
+        while True:
+            if deadline and time.monotonic() >= deadline:
+                _terminate_process(proc)
+                task.logger.debug(
+                    "Background shell timed out after %s seconds: %s",
+                    task_timeout,
+                    cmdStr,
+                )
+                result = self._collect_background_result(proc, cmdStr)
+                result.timeout = task_timeout
+                self._handle_result(task, result, cwd)
+                yield self.done(task, success=False, result=result.__dict__)
+                return
+
+            signal = yield task.done(resume=True)
+            if isinstance(signal, Cancel):
+                _terminate_process(proc)
+                task.logger.debug("Background shell cancelled: %s", signal.reason)
+                result = self._collect_background_result(proc, cmdStr)
+                result.error = signal
+                if signal.timeout:
+                    result.timeout = signal.timeout
+                self._handle_result(task, result, cwd)
+                yield self.done(task, success=False, result=result.__dict__)
+                return
+
+            if proc.poll() is not None:
+                result = self._collect_background_result(proc, cmdStr)
+                success, status, outputs = self._process_result(task, result, cwd)
+                yield self.done(
+                    task,
+                    success=success,
+                    status=status,
+                    result=result.__dict__,
+                    outputs=outputs,
+                )
+                return
+            task.logger.trace("Background shell still running: %s", cmdStr)
+
+    @staticmethod
+    def _collect_background_result(proc: subprocess.Popen, cmdStr: str):
+        stdout, stderr = proc.communicate()
+        try:
+            stdout = stdout.decode()
+        except Exception:
+            pass
+        try:
+            stderr = stderr.decode()
+        except Exception:
+            pass
+        return types.SimpleNamespace(
+            cmd=cmdStr,
+            stdout=stdout,
+            stderr=stderr,
+            returncode=proc.returncode,
+            timeout=None,
+            error=None,
         )
 
     def resolve_dry_run(self, cmd, task):

@@ -101,6 +101,23 @@ import logging
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
 
+class Cancel:
+    """Sent to a resumed task's configurator to signal cancellation.
+
+    Attributes:
+        reason: Why the task was cancelled (e.g. ``"job timeout"``).
+        timeout: Elapsed seconds from task start to the deadline that triggered
+            cancellation. Zero if no deadline was set.
+    """
+
+    def __init__(self, reason: str = "", timeout: float = 0):
+        self.reason = reason
+        self.timeout = timeout
+
+    def __repr__(self) -> str:
+        return f"Cancel({self.reason!r})"
+
+
 class ConfiguratorResult:
     """
     Represents the result of a task that ran.
@@ -116,6 +133,7 @@ class ConfiguratorResult:
         result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         exception: Optional[UnfurlTaskError] = None,
+        resume: bool = False,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
@@ -123,6 +141,7 @@ class ConfiguratorResult:
         self.success = success
         self.outputs = outputs
         self.exception = exception
+        self.resume = resume
 
     def __str__(self) -> str:
         result = (
@@ -253,7 +272,7 @@ class Configurator(metaclass=AutoRegisterClass):
 
         Yields:
             Optionally ``run`` can yield either a :class:`JobRequest`, :class:`TaskRequest` to run subtasks
-            and finally a :class:`ConfiguratorResult` when done
+            and finally a :class:`ConfiguratorResult` when done or to request resumption after yielding.
 
         Returns:
             If ``run`` is not defined as a generator it must return either a :py:class:`~unfurl.support.Status`, a ``bool`` or a :class:`ConfiguratorResult` to indicate if the task succeeded and any changes to the target's state.
@@ -1132,6 +1151,7 @@ class TaskView:
         result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         captureException: Optional[object] = None,
+        resume: bool = False,
     ) -> ConfiguratorResult:
         """:py:meth:`unfurl.configurator.Configurator.run` should call this method and return or yield its return value before terminating.
 
@@ -1146,6 +1166,7 @@ class TaskView:
                    the operation preformed and observed changes to the instance (attributes changed).
           result (dict):  (optional) A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
           outputs (dict): (optional) Operation outputs, as specified in the topology template.
+          resume (bool): (optional) If True, the task will be re-run later instead of finishing.
 
         Returns:
               :class:`ConfiguratorResult`
@@ -1162,7 +1183,7 @@ class TaskView:
         else:
             exception = None
 
-        if outputs:
+        if outputs and not resume:
             error_count = len(self._errors)
             self._validate_outputs(outputs)
             if len(self._errors) > error_count:
@@ -1176,6 +1197,7 @@ class TaskView:
             result,
             outputs,
             exception,
+            resume=resume,
         )
 
     def _validate_outputs(self, outputs: Dict[str, Any]):

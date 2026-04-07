@@ -455,6 +455,7 @@ class TaskRequest(PlanRequest):
         self.startState = startState
         self.task: Optional["ConfigTask"] = None
         self._completed = False
+        self.resumed: bool = False
 
     def __completed():  # type: ignore
         def fget(self) -> bool:

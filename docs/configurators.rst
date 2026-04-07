@@ -325,6 +325,13 @@ Inputs
          (Doesn't affect the capture of stdout and stderr.)
   :input: Optional string to pass as stdin.
   :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
+  :background: (*Default: false*) If true, run the command in the background using a non-blocking subprocess.
+               The task will yield control back to the job loop so other tasks can run concurrently,
+               and periodically resume to check if the process has completed.
+  :initial_sleep: (*Default: 0*) Seconds to wait for the background process to complete before
+                  yielding control. If the process finishes within this time, it completes synchronously
+                  without entering the resume loop. Capped by the task timeout if set.
+                  Only used when ``background`` is true.
   :done: As as `done` defined by the `Template` configurator.
   :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
   :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, it will have the following template variables:
