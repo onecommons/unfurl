@@ -234,6 +234,7 @@ class PlanRequest:
     task: Optional["ConfigTask"] = None
     render_errors: Optional[List[UnfurlTaskError]] = None
     completed = False
+    suspended = False
     group: Optional["TaskRequestGroup"] = None
     required: Optional[bool] = None
     is_final_for_workflow: Optional[bool] = None
@@ -455,7 +456,6 @@ class TaskRequest(PlanRequest):
         self.startState = startState
         self.task: Optional["ConfigTask"] = None
         self._completed = False
-        self.resumed: bool = False
 
     def __completed():  # type: ignore
         def fget(self) -> bool:
@@ -467,6 +467,14 @@ class TaskRequest(PlanRequest):
         return locals()
 
     completed: bool = property(**__completed())  # type: ignore
+
+    def __suspended():  # type: ignore
+        def fget(self) -> bool:
+            return bool(self.task and self.task._suspended)
+
+        return locals()
+
+    suspended: bool = property(**__suspended())  # type: ignore
 
     def reassign_final_for_workflow(self) -> Optional["TaskRequest"]:
         req = self
@@ -683,6 +691,12 @@ class TaskRequestGroup(PlanRequest):
                 return True
         return False
 
+    def has_suspended(self) -> bool:
+        for req in self.children:
+            if req.suspended:
+                return True
+        return False
+
     def set_final_for_workflow(self, is_final: bool) -> None:
         if self.children:
             self.children[-1].set_final_for_workflow(is_final)
@@ -798,7 +812,7 @@ def get_render_requests(
 
 
 def set_fulfilled(
-    upcoming: List[PlanRequest], completed: List[PlanRequest]
+    upcoming: List[PlanRequest],
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # find the requests that are ready to run
     # requests, completed are top level requests
@@ -811,9 +825,8 @@ def set_fulfilled(
 
     ready, notReady = [], []
     for req in upcoming:
-        if req.completed:
+        if req.completed or req.suspended:
             continue
-        assert req not in completed, f"{req} already completed"
         _not_ready = False
         previous = req.previous
         if previous and previous.not_ready:
@@ -1036,7 +1049,7 @@ def do_render_requests(
     notready_group: Any = None
     while render_requests:
         request = render_requests.popleft()
-        if request.completed:
+        if request.completed or request.suspended:
             continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)

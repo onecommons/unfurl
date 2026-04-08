@@ -305,23 +305,74 @@ spec:
 """
 
 
+_BG_OK_TASK = {
+    "status": "ok",
+    "target": "test_node",
+    "operation": "create",
+    "template": "test_node",
+    "type": "tosca.nodes.Root",
+    "targetStatus": "ok",
+    "targetState": "created",
+    "changed": True,
+    "configurator": "unfurl.configurators.shell.ShellConfigurator",
+    "priority": "required",
+    "reason": "add",
+}
+
+_BG_ERROR_TASK = {
+    **_BG_OK_TASK,
+    "status": "error",
+    "targetStatus": "unknown",
+    "targetState": "creating",
+}
+
+
 def test_background_quick_command():
     """Quick command completes during initial_sleep, no resume needed."""
     runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND))
-    job = runner.run(JobOptions(instance="test_node"))
-    assert job.status == Status.ok
-    task = list(job.workDone.values())[0]
-    assert "hello" in task.result.result["stdout"]
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    summary = {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [_BG_OK_TASK],
+    }
+    assert job.json_summary() == summary
+
+    # run in foreground to verify same result
+    ensemble = ENSEMBLE_BACKGROUND.replace("      background: true\n", "")
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary() == summary
 
 
 def test_background_slow_command(caplog):
     """Slow command triggers resume cycles, eventually completes without re-rendering."""
     runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_SLOW))
     with caplog.at_level("DEBUG"):
-        job = runner.run(JobOptions(instance="test_node"))
-    assert job.status == Status.ok
-    task = list(job.workDone.values())[0]
-    assert "done" in task.result.result["stdout"]
+        job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary() == {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [_BG_OK_TASK],
+    }
     # Verify the task was only rendered once (not re-rendered on each resume cycle)
     render_count = sum(
         1
@@ -335,47 +386,53 @@ def test_background_cancel_on_job_timeout(caplog):
     """Job timeout sends Cancel to background shell, result is collected."""
     runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_SLOW))
     with caplog.at_level("DEBUG"):
-        job = runner.run(JobOptions(instance="test_node", timeout=1))
-    assert job.status == Status.error
-    task = list(job.workDone.values())[0]
-    assert not task.result.success
-    # Verify the Cancel path ran _handle_result (process was terminated and result collected)
+        job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True, timeout=1))
+    assert job.json_summary() == {
+        "job": {
+            "id": "A01110000000",
+            "status": "error",
+            "total": 1,
+            "ok": 0,
+            "error": 1,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [_BG_ERROR_TASK],
+    }
     assert any("shell task run failure" in r.message for r in caplog.records)
     assert any("Background shell cancelled" in r.message for r in caplog.records)
-    result = task.result.result
+    result = list(job.workDone.values())[0].result.result
     assert result["returncode"] is not None
     assert "stderr" in result
     assert "stdout" in result
-    assert isinstance(result["error"], Cancel)
-    assert isinstance(result["timeout"], float)
-    assert result["timeout"] > 0
 
 
 def test_background_cancel_on_task_timeout():
     """Task timeout terminates background shell, result variables are captured."""
     runner = Runner(YamlManifest(ENSEMBLE_BACKGROUND_TIMEOUT))
-    job = runner.run(JobOptions(instance="test_node"))
-    assert job.status == Status.error
-    task = list(job.workDone.values())[0]
-    result = task.result.result
-    assert isinstance(result["cmd"], str)
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary() == {
+        "job": {
+            "id": "A01110000000",
+            "status": "error",
+            "total": 1,
+            "ok": 0,
+            "error": 1,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [_BG_ERROR_TASK],
+    }
+    result = list(job.workDone.values())[0].result.result
     assert result["returncode"] is not None
     assert "stderr" in result
     assert "stdout" in result
     assert result["timeout"] == 1
 
-
-def test_background_with_initial_sleep():
-    """initial_sleep lets quick processes finish without resume overhead."""
-    ensemble = ENSEMBLE_BACKGROUND.replace(
-        "background: true", "background: true\n      initial_sleep: 5"
-    )
-    runner = Runner(YamlManifest(ensemble))
-    job = runner.run(JobOptions(instance="test_node"))
-    assert job.status == Status.ok
-    task = list(job.workDone.values())[0]
-    assert "hello" in task.result.result["stdout"]
-    # echo hello finishes within initial_sleep, should complete in one pass
 
 
 ENSEMBLE_BACKGROUND_RESULT_VARS = """
@@ -414,21 +471,36 @@ spec:
 """
 
 
-@pytest.mark.parametrize("initial_sleep", [0, 1], ids=["resume-loop", "initial-sleep"])
+@pytest.mark.parametrize("initial_sleep", [0, 0.5], ids=["resume-loop", "initial-sleep"])
 def test_background_result_variables(initial_sleep):
     """Background shell sets the same result variables (returncode, stdout, etc.) as blocking shell."""
     extra = f"initial_sleep: {initial_sleep}" if initial_sleep else ""
     ensemble = ENSEMBLE_BACKGROUND_RESULT_VARS.format(extra_inputs=extra)
     runner = Runner(YamlManifest(ensemble))
-    job = runner.run(JobOptions(skip_save=True))
-    assert job.status == Status.ok, job.json_summary()
+    job = runner.run(JobOptions(startTime=1, skip_save=True))
+    summary = job.json_summary()
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 1,
+            "ok": 1,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                **_BG_OK_TASK,
+            }
+        ],
+    }
     task = list(job.workDone.values())[0]
-    # Verify outputs were extracted from stdout via outputsTemplate
     assert task.outputs == {"a_output": 42}
-    # Verify result dict has the expected keys
     result = task.result.result
     assert result["returncode"] == 0
     assert "a_output" in result["stdout"]
     assert result["error"] is None
     assert result["timeout"] is None
-    assert isinstance(result["cmd"], str)

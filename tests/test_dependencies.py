@@ -851,19 +851,19 @@ class SequentialSubtaskConfigurator(Configurator):
     """Yields two subtask PlanRequests sequentially, each using background shell."""
 
     def run(self, task):
-        sub1 = task.create_sub_task("Install.check", task.target)
+        sub1 = task.create_sub_task("Custom.op1", task.target)
         assert sub1
         result1 = yield sub1
         assert result1 is not None, "subtask 1 result was None"
         task.logger.info("subtask 1 done")
 
-        sub2 = task.create_sub_task("Standard.start", task.target)
+        sub2 = task.create_sub_task("Custom.op2", task.target)
         assert sub2
         result2 = yield sub2
         assert result2 is not None, "subtask 2 result was None"
         task.logger.info("subtask 2 done")
 
-        yield task.done(True, status=Status.ok)
+        yield task.done(True)
 
 
 sequential_subtask_manifest = """
@@ -871,18 +871,29 @@ apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
-    topology_template:
-      node_templates:
-        parent_node:
-          type: tosca:Root
-          interfaces:
-            Install:
-              check:
-                implementation: echo check_output
+    node_types:
+      Test:
+        derived_from: tosca.nodes.Root
+        interfaces:
+          Custom:
+            type: tosca.interfaces.Root
+            operations:
+              op1:
+                implementation: echo start_op1
                 inputs:
                   background: true
                   done:
                     success: true
+              op2:
+                implementation: echo start_op2
+                inputs:
+                  background: true
+
+    topology_template:
+      node_templates:
+        parent_node:
+          type: Test
+          interfaces:
             Standard:
               operations:
                 configure:
@@ -906,8 +917,8 @@ def test_resume_sequential_subtasks():
         "job": {
             "id": "A01110000000",
             "status": "ok",
-            "total": 3,
-            "ok": 3,
+            "total": 4,
+            "ok": 4,
             "error": 0,
             "unknown": 0,
             "skipped": 0,
@@ -920,10 +931,10 @@ def test_resume_sequential_subtasks():
                 "target": "parent_node",
                 "operation": "configure",
                 "template": "parent_node",
-                "type": "tosca.nodes.Root",
-                "targetStatus": "ok",
-                "targetState": "configuring",
-                "changed": True,
+                "type": "Test",
+                "targetStatus": "pending",
+                "targetState": "configured",
+                "changed": False,
                 "configurator": "tests.test_dependencies.SequentialSubtaskConfigurator",
                 "priority": "required",
                 "reason": "add",
@@ -931,9 +942,9 @@ def test_resume_sequential_subtasks():
             {
                 "status": "ok",
                 "target": "parent_node",
-                "operation": "check",
+                "operation": "op1",
                 "template": "parent_node",
-                "type": "tosca.nodes.Root",
+                "type": "Test",
                 "targetStatus": "pending",
                 "targetState": "configuring",
                 "changed": False,
@@ -942,11 +953,24 @@ def test_resume_sequential_subtasks():
                 "reason": "subtask: for add: Standard.configure",
             },
             {
+                'changed': True,
+                'configurator': 'unfurl.configurators.shell.ShellConfigurator',
+                "operation": "start",
+                'priority': 'required',
+                'reason': "add",
+                'status': "ok",
+                'target': 'parent_node',
+                'targetState': 'started',
+                'targetStatus': 'ok',
+                'template': 'parent_node',
+                'type': 'Test',
+            },
+            {
                 "status": "ok",
                 "target": "parent_node",
-                "operation": "start",
+                "operation": "op2",
                 "template": "parent_node",
-                "type": "tosca.nodes.Root",
+                "type": "Test",
                 "targetStatus": "pending",
                 "targetState": "configuring",
                 "changed": False,
@@ -1022,7 +1046,7 @@ def test_resume_nested_subtasks():
                 "template": "parent_node",
                 "type": "tosca.nodes.Root",
                 "targetStatus": "ok",
-                "targetState": "configuring",
+                "targetState": "configured",
                 "changed": True,
                 "configurator": "tests.test_dependencies.NestedSubtaskConfigurator",
                 "priority": "required",
