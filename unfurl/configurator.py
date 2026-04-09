@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import inspect
+import time
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -142,6 +143,7 @@ class ConfiguratorResult:
         self.outputs = outputs
         self.exception = exception
         self.resume = resume
+        self.resume_after: float = 0  # monotonic timestamp; 0 means resume immediately
 
     def __str__(self) -> str:
         result = (
@@ -1143,6 +1145,33 @@ class TaskView:
                         if self._match_metadata_key(metadata_key, metadata_value):
                             self.target.attributes[key] = value
 
+    def suspend(
+        self,
+        modified: Optional[bool] = None,
+        status: Optional[Status] = None,
+        pause: float = 0,
+    ) -> ConfiguratorResult:
+        """Yield this to pause the task for later resume without finishing.
+
+        The job loop will re-enter the generator on a subsequent cycle,
+        sending ``None`` (to continue) or a :class:`Cancel` (to abort).
+
+        >>> signal = yield task.suspend()
+
+        Args:
+          modified (bool): (optional) indicates whether the instance was modified so far.
+          status (Status): (optional) set if the operation changed the operational status.
+          pause (float): (optional) minimum seconds to wait before re-entering.
+              If 0, the task resumes on the next cycle.
+
+        Returns:
+              :class:`ConfiguratorResult` with ``resume=True``
+        """
+        result = ConfiguratorResult(True, modified, status, resume=True)
+        if pause > 0:
+            result.resume_after = time.monotonic() + pause
+        return result
+
     def done(
         self,
         success: Optional[bool] = None,
@@ -1151,7 +1180,6 @@ class TaskView:
         result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         captureException: Optional[object] = None,
-        resume: bool = False,
     ) -> ConfiguratorResult:
         """:py:meth:`unfurl.configurator.Configurator.run` should call this method and return or yield its return value before terminating.
 
@@ -1166,7 +1194,6 @@ class TaskView:
                    the operation preformed and observed changes to the instance (attributes changed).
           result (dict):  (optional) A dictionary that will be serialized as YAML into the changelog, can contain any useful data about these operation.
           outputs (dict): (optional) Operation outputs, as specified in the topology template.
-          resume (bool): (optional) If True, the task will be re-run later instead of finishing.
 
         Returns:
               :class:`ConfiguratorResult`
@@ -1183,7 +1210,7 @@ class TaskView:
         else:
             exception = None
 
-        if outputs and not resume:
+        if outputs:
             error_count = len(self._errors)
             self._validate_outputs(outputs)
             if len(self._errors) > error_count:
@@ -1197,7 +1224,6 @@ class TaskView:
             result,
             outputs,
             exception,
-            resume=resume,
         )
 
     def _validate_outputs(self, outputs: Dict[str, Any]):

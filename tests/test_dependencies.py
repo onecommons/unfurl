@@ -4,6 +4,7 @@ import os
 import pprint
 import logging
 import io
+import time
 import pytest
 from unfurl.localenv import LocalEnv
 from unfurl.util import UnfurlValidationError
@@ -686,12 +687,12 @@ class ResumeTestConfigurator(Configurator):
 
     def run(self, task):
         task.logger.info("resume configurator: first run")
-        signal = yield task.done(True, None, resume=True)
+        signal = yield task.suspend()
         if isinstance(signal, Cancel):
             yield task.done(False, result={"cancelled": signal.reason})
             return
         task.logger.info("resume configurator: second run")
-        signal = yield task.done(True, None, resume=True)
+        signal = yield task.suspend()
         if isinstance(signal, Cancel):
             yield task.done(False, result={"cancelled": signal.reason})
             return
@@ -1067,3 +1068,95 @@ def test_resume_nested_subtasks():
             },
         ],
     }
+
+
+class PauseTestConfigurator(Configurator):
+    """Yields suspend(pause=0.2) then completes."""
+
+    def run(self, task):
+        task.logger.info("pause configurator: suspending with pause")
+        signal = yield task.suspend(pause=0.2)
+        if isinstance(signal, Cancel):
+            yield task.done(False, result={"cancelled": signal.reason})
+            return
+        task.logger.info("pause configurator: resumed after pause")
+        yield task.done(True, status=Status.ok)
+
+
+pause_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        pause_node:
+          type: tosca:Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.PauseTestConfigurator
+"""
+
+
+def test_resume_with_pause():
+    """suspend(pause=N) delays re-entry by at least N seconds."""
+    manifest = YamlManifest(pause_manifest)
+    runner = Runner(manifest)
+    start = time.monotonic()
+    job = runner.run(JobOptions(startTime=1))
+    elapsed = time.monotonic() - start
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok", summary
+    assert summary["job"]["ok"] == 1, summary
+    assert elapsed >= 0.2, f"Expected >= 0.2s, got {elapsed:.3f}s"
+
+
+class PauseSubtaskConfigurator(Configurator):
+    """Yields a subtask that uses suspend(pause=...)."""
+
+    def run(self, task):
+        sub = task.create_sub_task("Install.check", task.target)
+        assert sub
+        result = yield sub
+        assert result is not None, "subtask result was None"
+        task.logger.info("pause subtask done")
+        yield task.done(True, status=Status.ok)
+
+
+pause_subtask_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        parent_node:
+          type: tosca:Root
+          interfaces:
+            Install:
+              check:
+                implementation:
+                  className: tests.test_dependencies.PauseTestConfigurator
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.PauseSubtaskConfigurator
+"""
+
+
+def test_resume_subtask_with_pause():
+    """A subtask using suspend(pause=N) propagates the pause to the parent."""
+    manifest = YamlManifest(pause_subtask_manifest)
+    runner = Runner(manifest)
+    start = time.monotonic()
+    job = runner.run(JobOptions(startTime=1))
+    elapsed = time.monotonic() - start
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok", summary
+    assert elapsed >= 0.2, f"Expected >= 0.2s, got {elapsed:.3f}s"

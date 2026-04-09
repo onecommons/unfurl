@@ -422,6 +422,7 @@ class ShellConfigurator(TemplateConfigurator):
         env = task.environ
         keeplines = params.get("keeplines", False)
         input_data = params.get("input")
+        poll_interval = params.get("poll", 0)
 
         cmdStr, cmd_list = self._cmd(cmd, keeplines)
         use_shell = bool(shell)
@@ -488,7 +489,7 @@ class ShellConfigurator(TemplateConfigurator):
                 yield self.done(task, success=False, result=result.__dict__)
                 return
 
-            signal = yield task.done(resume=True)
+            signal = yield task.suspend(pause=poll_interval)
             if isinstance(signal, Cancel):
                 _terminate_process(proc)
                 task.logger.debug("Background shell cancelled: %s", signal.reason)

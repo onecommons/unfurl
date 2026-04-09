@@ -88,7 +88,7 @@ if TYPE_CHECKING:
 
 logger = getLogger("unfurl")
 
-RESUME_POLL_INTERVAL = 0.1  # seconds between resume task polling cycles
+RESUME_POLL_INTERVAL = 0.2  # seconds between resume task polling cycles
 
 
 class JobAborted(UnfurlError):
@@ -356,9 +356,9 @@ class ConfigTask(TaskView, ConfigChange):
         self.set_start_time()
         self.set_envvars()
 
-    def suspend(self, result: "ConfiguratorResult") -> "ConfigTask":
+    def _suspend(self, result: "ConfiguratorResult") -> "ConfigTask":
         """Suspend a task for later resume without closing the generator."""
-        assert result.resume == True, "result.resume must be True to suspend task"
+        assert result.resume, "result.resume must be True to suspend task"
         self.result = result
         self._suspended = True
         self.commit_changes()
@@ -874,6 +874,10 @@ class Job(ConfigChange):
                 if req.render_errors:
                     yield from req.render_errors
 
+    def get_poll_interval(self) -> float:
+        # XXX exponential backoff?
+        return RESUME_POLL_INTERVAL
+
     def _run_requests(
         self,
         rendered_requests: Optional[RenderRequests] = None,
@@ -938,22 +942,52 @@ class Job(ConfigChange):
             ready, unfulfilled, errored = do_render_requests(
                 self, ready, notReady, check_target
             )
-            # append suspended and blocked
-            only_suspended_left = not ready
-            # Append still-resuming tasks at end of ready queue AFTER rendering
-            for req in completed:
-                if not req.completed and (
-                    req.suspended or (req.task and req.task.blocked)
-                ):
-                    ready.append(req)
-
+            # Append suspended and blocked tasks at end of ready queue AFTER rendering
             # (they're already rendered and should not be re-rendered)
-            if only_suspended_left and ready:
-                # Avoid busy-waiting while background tasks are running
-                time.sleep(RESUME_POLL_INTERVAL)
+            only_suspended_left = not ready
+            now = time.monotonic()
+            next_resume = float("inf")
+            paused = []
+            blocked = []
+            for req in completed:
+                if not req.completed and req.task:
+                    resume = req.task.result and req.task.result.resume_after or 0
+                    if resume > now:
+                        next_resume = min(next_resume, resume)
+                        paused.append(req)
+                        continue  # paused, skip this cycle
+                    if req.task.blocked:
+                        # tasks dependent on a suspended task are blocked
+                        blocked.append(req)
+                    elif req.suspended:
+                        # note: if not only_suspended_left, don't worry about the poll interval,
+                        # just run these after the non-suspended tasks
+                        ready.append(req)
+            ready.extend(blocked)  # run blocked after suspended
+            if only_suspended_left:
+                wait = 0.0
+                if ready:
+                    wait = self.get_poll_interval()
+                elif next_resume < float("inf"):
+                    # Sleep until the earliest paused task is ready
+                    wait = next_resume - now
+                if wait > 0 and self._deadline:
+                    wait = min(wait, max(0, self._deadline - time.time()))
+                if wait > 0:
+                    logger.trace("sleeping for %g seconds", wait)
+                    time.sleep(wait)
+                    # Re-check paused tasks now that we've slept
+                    now = time.monotonic()
+                    for req in paused:
+                        if (
+                            req.task
+                            and req.task.result
+                            and req.task.result.resume_after <= now
+                        ):
+                            ready.append(req)
 
             failed.extend(errored)
-            if not ready and not completed:
+            if not ready and not completed and next_resume == float("inf"):
                 break  # none of the stragglers are ready, give up
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
@@ -1481,6 +1515,10 @@ class Job(ConfigChange):
             # Already started, skip entry test and task creation
             task = req.task
             assert task is not None
+            if task.result and task.result.resume_after:
+                assert (
+                    time.monotonic() >= task.result.resume_after
+                ), f"task {task} resumed before resume_after elapsed"
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
             task.logger.info(
                 "resuming task.", extra=dict(json=task.summary(asJson=True))
@@ -1633,9 +1671,30 @@ class Job(ConfigChange):
                 self._cancel_resume_tasks([task])
                 return task
 
-        # Re-run pending subtask resumes
-        self.apply(task._suspended_subtask_reqs, not_ready, depth + 1)
-        still_resuming = [rr for rr in task._suspended_subtask_reqs if rr.suspended]
+        # Check if any subtasks are paused
+        now = time.monotonic()
+        ready_reqs = []
+        paused_reqs = []
+        for rr in task._suspended_subtask_reqs:
+            if rr.task and rr.task.result and rr.task.result.resume_after > now:
+                paused_reqs.append(rr)
+            else:
+                ready_reqs.append(rr)
+        if not ready_reqs:
+            # All subtasks still paused — propagate earliest resume_after
+            earliest = min(
+                rr.task.result.resume_after
+                for rr in paused_reqs
+                if rr.task and rr.task.result
+            )
+            result = ConfiguratorResult(True, None, resume=True)
+            result.resume_after = earliest
+            task._suspended = True
+            task.result = result
+            return task
+        # Re-run subtasks that are ready
+        self.apply(ready_reqs, not_ready, depth + 1)
+        still_resuming = paused_reqs + [rr for rr in ready_reqs if rr.suspended]
         if still_resuming:
             task._suspended_subtask_reqs = still_resuming
             task._suspended = True
@@ -1727,8 +1786,8 @@ class Job(ConfigChange):
                 change = job
             elif isinstance(result, ConfiguratorResult):
                 if result.resume:
-                    logger.trace("task %s yielded resume", task)
-                    return task.suspend(result)
+                    logger.trace("task %s yielded suspend", task)
+                    return task._suspend(result)
                 retVal = task.finished(result)
                 logger.debug(
                     "completed task %s: %s; %s", task, task.target.status, result

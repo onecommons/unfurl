@@ -332,6 +332,9 @@ Inputs
                   yielding control. If the process finishes within this time, it completes synchronously
                   without entering the resume loop. Capped by the task timeout if set.
                   Only used when ``background`` is true.
+  :poll: (*Default: 0*) Minimum seconds between polling cycles when running in background mode.
+         If 0, the task resumes on the next job loop cycle. Set this to reduce overhead for
+         commands that are expected to take a while. Only used when ``background`` is true.
   :done: As as `done` defined by the `Template` configurator.
   :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
   :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, it will have the following template variables:
