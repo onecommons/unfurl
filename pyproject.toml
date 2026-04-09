@@ -24,7 +24,7 @@ dynamic = ["readme", "dependencies", "optional-dependencies", "version"]
 [build-system]
 requires = [
     "setuptools>=78.1.1",
-    "wheel",
+    "wheel>=0.46.2",
     "setuptools-rust>=1.7.0",
     "pbr",
 ]
