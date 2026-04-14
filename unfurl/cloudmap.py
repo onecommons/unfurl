@@ -75,7 +75,7 @@ from typing import (
     Union,
 )
 from gitlab.base import RESTObject
-from typing_extensions import Required, Literal
+from typing_extensions import Required, Literal, Protocol
 from urllib.parse import ParseResult, urljoin, urlparse, quote
 import git
 import git.cmd
@@ -561,7 +561,76 @@ def force_merge_local_and_push_to_remote(
 T = TypeVar("T", bound="Notable")
 
 
+class CloudMapView(Protocol):
+    """Abstract interface to a cloudmap.
+
+    Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
+    custom Notable subclasses (possibly loaded in safe mode) need to contribute
+    records to the cloudmap. Attributes with a leading underscore are inaccessible
+    from sandboxed code and are intended for built-in Notable classes only.
+    """
+
+    logger: UnfurlLogger
+    """Logger for emitting diagnostic messages during analysis."""
+
+    do_analysis: bool
+    """True if cross-referenced URLs should be recursively analyzed (vs. recorded
+    as stubs)."""
+
+    @property
+    def _local_env(self) -> Optional["LocalEnv"]:
+        """Parent environment for loading nested unfurl projects. Leading underscore
+        marks this as unavailable to sandboxed Notables."""
+        ...
+
+    def add_record(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    ) -> Optional[Union["Repository", "Artifact", "Service"]]:
+        """Record (and optionally recursively analyze) a URL: git repo, pkg: PURL,
+        or service URL. Returns the record that was added or already existed."""
+        ...
+
+    # --- Add records ---
+
+    def add_artifact(self, artifact: "Artifact") -> str: ...
+
+    def add_service(self, service: "Service") -> str: ...
+
+    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
+
+    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
+
+    def add_type(self, cloud_type: "CloudType") -> str: ...
+
+    # --- Look up existing records ---
+
+    def get_artifact(self, url: str) -> Optional["Artifact"]: ...
+
+    def get_service(self, url: str) -> Optional["Service"]: ...
+
+    def get_instantiation(self, url: str) -> Optional["Instantiation"]: ...
+
+    def get_type(self, name: str) -> Optional["CloudType"]: ...
+
+
 class Notable:
+    """
+    Base class for plugins that discover notable files or directories in a repository
+    -- for example, a Dockerfile, Helm chart, or TOSCA service template.
+
+    Subclasses declare which filenames or directory names they match via the
+    ``files`` and ``folders`` class attributes. The ``Analyzer`` walks a repository
+    tree, instantiates the appropriate Notable subclass for each match, and
+    calls ``analyze()`` to produce an ``Artifact`` for the cloud map.
+
+    Attributes:
+        files: Filenames that this Notable class matches (e.g. ``["Dockerfile"]``).
+        folders: Directory names that this Notable class matches (e.g. ``["charts"]``).
+        artifact_type: The TOSCA artifact type to assign to matched artifacts.
+    """
+
     files: Sequence[str] = ()
     folders: Sequence[str] = ()
     artifact_type = EntitySchema.GenericFile
@@ -584,8 +653,21 @@ class Notable:
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
 
     def analyze(
-        self, directory: "Directory", repo_info: Repository, root_path: str
+        self, directory: CloudMapView, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
+        """Analyze the matched file and return an Artifact for the cloud map.
+
+        Subclasses can override this to extract additional metadata (e.g. parsing
+        a Dockerfile to find base images or a Helm Chart.yaml for chart metadata).
+
+        Args:
+            directory: The :class:`CloudMapView` performing the analysis.
+            repo_info: Repository metadata for constructing artifact URLs.
+            root_path: Filesystem path to the repository root (for reading file contents).
+
+        Returns:
+            An Artifact instance, or None if analysis determines the file is not relevant.
+        """
         directory.logger.debug("analyzing %s with %s", self.file, self)
         # Create artifact url from repository URL + file path
         artifact_url = repo_info.artifact_url(self.path)
@@ -593,6 +675,7 @@ class Notable:
 
     @property
     def path(self) -> str:
+        """The relative path within the repository, including any URL fragment."""
         if self.file:
             path = os.path.join(self.folder, self.file)
             if self.fragment:
@@ -603,6 +686,7 @@ class Notable:
 
     @classmethod
     def _exist_in_folder(cls, folder: str, notables: List["Notable"]):
+        """Check whether a Notable of this class already exists for the given folder."""
         for n in notables:
             if cls is n.__class__ and n.folder == folder:
                 return True
@@ -615,9 +699,15 @@ class Notable:
         file: str,
         digest: str = "",
     ) -> Optional[T]:
+        """Factory method for creating a Notable instance.
+
+        Subclasses can override this to conditionally reject a match
+        (by returning None) or to customize initialization.
+        """
         return cls(folder, file, digest)
 
     def asdict(self) -> NotableDict:
+        """Serialize this Notable to a dict for inclusion in Repository.notable."""
         metadata = NotableDict(type={self.artifact_type: None})
         if self.artifact_id:
             metadata["artifact"] = self.artifact_id
@@ -864,6 +954,13 @@ class CloudMapDB:
         self.services[service.url] = service
         return service.url
 
+    def get_type(self, name: str) -> Optional[CloudType]:
+        return self.types.get(name)
+
+    def add_type(self, cloud_type: CloudType) -> str:
+        self.types[cloud_type.name] = cloud_type
+        return cloud_type.name
+
     def add_image_artifact(self, image: "ContainerImage") -> Artifact:
         """
         Add an OCI artifact to the cloudmap from a container image.
@@ -1047,15 +1144,8 @@ class CloudMapDB:
             return [a for a in self.artifacts.values() if a.type == artifact_type]
         return self.artifacts.values()
 
-    def get_type(self, name: str) -> Optional[CloudType]:
-        return self.types.get(name)
-
 
 class Directory(_LocalGitRepos):
-    """
-    Loads and saves a yaml file
-    """
-
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(
@@ -1083,6 +1173,46 @@ class Directory(_LocalGitRepos):
         notable_classes.extend(cloudmap.custom_analyzers)
 
         self.analyzer = Analyzer(notable_classes, self.logger)
+
+    # --- CloudMapView implementation ---
+
+    @property
+    def _local_env(self) -> Optional["LocalEnv"]:
+        return self.cloudmap.local_env
+
+    def add_record(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    ) -> Optional[Union[Repository, Artifact, Service]]:
+        return self.cloudmap.add_record(url, analyze)
+
+    def add_artifact(self, artifact: Artifact) -> str:
+        return self.db.add_artifact(artifact)
+
+    def get_artifact(self, url: str) -> Optional[Artifact]:
+        return self.db.get_artifact(url)
+
+    def add_service(self, service: Service) -> str:
+        return self.db.add_service(service)
+
+    def get_service(self, url: str) -> Optional[Service]:
+        return self.db.get_service(url)
+
+    def add_instantiation(self, instantiation: Instantiation) -> str:
+        return self.db.add_instantiation(instantiation)
+
+    def get_instantiation(self, url: str) -> Optional[Instantiation]:
+        return self.db.get_instantiation(url)
+
+    def add_image_artifact(self, image: "ContainerImage") -> Artifact:
+        return self.db.add_image_artifact(image)
+
+    def add_type(self, cloud_type: CloudType) -> str:
+        return self.db.add_type(cloud_type)
+
+    def get_type(self, name: str) -> Optional[CloudType]:
+        return self.db.get_type(name)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"

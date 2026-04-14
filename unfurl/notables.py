@@ -13,11 +13,10 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 from .cloudmap import (
     CloudMapDB,
     CloudType,
-    CloudTypeDict,
     Notable,
+    CloudMapView,
     Repository,
     Service,
-    Directory,
     get_repository_url,
 )
 from .graphql import ResourceTypesByName, get_deployment_url, TypeName
@@ -100,7 +99,7 @@ class UnfurlNotable(Notable):
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
 
     def analyze(
-        self, directory: Directory, repo_info: Repository, root_path: str
+        self, directory: CloudMapView, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         logger = directory.logger
         path = os.path.join(root_path, self.folder, self.file)
@@ -108,7 +107,7 @@ class UnfurlNotable(Notable):
         localenv = LocalEnv(
             path,
             can_be_empty=True,
-            parent=directory.cloudmap.local_env,
+            parent=directory._local_env,
         )
         artifact: Optional[Artifact] = None
         analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
@@ -144,7 +143,7 @@ class UnfurlNotable(Notable):
                         if manifest.tosca and manifest.tosca.import_resolver:
                             manifest.tosca.import_resolver._resolve_repoview(repo_view)
                     giturl = self._add_repository_reference(repo_view, references)
-                    directory.cloudmap.add_record(giturl, analyze)
+                    directory.add_record(giturl, analyze)
 
             node = self._get_root_node(spec)
             if node:
@@ -170,7 +169,7 @@ class UnfurlNotable(Notable):
                 image = self.find_image_dependency(node)
                 if image:
                     # XXX directory.add_credentials(image)
-                    image_artifact = directory.db.add_image_artifact(image)
+                    image_artifact = directory.add_image_artifact(image)
                     purl = image_artifact.url
                     references[purl] = None
 
@@ -189,19 +188,19 @@ class UnfurlNotable(Notable):
                     name: TypeRefs({v: None}) for name, v in dependencies.items()
                 },
                 type_info=type_info,
-                types_dict=directory.db.types,
+                ctx=directory,
                 digest=self.digest,
             )
 
             # Add CloudType if created
             if cloud_type:
-                directory.db.types[cloud_type.name] = cloud_type
+                directory.add_type(cloud_type)
 
             # Create CloudTypes for dependencies
             if node:
                 for dep_typename in dependencies.values():
                     # Check if type already exists
-                    if dep_typename not in directory.db.types:
+                    if directory.get_type(dep_typename) is None:
                         # Get type information for dependency type
                         type_def = node.topology.find_type(dep_typename)
                         if type_def:
@@ -210,10 +209,10 @@ class UnfurlNotable(Notable):
                             )
 
                             dep_cloud_type = create_cloud_type_from_type_info(
-                                dep_type_info, directory.db.types
+                                dep_type_info, directory
                             )
                             if dep_cloud_type:
-                                directory.db.types[dep_cloud_type.name] = dep_cloud_type
+                                directory.add_type(dep_cloud_type)
 
             # Create Instantiation and Service for Ensemble artifacts
             if self.artifact_type == EntitySchema.Ensemble and typename:
@@ -323,7 +322,7 @@ class UnfurlNotable(Notable):
         self,
         manifest: YamlManifest,
         repo_info: Repository,
-        directory: Directory,
+        directory: CloudMapView,
         typename: str,
         artifact: Artifact,
     ) -> None:
@@ -333,7 +332,7 @@ class UnfurlNotable(Notable):
         Args:
             manifest: The YamlManifest object for the ensemble
             repo_info: Repository information
-            directory: Directory object to add instantiation and service to
+            directory: CloudMapView to add instantiation and service to
             artifact: The ensemble artifact
         """
         # Get spec repository for source information
@@ -367,12 +366,12 @@ class UnfurlNotable(Notable):
                 type=TypeRefs(types={typename: None}),
                 instantiated_by={instantiation.url: None},
             )
-            directory.db.services[deployment_url] = service
+            directory.add_service(service)
             instantiation.instantiated = {deployment_url: None}
 
-        directory.db.add_instantiation(instantiation)
-        if instantiation.source and not directory.db.get_artifact(instantiation.source):
-            directory.cloudmap.add_record(instantiation.source, analyze)
+        directory.add_instantiation(instantiation)
+        if instantiation.source and not directory.get_artifact(instantiation.source):
+            directory.add_record(instantiation.source, analyze)
 
     def _get_artifacttype(self, path: str) -> str:
         if path.endswith(DefaultNames.EnsembleTemplate):
@@ -393,14 +392,14 @@ class UnfurlNotable(Notable):
 
 
 def create_cloud_type_from_type_info(
-    type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
+    type_info: Dict[str, Any], ctx: Optional[CloudMapView] = None
 ) -> Optional[CloudType]:
     """
     Create a CloudType from type_info dict if it doesn't already exist.
 
     Args:
         type_info: Dict with 'name', 'title', 'extends' keys
-        types_dict: Optional dict to check for existing types
+        ctx: Optional CloudMapView used to check for an existing type
 
     Returns:
         CloudType if created, None if type_info is empty or type already exists
@@ -410,7 +409,7 @@ def create_cloud_type_from_type_info(
         return None
 
     # Don't create if it already exists
-    if types_dict and type_name in types_dict:
+    if ctx is not None and ctx.get_type(type_name) is not None:
         return None
 
     metadata = CommonMetadata()
@@ -436,7 +435,7 @@ def create_artifact_from_notable(
     references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
     type_info: Optional[Dict[str, Any]] = None,
-    types_dict: Optional[CloudTypeDict] = None,
+    ctx: Optional[CloudMapView] = None,
     digest: str = "",
 ) -> Tuple[Artifact, Optional[CloudType]]:
     """
@@ -453,7 +452,7 @@ def create_artifact_from_notable(
         references: Map of artifact IDs this artifact references (maps to references)
         dependencies: List of dependencies (maps to requires)
         type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
-        types_dict: Optional dict to check for existing types
+        ctx: Optional CloudMapView used to check for existing types
         digest: Digest of the artifact (e.g., "git:blob:abc123")
 
     Returns:
@@ -471,7 +470,7 @@ def create_artifact_from_notable(
     instantiates = TypeRefs()
     cloud_type = None
     if type_info and isinstance(type_info, dict):
-        cloud_type = create_cloud_type_from_type_info(type_info, types_dict)
+        cloud_type = create_cloud_type_from_type_info(type_info, ctx)
         type_name = type_info.get("name", "")
         if type_name:
             # Add to artifact's instantiates
@@ -513,6 +512,7 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
             artifact_pkg = repo.artifact_url(file_path)
 
             # Create artifact using helper method
+            type_info = notable_dict.pop("type", None)
             artifact, cloud_type = create_artifact_from_notable(
                 artifact_pkg=artifact_pkg,
                 artifact_type=notable_dict.pop("artifact_type", ""),
@@ -530,8 +530,8 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
                         {v: None for v in notable_dict.pop("dependencies", [])}
                     )
                 },
-                type_info=notable_dict.pop("type", None),
-                types_dict=db.types,
+                type_info=type_info,
+                ctx=None,
             )
             while notable_dict:
                 notable_dict.popitem()  # remove any remaining old fields
@@ -541,7 +541,7 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
 
             # Add CloudType if created
             if cloud_type:
-                db.types[cloud_type.name] = cloud_type
+                db.add_type(cloud_type)
 
             # Add to artifacts dict
             db.artifacts[artifact_pkg] = artifact
@@ -560,7 +560,7 @@ class GitHubWorkflowNotable(Notable):
     artifact_type = EntitySchema.GitHubWorkflow
 
     def analyze(
-        self, directory: Directory, repo_info: Repository, root_path: str
+        self, directory: CloudMapView, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         # self.folder is the parent of .github (e.g. ".")
         workflows_dir = os.path.join(root_path, self.folder, ".github", "workflows")
