@@ -27,7 +27,7 @@ from RestrictedPython.Guards import (
     guarded_unpack_sequence,
 )
 
-from . import Namespace, global_state
+from . import Namespace, global_state, safe_mode
 
 logger = logging.getLogger("tosca")
 
@@ -237,10 +237,13 @@ class RepositoryFinder(PathFinder):
 class ToscaYamlLoader(Loader):
     """Loads a Yaml service template and converts it to Python"""
 
-    def __init__(self, full_name, filepath, modules=None):
+    def __init__(self, full_name, filepath, modules=None, safe_mode=None):
         self.full_name: str = full_name
         self.filepath: str = filepath
         self.modules: Optional[dict] = modules
+        # Explicit override for safe_mode. If None, fall back to the
+        # installed import_resolver's get_safe_mode() or global_state.safe_mode.
+        self.safe_mode: Optional[bool] = safe_mode
 
     def create_module(self, spec):
         return None
@@ -263,11 +266,14 @@ class ToscaYamlLoader(Loader):
             python_filepath = str(path)
             with open(path) as f:
                 src = f.read()
-        safe_mode = (
-            import_resolver.get_safe_mode()
-            if import_resolver
-            else global_state.safe_mode
-        )
+        if self.safe_mode is not None:
+            safe_mode = self.safe_mode
+        else:
+            safe_mode = (
+                import_resolver.get_safe_mode()
+                if import_resolver
+                else global_state.safe_mode
+            )
         module.__dict__["__file__"] = python_filepath
         if python_filepath.endswith("__init__.py"):
             path = path.parent
@@ -788,9 +794,11 @@ class PrintCollector:
         sys.stdout.write(" ".join(str(o) for o in objects))
 
 
-def get_safe_mode(current_safe_mode: bool) -> bool:
+def get_safe_mode(current_safe_mode: Optional[bool] = None) -> bool:
     if FORCE_SAFE_MODE == "never":
         return False
+    if current_safe_mode is None:
+        current_safe_mode = safe_mode()
     return bool(FORCE_SAFE_MODE) or current_safe_mode
 
 

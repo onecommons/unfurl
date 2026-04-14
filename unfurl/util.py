@@ -294,18 +294,21 @@ def register_class(
     _ClassRegistry[className] = factory
 
 
-def load_module(path: str, full_name: Optional[str] = None) -> ModuleType:
+def load_module(path: str, full_name: Optional[str] = None, loader=None) -> ModuleType:
     if full_name is None:
         full_name = re.sub(r"\W", "_", path)  # generate a name from the path
-    if full_name in sys.modules:
+    if full_name in sys.modules and not loader:
         return sys.modules[full_name]
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        spec = importlib.util.spec_from_file_location(full_name, os.path.abspath(path))
-        # XXX: spec might be None
-        module = importlib.util.module_from_spec(spec)  # type: ignore
-        spec.loader.exec_module(module)  # type: ignore
+        spec = importlib.util.spec_from_file_location(
+            full_name, os.path.abspath(path), loader=loader
+        )
+        assert spec, path
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader
+        spec.loader.exec_module(module)
         sys.modules[full_name] = module
     return module
 
@@ -313,7 +316,8 @@ def load_module(path: str, full_name: Optional[str] = None) -> ModuleType:
 def load_class_from_file(
     class_path: str,
     base_dir: str,
-    description: str = "class"
+    description: str = "class",
+    safe_mode: Optional[bool] = None,
 ) -> Optional[type]:
     """
     Load a Python class from a file using the format: "path/to/file.py#ClassName"
@@ -322,6 +326,8 @@ def load_class_from_file(
         class_path: String in format "path/to/file.py#ClassName"
         base_dir: Base directory to resolve relative paths
         description: Description for error messages (e.g., "configurator class", "Notable class")
+        safe_mode: If True, load the module in the safe mode sandbox via ToscaYamlLoader.
+            If None, checks the current safe mode state via tosca.loader.get_safe_mode().
 
     Returns:
         The loaded class, or None if loading fails
@@ -330,16 +336,43 @@ def load_class_from_file(
         klass = load_class_from_file("notables/custom.py#MyNotable", "/path/to/repo", "Notable class")
     """
     if "#" not in class_path:
-        raise UnfurlError(f'Invalid {description} path: "{class_path}" - must use format "file.py#ClassName"')
+        raise UnfurlError(
+            f'Invalid {description} path: "{class_path}" - must use format "file.py#ClassName"'
+        )
 
     if len(shlex.split(class_path)) != 1:
-        raise UnfurlError(f'Invalid {description} path: "{class_path}" - contains shell metacharacters')
+        raise UnfurlError(
+            f'Invalid {description} path: "{class_path}" - contains shell metacharacters'
+        )
 
     path, sep, fragment = class_path.partition("#")
     fullpath = os.path.join(base_dir, path)
 
     try:
-        mod = load_module(fullpath)
+        loader = None
+        from tosca.loader import get_safe_mode, ToscaYamlLoader
+        from tosca import global_state
+
+        previous_safe_mode = global_state.safe_mode
+        previous_modules = global_state.modules
+        try:
+            if get_safe_mode(safe_mode):
+                from .dsl import get_allowed_modules
+
+                modules = get_allowed_modules()
+                global_state.modules = modules
+                global_state.safe_mode = True
+                name = re.sub(r"\W", "_", fullpath)
+                loader = ToscaYamlLoader(
+                    name,
+                    os.path.abspath(fullpath),
+                    modules=modules,
+                    safe_mode=True,
+                )
+            mod = load_module(fullpath, loader=loader)
+        finally:
+            global_state.safe_mode = previous_safe_mode
+            global_state.modules = previous_modules
         klass = getattr(mod, fragment)
         return klass
     except (ImportError, AttributeError, FileNotFoundError) as e:
@@ -587,6 +620,7 @@ def validate_schema(
 ) -> bool:
     return not find_schema_errors(obj, schema, schema_path)
 
+
 @cache
 def get_local_schema(format: str, schema_file: str) -> dict:
     path = os.path.join(_basepath, schema_file)
@@ -602,7 +636,6 @@ def get_local_schema(format: str, schema_file: str) -> dict:
 def validate_tosca_def(
     toscaDef: Dict[str, Any], format=""
 ) -> Optional[UnfurlSchemaError]:
-
     schema = get_local_schema(format, "tosca-schema.json")
     schema_failed = find_schema_errors(toscaDef, schema)
     if schema_failed:

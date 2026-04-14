@@ -1600,6 +1600,10 @@ def _get_config_spec_args_from_implementation(
     dependencies = None
     predefined = False
     guessing = ""
+    if implementation == "safe_mode" and not safe_mode:
+        # "safe_mode" is a special value that is used for implementation when generating TOSCA YAML in safe mode.
+        logger.error(f"Safe mode implementation no-op stub found for {iDef.name} -- are you accidentally running in safe_mode?")
+        return None
     if isinstance(implementation, dict):
         # operation_instance = find_operation_host(
         #     target, implementation.get("operation_host") or operation_host

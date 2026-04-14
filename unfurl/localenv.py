@@ -27,7 +27,6 @@ from typing import (
     cast,
 )
 from ansible.parsing.vault import VaultLib
-from tosca import JsonObject
 from .packages import Package, PackageSpec
 from .repo import (
     GitRepo,
@@ -66,6 +65,7 @@ from toscaparser.repositories import Repository
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
     from .runtime import NodeInstance
+    from tosca import JsonObject
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
@@ -916,7 +916,7 @@ class LocalConfig:
 
         return name
 
-    def find_secret_include(self) -> Tuple[Optional[str], Optional[JsonObject]]:
+    def find_secret_include(self) -> Tuple[Optional[str], Optional["JsonObject"]]:
         base = self.config.get_base_dir()
         key, include = self.config.search_includes(
             pathPrefix=os.path.join(base, "secrets")
