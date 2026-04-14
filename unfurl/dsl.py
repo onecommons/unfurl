@@ -157,11 +157,13 @@ def maybe_reconvert(
 def get_allowed_modules():
     # import packages that can be referenced in safe mode
     import unfurl.tosca_plugins
+    import unfurl.tosca_plugins.cloudmap_defs
     import unfurl.configurators
     import unfurl.configurators.templates
 
     packages = (
         "unfurl.tosca_plugins",
+        "unfurl.tosca_plugins.cloudmap_defs",
         "unfurl.configurators",
         "unfurl.configurators.templates",
     )
@@ -443,9 +445,9 @@ class DslMethodConfigurator(Configurator):
         if self._generator:
             # render the yielded configurator
             result = self._generator.send(None)
-            assert isinstance(result, Configurator), (
-                "Only yielding configurators is currently support"
-            )
+            assert isinstance(
+                result, Configurator
+            ), "Only yielding configurators is currently support"
             return result
         elif self.configurator:
             return self.configurator.render(task)

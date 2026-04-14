@@ -19,6 +19,7 @@ from typing import (
     List,
     Mapping,
     MutableMapping,
+    NamedTuple,
     Tuple,
     TypeVar,
     Union,
@@ -198,7 +199,9 @@ def to_label(
         digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
                                 Default: 3 or 2 if max < 32
     """
-    if global_state_mode() == "runtime" or (not isinstance(arg, EvalData) and not has_function(arg)):
+    if global_state_mode() == "runtime" or (
+        not isinstance(arg, EvalData) and not has_function(arg)
+    ):
         return _to_label(arg, _wrapper=_wrapper, **kw)  # type: ignore
     else:
         kw[_wrapper] = arg  # type: ignore
@@ -241,7 +244,19 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         seg_max = max(trunc_chars // len(arg), 1)
         segments = [str(n) for n in arg]
         # don't do beginning/end conversion until we have the whole string
-        labels = [to_label(n, replace=replace, start=allowed, start_prepend="", end=None, allowed=allowed, digestlen=0, max=9999) for n in segments]  # type: ignore
+        labels = [
+            to_label(
+                n,
+                replace=replace,
+                start=allowed,
+                start_prepend="",
+                end=None,
+                allowed=allowed,
+                digestlen=0,
+                max=9999,
+            )
+            for n in segments
+        ]  # type: ignore
         length = sum(map(len, labels))
         joined_label = sep.join(labels)[:trunc]
         if length > trunc_chars or digest is not None:
@@ -561,33 +576,62 @@ def urljoin(
 
     return prefix + netloc + (path or "") + query + frag
 
-class HostConfig(TypedDict, total=False):
-    type: Literal["local", "gitlab", "unfurl.cloud", "github"]
-    # not used by local:
-    url: Required[str]
-    user: str
-    password: str
-    visibility: str  # "public", "private", "any"
-    save_internal: bool  # save repository host internals
-    canonical_url: str
-    # omitted or null means default "hosts/{host.name}", set to "" to disable switching branches
-    host_branch: Optional[str]
 
+class ContainerImageParts(NamedTuple):
+    full_name: str
+    tag: str
+    digest: str
+    registry: str
 
-class LocalHostConfig(HostConfig):
-    # use when type = local (LocalRepositoryHost)
-    clone_root: str  # directory containing the repositories
+    @property
+    def reference(self) -> str:
+        return self.digest or self.tag
 
+    @property
+    def name(self) -> str:
+        return self.full_name.rpartition("/")[2]
 
-class CloudMapInputs(TypedDict, total=False):
-    host: Required[HostConfig]
-    cloudmap: str  # name of cloudmap in the environment
-    namespace: str  # filter by namespace
-    repository: str  # if set just export this repository (identified by url)
-    clone_root: str
-    skip_analysis: bool
-    force: bool
-    host_branch: Optional[str]
+    @property
+    def namespace(self) -> str:
+        return self.full_name.rpartition("/")[0]
+
+    @property
+    def host(self) -> str:
+        return (
+            "registry-1.docker.io"
+            if not self.registry or self.registry == "docker.io"
+            else self.registry
+        )
+
+    @property
+    def repository(self) -> str:
+        if not self.namespace and self.host == "registry-1.docker.io":
+            return "library/" + self.full_name
+        return self.full_name
+
+    @staticmethod
+    def split(
+        artifact_name: str,
+    ) -> "ContainerImageParts":
+        if not artifact_name:
+            return ContainerImageParts("", "", "", "")
+        hostname = ""
+        namespace, sep, name = artifact_name.partition("/")
+        if sep and (":" in namespace or artifact_name.count("/") > 1):
+            # heuristic because name can look like a hostname
+            hostname = namespace
+        else:
+            name = artifact_name
+
+        tag = ""
+        digest: Optional[str]
+        name, sep, digest = name.partition("@")
+        if not sep:
+            digest = ""
+            name, sep, qualifier = name.partition(":")
+            if sep:
+                tag = qualifier
+        return ContainerImageParts(name.lower(), tag, digest, hostname)
 
 
 __all__ = [
@@ -599,7 +643,5 @@ __all__ = [
     "generate_string",
     "scalar",
     "scalar_value",
-    "HostConfig",
-    "LocalHostConfig",
-    "CloudMapInputs",
+    "ContainerImageParts",
 ]

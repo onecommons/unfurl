@@ -59,6 +59,7 @@ class ContainerBuilderNotable(Notable):
     ) -> None:
         super().__init__(folder, file, digest)
 
+
 # XXX use this
 def find_images_k8s(resources: List[Dict[str, Any]]) -> List[str]:
     images: List[str] = []
@@ -87,7 +88,11 @@ class UnfurlNotable(Notable):
         DefaultNames.Ensemble,
         "dummy-ensemble.yaml",  # DefaultNames.ServiceTemplate,  # XXX fix unfurl-types hack
     ]
-    folders = [DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory, DefaultNames.EnsembleDirectory]
+    folders = [
+        DefaultNames.ProjectDirectory,
+        DefaultNames.HiddenProjectDirectory,
+        DefaultNames.EnsembleDirectory,
+    ]
 
     def __init__(
         self,
@@ -107,7 +112,7 @@ class UnfurlNotable(Notable):
         localenv = LocalEnv(
             path,
             can_be_empty=True,
-            parent=directory._local_env,
+            parent=directory._local__env,
         )
         artifact: Optional[Artifact] = None
         analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
@@ -585,4 +590,9 @@ class GitHubWorkflowNotable(Notable):
         return base
 
 
-Notables = (UnfurlNotable, ContainerBuilderNotable, GitLabPipelineNotable, GitHubWorkflowNotable)
+Notables = (
+    UnfurlNotable,
+    ContainerBuilderNotable,
+    GitLabPipelineNotable,
+    GitHubWorkflowNotable,
+)

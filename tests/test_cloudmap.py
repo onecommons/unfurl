@@ -1561,7 +1561,7 @@ def test_get_cloudmap_types(mocker):
     (
         "valid_custom_analyzer",
         """
-from unfurl.cloudmap import Notable, Directory, Repository, Artifact
+from unfurl.tosca_plugins.cloudmap_defs import Notable, Repository, Artifact
 
 class CustomTestNotable(Notable):
     files = ["custom-test.yaml"]
@@ -1592,6 +1592,25 @@ class NotANotable:
         ["notables/notnotable.py#NotANotable"],
         0,
         "not a subclass of Notable"
+    ),
+    (
+        # CloudMapView attributes like _local__env are named to match the
+        # safe-mode policy (`name[0] == '_' and '__' in name`), so
+        # RestrictedPython rejects the attribute access at compile time and
+        # the module fails to load.
+        "unsafe_underscore_access",
+        """
+from unfurl.tosca_plugins.cloudmap_defs import Notable
+
+class UnsafeTestNotable(Notable):
+    files = ["unsafe-test.yaml"]
+
+    def analyze(self, directory, repo_info, root_path):
+        return directory._local__env
+""",
+        ["notables/unsafe.py#UnsafeTestNotable"],
+        0,
+        "Failed to load custom Notable analyzer"
     ),
 ])
 def test_custom_analyzers(tmp_path, caplog, test_case, custom_class_code, analyzer_config, expected_count, expected_log):
@@ -1632,21 +1651,25 @@ repositories: {{}}
         custom_py.write_text(custom_class_code)
 
     unfurl_yaml = project_path / "unfurl.yaml"
+    analyzers= "\n".join(f"        - {repr(path)}" for path in analyzer_config)
     unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
 kind: Project
 environments:
   defaults:
     cloudmaps:
       analyzers:
-        {chr(10).join(f"        - {repr(path)}" for path in analyzer_config)}
+        {analyzers}
       repositories:
         cloudmap:
           url: {cloudmap_repo_path}
 """)
 
-    # Load the LocalEnv with skip_default_ensemble to avoid needing an ensemble
     os.chdir(project_path)
-    local_env = LocalEnv(str(project_path), can_be_empty=True)
+    local_env = LocalEnv(
+        str(project_path),
+        can_be_empty=True,
+        overrides={"safe_mode": True},
+    )
 
     # Create CloudMap instance - this should load (or fail to load) the custom analyzer
     cloudmap = CloudMap.from_name(
