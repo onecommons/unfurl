@@ -187,6 +187,15 @@ _server_port = 8091
 CLOUD_TEST_SERVER = "https://unfurl.cloud"
 
 
+def _terminate_process(p: Process, timeout: float = 10.0) -> None:
+    """Terminate a process and wait for it to exit, forcibly killing if needed."""
+    p.terminate()
+    p.join(timeout=timeout)
+    if p.is_alive():
+        p.kill()
+        p.join(timeout=5.0)
+
+
 #  Increment port just in case server ports aren't closed in time for next test
 #  NB: if server processes aren't terminated: pkill -fl spawn_main
 def _next_port():
@@ -547,8 +556,7 @@ def runner(request):
 
             yield server_process
         finally:
-            server_process.terminate()  # Gracefully shutdown the server (SIGTERM)
-            server_process.join()  # Wait for the server to terminate
+            _terminate_process(server_process)
 
 
 def commit_foo(val: str):
@@ -625,8 +633,7 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
         assert repo.revision
         return p, port, repo.revision
     except Exception:
-        p.terminate()
-        p.join()
+        _terminate_process(p)
         raise
 
 
@@ -728,8 +735,7 @@ def test_server_export_local(server_env):
             )
             assert res.status_code == 422
         finally:
-            p.terminate()
-            p.join()
+            _terminate_process(p)
 
 
 def _strip_sourceinfo(export, log=False):
@@ -1014,8 +1020,7 @@ def test_server_export_remote(server_env):
             if use_rust:
                 _save_rust_fixtures(extra_env.get("CACHE_KEY_PREFIX", ""))
         finally:
-            p.terminate()
-            p.join()
+            _terminate_process(p)
             # Print Python server logs so they appear in CI output.
             # if os.path.exists(py_log_file):
             #     with open(py_log_file) as _f:
@@ -1223,8 +1228,7 @@ def test_server_update_deployment(server_env):
 
         finally:
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -1255,8 +1259,7 @@ def test_get_types(server_env):
             assert len(data["ResourceType"]) > 0
         finally:
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @pytest.mark.parametrize("server_env", server_env)
@@ -1310,8 +1313,7 @@ def test_empty_cache(server_env):
             assert res.status_code == 422
         finally:
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -1359,8 +1361,7 @@ def test_update_environment(server_env):
         finally:
             _dump_server_logs(p, "update-env")
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -1423,8 +1424,7 @@ def test_delete_environment(server_env):
         finally:
             _dump_server_logs(p, "delete-env")
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -1500,8 +1500,7 @@ def test_delete_deployment(server_env):
         finally:
             _dump_server_logs(p, "delete-deployment")
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
@@ -1539,8 +1538,7 @@ def test_create_ensemble(server_env):
         finally:
             _dump_server_logs(p, "create-ensemble")
             if p:
-                p.terminate()
-                p.join()
+                _terminate_process(p)
 
 
 def test_find_rust_server_bin():
@@ -1646,8 +1644,7 @@ def test_rust_server_proxy():
             "hyper_util" in log_contents and "pooling idle connection" in log_contents
         ), f"Expected hyper_util pool log in Rust server output, got:\n{log_contents}"
     finally:
-        p.terminate()
-        p.join()
+        _terminate_process(p)
         if os.path.exists(rust_log_file):
             os.unlink(rust_log_file)
 
@@ -1711,8 +1708,7 @@ def test_server_cloudmap():
             res = requests.get(base, params={"url": "nonexistent://url"})
             assert res.status_code == 404
         finally:
-            p.terminate()
-            p.join()
+            _terminate_process(p)
 
 
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed
