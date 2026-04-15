@@ -527,6 +527,28 @@ def _get_latest_commit(bare_repo_path="remote.git"):
     return GitRepo(Repo(bare_repo_path)).revision
 
 
+def _wait_for_new_commit(
+    bare_repo_path: str,
+    before_commit: str,
+    timeout: float = 15.0,
+    poll_interval: float = 0.5,
+) -> str:
+    """Poll the bare repo until its HEAD differs from before_commit or timeout expires.
+
+    Returns the new commit hash. Fails the test on timeout.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        commit = _get_latest_commit(bare_repo_path)
+        if commit != before_commit:
+            return commit
+        time.sleep(poll_interval)
+    raise AssertionError(
+        f"Timed out after {timeout}s waiting for a new commit in {bare_repo_path!r} "
+        f"(still at {before_commit})"
+    )
+
+
 server_env = _get_server_params()
 
 
@@ -1084,11 +1106,10 @@ def test_server_update_deployment(server_env):
             if new_commit:
                 last_commit = new_commit
 
-            _wait_for_queue(server_env)
-
-            # After queue drains, get the actual commit from the bare repo.
             if server_env == "queue-rust":
-                last_commit = _get_latest_commit()
+                last_commit = _wait_for_new_commit("remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             res = requests.get(
                 f"http://{HOST}:{port}/export",
@@ -1152,10 +1173,10 @@ def test_server_update_deployment(server_env):
             if new_commit:
                 last_commit = new_commit
 
-            _wait_for_queue(server_env)
-
             if server_env == "queue-rust":
-                last_commit = _get_latest_commit("../remote.git")
+                last_commit = _wait_for_new_commit("../remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
