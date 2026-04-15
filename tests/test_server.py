@@ -1666,8 +1666,8 @@ def test_server_cloudmap():
         with open("cloudmap.yaml", "w") as f:
             f.write(cloudmap_content)
         repo = GitRepo(Repo.init("."))
-        repo.add_all(".")
-        repo.commit_files(["cloudmap.yaml"], "Add cloudmap")
+        repo.add_all(os.path.abspath("."))
+        repo.commit_files([os.path.abspath("cloudmap.yaml")], "Add cloudmap")
 
         ctx = get_context()
         error_queue = ctx.Queue()
