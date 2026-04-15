@@ -1,5 +1,5 @@
 docker[tls] # Apache 2.0
-kubernetes==24.2.0
+kubernetes==35.0.0
 octodns == 0.9.14 # MIT
 boto3 # Apache 2.0
 supervisor # BSD, see https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
