@@ -1384,9 +1384,11 @@ class Convert:
         src += add_description(req, indent)
         return src
 
-    def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
+    def get_configurator_decl(
+        self, op: OperationDef
+    ) -> Tuple[str, Dict[str, Any], Optional[str]]:
         if op.invoke:
-            return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs)
+            return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs), None
         if not op._source:
             op._source = self.base_dir
         kw = (
@@ -1395,6 +1397,7 @@ class Convert:
             else None
         )
         cmd = ""
+        inline_import: Optional[str] = None
         if kw is None or kw.get("primary"):
             if isinstance(op.implementation, dict):
                 artifact = op.implementation.get("primary")
@@ -1425,11 +1428,17 @@ class Convert:
                             module_path, start=os.path.abspath(self.path)
                         )
                     cmd = f'self.load_class("{module_path}", "{klass}")'
+                elif self._builtin_prefix:
+                    # When generating a built-in module (e.g. tosca_ext.py),
+                    # inline the import inside the method body to avoid
+                    # module-load-time circular imports (e.g. via the
+                    # toscaparser stevedore extension loader).
+                    inline_import = module
                 else:
                     self.imports.add_import(module)
         else:
             logger.error("could not handle unexpected operation implementation: %s", kw)
-        return cmd, kw
+        return cmd, kw, inline_import
 
     def operation2func(
         self,
@@ -1445,7 +1454,7 @@ class Convert:
             if not op.implementation and (op.input_defs or op.inputs):
                 src = f"{indent}_{op.interfacename.split('.')[-1]}_default_inputs = {self.value2python_repr(op.input_defs or op.inputs)}"
                 return "", src
-        configurator_decl, kw = self.get_configurator_decl(op)
+        configurator_decl, kw, inline_import = self.get_configurator_decl(op)
         op_name, toscaname, _ = self._set_name(cast(str, op.name), "operation")
         if template_name:
             template_name, _ = self._get_name(template_name)
@@ -1495,6 +1504,8 @@ class Convert:
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
+        if inline_import:
+            src += f"{indent}import {inline_import}\n\n"
         src += f"{indent}return {configurator_decl}("
         # all on one line for now
         inputs = kw["inputs"]
