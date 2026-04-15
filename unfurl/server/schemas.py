@@ -8,9 +8,9 @@ request validation and OpenAPI spec generation.
 """
 
 from typing import Any, Dict, List, Optional, Union
+from typing_extensions import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field
-from typing_extensions import Literal
+from pydantic import BaseModel, ConfigDict, Field, model_serializer
 
 from ..graphql import (
     ApplicationBlueprint as ApplicationBlueprintType,
@@ -21,6 +21,72 @@ from ..graphql import (
     ResourceTemplate as ResourceTemplateType,
     ResourceType as ResourceTypeType,
 )
+
+
+# ---------------------------------------------------------------------------
+# CloudMap graph TypedDicts (also used by unfurl.reporting)
+# ---------------------------------------------------------------------------
+
+
+class TypeRefJson(TypedDict, total=False):
+    """A type reference in the graph, used in relationship lists."""
+
+    type: str
+    constraints: Dict[str, Any]
+    label: str
+
+
+class RecordRef(TypedDict, total=False):
+    """A reference to a record in the graph, used in relationship lists."""
+
+    url: str
+    kind: str
+    missing: bool
+    type_refs: List[TypeRefJson]
+
+
+RelEntry = Union[RecordRef, TypeRefJson, str]
+
+
+class GraphNodeJson(TypedDict, total=False):
+    """A node in the JSON graph representation."""
+
+    kind: str
+    url: str
+    rels: Dict[str, List[RelEntry]]
+
+
+class GraphJson(TypedDict, total=False):
+    """Top-level JSON graph structure.
+
+    In section mode (full graph), ``sections`` maps section names to dicts of
+    url → GraphNodeJson.  In single-record mode, ``roots`` lists the queried
+    record refs and all encountered records are stored in ``sections``.
+    """
+
+    sections: Dict[str, Dict[str, GraphNodeJson]]
+    roots: List[RecordRef]
+    error: str
+
+
+class CloudMapResponse(BaseModel):
+    """Pydantic wrapper for :class:`GraphJson`, used by ``@app.output``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sections: Optional[Dict[str, Dict[str, GraphNodeJson]]] = Field(
+        default=None, description="Map of section name → {url → GraphNodeJson}"
+    )
+    roots: Optional[List[RecordRef]] = Field(
+        default=None, description="List of root record references (single-record mode)"
+    )
+    error: Optional[str] = Field(
+        default=None, description="Error message when the record is not found"
+    )
+
+    @model_serializer(mode="wrap")
+    def _exclude_none(self, handler):
+        return {k: v for k, v in handler(self).items() if v is not None}
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +157,15 @@ class TypesQuery(ExportBaseQuery):
     cloudmap: Optional[str] = Field(
         default=None,
         description="CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'",
+    )
+
+
+class CloudMapQuery(ProjectQuery):
+    """Query parameters for /cloudmap."""
+
+    url: Optional[str] = Field(
+        default=None,
+        description="Optional artifact or instantiation URL to filter the graph to",
     )
 
 
@@ -235,6 +310,7 @@ class PatchResponse(BaseModel):
         default=None,
         description="Commit hash after applying the patch, or null if no changes were committed",
     )
+
 
 
 class ExportResponse(BaseModel):

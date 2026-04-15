@@ -193,7 +193,7 @@ def test_collection_artifact():
         assert len(run1.workDone) == 1, run1.summary()
         summary = run1.json_summary(add_rendered=True)
         # print ( run1.json_summary(True, add_rendered=True) )
-        assert summary["external_jobs"][0]["job"]["ok"] == 2, run1.summary()
+        assert summary["external_jobs"][0]["job"]["ok"] == 2, summary["external_jobs"]
         if sys.version_info[1] > 8:
             # mdellweg.filter.repr result
             assert summary["tasks"][0]["output"]["run"] == ["'test'"], summary

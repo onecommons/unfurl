@@ -256,7 +256,7 @@ Configurators
 ~~~~~~~~~~~~~
 
 .. automodule:: unfurl.configurator
-  :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult
+  :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult, Cancel
   :undoc-members:
 
 .. automodule:: unfurl.support

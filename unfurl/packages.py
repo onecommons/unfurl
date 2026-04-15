@@ -71,6 +71,7 @@ from typing_extensions import Literal, Self
 from urllib.parse import urlparse
 import pathspec
 from .repo import (
+    RepoLockDict,
     RepoView,
     Repo,
     GitRepo,
@@ -384,13 +385,40 @@ def normalize_url(url: str) -> str:
 
 
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
-    # XXX assumes .git and https
-    package_id, sep, revision = package_id.partition(".git/")
+    # XXX assumes host url look like https://.*.git
+    # if /v? strip that
+    match = re.match(r".*(/v\d+)$", package_id)
+    version = ""
+    if match:
+        version = match.group(1)[1:]  # strip leading "/"
+        package_id = package_id[: -len(match.group(1))]  # strip "/vN"
+
+    # github.com, bitbucket.org, git.openstack.org (org/repo) git.apache.org (repo)
     repoloc, sep, repopath = package_id.partition(".git/")
-    if repopath or revision or minimum_version:
-        return f"https://{repoloc}.git#{minimum_version or revision or ''}:{repopath}"
+    if repopath and version:
+        version = repopath + "/" + version
+    revision = minimum_version or version or ""
+    if repopath:
+        return f"https://{repoloc}.git#{revision}:{repopath}"
     else:
-        return f"https://{repoloc}.git"
+        parts = package_id.split("/")
+        if len(parts) > 2:
+            # see vcsPaths in https://go.dev/src/cmd/go/internal/vcs/vcs.go for special cases:
+            # XXX "git.apache.org" (repo),
+            for host in (
+                "github.com",
+                "bitbucket.org",
+                "git.openstack.org",
+            ):
+                if package_id.startswith(host + "/"):
+                    subpath = "/".join(parts[3:])
+                    fragment = (
+                        f"#{revision}:{subpath}"
+                        if subpath
+                        else (f"#{revision}" if revision else "")
+                    )
+                    return f"https://{'/'.join(parts[:3])}.git{fragment}"
+        return f"https://{repoloc}.git{'#' + revision if revision else ''}"
 
 
 def get_package_from_url(url_: str):
@@ -483,7 +511,10 @@ class Package:
                 return tags[0]
         return ""  # none found
 
-    def set_version_from_repo(self, get_remote_tags) -> bool:
+    def set_version_from_repo(
+        self, get_remote_tags, default_tag=None
+    ) -> Optional[bool]:
+        """Returns True if version found, False if checked but not found, None if not checked."""
         try:
             revision = self.find_latest_semver_from_repo(get_remote_tags)
         except GitCommandError as e:
@@ -493,8 +524,14 @@ class Package:
                 e.stderr,
             )
             return False
-        if revision is None:  # get_remote_tags didn't check
-            return False
+        if revision is None:
+            # get_remote_tags didn't check
+            if default_tag:
+                prefix = self.version_tag_prefix()
+                if default_tag.startswith(prefix):
+                    revision = default_tag[len(prefix) :]
+            if revision is None:
+                return None
         # remember the result of the search even if we don't set the revision
         if revision:
             self.discovered = True
@@ -608,7 +645,7 @@ def resolve_package(
     packages: PackagesType,
     package_specs: List[PackageSpec],
     get_remote_tags=get_remote_tags,
-    lock_dict: Optional[dict] = None,
+    lock_dict: Optional["RepoLockDict"] = None,
 ) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.
@@ -628,10 +665,14 @@ def resolve_package(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
         if not package.locked and not package.revision:
+            skipped = True
             if get_remote_tags:
-                # no version specified, use the latest version tagged in the repository
-                package.set_version_from_repo(get_remote_tags)
-            if not changed and not package.revision:
+                # no version specified, use the latest version tagged in the remote repository
+                # if upstream check is disabled use the local current tag
+                tag = repoview.repo.current_tag if repoview.repo else None
+                result = package.set_version_from_repo(get_remote_tags, tag)
+                skipped = result is None  # upstream check was skipped
+            if not skipped and not changed and not package.revision:
                 # don't treat repository as a package
                 repoview.package = False
                 packages[package.package_id] = False

@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 from .util import (
     check_class_registry,
+    load_class_from_file,
     lookup_class,
     load_module,
     find_schema_errors,
@@ -111,7 +112,7 @@ class ConfigurationSpec:
         majorVersion=0,
         minorVersion="",
         workflow=Defaults.workflow,
-        timeout: Optional[int] = None,
+        timeout: Optional[float] = None,
         operation_host: Optional[str] = None,
         environment: Optional[Dict[str, str]] = None,
         inputs: Optional[Dict[str, Any]] = None,
@@ -170,7 +171,7 @@ class ConfigurationSpec:
     def create(self) -> "Configurator":
         className: str = self.className
         if ":" in className:
-            from .dsl import DslMethodConfigurator
+            from .dsl import DslMethodConfigurator, import_module
 
             module_name, qualname, action = className.split(":")
             if tosca.loader.import_resolver:
@@ -178,7 +179,7 @@ class ConfigurationSpec:
             else:
                 assert not tosca.safe_mode(), module_name
             if module_name not in sys.modules:
-                module = importlib.import_module(module_name)
+                module = import_module(module_name)
             else:
                 module = sys.modules[module_name]
             parts = qualname.split(".")
@@ -233,6 +234,7 @@ class PlanRequest:
     task: Optional["ConfigTask"] = None
     render_errors: Optional[List[UnfurlTaskError]] = None
     completed = False
+    suspended = False
     group: Optional["TaskRequestGroup"] = None
     required: Optional[bool] = None
     is_final_for_workflow: Optional[bool] = None
@@ -452,7 +454,7 @@ class TaskRequest(PlanRequest):
         self.required = required
         self.error = configSpec.name == "#error"
         self.startState = startState
-        self.task = None
+        self.task: Optional["ConfigTask"] = None
         self._completed = False
 
     def __completed():  # type: ignore
@@ -465,6 +467,14 @@ class TaskRequest(PlanRequest):
         return locals()
 
     completed: bool = property(**__completed())  # type: ignore
+
+    def __suspended():  # type: ignore
+        def fget(self) -> bool:
+            return bool(self.task and self.task._suspended)
+
+        return locals()
+
+    suspended: bool = property(**__suspended())  # type: ignore
 
     def reassign_final_for_workflow(self) -> Optional["TaskRequest"]:
         req = self
@@ -495,7 +505,7 @@ class TaskRequest(PlanRequest):
         workflow = self.group and self.group.workflow
         if not workflow:  # not in a group or not in a mutable workflow
             return
-        explicit_status: Optional[Status] = task.result and task.result.status
+        explicit_status: Optional[Status] = task.result and task.result.status or None
         if explicit_status is None:
             # even though we didn't modify the target this is the last op and the task succeeded
             # so assume the target is that the workflow's final state
@@ -681,6 +691,12 @@ class TaskRequestGroup(PlanRequest):
                 return True
         return False
 
+    def has_suspended(self) -> bool:
+        for req in self.children:
+            if req.suspended:
+                return True
+        return False
+
     def set_final_for_workflow(self, is_final: bool) -> None:
         if self.children:
             self.children[-1].set_final_for_workflow(is_final)
@@ -796,7 +812,7 @@ def get_render_requests(
 
 
 def set_fulfilled(
-    upcoming: List[PlanRequest], completed: List[PlanRequest]
+    upcoming: List[PlanRequest],
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # find the requests that are ready to run
     # requests, completed are top level requests
@@ -809,9 +825,8 @@ def set_fulfilled(
 
     ready, notReady = [], []
     for req in upcoming:
-        if req.completed:
+        if req.completed or req.suspended:
             continue
-        assert req not in completed, f"{req} already completed"
         _not_ready = False
         previous = req.previous
         if previous and previous.not_ready:
@@ -1034,7 +1049,7 @@ def do_render_requests(
     notready_group: Any = None
     while render_requests:
         request = render_requests.popleft()
-        if request.completed:
+        if request.completed or request.suspended:
             continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
@@ -1425,10 +1440,7 @@ def _set_config_spec_args(
     # load the configurator class
     try:
         if "#" in className and len(shlex.split(className)) == 1:
-            path, sep, fragment = className.partition("#")
-            fullpath = os.path.join(base_dir, path)
-            mod = load_module(fullpath)
-            klass = getattr(mod, fragment)  # raise if missing
+            klass = load_class_from_file(className, base_dir)
         elif ":" in className and len(shlex.split(className)) == 1:
             # its a dsl method, handle in ConfigurationSpec.create
             if dry_run and template:
@@ -1588,6 +1600,10 @@ def _get_config_spec_args_from_implementation(
     dependencies = None
     predefined = False
     guessing = ""
+    if implementation == "safe_mode" and not safe_mode:
+        # "safe_mode" is a special value that is used for implementation when generating TOSCA YAML in safe mode.
+        logger.error(f"Safe mode implementation no-op stub found for {iDef.name} -- are you accidentally running in safe_mode?")
+        return None
     if isinstance(implementation, dict):
         # operation_instance = find_operation_host(
         #     target, implementation.get("operation_host") or operation_host

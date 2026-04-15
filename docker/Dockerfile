@@ -45,7 +45,7 @@ RUN echo "Installing Terraform" && \
 COPY . /unfurl
 
 RUN . "$HOME/.cargo/env" && \
-    pip install --no-cache-dir --upgrade pip pipenv setuptools-rust && \
+    pip install --no-cache-dir --upgrade pip pipenv==2024.0.0 setuptools-rust && \
     cd /unfurl/unfurl/templates/python3.13 && \
     pipenv install --system --deploy && \
     pip install --no-deps /unfurl && \

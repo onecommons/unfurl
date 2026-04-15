@@ -1,6 +1,7 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
 import inspect
+import time
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -101,6 +102,23 @@ import logging
 logger = cast(UnfurlLogger, logging.getLogger("unfurl.task"))
 
 
+class Cancel:
+    """Sent to a resumed task's configurator to signal cancellation.
+
+    Attributes:
+        reason: Why the task was cancelled (e.g. ``"job timeout"``).
+        timeout: Elapsed seconds from task start to the deadline that triggered
+            cancellation. Zero if no deadline was set.
+    """
+
+    def __init__(self, reason: str = "", timeout: float = 0):
+        self.reason = reason
+        self.timeout = timeout
+
+    def __repr__(self) -> str:
+        return f"Cancel({self.reason!r})"
+
+
 class ConfiguratorResult:
     """
     Represents the result of a task that ran.
@@ -116,6 +134,7 @@ class ConfiguratorResult:
         result: Optional[Union[dict, str]] = None,
         outputs: Optional[dict] = None,
         exception: Optional[UnfurlTaskError] = None,
+        resume: bool = False,
     ) -> None:
         self.modified = modified
         self.status = to_enum(Status, status)
@@ -123,6 +142,8 @@ class ConfiguratorResult:
         self.success = success
         self.outputs = outputs
         self.exception = exception
+        self.resume = resume
+        self.resume_after: float = 0  # monotonic timestamp; 0 means resume immediately
 
     def __str__(self) -> str:
         result = (
@@ -253,7 +274,7 @@ class Configurator(metaclass=AutoRegisterClass):
 
         Yields:
             Optionally ``run`` can yield either a :class:`JobRequest`, :class:`TaskRequest` to run subtasks
-            and finally a :class:`ConfiguratorResult` when done
+            and finally a :class:`ConfiguratorResult` when done or to request resumption after yielding.
 
         Returns:
             If ``run`` is not defined as a generator it must return either a :py:class:`~unfurl.support.Status`, a ``bool`` or a :class:`ConfiguratorResult` to indicate if the task succeeded and any changes to the target's state.
@@ -1123,6 +1144,33 @@ class TaskView:
                         metadata_value = metadata.get(metadata_key)
                         if self._match_metadata_key(metadata_key, metadata_value):
                             self.target.attributes[key] = value
+
+    def suspend(
+        self,
+        modified: Optional[bool] = None,
+        status: Optional[Status] = None,
+        pause: float = 0,
+    ) -> ConfiguratorResult:
+        """Yield this to pause the task for later resume without finishing.
+
+        The job loop will re-enter the generator on a subsequent cycle,
+        sending ``None`` (to continue) or a :class:`Cancel` (to abort).
+
+        >>> signal = yield task.suspend()
+
+        Args:
+          modified (bool): (optional) indicates whether the instance was modified so far.
+          status (Status): (optional) set if the operation changed the operational status.
+          pause (float): (optional) minimum seconds to wait before re-entering.
+              If 0, the task resumes on the next cycle.
+
+        Returns:
+              :class:`ConfiguratorResult` with ``resume=True``
+        """
+        result = ConfiguratorResult(True, modified, status, resume=True)
+        if pause > 0:
+            result.resume_after = time.monotonic() + pause
+        return result
 
     def done(
         self,

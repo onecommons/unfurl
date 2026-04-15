@@ -22,6 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from typing_extensions import Literal
 from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
@@ -371,6 +372,12 @@ readonlyJobControlOptions = option_group(
         type=click.Choice(["error", "degraded", "never"]),
         default="never",
         help="Set exit code to 64 if job ends at given status. (Default: never)",
+    ),
+    click.option(
+        "--timeout",
+        type=float,
+        default=0,
+        help="Abort the job after this many seconds. 0 means no timeout. (Default: 0)",
     ),
     rich_group=job_control_group_label,
 )
@@ -1039,7 +1046,7 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         return
 
     if not projectdir:
-        # if creating a new project in an existing repository use '.unfurl' as the default name
+        # if creating a new project in an existing repository use '_unfurl' as the default name
         if options.get("existing"):
             projectdir = DefaultNames.ProjectDirectory
         else:  # otherwise use the current directory
@@ -1521,6 +1528,7 @@ def _stub_resolver(doc, local_env=None):
     repositories = dummy_manifest.repositories_as_tpl()
     doc.setdefault("repositories", {}).update(repositories)
     import_resolver = ImportResolver(dummy_manifest)
+    import_resolver.confine_user_paths = False
     return import_resolver
 
 
@@ -1786,6 +1794,8 @@ def validate(ctx, path, **options):
     """Validate the syntax of the given Unfurl project, ensemble, cloud map, or TOSCA file."""
     options.update(ctx.obj)
     localEnv = None
+    doc_type = None
+    doc = None
     try:
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
         if options.get("as_template") or "template" in path:  # hack!
@@ -1812,33 +1822,43 @@ def validate(ctx, path, **options):
                 localEnv.get_manifest(skip_validation=True)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
-            from tosca.python2yaml import python_src_to_yaml_obj
-            from tosca.loader import install
-
-            install(_stub_resolver({}, localEnv), os.path.dirname(path))
-            with open(path) as f:
-                python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
-        elif e.doc and "tosca_definitions_version" in e.doc:
-            from .manifest import Manifest
-            from .spec import ToscaSpec
-
-            if localEnv and localEnv.project:
-                m = Manifest(path, localEnv=localEnv)
-                # report validation errors instead of aborting
-                m._set_spec(dict(service_template=e.doc), skip_validation=True)
-            else:
-                ToscaSpec(
-                    e.doc,
-                    path=path,
-                    skip_validation=True,
-                    resolver=_stub_resolver(e.doc),
-                )
+            doc_type = "Python"
+        elif e.doc and ("tosca_definitions_version" in e.doc or "node_types" in e.doc):
+            doc = e.doc
+            doc_type = "TOSCA"
         elif e.doc and e.doc.get("kind") == "CloudMap":
-            from .cloudmap import CloudMapDB
-
-            CloudMapDB(path)
+            doc = e.doc
+            doc_type = "CloudMap"
         else:
             raise
+
+    if doc_type == "Python":
+        from tosca.python2yaml import python_src_to_yaml_obj
+        from tosca.loader import install
+
+        install(_stub_resolver({}, localEnv), os.path.dirname(path))
+        with open(path) as f:
+            python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
+    elif doc_type == "TOSCA":
+        assert doc
+        from .manifest import Manifest
+        from .spec import ToscaSpec
+
+        if localEnv and localEnv.project:
+            m = Manifest(path, localEnv=localEnv)
+            # report validation errors instead of aborting
+            m._set_spec(dict(service_template=doc), skip_validation=True)
+        else:
+            ToscaSpec(
+                doc,
+                path=path,
+                skip_validation=True,
+                resolver=_stub_resolver(doc),
+            )
+    elif doc_type == "CloudMap":
+        from .cloudmap import CloudMapDB
+
+        CloudMapDB(path)
 
 
 @info_cli.command()
@@ -1999,7 +2019,7 @@ def serve(
 @click.option(
     "--clone-root",
     type=click.Path(exists=False),
-    help='Directory to clone repositories to ("" to override config and disable cloning).',
+    help='Directory to clone repositories to (use "" to override config and disable cloning).',
 )
 @click.option(
     "--visibility",
@@ -2016,6 +2036,13 @@ def serve(
     default=False,
     is_flag=True,
     help="Don't analyze files in repositories",
+    hidden=True,
+)
+@click.option(
+    "--analyze",
+    default="default",
+    type=click.Choice(["default", "yes", "no", "save-only"]),
+    help='Analyze files. "save-only" means save locally but don\'t analyze; default is "yes" with --import, "no" with --add',
 )
 @click.option(
     "--force",
@@ -2029,6 +2056,32 @@ def serve(
     is_flag=True,
     help="Do not modify the repository host, just do a dry run.",
 )
+@click.option(
+    "--commit",
+    default=False,
+    is_flag=True,
+    help="Commit changes to the cloud map repository.",
+)
+@click.option(
+    "--add",
+    default=None,
+    metavar="URL",
+    help="Add a single record for the given URL to the cloudmap.",
+)
+@click.option(
+    "--graph",
+    default=None,
+    metavar="URL",
+    is_flag=False,
+    flag_value="",
+    help="Print a graph of cloudmap records starting from URL (or all if empty).",
+)
+@click.option(
+    "--graph-format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format for --graph (default: text).",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -2041,6 +2094,11 @@ def cloudmap(
     force: bool = False,
     dryrun: bool = False,
     repository: str = "",
+    commit: bool = False,
+    add: Optional[str] = None,
+    analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    graph: Optional[str] = None,
+    graph_format: str = "text",
     **options,
 ):
     """Manage a cloud map.
@@ -2051,19 +2109,56 @@ def cloudmap(
     from .cloudmap import CloudMap
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
+    local_env = LocalEnv(
+        project,
+        options.get("home"),
+        can_be_empty=True,
+        readonly=True,
+        create_if_missing=True,
+    )
+    if graph is not None:
+        cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
+        from .reporting import cloudmap_graph_json, cloudmap_graph_console
+
+        if graph_format == "json":
+            result = cloudmap_graph_json(cloud_map.directory.db, graph)
+            click.echo(json.dumps(result, indent=2))
+        else:
+            cloudmap_graph_console(cloud_map.directory.db, graph)
+        return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
-    if not host_name:
-        print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
+    if not add and not host_name:
+        click.echo("nothing to do (use one of --export, --import, --add, --graph, or --sync)")
         return
-    host = CloudMap.get_host(
-        localEnv, host_name, namespace or "", clone_root or "", visibility, repository
-    )
     # get the host first so we know branch to use in the cloud map repository
+    if add:
+        host = None
+    else:
+        host = CloudMap.get_host(
+            local_env,
+            host_name,
+            namespace or "",
+            clone_root or "",
+            visibility,
+            repository,
+        )
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root, host.name, namespace or "", skip_analysis
+        local_env,
+        cloudmap,
+        clone_root,
+        host.host_branch if host else "",
+        skip_analysis or analyze == "no",
+        commit,
     )
+    if add:
+        r = cloud_map.add_record(add, analyze)
+        if r:
+            cloud_map.save(f"Added {r.__class__.__name__} record for " + r.url)
+        else:
+            click.echo("Failed to add record for " + add)
+        return
+    assert host
     host.dryrun = dryrun
     if options.get("import") or sync:
         changed = cloud_map.from_host(host)

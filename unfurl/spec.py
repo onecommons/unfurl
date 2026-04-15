@@ -7,9 +7,11 @@ TOSCA implementation
 import copy
 from enum import Enum, Flag, auto
 import sys
+import traceback
 from toscaparser.elements.interfaces import OperationDef
 from toscaparser.elements.nodetype import NodeType
 from toscaparser.elements.relationshiptype import RelationshipType
+from .yamlloader import UnfurlSchemaError
 from .projectpaths import File, FilePath
 
 from .tosca_plugins import TOSCA_VERSION
@@ -19,6 +21,7 @@ from .util import (
     get_base_dir,
     check_class_registry,
     env_var_value,
+    validate_tosca_def,
 )
 from .eval import Ref, SafeRefContext, map_value, analyze_expr
 from .result import ExternalValue, ResourceRef, ResultsList, serialize_value
@@ -39,7 +42,11 @@ import toscaparser.workflow
 import toscaparser.imports
 import toscaparser.artifacts
 import toscaparser.repositories
-from toscaparser.common.exception import ExceptionCollector, TOSCAException
+from toscaparser.common.exception import (
+    ExceptionCollector,
+    InvalidSchemaError,
+    TOSCAException,
+)
 import os
 from .logs import getLogger, Levels
 import re
@@ -57,7 +64,7 @@ from typing import (
     cast,
     Any,
 )
-
+from typing_extensions import Self
 from ruamel.yaml.comments import CommentedMap
 from toscaparser import functions
 
@@ -231,8 +238,6 @@ class ToscaSpec:
     ):
         # need to set a path for the import loader
         mode = self.validation_mode
-        if mode is None:
-            mode = os.getenv("UNFURL_VALIDATION_MODE")
         additionalProperties = False
         validate_type_type = False
         if mode is not None:
@@ -321,7 +326,11 @@ class ToscaSpec:
         self.nested_topologies: List["TopologySpec"] = []
         self._topology_templates: Dict[int, "TopologySpec"] = {}
         self.default_templates: Set[str] = set()
-        self.validation_mode = validation_mode
+        if validation_mode is None:
+            self.validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
+        else:
+            self.validation_mode = validation_mode
+
         if spec:
             inputs = cast(Dict[str, Any], spec.get("inputs") or {})
         else:
@@ -340,6 +349,8 @@ class ToscaSpec:
                 toscaDef["topology_template"] = dict(
                     node_templates={}, relationship_templates={}
                 )
+            if "tosca_definitions_version" not in toscaDef:
+                toscaDef["tosca_definitions_version"] = TOSCA_VERSION
 
             if spec:
                 self.load_instances(toscaDef, spec)
@@ -366,6 +377,15 @@ class ToscaSpec:
                 self._parse_template(path, inputs, toscaDef, resolver, fragment)
             else:  # restore previously errors
                 ExceptionCollector.exceptions[:0] = errorsSoFar
+
+            # do this after any patching
+            exception = (
+                "no_jsonschema_check" not in self.validation_mode
+                and validate_tosca_def(toscaDef)
+            )
+            if exception:
+                setattr(exception, "trace", traceback.extract_stack()[:-1])
+                ExceptionCollector.exceptions.append(exception)
 
             if ExceptionCollector.exceptionsCaught():
                 message = "\n".join(
@@ -1001,6 +1021,10 @@ class EntitySpec(ResourceRef):
         if key in self.propertyDefs:
             return self._resolve_prop(key)
         raise KeyError(key)
+
+    @property
+    def owner(self) -> Self:
+        return self
 
     @property
     def all(self):

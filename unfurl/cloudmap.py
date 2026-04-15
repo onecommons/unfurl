@@ -50,6 +50,7 @@ Currently you need manually push updates to cloudmap to the upstream cloudmap re
 """
 
 import collections
+from itertools import islice
 from dataclasses import dataclass, field, asdict, InitVar
 from operator import attrgetter
 from pathlib import Path
@@ -74,79 +75,83 @@ from typing import (
     Union,
 )
 from gitlab.base import RESTObject
-from typing_extensions import Required, Literal
-from urllib.parse import urljoin, urlparse, quote
+from typing_extensions import Required, Literal, Protocol
+from urllib.parse import ParseResult, urljoin, urlparse, quote
 import git
 import git.cmd
 from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
-from toscaparser.nodetemplate import NodeTemplate
-from toscaparser.elements.statefulentitytype import StatefulEntityType
 from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from .projectpaths import _getdir
-from .graphql import ResourceTypesByName, get_deployment_url, TypeName
-from .spec import NodeSpec, TopologySpec, ToscaSpec
-
-from .support import ContainerImage
-from .configurator import Configurator, TaskView
-from .oci import (
-    build_oci_purl,
-    create_oci_artifact,
-    CommonMetadata,
+from .tosca_plugins.cloudmap_defs import (
+    HostConfig,
+    CloudMapInputs,
+    LocalHostConfig,
+    ArtifactDict,
+    ArtifactMappings,
     ArtifactMetadata,
     Artifact,
-    EntitySchema,
+    CloudMapView,
+    CloudType,
+    CloudTypeDict,
+    CommonMetadata,
     Discovery,
+    EntitySchema,
     Instantiation,
-    TypeRefs,
+    LifecycleStatus,
+    Namespace,
+    Notable,
+    NotableDict,
+    PipelineArtifact,
+    PipelineRunProperties,
+    PipelineVariable,
+    ProjectStatus,
+    Repository,
+    RepositoryDict,
+    RepositoryMetadata,
+    ScheduledRelease,
+    Service,
+    ServiceDict,
+    ServiceMetadata,
+    ServicePolicies,
+    TypeRefConstraint,
     TypeRefJson,
+    TypeRefStatus,
+    TypeRefs,
     TypedUrls,
+    build_oci_purl,
     filter_dict,
+    get_repository_url,
     join_resource_url,
     validate_url,
-    LifecycleStatus,
-    ScheduledRelease,
 )
+from .support import ContainerImage
+from .configurator import Configurator, TaskView
+from .util import load_class_from_file
+from .oci import create_oci_artifact
 
-
-from .to_json import get_blueprint_path, node_type_to_graphql
 from .repo import (
     GitRepo,
+    Repo,
     git_url_join,
     is_git_worktree,
     normalize_git_url,
     sanitize_url,
     split_git_url,
+    split_git_url_with_commit,
 )
-from .util import API_VERSION, UnfurlError, assert_not_none, unique_name
+from .util import API_VERSION, UnfurlError
 from .localenv import LocalEnv
 from .yamlloader import YamlConfig, urlopen as _urlopen
 from .logs import getLogger, UnfurlLogger
-from . import DefaultNames
-
-if TYPE_CHECKING:
-    from .yamlmanifest import YamlManifest
+from unfurl import repo
 
 logger = getLogger("unfurl")
 
 DEFAULT_CLOUDMAP_REPO = "https://github.com/onecommons/cloudmap.git"
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
-
-
-def get_repository_url(url: str) -> str:
-    """Return the git:// URL for the repository without user or fragment"""
-    parts = urlparse(url)
-    user, sep, host = parts.netloc.rpartition("@")
-    if sep:
-        netloc = host
-    else:
-        netloc = parts.netloc
-    if "+" in parts.scheme:
-        # remove @revision from VCS location URLs like "git+https" (see https://github.com/spdx/spdx-spec/blob/cfa1b9d08903/chapters/3-package-information.md#3.7)
-        return "git://" + netloc + parts.path.partition("@")[0]
-    return "git://" + netloc + parts.path
 
 
 def find_git_repos(rootDir: str, gitDir=".git") -> Iterator[str]:
@@ -163,365 +168,6 @@ def match_namespace(path: str, namespace: str) -> bool:
         return False
     # don't match on partial segments
     return path.startswith(os.path.join(namespace, ""))
-
-
-# Data classes
-@dataclass
-class Namespace:
-    name: str
-    path: str
-    url: str
-    internal_id: Optional[str] = None
-    description: str = ""
-    avatar_url: str = ""
-    public: Optional[bool] = None
-    shared: List[str] = field(default_factory=list)
-
-    def __post_init__(self):
-        if self.url:
-            self.url = validate_url(self.url, "Namespace.url")
-        if self.avatar_url:
-            self.avatar_url = validate_url(self.avatar_url, "Namespace.avatar_url")
-
-
-@dataclass
-class RepositoryMetadata(CommonMetadata):
-    """
-    Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
-    e.g. metadata that found on the repository's GitHub or GitLab project page.
-    """
-
-    license_url: str = ""
-    issues_url: str = ""
-    ci_variables: Optional[dict] = None
-    lastupdate_time: Optional[str] = None
-    lastupdate_digest: Optional[str] = None
-    project_status: Optional[
-        Literal[
-            "concept",
-            "WIP",
-            "suspended",
-            "abandoned",
-            "active",
-            "inactive",
-            "unsupported",
-            "moved",
-        ]
-    ] = None
-
-    def __post_init__(self):
-        super().__post_init__()
-        if self.license_url:
-            self.license_url = validate_url(
-                self.license_url, "RepositoryMetadata.license_url"
-            )
-        if self.issues_url:
-            self.issues_url = validate_url(
-                self.issues_url, "RepositoryMetadata.issues_url"
-            )
-
-    def asdict(self):
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
-    # def get_digest(self) -> str:
-    #     keys = sorted([k in asdict(self) if not k.startswith("lastupdate")]
-    #     prefix = "".join([k[0] for k in keys])
-
-    def set_lastupdate(self) -> None:
-        pass
-
-
-class NotableDict(TypedDict, total=False):
-    type: TypeRefJson
-    artifact: str
-
-
-@dataclass
-class Repository:
-    url: str
-    """URL of the repository using the git:// URL scheme"""
-    path: str
-    """Project path relative to base location of git repositories on the host"""
-    initial_revision: str = ""
-    "Initial commit of the default branch."
-    name: str = ""
-    service: Optional[str] = None
-    "URL of the service hosting this repository."
-    protocols: List[str] = field(default_factory=list)
-    internal_id: Optional[str] = None
-    "Internal identifier from the repository host (e.g., GitHub repository ID)."
-    project_url: str = ""
-    metadata: RepositoryMetadata = field(default_factory=RepositoryMetadata)
-    mirror_of: Optional[str] = None
-    "URL of the original repository if this is a mirror"
-    fork_of: Optional[str] = None
-    "URL of the original repository if this is a fork"
-    private: Optional[bool] = None
-    "True if the repository not publicly accessible."
-    default_branch: str = ""
-    'The default branch of the repository (e.g. "main").'
-    branches: Dict[str, str] = field(default_factory=dict)
-    tags: Dict[str, str] = field(default_factory=dict)
-    notable: Dict[str, NotableDict] = field(default_factory=dict)
-    """Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map"""
-
-    def __post_init__(self):
-        if self.url:
-            # url is stored as git:// URL
-            self.url = get_repository_url(self.url)
-        if self.project_url:
-            self.project_url = validate_url(self.project_url, "Repository.project_url")
-        if self.mirror_of:
-            self.mirror_of = validate_url(self.mirror_of, "Repository.mirror_of")
-        if self.fork_of:
-            self.fork_of = validate_url(self.fork_of, "Repository.fork_of")
-
-        if isinstance(self.metadata, dict):
-            if "avatar_url" in self.metadata:  # migrate deprecated key
-                self.metadata["thumbnail_url"] = self.metadata.pop("avatar_url")
-            self.metadata = RepositoryMetadata(**self.metadata)
-
-    def get_current_commit(self) -> str:
-        """Return the current commit for the default branch."""
-        branch_name = self.default_branch or "main"
-        return self.branches.get(branch_name, "")
-
-    def get_metadata(self, directory: "RepositoryDict") -> dict:
-        if self.mirror_of and self.mirror_of in directory:
-            # merge mirror_of metadata
-            return dict(
-                directory[self.mirror_of].get_metadata(directory),
-                **self.metadata.asdict(),
-            )
-        return self.metadata.asdict()
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values and skip url, (save as the key instead)
-        return {
-            k: (filter_dict(v) if k == "metadata" else v)
-            for k, v in asdict(self).items()
-            if v and k != "url"
-        }
-
-    def git_url(self, preference=()) -> str:
-        "URL to clone the repository using preferred protocol or the first available protocol"
-        preference = preference or self.protocols  # match first protocol if not set
-        url = self.url[len("git://") :]
-        for scheme in preference:
-            if scheme in self.protocols:
-                if scheme == "ssh":
-                    return "git@" + url.replace("/", ":", 1)
-                else:
-                    return scheme + "://" + url
-        return ""
-
-    def artifact_url(self, file_path: str) -> str:
-        "URL to reference a file in the repository as an artifact"
-        return f"{self.url}#:{quote(file_path)}"
-
-    def match_path(self, path: str) -> bool:
-        return match_namespace(self.path, path)
-
-    @property
-    def package_id(self):
-        "URL as a package id"
-        url = self.url[len("git://") :]
-        if url.endswith(".git"):
-            return url[:-4]
-        return url
-
-    # match url and path?
-    # def get_namespace(self, directory) -> Optional[Namespace]:
-    #     path.split("/")
-
-    def update_branch(self, repo: GitRepo, branch: str = ""):
-        if not branch:
-            branch = self.get_default_branch()
-        self.branches[branch] = repo.revision
-
-    def add_notables(self, notables: List["Notable"]) -> None:
-        notables.sort(key=attrgetter("path"))
-        self.notable = {n.path: n.asdict() for n in notables}
-
-    def get_default_branch(self):
-        return self.default_branch or "main"
-
-
-ArtifactDict = Dict[str, Artifact]
-
-
-@dataclass
-class ServiceMetadata(CommonMetadata):
-    """Human-readable metadata about a service."""
-
-
-@dataclass
-class ServicePolicies:
-    """Service policies and legal information."""
-
-    spdx_licenses: str = ""
-    terms_of_service: str = ""
-    privacy_policy: str = ""
-
-    def __post_init__(self):
-        if self.terms_of_service:
-            self.terms_of_service = validate_url(
-                self.terms_of_service, "ServicePolicies.terms_of_service"
-            )
-        if self.privacy_policy:
-            self.privacy_policy = validate_url(
-                self.privacy_policy, "ServicePolicies.privacy_policy"
-            )
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
-
-@dataclass
-class Service:
-    """A service instance."""
-
-    url: str
-    """URL of the service"""
-    type: TypeRefs = field(default_factory=TypeRefs)
-    """Type identifiers from types with optional version constraints"""
-    access: Optional[Literal["public", "private", "none", ""]] = ""
-    "Access to the service (who can resolve the URL)."
-    endpoints: TypedUrls = field(default_factory=dict)
-    """Service endpoints"""
-    connections: TypedUrls = field(default_factory=dict)
-    "Services this service connects to during operation."
-    status: Optional[LifecycleStatus] = None
-    """Lifecycle status of the service"""
-    metadata: ServiceMetadata = field(default_factory=ServiceMetadata)
-    policies: ServicePolicies = field(default_factory=ServicePolicies)
-    instantiated_by: List[str] = field(default_factory=list)
-    """List of URLs referencing an entry in instantiations."""
-    discovery: Optional[Discovery] = None
-    """Metadata discovery information (last_checked, sources)"""
-    release_schedule: List[ScheduledRelease] = field(default_factory=list)
-    """Release schedule information for this service"""
-    versions: Dict[str, "Service"] = field(default_factory=dict)
-    """Services that are variants of this service (for example, different versions or environments)"""
-    _parent: InitVar[Optional["Service"]] = None
-
-    def __post_init__(self, _parent: Optional["Service"] = None):
-        if self.url:
-            self.url = validate_url(self.url, "Service.url")
-
-        if isinstance(self.metadata, dict):
-            self.metadata = ServiceMetadata(**self.metadata)
-        if isinstance(self.policies, dict):
-            self.policies = ServicePolicies(**self.policies)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
-        if isinstance(self.type, dict):
-            self.type = TypeRefs(types=self.type)
-        self.release_schedule = [
-            ScheduledRelease(**item) if isinstance(item, dict) else item
-            for item in self.release_schedule
-        ]
-        self.endpoints = TypeRefs.urls_fromdict(self.endpoints)
-        self.connections = TypeRefs.urls_fromdict(self.connections)
-        # Convert versions dict entries to Service instances if they're still dicts
-        if self.versions:
-            new_versions: Dict[str, Service] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Service):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    # XXX inherit more attributes
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Service(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
-        self._parent = _parent  # type: ignore # (don't mark as field to exclude from asdict)
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        result = {}
-        for k, v in asdict(self).items():
-            if k == "url":
-                continue  # skip url, save as the key instead
-            if k == "metadata":
-                v = filter_dict(v)
-            elif k == "policies":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
-                v = filter_dict(v)
-            elif k == "type" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "endpoints":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "connections":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "release_schedule" and v:
-                v = [filter_dict(item) for item in v]
-            elif k == "versions" and v:
-                # Convert nested Service instances to dicts
-                v = {
-                    url: (svc.asdict() if isinstance(svc, Service) else svc)
-                    for url, svc in v.items()
-                }
-
-            # exclude empty values and values inherited from parent
-            if v and (
-                not self._parent or v != getattr(self._parent, k)  # type: ignore
-            ):
-                result[k] = v
-        return result
-
-
-@dataclass
-class CloudType:
-    """A type definition for artifacts, services, software, or capabilities."""
-
-    name: str
-    """Fully-qualified type name with namespace"""
-    kind: Literal["Component", "Artifact", "Capability"]
-    source: str = ""
-    """Artifact containing type definition"""
-    extends: List[str] = field(default_factory=list)
-    """List of fully-qualified type names that this type extends"""
-    implementations: List[str] = field(default_factory=list)
-    """Non-exhaustive list URLs to repositories or artifacts that implement this type."""
-    status: Optional[
-        Literal["draft", "experimental", "stable", "deprecated", "removed"]
-    ] = None
-    """Maturity level of the type definition"""
-    model: str = ""
-    """URL of artifact or service to use as a model for instances of this type"""
-    metadata: CommonMetadata = field(default_factory=CommonMetadata)
-    """Additional metadata about the type"""
-
-    def __post_init__(self):
-        if self.source:
-            self.source = validate_url(self.source, "CloudType.source")
-        if self.model:
-            self.model = validate_url(self.model, "CloudType.model")
-        # Convert metadata dict to CommonMetadata object if needed
-        if isinstance(self.metadata, dict):
-            self.metadata = CommonMetadata(**self.metadata)
-
-    def asdict(self) -> Dict[str, Any]:
-        result = {}
-        for k, v in asdict(self).items():
-            if k == "metadata":
-                v = filter_dict(v)
-            if v:  # exclude empty values
-                result[k] = v
-        return result
-
-
-ServiceDict = Dict[str, Service]
-CloudTypeDict = Dict[str, CloudType]
-RepositoryDict = Dict[str, Repository]
 
 
 def force_merge_local_and_push_to_remote(
@@ -556,359 +202,6 @@ def force_merge_local_and_push_to_remote(
         logger.info(f"pushed to {sanitize_url(remote.url, True)}: {pushinfo.summary}")
 
 
-T = TypeVar("T", bound="Notable")
-
-
-class Notable:
-    files: Sequence[str] = ()
-    folders: Sequence[str] = ()
-    artifact_type = EntitySchema.GenericFile
-
-    def __init__(
-        self,
-        folder: str,
-        file: str,
-        digest: str = "",
-    ):
-        self.folder = folder
-        self.file = file
-        self.digest = digest
-        self.fragment = ""
-        self.artifact_id: Optional[str] = (
-            None  # Artifact ID when added to directory.db.artifacts
-        )
-
-    def analyze(
-        self, directory: "Directory", repo_info: Repository, root_path: str
-    ) -> Optional[Artifact]:
-        directory.logger.debug("analyzing %s with %s", self.file, self)
-        return None
-
-    @property
-    def path(self) -> str:
-        if self.file:
-            path = os.path.join(self.folder, self.file)
-            if self.fragment:
-                return path + "#" + self.fragment
-            return path
-        else:
-            return self.folder
-
-    @classmethod
-    def _exist_in_folder(cls, folder: str, notables: List["Notable"]):
-        for n in notables:
-            if cls is n.__class__ and n.folder == folder:
-                return True
-        return False
-
-    @classmethod
-    def init(
-        cls: Type[T],
-        folder: str,
-        file: str,
-        digest: str = "",
-    ) -> Optional[T]:
-        return cls(folder, file, digest)
-
-    def asdict(self) -> NotableDict:
-        metadata = NotableDict(type={self.artifact_type: None})
-        if self.artifact_id:
-            metadata["artifact"] = self.artifact_id
-        return metadata
-
-
-class ContainerBuilderNotable(Notable):
-    files = ("Containerfile", "Dockerfile")
-    artifact_type = EntitySchema.ContainerFile
-
-    def __init__(
-        self,
-        folder: str,
-        file: str,
-        digest: str = "",
-    ) -> None:
-        super().__init__(folder, file, digest)
-
-
-class UnfurlNotable(Notable):
-    files = [
-        DefaultNames.LocalConfig,
-        DefaultNames.EnsembleTemplate,
-        DefaultNames.Ensemble,
-        "dummy-ensemble.yaml",  # DefaultNames.ServiceTemplate,  # XXX fix unfurl-types hack
-    ]
-    folders = [DefaultNames.ProjectDirectory, DefaultNames.EnsembleDirectory]
-
-    def __init__(
-        self,
-        folder: str,
-        file: str,
-        digest: str = "",
-    ) -> None:
-        super().__init__(folder, file, digest)
-        # XXX set readonly=True after adding representers for AnsibleUnicode etc.
-
-    def analyze(
-        self, directory: "Directory", repo_info: Repository, root_path: str
-    ) -> Optional[Artifact]:
-        logger = directory.logger
-        path = os.path.join(root_path, self.folder, self.file)
-        logger.verbose("analyzing %s", path)
-        localenv = LocalEnv(
-            path,
-            can_be_empty=True,
-            parent=directory.cloudmap.local_env,
-        )
-        artifact: Optional[Artifact] = None
-        if localenv.manifestPath:
-            self.artifact_type = self._get_artifacttype(localenv.manifestPath)
-            manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
-            rel_path = str(Path(localenv.manifestPath).relative_to(Path(root_path)))
-            self.folder, self.file = os.path.split(rel_path)
-            spec = assert_not_none(manifest.tosca)
-            if self.artifact_type == EntitySchema.CloudBlueprint:
-                self.fragment = spec.fragment
-            metadata = cast(dict, spec.template.tpl).get("metadata") or {}
-
-            # Extract template metadata
-            template_name = metadata.get("template_name", "")
-            template_version = metadata.get("template_version", "")
-            template_description = spec.template.description or ""
-
-            node = self._get_root_node(spec)
-            # schema_repo = manifest.repositories.get("types")
-            # schema = schema_repo.url.strip(":") if schema_repo else ""
-
-            # Prepare type_info and dependencies
-            type_info = None
-            typename = ""
-            dependencies: dict[str, TypeName] = {}
-            child_artifacts: Dict[str, Optional[TypeRefs]] = {}
-
-            if node:
-                types = ResourceTypesByName(
-                    repo_info.package_id, spec.template.topology_template.custom_defs
-                )
-                type_info = self.get_type_info(
-                    node.topology,
-                    types,
-                    assert_not_none(node.toscaEntityTemplate.type_definition),
-                )
-                typename = type_info.get("name", "")
-
-                dependencies = self.find_dependencies(node, types)
-                deployment_blueprints = manifest.get_deployment_blueprints()
-                dependencies.update(
-                    {
-                        name: tpl["cloud"]
-                        for name, tpl in deployment_blueprints.items()
-                        if tpl.get("cloud")
-                    }
-                )
-                # Handle container image dependency
-                image = self.find_image_dependency(node)
-                if image:
-                    # XXX directory.add_credentials(image)
-                    image_artifact = directory.db.add_image_artifact(image)
-                    purl = image_artifact.url
-                    child_artifacts[purl] = None
-
-            artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
-
-            # Create main artifact using helper method
-            artifact, cloud_type = CloudMapDB.create_artifact_from_notable(
-                artifact_pkg=artifact_url,
-                artifact_type=self.artifact_type,
-                name=template_name,
-                version=template_version,
-                description=template_description,
-                thumbnail=repo_info.metadata.thumbnail_url,
-                artifacts=child_artifacts,
-                dependencies={
-                    name: TypeRefs({v: None}) for name, v in dependencies.items()
-                },
-                type_info=type_info,
-                types_dict=directory.db.types,
-                digest=self.digest,
-            )
-
-            # Add CloudType if created
-            if cloud_type:
-                directory.db.types[cloud_type.name] = cloud_type
-
-            # Create CloudTypes for dependencies
-            if node:
-                for dep_typename in dependencies.values():
-                    # Check if type already exists
-                    if dep_typename not in directory.db.types:
-                        # Get type information for dependency type
-                        type_def = node.topology.find_type(dep_typename)
-                        if type_def:
-                            dep_type_info = self.get_type_info(
-                                node.topology, types, type_def
-                            )
-
-                            dep_cloud_type = (
-                                CloudMapDB.create_cloud_type_from_type_info(
-                                    dep_type_info, directory.db.types
-                                )
-                            )
-                            if dep_cloud_type:
-                                directory.db.types[dep_cloud_type.name] = dep_cloud_type
-
-            # Add to directory artifacts
-            directory.db.artifacts[artifact_url] = artifact
-
-            # Create Instantiation and Service for Ensemble artifacts
-            if self.artifact_type == EntitySchema.Ensemble and typename:
-                self._create_ensemble_instantiation_and_service(
-                    manifest, repo_info, directory, typename, artifact
-                )
-
-            # Store artifact ID for repository notable
-            self.artifact_id = artifact_url
-        else:
-            self.artifact_type = EntitySchema.UnfurlProject
-        return artifact
-
-    def get_type_info(
-        self,
-        topology: TopologySpec,
-        types: ResourceTypesByName,
-        entity_type: StatefulEntityType,
-    ):
-        dep_type_info = None
-        dep_type_dict = cast(
-            Optional[dict],
-            node_type_to_graphql(
-                topology,
-                entity_type,
-                types,
-                True,
-            ),
-        )
-        if dep_type_dict:
-            dep_type_dict.pop("__typename", None)
-            dep_type_info = filter_dict(dep_type_dict)
-
-        # Fallback to minimal CloudType if type not found in custom_defs
-        if not dep_type_info:
-            dep_type_info = {
-                "name": entity_type.global_name,
-                "title": entity_type.local_name,
-            }
-
-        return dep_type_info
-
-    @classmethod
-    def init(
-        cls,
-        folder: str,
-        file: str,
-        digest: str = "",
-    ) -> Optional["UnfurlNotable"]:
-        try:
-            return UnfurlNotable(folder, file, digest)
-        except UnfurlError:
-            logger.info("analysis failed for %s", file, exc_info=True)
-            return None
-
-    def find_dependencies(
-        self, node: NodeSpec, types: ResourceTypesByName
-    ) -> Dict[str, TypeName]:
-        return {
-            name: types.expand_typename(req.get("node"))
-            for name, req in cast(
-                NodeTemplate, node.toscaEntityTemplate
-            ).missing_requirements.items()
-        }
-
-    def find_image_dependency(self, node: NodeSpec) -> Optional[ContainerImage]:
-        # hacky, only works with ContainerServices
-        container_service = node.get_relationship("container")
-        if container_service and container_service.target:
-            image_name = container_service.target.properties.get("container", {}).get(
-                "image"
-            )
-            if image_name:
-                # remove any {{ }} templating
-                image = ContainerImage.make(re.sub(r"\{\{.*\}\}", "", image_name))
-                if image:
-                    return image
-        return None
-
-    def _create_ensemble_instantiation_and_service(
-        self,
-        manifest: "YamlManifest",
-        repo_info: Repository,
-        directory: "Directory",
-        typename: str,
-        artifact: "Artifact",
-    ) -> None:
-        """
-        Create an Instantiation and Service for Ensemble artifacts.
-
-        Args:
-            manifest: The YamlManifest object for the ensemble
-            repo_info: Repository information
-            directory: Directory object to add instantiation and service to
-            artifact: The ensemble artifact
-        """
-        # Get spec repository for source information
-        spec_repo_view = manifest.repositories.get("spec")
-
-        # XXX add inputs from repositories and lock section
-        instantiation = Instantiation(
-            url=artifact.url,
-            revision=repo_info.get_current_commit(),
-            type=TypeRefs(types={EntitySchema.Ensemble: None}),
-            inputs=artifact.notable,
-        )
-        instantiation_url = instantiation.url
-        if spec_repo_view:
-            instantiation.source = (
-                get_repository_url(spec_repo_view.url)
-                + f"#:{get_blueprint_path(manifest)}"
-            )
-            instantiation.source_revision = spec_repo_view.get_current_commit()
-
-        # Get deployment URL from manifest
-        deployment_url = get_deployment_url(manifest, None)
-        if not deployment_url:
-            deployment_url = manifest.uri
-
-        # Create Service if we have a deployment URL
-        # XXX add connections
-        if deployment_url:
-            service = Service(
-                url=deployment_url,
-                type=TypeRefs(types={typename: None}),
-                instantiated_by=[instantiation_url],
-            )
-            directory.db.services[deployment_url] = service
-            instantiation.instantiated = {deployment_url: None}
-
-        # Add Instantiation to directory
-        directory.db.instantiations[instantiation_url] = instantiation
-
-    def _get_artifacttype(self, path: str) -> str:
-        if path.endswith(DefaultNames.EnsembleTemplate):
-            return EntitySchema.CloudBlueprint
-        elif path.endswith("dummy-ensemble.yaml"):
-            return EntitySchema.TOSCASchema
-        else:
-            return EntitySchema.Ensemble
-
-    def _get_root_node(self, spec: ToscaSpec) -> Optional[NodeSpec]:
-        topology = spec.template.topology_template
-        assert topology
-        node = topology.substitution_mappings and topology.substitution_mappings.node
-        if node:
-            assert spec.topology
-            return spec.topology.get_node_template(node)
-        return None
-
-
 class Analyzer:
     max_analyze_depth = 4
 
@@ -925,10 +218,9 @@ class Analyzer:
         for folder in cls.folders:
             self.folders[folder] = cls
 
-    def analyze_local(self, root_dir: str) -> List[Notable]:
-        # currently unused
+    def analyze_local(self, root_dir: str, start_path: str) -> List[Notable]:
         notables: List[Notable] = []
-        for root, dirs, files in os.walk(root_dir):
+        for root, dirs, files in os.walk(start_path):
             notable = None
             notable_cls = None
             notables_found: List[Type[Notable]] = []
@@ -941,14 +233,43 @@ class Analyzer:
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
-                notable_cls = self.files.get(filename)
-                if notable_cls and notable_cls not in notables_found:
+                file_cls = self.files.get(filename)
+                if file_cls and file_cls not in notables_found:
+                    notable_cls = file_cls
                     notable = notable_cls.init(rel_root, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
                 notables_found.append(notable_cls)
         return notables
+
+    def analyze_path(self, file_path: str, root_dir: str = "") -> List[Notable]:
+        """Analyze a single file or directory path for notables.
+
+        If the path points to a directory under root_dir, delegates to analyze_local().
+        Otherwise, matches the filename against registered Notable classes.
+
+        Args:
+            file_path: Relative path to analyze (e.g. "path/to/Dockerfile").
+            root_dir: Root directory of the repository on disk (for directory analysis).
+
+        Returns:
+            List of Notable instances found (empty if no match).
+        """
+        # If root_dir is available and the path is a directory, walk it
+        if root_dir:
+            full_path = os.path.join(root_dir, file_path)
+            if os.path.isdir(full_path):
+                return self.analyze_local(root_dir, full_path)
+
+        # Try to match a single file or folder name
+        dirname, filename = os.path.split(file_path)
+        notable_cls = self.files.get(filename) or self.folders.get(filename)
+        if notable_cls:
+            notable_inst = notable_cls.init(dirname, filename)
+            if notable_inst:
+                return [notable_inst]
+        return []
 
     def analyze_repo_tree(
         self,
@@ -968,14 +289,14 @@ class Analyzer:
             if item.type == "tree":
                 notable_cls = self.folders.get(filename)
                 if notable_cls:
-                    # if notable_cls not in notables_found:
+                    # XXX if notable_cls not in notables_found:
                     digest = f"git:tree:{item.hexsha}"
                     notable = notable_cls.init(cast(str, item.path), "", digest)
                 else:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
-                if notable_cls:  # and notable_cls not in notables_found:
+                if notable_cls:  # XXX and notable_cls not in notables_found:
                     digest = f"git:blob:{item.hexsha}"
                     notable = notable_cls.init(dirname, filename, digest)
             if notable:
@@ -990,33 +311,37 @@ class _LocalGitRepos:
         self, local_repo_root: str = "", _logger: Optional[UnfurlLogger] = None
     ) -> None:
         self.logger = _logger or logger
-        self._set_repos(os.path.expanduser(local_repo_root))
-
-    def _add_repo(self, working_dir: str) -> Optional[GitRepo]:
-        gitrepo = git.Repo(working_dir)
-        repo = GitRepo(gitrepo)
-        if not repo.remote:
-            self.logger.debug(f"skipping git repo in {working_dir}: no remote set")
-        else:
-            for remote in gitrepo.remotes:
-                if not remote.url:
-                    continue
-                url = get_repository_url(remote.url)
-                self.remotes.setdefault(url, []).append(remote)
-                self.logger.trace(f"found git repo {url} in {working_dir}")
-            self.repos[working_dir] = repo
-        return None
-
-    def _set_repos(self, root: str) -> None:
-        # note: there can be a many to many relationship between upstream and local repos
         # Repository url => remotes
         self.remotes: Dict[str, List[git.Remote]] = {}
         # working_dir => repo
         self.repos: Dict[str, GitRepo] = {}
+        self._set_repos(os.path.expanduser(local_repo_root))
+
+    def _add_repo(self, repo: GitRepo) -> Optional[GitRepo]:
+        working_dir = repo.working_dir
+        if not repo.remote:
+            self.logger.debug(f"skipping git repo in {working_dir}: no remote set")
+        elif working_dir not in self.repos:
+            gitrepo: git.Repo = repo.repo
+            for remote in gitrepo.remotes:
+                if not remote.url:
+                    continue
+                url = get_repository_url(remote.url)
+                remotes = self.remotes.setdefault(url, [])
+                if remote not in remotes:
+                    remotes.append(remote)
+                self.logger.trace(f"found git repo {url} in {working_dir}")
+            self.repos[working_dir.rstrip("/")] = repo
+        return None
+
+    def _set_repos(self, root: str) -> None:
+        # note: there can be a many to many relationship between upstream and local repos
         if root:
             self.logger.debug(f"looking for repos in {root}")
             for working_dir in find_git_repos(root):
-                self._add_repo(working_dir)
+                gitrepo = git.Repo(working_dir)
+                repo = GitRepo(gitrepo)
+                self._add_repo(repo)
         self.repos_root = root
 
     @staticmethod
@@ -1037,7 +362,7 @@ class _LocalGitRepos:
         if remotes:
             # find best candidate
             remote = self._choose_remote(remotes, hint)
-            return self.repos[cast(str, remote.repo.working_tree_dir)]
+            return self.repos[cast(str, remote.repo.working_tree_dir).rstrip("/")]
         return None
 
 
@@ -1050,105 +375,6 @@ class CloudMapDB:
 
     def __init__(self, path=".", contents=None, validate: bool = True) -> None:
         self._load(path, contents, validate)
-
-    @staticmethod
-    def create_cloud_type_from_type_info(
-        type_info: Dict[str, Any], types_dict: Optional[CloudTypeDict] = None
-    ) -> Optional[CloudType]:
-        """
-        Create a CloudType from type_info dict if it doesn't already exist.
-
-        Args:
-            type_info: Dict with 'name', 'title', 'extends' keys
-            types_dict: Optional dict to check for existing types
-
-        Returns:
-            CloudType if created, None if type_info is empty or type already exists
-        """
-        type_name = type_info.get("name", "")
-        if not type_name:
-            return None
-
-        # Don't create if it already exists
-        if types_dict and type_name in types_dict:
-            return None
-
-        metadata = CommonMetadata()
-        if type_info.get("title"):
-            metadata.title = type_info["title"]
-
-        return CloudType(
-            name=type_name,
-            kind="Component",  # XXX inferred from artifact_type
-            metadata=metadata,
-            extends=type_info.get("extends", []),
-        )
-
-    @staticmethod
-    def create_artifact_from_notable(
-        artifact_pkg: str,
-        artifact_type: str,
-        name: str = "",
-        version: str = "",
-        description: str = "",
-        thumbnail: str = "",
-        artifacts: Optional[Dict[str, Optional[TypeRefs]]] = None,
-        dependencies: Optional[TypedUrls] = None,
-        type_info: Optional[Dict[str, Any]] = None,
-        types_dict: Optional[CloudTypeDict] = None,
-        digest: str = "",
-    ) -> Tuple[Artifact, Optional[CloudType]]:
-        """
-        Create an Artifact from notable metadata fields.
-
-        Args:
-            artifact_pkg: Package URL for the artifact
-            artifact_type: Type identifier for the artifact
-            name: Human-readable name (maps to metadata.title)
-            version: Version string (maps to metadata.version)
-            description: Description (maps to metadata.description)
-            thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
-            artifacts: Map of artifact IDs this artifact references (maps to notable)
-            dependencies: List of dependencies (maps to requires)
-            type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
-            types_dict: Optional dict to check for existing types
-            digest: Digest of the artifact (e.g., "git:blob:abc123")
-
-        Returns:
-            Tuple of (Artifact, Optional[CloudType]) - CloudType is returned if created
-        """
-        # Build artifact metadata
-        metadata = ArtifactMetadata(
-            title=name,
-            version=version,
-            description=description,
-            thumbnail_url=thumbnail,
-        )
-
-        # Handle type field: create CloudType and add to instantiates
-        instantiates = TypeRefs()
-        cloud_type = None
-        if type_info and isinstance(type_info, dict):
-            cloud_type = CloudMapDB.create_cloud_type_from_type_info(
-                type_info, types_dict
-            )
-            type_name = type_info.get("name", "")
-            if type_name:
-                # Add to artifact's instantiates
-                instantiates.add(type_name)
-
-        # Create the artifact
-        artifact = Artifact(
-            url=artifact_pkg,
-            type=TypeRefs({artifact_type: None}),
-            notable=artifacts or {},
-            instantiates=instantiates,
-            dependencies=dependencies or {},
-            metadata=metadata,
-            digest=digest,
-        )
-
-        return artifact, cloud_type
 
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
         """Get a repository by its key (URL)."""
@@ -1163,7 +389,7 @@ class CloudMapDB:
         return found
 
     def cloudmap_to_git_url(self, cloudmap_url: str) -> Optional[str]:
-        "Convert cloudmap: pseudo-URL to resolvable (e.g. https://) git URL."
+        "Convert 'cloudmap:<package_id>' pseudo-URLs to resolvable (e.g. https://) git URL."
         # call split_git_url to parse the #fragment
         repo_url, filePath, revision = split_git_url(cloudmap_url)
         found_prefix = ""
@@ -1200,12 +426,28 @@ class CloudMapDB:
             instantiation: Instantiation object to add (id is auto-generated if not set)
 
         Returns:
-            ISO 8601 timestamp key from instantiation.id
+            The unique key (URL) of the added instantiation
         """
         # The id is auto-generated in Instantiation.__post_init__ if not set
         key = instantiation.url
         self.instantiations[key] = instantiation
         return key
+
+    def add_artifact(self, artifact: Artifact) -> str:
+        # Add artifact to database
+        self.artifacts[artifact.url] = artifact
+        return artifact.url
+
+    def add_service(self, service: Service) -> str:
+        self.services[service.url] = service
+        return service.url
+
+    def get_type(self, name: str) -> Optional[CloudType]:
+        return self.types.get(name)
+
+    def add_type(self, cloud_type: CloudType) -> str:
+        self.types[cloud_type.name] = cloud_type
+        return cloud_type.name
 
     def add_image_artifact(self, image: "ContainerImage") -> Artifact:
         """
@@ -1229,62 +471,6 @@ class CloudMapDB:
 
         return artifact
 
-    def _migrate_old_notable_format(self, repo: Repository) -> List[str]:
-        """
-        Migrate old Repository.notable dictionary format to new List[str] format.
-
-        Creates Artifact instances from old inline notable definitions and adds them
-        to self.artifacts and self.types.
-
-        Args:
-            repo: Repository with potentially old-format notable dict
-
-        Returns:
-            Notable converted to artifact IDs
-        """
-        migrated_artifact_ids = []
-        for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
-            if "artifact_type" in notable_dict:
-                # Create artifact pkg from repository URL + file path
-                artifact_pkg = repo.artifact_url(file_path)
-
-                # Create artifact using helper method
-                artifact, cloud_type = self.create_artifact_from_notable(
-                    artifact_pkg=artifact_pkg,
-                    artifact_type=notable_dict.pop("artifact_type", ""),
-                    name=notable_dict.pop("name", ""),
-                    version=str(notable_dict.pop("version", "") or ""),
-                    description=notable_dict.pop("description", ""),
-                    thumbnail=notable_dict.pop("thumbnail_url", "")
-                    or repo.metadata.thumbnail_url,
-                    artifacts={
-                        build_oci_purl(ContainerImage.split(ref)): None
-                        for ref in notable_dict.pop("artifacts", [])
-                    },
-                    dependencies={
-                        "": TypeRefs(
-                            {v: None for v in notable_dict.pop("dependencies", [])}
-                        )
-                    },
-                    type_info=notable_dict.pop("type", None),
-                    types_dict=self.types,
-                )
-                while notable_dict:
-                    notable_dict.popitem()  # remove any remaining old fields
-                # update notable to new format:
-                notable_dict["type"] = artifact.type
-                notable_dict["artifact"] = artifact_pkg
-
-                # Add CloudType if created
-                if cloud_type:
-                    self.types[cloud_type.name] = cloud_type
-
-                # Add to artifacts dict
-                self.artifacts[artifact_pkg] = artifact
-                migrated_artifact_ids.append(artifact_pkg)
-
-        return migrated_artifact_ids
-
     def _load(self, path: str, contents=None, validate: bool = True) -> None:
         if os.path.isdir(path):
             path = os.path.join(path, self.DEFAULT_NAME)
@@ -1295,6 +481,9 @@ class CloudMapDB:
             validate,
             schema=os.path.join(_basepath, "cloudmap-schema.json"),
         )
+        # Cloudmap URLs can be very long; prevent ruamel.yaml from using
+        # explicit key syntax ("? key\n:") by raising the simple key limit.
+        self.config.yaml.emitter.MAX_SIMPLE_KEY_LENGTH = 1024
         db = self.config.config
         assert isinstance(db, dict)
         self.metadata = cast(Dict[str, Any], db.get("metadata") or {})
@@ -1321,7 +510,9 @@ class CloudMapDB:
             repo = Repository(url=r.pop("git", url), **r)
             # Backwards compatibility: migrate old notable dictionary format to new format
             if isinstance(repo.notable, dict):
-                self._migrate_old_notable_format(repo)
+                from .notables import migrate_old_notable_format
+
+                migrate_old_notable_format(self, repo)
             self.add_repository(repo)
 
         # Load services
@@ -1357,39 +548,69 @@ class CloudMapDB:
         assert self.config.path
         self._load(self.config.path)
 
-    def save(self):
+    def save(self) -> bool:
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
-        self.db.pop("metadata", None)
+        changed = False
+        old_metadata = self.db.pop("metadata", None)
         if self.metadata:
-            self.db["metadata"] = {k: self.metadata[k] for k in sorted(self.metadata)}
-        self.db["repositories"] = {
+            new_metadata = {k: self.metadata[k] for k in sorted(self.metadata)}
+            if new_metadata != old_metadata:
+                changed = True
+            self.db["metadata"] = new_metadata
+        elif old_metadata:
+            changed = True
+
+        old_repositories = self.db.pop("repositories", None)
+        new_repositories = {
             k: self.repositories[k].asdict() for k in sorted(self.repositories)
         }
-        self.db.pop("artifacts", None)
+        if new_repositories != old_repositories:
+            changed = True
+        self.db["repositories"] = new_repositories
+
+        old_artifacts = self.db.pop("artifacts", None)
         if self.artifacts:
-            self.db["artifacts"] = {
+            new_artifacts = {
                 url: val.asdict()
                 for url, val in sorted(self.artifacts.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("services", None)
+            if new_artifacts != old_artifacts:
+                changed = True
+            self.db["artifacts"] = new_artifacts
+        elif old_artifacts:
+            changed = True
+
+        old_services = self.db.pop("services", None)
         if self.services:
-            self.db["services"] = {
+            new_services = {
                 url: val.asdict()
                 for url, val in sorted(self.services.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("instantiations", None)
+            if new_services != old_services:
+                changed = True
+            self.db["services"] = new_services
+        elif old_services:
+            changed = True
+
+        old_instantiations = self.db.pop("instantiations", None)
         if self.instantiations:
-            self.db["instantiations"] = {
+            new_instantiations = {
                 key: val.asdict()
                 for key, val in sorted(self.instantiations.items())
                 if not val._parent  # type: ignore[attr-defined]
             }
-        self.db.pop("types", None)
+            if new_instantiations != old_instantiations:
+                changed = True
+            self.db["instantiations"] = new_instantiations
+        elif old_instantiations:
+            changed = True
+
+        old_types = self.db.pop("types", None)
         if self.types:
-            self.db["types"] = {
+            new_types = {
                 name: (
                     self.types[name].asdict()
                     if isinstance(self.types[name], CloudType)
@@ -1397,22 +618,22 @@ class CloudMapDB:
                 )
                 for name in sorted(self.types)
             }
+            if new_types != old_types:
+                changed = True
+            self.db["types"] = new_types
+        elif old_types:
+            changed = True
+
         self.config.save()
+        return changed
 
     def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
         if not artifact_type:
             return [a for a in self.artifacts.values() if a.type == artifact_type]
         return self.artifacts.values()
 
-    def get_type(self, name: str) -> Optional[CloudType]:
-        return self.types.get(name)
-
 
 class Directory(_LocalGitRepos):
-    """
-    Loads and saves a yaml file
-    """
-
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(
@@ -1426,14 +647,60 @@ class Directory(_LocalGitRepos):
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         self.cloudmap = cloudmap
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
+        if cloudmap.local_env:
+            for repo in cloudmap.local_env._get_repos():
+                if isinstance(repo, GitRepo):
+                    self._add_repo(repo)
         self.do_analysis = not skip_analysis
 
         # Start with default Notable classes and add custom analyzers from cloudmap
-        notable_classes: List[Type[Notable]] = [UnfurlNotable, ContainerBuilderNotable]
+        from .notables import Notables
+
+        notable_classes: List[Type[Notable]] = list(Notables)
         # note: these will override built-in analyzers if register the same files and folders types
         notable_classes.extend(cloudmap.custom_analyzers)
 
         self.analyzer = Analyzer(notable_classes, self.logger)
+
+    # --- CloudMapView implementation ---
+
+    @property
+    def _local__env(self) -> Optional["LocalEnv"]:
+        return self.cloudmap.local_env
+
+    def add_record(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    ) -> Optional[Union[Repository, Artifact, Service]]:
+        return self.cloudmap.add_record(url, analyze)
+
+    def add_artifact(self, artifact: Artifact) -> str:
+        return self.db.add_artifact(artifact)
+
+    def get_artifact(self, url: str) -> Optional[Artifact]:
+        return self.db.get_artifact(url)
+
+    def add_service(self, service: Service) -> str:
+        return self.db.add_service(service)
+
+    def get_service(self, url: str) -> Optional[Service]:
+        return self.db.get_service(url)
+
+    def add_instantiation(self, instantiation: Instantiation) -> str:
+        return self.db.add_instantiation(instantiation)
+
+    def get_instantiation(self, url: str) -> Optional[Instantiation]:
+        return self.db.get_instantiation(url)
+
+    def add_image_artifact(self, image: "ContainerImage") -> Artifact:
+        return self.db.add_image_artifact(image)
+
+    def add_type(self, cloud_type: CloudType) -> str:
+        return self.db.add_type(cloud_type)
+
+    def get_type(self, name: str) -> Optional[CloudType]:
+        return self.db.get_type(name)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
@@ -1443,7 +710,7 @@ class Directory(_LocalGitRepos):
             repo_info = self.db.get_repository(url)
             if repo_info and host.has_repository(repo_info):
                 remote = self._choose_remote(remotes, host.name)
-                working_dir = cast(str, remote.repo.working_tree_dir)
+                working_dir = cast(str, remote.repo.working_tree_dir).rstrip("/")
                 yield remote, self.repos[working_dir], repo_info
 
     def find_mismatched_repo(self, host: "RepositoryHost") -> Optional[GitRepo]:
@@ -1474,10 +741,13 @@ class Directory(_LocalGitRepos):
 
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
         # XXX handle conflict when same path, different host
+        assert self.repos_root
         download_path = str(Path(self.repos_root) / repo_info.path)
         self.logger.verbose(f"cloning {sanitize_url(url)} to {download_path}")
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
-        return GitRepo(repo)
+        gitrepo = GitRepo(repo)
+        self._add_repo(gitrepo)
+        return gitrepo
 
     def analyze_repo(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
         notables: List[Notable] = []
@@ -1525,15 +795,20 @@ class Directory(_LocalGitRepos):
         notables = self.analyze_repo(repo_info, repo)
         for n in notables:
             artifact = n.analyze(self, repo_info, repo.working_dir)
-            # XXX
-            # if artifact and artifact.source:
-            #     url = artifact.source.location
-            #     if url and not self.db.find_repository(url):
-            #         host = self.cloudmap.get_host_for_url(url)
-            #         if host:
-            #             host.import_project_url(url, self, download=False)
+            if artifact:
+                # XXX what to do if self.db.get_artifact(artifact.url)?
+                # (currently we want to give this priority for the git digest)
+                self.db.add_artifact(artifact)
+                url = artifact.metadata.source_url
+                if (
+                    url
+                    and CloudMap._is_git_url(url)
+                    and not self.db.get_repository(url)
+                ):
+                    self.cloudmap.add_record(url, "no")
         repo_info.add_notables(notables)
         return notables
+
 
 class RepositoryHost:
     name: str = ""
@@ -1543,17 +818,22 @@ class RepositoryHost:
     repo_filter: str = ""
     hostname: str = ""
 
+    MAX_GIT_REFS = 100
+    DEFAULT_PIPELINE_LIMIT = 50
+
     def __init__(
         self,
         name: str,
         namespace: str,
         repo_filter: str,
         logger: UnfurlLogger,
+        host_branch: Optional[str] = None,
     ) -> None:
         self.name = name
         self.path = namespace
         self.repo_filter = get_repository_url(repo_filter) if repo_filter else ""
         self.logger = logger
+        self.host_branch = f"hosts/{name}" if host_branch is None else host_branch
 
     def from_host(self, directory: Directory) -> int:
         """
@@ -1574,9 +854,9 @@ class RepositoryHost:
 
     def import_project_url(
         self, url: str, directory: Directory, download: bool
-    ) -> None:
+    ) -> Optional[Repository]:
         """Import a project from the given URL into the directory."""
-        pass
+        return None
 
     def extract_project_path(self, url: str) -> str:
         if ":" in url:
@@ -1611,7 +891,7 @@ class RepositoryHost:
 
     def fetch_repo(
         self, push_url: str, dest: Repository, local: "Directory"
-    ) -> Tuple[GitRepo, bool]:
+    ) -> Tuple[Optional[GitRepo], bool]:
         # return the repo and if it need to be cloned
         # add remote for target repo
         repo = local.find_repo(push_url, self.name)
@@ -1619,7 +899,10 @@ class RepositoryHost:
             repo = local.find_repo(dest.url, self.name)
         missing = not repo
         if not repo:
-            repo = local.clone_repo(dest, push_url)
+            if local.repos_root:
+                repo = local.clone_repo(dest, push_url)
+            else:
+                return None, False
         remote_name = self.name or "origin"
         try:
             dest_remote = repo.repo.remote(remote_name)
@@ -1630,7 +913,7 @@ class RepositoryHost:
                 dest.git_url(), hard=3
             ):
                 self.logger.warning(
-                    f"{dest_remote.url} doesn't match {dest.git_url()} for remote '{remote_name}' in {repo.working_dir}"
+                    f"{normalize_git_url(dest_remote.url, hard=3)} doesn't match {normalize_git_url(dest.git_url(), hard=3)} for remote '{remote_name}' in {repo.working_dir}"
                 )
                 # XXX should we set the url?
         if self.canonical_url and push_url != dest.git_url():
@@ -1665,8 +948,9 @@ class RepositoryHost:
     ) -> None:
         try:
             repo, cloned = self.fetch_repo(remote_url, r, directory)
+            assert repo
             remote_branch = f"{self.name or 'origin'}/{r.default_branch}"
-            if remote_branch in repo.repo.references:
+            if remote_branch in repo.repo.references and not repo.is_dirty():
                 # reset local main to remote's main
                 repo.repo.git.checkout(r.default_branch, remote_branch, B=True)
         except Exception:
@@ -1690,6 +974,7 @@ class RepositoryHost:
             try:
                 # get the latest from the remote
                 repo, cloned = self.fetch_repo(remote_url, repo_info, directory)
+                assert repo
                 dest_branch = f"{self.name}/{repo_info.get_default_branch()}"
                 if not repo.active_branch:
                     repo.checkout(repo_info.get_default_branch())
@@ -1731,6 +1016,25 @@ class RepositoryHost:
                     exc_info=True,
                 )
 
+    def get_pipeline_runs(
+        self,
+        repo_info: "Repository",
+        ref: str = "",
+        commit: str = "",
+        limit: int = 0,
+    ) -> Iterable[Instantiation]:
+        f"""Return pipeline/workflow run Instantiations for the given repository.
+
+        Results are ordered newest-first (by creation time descending).
+
+        Args:
+            repo_info: The Repository record
+            ref: Git ref (branch or tag name) to filter runs
+            commit: Git commit SHA to filter runs
+            limit: Max number of runs to return (default: {self.DEFAULT_PIPELINE_LIMIT})
+        """
+        return []
+
 
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
     """
@@ -1744,8 +1048,9 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         namespace: str = "",
         repo_filter: str = "",
         logger=logger,
+        host_branch: Optional[str] = None,
     ) -> None:
-        super().__init__(name, namespace, repo_filter, logger)
+        super().__init__(name, namespace, repo_filter, logger, host_branch)
         _LocalGitRepos.__init__(self, local_repo_root, logger)
 
     def has_repository(self, repo_info: Repository) -> bool:
@@ -1831,24 +1136,6 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
         return record
 
 
-class HostConfig(TypedDict, total=False):
-    type: Union[
-        Literal["local"], Literal["gitlab"], Literal["unfurl.cloud"], Literal["github"]
-    ]
-    # not used by local:
-    url: Required[str]
-    user: str
-    password: str
-    visibility: str  # "public", "private", "any"
-    save_internal: bool  # save repository host internals
-    canonical_url: str
-
-
-class LocalHostConfig(HostConfig):
-    # use when type = local (LocalRepositoryHost)
-    clone_root: str  # directory containing the repositories
-
-
 def _clean_ci_var(envvar):
     envvar = envvar.copy()
     envvar.pop("project_id")
@@ -1878,7 +1165,9 @@ class GitlabManager(RepositoryHost):
         self.token = token or config.get("password")
         # namespace can be provided in the URL path or as a parameter
         namespace = namespace or parts.path.strip("/")
-        super().__init__(name, namespace, repo_filter, logger)
+        super().__init__(
+            name, namespace, repo_filter, logger, config.get("host_branch")
+        )
         self.visibility = config.get("visibility", "any")
         self.save_internal = bool(config.get("save_internal"))
         self.canonical_url = config.get("canonical_url") or ""
@@ -1932,7 +1221,7 @@ class GitlabManager(RepositoryHost):
 
     def import_project_url(
         self, url: str, directory: Directory, download: bool
-    ) -> None:
+    ) -> Repository:
         project = self.gitlab.projects.get(self.extract_project_path(url))
         return self._import_project(project, directory, download)
 
@@ -1969,15 +1258,16 @@ class GitlabManager(RepositoryHost):
 
     def _import_project(
         self, dest_proj: Project, directory: Directory, download: bool
-    ) -> None:
+    ) -> Repository:
         r = self.gitlab_project_to_repository(dest_proj)
         previous = directory.db.get_repository(r)
         directory.db.add_repository(r)
-        if download and directory.repos_root:
+        if download:
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?
             remote_url = self.git_url_with_auth(dest_proj)
             self._fetch_and_analyze_repo(r, directory, previous, remote_url)
+        return r
 
     def _get_projects_from_group(self, group, projects):
         for p in group.projects.list(iterator=True):
@@ -2146,9 +1436,9 @@ class GitlabManager(RepositoryHost):
             try:
                 # XXX if we have credentials for this host, add them so we can we try to access non-public avatars
                 # if self.visibility != "public":
-                #   gl = get_gl_for_host(repo_info.metadata.avatar_url)
+                #   gl = get_gl_for_host(repo_info.metadata.thumbnail_url)
                 #   if gl:
-                #     response = gl.session.get(avatar_url)
+                #     response = gl.session.get(thumbnail_url)
                 #     avatar = response.content
                 avatar = _urlopen(repo_info.metadata.thumbnail_url).read()
             except Exception:
@@ -2208,9 +1498,10 @@ class GitlabManager(RepositoryHost):
         #    kw["license"] = project.license.key in spdx_ids # or nickname or name
         if self.save_internal and project.avatar_url:
             # these urls point to the instance's uploaded files and aren't portable
-            kw["avatar_url"] = project.avatar_url
-        if project.issues_enabled:
+            kw["thumbnail_url"] = project.avatar_url
+        if getattr(project, "issues_enabled", False):
             kw["issues_url"] = self.canonize(project.web_url + "/-/issues")
+        forked_from = getattr(project, "forked_from_project", None)
 
         # https://docs.gitlab.com/ee/api/projects.html#get-single-project
         metadata = RepositoryMetadata(
@@ -2239,15 +1530,186 @@ class GitlabManager(RepositoryHost):
             default_branch=project.default_branch,
             project_url=self.canonize(project.web_url),
             metadata=metadata,
+            fork_of=get_repository_url(self.canonize(forked_from["http_url_to_repo"]))
+            if forked_from
+            else None,
             private=self._get_project_visibility(project) != "public",
             branches={
-                b.name: b.commit["id"] for b in project.branches.list(iterator=True)
+                b.name: b.commit["id"]
+                for b in islice(
+                    project.branches.list(per_page=100, iterator=True),
+                    self.MAX_GIT_REFS,
+                )
             },
-            tags={t.name: t.commit["id"] for t in project.tags.list(iterator=True)},
+            tags={
+                t.name: t.commit["id"]
+                for t in islice(
+                    project.tags.list(per_page=100, iterator=True), self.MAX_GIT_REFS
+                )
+            },
         )
         if self.save_internal:
             repository.internal_id = str(project.get_id())
         return repository
+
+    def get_pipeline_runs(
+        self,
+        repo_info: "Repository",
+        ref: str = "",
+        commit: str = "",
+        limit: int = 0,
+    ) -> Iterable[Instantiation]:
+        limit = limit or self.DEFAULT_PIPELINE_LIMIT
+        project_path = self.extract_project_path(repo_info.url)
+        project = self.gitlab.projects.get(project_path)
+
+        kwargs: Dict[str, Any] = {}
+        if ref:
+            kwargs["ref"] = ref
+        if commit:
+            kwargs["sha"] = commit
+
+        pipelines = project.pipelines.list(
+            order_by="id", sort="desc", iterator=True, **kwargs
+        )
+
+        count = 0
+        for pipeline in pipelines:
+            if limit and count >= limit:
+                break
+            full_pipeline = project.pipelines.get(pipeline.id)
+
+            properties = _gitlab_pipeline_properties(project, full_pipeline)
+
+            instantiation = Instantiation(
+                url=full_pipeline.web_url,
+                type=TypeRefs(
+                    {
+                        EntitySchema.CIPipelineRun: TypeRefConstraint(
+                            properties=cast(Dict[str, Any], properties)
+                        )
+                    }
+                ),
+                source=repo_info.artifact_url(".gitlab-ci.yml"),
+                source_ref=full_pipeline.ref,
+                source_revision=full_pipeline.sha,
+                revision=full_pipeline.sha,
+                status=_map_ci_status(full_pipeline.status),
+                metadata=CommonMetadata(
+                    title=f"Pipeline #{full_pipeline.id}",
+                    description=full_pipeline.status,
+                ),
+            )
+            count += 1
+            yield instantiation
+
+
+def _gitlab_pipeline_properties(
+    project: Any, full_pipeline: Any
+) -> PipelineRunProperties:
+    """Extract properties from a GitLab pipeline for the CIPipelineRun type constraint."""
+    artifacts: List[PipelineArtifact] = []
+    artifacts_expire_at = ""
+    variables: List[PipelineVariable] = []
+
+    # Fetch job-level artifacts
+    try:
+        jobs = full_pipeline.jobs.list(get_all=True)
+        for job in jobs:
+            job_artifacts = getattr(job, "artifacts", None)
+            if job_artifacts:
+                expire_at = str(getattr(job, "artifacts_expire_at", "") or "")
+                for art in job_artifacts:
+                    artifacts.append(
+                        PipelineArtifact(
+                            name=f"{job.name}/{art.get('filename', '')}",
+                            url=f"{project.web_url}/-/jobs/{job.id}/artifacts/download",
+                            size=art.get("size", 0),
+                            expires_at=expire_at,
+                        )
+                    )
+                if not artifacts_expire_at and expire_at:
+                    artifacts_expire_at = expire_at
+    except Exception:
+        pass
+
+    # Fetch pipeline variables (GitLab only)
+    try:
+        raw_variables = full_pipeline.variables.list(get_all=True)
+        variables = [PipelineVariable(key=v.key, value=v.value) for v in raw_variables]
+    except Exception:
+        pass
+
+    return PipelineRunProperties(
+        id=full_pipeline.id,
+        log_url=full_pipeline.web_url,
+        artifacts=artifacts,
+        artifacts_expire_at=artifacts_expire_at,
+        variables=variables,
+    )
+
+
+def _github_run_properties(run: Any) -> PipelineRunProperties:
+    """Extract properties from a GitHub workflow run for the CIPipelineRun type constraint."""
+    artifacts: List[PipelineArtifact] = []
+    artifacts_expire_at = ""
+
+    # Fetch artifacts
+    try:
+        for art in run.get_artifacts():
+            expire_str = str(art.expires_at) if art.expires_at else ""
+            artifacts.append(
+                PipelineArtifact(
+                    name=art.name,
+                    url=art.archive_download_url,
+                    size=art.size_in_bytes,
+                    expires_at=expire_str,
+                )
+            )
+            if not artifacts_expire_at and expire_str:
+                artifacts_expire_at = expire_str
+    except Exception:
+        pass
+
+    return PipelineRunProperties(
+        id=run.id,
+        log_url=run.logs_url,
+        artifacts=artifacts,
+        artifacts_expire_at=artifacts_expire_at,
+    )
+
+
+InstantiationStatus = Literal[
+    "draft",
+    "model",
+    "planned",
+    "WIP",
+    "observed",
+    "verifiable",
+    "verified",
+    "reproducible",
+    "reproduced",
+]
+
+_CI_STATUS_MAP: Dict[
+    str,
+    InstantiationStatus,
+] = {
+    "success": "verified",
+    "failed": "observed",
+    "running": "WIP",
+    "pending": "planned",
+    "canceled": "observed",
+    "cancelled": "observed",
+    "skipped": "observed",
+}
+
+
+def _map_ci_status(
+    status: str,
+) -> Optional[InstantiationStatus]:
+    """Map GitHub/GitLab CI status to Instantiation status."""
+    return _CI_STATUS_MAP.get(status)
 
 
 # PyGithub is optional - only needed for GitHub integration
@@ -2274,7 +1736,9 @@ else:
             repo_filter: str = "",
             logger=logger,
         ) -> None:
-            super().__init__(name, namespace, repo_filter, logger)
+            super().__init__(
+                name, namespace, repo_filter, logger, config.get("host_branch")
+            )
             self.visibility = config.get("visibility", "any")
             self.save_internal = config.get("save_internal", False)
             self.canonical_url = config.get("canonical_url", "")
@@ -2329,7 +1793,7 @@ else:
 
         def import_project_url(
             self, url: str, directory: Directory, download: bool
-        ) -> None:
+        ) -> Repository:
             repo = self.github.get_repo(self.extract_project_path(url))
             return self._import_repository(repo, directory, download)
 
@@ -2349,6 +1813,9 @@ else:
             kw: Dict[str, Any] = {}
             if repo.homepage:
                 kw["homepage_url"] = repo.homepage
+            # note: skipping thumbnail_url for GitHub, projects don't have thumbnails (only owners)
+            if repo.has_issues:
+                kw["issues_url"] = self.canonize(repo.html_url + "/issues")
 
             metadata = RepositoryMetadata(
                 description=repo.description or "",
@@ -2356,6 +1823,7 @@ else:
                 spdx_licenses=repo.license.spdx_id if repo.license else "",
                 **kw,
             )
+            metadata.set_lastupdate()
 
             # Build Repository object
             repository = Repository(
@@ -2367,9 +1835,18 @@ else:
                 default_branch=repo.default_branch or "main",
                 project_url=self.canonize(repo.html_url),
                 metadata=metadata,
+                fork_of=get_repository_url(self.canonize(repo.parent.clone_url))
+                if repo.fork and repo.parent
+                else None,
                 private=repo.private,
-                branches={b.name: b.commit.sha for b in repo.get_branches()},
-                tags={t.name: t.commit.sha for t in repo.get_tags()},
+                branches={
+                    b.name: b.commit.sha
+                    for b in islice(repo.get_branches(), self.MAX_GIT_REFS)
+                },
+                tags={
+                    t.name: t.commit.sha
+                    for t in islice(repo.get_tags(), self.MAX_GIT_REFS)
+                },
             )
 
             if self.save_internal:
@@ -2435,17 +1912,18 @@ else:
 
         def _import_repository(
             self, repo: GithubRepository, directory: Directory, download: bool
-        ) -> None:
+        ) -> Repository:
             # Convert and add to directory
             repo_info = self.github_repository_to_repository(repo)
             previous = directory.db.get_repository(repo_info)
             directory.db.add_repository(repo_info)
-            if download and directory.repos_root:
+            if download:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(repo)
                 self._fetch_and_analyze_repo(repo_info, directory, previous, remote_url)
             self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
+            return repo_info
 
         def from_host(self, directory: Directory) -> int:
             """Fetch repositories from GitHub and sync to cloudmap."""
@@ -2593,6 +2071,56 @@ else:
 
             return changed
 
+        def get_pipeline_runs(
+            self,
+            repo_info: "Repository",
+            ref: str = "",
+            commit: str = "",
+            limit: int = 0,
+        ) -> Iterable[Instantiation]:
+            limit = limit or self.DEFAULT_PIPELINE_LIMIT
+            project_path = self.extract_project_path(repo_info.url)
+            gh_repo = self.github.get_repo(project_path)
+
+            kwargs: Dict[str, Any] = {}
+            if ref:
+                kwargs["branch"] = ref  # tags too
+            if commit:
+                kwargs["head_sha"] = commit
+
+            runs = gh_repo.get_workflow_runs(**kwargs)
+
+            count = 0
+            for run in runs:
+                if limit and count >= limit:
+                    break
+
+                properties = _github_run_properties(run)
+
+                instantiation = Instantiation(
+                    url=run.html_url,
+                    type=TypeRefs(
+                        {
+                            EntitySchema.CIPipelineRun: TypeRefConstraint(
+                                properties=cast(Dict[str, Any], properties)
+                            )
+                        }
+                    ),
+                    source=repo_info.artifact_url(
+                        run.path
+                    ),  # e.g. ".github/workflows/ci.yml"
+                    source_ref=run.head_branch,
+                    source_revision=run.head_sha,
+                    revision=run.head_sha,
+                    status=_map_ci_status(run.conclusion or run.status),
+                    metadata=CommonMetadata(
+                        title=run.name or run.display_title,
+                        description=f"{run.event}: {run.conclusion or run.status}",
+                    ),
+                )
+                count += 1
+                yield instantiation
+
 
 class CloudMap:
     """
@@ -2602,26 +2130,48 @@ class CloudMap:
 
     def __init__(
         self,
-        repo: GitRepo,
+        repo: Optional[GitRepo],
         host_branch: str,
         source_branch: str = "main",
         localrepo_root: str = "",
         path: str = "",
         skip_analysis: bool = False,
+        commit: bool = False,
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
-        custom_analyzers: Optional[List[Type[Notable]]] = None,
     ):
+        """Initialize a CloudMap bound to a local cloudmap git checkout.
+
+        Args:
+            repo: Local git repository that contains the cloudmap file.
+            host_branch:  Working cloudmap branch (default to ``hosts/{host_name}``)
+            source_branch: Source-of-truth cloudmap branch used for exporting to a host.
+            localrepo_root: Root directory for local repository clones used by sync.
+            path: Path to the cloudmap file relative to the ``repo`` root.
+            skip_analysis: Skip repository content analysis when True.
+            logger: Logger used for cloudmap operations.
+            local_env: Optional local environment used for context and config.
+            custom_analyzers: Optional additional Notable analyzers.
+        """
         self.logger = logger
-        self.repo = repo
-        self.host_branch = host_branch
+        self.host_branch = host_branch or source_branch
         self.source_branch = source_branch
         self.local_env = local_env
-        self.custom_analyzers = custom_analyzers or []
+        project_path = (
+            local_env and local_env.project and local_env.project.projectRoot
+        ) or "."
+        base_path = repo.working_dir if repo else project_path
+        # Load custom analyzers after repo is available
+        self.custom_analyzers = self._load_custom_analyzers(
+            local_env, project_path, logger
+        )
+        self.repo = repo
+        self.commit = commit
 
+        self._visited: set[str] = set()
         self.directory = Directory(
             self,
-            str(Path(repo.working_dir) / (path or "cloudmap.yaml")),
+            str(Path(base_path) / (path or "cloudmap.yaml")),
             localrepo_root,
             skip_analysis,
         )
@@ -2639,31 +2189,34 @@ class CloudMap:
         filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
         return CloudMapDB(filepath)
 
-    @classmethod
-    def from_name(
-        cls,
+    @staticmethod
+    def _checkout_cloudmap(
         local_env: "LocalEnv",
-        name: str,
-        clone_root: Optional[str],
-        host_name: str,
-        namespace: str,
-        skip_analysis: bool,
+        url: str,
+        revision: str,
+        host_branch: str,
         logger=logger,
-    ) -> "CloudMap":
-        url, path, revision, repository = cls.get_config(local_env, name)
-        if clone_root is None:
-            local_repo_root = repository.get("clone_root") or ""
-        else:
-            local_repo_root = clone_root
+    ) -> Tuple[GitRepo, str]:
+        """Clone or checkout the cloudmap repository locally.
 
-        # what if branch only exists locally?
-        if not host_name:
-            branch = revision
+        If host_branch is provided, checkout that branch. If the host branch does
+        not exist yet on the remote, it is created from ``revision``.
+
+        Returns:
+            Tuple[GitRepo, str]: The checked out local repository and the host branch name, if set.
+        """
+        # XXX what if branch only exists locally?
+        if not host_branch or host_branch == revision:
+            branch = ""
             branch_exists = True
         else:
-            branch = f"hosts/{host_name}"
+            branch = host_branch
             local_repo = local_env.find_git_repo(url, branch)
-            if local_repo and branch in local_repo.repo.branches:  # type: ignore  # Unsupported right operand type for in
+            if (
+                local_repo
+                and isinstance(local_repo, GitRepo)
+                and branch in local_repo.repo.branches
+            ):
                 branch_exists = True
             else:
                 try:
@@ -2678,31 +2231,63 @@ class CloudMap:
             logger.verbose(
                 f"Using {'existing' if branch_exists else 'new'} branch {branch} for cloudmap."
             )
+
         if branch_exists:  # branch exists
             # clone or checkout branch
-            repo, _, _ = local_env.find_or_create_working_dir(url, branch)
+            repo, _, _ = local_env.find_or_create_working_dir(url, branch or revision)
         else:
             # clone or checkout main and create branch
             repo, _, _ = local_env.find_or_create_working_dir(
                 url, revision, checkout_args=dict(b=branch)
             )
+
         if not isinstance(repo, GitRepo):
             # XXX add find_or_create_working_dir variant that always returns GitRepo
             raise UnfurlError(f"couldn't clone {url}")
 
-        # Load custom analyzers after repo is available
-        custom_analyzers = cls._load_custom_analyzers(local_env, repo.working_dir, logger)
+        return repo, branch
+
+    @classmethod
+    def from_name(
+        cls,
+        local_env: "LocalEnv",
+        name: str,
+        clone_root: Optional[str],
+        host_branch: str,
+        skip_analysis: bool,
+        commit: bool,
+        logger=logger,
+    ) -> "CloudMap":
+        url, path, revision, repository = cls.get_config(local_env, name)
+        if not url:
+            # create or use cloudmap file in the project repo
+            assert local_env.project
+            repo = local_env.project.project_repoview.repo
+            if repo:
+                assert isinstance(repo, GitRepo)
+                revision = host_branch = repo.active_branch
+            else:
+                host_branch = ""
+            path = os.path.relpath(os.path.abspath(path), local_env.project.projectRoot)
+        else:
+            repo, host_branch = cls._checkout_cloudmap(
+                local_env, url, revision, host_branch, logger
+            )
+        if clone_root is None:
+            local_repo_root = repository.get("clone_root") or ""
+        else:
+            local_repo_root = clone_root
 
         return CloudMap(
-            repo,
-            branch,
+            cast(Optional[GitRepo], repo),
+            host_branch,
             revision,
             local_repo_root,
             path,
             skip_analysis,
+            commit,
             logger,
             local_env,
-            custom_analyzers,
         )
 
     @staticmethod
@@ -2716,7 +2301,7 @@ class CloudMap:
 
         Args:
             local_env: LocalEnv instance to get cloudmaps config from
-            base_dir: Base directory for resolving relative paths (typically repo.working_dir)
+            base_dir: Base directory for resolving relative paths
             logger: Logger instance for debug/warning/error messages
 
         Returns:
@@ -2726,23 +2311,17 @@ class CloudMap:
         if not local_env:
             return custom_analyzers
 
-        from .util import load_class_from_file
-
         cloudmaps_config = local_env.get_context().get("cloudmaps", {})
         analyzer_paths = cloudmaps_config.get("analyzers", [])
-
         for analyzer_path in analyzer_paths:
             try:
                 analyzer_class = load_class_from_file(
-                    analyzer_path,
-                    base_dir,
-                    "Notable analyzer class"
+                    analyzer_path, base_dir, "Notable analyzer class",
+                    local_env.overrides.get("safe_mode")
                 )
                 if analyzer_class and issubclass(analyzer_class, Notable):
                     custom_analyzers.append(analyzer_class)
-                    logger.debug(
-                        f"Loaded custom Notable analyzer from {analyzer_path}"
-                    )
+                    logger.debug(f"Loaded custom Notable analyzer from {analyzer_path}")
                 else:
                     logger.warning(
                         f"Class loaded from {analyzer_path} is not a subclass of Notable"
@@ -2776,26 +2355,57 @@ class CloudMap:
                 # assume name is an url or local path
                 cloudmap_url = name
             repository = {}
-        url, path, revision = split_git_url(cloudmap_url)
-        return (
-            normalize_git_url(url),
-            path,
-            revision or repository.get("revision", "main"),
-            repository,
-        )
+        if not urlparse(cloudmap_url).scheme:
+            # url is a local path return as path
+            # so we create a new cloudmap file
+            return "", cloudmap_url, repository.get("revision", "main"), repository
+        else:
+            url, path, revision = split_git_url(cloudmap_url)
+            return (
+                normalize_git_url(url),
+                path,
+                revision or repository.get("revision", "main"),
+                repository,
+            )
 
     @staticmethod
     def _find_host_config(
-        hosts: Dict[str, HostConfig], host_name: str
+        hosts: Dict[str, HostConfig],
+        host_name: str,
+        path: str = "",
     ) -> Tuple[str, Optional[HostConfig]]:
-        for host_name, host_config in hosts.items():
+        """Find the best matching host config for a given hostname.
+
+        When multiple host configs share the same hostname, the one whose URL
+        path is the longest prefix of *path* wins.  This lets narrower configs
+        (e.g. ``https://gitlab.com/myorg``) take priority over broader ones
+        (e.g. ``https://gitlab.com``).
+        """
+        best_name = ""
+        best_config: Optional[HostConfig] = None
+        best_match_len = -1
+        for name, host_config in hosts.items():
             if "url" not in host_config:
                 continue
-            host_url = host_config["url"]
-            host_parsed = urlparse(host_url)
-            if host_parsed.hostname == host_name:
-                return host_name, host_config
-        return "", None
+            host_parsed = urlparse(host_config["url"])
+            if host_parsed.hostname != host_name:
+                continue
+            host_path = host_parsed.path.strip("/")
+            if not host_path:
+                # Host with no path matches anything but with lowest priority
+                if best_match_len < 0:
+                    best_name, best_config, best_match_len = name, host_config, 0
+            elif path.startswith(host_path) or path.startswith(host_path + "/"):
+                if len(host_path) > best_match_len:
+                    best_name, best_config, best_match_len = (
+                        name,
+                        host_config,
+                        len(host_path),
+                    )
+            elif best_match_len < 0:
+                # No path match yet; keep as fallback over nothing
+                best_name, best_config, best_match_len = name, host_config, 0
+        return best_name, best_config
 
     @classmethod
     def get_host(
@@ -2844,12 +2454,23 @@ class CloudMap:
                 else:
                     if not hostname:
                         raise UnfurlError(f"invalid url for host: {url}")
-                    name, host_config = cls._find_host_config(hosts, hostname)
-                if host_config is None:
-                    host_type: Literal["github", "gitlab"] = (
-                        "github" if hostname == "github.com" else "gitlab"
+                    hosts = local_env.map_value(
+                        hosts, local_env.get_context().get("variables")
                     )
-                    host_config = HostConfig(type=host_type, url=url)
+                    name, host_config = cls._find_host_config(hosts, hostname, path)
+                if host_config is None:
+                    assert hostname
+                    if hostname.endswith("github.com"):
+                        host_type = "github"
+                    elif hostname.endswith("gitlab.com"):
+                        host_type = "gitlab"
+                    elif hostname.endswith("unfurl.cloud"):
+                        host_type = "unfurl.cloud"
+                    else:
+                        host_type = "local"
+                    if parts.scheme in ("git", "ssh"):
+                        url = url.replace(parts.scheme, "https", 1)
+                    host_config = HostConfig(type=host_type, url=url)  # type: ignore
                     # set name to empty so we don't create a branch like "hosts/github.com"
                     name = ""
                 if not repo_filter and "/" in path:
@@ -2859,9 +2480,10 @@ class CloudMap:
                     namespace = path
             else:
                 raise UnfurlError(f"no repository host named {name} found")
-        host_config = local_env.map_value(
-            host_config, local_env.get_context().get("variables")
-        )
+        else:
+            host_config = local_env.map_value(
+                host_config, local_env.get_context().get("variables")
+            )
         assert host_config
         if visibility:
             host_config["visibility"] = visibility
@@ -2877,6 +2499,7 @@ class CloudMap:
         clone_root: str = "",
         logger=logger,
     ) -> RepositoryHost:
+        logger.info(f'Using repository host: "{name}"')
         if host_config["type"] == "local":
             clone_root = (
                 clone_root or cast(LocalHostConfig, host_config).get("clone_root") or ""
@@ -2905,6 +2528,295 @@ class CloudMap:
             assert name
         return GitlabManager(name, host_config, namespace, repo_filter, logger)
 
+    @staticmethod
+    def _is_git_url(url: str) -> bool:
+        """Return True if the URL looks like a git repository URL."""
+        parts = urlparse(url)
+        scheme = parts.scheme
+        if scheme == "git" or scheme.startswith("git+"):
+            return True
+        if parts.path.endswith(".git"):
+            return True
+        return False
+
+    def add_record(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    ) -> Optional[Union[Repository, Artifact, Service]]:
+        """Add a record to the cloudmap from a URL.
+
+        Determines the record type based on the URL scheme and structure:
+
+        - Git URLs (git:, git+https:, .git suffix, local paths) → Repository
+        - Package URLs (pkg:) → Artifact
+        - Everything else → Service
+
+        Args:
+            url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
+            analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
+
+        Returns:
+            The Repository, Artifact, or Service that was added (or already existed).
+        """
+        db = self.directory.db
+        if url in self._visited:
+            # Already processed this URL, return existing record if any
+            return (
+                db.get_artifact(url) or db.services.get(url) or db.get_repository(url)
+            )
+        self._visited.add(url)
+        parts = urlparse(url)
+
+        if not parts.scheme:
+            # No scheme - see if it's a local path inside a git repository
+            repo = Repo.find_containing_repo(url)
+            if repo:
+                # don't include "." as a path to examine
+                self.directory._add_repo(repo)
+                url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
+                return self._add_repository_record(url, analyze)
+
+        if parts.scheme == "pkg":
+            return self._add_pkg_record(url, parts)
+
+        if self._is_git_url(url):
+            return self._add_repository_record(url, analyze)
+
+        # Everything else → Service record
+        existing = db.services.get(url)
+        if existing is not None:
+            return existing
+        service = Service(url=url)
+        db.services[url] = service
+        return service
+
+    def _add_pkg_record(self, url: str, parts: ParseResult) -> Artifact:
+        """Add an Artifact record from a pkg: (PURL) URL.
+
+        Handles pkg:oci and pkg:docker as container images,
+        other PURL types as generic artifacts.
+        """
+        from urllib.parse import parse_qs, unquote
+
+        db = self.directory.db
+        # path is e.g. "oci/nginx@sha256:..." or "docker/library/nginx@latest"
+        pkg_type, _, name_and_version = parts.path.partition("/")
+        if pkg_type in ("oci", "docker"):
+            # Split off @version (digest or tag)
+            name_part, _, version = name_and_version.partition("@")
+            version = unquote(version)  # sha256%3A... → sha256:...
+            query = parse_qs(parts.query)
+            is_digest = version.startswith("sha256:")
+            digest = version if is_digest else None
+            tag: Optional[str]
+            registry_host: str
+            image_name: str
+
+            if pkg_type == "oci":
+                # pkg:oci/<name>@<digest>?repository_url=<registry>/<repo>&tag=<tag>
+                repository_url = query.get("repository_url", [""])[0]
+                tag = query.get("tag", [None])[0]
+                if not is_digest and version:
+                    tag = tag or version
+                # repository_url is e.g. "docker.io/library/nginx"
+                if repository_url:
+                    repo_parts = urlparse("https://" + repository_url)
+                    registry_host = repo_parts.hostname or ""
+                    image_name = repo_parts.path.lstrip("/")
+                else:
+                    registry_host = ""
+                    image_name = name_part
+            else:
+                # pkg:docker/<namespace>/<name>@<version>?repository_url=<registry>
+                registry_host = query.get("repository_url", [""])[0]
+                tag = None if is_digest else (version or None)
+                image_name = name_part
+
+            image = ContainerImage(
+                name=image_name,
+                tag=tag,
+                digest=digest,
+                registry_host=registry_host or None,
+            )
+            return db.add_image_artifact(image)
+
+        # Other PURL types (npm, pypi, maven, etc.) → generic Artifact
+        # Parse: pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>
+        existing = db.artifacts.get(url)
+        if existing is not None:
+            return existing
+        name_part, _, version = name_and_version.partition("@")
+        version = unquote(version)
+        # name_part may include namespace: "namespace/name"
+        name = name_part.rpartition("/")[2]
+        metadata = ArtifactMetadata(
+            title=name,
+            version=version,
+        )
+        artifact = Artifact(
+            url=url,
+            type=TypeRefs({EntitySchema.GenericFile: None}),
+            metadata=metadata,
+        )
+        db.artifacts[url] = artifact
+        return artifact
+
+    def _add_repository_record(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"],
+    ) -> Optional[Repository]:
+        db = self.directory.db
+        host: Optional[RepositoryHost] = None
+        repo_url, file_path, revision, commit = split_git_url_with_commit(url)
+        canonical_url = get_repository_url(repo_url)
+        self._visited.add(repo_url)
+        self._visited.add(canonical_url)
+
+        current_do_analysis = self.directory.do_analysis
+        if file_path:
+            if analyze == "default":
+                # default to analyzing the file if a file path is specified
+                analyze = "yes"
+                # don't analyze the whole repo if a file path is specified, just analyze the file
+                self.directory.do_analysis = False
+        repo_info = db.get_repository(canonical_url)
+        download = False
+        if analyze == "yes" or analyze == "save-only":
+            if not self.directory.repos_root:
+                # no download location, so only analyze if the repository is already cloned locally
+                if self.directory.find_repo(repo_url, ""):
+                    download = True
+                else:
+                    download = False
+                    self.logger.warning(
+                        "Cannot analyze %s because the repository is not cloned locally.",
+                        repo_url,
+                    )
+
+            else:
+                download = True
+        # re-import the repository if need to analyze it
+        if repo_info is None or download:
+            # Try to import via a matching repository host
+            if self.local_env:
+                host = CloudMap.get_host(
+                    self.local_env,
+                    repo_url,
+                    namespace="",
+                    repos_root=self.directory.repos_root,
+                    repo_filter=canonical_url,
+                )
+                try:
+                    repo_info = host.import_project_url(
+                        repo_url,
+                        self.directory,
+                        download=download,
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        "Failed to import project URL %s",
+                        sanitize_url(repo_url),
+                        exc_info=True,
+                    )
+                    return None
+
+            if repo_info is None:
+                # Fallback: build a minimal Repository from URL components
+                parsed = urlparse(canonical_url)
+                url_parts = urlparse(url)
+                path = parsed.path.lstrip("/")
+                if path.endswith(".git"):
+                    path = path[:-4]
+                name = path.rpartition("/")[2]
+                # Infer protocol from the original URL scheme
+                protocols: List[str] = []
+                scheme = url_parts.scheme
+                if "+" in scheme:
+                    # e.g. git+https → https, git+ssh → ssh
+                    protocols.append(scheme.split("+", 1)[1])
+                elif scheme and scheme != "git":
+                    protocols.append(scheme)
+                repo_info = Repository(
+                    url=canonical_url,
+                    path=path,
+                    name=name,
+                    protocols=protocols,
+                )
+                db.add_repository(repo_info)
+
+        if file_path:
+            if analyze == "yes":
+                local_repo = self.directory.find_repo(repo_info.url, "")
+                if not local_repo:
+                    self.logger.warning(
+                        "Cannot analyze %s because the repository is not cloned locally.",
+                        url,
+                    )
+                    return repo_info
+                root_path = local_repo.working_dir
+                notables = (
+                    root_path
+                    and self.directory.analyzer.analyze_path(file_path, root_path)
+                    or []
+                )
+                if notables:
+                    for n in notables:
+                        try:
+                            artifact = n.analyze(self.directory, repo_info, root_path)
+                            if artifact and not db.get_artifact(artifact.url):
+                                db.add_artifact(artifact)
+                        except Exception:
+                            self.logger.error(
+                                "Unexpected error analyzing %s.",
+                                repo_info.url,
+                                exc_info=True,
+                            )
+                        repo_info.notable[n.path] = n.asdict()
+                else:
+                    artifact_url = repo_info.artifact_url(file_path)
+                    if not db.get_artifact(artifact_url):
+                        artifact = Artifact(
+                            url=artifact_url,
+                            type=TypeRefs({EntitySchema.GenericFile: None}),
+                        )
+                        db.add_artifact(artifact)
+                    if file_path not in repo_info.notable:
+                        repo_info.notable[file_path] = {}
+
+        # Fetch pipeline runs if a ref or commit was specified in the URL
+        if repo_info and (revision or commit):
+            # Resolve ref to commit SHA from the repository's branches/tags
+            if revision and not commit:
+                commit = repo_info.branches.get(
+                    revision, repo_info.tags.get(revision, "")
+                )
+            if not host and self.local_env:
+                host = CloudMap.get_host(
+                    self.local_env,
+                    repo_url,
+                    namespace="",
+                    repos_root=self.directory.repos_root,
+                    repo_filter=canonical_url,
+                )
+            if host:
+                try:
+                    for instantiation in host.get_pipeline_runs(
+                        repo_info, ref=revision, commit=commit
+                    ):
+                        db.add_instantiation(instantiation)
+                except Exception:
+                    self.logger.error(
+                        "Failed to fetch pipeline runs for %s",
+                        sanitize_url(repo_url),
+                        exc_info=True,
+                    )
+
+        # restore original analysis setting
+        self.directory.do_analysis = current_do_analysis
+        return repo_info
+
     def from_host(self, host: RepositoryHost) -> bool:
         count = host.from_host(self.directory)
         if not count and host.repo_filter:
@@ -2920,8 +2832,8 @@ class CloudMap:
         """
         Synchronize the cloudmap with the given the repository host.
 
-        First, update a branch named "hosts/{host_name}/{namespace}" with the latest from the repository host.
-        Then merge the host branch into "main".
+        First, update a branch named "hosts/{host.name}" with the latest from the repository host.
+        Then merge the host branch into the default branch (e.g., "main").
         If a conflict is detected, abort with a merge error in the cloudmap repository.
         For example, if a repository branch or tags was changed in both branches there will be a merge conflict.
         If so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run this command.
@@ -2940,6 +2852,7 @@ class CloudMap:
         op_name = "sync" if sync else "export"
         if self.host_branch != self.source_branch:
             if self.repo:
+                # CloudMap.from_name() switches to host_branch but we want to sync the source branch (e.g. main)
                 self.repo.checkout(self.source_branch)
             self.directory.db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
@@ -2951,7 +2864,7 @@ class CloudMap:
             # merge the host branch into main
             # there will be a merge conflict if a repository branch or tags was changed in both branches
             # if so, manually merge the changes in the local repo (they will be on the remote branch), sync them with the cloudmap, then re-run
-            if merge_host and self.repo:
+            if merge_host and self.repo and self.commit:
                 self.repo.repo.git.merge(
                     self.host_branch, m=f"merge changes from syncing {self.host_branch}"
                 )
@@ -2962,40 +2875,35 @@ class CloudMap:
             # since the cloudmap merge was successful this will just be a fast-forward merge
             self.directory.merge_from_host(host)
 
-        # deploy main to the host
+        # deploy source_branch (e.g. main) to the host
         host.to_host(self.directory, True, force=force)
 
         # cloudmap might have changed
         changed = self.save(f"{op_name}ed to {host.name}")
-        if self.repo and self.host_branch != self.source_branch:
-            # set host branch head to match to main because we are even now
+        if self.repo and self.commit and self.host_branch != self.source_branch:
+            # set host branch head to match to the source_branch (e.g. main) because we just synced main to the host
             self.repo.repo.git.branch(self.host_branch, f=True)
         return changed
 
     def save(self, msg: str) -> bool:
-        self.directory.db.save()
-        if not self.repo or not self.directory.db.config.path:
-            return False
+        changed = self.directory.db.save()
+        if not self.directory.db.config.path:
+            return changed
+        if not self.repo or not self.commit:
+            self.logger.info(
+                "saved cloudmap to %s: %s", self.directory.db.config.path, msg
+            )
+            return changed
         self.repo.repo.index.add(self.directory.db.config.path)
         if self.repo.is_dirty(False, self.directory.db.config.path):
             assert self.directory.db.config.path
             self.repo.commit_files([self.directory.db.config.path], msg)
             self.repo.repo.index.commit(msg)
-            self.logger.debug(f"committed: {msg}")
+            self.logger.verbose(f"committed: {msg}")
             return True
         else:
-            self.logger.debug(f'nothing to commit for "{msg}"')
+            self.logger.verbose(f'nothing to commit for "{msg}"')
             return False
-
-
-class CloudMapInputs(TypedDict, total=False):
-    host: Required[HostConfig]
-    cloudmap: str  # name of cloudmap in the environment
-    namespace: str  # filter by namespace
-    repository: str  # if set just export this repository (identified by url)
-    clone_root: str
-    skip_analysis: bool
-    force: bool
 
 
 class CloudMapConfigurator(Configurator):
@@ -3033,9 +2941,10 @@ class CloudMapConfigurator(Configurator):
             localEnv,
             cloudmap_name,
             inputs.get("clone_root") or "",
-            "",  # skip name so we don't switch branches to f"hosts/{host.name}"
-            namespace,
+            # set to switch branches, e.g. to f"hosts/{host.name}"
+            str(inputs.get("host_branch", "")),
             bool(inputs.get("skip_analysis")),
+            bool(inputs.get("commit")),
             task.logger,
         )
         # set this so we can track changes to the repo

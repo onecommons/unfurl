@@ -194,6 +194,63 @@ Inputs
   :inputs: Inputs to pass to the operation. If omitted the current inputs will be used.
   :when: If set, only perform the delegated operation if its value evaluates to true.
 
+Kompose
+========
+
+The ``Kompose`` configurator uses `kompose <https://kompose.io>`_ to convert Docker Compose configurations into Kubernetes resources. It can generate Kubernetes manifests from either a ``docker-compose.yml`` file or an inline container definition, and then deploys the resulting resources.
+
+Kompose will be automatically installed if it is not found on the system.
+
+Example
+-------
+
+.. tab-set-code::
+
+  .. code-block:: YAML
+
+    apiVersion: unfurl/v1.0.0
+    kind: Ensemble
+    spec:
+      service_template:
+        topology_template:
+          node_templates:
+            my_app:
+              type: K8sContainerHost
+              interfaces:
+                Standard:
+                  configure:
+                    implementation: Kompose
+                    inputs:
+                      container: "{{ SELF.container }}"
+                      image: "{{ SELF.container_image }}"
+                      expose: foo.example.org
+                      overlays:
+                        Deployment:
+                          spec:
+                            template:
+                              spec:
+                                containers:
+                                - +%: merge
+                                  env:
+                                  - name: ENVVAR
+                                    value: 
+
+Inputs
+------
+
+  :files: A dictionary of files to write out to the working directory. Each key is the filename and the value is the file contents. If a ``docker-compose.yml`` key is present, it will be used as the Docker Compose configuration (overrides ``container`` and ``image``).
+  :container: A container definition (of type ``unfurl.datatypes.DockerContainer``) that provides the image and other container settings. Used to generate a ``docker-compose.yml`` if one isn't provided in ``files``.
+  :image: The name of the container image to use. Overrides the image in the container definition.
+  :service_name: The name of the Kubernetes service. If omitted, it is derived from the container name or image name.
+  :registry_url: The URL of the registry to pull the container image from.
+  :registry_user: The username to use when pulling the container image.
+  :registry_password: The password to use when pulling the container image. If set, a Kubernetes pull secret will be created.
+  :labels: A dictionary of labels to add to the Docker service. Supports `Kompose labels <https://kompose.io/user-guide/#labels>`_ for controlling the conversion.
+  :annotations: A dictionary of annotations to add to the Kubernetes resource metadata.
+  :expose: If ``true``, create a Kubernetes ingress record. If a string, use that string as the host name in the ingress record.
+  :env: A dictionary of environment variables to merge with the container's environment.
+  :overlays: A dictionary keyed by Kubernetes resource kind with values to merge into the generated resources of that kind. Applied after Kompose conversion.
+
 
 .. _shell_configurator:
 
@@ -268,6 +325,16 @@ Inputs
          (Doesn't affect the capture of stdout and stderr.)
   :input: Optional string to pass as stdin.
   :keeplines: (*Default: false*) If true, preserve line breaks in the given command.
+  :background: (*Default: false*) If true, run the command in the background using a non-blocking subprocess.
+               The task will yield control back to the job loop so other tasks can run concurrently,
+               and periodically resume to check if the process has completed.
+  :initial_sleep: (*Default: 0*) Seconds to wait for the background process to complete before
+                  yielding control. If the process finishes within this time, it completes synchronously
+                  without entering the resume loop. Capped by the task timeout if set.
+                  Only used when ``background`` is true.
+  :poll: (*Default: 0*) Minimum seconds between polling cycles when running in background mode.
+         If 0, the task resumes on the next job loop cycle. Set this to reduce overhead for
+         commands that are expected to take a while. Only used when ``background`` is true.
   :done: As as `done` defined by the `Template` configurator.
   :outputsTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, with same variables as ``resultTemplate``. The template should evaluate to a map to be used as the operation's outputs or null to skip.
   :resultTemplate: A `Jinja2 template<Ansible Jinja2 Templates>` or runtime expression that is processed after shell command completes, it will have the following template variables:

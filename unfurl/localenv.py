@@ -28,7 +28,6 @@ from typing import (
     cast,
 )
 from ansible.parsing.vault import VaultLib
-from tosca import JsonObject
 from .packages import Package, PackageSpec, ProxiedRepo, is_semver
 from .repo import (
     GitRepo,
@@ -67,6 +66,7 @@ from toscaparser.repositories import Repository
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
     from .runtime import NodeInstance
+    from tosca import JsonObject
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
@@ -105,7 +105,7 @@ class Project:
         assert isinstance(path, str), path
         if os.path.isdir(path):
             path = os.path.join(path, DefaultNames.LocalConfig)
-        self.projectRoot = os.path.abspath(os.path.dirname(path))
+        self.projectRoot = os.path.dirname(os.path.abspath(path))
         self.overrides = overrides or {}
         if os.path.exists(path):
             self.localConfig = LocalConfig(
@@ -178,6 +178,9 @@ class Project:
             self.projectRoot, True, "tosca_repositories"
         )
         self._set_project_repoview()
+        Repo.find_git_repos_in_directory(
+            self.workingDirs, os.path.join(self.projectRoot, "tosca_repositories")
+        )
 
         if self.project_repoview.gitrepo:
             # Repo.find_git_working_dirs() doesn't look inside git working dirs
@@ -241,6 +244,11 @@ class Project:
                 return test
             test = os.path.join(
                 current, DefaultNames.ProjectDirectory, DefaultNames.LocalConfig
+            )
+            if os.path.exists(test):
+                return test
+            test = os.path.join(
+                current, DefaultNames.HiddenProjectDirectory, DefaultNames.LocalConfig
             )
             if os.path.exists(test):
                 return test
@@ -623,7 +631,7 @@ class Project:
     @staticmethod
     def get_name_from_dir(projectRoot: str) -> str:
         dirname, name = os.path.split(projectRoot)
-        if not name or name == DefaultNames.ProjectDirectory:
+        if not name or name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             name = os.path.basename(dirname)
         # make sure this conforms to project name syntax in json-schema:
         #       ^[A-Za-z._][A-Za-z0-9._:\\-]*$
@@ -925,7 +933,7 @@ class LocalConfig:
 
         return name
 
-    def find_secret_include(self) -> Tuple[Optional[str], Optional[JsonObject]]:
+    def find_secret_include(self) -> Tuple[Optional[str], Optional["JsonObject"]]:
         base = self.config.get_base_dir()
         key, include = self.config.search_includes(
             pathPrefix=os.path.join(base, "secrets")
@@ -1097,6 +1105,7 @@ class LocalEnv:
         override_environment: Optional[str] = None,
         overrides: Optional[Dict[str, Any]] = None,
         readonly: Optional[bool] = False,
+        create_if_missing: bool = False,
     ) -> None:
         """
         If manifestPath is None find the first unfurl.yaml or ensemble.yaml
@@ -1168,6 +1177,16 @@ class LocalEnv:
             logger.info("Loaded project at %s", self.project.localConfig.config.path)
         self.toolVersions: dict = {}
         self.instance_repoview = self._get_instance_repoview()
+        if not self.manifestPath and not self.project and not manifestPath:
+            if self.homeProject:
+                self.project = self.homeProject
+            elif create_if_missing:
+                self.project = Project(DefaultNames.LocalConfig, None, None)
+            else:
+                # this can happen when can_be_empty is True
+                raise UnfurlError(
+                    f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
+                )
         self.config = (
             self.project
             and self.project.localConfig
@@ -1175,14 +1194,6 @@ class LocalEnv:
             and self.homeProject.localConfig
             or LocalConfig()
         )
-        if not self.manifestPath and not self.project and not manifestPath:
-            if self.homeProject:
-                self.project = self.homeProject
-            else:
-                # this can happen when can_be_empty is True
-                raise UnfurlError(
-                    f"Can't find an Unfurl ensemble or project or home project in {os.getcwd()}."
-                )
         self._set_environment(override_environment)
 
     def _set_environment(self, override_environment: Optional[str]) -> None:
@@ -1292,7 +1303,7 @@ class LocalEnv:
 
         # projects can be nested (handle stand-alone ensemble repositories)
         dirname, tail = os.path.split(project.projectRoot)
-        if tail == DefaultNames.ProjectDirectory:
+        if tail in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             dirname = os.path.dirname(dirname)
         parent_project = self.find_project(dirname, stop_at)
         if parent_project and parent_project is not self.homeProject:
@@ -1469,9 +1480,10 @@ class LocalEnv:
             if os.path.exists(test):
                 return manifest_path, self.get_project(test, self.homeProject)
             else:
-                test = os.path.join(path, DefaultNames.ProjectDirectory)
-                if os.path.exists(test):
-                    return manifest_path, self.get_project(test, self.homeProject)
+                for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+                    test = os.path.join(path, project_dir_name)
+                    if os.path.exists(test):
+                        return manifest_path, self.get_project(test, self.homeProject)
                 return manifest_path, None
         else:
             assert os.path.isfile(path)
@@ -1524,9 +1536,10 @@ class LocalEnv:
             if os.path.exists(test):
                 return manifest_path, self.get_project(test, self.homeProject)
 
-            test = os.path.join(current, DefaultNames.ProjectDirectory)
-            if os.path.exists(test):
-                return manifest_path, self.get_project(test, self.homeProject)
+            for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+                test = os.path.join(current, project_dir_name)
+                if os.path.exists(test):
+                    return manifest_path, self.get_project(test, self.homeProject)
 
             if manifest_path:
                 return manifest_path, None

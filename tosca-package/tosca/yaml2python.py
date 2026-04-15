@@ -373,7 +373,8 @@ class Convert:
         assert self.template.path
         self.base_dir = base_dir or os.path.dirname(self.template.path)
         self.package_name = package_name
-        self.concise = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "concise"
+        style = os.getenv("UNFURL_EXPORT_PYTHON_STYLE") or ""
+        self.concise = "concise" in style
         self.assign_attr = self.concise
 
     def value2python_repr(self, value, quote=False) -> str:
@@ -1383,9 +1384,11 @@ class Convert:
         src += add_description(req, indent)
         return src
 
-    def get_configurator_decl(self, op: OperationDef) -> Tuple[str, Dict[str, Any]]:
+    def get_configurator_decl(
+        self, op: OperationDef
+    ) -> Tuple[str, Dict[str, Any], Optional[str]]:
         if op.invoke:
-            return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs)
+            return f"self.{op.invoke.split('.')[-1]}", dict(inputs=op.inputs), None
         if not op._source:
             op._source = self.base_dir
         kw = (
@@ -1394,7 +1397,8 @@ class Convert:
             else None
         )
         cmd = ""
-        if kw is None or kw["primary"]:
+        inline_import: Optional[str] = None
+        if kw is None or kw.get("primary"):
             if isinstance(op.implementation, dict):
                 artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
@@ -1410,7 +1414,7 @@ class Convert:
                     cmd = f"self.{artifact}.execute"
             if not cmd and artifact:
                 cmd = f"self.find_artifact({self.value2python_repr(artifact)}).execute"
-        else:
+        elif "className" in kw:
             cmd = kw["className"]
             module, sep, klass = cmd.rpartition(".")
             if module:
@@ -1424,9 +1428,17 @@ class Convert:
                             module_path, start=os.path.abspath(self.path)
                         )
                     cmd = f'self.load_class("{module_path}", "{klass}")'
+                elif self._builtin_prefix:
+                    # When generating a built-in module (e.g. tosca_ext.py),
+                    # inline the import inside the method body to avoid
+                    # module-load-time circular imports (e.g. via the
+                    # toscaparser stevedore extension loader).
+                    inline_import = module
                 else:
                     self.imports.add_import(module)
-        return cmd, kw
+        else:
+            logger.error("could not handle unexpected operation implementation: %s", kw)
+        return cmd, kw, inline_import
 
     def operation2func(
         self,
@@ -1442,7 +1454,7 @@ class Convert:
             if not op.implementation and (op.input_defs or op.inputs):
                 src = f"{indent}_{op.interfacename.split('.')[-1]}_default_inputs = {self.value2python_repr(op.input_defs or op.inputs)}"
                 return "", src
-        configurator_decl, kw = self.get_configurator_decl(op)
+        configurator_decl, kw, inline_import = self.get_configurator_decl(op)
         op_name, toscaname, _ = self._set_name(cast(str, op.name), "operation")
         if template_name:
             template_name, _ = self._get_name(template_name)
@@ -1492,6 +1504,8 @@ class Convert:
         indent += "   "
         desc = add_description(op.value, indent)
         src += desc
+        if inline_import:
+            src += f"{indent}import {inline_import}\n\n"
         src += f"{indent}return {configurator_decl}("
         # all on one line for now
         inputs = kw["inputs"]
@@ -1950,9 +1964,9 @@ class Convert:
             custom_defs = self.custom_defs
         file_path = os.path.abspath(file_path)
         # make sure the content of the import has the tosca version header and all repositories
-        tpl["tosca_definitions_version"] = self.template.tpl[
-            "tosca_definitions_version"
-        ]
+        tpl["tosca_definitions_version"] = self.template.tpl.get(
+            "tosca_definitions_version", "tosca_simple_unfurl_1_0_0"
+        )
         if "repositories" in self.template.tpl:
             repositories = self.template.tpl["repositories"]
             tpl.setdefault("repositories", {}).update(repositories)
@@ -2179,9 +2193,8 @@ def convert_service_template(
 
     template_tpl = template.tpl
     assert template_tpl
-    if (
-        convert_repositories
-        or os.getenv("UNFURL_EXPORT_PYTHON_STYLE") == "include_repositories"
+    if convert_repositories or "include_repositories" in (
+        os.getenv("UNFURL_EXPORT_PYTHON_STYLE") or ""
     ):
         repositories = template_tpl.get("repositories")
         if repositories:

@@ -24,7 +24,6 @@ import numbers
 import os
 import os.path
 from pathlib import Path
-import itertools
 
 try:
     # added in python 3.9
@@ -37,6 +36,7 @@ from .util import (
     UnfurlError,
     UnfurlValidationError,
     get_base_dir,
+    get_local_schema,
     substitute_env,
     to_yaml_text,
     filter_env,
@@ -47,7 +47,7 @@ from .yamlloader import YamlConfig, load_yaml, make_yaml, cleartext_yaml
 from .result import serialize_value
 from .support import _Import, ResourceChanges, Defaults, Status
 from .localenv import LocalEnv
-from .lock import Lock
+from .lock import Lock, LockDict
 from .manifest import Manifest, relabel_dict, ChangeRecordRecord
 from .spec import (
     ArtifactSpec,
@@ -82,8 +82,6 @@ if TYPE_CHECKING:
     from .configurator import Dependency
 
 logger = getLogger("unfurl")
-
-_basepath = os.path.abspath(os.path.dirname(__file__))
 
 
 def save_config_spec(spec):
@@ -271,16 +269,6 @@ def _extract_committed_changes(
     return committed_changes
 
 
-@cache
-def get_manifest_schema(format: str) -> dict:
-    path = os.path.join(_basepath, "manifest-schema.json")
-    with open(path) as fp:
-        schema = json.load(fp)
-    if format == "blueprint":
-        schema["required"].remove("kind")
-    return schema
-
-
 class LfsSettings(TypedDict):
     lock: NotRequired[str]  # require, no, try
     name: NotRequired[str]  # name of the lock $ensemble or $environment
@@ -308,8 +296,8 @@ class ReadOnlyManifest(Manifest):
         # self.overrides: dict = localEnv.overrides.copy() if localEnv else {}
         readonly = bool(localEnv and localEnv.readonly)
         self.safe_mode = bool(safe_mode)
-        schema = get_manifest_schema(
-            localEnv and localEnv.overrides.get("format") or ""
+        schema = get_local_schema(
+            localEnv and localEnv.overrides.get("format") or "", "manifest-schema.json"
         )
         self.manifest = YamlConfig(
             manifest,
@@ -1187,13 +1175,16 @@ class YamlManifest(ReadOnlyManifest):
                     changed = True
         return changed
 
-    def save_lock(self):
+    def save_lock(self) -> None:
         # modify original to preserve structure and comments
         lock = Lock(self).lock()
         if not self.manifest.config.get("lock"):
             self.manifest.config["lock"] = lock
         else:
             patch_dict(self.manifest.config["lock"], lock)
+
+    def get_lock_section(self) -> Optional[LockDict]:
+        return self.manifest.config.get("lock")
 
     def save_job(
         self, job: "Job"

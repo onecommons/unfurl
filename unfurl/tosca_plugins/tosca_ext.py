@@ -22,8 +22,6 @@ from tosca import (
     valid_values,
 )
 import typing_extensions
-import unfurl.configurators
-import unfurl.configurators.gcp
 
 tosca_metadata = {
     "template_name": "Unfurl types",
@@ -290,6 +288,8 @@ class relationships(Namespace):
         scopes: Union[List[str], None] = None
 
         def check(self, **kw: Any) -> Any:
+            import unfurl.configurators.gcp
+
             return unfurl.configurators.gcp.CheckGoogleCloudConnectionConfigurator()
 
     class ConnectsToAWSAccount(ConnectsToCloudAccount, ConnectsToObjectStorage):
@@ -545,6 +545,8 @@ class nodes(Namespace):
             ]
         )
         def default(self, **kw: Any) -> Any:
+            import unfurl.configurators
+
             return unfurl.configurators.DelegateConfigurator(
                 target=Eval({"eval": ".artifacts::install"}),
                 inputs={},

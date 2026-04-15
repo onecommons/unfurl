@@ -19,8 +19,8 @@ Registry Auth Tips:
 - gcr.io and *.pkg.dev: username="oauth2accesstoken", password=<oauth access token>
 """
 
-from dataclasses import dataclass, asdict, field, InitVar
-from functools import cache, total_ordering
+from __future__ import annotations
+from functools import cache
 from typing import (
     Any,
     Dict,
@@ -28,16 +28,10 @@ from typing import (
     Optional,
     Tuple,
     List,
-    Literal,
-    TypedDict,
-    Union,
-    cast,
 )
 import base64
 import json
 import logging
-from urllib.parse import quote, urlparse, urlunparse, parse_qsl, urlencode
-from datetime import datetime, timezone
 import requests
 
 from tenacity import (
@@ -50,593 +44,38 @@ from tenacity import (
 )
 from .support import ContainerImageParts, ContainerImage
 from .logs import getLogger
+from .tosca_plugins.cloudmap_defs import (
+    ArtifactMappings,
+    ArtifactMetadata,
+    Artifact,
+    CommonMetadata,
+    Discovery,
+    EntitySchema,
+    Instantiation,
+    LifecycleStatus,
+    PipelineArtifact,
+    PipelineRunProperties,
+    PipelineVariable,
+    ScheduledRelease,
+    TypeRefConstraint,
+    TypeRefJson,
+    TypeRefStatus,
+    TypeRefs,
+    TypedUrls,
+    build_oci_purl,
+    filter_dict,
+    join_resource_url,
+    validate_url,
+)
 
 logger = getLogger("unfurl")
 
 DEFAULT_TIMEOUT = 20  # seconds
 
 
-def validate_url(url: str, field_name: str = "URL") -> str:
-    """
-    Validate that the given field is a valid URL.
-
-    Args:
-        url: The URL string to validate
-        field_name: Name of the field (for error messages)
-
-    Returns:
-        The validated URL
-
-    Raises:
-        ValueError: If the URL is not valid
-    """
-    # we want to support relative URLs too (like path or #fragment) so just check for spaces
-    if any(c.isspace() for c in url):
-        raise ValueError(f"{field_name} is not a valid URL: {url!r}")
-    return url
-
-def join_resource_url(base_url: str, join_url: str) -> str:
-    assert join_url
-    base = urlparse(base_url)
-    if not base.scheme:
-        return join_url  # if base_url is not an absolute URL, just return the join_url
-    join = urlparse(join_url)
-    if join.scheme or (not join.fragment and not join.query and "@" not in join.path):
-        # just return join url if it is an absolute URL or a bare name without a purl version
-        return join_url
-    replace = {}
-    if join.fragment:
-        replace["fragment"] = join.fragment
-    if join.query:
-        if base.query and "=" in join.query:
-            base_params = parse_qsl(base.query, keep_blank_values=True)
-            join_params = parse_qsl(join.query, keep_blank_values=True)
-            join_keys = {key for key, _value in join_params}
-            merged_params = [item for item in base_params if item[0] not in join_keys]
-            merged_params.extend(join_params)
-            replace["query"] = urlencode(merged_params, safe=":/@")
-        else:
-            replace["query"] = join.query
-    if join.path:
-        if join.path.startswith("@"):
-            # if join path starts with @, treat it as a purl version and append to base path with @
-            replace["path"] = base.path.partition("@")[0] + join.path
-        else:
-            replace["path"] = join.path
-    return urlunparse(base._replace(**replace))
-
 # ---------------------------
 # Parsing image references
 # ---------------------------
-
-
-class EntitySchema:
-    """built-in artifact entity types"""
-
-    # https://github.com/package-url/purl-spec
-    # mime type https://www.iana.org/assignments/media-types/media-types.xhtml
-    Schema = "unfurl.cloud/onecommons/std"
-    GenericFile = "tosca.artifacts.File"
-    ContainerFile = "cloudmap.artifacts.Containerfile"
-    CloudBlueprint = "cloudmap.artifacts.tosca.ServiceTemplate"
-    TOSCASchema = "cloudmap.artifacts.tosca.TypeLibrary"
-    Ensemble = "cloudmap.artifacts.unfurl.Ensemble"
-    UnfurlProject = "cloudmap.artifacts.unfurl.Project"
-    OCIImage = "cloudmap.artifacts.oci.Image"
-    PullRequest = "cloudmap.artifacts.PullRequest"
-    CommitMessage = "cloudmap.artifacts.CommitMessage"
-    InTotoAttestation = "cloudmap.artifacts.InTotoAttestation"
-    "application/vnd.in-toto+json"
-    SpDxDoc = "cloudmap.artifacts.SpdxDocument"
-    CycloneDxBom = "cloudmap.artifacts.CycloneDxBom"
-    SlsaProvenance02 = "cloudmap.artifacts.SlsaProvenance02"
-    SlsaProvenance1 = "cloudmap.artifacts.SlsaProvenance1"
-    BuildkitProvenance = "cloudmap.artifacts.BuildkitProvenance"
-    "see https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md"
-    Empty = "cloudmap.artifacts.Empty"
-    "Null artifact used to represent empty documents or placeholders"
-    Group = "cloudmap.artifacts.Group"
-    "Generic grouping of artifacts (use notable to declare members)"
-    AbstractBlueprint = "cloudmap.artifacts.AbstractBlueprint"
-    "Artifact definition that does not correspond to a concrete artifact"
-
-
-ArtifactMappings = {
-    "https://in-toto.io/Statement/v0.1": EntitySchema.InTotoAttestation,
-    "https://spdx.dev/Document": EntitySchema.SpDxDoc,
-    "https://slsa.dev/provenance/v0.2": EntitySchema.SlsaProvenance02,
-    "https://slsa.dev/provenance/v1": EntitySchema.SlsaProvenance1,
-    "https://mobyproject.org/buildkit@v1": EntitySchema.BuildkitProvenance,
-    "https://cyclonedx.org/bom/v1.4": EntitySchema.CycloneDxBom,
-}
-
-
-@dataclass
-class CommonMetadata:
-    """Common metadata fields shared across artifacts, services, and repositories."""
-
-    title: str = ""
-    """Human-readable title."""
-    description: str = ""
-    """Human-readable description."""
-    topics: List[str] = field(default_factory=list)
-    """List of topic or categories associated with the resource."""
-    vendor: str = ""
-    """Name of the distributing entity, organization, or individual."""
-    version: str = ""
-    """Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."""
-    fork_of: str = ""
-    """URL to the entity this is a fork of."""
-    documentation_url: str = ""
-    """URL to get documentation."""
-    homepage_url: str = ""
-    """URL to find more information."""
-    thumbnail_url: str = ""
-    """Icon or thumbnail URL."""
-    discussion_url: str = ""
-    """Link to issue, PR/MR, or discussion about this definition."""
-    spdx_licenses: str = ""
-    """License(s) as an SPDX License Expression."""
-    created: str = ""
-    """Date and time on which the resource was created, conforming to RFC 3339."""
-    source_url: str = ""
-    """Informal pointer to source code"""
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
-    def __post_init__(self):
-        if self.fork_of:
-            self.fork_of = validate_url(
-                self.fork_of, f"{self.__class__.__name__}.fork_of"
-            )
-        if self.homepage_url:
-            self.homepage_url = validate_url(
-                self.homepage_url, f"{self.__class__.__name__}.homepage_url"
-            )
-        if self.documentation_url:
-            self.documentation_url = validate_url(
-                self.documentation_url, f"{self.__class__.__name__}.documentation_url"
-            )
-        if self.discussion_url:
-            self.discussion_url = validate_url(
-                self.discussion_url, f"{self.__class__.__name__}.discussion_url"
-            )
-        if self.thumbnail_url:
-            self.thumbnail_url = validate_url(
-                self.thumbnail_url, f"{self.__class__.__name__}.thumbnail_url"
-            )
-        if self.source_url:
-            self.source_url = validate_url(
-                self.source_url, f"{self.__class__.__name__}.source_url"
-            )
-
-
-@dataclass
-class ArtifactMetadata(CommonMetadata):
-    """
-    Metadata about the repository that isn't stored in the git repository itself but might be provided by the host
-    e.g. metadata that found on the repository's GitHub or GitLab project page.
-    """
-
-    platforms: Optional[List[Dict[str, str]]] = None
-
-    def extract_urls_from_labels(self, labels: Dict[str, Any]) -> None:
-        """
-        Extract URLs and metadata from OCI labels/annotations and set fields on this instance.
-        https://specs.opencontainers.org/image-spec/annotations/
-        """
-
-        def _set_if_present(field_name: str, label_key: str) -> None:
-            value = labels.get(label_key)
-            if isinstance(value, str) and value.strip():
-                cleaned = value.strip()
-                if field_name in ("source_url", "homepage_url", "documentation_url"):
-                    try:
-                        cleaned = validate_url(
-                            cleaned, f"ArtifactMetadata.{field_name}"
-                        )
-                        setattr(self, field_name, cleaned)
-                    except ValueError:
-                        pass  # skip invalid URL
-
-        # OCI standard annotations
-        _set_if_present("source_url", "org.label-schema.vcs-url")
-        _set_if_present("source_url", "org.opencontainers.image.source")
-        _set_if_present("documentation_url", "org.opencontainers.image.documentation")
-        _set_if_present("spdx_licenses", "org.opencontainers.image.licenses")
-        _set_if_present("version", "org.label-schema.version")
-        _set_if_present("version", "org.opencontainers.image.version")
-        _set_if_present("title", "org.label-schema.name")
-        _set_if_present("title", "org.opencontainers.image.title")
-        _set_if_present("description", "org.label-schema.description")
-        _set_if_present("vendor", "org.label-schema.vendor")
-        _set_if_present("description", "org.opencontainers.image.description")
-        _set_if_present("vendor", "org.opencontainers.image.vendor")
-        _set_if_present("homepage_url", "org.label-schema.url")
-        _set_if_present("homepage_url", "org.opencontainers.image.url")
-
-    def __post_init__(self):
-        super().__post_init__()
-
-
-class TypeRefConstraint(TypedDict, total=False):
-    status: Literal["unknown", "absent", "present", "failed", "validated"]
-    version: Union[int, float, str]
-    properties: Dict[str, Any]
-
-
-TypeRefJson = Dict[
-    str,
-    Optional[TypeRefConstraint],
-]
-
-@total_ordering
-class TypeRefs:
-    """
-    Type references with optional constraints.
-
-    Represents a mapping of type names to optional version constraints.
-    Example: {"software.Nginx": {"version": "1.25"}, "software.Linux": None}
-    """
-
-    def __init__(self, types: Optional[TypeRefJson] = None):
-        """Initialize TypeRefs from a dict or create empty."""
-        self.types = types if types is not None else {}
-
-    def asdict(self) -> TypeRefJson:
-        """Return JSON representation of typeRef."""
-        return {k: self.types[k] for k in sorted(self.types)}
-
-    def names(self) -> List[str]:
-        """Return list of type names."""
-        return list(self.types)
-
-    def add(
-        self, type_name: Optional[str], constraints: Optional[TypeRefConstraint] = None
-    ) -> None:
-        """Add a type reference with optional constraints."""
-        if not type_name:
-            return
-        self.types[type_name] = constraints
-
-    def __bool__(self) -> bool:
-        """Return True if there are any type references."""
-        return bool(self.types)
-
-    def __len__(self) -> int:
-        """Return number of type references."""
-        return len(self.types)
-
-    def __repr__(self) -> str:
-        return f"TypeRefs({self.types!r})"
-
-    def __eq__(self, other: object) -> bool:
-        """Return True if there are any type references."""
-        if not isinstance(other, TypeRefs):
-            return NotImplemented
-        return self.types == other.types
-
-    def __ne__(self, other: object) -> bool:
-        """Return True if there are any type references."""
-        if not isinstance(other, TypeRefs):
-            return NotImplemented
-        return self.types != other.types
-
-    def __lt__(self, other):
-        """Compare based on the sorted items of the types dict."""
-        if not isinstance(other, TypeRefs):
-            return NotImplemented
-        return sorted(self.types.items()) < sorted(other.types.items())
-
-    def __hash__(self) -> int:
-        """Hash based on the sorted items of the types dict."""
-        return hash(tuple(sorted(self.types.items())))
-
-    def __cmp__(self, other: object) -> int:
-        """Compare based on the sorted items of the types dict."""
-        if not isinstance(other, TypeRefs):
-            return NotImplemented
-        return (sorted(self.types.items()) > sorted(other.types.items())) - (
-            sorted(self.types.items()) < sorted(other.types.items())
-        )
-
-    @staticmethod
-    def urls_asdict(typed_urls: "TypedUrls") -> Dict[str, Optional[TypeRefJson]]:
-        """Convert TypedUrls to a dict with TypeRefJson values."""
-        result: Dict[str, Optional[TypeRefJson]] = {}
-        for url in sorted(typed_urls):
-            type_refs = typed_urls[url]
-            if isinstance(type_refs, TypeRefs):
-                result[url] = type_refs.asdict()
-            else:
-                result[url] = type_refs
-        return result
-
-    @staticmethod
-    def urls_fromdict(
-        type_urls_dict: Union["TypedUrls", Dict[str, Optional[TypeRefJson]]],
-    ) -> "TypedUrls":
-        """Convert instantiated dict values to Optional[TypeRefs]"""
-        type_urls: TypedUrls = {}
-        for k, v in type_urls_dict.items():
-            if isinstance(v, dict):
-                type_urls[k] = TypeRefs(types=v)
-            else:
-                type_urls[k] = v
-        return type_urls
-
-
-TypedUrls = Dict[str, Optional[TypeRefs]]
-
-
-@dataclass
-class Instantiation:
-    """
-    Build and deployment information for artifacts and services.
-
-    Stored in CloudMapDB.instantiations with URL keys and referenced by
-    Artifact.instantiated_by and Service.instantiated_by.
-    """
-
-    url: str = ""
-    """URL of the instantiation (auto-generated as timestamp fragment if not provided)"""
-    type: TypeRefs = field(default_factory=TypeRefs)
-    """Type of the instantiation."""
-    digest: str = ""
-    """Cryptographic digest of document reference by the instantiation URL."""
-    revision: str = ""
-    """If instantiation URL references a repository, source control revision of that repository."""
-    source: str = ""
-    """Repository or artifact URL."""
-    source_revision: str = ""
-    """If source URL references a repository, the source control revision of that repository."""
-    instantiated: TypedUrls = field(default_factory=dict)
-    """The artifacts or services created or updated by this instantiation with optional capability."""
-    inputs: TypedUrls = field(default_factory=dict)
-    """The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process."""
-    metadata: CommonMetadata = field(default_factory=CommonMetadata)
-    """Additional metadata about the instantiation."""
-    discovery: Optional["Discovery"] = None
-    """Metadata discovery information"""
-    status: Optional[
-        Literal[
-            "draft",
-            "model",
-            "planned",
-            "WIP",
-            "observed",
-            "verifiable",
-            "verified",
-            "reproducible",
-            "reproduced",
-        ]
-    ] = None
-    """Status of the instantiation's reproducibility and verification."""
-    versions: Dict[str, "Instantiation"] = field(default_factory=dict)
-    """Instantiations that are variants of this instantiation (for example, different deployments or environments)"""
-    _parent: InitVar[Optional["Instantiation"]] = None
-
-    def __post_init__(self, _parent: Optional["Instantiation"] = None):
-        if not self.url:  # Auto-generate id as url fragment if not set
-            self.url = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        if self.source:
-            self.source = validate_url(self.source, "Instantiation.source")
-        if isinstance(self.type, dict):
-            self.type = TypeRefs(types=self.type)
-        if isinstance(self.metadata, dict):
-            self.metadata = CommonMetadata(**self.metadata)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
-        self.instantiated = TypeRefs.urls_fromdict(self.instantiated)
-        self.inputs = TypeRefs.urls_fromdict(self.inputs)
-        # Convert versions dict entries to Instantiation instances if they're still dicts
-        if self.versions:
-            new_versions: Dict[str, Instantiation] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Instantiation):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Instantiation(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
-        self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude url and empty values
-        result = {}
-        for k, v in asdict(self).items():
-            if k == "url":
-                continue  # url is the key, not saved in value
-            if k == "type" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "metadata":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
-                v = filter_dict(v)
-            elif k == "inputs":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "instantiated":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "versions" and self.versions:
-                # Convert nested Instantiation instances to dicts by calling asdict on actual instances
-                v = {url: inst.asdict() for url, inst in self.versions.items()}
-            # exclude empty values and values inherited from parent
-            if v and (
-                not self._parent or v != getattr(self._parent, k)  # type: ignore
-            ):
-                result[k] = v
-        return result
-
-
-@dataclass
-class Discovery:
-    """Metadata discovery information."""
-
-    last_checked: str = ""
-    """Date and time of the last metadata check"""
-    sources: List[str] = field(default_factory=list)
-    """List of URLs that were used for metadata discovery"""
-
-    def __post_init__(self):
-        if self.sources:
-            self.sources = [
-                validate_url(url, "Discovery.sources") for url in self.sources
-            ]
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
-
-
-def filter_dict(d: dict) -> dict:
-    """Exclude empty values from a dictionary."""
-    return {k: v for k, v in d.items() if v}
-
-
-LifecycleStatus = Literal[
-    "wishlist",
-    "model",
-    "planned",
-    "development",
-    "alpha",
-    "beta",
-    "production",
-    "maintenance",
-    "unmaintained",
-    "deprecated",
-    "removed",
-]
-
-
-@dataclass
-class ScheduledRelease:
-    """Scheduled Release for an artifact or service."""
-
-    url: str = ""
-    """The URL for this upcoming release"""
-    version: Union[str, int, float] = ""
-    """Version of the upcoming release"""
-    status: Optional[LifecycleStatus] = None
-    """The upcoming lifecycle status"""
-    effective_date: str = ""
-    """The date and time the release will happen (RFC 3339 format)."""
-
-    def __post_init__(self):
-        if self.url:
-            self.url = validate_url(self.url, "ScheduledRelease.url")
-
-
-@dataclass
-class Artifact:
-    url: str
-    type: TypeRefs = field(default_factory=TypeRefs)
-    """Type identifier from types/artifacts with optional version constraints (typeRef)"""
-    notable: TypedUrls = field(default_factory=dict)
-    """"Map of URLs of interesting artifacts or repositories that this artifact incorporates or references."""
-    instantiates: TypeRefs = field(default_factory=TypeRefs)
-    """Types that this artifact instantiates with optional version constraints (typeRef)"""
-    dependencies: TypedUrls = field(default_factory=dict)
-    """Types that instantiation may depend on with optional version constraints (typeRef)"""
-    instantiated_by: List[str] = field(default_factory=list)
-    """List of URLs referencing an entry in instantiations."""
-    digest: str = ""
-    """Cryptographic digest of the artifact"""
-    immutable: bool = False
-    """Whether the artifact identifier refers to an artifact that will not change over time"""
-    status: Optional[LifecycleStatus] = None
-    """Lifecycle status of the artifact"""
-    release_schedule: List[ScheduledRelease] = field(default_factory=list)
-    """Release schedule information for this artifact"""
-    metadata: ArtifactMetadata = field(default_factory=ArtifactMetadata)
-    """Human-readable metadata"""
-    discovery: Optional["Discovery"] = None
-    """Metadata discovery information"""
-    tags: Optional[List[str]] = None
-    """List of available tags for this artifact (e.g., container image tags)"""
-    versions: Dict[str, "Artifact"] = field(default_factory=dict)
-    """Artifacts that are variants of this artifact (for example, releases or snapshots)"""
-    _parent: InitVar[Optional["Artifact"]] = None
-
-    def __post_init__(self, _parent: Optional["Artifact"] = None):
-        # Validate pkg URL
-        if self.url:
-            parts = urlparse(self.url)  # just to parse and validate
-            if not parts.scheme:  # migrate old cloudmap format
-                self.url = build_oci_purl(ContainerImageParts.split(self.url))
-            elif parts.scheme not in ["pkg", "git"]:
-                raise ValueError(f"Artifact.url must be a pkg URL: {self.url!r}")
-
-        if isinstance(self.metadata, dict):
-            self.metadata = ArtifactMetadata(**self.metadata)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
-        if isinstance(self.type, dict):
-            self.type = TypeRefs(types=self.type)
-        if isinstance(self.instantiates, dict):
-            self.instantiates = TypeRefs(types=self.instantiates)
-        self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
-        self.notable = TypeRefs.urls_fromdict(self.notable)
-        self.release_schedule = [
-            ScheduledRelease(**item) if isinstance(item, dict) else item
-            for item in self.release_schedule
-        ]
-        # Convert versions dict entries to Artifact instances if they're still dicts
-        if self.versions:
-            new_versions: Dict[str, Artifact] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Artifact):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    # XXX inherit more attributes
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Artifact(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
-        self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
-
-    def asdict(self) -> Dict[str, Any]:
-        # exclude empty values
-        result = {}
-        for k, v in asdict(self).items():
-            if k == "url":
-                continue  # skip url, save as the key instead
-            if k == "metadata":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
-                v = filter_dict(v)
-            elif k == "notable":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "type" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "instantiates" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "dependencies":
-                v = TypeRefs.urls_asdict(v)
-            elif k == "release_schedule" and v:
-                v = [filter_dict(item) for item in v]
-            elif k == "versions" and v:
-                # Convert nested Artifact instances to dicts
-                v = {
-                    url: (rel.asdict() if isinstance(rel, Artifact) else rel)
-                    for url, rel in v.items()
-                }
-            # exclude empty values and values inherited from parent
-            if v and (
-                not self._parent or v != getattr(self._parent, k)  # type: ignore
-            ):
-                result[k] = v
-        return result
 
 
 class ArtifactFetch(NamedTuple):
@@ -655,29 +94,6 @@ class ImageMetadataFetch(NamedTuple):
     manifest_digest: Optional[str]
     "the manifest digest of the selected architecture or the root manifest if single-arch"
     artifact_fetch: Optional[ArtifactFetch] = None
-
-
-def build_oci_purl(ref: ContainerImageParts) -> str:
-    """
-    Build a Package URL for an OCI artifact.
-
-    pkg:oci/<name>@<version>?<qualifiers>#<subpath>
-
-    e.g. pkg:oci/static@sha256%3A244fd47e07d10?repository_url=gcr.io/distroless/static&arch=amd64&tag=latest
-
-    Version is the digest and can be omitted.
-    The image repository (or namespace) is included in repository_url, not the name.
-    """
-    purl = f"pkg:oci/{quote(ref.name)}"
-    if ref.digest:
-        purl += f"@{quote(ref.digest)}"
-    purl += "?repository_url=" + quote(ref.registry or "docker.io")
-    repository = ref.repository
-    if repository:
-        purl += f"/{quote(repository)}"
-    if ref.tag:
-        purl += f"&tag={quote(ref.tag)}"
-    return purl
 
 
 def create_oci_artifact(
@@ -754,6 +170,9 @@ def create_oci_artifact(
                     url=artifact_fetch.manifest_url,
                     type=inst_type,
                     digest=artifact_fetch.artifact_digest,
+                    source=metadata.source_url,
+                    source_revision=metadata.source_revision,
+                    instantiated={purl: None},  # link instantiation to artifact
                 )
                 artifact_metadata = predicate.get("metadata")
                 if isinstance(artifact_metadata, dict):
@@ -818,7 +237,7 @@ def create_oci_artifact(
         metadata.homepage_url = f"https://{ref.host[len('registry.') :]}/{'/'.join(ref.full_name.split('/')[:2])}"
 
     # Create and return Artifact with instantiation
-    instantiated_by = [instantiation.url] if instantiation else []
+    instantiated_by: TypedUrls = {instantiation.url: None} if instantiation else {}
     artifact_types = TypeRefs()
     artifact_types.add(EntitySchema.OCIImage)
     artifact = Artifact(

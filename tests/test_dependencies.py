@@ -4,6 +4,7 @@ import os
 import pprint
 import logging
 import io
+import time
 import pytest
 from unfurl.localenv import LocalEnv
 from unfurl.util import UnfurlValidationError
@@ -674,3 +675,488 @@ def test_transient():
 
     # no changes when run again:
     _run(job3.out.getvalue(), digest, 0, "reconfigure")
+
+
+# --- Resume task tests ---
+
+from unfurl.configurator import Configurator, Cancel, Status
+
+
+class ResumeTestConfigurator(Configurator):
+    """Test configurator that yields resume twice, then completes."""
+
+    def run(self, task):
+        task.logger.info("resume configurator: first run")
+        signal = yield task.suspend()
+        if isinstance(signal, Cancel):
+            yield task.done(False, result={"cancelled": signal.reason})
+            return
+        task.logger.info("resume configurator: second run")
+        signal = yield task.suspend()
+        if isinstance(signal, Cancel):
+            yield task.done(False, result={"cancelled": signal.reason})
+            return
+        task.logger.info("resume configurator: completing")
+        yield task.done(True, status=Status.ok)
+
+
+resume_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      test.ResumeHost:
+        derived_from: tosca:Root
+        capabilities:
+          host:
+            type: tosca.capabilities.Compute
+
+    topology_template:
+      node_templates:
+        resume_node:
+          type: test.ResumeHost
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.ResumeTestConfigurator
+
+        dependent_node:
+          type: tosca.nodes.SoftwareComponent
+          requirements:
+          - host: resume_node
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: Template
+                  inputs:
+                    done:
+                      status: ok
+"""
+
+
+def test_resume_task():
+    """Resume task completes after multiple resume cycles, dependent runs after."""
+    manifest = YamlManifest(resume_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    # import json; print(json.dumps(summary, indent=2))
+    assert summary["job"]["status"] == "ok"
+    # Both tasks should have run successfully
+    assert summary["job"]["ok"] == 2, summary
+    task_targets = [t["target"] for t in summary["tasks"]]
+    assert "resume_node" in task_targets
+    assert "dependent_node" in task_targets
+
+
+def test_resume_task_dependencies():
+    """Dependent task waits for resume task to fully complete."""
+    manifest = YamlManifest(resume_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok"
+    task_targets = [t["target"] for t in summary["tasks"]]
+    # dependent_node should appear after resume_node
+    if "dependent_node" in task_targets and "resume_node" in task_targets:
+        assert task_targets.index("resume_node") < task_targets.index(
+            "dependent_node"
+        )
+
+
+def test_resume_task_cancel():
+    """Job timeout triggers Cancel on resume task."""
+    manifest = YamlManifest(resume_manifest)
+    runner = Runner(manifest)
+    # Very short timeout to trigger cancellation during resume
+    job = runner.run(JobOptions(startTime=1, timeout=0.001))
+    # Job should end in error due to timeout
+    assert job.status == Status.error
+
+
+deferred_release_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      test.ResumeHost:
+        derived_from: tosca:Root
+        capabilities:
+          host:
+            type: tosca.capabilities.Compute
+
+      test.IndependentResume:
+        derived_from: tosca:Root
+
+    topology_template:
+      node_templates:
+        resume_host:
+          type: test.ResumeHost
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.ResumeTestConfigurator
+
+        independent_resume:
+          type: test.IndependentResume
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.ResumeTestConfigurator
+
+        dependent_node:
+          type: tosca.nodes.SoftwareComponent
+          requirements:
+          - host: resume_host
+          interfaces:
+            Standard:
+              operations:
+                create:
+                  implementation: Template
+                  inputs:
+                    done:
+                      status: ok
+"""
+
+
+def test_resume_deferred_release():
+    """Deferred tasks only release when their specific blocker completes, not any resume."""
+    manifest = YamlManifest(deferred_release_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok", summary
+    assert summary["job"]["error"] == 0, summary
+    assert summary["job"]["ok"] == 3, summary
+    task_targets = [t["target"] for t in summary["tasks"]]
+    assert "resume_host" in task_targets
+    assert "independent_resume" in task_targets
+    assert "dependent_node" in task_targets
+    # dependent_node must run after resume_host (its dependency), not after independent_resume
+    assert task_targets.index("resume_host") < task_targets.index("dependent_node")
+
+
+class SequentialSubtaskConfigurator(Configurator):
+    """Yields two subtask PlanRequests sequentially, each using background shell."""
+
+    def run(self, task):
+        sub1 = task.create_sub_task("Custom.op1", task.target)
+        assert sub1
+        result1 = yield sub1
+        assert result1 is not None, "subtask 1 result was None"
+        task.logger.info("subtask 1 done")
+
+        sub2 = task.create_sub_task("Custom.op2", task.target)
+        assert sub2
+        result2 = yield sub2
+        assert result2 is not None, "subtask 2 result was None"
+        task.logger.info("subtask 2 done")
+
+        yield task.done(True)
+
+
+sequential_subtask_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    node_types:
+      Test:
+        derived_from: tosca.nodes.Root
+        interfaces:
+          Custom:
+            type: tosca.interfaces.Root
+            operations:
+              op1:
+                implementation: echo start_op1
+                inputs:
+                  background: true
+                  done:
+                    success: true
+              op2:
+                implementation: echo start_op2
+                inputs:
+                  background: true
+
+    topology_template:
+      node_templates:
+        parent_node:
+          type: Test
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.SequentialSubtaskConfigurator
+                start:
+                  implementation: echo start_output
+                  inputs:
+                    background: true
+"""
+
+
+def test_resume_sequential_subtasks():
+    """Parent yields two background shell subtasks sequentially; both complete."""
+    manifest = YamlManifest(sequential_subtask_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 4,
+            "ok": 4,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "ok",
+                "target": "parent_node",
+                "operation": "configure",
+                "template": "parent_node",
+                "type": "Test",
+                "targetStatus": "pending",
+                "targetState": "configured",
+                "changed": False,
+                "configurator": "tests.test_dependencies.SequentialSubtaskConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "ok",
+                "target": "parent_node",
+                "operation": "op1",
+                "template": "parent_node",
+                "type": "Test",
+                "targetStatus": "pending",
+                "targetState": "configuring",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "subtask: for add: Standard.configure",
+            },
+            {
+                'changed': True,
+                'configurator': 'unfurl.configurators.shell.ShellConfigurator',
+                "operation": "start",
+                'priority': 'required',
+                'reason': "add",
+                'status': "ok",
+                'target': 'parent_node',
+                'targetState': 'started',
+                'targetStatus': 'ok',
+                'template': 'parent_node',
+                'type': 'Test',
+            },
+            {
+                "status": "ok",
+                "target": "parent_node",
+                "operation": "op2",
+                "template": "parent_node",
+                "type": "Test",
+                "targetStatus": "pending",
+                "targetState": "configuring",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "subtask: for add: Standard.configure",
+            },
+        ],
+    }
+
+
+class NestedSubtaskConfigurator(Configurator):
+    """Yields a subtask that uses a background shell command."""
+
+    def run(self, task):
+        sub = task.create_sub_task("Install.check", task.target)
+        assert sub
+        result = yield sub
+        assert result is not None, "subtask result was None"
+        task.logger.info("nested subtask done")
+        yield task.done(True, status=Status.ok)
+
+
+nested_subtask_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        parent_node:
+          type: tosca:Root
+          interfaces:
+            Install:
+              check:
+                implementation: echo nested_check_output
+                inputs:
+                  background: true
+                  done:
+                    success: true
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.NestedSubtaskConfigurator
+"""
+
+
+def test_resume_nested_subtasks():
+    """A parent configurator yields a subtask that uses background shell with resume."""
+    manifest = YamlManifest(nested_subtask_manifest)
+    runner = Runner(manifest)
+    job = runner.run(JobOptions(startTime=1))
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "ok",
+            "total": 2,
+            "ok": 2,
+            "error": 0,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 1,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "ok",
+                "target": "parent_node",
+                "operation": "configure",
+                "template": "parent_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "ok",
+                "targetState": "configured",
+                "changed": True,
+                "configurator": "tests.test_dependencies.NestedSubtaskConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "ok",
+                "target": "parent_node",
+                "operation": "check",
+                "template": "parent_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "pending",
+                "targetState": "configuring",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "subtask: for add: Standard.configure",
+            },
+        ],
+    }
+
+
+class PauseTestConfigurator(Configurator):
+    """Yields suspend(pause=0.2) then completes."""
+
+    def run(self, task):
+        task.logger.info("pause configurator: suspending with pause")
+        signal = yield task.suspend(pause=0.2)
+        if isinstance(signal, Cancel):
+            yield task.done(False, result={"cancelled": signal.reason})
+            return
+        task.logger.info("pause configurator: resumed after pause")
+        yield task.done(True, status=Status.ok)
+
+
+pause_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        pause_node:
+          type: tosca:Root
+          interfaces:
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.PauseTestConfigurator
+"""
+
+
+def test_resume_with_pause():
+    """suspend(pause=N) delays re-entry by at least N seconds."""
+    manifest = YamlManifest(pause_manifest)
+    runner = Runner(manifest)
+    start = time.monotonic()
+    job = runner.run(JobOptions(startTime=1))
+    elapsed = time.monotonic() - start
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok", summary
+    assert summary["job"]["ok"] == 1, summary
+    assert elapsed >= 0.2, f"Expected >= 0.2s, got {elapsed:.3f}s"
+
+
+class PauseSubtaskConfigurator(Configurator):
+    """Yields a subtask that uses suspend(pause=...)."""
+
+    def run(self, task):
+        sub = task.create_sub_task("Install.check", task.target)
+        assert sub
+        result = yield sub
+        assert result is not None, "subtask result was None"
+        task.logger.info("pause subtask done")
+        yield task.done(True, status=Status.ok)
+
+
+pause_subtask_manifest = """
+apiVersion: unfurl/v1.0.0
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        parent_node:
+          type: tosca:Root
+          interfaces:
+            Install:
+              check:
+                implementation:
+                  className: tests.test_dependencies.PauseTestConfigurator
+            Standard:
+              operations:
+                configure:
+                  implementation:
+                    className: tests.test_dependencies.PauseSubtaskConfigurator
+"""
+
+
+def test_resume_subtask_with_pause():
+    """A subtask using suspend(pause=N) propagates the pause to the parent."""
+    manifest = YamlManifest(pause_subtask_manifest)
+    runner = Runner(manifest)
+    start = time.monotonic()
+    job = runner.run(JobOptions(startTime=1))
+    elapsed = time.monotonic() - start
+    assert not job.unexpectedAbort, job.unexpectedAbort.get_stack_trace()
+    summary = job.json_summary()
+    assert summary["job"]["status"] == "ok", summary
+    assert elapsed >= 0.2, f"Expected >= 0.2s, got {elapsed:.3f}s"

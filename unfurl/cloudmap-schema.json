@@ -82,6 +82,14 @@
           "type": "string",
           "description": "Informal pointer to source code. Use when deployment information is not available."
         },
+        "source_ref": {
+          "type": "string",
+          "description": "Informal pointer to source ref (branch or tag name)."
+        },
+        "source_revision": {
+          "type": "string",
+          "description": "Informal pointer to source code revision. Use when deployment information is not available."
+        },
         "spdx_licenses": {
           "type": "string",
           "description": "License(s) as an SPDX License Expression."
@@ -236,7 +244,12 @@
         },
         "notable": {
           "type": "object",
-          "description": "Map of URLs of interesting artifacts or repositories that this artifact incorporates or references.",
+          "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
+          "$ref": "#/definitions/typedURLs"
+        },
+        "references": {
+          "type": "object",
+          "description": "Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
           "$ref": "#/definitions/typedURLs"
         },
         "instantiates": {
@@ -245,14 +258,11 @@
         },
         "dependencies": {
           "$ref": "#/definitions/typedURLs",
-          "description": "Instantiation dependencies on including environment context and types of software or services with optional version constraints. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."
+          "description": "Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
         },
         "instantiated_by": {
-          "type": "array",
-          "description": "List of URLs referencing an entry in instantiations.",
-          "items": {
-            "type": "string"
-          }
+          "$ref": "#/definitions/typedURLs",
+          "description": "URLs referencing entries in instantiations with optional type constraints."
         },
         "digest": {
           "type": "string",
@@ -374,12 +384,8 @@
           }
         },
         "instantiated_by": {
-          "type": "array",
-          "description": "List of instantiation URLs.",
-          "items": {
-            "type": "string",
-            "description": "List of URLs referencing an entry in instantiations."
-          }
+          "$ref": "#/definitions/typedURLs",
+          "description": "URLs referencing entries in instantiations with optional type constraints."
         },
         "discovery": {
           "$ref": "#/definitions/discovery"
@@ -420,6 +426,10 @@
         "source": {
           "type": "string",
           "description": "Repository or artifact URL."
+        },
+        "source_ref": {
+          "type": "string",
+          "description": "If source URL references a repository, the branch or tag name."
         },
         "source_revision": {
           "type": "string",
@@ -751,6 +761,7 @@
     },
     "repositories": {
       "type": "object",
+      "description": "Git repositories. Keys are URLs that start with git://",
       "propertyNames": {
         "description": "URL of the repository using the git:// URL scheme.",
         "pattern": "^[^\\s]*$"

@@ -1,0 +1,187 @@
+{
+  "roots": [
+    {
+      "url": "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+      "kind": "Instantiation"
+    },
+    {
+      "url": "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+      "kind": "Artifact"
+    }
+  ],
+  "sections": {
+    "Instantiations": {
+      "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml": {
+        "kind": "Instantiation",
+        "url": "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+        "rels": {
+          "source": [
+            {
+              "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+              "kind": "Artifact"
+            }
+          ],
+          "instantiated": [
+            {
+              "url": "https://example.com/oodo",
+              "kind": "Service"
+            }
+          ],
+          "inputs": [
+            {
+              "url": "git://unfurl.cloud/onecommons/std.git#v1.1.1:.",
+              "missing": true,
+              "type_refs": [
+                {
+                  "type": "cloudmap.artifacts.unfurl.Package",
+                  "constraints": {
+                    "version": "1.1.1"
+                  }
+                }
+              ]
+            },
+            {
+              "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+              "kind": "Artifact"
+            }
+          ]
+        }
+      }
+    },
+    "Artifacts": {
+      "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml": {
+        "kind": "Artifact",
+        "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        "rels": {
+          "references": [
+            {
+              "url": "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.",
+              "missing": true,
+              "type_refs": [
+                {
+                  "type": "cloudmap.artifacts.unfurl.Package",
+                  "constraints": {
+                    "version": "0.7.7"
+                  }
+                }
+              ]
+            },
+            {
+              "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+              "kind": "Artifact"
+            }
+          ],
+          "dependencies": [
+            {
+              "type": "PostgresDB@unfurl.cloud/onecommons/unfurl-types",
+              "label": "Database"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.AWSAccount",
+              "label": "aws"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+              "label": "gcp"
+            }
+          ],
+          "instantiates": [
+            {
+              "type": "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+            }
+          ]
+        }
+      },
+      "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest": {
+        "kind": "Artifact",
+        "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest"
+      },
+      "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml": {
+        "kind": "Artifact",
+        "url": "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+        "rels": {
+          "references": [
+            {
+              "url": "git://unfurl.cloud/onecommons/std.git#v1.1.1:.",
+              "missing": true,
+              "type_refs": [
+                {
+                  "type": "cloudmap.artifacts.unfurl.Package",
+                  "constraints": {
+                    "version": "1.1.1"
+                  }
+                }
+              ]
+            },
+            {
+              "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+              "kind": "Artifact"
+            }
+          ],
+          "dependencies": [
+            {
+              "type": "unfurl.relationships.ConnectsTo.AWSAccount",
+              "label": "aws"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+              "label": "gcp"
+            },
+            {
+              "type": "unfurl.relationships.ConnectsTo.AWSAccount",
+              "label": "odoo-aws-1"
+            }
+          ],
+          "instantiates": [
+            {
+              "type": "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+            }
+          ]
+        }
+      }
+    },
+    "Types": {
+      "unfurl.relationships.ConnectsTo.AWSAccount": {
+        "kind": "Type",
+        "url": "unfurl.relationships.ConnectsTo.AWSAccount",
+        "rels": {
+          "extends": [
+            "unfurl.relationships.ConnectsTo.CloudAccount"
+          ]
+        }
+      },
+      "unfurl.relationships.ConnectsTo.GoogleCloudProject": {
+        "kind": "Type",
+        "url": "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+        "rels": {
+          "extends": [
+            "unfurl.relationships.ConnectsTo.CloudAccount"
+          ]
+        }
+      },
+      "Odoo@unfurl.cloud/onecommons/blueprints/odoo": {
+        "kind": "Type",
+        "url": "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+        "rels": {
+          "extends": [
+            "unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types"
+          ]
+        }
+      }
+    },
+    "Services": {
+      "https://example.com/oodo": {
+        "kind": "Service",
+        "url": "https://example.com/oodo",
+        "rels": {
+          "instantiated_by": [
+            {
+              "url": "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+              "kind": "Instantiation"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -97,6 +97,13 @@ if TYPE_CHECKING:
 
 logger = getLogger("unfurl")
 
+
+def import_module(module_name: str) -> types.ModuleType:
+    """Make sure tosca mode is 'parse' when importimg a module."""
+    with tosca.set_evaluation_mode("parse"):
+        return importlib.import_module(module_name)
+
+
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
@@ -150,11 +157,13 @@ def maybe_reconvert(
 def get_allowed_modules():
     # import packages that can be referenced in safe mode
     import unfurl.tosca_plugins
+    import unfurl.tosca_plugins.cloudmap_defs
     import unfurl.configurators
     import unfurl.configurators.templates
 
     packages = (
         "unfurl.tosca_plugins",
+        "unfurl.tosca_plugins.cloudmap_defs",
         "unfurl.configurators",
         "unfurl.configurators.templates",
     )
@@ -251,7 +260,7 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         )  # type: ignore
         if not obj:
             try:
-                importlib.import_module(module_name)
+                import_module(module_name)
                 # try again, hopefully template was loaded
                 obj = global_state._all_templates.get(section, {}).get(
                     (module_name, template.name)
@@ -436,9 +445,9 @@ class DslMethodConfigurator(Configurator):
         if self._generator:
             # render the yielded configurator
             result = self._generator.send(None)
-            assert isinstance(result, Configurator), (
-                "Only yielding configurators is currently support"
-            )
+            assert isinstance(
+                result, Configurator
+            ), "Only yielding configurators is currently support"
             return result
         elif self.configurator:
             return self.configurator.render(task)
@@ -520,7 +529,7 @@ def eval_computed(arg, ctx: RefContext):
         module_name, qualname, method = parts
     else:
         module_name, qualname = parts
-    module = importlib.import_module(module_name)
+    module = import_module(module_name)
     names = qualname.split(".")
     attr_name = names.pop(0)
     cls = getattr(module, attr_name)
@@ -552,7 +561,7 @@ def eval_validate(arg, ctx: RefContext):
        computed: mod:func
     """
     module_name, sep, qualname = arg.partition(":")
-    module = importlib.import_module(module_name)
+    module = import_module(module_name)
     cls_name, sep, func_name = qualname.rpartition(".")
     if cls_name:
         cls = getattr(module, cls_name)

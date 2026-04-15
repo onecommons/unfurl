@@ -25,6 +25,7 @@ from toscaparser.elements.entity_type import Namespace
 from flask import current_app
 from .serve import (
     CacheEntry,
+    CacheError,
     Cache,
     _get_local_project_dir,
     _get_project_repo,
@@ -52,13 +53,17 @@ CLOUDMAP_BRANCH = "main"
 
 
 def load_yaml(
-    project_id, branch, file_name, root_entry=None, latest_commit=None
-) -> Tuple[Optional[Any], Any]:
+    project_id: str,
+    branch: str,
+    file_name: str,
+    root_entry: Optional["CacheEntry"] = None,
+    latest_commit: Optional[str] = None,
+) -> Tuple[CacheError, Any]:
     from toscaparser.utils.yamlparser import load_yaml
 
     def _work(
         cache_entry: CacheEntry, latest_commit: Optional[str]
-    ) -> Tuple[Any, Any, bool]:
+    ) -> Tuple[CacheError, Any, bool]:
         path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
         doc = load_yaml(path)
         return None, doc, True
@@ -84,7 +89,7 @@ def load_yaml(
 
 def get_cloudmap_types(
     project_id: str, root_cache_entry: CacheEntry
-) -> Tuple[Optional[Any], Dict[str, ResourceType]]:
+) -> Tuple[CacheError, Dict[str, ResourceType]]:
     err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml", root_cache_entry)
     if doc is None:
         return err, {}
@@ -149,7 +154,7 @@ def get_cloudmap_types(
 def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commit=None):
     def _work(
         cache_entry: CacheEntry, latest_commit: Optional[str]
-    ) -> Tuple[Any, Any, bool]:
+    ) -> Tuple[CacheError, Any, bool]:
         path = os.path.join(cache_entry.checked_repo.working_dir, cache_entry.file_path)
         return None, path, True
 
@@ -317,7 +322,7 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         def _work(
             cache_entry: CacheEntry, latest_commit: Optional[str]
-        ) -> Tuple[Any, Any, bool]:
+        ) -> Tuple[CacheError, Any, bool]:
             path = os.path.join(cache_entry.checked_repo.working_dir, file_name)
             doc, cacheable = self._really_load_yaml(
                 path, True, fragment, repo_view, cache_entry.checked_repo.working_dir
@@ -385,7 +390,7 @@ class ServerCacheResolver(SimpleCacheResolver):
             )
             doc, cacheable = super().load_yaml(url, fragment, ctx)
             # XXX support private cache deps (need to save last_commit, provide repo_view.working_dir)
-        elif err:
+        elif isinstance(err, Exception):
             raise err
 
         return doc, cacheable
