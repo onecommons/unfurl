@@ -37,8 +37,7 @@ async fn main() {
     // Initialise tracing.  If UNFURL_LOGFILE is set, write directly to that
     // file (line-buffered) so readers can see output immediately.  Otherwise
     // write to stderr so Python can redirect it via subprocess.Popen(stderr=…).
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     if let Ok(log_path) = std::env::var("UNFURL_LOGFILE") {
         let file = std::fs::OpenOptions::new()
             .create(true)

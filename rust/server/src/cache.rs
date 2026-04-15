@@ -371,10 +371,10 @@ mod tests {
         );
 
         // Verify the dep key and that CacheItemDependency fields are accessible.
-        let dep_key = HashableValue::String("onecommons/std:v1.1.0".into());
+        let dep_key = HashableValue::String("onecommons/std:v1.1.1".into());
         let dep_val = deps
             .get(&dep_key)
-            .expect("missing dep key onecommons/std:v1.1.0");
+            .expect("missing dep key onecommons/std:v1.1.1");
 
         let dep_fields = match dep_val {
             serde_pickle::Value::Dict(d) => d,
@@ -394,7 +394,7 @@ mod tests {
         );
         assert_eq!(
             get_field("branch"),
-            &serde_pickle::Value::String("v1.1.0".into())
+            &serde_pickle::Value::String("v1.1.1".into())
         );
         assert_eq!(
             get_field("key"),
@@ -404,7 +404,7 @@ mod tests {
         assert_eq!(get_field("do_clone"), &serde_pickle::Value::Bool(true));
         assert_eq!(
             get_field("latest_commit"),
-            &serde_pickle::Value::String("62ce5b304f12c1a810930d849f17b460cd2999f0".into())
+            &serde_pickle::Value::String("05d48dc2257da2f5d94351671c14d32385bd19e4".into())
         );
         assert_eq!(
             get_field("file_paths"),
@@ -413,11 +413,14 @@ mod tests {
                 serde_pickle::Value::String("generic_types.yaml".into()),
             ])
         );
+        // last_commits is a Python set in the fixture but serde_pickle with
+        // replace_unresolved_globals surfaces it as a List here (the dataclass
+        // reconstruction path converts the set container).
         assert_eq!(
             get_field("last_commits"),
             &serde_pickle::Value::List(vec![serde_pickle::Value::String(
-                "62ce5b304f12c1a810930d849f17b460cd2999f0".into()
-            ),])
+                "05d48dc2257da2f5d94351671c14d32385bd19e4".into()
+            )])
         );
         assert_eq!(
             get_field("latest_package_url"),
