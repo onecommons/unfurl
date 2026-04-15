@@ -2,16 +2,18 @@ import os
 from typing import Iterator, List, Optional, Tuple, Iterable
 import re
 from . import EnvVar
-from ..serve import app
 from ...localenv import LocalEnv
 import urllib.parse
 import gitlab
 from functools import lru_cache
 from gitlab.v4.objects import Project
 
+
 def find_gitlab_endpoint(localenv: LocalEnv) -> Tuple[Optional[str], Optional[str]]:
     if not localenv.project:
         return None, None
+    from ..serve import app
+
     url, _ = localenv.project.localConfig.config.search_includes(
         pathPrefix=app.config["UNFURL_CLOUD_SERVER"]
     )
@@ -57,6 +59,7 @@ def set_variables(localenv: LocalEnv, env_vars: List[EnvVar]) -> None:
         raise ValueError("Could not access project_id and/or private_token from url")
     set_ci_variables(project, env_vars)
 
+
 def set_ci_variables(
     project: Project, env_vars: Iterable[EnvVar], create=False
 ) -> None:
@@ -81,6 +84,7 @@ def yield_variables(localenv: LocalEnv) -> Iterator[EnvVar]:
     if not project:
         raise ValueError("Could not access project_id and/or private_token from url")
     yield from yield_ci_variables(project)
+
 
 def yield_ci_variables(project: Project) -> Iterator[EnvVar]:
     for variable in project.variables.list(get_all=True):

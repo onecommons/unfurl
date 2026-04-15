@@ -60,8 +60,6 @@ from flask_cors import CORS
 import git
 from git.objects import Commit
 
-from ..job import assert_not_none
-
 from ..graphql import (
     ImportDef,
     get_local_type,
@@ -97,7 +95,13 @@ from ..repo import (
     normalize_git_url_hard,
     sanitize_url,
 )
-from ..util import UnfurlError, get_package_digest, is_relative_to, unique_name
+from ..util import (
+    UnfurlError,
+    get_package_digest,
+    is_relative_to,
+    unique_name,
+    assert_not_none,
+)
 from ..logs import Levels, get_console_log_level, getLogger, add_log_file
 from ..yamlmanifest import YamlManifest
 from .. import __version__, semver_prerelease, DefaultNames, DEFAULT_CLOUD_SERVER
@@ -106,6 +110,7 @@ from .. import init
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 import tosca
+
 if TYPE_CHECKING:
     from cachelib.redis import RedisCache
 
@@ -1058,7 +1063,9 @@ class CacheEntry:
                 return value, None
             else:
                 # stale -- up to the caller to do something about it, e.g. update or delete the key
-                logger.info("stale cache hit for %s with %s", prefixed_key, latest_commit)
+                logger.info(
+                    "stale cache hit for %s with %s", prefixed_key, latest_commit
+                )
                 return value, bool(self.last_commit)
 
     def _set_inflight(
@@ -1142,7 +1149,9 @@ class CacheEntry:
             if not self.repo:
                 self._set_project_repo()
             if self.repo:
-                if self.repo.is_dirty(False, os.path.join(self.repo.working_dir, self.file_path)):
+                if self.repo.is_dirty(
+                    False, os.path.join(self.repo.working_dir, self.file_path)
+                ):
                     return False
             else:
                 return False
@@ -2197,13 +2206,13 @@ def _patch_node_template(
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
-            assert isinstance(value, list), (
-                f"bad patch value {value} for {key} in {patch}"
-            )
+            assert isinstance(
+                value, list
+            ), f"bad patch value {value} for {key} in {patch}"
             for prop in value:
-                assert isinstance(prop, dict), (
-                    f"bad {prop} in {value} for {key} in {patch}"
-                )
+                assert isinstance(
+                    prop, dict
+                ), f"bad {prop} in {value} for {key} in {patch}"
                 if prop["value"] == {"__deleted": True}:
                     props.pop(prop["name"], None)
                 else:
@@ -2365,9 +2374,7 @@ def _patch_response(repo: Optional[GitRepo]) -> Response:
     return jsonify(dict(commit=repo and repo.revision or None))
 
 
-def _apply_environment_patch(
-    patch: list, local_env: LocalEnv
-) -> Optional[Response]:
+def _apply_environment_patch(patch: list, local_env: LocalEnv) -> Optional[Response]:
     project = local_env.project
     assert project
     localConfig = project.localConfig
@@ -2972,8 +2979,8 @@ def _find_rust_server_bin() -> Optional[str]:
     # serve.py lives at {root}/unfurl/server/serve.py
     # two dirnames up → repo root (editable install) or site-packages parent
     server_dir = os.path.dirname(os.path.abspath(__file__))  # .../unfurl/server
-    pkg_dir = os.path.dirname(server_dir)                    # .../unfurl (the package)
-    parent_dir = os.path.dirname(pkg_dir)                    # repo root or site-packages
+    pkg_dir = os.path.dirname(server_dir)  # .../unfurl (the package)
+    parent_dir = os.path.dirname(pkg_dir)  # repo root or site-packages
 
     # 3. Alongside the package (distribution installs place the binary next to the package dir)
     candidate = os.path.join(parent_dir, "unfurl-server")

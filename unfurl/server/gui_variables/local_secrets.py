@@ -18,7 +18,9 @@ def _get_env_vars(envs: Dict[str, dict], env_name: str) -> Dict[str, Any]:
     return {}
 
 
-def _set_env_var(environments: Dict[str, dict], env_name: str, key: str, val: Any) -> Dict[str, Any]:
+def _set_env_var(
+    environments: Dict[str, dict], env_name: str, key: str, val: Any
+) -> Dict[str, Any]:
     env = environments.setdefault(env_name, CommentedMap())
     variables = env.setdefault("variables", CommentedMap())
     variables[key] = val
