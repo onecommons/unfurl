@@ -645,31 +645,48 @@ spec:
                 "get-url", "--push", repo.remote.name
             )
 
-    @unittest.skipIf(
-        "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
-    )
     def test_submodules(self):
         runner = CliRunner()
-        with runner.isolated_filesystem(os.getenv("UNFURL_TEST_TMPDIR")) as tmp_dir:
-            print("saving to", tmp_dir)
-            # override home so to avoid interferring with other tests
-            result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
-            )
-            assert not result.exception, "\n".join(
-                traceback.format_exception(*result.exc_info)
-            )
-            self.assertEqual(result.exit_code, 0, result)
+        # Since CVE-2022-39253 (git 2.38.1), `git clone --recurse-submodules` refuses
+        # the file:// transport by default. Override via env so we don't touch the
+        # user's global git config: GIT_CONFIG_COUNT/KEY_N/VALUE_N layers config onto
+        # every git subprocess without modifying any config file.
+        git_env = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "protocol.file.allow",
+            "GIT_CONFIG_VALUE_0": "always",
+        }
+        prev_env = {k: os.environ.get(k) for k in git_env}
+        os.environ.update(git_env)
+        try:
+            with runner.isolated_filesystem(
+                os.getenv("UNFURL_TEST_TMPDIR")
+            ) as tmp_dir:
+                print("saving to", tmp_dir)
+                # override home so to avoid interferring with other tests
+                result = runner.invoke(
+                    cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
+                )
+                assert not result.exception, "\n".join(
+                    traceback.format_exception(*result.exc_info)
+                )
+                self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
-            assert not result.exception, "\n".join(
-                traceback.format_exception(*result.exc_info)
-            )
-            self.assertEqual(result.exit_code, 0, result)
-            assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir(
-                "cloned/ensemble/.git"
-            )
-            assert not os.path.exists("cloned/ensemble1"), result.output
+                result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
+                assert not result.exception, "\n".join(
+                    traceback.format_exception(*result.exc_info)
+                )
+                self.assertEqual(result.exit_code, 0, result)
+                assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir(
+                    "cloned/ensemble/.git"
+                )
+                assert not os.path.exists("cloned/ensemble1"), result.output
+        finally:
+            for k, v in prev_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 repoManifestContent = """\

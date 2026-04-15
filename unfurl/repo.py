@@ -305,7 +305,10 @@ class Repo(abc.ABC):
         repo = Repo.make_repo(root, gitDir)
         if repo:
             working_dirs[key] = repo.as_repo_view()
-            dirs.remove(gitDir)  # don't visit .git directory
+            if gitDir in dirs:
+                # Submodules and linked worktrees have .git as a *file*, so it
+                # won't appear in os.walk's dirs list — skip the remove in that case.
+                dirs.remove(gitDir)  # don't visit .git directory
             return key
         else:
             return None
