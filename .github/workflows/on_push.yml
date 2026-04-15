@@ -81,7 +81,16 @@ jobs:
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
           if [[ "$PY_V" == "py314" ]]; then
-            tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-report term --cov-append
+            tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-append
+            # Safety net: combine any subprocess .coverage.<pid> files written by
+            # COVERAGE_PROCESS_START-initiated children (multiprocessing.Process
+            # in test_server.py) that pytest-cov didn't auto-combine, then
+            # regenerate the HTML report so the uploaded artifact includes them.
+            if ls .coverage.* >/dev/null 2>&1; then
+              .tox/$PY_V/bin/coverage combine --append
+              .tox/$PY_V/bin/coverage html
+              .tox/$PY_V/bin/coverage report
+            fi
           else
             tox -e $PY_V -v -- -vv -n auto --dist loadfile
           fi

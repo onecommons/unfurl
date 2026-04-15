@@ -17,7 +17,8 @@ venv/
 # due to using tox and pytest
 .tox
 .cache
-.coverage*
+.coverage
+.coverage.*
 htmlcov/
 .mypy_cache
 .pytest_cache/
