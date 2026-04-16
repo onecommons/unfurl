@@ -914,9 +914,9 @@ class Convert:
         if not parents:
             base_names = baseclass_name
         else:
-            base_names = ", ".join([
-                self.python_name_from_type(p.type, True) for p in parents
-            ])
+            base_names = ", ".join(
+                [self.python_name_from_type(p.type, True) for p in parents]
+            )
         if baseclass_name == "DataEntity" and entity_type.defs:
             metadata = entity_type.defs.get("metadata")
             if metadata and metadata.get("additionalProperties"):

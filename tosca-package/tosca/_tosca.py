@@ -2097,9 +2097,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert cls.__module__ in sys.modules, (
-            cls.__module__
-        )  # _process_class checks this
+        assert (
+            cls.__module__ in sys.modules
+        ), cls.__module__  # _process_class checks this
         if cls._dataclass_args:
             kw.update(cls._dataclass_args)
         cls = dataclasses._process_class(cls, **kw)  # type: ignore

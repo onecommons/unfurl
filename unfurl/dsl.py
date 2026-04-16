@@ -176,6 +176,7 @@ def convert_to_yaml(
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
+    yaml_path: str,
     yaml_dict=dict,
 ) -> dict:
     from .yamlloader import yaml_dict_type, yaml
@@ -224,10 +225,8 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
-    src_path = Path(path)
-    yaml_path = src_path.parent / (src_path.stem + ".yaml")
-    if write_policy.can_overwrite(path, str(yaml_path)):
-        _write_yaml(write_policy, yaml_src, path, str(yaml_path))
+    if write_policy.can_overwrite(path, yaml_path):
+        _write_yaml(write_policy, yaml_src, path, yaml_path)
     logger.verbose("Saving imported python module as YAML at %s", yaml_path)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
         output = io.StringIO()

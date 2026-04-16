@@ -238,13 +238,15 @@ class _Unit(Generic[_S]):
         else:
             return cast(
                 int,
-                EvalData({
-                    "eval": {
-                        "scalar_value": str(s),
-                        "unit": self.unit,
-                        "round": ndigits,
+                EvalData(
+                    {
+                        "eval": {
+                            "scalar_value": str(s),
+                            "unit": self.unit,
+                            "round": ndigits,
+                        }
                     }
-                }),
+                ),
             )
 
 

@@ -102,6 +102,7 @@ class Options:
 
 class PropertyOptions(Options):
     "An option that only applies to TOSCA properties."
+
     def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
         return (
             field.tosca_field_type == ToscaFieldType.property,
@@ -111,6 +112,7 @@ class PropertyOptions(Options):
 
 class AttributeOptions(Options):
     "An option that only applies to TOSCA attributes."
+
     def validate(self, field: "_Tosca_Field") -> Tuple[bool, str]:
         return (
             field.tosca_field_type == ToscaFieldType.attribute,
@@ -325,9 +327,9 @@ def Computed(
     if hasattr(factory, "_is_template_function"):
         default: Any = MISSING
     else:
-        default = EvalData({
-            "eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")
-        })
+        default = EvalData(
+            {"eval": dict(computed=f"{factory.__module__}:{factory.__qualname__}")}
+        )
         factory = MISSING  # type: ignore
     # casting this to the factory function's return type enables the type checker to check that the return type matches the field's type
     return cast(

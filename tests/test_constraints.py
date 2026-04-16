@@ -26,6 +26,9 @@ def test_constraints(caplog):
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
     # skip validation so we can load the ensemble (but assert that the validation error was logged)
     manifest = local.get_manifest(skip_validation=True, safe_mode=True)
+    assert os.path.isfile(
+        os.path.join(basepath, "__pycache__", "constraints.yaml")
+    )
     service_template = manifest.manifest.expanded["spec"]["service_template"]
     node_templates = {
         "myapp": {

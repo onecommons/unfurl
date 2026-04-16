@@ -56,7 +56,7 @@ from .loader import (
     get_module_path,
     get_allowed_modules,
 )
-from . import PATCH, WritePolicy, Repository
+from . import PATCH, WritePolicy, Repository, yaml_path_for
 
 logger = logging.getLogger("tosca")
 
@@ -290,7 +290,7 @@ class PythonToYaml:
 
     def _imported_module2yaml(self, module: ModuleType) -> Path:
         path = Path(get_module_path(module))
-        yaml_path = path.parent / (path.stem + ".yaml")
+        yaml_path = yaml_path_for(path)
         if module.__name__.startswith("unfurl"):
             logger.debug(
                 "skipping saving imported python module as YAML: "

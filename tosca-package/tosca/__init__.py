@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import os.path
 import sys
+from pathlib import Path
 import datetime
 import re
 from types import ModuleType
@@ -294,6 +295,30 @@ class WritePolicy(Enum):
         if len(new_lines) == len(old_lines):
             return new_lines == old_lines
         return False
+
+
+def yaml_path_for(python_path: Path) -> Path:
+    """Return the YAML output path for a given Python source path.
+
+    Placement priority:
+    1. ``sys.pycache_prefix`` directory (if set), mirroring the source tree.
+    2. The ``__pycache__`` subdirectory next to the source file (if it exists).
+    3. Same directory as the source file (original behaviour).
+    """
+    stem_yaml = python_path.stem + ".yaml"
+    if not sys.dont_write_bytecode:
+        if sys.pycache_prefix:
+            # Mirror the source tree under pycache_prefix, same convention as .pyc files.
+            try:
+                rel = python_path.parent.relative_to(Path(sys.pycache_prefix).anchor)
+            except ValueError:
+                rel = python_path.parent
+            pycache = Path(sys.pycache_prefix) / rel
+        else:
+            pycache = python_path.parent / "__pycache__"
+        pycache.mkdir(exist_ok=True)
+        return pycache / stem_yaml
+    return python_path.parent / stem_yaml
 
 
 def is_newer_than(output_path, input_path):

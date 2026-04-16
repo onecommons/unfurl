@@ -1058,4 +1058,5 @@ class ProxiedRepo(Repo):
             json.dump(file_checksums, f, indent=2)
 
         Repo.ignore_dir(working_dir)
+        logger.debug("Created proxied repo from %s in %s", zip_url, working_dir)
         return cls(working_dir)
