@@ -33,6 +33,7 @@ from typing import (
 from typing_extensions import NoReturn
 from enum import Enum
 from urllib.parse import urlsplit
+
 try:
     # added in python 3.9
     from functools import cache  # type: ignore
@@ -85,6 +86,7 @@ from .util import (
     env_var_value,
 )
 from .merge import intersect_dict, merge_dicts
+
 try:
     from .tosca_solver import regex_match_exact, make_pattern_constraint
 except ImportError:
@@ -254,6 +256,7 @@ set_eval_func(
     "portspec", lambda arg, ctx: PortSpec.make(map_value(arg, ctx)), safe=True
 )
 
+
 def inert(val, ctx):
     kw = ctx.kw
     val = map_value(val, ctx)
@@ -271,6 +274,7 @@ set_eval_func(
     lambda arg, ctx: inert(arg, ctx),
     safe=True,
 )
+
 
 def reload_collections(ctx=None):
     # collections may have been installed while the job is running, need reset the loader to pick those up
@@ -618,24 +622,27 @@ def apply_template(value: str, ctx: RefContext, overrides=None) -> Any:
                 if match:
                     msg = f'missing variable: "{match.group(1)}"'
             value = f"<<Error rendering template: {msg}>>"
+            log_source = "unsafe eval" not in msg
             if ctx.strict:
-                log.debug(
-                    "%s\nTemplate source:\n%s",
-                    value,
-                    oldvalue,
-                    exc_info=True,
-                    extra=dict(log_once=True),
-                )
+                if log_source:
+                    log.debug(
+                        "%s\nTemplate source:\n%s",
+                        value,
+                        oldvalue,
+                        exc_info=True,
+                        extra=dict(log_once=True),
+                    )
                 raise UnfurlError(value)
             elif ctx.task:
-                log.warning(value[2:100] + "... see debug log for full report")
-                log.debug(
-                    "%s\nTemplate source:\n%s",
-                    value,
-                    oldvalue,
-                    stack_info=True,
-                    extra=dict(log_once=True),
-                )
+                if log_source:
+                    log.warning(value[2:100] + "... see debug log for full report")
+                    log.debug(
+                        "%s\nTemplate source:\n%s",
+                        value,
+                        oldvalue,
+                        stack_info=True,
+                        extra=dict(log_once=True),
+                    )
                 UnfurlTaskError(ctx.task, msg)
             else:
                 ctx.trace(value)
@@ -1115,8 +1122,6 @@ set_eval_func(
 )
 
 
-
-
 class ContainerImage(ExternalValue):
     """
     Represents a container image.
@@ -1430,6 +1435,7 @@ def register_custom_constraint(key, func, make_constraint=None):
     constraints.constraint_mapping[key] = CustomConstraint
     return CustomConstraint
 
+
 _validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
 
 if (
@@ -1471,6 +1477,7 @@ if (
 else:
     pattern_constraint_class = None
     logger.verbose("Rust pattern constraint disabled, falling back to python regex.")
+
 
 class _Import:
     def __init__(
@@ -1879,6 +1886,7 @@ _Dependencies = NewType(
         Tuple["EntityInstance", Dict[str, AttributeInfo]],
     ],
 )
+
 
 def should_wrap_sensitive(defs, key: str, value: Result):
     # external values like "secret" don't need to be wrapped
