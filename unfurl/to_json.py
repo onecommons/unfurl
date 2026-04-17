@@ -1086,6 +1086,9 @@ def _generate_primary(
         roots = None
     nodetype_tpl["requirements"] = requirements
     topology.custom_defs[primary_name] = nodetype_tpl
+    if topology.tosca_template:
+        # update directly to avoid InvalidTypeDefinition errors in entity_template.py
+        topology.tosca_template.tpl.setdefault("node_types", {})[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
     tpl.setdefault("properties", {}).update({
