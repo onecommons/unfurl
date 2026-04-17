@@ -2701,6 +2701,7 @@ def _patch_ensemble(
         overrides["UNFURL_CLOUD_VARS_URL"] = cloud_vars_url
     if gui_mode:
         overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
+        overrides["use_local_cache"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
     local_env.make_resolver = make_resolver

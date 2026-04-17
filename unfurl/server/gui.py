@@ -195,7 +195,7 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
         project_path += "/"
     if project_path in local_projects:
         working_dir = local_projects[project_path]
-        return GitRepo(git.Repo(working_dir))
+        return Repo.make_repo(working_dir)
 
     if project_path.startswith("local:"):
         # it's not a cloud server project
@@ -214,6 +214,7 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
     # not found, so clone repo using import loader machinery
     # (to apply package rules and deduce branch from lock section or remote tags)
     if project_path.startswith("remote:"):
+        # TBD: set in to_json.get_blueprint_from_topology()
         url = project_path[len("remote:") :]
     else:
         url = get_project_url(project_path, branch=branch)

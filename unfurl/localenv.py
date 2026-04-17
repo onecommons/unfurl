@@ -1376,7 +1376,8 @@ class LocalEnv:
                 pickle_path = YamlManifest.get_manifest_cache_path(self.manifestPath)
                 if (
                     not self.parent  # only load top-level manifest from cache
-                    and not safe_mode  # safe_mode disables cache
+                     # safe_mode disables cache unless overridden with use_local_cache
+                    and (not safe_mode or self.overrides.get("use_local_cache"))
                     and "load" in use_cache
                     and os.path.exists(pickle_path)
                 ):
