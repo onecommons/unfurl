@@ -247,12 +247,13 @@ class ServerCacheResolver(SimpleCacheResolver):
         tpl: Optional[Dict[str, Any]] = None,
         base_path: Optional[str] = None,
     ) -> Optional[str]:
+        """Return the tosca_repository path for the given repository name, or None if not found."""
         repo_view = self._match_repoview(name, tpl)
         if not repo_view:
-            return None
+            return self._check_existing_tosca_repository_path(name, base_path, tpl)
         base_url = current_app.config["UNFURL_CLOUD_SERVER"]
         private = (
-            not base_url or not repo_view.url.startswith(base_url) or repo_view.repo
+            not base_url or (repo_view and not repo_view.url.startswith(base_url) or repo_view.repo)
         )
         if private:
             logger.trace(
@@ -267,6 +268,7 @@ class ServerCacheResolver(SimpleCacheResolver):
             )
             if err:
                 return None
+            # XXX should we create a tosca_repository link to this path?
             return working_dir
 
     def _really_resolve_to_local_path(

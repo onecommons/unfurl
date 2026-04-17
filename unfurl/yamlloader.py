@@ -558,21 +558,29 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         tpl: Optional[Dict[str, Any]] = None,
         base_path: Optional[str] = None,
     ) -> Optional[str]:
-        "Called by tosca.loader to resolve tosca_repositories python packages"
+        "Called by tosca.loader to resolve the location of tosca_repositories python packages"
         repo_view = self._match_repoview(name, tpl)
         if not repo_view:
-            service_template_basedir = base_path or self.manifest.project_base_path
-            path = os.path.join(service_template_basedir, "tosca_repositories", name)
-            if os.path.isdir(path):
-                logger.debug(
-                    "Could not find a repository for '%s', using existing path: %s",
-                    name,
-                    path,
-                )
-                return path
-            logger.warning("Could not find a repository for '%s' (%s)", name, tpl)
-            return None
+            return self._check_existing_tosca_repository_path(name, base_path, tpl)
+
         return self._get_link_to_repo(repo_view, base_path, name)
+
+    def _check_existing_tosca_repository_path(
+        self, name: str, base_path: Optional[str], tpl: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        service_template_basedir = base_path or (self.manifest and self.manifest.project_base_path) or None
+        if not service_template_basedir:
+            return None
+        path = os.path.join(service_template_basedir, "tosca_repositories", name)
+        if os.path.isdir(path):
+            logger.debug(
+                "Could not find a repository for '%s', using existing path: %s",
+                name,
+                path,
+            )
+            return path
+        logger.warning("Could not find a repository for '%s' (%s)", name, tpl)
+        return None
 
     def patch_template(
         self,
