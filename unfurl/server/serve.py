@@ -1498,7 +1498,10 @@ def _export(
     if latest_commit == "undefined":
         latest_commit = None
     project_id = get_project_id(request)
-    file_path = _get_filepath(requested_format, deployment_path)
+    if not deployment_path and include_all and project_id in ("onecommons/std", "onecommons/unfurl-types"):
+        file_path = "dummy-ensemble.yaml"
+    else:
+        file_path = _get_filepath(requested_format, deployment_path)
     branch = request.args.get("branch")
     if branch == "HEAD":
         branch = ""
@@ -1637,7 +1640,7 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
     # request.args.getlist("extends")
     # request.args.getlist("implements")
     _add_types = None
-    filename = request.args.get("file", "dummy-ensemble.yaml")
+    filename = request.args.get("file")
     cloudmap_project_id = request.args.get("cloudmap")
     if cloudmap_project_id:  # e.g. "onecommons/cloudmap"
         from .cache import get_cloudmap_types
@@ -1648,7 +1651,7 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
                 return err
             db["ResourceType"].update(types)
 
-    return _export(request, "blueprint", filename, True, _add_types)
+    return _export(request, "blueprint", filename or "", True, _add_types)
 
 
 @app.get("/cloudmap")
