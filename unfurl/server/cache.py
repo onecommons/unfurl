@@ -210,7 +210,7 @@ def get_remote_tags_cached(url, pattern, args) -> List[str]:
 
 
 class ServerCacheResolver(SimpleCacheResolver):
-    safe_mode: bool = True
+    _safe_mode: bool = True
     root_cache_request: Optional[CacheEntry] = None
     args: Optional[dict] = None
 
@@ -220,9 +220,11 @@ class ServerCacheResolver(SimpleCacheResolver):
         root_cache_request: Optional[CacheEntry],
         credentials: Optional[dict] = None,
     ):
+        gui_mode = bool(current_app.config.get("UNFURL_GUI_MODE"))
         def ctor(*args, **kw):
             resolver = cls(*args, **kw)
             resolver.root_cache_request = root_cache_request
+            resolver._safe_mode = not gui_mode
             if credentials:
                 resolver.args = credentials
             else:

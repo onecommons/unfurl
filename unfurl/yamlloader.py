@@ -403,7 +403,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     # actually clone of repositories happens in _resolve_repo_to_path()
 
-    safe_mode: bool = False
+    _safe_mode: bool = False
 
     def __init__(
         self,
@@ -458,7 +458,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_safe_mode(self) -> bool:
         return tosca.loader.get_safe_mode(
-            (self.manifest and self.manifest.safe_mode) or self.safe_mode
+            (self.manifest and self.manifest.safe_mode) or self._safe_mode
         )
 
     def load_imports(
@@ -993,7 +993,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 path = os.path.join(base, path)
             path = os.path.join(path, file_name)
             # repositories can be outside of the project when not in safe mode
-            if not repository_name or self.safe_mode:
+            if not repository_name or self._safe_mode:
                 if self._has_path_escaped_project(path):
                     return None, None
         repo_view.add_file_ref(file_name)
