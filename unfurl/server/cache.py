@@ -234,7 +234,20 @@ class ServerCacheResolver(SimpleCacheResolver):
 
         return ctor
 
-    def get_remote_tags(self, url, pattern="*") -> List[str]:
+    def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
+        if self.local_env and self.local_env.overrides.get(
+            "UNFURL_SKIP_UPSTREAM_CHECK"
+        ):
+            local_projects = current_app.config.get("UNFURL_LOCAL_PROJECTS")
+            if local_projects:
+                try:
+                    project_id = project_id_from_urlresult(urlparse(url))
+                except Exception:
+                    project_id = None
+                if project_id and local_projects.get(project_id):
+                    return None
+            if self.local_env.find_git_repo(url):
+                return None
         return get_remote_tags_cached(url, pattern, self.args)
 
     @property

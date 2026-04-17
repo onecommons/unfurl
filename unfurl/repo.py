@@ -314,7 +314,7 @@ class Repo(abc.ABC):
             return None
 
     @staticmethod
-    def make_repo(root, gitDir=".git") -> Optional["Repo"]:
+    def make_repo(root: str, gitDir=".git") -> Optional["Repo"]:
         key = os.path.abspath(root)
         if is_git_worktree(root, gitDir):
             return GitRepo(git.Repo(key))

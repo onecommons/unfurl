@@ -278,6 +278,8 @@ def fetch_release(dist_dir, release_url, release_tag, exact_match):
 
 def create_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = localenv
+    # don't try to pull if stale
+    app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = -1
     localrepo = (
         localenv.project
         and localenv.project.project_repoview

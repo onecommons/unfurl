@@ -134,7 +134,7 @@ def configure_app(app: APIFlask = app) -> Cache:
      - UNFURL_CLOUD_SERVER: URL of the unfurl cloud server (default: https://unfurl.cloud)
      - UNFURL_SERVE_SECRET: optional secret for authenticating requests
      - UNFURL_SERVE_CORS: optional comma-separated list of allowed CORS origins (default: origin of UNFURL_CLOUD_SERVER)
-     - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries (default: 120)
+     - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries, -1: never pull, 0: always pull (default: 120)
      - CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT: default timeout in seconds for fetching remote tags when validating package dependencies in cache entries (default: 300)
      - CACHE_CONTROL_SERVE_STALE: if set to a positive integer, allows serving stale cache entries while asynchronously refreshing them in the background if they are older than this many seconds (default: 0, which means don't serve stale entries)
     """
@@ -295,28 +295,15 @@ def _set_local_projects(
             )
 
 
-def get_project_path(repo: GitRepo):
-    server_url = app.config["UNFURL_CLOUD_SERVER"]
-    server_host = urlparse(server_url).hostname
-    cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        project_path = "local:" + repo.working_dir.lstrip("/")
-    return project_path
-
-
 def set_local_projects(local_env: LocalEnv, clone_root: str, gui: bool):
     clone_root = os.path.abspath(clone_root)
     local_projects: Dict[str, str] = {}
-    if local_env.project:
+    project = local_env.project or local_env.homeProject
+    while project:
         _set_local_projects(
-            local_env.project.workingDirs.values(), local_projects, clone_root, gui
+            project.workingDirs.values(), local_projects, clone_root, gui
         )
-    if local_env.homeProject:
-        _set_local_projects(
-            local_env.homeProject.workingDirs.values(), local_projects, clone_root, gui
-        )
+        project = project.parentProject
     app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
 
 
@@ -795,7 +782,7 @@ class CacheEntry:
                         self.pull_state = action
                         return self.checked_repo
 
-            if stale_ok_age and time.time() - last_check <= stale_ok_age:
+            if stale_ok_age and (stale_ok_age == -1 or time.time() - last_check <= stale_ok_age):
                 # last_check was recent enough, no need to pull if the local clone still exists
                 if not self.repo:
                     self._set_project_repo()
@@ -1176,7 +1163,6 @@ class CacheEntry:
         try:
             if (
                 latest_commit is None and not self.stale_pull_age
-                #            or app.config.get("UNFURL_GUI_MODE")
             ):
                 # don't use the cache
                 return self._do_work(work, latest_commit)[0:2]
@@ -1215,8 +1201,7 @@ class CacheEntry:
                         # if we have a local copy of the repo
                         # make sure we pulled latest_commit before doing the work
                         if not latest_commit:
-                            if not app.config.get("UNFURL_GUI_MODE"):  # pull if stale
-                                self.repo = self.pull(cache, self.stale_pull_age)
+                            self.repo = self.pull(cache, self.stale_pull_age)
                         else:
                             pulled, self.repo = self._pull_if_missing_commit(
                                 latest_commit, commit_date
@@ -1597,7 +1582,7 @@ def _export(
                 # don't set caching if there were errors
                 if cache_entry.value:
                     response.headers["Etag"] = cache_entry.value.make_etag()
-                if latest_commit:
+                if latest_commit or stale_pull_age == -1:
                     max_age = 86400  # one day
                 else:
                     max_age = stale_pull_age
@@ -1828,7 +1813,10 @@ def _localenv_from_cache(
     deployment_path: str,
     latest_commit: Optional[str],
     args: dict,
-) -> Tuple[CacheError, Optional[LocalEnv], CacheEntry]:
+) -> Tuple[CacheError, Optional[LocalEnv], Optional[CacheEntry]]:
+    if not project_id and (gui_local_env := app.config.get("UNFURL_GUI_MODE")):
+        return None, gui_local_env, None
+
     # we want to make cloning a repo cache work to prevent concurrent cloning
     def _cache_localenv_work(
         cache_entry: CacheEntry, latest_commit: Optional[str]
@@ -1904,7 +1892,7 @@ def _do_export(
     # assert cache_entry.branch
     parent_localenv = args.get("parent_localenv")
     if not parent_localenv:
-        err, parent_localenv, localenv_cache_entry = _localenv_from_cache(
+        err, parent_localenv, _ = _localenv_from_cache(
             assert_not_none(get_cache()),
             project_id,
             cache_entry.branch or "",
