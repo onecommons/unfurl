@@ -188,7 +188,7 @@ def test_constraints(caplog):
 
     assert "Solver set myapp_proxy.hosting to container" in caplog.text
     assert (
-        '''Found TOSCA validation failures: ValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2GB, max:20GB)". in node template "container_service"'''
+        '''Found TOSCA validation failures:\nValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2GB, max:20GB)". in node template "container_service"'''
         in caplog.text
     )
     # XXX support for deducing inverse and test

@@ -295,21 +295,28 @@ class ToscaSpec:
             matches = self._overlay(decorators)
             # overlay uses ExceptionCollector
             ExceptionCollector.collecting = False
-            if ExceptionCollector.exceptionsCaught():
-                # abort if overlay caused errors
-                # report previously collected errors too
-                ExceptionCollector.exceptions[:0] = errorsSoFar
-                message = "\n".join(
-                    ExceptionCollector.getExceptionsReport(
-                        full=(get_console_log_level() < Levels.VERBOSE)
-                    )
-                )
+            # abort if overlay caused errors
+            # report previously collected errors too
+            self._check_exceptions(False, path)
+        modified_imports = self.evaluate_imports(toscaDef)
+        return matches or modified_imports
+
+    def _check_exceptions(self, skip_validation, path):
+        if get_console_log_level() == Levels.TRACE:
+            full: Union[bool, int] = True
+        elif get_console_log_level() < Levels.VERBOSE:
+            full = 3
+        else:
+            full = False
+        if ExceptionCollector.exceptionsCaught():
+            message = "\n".join(ExceptionCollector.getExceptionsReport(full=full))
+            if skip_validation:
+                logger.warning("Found TOSCA validation failures:\n%s", message)
+            else:
                 raise UnfurlValidationError(
                     f"TOSCA validation failed for {path}: \n{message}",
                     ExceptionCollector.getExceptions(),
                 )
-        modified_imports = self.evaluate_imports(toscaDef)
-        return matches or modified_imports
 
     def __init__(
         self,
@@ -386,20 +393,7 @@ class ToscaSpec:
             if exception:
                 setattr(exception, "trace", traceback.extract_stack()[:-1])
                 ExceptionCollector.exceptions.append(exception)
-
-            if ExceptionCollector.exceptionsCaught():
-                message = "\n".join(
-                    ExceptionCollector.getExceptionsReport(
-                        full=(get_console_log_level() < Levels.VERBOSE)
-                    )
-                )
-                if skip_validation:
-                    logger.warning("Found TOSCA validation failures: %s", message)
-                else:
-                    raise UnfurlValidationError(
-                        f"TOSCA validation failed for {path}: \n{message}",
-                        ExceptionCollector.getExceptions(),
-                    )
+            self._check_exceptions(skip_validation, path)
 
     def __setstate__(self, state):
         self.__dict__.update(state)
@@ -967,7 +961,11 @@ class EntitySpec(ResourceRef):
         return self._has_reference(self._isReferencedBy, entity, ref_type)
 
     @staticmethod
-    def _has_reference(references: Dict["EntitySpec", "EntitySpec.ReferenceType"], entity: "EntitySpec", ref_type: ReferenceType):
+    def _has_reference(
+        references: Dict["EntitySpec", "EntitySpec.ReferenceType"],
+        entity: "EntitySpec",
+        ref_type: ReferenceType,
+    ):
         if entity not in references:
             return False
         return references[entity] & ref_type
@@ -1906,6 +1904,7 @@ class CapabilitySpec(EntitySpec):
     def metadata(self) -> Dict[str, Any]:
         return {}  # missing from Capability
 
+
 class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
     """Allow navigation across topologies by mapped outer topology nodes."""
 
@@ -1928,6 +1927,7 @@ class _TopologyNodeSpecs(Mapping[str, "NodeSpec"]):
 
     def __len__(self):
         return len(self.topology.node_templates)
+
 
 class _PseudoSpec(EntitySpec):
     def __init__(self, spec: ToscaSpec):
@@ -2155,12 +2155,12 @@ class TopologySpec(_PseudoSpec):
             # extract namespace from localname@namespace[~rest]
             local_name, sep, rest = name.partition("@")
             namespace, sep, rest = rest.partition("~")
-            topology_template = self.spec.template.find_topology_by_namespace_id(namespace)
+            topology_template = self.spec.template.find_topology_by_namespace_id(
+                namespace
+            )
             if not topology_template:
                 return None
-            topology = self.spec._topology_templates.get(
-                id(topology_template)
-            )
+            topology = self.spec._topology_templates.get(id(topology_template))
             if not topology:
                 return None
             return topology._get_template(local_name + sep + rest)
