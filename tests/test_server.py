@@ -469,8 +469,13 @@ def _env_for(variant: str, name: str = "") -> dict:
         }
     if variant == "redis":
         return {**base_redis, "UNFURL_RUST_SERVER": "0"}
-    # no-redis
-    return {"UNFURL_RUST_SERVER": "0", "CACHE_KEY_PREFIX": prefix}
+    assert variant == "no-redis"
+    return {
+        "UNFURL_RUST_SERVER": "0",
+        "CACHE_TYPE": "simple",
+        "CACHE_REDIS_URL": "",
+        "CACHE_KEY_PREFIX": prefix,
+    }
 
 
 QUEUE_SLEEP = 3.5  # seconds to wait for batch queue drain + backend processing (window=1s + poll + processing)
@@ -822,7 +827,12 @@ def test_server_export_remote(server_env):
                 # try twice, second attempt should be cached
                 cleaned_output = "0"
                 etag = ""
-                _pfx = extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
+                # SimpleCache ignores CACHE_KEY_PREFIX; only RedisCache prepends it.
+                _pfx = (
+                    extra_env.get("CACHE_KEY_PREFIX", "ufsv::")
+                    if extra_env.get("CACHE_TYPE") == "RedisCache"
+                    else ""
+                )
                 project_id = "onecommons/project-templates/dashboard"
                 file_path = server._get_filepath(export_format, "")
                 key = server.CacheEntry(
