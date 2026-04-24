@@ -34,19 +34,22 @@ from rich.segment import Segment
 from rich.markup import escape
 import re
 
-from .cloudmap import Repository, CloudType, Service
-from .oci import Artifact, Instantiation, TypeRefs
+from .tosca_plugins.cloudmap_defs import (
+    CloudMapView,
+    CloudMapRecord,
+    Repository,
+    CloudType,
+    Service,
+    Artifact,
+    Instantiation,
+    TypeRefs,
+)
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
-    from .cloudmap import CloudMapDB
     from rich.console import RenderableType
     from rich.style import StyleType
     from .job import Job, ConfigTask
-
-CloudMapRecord = Union[
-    "Repository", "Artifact", "Instantiation", "Service", "CloudType"
-]
 
 logger = getLogger("unfurl")
 
@@ -540,11 +543,17 @@ class CloudMapGraphWalker:
 
     def __init__(
         self,
-        db: "CloudMapDB",
+        view: "CloudMapView",
         visitor: CloudMapGraphVisitor,
     ) -> None:
-        self.db = db
+        self.view = view
         self.visitor = visitor
+
+    @staticmethod
+    def _record_key(record: Any) -> str:
+        """Key used by visitors and `visited` tracking. CloudType uses ``name``,
+        every other record uses ``url``."""
+        return record.name if isinstance(record, CloudType) else record.url
 
     def walk(self, start_url: str = "") -> None:
         """Walk the graph, optionally starting from a specific URL."""
@@ -561,55 +570,62 @@ class CloudMapGraphWalker:
         else:
             self.visitor.start_graph("CloudMap")
             visited = set()
-            for section_name, collection in (
-                ("Repositories", self.db.repositories),
-                ("Artifacts", self.db.artifacts),
-                ("Instantiations", self.db.instantiations),
-                ("Services", self.db.services),
-                ("Types", self.db.types),
-            ):
-                if not collection:
+            sections: List[Tuple[str, str, Iterable[Any]]] = [
+                ("Repositories", "Repository", self.view.find_repositories()),
+                ("Artifacts", "Artifact", self.view.find_artifacts()),
+                ("Instantiations", "Instantiation", self.view.find_instantiations()),
+                ("Services", "Service", self.view.find_services()),
+                ("Types", "Type", self.view.find_types()),
+            ]
+            for section_name, kind, records in sections:
+                # Materialise the iterable so we can both detect emptiness and
+                # iterate without re-running the underlying generator.
+                records_list = list(records)
+                if not records_list:
                     continue
                 self.visitor.start_section(section_name)
-                for url, record in collection.items():
-                    cls_name = record.__class__.__name__
-                    kind = "Type" if cls_name == "CloudType" else cls_name
-                    if url in visited:
-                        self.visitor.visit_record(kind, url, record, seen=True)
+                for record in records_list:
+                    key = self._record_key(record)
+                    if key in visited:
+                        self.visitor.visit_record(kind, key, record, seen=True)
                         continue
-                    visited.add(url)
-                    self.visitor.visit_record(kind, url, record)
+                    visited.add(key)
+                    self.visitor.visit_record(kind, key, record)
                     self._walk_edges(record, kind, visited)
-                    self.visitor.leave_record(kind, url, record)
+                    self.visitor.leave_record(kind, key, record)
             self.visitor.end_graph(empty=not visited)
 
     def _find_record(self, url: str) -> Optional[Tuple[str, Any]]:
-        for kind, collection in (
-            ("Service", self.db.services),
-            ("Instantiation", self.db.instantiations),
-            ("Artifact", self.db.artifacts),
-            ("Repository", self.db.repositories),
-            ("Type", self.db.types),
+        # Lookup order matches the historical behaviour: services, then
+        # instantiations, then artifacts, then repositories, then types.
+        for kind, getter in (
+            ("Service", self.view.get_service),
+            ("Instantiation", self.view.get_instantiation),
+            ("Artifact", self.view.get_artifact),
+            ("Repository", self.view.get_repository),
+            ("Type", self.view.get_type),
         ):
-            if url in collection:
-                return kind, collection[url]
+            found = getter(url)
+            if found is not None:
+                return kind, found
         if url.startswith("git:") and not url.endswith(".git") and "#" not in url:
-            git_url = url + ".git"
-            if git_url in self.db.repositories:
-                return "Repository", self.db.repositories[git_url]
+            repo = self.view.get_repository(url + ".git")
+            if repo is not None:
+                return "Repository", repo
         return None
 
     def _find_all_records(self, url: str) -> List[Tuple[str, Any]]:
         results: List[Tuple[str, Any]] = []
-        for kind, collection in (
-            ("Instantiation", self.db.instantiations),
-            ("Repository", self.db.repositories),
-            ("Artifact", self.db.artifacts),
-            ("Service", self.db.services),
-            ("Type", self.db.types),
+        for kind, getter in (
+            ("Instantiation", self.view.get_instantiation),
+            ("Repository", self.view.get_repository),
+            ("Artifact", self.view.get_artifact),
+            ("Service", self.view.get_service),
+            ("Type", self.view.get_type),
         ):
-            if url in collection:
-                results.append((kind, collection[url]))
+            found = getter(url)
+            if found is not None:
+                results.append((kind, found))
         return results
 
     @staticmethod
@@ -757,12 +773,12 @@ class CloudMapGraphWalker:
 
 
 def walk_cloudmap_graph(
-    db: "CloudMapDB",
+    view: "CloudMapView",
     visitor: CloudMapGraphVisitor,
     start_url: str = "",
 ) -> None:
     """Walk the CloudMap graph calling visitor methods for each record and edge."""
-    CloudMapGraphWalker(db, visitor).walk(start_url)
+    CloudMapGraphWalker(view, visitor).walk(start_url)
 
 
 class RichTreeVisitor(CloudMapGraphVisitor):
@@ -788,7 +804,6 @@ class RichTreeVisitor(CloudMapGraphVisitor):
     def _label(
         self, kind: str, url: str, record: "CloudMapRecord", guide_style: str = ""
     ) -> str:
-
         title = ""
         if hasattr(record, "metadata") and hasattr(record.metadata, "title"):
             title = record.metadata.title or ""
@@ -1071,18 +1086,18 @@ def _make_type_ref_json(
     return ref
 
 
-def cloudmap_graph_json(db: "CloudMapDB", start_url: str = "") -> GraphJson:
+def cloudmap_graph_json(view: "CloudMapView", start_url: str = "") -> GraphJson:
     """Return a JSON-serializable graph of the CloudMap."""
     visitor = JsonGraphVisitor()
     if start_url:
         visitor.result["roots"] = []
-    walk_cloudmap_graph(db, visitor, start_url)
+    walk_cloudmap_graph(view, visitor, start_url)
     return visitor.result
 
 
 def cloudmap_graph_console(
-    db: "CloudMapDB", start_url: str = "", console: Optional["Console"] = None
+    view: "CloudMapView", start_url: str = "", console: Optional["Console"] = None
 ) -> None:
     """Print a rich.Tree showing how cloudmap records reference each other."""
     visitor = RichTreeVisitor(console)
-    walk_cloudmap_graph(db, visitor, start_url)
+    walk_cloudmap_graph(view, visitor, start_url)

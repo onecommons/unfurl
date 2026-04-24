@@ -19,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    Iterable,
     List,
     Mapping,
     Optional,
@@ -1100,6 +1101,47 @@ T = TypeVar("T", bound="Notable")
 
 
 class CloudMapView(Protocol):
+    # --- Add records ---
+
+    def add_artifact(self, artifact: "Artifact") -> str: ...
+
+    def add_service(self, service: "Service") -> str: ...
+
+    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
+
+    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
+
+    def add_type(self, cloud_type: "CloudType") -> str: ...
+
+    def add_repository(self, repository: Repository) -> str: ...
+
+    # --- Look up existing records ---
+
+    def get_artifact(self, url: str) -> Optional["Artifact"]: ...
+
+    def get_service(self, url: str) -> Optional["Service"]: ...
+
+    def get_instantiation(self, url: str) -> Optional["Instantiation"]: ...
+
+    def get_type(self, name: str) -> Optional["CloudType"]: ...
+
+    def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]: ...
+
+    # --- Iterate / search records ---
+    def find_artifacts(self, artifact_type: str = "") -> Iterable["Artifact"]:
+        """An empty filter returns all artifacts."""
+        ...
+
+    def find_services(self) -> Iterable["Service"]: ...
+
+    def find_instantiations(self) -> Iterable["Instantiation"]: ...
+
+    def find_types(self) -> Iterable["CloudType"]: ...
+
+    def find_repositories(self) -> Iterable["Repository"]: ...
+
+
+class NotableContext(CloudMapView, Protocol):
     """Abstract interface to a cloudmap.
 
     Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
@@ -1132,28 +1174,6 @@ class CloudMapView(Protocol):
         """Record (and optionally recursively analyze) a URL: git repo, pkg: PURL,
         or service URL. Returns the record that was added or already existed."""
         ...
-
-    # --- Add records ---
-
-    def add_artifact(self, artifact: "Artifact") -> str: ...
-
-    def add_service(self, service: "Service") -> str: ...
-
-    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
-
-    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
-
-    def add_type(self, cloud_type: "CloudType") -> str: ...
-
-    # --- Look up existing records ---
-
-    def get_artifact(self, url: str) -> Optional["Artifact"]: ...
-
-    def get_service(self, url: str) -> Optional["Service"]: ...
-
-    def get_instantiation(self, url: str) -> Optional["Instantiation"]: ...
-
-    def get_type(self, name: str) -> Optional["CloudType"]: ...
 
 
 class Notable:
@@ -1194,7 +1214,7 @@ class Notable:
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
 
     def analyze(
-        self, directory: CloudMapView, repo_info: Repository, root_path: str
+        self, directory: NotableContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         """Analyze the matched file and return an Artifact for the cloud map.
 
@@ -1284,6 +1304,10 @@ class CloudMapInputs(TypedDict, total=False):
     host_branch: Optional[str]
 
 
+CloudMapRecord = Union[
+    "Repository", "Artifact", "Instantiation", "Service", "CloudType"
+]
+
 __all__ = [
     # Dataclasses
     "Namespace",
@@ -1303,6 +1327,7 @@ __all__ = [
     "TypeRefs",
     "EntitySchema",
     "ArtifactMappings",
+    "CloudMapRecord",
     # TypedDicts
     "NotableDict",
     "TypeRefConstraint",
@@ -1328,6 +1353,7 @@ __all__ = [
     "build_oci_purl",
     "get_repository_url",
     # Notable base & context
-    "Notable",
     "CloudMapView",
+    "Notable",
+    "NotableContext",
 ]

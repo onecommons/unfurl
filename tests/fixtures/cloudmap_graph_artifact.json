@@ -2,10 +2,64 @@
   "roots": [
     {
       "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+      "kind": "Repository"
+    },
+    {
+      "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
       "kind": "Artifact"
     }
   ],
   "sections": {
+    "Repositories": {
+      "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml": {
+        "kind": "Repository",
+        "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        "rels": {
+          "notable": [
+            {
+              "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+              "kind": "Artifact"
+            }
+          ]
+        }
+      },
+      "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.": {
+        "kind": "Repository",
+        "url": "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.",
+        "rels": {
+          "notable": [
+            {
+              "url": "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml",
+              "kind": "Artifact"
+            }
+          ]
+        }
+      },
+      "PostgresDB@unfurl.cloud/onecommons/unfurl-types": {
+        "kind": "Repository",
+        "url": "PostgresDB@unfurl.cloud/onecommons/unfurl-types",
+        "rels": {
+          "notable": [
+            {
+              "url": "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml",
+              "kind": "Artifact"
+            }
+          ]
+        }
+      },
+      "Odoo@unfurl.cloud/onecommons/blueprints/odoo": {
+        "kind": "Repository",
+        "url": "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+        "rels": {
+          "notable": [
+            {
+              "url": "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+              "kind": "Artifact"
+            }
+          ]
+        }
+      }
+    },
     "Artifacts": {
       "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml": {
         "kind": "Artifact",
@@ -14,7 +68,7 @@
           "references": [
             {
               "url": "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.",
-              "missing": true,
+              "kind": "Repository",
               "type_refs": [
                 {
                   "type": "cloudmap.artifacts.unfurl.Package",
@@ -50,6 +104,10 @@
           ]
         }
       },
+      "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml": {
+        "kind": "Artifact",
+        "url": "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml"
+      },
       "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest": {
         "kind": "Artifact",
         "url": "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest"
@@ -71,15 +129,6 @@
         "rels": {
           "extends": [
             "unfurl.relationships.ConnectsTo.CloudAccount"
-          ]
-        }
-      },
-      "Odoo@unfurl.cloud/onecommons/blueprints/odoo": {
-        "kind": "Type",
-        "url": "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
-        "rels": {
-          "extends": [
-            "unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types"
           ]
         }
       }

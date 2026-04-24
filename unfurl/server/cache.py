@@ -17,6 +17,7 @@ from urllib.parse import urljoin, urlparse
 import os
 
 from ..cloudmap import CloudMapDB, EntitySchema
+from ..tosca_plugins.cloudmap_defs import CloudMapView
 from ..logs import getLogger
 from ..graphql import ImportDef, ResourceType, ResourceTypesByName
 
@@ -88,13 +89,19 @@ def load_yaml(
 
 
 def get_cloudmap_types(
-    project_id: str, root_cache_entry: CacheEntry
+    project_id: str, root_cache_entry: CacheEntry, validate: bool = False
 ) -> Tuple[CacheError, Dict[str, ResourceType]]:
     err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml", root_cache_entry)
     if doc is None:
         return err, {}
+    db = CloudMapDB("", doc, validate)
+    return err, _get_cloudmap_types(db)
+
+
+def _get_cloudmap_types(
+    db: CloudMapView,
+) -> Dict[str, ResourceType]:
     types: Dict[str, ResourceType] = {}
-    db = CloudMapDB("", doc, False)
     for artifact in db.find_artifacts(EntitySchema.CloudBlueprint):
         repo = db.get_repository(artifact.url)
         if repo:
@@ -147,8 +154,7 @@ def get_cloudmap_types(
                             components
                         )
                     types[name] = resource_type
-
-    return err, types
+    return types
 
 
 def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commit=None):
@@ -221,6 +227,7 @@ class ServerCacheResolver(SimpleCacheResolver):
         credentials: Optional[dict] = None,
     ):
         gui_mode = bool(current_app.config.get("UNFURL_GUI_MODE"))
+
         def ctor(*args, **kw):
             resolver = cls(*args, **kw)
             resolver.root_cache_request = root_cache_request
@@ -265,8 +272,8 @@ class ServerCacheResolver(SimpleCacheResolver):
         if not repo_view:
             return self._check_existing_tosca_repository_path(name, base_path, tpl)
         base_url = current_app.config["UNFURL_CLOUD_SERVER"]
-        private = (
-            not base_url or (repo_view and not repo_view.url.startswith(base_url) or repo_view.repo)
+        private = not base_url or (
+            repo_view and not repo_view.url.startswith(base_url) or repo_view.repo
         )
         if private:
             logger.trace(

@@ -540,11 +540,13 @@ repositories:
       v0.1.0: 2f9288e491d47ab0d976c135a5a17475bc9c746a
     notable:
       ensemble-template.yaml#spec/service_template:
-        type: {EntitySchema.CloudBlueprint}
+        type:
+          {EntitySchema.CloudBlueprint}:
         artifact: git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template
 artifacts:
   git://unfurl.cloud/onecommons/blueprints/cronicle.git#:ensemble-template.yaml%23spec/service_template:
-    type: {EntitySchema.CloudBlueprint}
+    type:
+      {EntitySchema.CloudBlueprint}:
     notable:
       pkg:oci/cronicle?repository_url=docker.io/soulteary:
     instantiates:
@@ -1507,7 +1509,7 @@ def test_get_cloudmap_types(mocker):
             mock_cache_entry = Mock()
 
             # Call the function
-            err, types = get_cloudmap_types("test_project", mock_cache_entry)
+            err, types = get_cloudmap_types("test_project", mock_cache_entry, True)
 
             # Verify load_yaml was called correctly
             mock_load_yaml.assert_called_once_with(
@@ -2062,18 +2064,27 @@ CloudMap
 │   │       ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 │   │       │   │        (cloudmap.artifacts.unfurl.Ensemble)
 │   │       │   └── references
-│   │       │       └── git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [missing]
+│   │       │       └── Repository git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package)
+│   │       │           └── notable
+│   │       │               └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
+│   │       │                   │        (cloudmap.artifacts.tosca.TypeLibrary)
 │   │       └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │           │             (cloudmap.artifacts.unfurl.Ensemble)
 │   │           ├── source
 │   │           │   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │   │           │       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
 │   │           │       ├── references
-│   │           │       │   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package) [missing]
+│   │           │       │   ├── Repository git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package)
+│   │           │       │   │   └── notable
+│   │           │       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│   │           │       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
 │   │           │       │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │   │           │       │       │        (cloudmap.artifacts.oci.Image)
 │   │           │       ├── dependencies
 │   │           │       │   ├── Database: PostgresDB@unfurl.cloud/onecommons/unfurl-types
+│   │           │       │   │   └── notable
+│   │           │       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│   │           │       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   │           │       │   ├── aws: unfurl.relationships.ConnectsTo.AWSAccount
 │   │           │       │   │   └── extends
 │   │           │       │   │       └── unfurl.relationships.ConnectsTo.CloudAccount
@@ -2082,8 +2093,9 @@ CloudMap
 │   │           │       │           └── unfurl.relationships.ConnectsTo.CloudAccount
 │   │           │       └── instantiates
 │   │           │           └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
-│   │           │               └── extends
-│   │           │                   └── unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
+│   │           │               └── notable
+│   │           │                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+│   │           │                       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 │   │           ├── instantiated
 │   │           │   └── Service https://example.com/oodo
 │   │           │       │       (Odoo@unfurl.cloud/onecommons/blueprints/odoo)
@@ -2091,7 +2103,7 @@ CloudMap
 │   │           │           └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │           │               │             (cloudmap.artifacts.unfurl.Ensemble) [seen]
 │   │           └── inputs
-│   │               ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [missing]
+│   │               ├── Repository git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [seen]
 │   │               └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │   │                   │        (cloudmap.artifacts.oci.Image) [seen]
 │   ├── Repository git://unfurl.cloud/onecommons/blueprints/odoo.git
@@ -2101,11 +2113,11 @@ CloudMap
 │   ├── Repository git://unfurl.cloud/onecommons/std.git
 │   │   └── notable
 │   │       └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
-│   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
+│   │           │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   └── Repository git://unfurl.cloud/onecommons/unfurl-types.git
 │       └── notable
 │           └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
-│               │        (cloudmap.artifacts.tosca.TypeLibrary)
+│               │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 ├── Artifacts
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml
 │   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
@@ -2142,14 +2154,24 @@ CloudMap
 """
 
 expected_artifact_graph = """\
+Repository git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+└── notable
+    └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+        │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
 ├── references
-│   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package) [missing]
+│   ├── Repository git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package)
+│   │   └── notable
+│   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │        (cloudmap.artifacts.oci.Image)
 ├── dependencies
 │   ├── Database: PostgresDB@unfurl.cloud/onecommons/unfurl-types
+│   │   └── notable
+│   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│   │           │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   ├── aws: unfurl.relationships.ConnectsTo.AWSAccount
 │   │   └── extends
 │   │       └── unfurl.relationships.ConnectsTo.CloudAccount
@@ -2158,8 +2180,9 @@ Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.ya
 │           └── unfurl.relationships.ConnectsTo.CloudAccount
 └── instantiates
     └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
-        └── extends
-            └── unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
+        └── notable
+            └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+                │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 """
 
 # URL that exists as both an Artifact and an Instantiation -- instantiation tree first
@@ -2170,11 +2193,17 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1)
 │       ├── references
-│       │   ├── git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package) [missing]
+│       │   ├── Repository git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:. (cloudmap.artifacts.unfurl.Package)
+│       │   │   └── notable
+│       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary)
 │       │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │       │        (cloudmap.artifacts.oci.Image)
 │       ├── dependencies
 │       │   ├── Database: PostgresDB@unfurl.cloud/onecommons/unfurl-types
+│       │   │   └── notable
+│       │   │       └── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+│       │   │           │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │       │   ├── aws: unfurl.relationships.ConnectsTo.AWSAccount
 │       │   │   └── extends
 │       │   │       └── unfurl.relationships.ConnectsTo.CloudAccount
@@ -2183,8 +2212,9 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │       │           └── unfurl.relationships.ConnectsTo.CloudAccount
 │       └── instantiates
 │           └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
-│               └── extends
-│                   └── unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
+│               └── notable
+│                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+│                       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 ├── instantiated
 │   └── Service https://example.com/oodo
 │       │       (Odoo@unfurl.cloud/onecommons/blueprints/odoo)
@@ -2192,13 +2222,24 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │           └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │               │             (cloudmap.artifacts.unfurl.Ensemble) [seen]
 └── inputs
-    ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [missing]
+    ├── Repository git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package)
+    │   └── notable
+    │       └── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
+    │           │        (cloudmap.artifacts.tosca.TypeLibrary)
     └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
         │        (cloudmap.artifacts.oci.Image) [seen]
+Repository git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+└── notable
+    ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
+    │   │        (cloudmap.artifacts.unfurl.Ensemble)
+    │   └── references
+    │       └── Repository git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [seen]
+    └── Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        │             (cloudmap.artifacts.unfurl.Ensemble) [seen]
 Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │        Odoo (cloudmap.artifacts.unfurl.Ensemble v0.1)
 ├── references
-│   ├── git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [missing]
+│   ├── Repository git://unfurl.cloud/onecommons/std.git#v1.1.1:. (cloudmap.artifacts.unfurl.Package) [seen]
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest
 │       │        (cloudmap.artifacts.oci.Image) [seen]
 ├── dependencies

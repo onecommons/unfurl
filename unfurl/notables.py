@@ -14,7 +14,7 @@ from .cloudmap import (
     CloudMapDB,
     CloudType,
     Notable,
-    CloudMapView,
+    NotableContext,
     Repository,
     Service,
     get_repository_url,
@@ -104,7 +104,7 @@ class UnfurlNotable(Notable):
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
 
     def analyze(
-        self, directory: CloudMapView, repo_info: Repository, root_path: str
+        self, directory: NotableContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         logger = directory.logger
         path = os.path.join(root_path, self.folder, self.file)
@@ -327,7 +327,7 @@ class UnfurlNotable(Notable):
         self,
         manifest: YamlManifest,
         repo_info: Repository,
-        directory: CloudMapView,
+        directory: NotableContext,
         typename: str,
         artifact: Artifact,
     ) -> None:
@@ -397,7 +397,7 @@ class UnfurlNotable(Notable):
 
 
 def create_cloud_type_from_type_info(
-    type_info: Dict[str, Any], ctx: Optional[CloudMapView] = None
+    type_info: Dict[str, Any], ctx: Optional[NotableContext] = None
 ) -> Optional[CloudType]:
     """
     Create a CloudType from type_info dict if it doesn't already exist.
@@ -440,7 +440,7 @@ def create_artifact_from_notable(
     references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
     type_info: Optional[Dict[str, Any]] = None,
-    ctx: Optional[CloudMapView] = None,
+    ctx: Optional[NotableContext] = None,
     digest: str = "",
 ) -> Tuple[Artifact, Optional[CloudType]]:
     """
@@ -565,7 +565,7 @@ class GitHubWorkflowNotable(Notable):
     artifact_type = EntitySchema.GitHubWorkflow
 
     def analyze(
-        self, directory: CloudMapView, repo_info: Repository, root_path: str
+        self, directory: NotableContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         # self.folder is the parent of .github (e.g. ".")
         workflows_dir = os.path.join(root_path, self.folder, ".github", "workflows")

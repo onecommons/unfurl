@@ -89,42 +89,28 @@ from .tosca_plugins.cloudmap_defs import (
     CloudMapInputs,
     LocalHostConfig,
     ArtifactDict,
-    ArtifactMappings,
     ArtifactMetadata,
     Artifact,
-    CloudMapView,
     CloudType,
     CloudTypeDict,
     CommonMetadata,
-    Discovery,
     EntitySchema,
     Instantiation,
-    LifecycleStatus,
-    Namespace,
     Notable,
     NotableDict,
     PipelineArtifact,
     PipelineRunProperties,
     PipelineVariable,
-    ProjectStatus,
     Repository,
     RepositoryDict,
     RepositoryMetadata,
-    ScheduledRelease,
     Service,
     ServiceDict,
-    ServiceMetadata,
-    ServicePolicies,
     TypeRefConstraint,
-    TypeRefJson,
-    TypeRefStatus,
     TypeRefs,
-    TypedUrls,
-    build_oci_purl,
-    filter_dict,
     get_repository_url,
     join_resource_url,
-    validate_url,
+    NotableContext,
 )
 from .support import ContainerImage
 from .configurator import Configurator, TaskView
@@ -405,9 +391,10 @@ class CloudMapDB:
             repo_url = repo_url.replace("git://", "https://")
         return git_url_join(repo_url, filePath, revision)
 
-    def add_repository(self, repository: Repository) -> None:
+    def add_repository(self, repository: Repository) -> str:
         """Add or update a repository in the cloudmap."""
         self.repositories[repository.url] = repository
+        return repository.url
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
         return self.artifacts.get(url)
@@ -628,9 +615,22 @@ class CloudMapDB:
         return changed
 
     def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
+        """An empty filter returns all artifacts."""
         if not artifact_type:
-            return [a for a in self.artifacts.values() if a.type == artifact_type]
-        return self.artifacts.values()
+            return self.artifacts.values()
+        return (a for a in self.artifacts.values() if artifact_type in a.type.types)
+
+    def find_services(self) -> Iterable[Service]:
+        return self.services.values()
+
+    def find_instantiations(self) -> Iterable[Instantiation]:
+        return self.instantiations.values()
+
+    def find_types(self) -> Iterable[CloudType]:
+        return self.types.values()
+
+    def find_repositories(self) -> Iterable[Repository]:
+        return self.repositories.values()
 
 
 class Directory(_LocalGitRepos):
@@ -681,6 +681,21 @@ class Directory(_LocalGitRepos):
     def get_artifact(self, url: str) -> Optional[Artifact]:
         return self.db.get_artifact(url)
 
+    def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
+        return self.db.find_artifacts(artifact_type)
+
+    def find_services(self) -> Iterable[Service]:
+        return self.db.find_services()
+
+    def find_instantiations(self) -> Iterable[Instantiation]:
+        return self.db.find_instantiations()
+
+    def find_types(self) -> Iterable[CloudType]:
+        return self.db.find_types()
+
+    def find_repositories(self) -> Iterable[Repository]:
+        return self.db.find_repositories()
+
     def add_service(self, service: Service) -> str:
         return self.db.add_service(service)
 
@@ -689,6 +704,9 @@ class Directory(_LocalGitRepos):
 
     def add_instantiation(self, instantiation: Instantiation) -> str:
         return self.db.add_instantiation(instantiation)
+
+    def add_repository(self, repository: Repository) -> str:
+        return self.db.add_repository(repository)
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         return self.db.get_instantiation(url)
@@ -701,6 +719,9 @@ class Directory(_LocalGitRepos):
 
     def get_type(self, name: str) -> Optional[CloudType]:
         return self.db.get_type(name)
+
+    def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
+        return self.db.get_repository(r)
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
@@ -2316,8 +2337,10 @@ class CloudMap:
         for analyzer_path in analyzer_paths:
             try:
                 analyzer_class = load_class_from_file(
-                    analyzer_path, base_dir, "Notable analyzer class",
-                    local_env.overrides.get("safe_mode")
+                    analyzer_path,
+                    base_dir,
+                    "Notable analyzer class",
+                    local_env.overrides.get("safe_mode"),
                 )
                 if analyzer_class and issubclass(analyzer_class, Notable):
                     custom_analyzers.append(analyzer_class)
