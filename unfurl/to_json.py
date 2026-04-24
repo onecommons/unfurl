@@ -1846,6 +1846,7 @@ def to_deployments(
             localEnv.manifestPath = os.path.join(
                 localEnv.project.projectRoot, manifest_path, "ensemble.yaml"
             )
+            localEnv.instance_repoview = localEnv._get_instance_repoview()
             environment = dp.get("environment") or "defaults"
             localEnv.manifest_environment_name = environment
             deployments.append(to_deployment(localEnv))
