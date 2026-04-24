@@ -61,6 +61,8 @@ import git
 from git.objects import Commit
 
 from ..graphql import (
+    GraphqlObject,
+    GraphqlObjectsByName,
     ImportDef,
     get_local_type,
     project_id_from_urlresult,
@@ -2802,28 +2804,40 @@ def _push_changes(
 
 
 # no longer used
-# def _do_patch(patch: List[dict], target: dict):
-#     for patch_inner in patch:
-#         typename = patch_inner.get("__typename")
-#         deleted = patch_inner.get("__deleted")
-#         target_inner = target
-#         if typename != "*":
-#             if not target_inner.get(typename):
-#                 target_inner[typename] = {}
-#             target_inner = target_inner[typename]
-#         if deleted:
-#             name = patch_inner.get("name", deleted)
-#             if deleted == "*":
-#                 if typename == "*":
-#                     target = {}
-#                 else:
-#                     del target[typename]
-#             elif name in target[typename]:
-#                 del target[typename][name]
-#             else:
-#                 logger.warning(f"skipping delete: {deleted} is missing from {typename}")
-#             continue
-#         target_inner[patch_inner["name"]] = patch_inner
+def _do_patch(patch: List[GraphqlObject], target: Dict[str, GraphqlObjectsByName]):
+    """Apply a list of GraphQL-style patch entries to ``target`` in place.
+    ``target`` is a dict of dicts of GraphQL objects keyed by name, keyed by __typename.
+
+    If the patch entry has a ``__deleted`` field, the entry is removed from the target,
+    otherwise the entry replaces the entry in the target.
+    If ``__deleted`` == "*", delete all the records with the given __typename.
+    """
+    for patch_inner in patch:
+        typename = patch_inner.get("__typename")
+        deleted = patch_inner.get("__deleted")
+        name = patch_inner.get("name", deleted)
+        if not name or not typename:
+            logger.warning(f"skipping malformed patch {patch_inner}")
+            continue
+        target_inner = target.setdefault(typename, {})
+        if deleted:
+            if name == "*":
+                del target[typename]
+            else:
+                if name in target_inner:
+                    del target_inner[name]
+                else:
+                    logger.warning(
+                        f"skipping delete: {name} is missing from {typename}"
+                    )
+            continue
+        if name == "*":
+            logger.warning(
+                f"error: name = '*' not allowed without '__deleted' present, skipping {patch_inner}"
+            )
+        else:
+            target_inner[name] = patch_inner
+
 
 # no longer used
 # def _patch_json(body: dict) -> str:

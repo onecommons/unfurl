@@ -1742,6 +1742,111 @@ def test_server_cloudmap():
             _terminate_process(p)
 
 
+class TestDoPatch:
+    """Unit tests for serve._do_patch.
+
+    Mirrors the Rust port in rust/server/src/patch.rs so behavior stays in
+    sync. ``target`` is a 2-level dict ``{__typename: {name: GraphqlObject}}``;
+    see the docstring on _do_patch for the patch entry schema.
+    """
+
+    @staticmethod
+    def _apply(patches, target):
+        # _do_patch mutates target in place; return it for assertion convenience.
+        server._do_patch(patches, target)
+        return target
+
+    def test_insert_into_typename_bucket(self):
+        result = self._apply(
+            [{"__typename": "ResourceTemplate", "name": "db", "type": "Database"}],
+            {},
+        )
+        assert result == {
+            "ResourceTemplate": {
+                "db": {
+                    "__typename": "ResourceTemplate",
+                    "name": "db",
+                    "type": "Database",
+                }
+            }
+        }
+
+    def test_insert_into_existing_bucket(self):
+        result = self._apply(
+            [{"__typename": "T", "name": "b", "v": 2}],
+            {"T": {"a": {"name": "a", "v": 1}}},
+        )
+        assert result["T"] == {
+            "a": {"name": "a", "v": 1},
+            "b": {"__typename": "T", "name": "b", "v": 2},
+        }
+
+    def test_delete_named_entry(self):
+        result = self._apply(
+            [{"__typename": "T", "__deleted": "a", "name": "a"}],
+            {"T": {"a": {"v": 1}, "b": {"v": 2}}},
+        )
+        assert result == {"T": {"b": {"v": 2}}}
+
+    def test_delete_uses_deleted_field_when_name_absent(self):
+        result = self._apply(
+            [{"__typename": "T", "__deleted": "a"}],
+            {"T": {"a": {"v": 1}, "b": {"v": 2}}},
+        )
+        assert result == {"T": {"b": {"v": 2}}}
+
+    def test_delete_wildcard_clears_typename_bucket(self):
+        result = self._apply(
+            [{"__typename": "T", "__deleted": "*"}],
+            {"T": {"a": {"v": 1}}, "U": {"x": 1}},
+        )
+        assert result == {"U": {"x": 1}}
+
+    def test_delete_missing_name_is_a_noop(self):
+        result = self._apply(
+            [{"__typename": "T", "__deleted": "ghost"}],
+            {"T": {"a": {"v": 1}}},
+        )
+        assert result == {"T": {"a": {"v": 1}}}
+
+    def test_insert_with_name_wildcard_is_skipped(self):
+        # `name == "*"` is only valid in delete entries.
+        result = self._apply(
+            [{"__typename": "T", "name": "*", "v": 1}],
+            {"T": {"a": {"v": 1}}},
+        )
+        assert result == {"T": {"a": {"v": 1}}}
+
+    def test_malformed_entry_missing_typename_is_skipped(self):
+        result = self._apply(
+            [{"name": "a", "v": 1}],
+            {"T": {"a": {"v": 1}}},
+        )
+        assert result == {"T": {"a": {"v": 1}}}
+
+    def test_malformed_entry_missing_name_is_skipped(self):
+        result = self._apply(
+            [{"__typename": "T", "v": 1}],
+            {"T": {"a": {"v": 1}}},
+        )
+        assert result == {"T": {"a": {"v": 1}}}
+
+    def test_multiple_patches_applied_in_order(self):
+        result = self._apply(
+            [
+                {"__typename": "T", "name": "a", "v": 1},
+                {"__typename": "T", "name": "b", "v": 2},
+                {"__typename": "T", "__deleted": "a"},
+                {"__typename": "U", "name": "x", "v": 99},
+            ],
+            {},
+        )
+        assert result == {
+            "T": {"b": {"__typename": "T", "name": "b", "v": 2}},
+            "U": {"x": {"__typename": "U", "name": "x", "v": 99}},
+        }
+
+
 # XXX test that server recovers from an upstream repo that had a force push or tags that changed
 # def test_force_push():
 #   assert repo.repo.create_tag("v1.0", message="tag v1")

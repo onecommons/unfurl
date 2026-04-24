@@ -9,6 +9,9 @@
 mod cache;
 mod client;
 mod config;
+// Will be used in future patch routes.
+#[allow(dead_code)]
+mod patch;
 mod proxy;
 mod queue;
 mod routes;
