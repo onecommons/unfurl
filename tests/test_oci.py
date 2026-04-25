@@ -3,7 +3,15 @@ import pytest
 from dataclasses import replace
 
 from unfurl import oci
-from unfurl.support import ContainerImageParts, ContainerImage
+from unfurl.tosca_plugins.cloudmap_defs import (
+     Artifact,
+     ArtifactMetadata,
+     Discovery,
+    Instantiation,
+     TypeRefs,
+)
+from unfurl.tosca_plugins.functions import ContainerImageParts
+from unfurl.support import ContainerImage
 
 artifact_keys = [
     "docker.io/baserow/baserow",
@@ -27,11 +35,11 @@ artifact_keys = [
                 digest="",
                 registry="docker.io",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/baserow?repository_url=docker.io/baserow/baserow&tag=2.1.2",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="sha256:60e2e1215f4e020c36cb1233dab21514c214f0347dc9e2d7f3ae6d1b01d9044c",
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="https://github.com/baserow/baserow",
                     description="All in one docker image for Baserow, open source no-code platform tool and Airtable alternative",
                     title="baserow",
@@ -46,8 +54,8 @@ artifact_keys = [
                     documentation_url="",
                 ),
             ),
-            oci.Instantiation(
-                type=oci.TypeRefs(
+            Instantiation(
+                type=TypeRefs(
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance02": None,
@@ -62,11 +70,11 @@ artifact_keys = [
             ContainerImageParts(
                 full_name="linuxserver/wireguard", tag="", digest="", registry="lscr.io"
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/wireguard?repository_url=lscr.io/linuxserver/wireguard",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="https://github.com/linuxserver/docker-wireguard",
                     description="[WireGuard®] is an extremely simple yet fast and modern VPN that utilizes state-of-the-art cryptography. It aims to be faster, simpler, leaner, and more useful than IPsec, while avoiding the massive headache. It intends to be considerably more performant than OpenVPN. WireGuard is designed as a general purpose VPN for running on embedded interfaces and super computers alike, fit for many different circumstances. Initially released for the Linux kernel, it is now cross-platform (Windows, macOS, BSD, iOS, Android) and widely deployable. It is currently under heavy development, but already it might be regarded as the most secure, easiest to use, and simplest VPN solution in the industry.",
                     title="Wireguard",
@@ -81,8 +89,8 @@ artifact_keys = [
                     documentation_url="https://docs.linuxserver.io/images/docker-wireguard",
                 ),
             ),
-            oci.Instantiation(
-                type=oci.TypeRefs(
+            Instantiation(
+                type=TypeRefs(
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SpdxDocument": None,
@@ -100,11 +108,11 @@ artifact_keys = [
                 digest="",
                 registry="registry.gitlab.com",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/main?repository_url=registry.gitlab.com/gitlab-org/project-templates/express/main",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="",
                     description="",
                     title="",
@@ -126,11 +134,11 @@ artifact_keys = [
                 digest="",
                 registry="ghcr.io",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/unfurl?repository_url=ghcr.io/onecommons/unfurl&tag=v1.1.0-server-cached",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="sha256:4410d557ee799971770cf4fadc04e78fa5d2bd68470b6e6c6ebd49f32a59338d",
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="https://github.com/onecommons/unfurl",
                     description="",
                     title="",
@@ -142,8 +150,8 @@ artifact_keys = [
                     documentation_url="",
                 ),
             ),
-            oci.Instantiation(
-                type=oci.TypeRefs(
+            Instantiation(
+                type=TypeRefs(
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance02": None,
@@ -161,11 +169,11 @@ artifact_keys = [
                 digest="",
                 registry="ghcr.io",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/actions-runner?repository_url=ghcr.io/actions/actions-runner&tag=latest",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="https://github.com/actions/runner",
                     description="IGNORE",  # ignore because this will change
                     title="",
@@ -180,8 +188,8 @@ artifact_keys = [
                     documentation_url="",
                 ),
             ),
-            oci.Instantiation(
-                type=oci.TypeRefs(
+            Instantiation(
+                type=TypeRefs(
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance1": None,
@@ -199,11 +207,11 @@ artifact_keys = [
                 digest="",
                 registry="registry.gitlab.com",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/gitlab-toolbox-ce?repository_url=registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce&tag=master",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="",  # Will be replaced in test
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="",
                     description="",
                     title="",
@@ -228,11 +236,11 @@ artifact_keys = [
                 digest="sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
                 registry="registry.unfurl.cloud",
             ),
-            oci.Artifact(
+            Artifact(
                 url="pkg:oci/unfurl-gui@sha256%3Ac21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32?repository_url=registry.unfurl.cloud/onecommons/unfurl-gui",
-                type=oci.TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
                 digest="sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
-                metadata=oci.ArtifactMetadata(
+                metadata=ArtifactMetadata(
                     source_url="",
                     description="",
                     title="",
@@ -447,7 +455,7 @@ def test_registry_v2_fetch_single_manifest_labels(mock_requests_get):
     )
 
     ann, platforms, manifest_digest, artifact_fetch = oci.registry_v2_fetch(
-        oci.ContainerImageParts.split("docker.io/library/nginx:latest")
+        ContainerImageParts.split("docker.io/library/nginx:latest")
     )
     assert ann is not None
     assert ann["org.opencontainers.image.source"] == "https://github.com/example/repo"
@@ -455,7 +463,7 @@ def test_registry_v2_fetch_single_manifest_labels(mock_requests_get):
 
 
 def test_registry_v2_bearer_challenge_flow(mock_requests_get):
-    ref = oci.ContainerImageParts.split("docker.io/library/nginx:latest")
+    ref = ContainerImageParts.split("docker.io/library/nginx:latest")
     host = "registry-1.docker.io"
     repo = "library/nginx"
 

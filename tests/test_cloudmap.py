@@ -4,13 +4,17 @@ from click.testing import CliRunner
 import pytest
 from unfurl.__main__ import cli
 import git
-from unfurl.oci import (
+from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
     Discovery,
     EntitySchema,
     Instantiation,
     join_resource_url,
+    Repository,
+    RepositoryMetadata,
+    TypeRefs,
+    Service,
 )
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
@@ -20,12 +24,7 @@ from unfurl.cloudmap import (
     CloudMap,
     GitlabManager,
     GithubManager,
-    Repository,
-    RepositoryMetadata,
-    Directory,
     CloudMapDB,
-    TypeRefs,
-    Service,
 )
 from unfurl.localenv import LocalEnv
 

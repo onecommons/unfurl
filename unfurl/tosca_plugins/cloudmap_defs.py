@@ -410,6 +410,28 @@ class TypeRefs:
 
 TypedUrls = Dict[str, Optional[TypeRefs]]
 
+_R = TypeVar("_R", bound="Union[Instantiation,Service,Artifact]")
+
+
+def _load_versions(self: _R) -> Dict[str, _R]:
+    new_versions: Dict[str, _R] = {}
+    cls = type(self)
+    for version_key, version_val in self.versions.items():
+        if isinstance(version_val, cls):
+            new_versions[version_key] = version_val
+        elif isinstance(version_val, dict):
+            version_dict = cast(Dict[str, Any], version_val)
+            # Inherit type from parent if not specified in version
+            if "type" not in version_dict:
+                version_dict = dict(version_dict, type=self.type)
+            new_versions[version_key] = cls(  # type: ignore
+                url=join_resource_url(self.url, version_key),
+                _parent=self,  # type: ignore
+                **version_dict,
+            )
+
+    return new_versions
+
 
 @dataclass
 class Instantiation:
@@ -475,19 +497,7 @@ class Instantiation:
         self.inputs = TypeRefs.urls_fromdict(self.inputs)
         # Convert versions dict entries to Instantiation instances if they're still dicts
         if self.versions:
-            new_versions: Dict[str, Instantiation] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Instantiation):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Instantiation(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
+            self.versions = _load_versions(self)
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -666,20 +676,7 @@ class Artifact:
         ]
         # Convert versions dict entries to Artifact instances if they're still dicts
         if self.versions:
-            new_versions: Dict[str, Artifact] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Artifact):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    # XXX inherit more attributes
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Artifact(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
+            self.versions = _load_versions(self)
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -1009,20 +1006,7 @@ class Service:
         self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         # Convert versions dict entries to Service instances if they're still dicts
         if self.versions:
-            new_versions: Dict[str, Service] = {}
-            for version_key, version_val in self.versions.items():
-                if isinstance(version_val, Service):
-                    new_versions[version_key] = version_val
-                elif isinstance(version_val, dict):
-                    version_val = cast(Dict[str, Any], version_val)
-                    # Inherit type from parent if not specified in version
-                    # XXX inherit more attributes
-                    if "type" not in version_val:
-                        version_val = dict(version_val, type=self.type)
-                    new_versions[version_key] = Service(
-                        url=version_key, _parent=self, **version_val
-                    )
-            self.versions = new_versions
+            self.versions = _load_versions(self)
         self._parent = _parent  # type: ignore # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -1138,13 +1122,18 @@ class CloudMapView(Protocol):
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]: ...
 
     # --- Iterate / search records ---
-    def find_artifacts(self, artifact_type: str = "") -> Iterable["Artifact"]:
+
+    def find_artifacts(self, type: str = "") -> Iterable["Artifact"]:
         """An empty filter returns all artifacts."""
         ...
 
-    def find_services(self) -> Iterable["Service"]: ...
+    def find_services(self, type: str = "") -> Iterable["Service"]:
+        """An empty filter returns all services."""
+        ...
 
-    def find_instantiations(self) -> Iterable["Instantiation"]: ...
+    def find_instantiations(self, type: str = "") -> Iterable["Instantiation"]:
+        """An empty filter returns all instantiations."""
+        ...
 
     def find_types(self) -> Iterable["CloudType"]: ...
 

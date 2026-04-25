@@ -367,7 +367,11 @@ class CloudMapDB:
         if isinstance(r, Repository):
             url = r.url
         else:
-            url = get_repository_url(r)  # its a str
+            if r.startswith("#/repositories/"):
+                # support repository references by url fragment
+                url = r[len("#/repositories/") :]
+            else:
+                url = get_repository_url(r)  # its a str
         found = self.repositories.get(url)
         if not found and not url.endswith(".git"):
             # package ids don't have .git suffix, try adding it
@@ -397,12 +401,21 @@ class CloudMapDB:
         return repository.url
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
+        if url.startswith("#/artifacts/"):
+            # support artifact references by url fragment
+            url = url[len("#/artifacts/") :]
         return self.artifacts.get(url)
 
     def get_service(self, url: str) -> Optional[Service]:
+        if url.startswith("#/services/"):
+            # support service references by url fragment
+            url = url[len("#/services/") :]
         return self.services.get(url)
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
+        if url.startswith("#/instantiations/"):
+            # support instantiation references by url fragment
+            url = url[len("#/instantiations/") :]
         return self.instantiations.get(url)
 
     def add_instantiation(self, instantiation: Instantiation) -> str:
@@ -526,8 +539,8 @@ class CloudMapDB:
         # add versions to top level for easy lookup by url#version
         versions = {}
         for url, resource in resource_dict.items():
-            for join, obj in resource.versions.items():
-                versions[join_resource_url(url, join)] = obj
+            for version_key, obj in resource.versions.items():
+                versions[obj.url] = obj  # obj.url has been merged with its parent url
         resource_dict.update(versions)
         return resource_dict
 
@@ -614,17 +627,23 @@ class CloudMapDB:
         self.config.save()
         return changed
 
-    def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
+    def find_artifacts(self, type: str = "") -> Iterable[Artifact]:
         """An empty filter returns all artifacts."""
-        if not artifact_type:
+        if not type:
             return self.artifacts.values()
-        return (a for a in self.artifacts.values() if artifact_type in a.type.types)
+        return (a for a in self.artifacts.values() if type in a.type.types)
 
-    def find_services(self) -> Iterable[Service]:
-        return self.services.values()
+    def find_services(self, type: str = "") -> Iterable[Service]:
+        """An empty filter returns all services."""
+        if not type:
+            return self.services.values()
+        return (s for s in self.services.values() if type in s.type.types)
 
-    def find_instantiations(self) -> Iterable[Instantiation]:
-        return self.instantiations.values()
+    def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
+        """An empty filter returns all instantiations."""
+        if not type:
+            return self.instantiations.values()
+        return (i for i in self.instantiations.values() if type in i.type.types)
 
     def find_types(self) -> Iterable[CloudType]:
         return self.types.values()
@@ -681,14 +700,14 @@ class Directory(_LocalGitRepos):
     def get_artifact(self, url: str) -> Optional[Artifact]:
         return self.db.get_artifact(url)
 
-    def find_artifacts(self, artifact_type: str = "") -> Iterable[Artifact]:
-        return self.db.find_artifacts(artifact_type)
+    def find_artifacts(self, type: str = "") -> Iterable[Artifact]:
+        return self.db.find_artifacts(type)
 
-    def find_services(self) -> Iterable[Service]:
-        return self.db.find_services()
+    def find_services(self, type: str = "") -> Iterable[Service]:
+        return self.db.find_services(type)
 
-    def find_instantiations(self) -> Iterable[Instantiation]:
-        return self.db.find_instantiations()
+    def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
+        return self.db.find_instantiations(type)
 
     def find_types(self) -> Iterable[CloudType]:
         return self.db.find_types()

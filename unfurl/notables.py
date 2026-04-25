@@ -22,7 +22,7 @@ from .cloudmap import (
 from .graphql import ResourceTypesByName, get_deployment_url, TypeName
 from .spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
 from .support import ContainerImage
-from .oci import (
+from .tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
     CommonMetadata,
@@ -30,9 +30,8 @@ from .oci import (
     Instantiation,
     TypeRefs,
     TypedUrls,
-    TypeRefConstraint,
-    build_oci_purl,
     filter_dict,
+    build_oci_purl,
 )
 from .to_json import get_blueprint_path, node_type_to_graphql
 from .util import UnfurlError, assert_not_none

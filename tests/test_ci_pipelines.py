@@ -8,7 +8,6 @@ from unfurl.cloudmap import (
     CloudMap,
     GithubManager,
     GitlabManager,
-    Repository,
     RepositoryHost,
     Analyzer,
 )
@@ -19,11 +18,12 @@ from unfurl.notables import (
     GitLabPipelineNotable,
     Notables,
 )
-from unfurl.oci import (
+from unfurl.tosca_plugins.cloudmap_defs import (
     CommonMetadata,
     EntitySchema,
     Instantiation,
     TypeRefs,
+    Repository,
 )
 UNFURL_TEST_UNFURL_GUI_TOKEN_URL = os.getenv("UNFURL_TEST_UNFURL_GUI_TOKEN_URL")
 UNFURL_TEST_GITHUB_KEY = os.getenv("UNFURL_TEST_GITHUB_KEY")
