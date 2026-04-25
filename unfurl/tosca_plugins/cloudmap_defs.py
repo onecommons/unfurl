@@ -311,8 +311,18 @@ class TypeRefs:
     """
 
     def __init__(self, types: Optional[TypeRefJson] = None):
-        """Initialize TypeRefs from a dict or create empty."""
-        self.types = types if types is not None else {}
+        """Initialize TypeRefs from a dict, a single type-name string, or empty.
+
+        Accepts the YAML shorthand ``type: <type-name>`` (parsed as a plain
+        string) and normalises it into the canonical ``{<type-name>: None}``
+        dict so callers can rely on ``self.types`` always being a dict.
+        """
+        if types is None:
+            self.types: TypeRefJson = {}
+        elif isinstance(types, str):
+            self.types = {types: None}
+        else:
+            self.types = types
 
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
@@ -379,7 +389,7 @@ class TypeRefs:
         for url in sorted(typed_urls):
             type_refs = typed_urls[url]
             if isinstance(type_refs, TypeRefs):
-                result[url] = type_refs.asdict()
+                result[url] = type_refs.asdict() or None
             else:
                 result[url] = type_refs
         return result
@@ -391,10 +401,10 @@ class TypeRefs:
         """Convert instantiated dict values to Optional[TypeRefs]"""
         type_urls: TypedUrls = {}
         for k, v in type_urls_dict.items():
-            if isinstance(v, dict):
-                type_urls[k] = TypeRefs(types=v)
-            else:
+            if isinstance(v, TypeRefs):
                 type_urls[k] = v
+            else:
+                type_urls[k] = TypeRefs(types=v)
         return type_urls
 
 
@@ -455,12 +465,12 @@ class Instantiation:
             self.url = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         if self.source:
             self.source = validate_url(self.source, "Instantiation.source")
-        if isinstance(self.type, dict):
+        if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
-        if isinstance(self.metadata, dict):
-            self.metadata = CommonMetadata(**self.metadata)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
+        if not isinstance(self.metadata, CommonMetadata):
+            self.metadata = CommonMetadata(**(self.metadata or {}))
+        if not isinstance(self.discovery, Discovery):
+            self.discovery = Discovery(**(self.discovery or {}))
         self.instantiated = TypeRefs.urls_fromdict(self.instantiated)
         self.inputs = TypeRefs.urls_fromdict(self.inputs)
         # Convert versions dict entries to Instantiation instances if they're still dicts
@@ -636,13 +646,13 @@ class Artifact:
             elif parts.scheme not in ["pkg", "git"]:
                 raise ValueError(f"Artifact.url must be a pkg URL: {self.url!r}")
 
-        if isinstance(self.metadata, dict):
-            self.metadata = ArtifactMetadata(**self.metadata)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
-        if isinstance(self.type, dict):
+        if not isinstance(self.metadata, ArtifactMetadata):
+            self.metadata = ArtifactMetadata(**(self.metadata or {}))
+        if not isinstance(self.discovery, Discovery):
+            self.discovery = Discovery(**(self.discovery or {}))
+        if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
-        if isinstance(self.instantiates, dict):
+        if not isinstance(self.instantiates, TypeRefs):
             self.instantiates = TypeRefs(types=self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
         self.notable = TypeRefs.urls_fromdict(self.notable)
@@ -844,11 +854,12 @@ class Repository:
             self.mirror_of = validate_url(self.mirror_of, "Repository.mirror_of")
         if self.fork_of:
             self.fork_of = validate_url(self.fork_of, "Repository.fork_of")
-
-        if isinstance(self.metadata, dict):
-            if "avatar_url" in self.metadata:  # migrate deprecated key
-                self.metadata["thumbnail_url"] = self.metadata.pop("avatar_url")
-            self.metadata = RepositoryMetadata(**self.metadata)
+        if not isinstance(self.metadata, RepositoryMetadata):
+            md = self.metadata
+            if isinstance(md, dict) and "avatar_url" in md:
+                # migrate deprecated key
+                md["thumbnail_url"] = md.pop("avatar_url")
+            self.metadata = RepositoryMetadata(**(md or {}))
 
     def get_current_commit(self) -> str:
         """Return the current commit for the default branch."""
@@ -979,13 +990,13 @@ class Service:
         if self.url:
             self.url = validate_url(self.url, "Service.url")
 
-        if isinstance(self.metadata, dict):
-            self.metadata = ServiceMetadata(**self.metadata)
-        if isinstance(self.policies, dict):
-            self.policies = ServicePolicies(**self.policies)
-        if isinstance(self.discovery, dict):
-            self.discovery = Discovery(**self.discovery)
-        if isinstance(self.type, dict):
+        if not isinstance(self.metadata, ServiceMetadata):
+            self.metadata = ServiceMetadata(**(self.metadata or {}))
+        if not isinstance(self.policies, ServicePolicies):
+            self.policies = ServicePolicies(**(self.policies or {}))
+        if not isinstance(self.discovery, Discovery):
+            self.discovery = Discovery(**(self.discovery or {}))
+        if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
         self.release_schedule = [
             ScheduledRelease(**item) if isinstance(item, dict) else item
@@ -1078,9 +1089,8 @@ class CloudType:
             self.source = validate_url(self.source, "CloudType.source")
         if self.model:
             self.model = validate_url(self.model, "CloudType.model")
-        # Convert metadata dict to CommonMetadata object if needed
-        if isinstance(self.metadata, dict):
-            self.metadata = CommonMetadata(**self.metadata)
+        if not isinstance(self.metadata, CommonMetadata):
+            self.metadata = CommonMetadata(**(self.metadata or {}))
 
     def asdict(self) -> Dict[str, Any]:
         result = {}
