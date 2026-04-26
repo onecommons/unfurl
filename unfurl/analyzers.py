@@ -6,15 +6,15 @@ import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 
 from .cloudmap import (
     CloudMapDB,
     CloudType,
-    Notable,
-    NotableContext,
+    RepositoryNotable,
+    AnalyzerContext,
     Repository,
     Service,
     get_repository_url,
@@ -25,6 +25,8 @@ from .support import ContainerImage
 from .tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    URLAnalyzer,
+    CloudMapView,
     CommonMetadata,
     EntitySchema,
     Instantiation,
@@ -46,7 +48,7 @@ if TYPE_CHECKING:
 logger = getLogger("unfurl")
 
 
-class ContainerBuilderNotable(Notable):
+class ContainerBuilderNotable(RepositoryNotable):
     files = ("Containerfile", "Dockerfile")
     artifact_type = EntitySchema.ContainerFile
 
@@ -80,7 +82,7 @@ def find_images_k8s(resources: List[Dict[str, Any]]) -> List[str]:
     return images
 
 
-class UnfurlNotable(Notable):
+class UnfurlNotable(RepositoryNotable):
     files = [
         DefaultNames.LocalConfig,
         DefaultNames.EnsembleTemplate,
@@ -103,7 +105,7 @@ class UnfurlNotable(Notable):
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
 
     def analyze(
-        self, directory: NotableContext, repo_info: Repository, root_path: str
+        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         logger = directory.logger
         path = os.path.join(root_path, self.folder, self.file)
@@ -326,7 +328,7 @@ class UnfurlNotable(Notable):
         self,
         manifest: YamlManifest,
         repo_info: Repository,
-        directory: NotableContext,
+        directory: AnalyzerContext,
         typename: str,
         artifact: Artifact,
     ) -> None:
@@ -396,7 +398,7 @@ class UnfurlNotable(Notable):
 
 
 def create_cloud_type_from_type_info(
-    type_info: Dict[str, Any], ctx: Optional[NotableContext] = None
+    type_info: Dict[str, Any], ctx: Optional[AnalyzerContext] = None
 ) -> Optional[CloudType]:
     """
     Create a CloudType from type_info dict if it doesn't already exist.
@@ -439,7 +441,7 @@ def create_artifact_from_notable(
     references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
     type_info: Optional[Dict[str, Any]] = None,
-    ctx: Optional[NotableContext] = None,
+    ctx: Optional[AnalyzerContext] = None,
     digest: str = "",
 ) -> Tuple[Artifact, Optional[CloudType]]:
     """
@@ -554,17 +556,17 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
     return migrated_artifact_ids
 
 
-class GitLabPipelineNotable(Notable):
+class GitLabPipelineNotable(RepositoryNotable):
     files = (".gitlab-ci.yml",)
     artifact_type = EntitySchema.GitLabPipeline
 
 
-class GitHubWorkflowNotable(Notable):
+class GitHubWorkflowNotable(RepositoryNotable):
     folders = (".github",)
     artifact_type = EntitySchema.GitHubWorkflow
 
     def analyze(
-        self, directory: NotableContext, repo_info: Repository, root_path: str
+        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         # self.folder is the parent of .github (e.g. ".")
         workflows_dir = os.path.join(root_path, self.folder, ".github", "workflows")
@@ -594,4 +596,120 @@ Notables = (
     ContainerBuilderNotable,
     GitLabPipelineNotable,
     GitHubWorkflowNotable,
+)
+
+
+# ---------------------------------------------------------------------------
+# URL-based analyzers
+# ---------------------------------------------------------------------------
+
+
+class OCIArtifactAnalyzer(URLAnalyzer):
+    """Handle ``pkg:oci`` and ``pkg:docker`` URLs.
+
+    Parses the PURL into a :class:`ContainerImage` and delegates to the
+    existing :func:`unfurl.oci.create_oci_artifact` to construct the artifact
+    and (optionally) an :class:`Instantiation` describing how the image was
+    built. The instantiation is written to the cloudmap as a side effect.
+    """
+
+    url_schemes = ("pkg:oci", "pkg:docker")
+    artifact_type = EntitySchema.OCIImage
+
+    def __init__(self, url: str, image: ContainerImage):
+        self.url = url
+        self.image = image
+
+    @classmethod
+    def init_from_url(cls, url, parsed) -> Optional[Self]:
+        from urllib.parse import parse_qs, unquote, urlparse
+
+        # path is e.g. "oci/nginx@sha256:..." or "docker/library/nginx@latest"
+        pkg_type, _, name_and_version = parsed.path.partition("/")
+        if pkg_type not in ("oci", "docker"):
+            return None
+        name_part, _, version = name_and_version.partition("@")
+        version = unquote(version)  # sha256%3A... → sha256:...
+        query = parse_qs(parsed.query)
+        is_digest = version.startswith("sha256:")
+        digest = version if is_digest else None
+        tag: Optional[str]
+        registry_host: str
+        image_name: str
+
+        if pkg_type == "oci":
+            # pkg:oci/<name>@<digest>?repository_url=<registry>/<repo>&tag=<tag>
+            repository_url = query.get("repository_url", [""])[0]
+            tag = query.get("tag", [None])[0]
+            if not is_digest and version:
+                tag = tag or version
+            if repository_url:
+                repo_parts = urlparse("https://" + repository_url)
+                registry_host = repo_parts.hostname or ""
+                image_name = repo_parts.path.lstrip("/")
+            else:
+                registry_host = ""
+                image_name = name_part
+        else:
+            # pkg:docker/<namespace>/<name>@<version>?repository_url=<registry>
+            registry_host = query.get("repository_url", [""])[0]
+            tag = None if is_digest else (version or None)
+            image_name = name_part
+
+        image = ContainerImage(
+            name=image_name,
+            tag=tag,
+            digest=digest,
+            registry_host=registry_host or None,
+        )
+        return cls(url, image)
+
+    def analyze_url(self, directory: CloudMapView) -> Optional[Artifact]:
+        # Local import avoids a top-level circular dep with unfurl.oci.
+        from .oci import create_oci_artifact
+
+        artifact, instantiation, _artifact_fetch = create_oci_artifact(self.image)
+        if instantiation:
+            directory.add_instantiation(instantiation)
+        return artifact
+
+
+class GenericPkgArtifactAnalyzer(URLAnalyzer):
+    """Fallback handler for any ``pkg:`` URL not matched by a more specific analyzer."""
+
+    url_schemes = ("pkg:",)
+    artifact_type = EntitySchema.GenericPackage
+
+    def __init__(self, artifact: Artifact):
+        self.artifact = artifact
+
+    @classmethod
+    def init_from_url(cls, url, parsed) -> Optional[Self]:
+        from urllib.parse import unquote
+
+        # pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>
+        _pkg_type, _, name_and_version = parsed.path.partition("/")
+        name_part, _, version = name_and_version.partition("@")
+        version = unquote(version)
+        # name_part may include namespace: "namespace/name"
+        name = name_part.rpartition("/")[2]
+        metadata_kwargs = {}
+        if name:
+            metadata_kwargs["title"] = name
+        if version:
+            metadata_kwargs["version"] = version
+        artifact = Artifact(
+            url=url,
+            type=TypeRefs({cls.artifact_type: None}),
+            metadata=ArtifactMetadata(**metadata_kwargs),
+        )
+        return cls(artifact)
+
+    def analyze_url(self, directory: CloudMapView) -> Optional[Artifact]:
+        return self.artifact
+
+
+URLAnalyzers = (
+    OCIArtifactAnalyzer,
+    GenericPkgArtifactAnalyzer,
 )

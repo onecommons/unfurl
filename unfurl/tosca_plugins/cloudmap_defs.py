@@ -29,7 +29,7 @@ from typing import (
     Union,
     cast,
 )
-from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack
+from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from unfurl.repo import normalize_git_url
@@ -99,6 +99,8 @@ class EntitySchema:
     # mime type https://www.iana.org/assignments/media-types/media-types.xhtml
     Schema = "unfurl.cloud/onecommons/std"
     GenericFile = "tosca.artifacts.File"
+    GenericPackage = "cloudmap.artifacts.GenericPackage"
+    """Catch-all artifact type for generic ``pkg:`` PURLs (npm, pypi, maven, etc.)."""
     ContainerFile = "cloudmap.artifacts.Containerfile"
     CloudBlueprint = "cloudmap.artifacts.tosca.ServiceTemplate"
     CloudMap = "cloudmap.artifacts.CloudMap"
@@ -410,31 +412,37 @@ class TypeRefs:
 
 TypedUrls = Dict[str, Optional[TypeRefs]]
 
-_R = TypeVar("_R", bound="Union[Instantiation,Service,Artifact]")
 
+class VersionedRecord:
+    url: str
+    versions: Dict[str, Self]
+    type: TypeRefs
 
-def _load_versions(self: _R) -> Dict[str, _R]:
-    new_versions: Dict[str, _R] = {}
-    cls = type(self)
-    for version_key, version_val in self.versions.items():
-        if isinstance(version_val, cls):
-            new_versions[version_key] = version_val
-        elif isinstance(version_val, dict):
-            version_dict = cast(Dict[str, Any], version_val)
-            # Inherit type from parent if not specified in version
-            if "type" not in version_dict:
-                version_dict = dict(version_dict, type=self.type)
-            new_versions[version_key] = cls(  # type: ignore
-                url=join_resource_url(self.url, version_key),
-                _parent=self,  # type: ignore
-                **version_dict,
-            )
+    def __init__(self, **kwargs):
+        pass
 
-    return new_versions
+    def _load_versions(self) -> Dict[str, Self]:
+        new_versions: Dict[str, Self] = {}
+        cls = type(self)
+        for version_key, version_val in self.versions.items():
+            if isinstance(version_val, cls):
+                new_versions[version_key] = version_val
+            elif isinstance(version_val, dict):
+                version_dict = cast(Dict[str, Any], version_val)
+                # Inherit type from parent if not specified in version
+                if "type" not in version_dict:
+                    version_dict = dict(version_dict, type=self.type)
+                new_versions[version_key] = cls(
+                    url=join_resource_url(self.url, version_key),
+                    _parent=self,
+                    **version_dict,
+                )
+
+        return new_versions
 
 
 @dataclass
-class Instantiation:
+class Instantiation(VersionedRecord):
     """
     Build and deployment information for artifacts and services.
 
@@ -497,7 +505,7 @@ class Instantiation:
         self.inputs = TypeRefs.urls_fromdict(self.inputs)
         # Convert versions dict entries to Instantiation instances if they're still dicts
         if self.versions:
-            self.versions = _load_versions(self)
+            self.versions = self._load_versions()
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -615,7 +623,7 @@ def build_oci_purl(ref: ContainerImageParts) -> str:
 
 
 @dataclass
-class Artifact:
+class Artifact(VersionedRecord):
     url: str
     type: TypeRefs = field(default_factory=TypeRefs)
     """Type identifier from types/artifacts with optional version constraints"""
@@ -676,7 +684,7 @@ class Artifact:
         ]
         # Convert versions dict entries to Artifact instances if they're still dicts
         if self.versions:
-            self.versions = _load_versions(self)
+            self.versions = self._load_versions()
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -916,7 +924,7 @@ class Repository:
             branch = self.get_default_branch()
         self.branches[branch] = repo.revision
 
-    def add_notables(self, notables: List["Notable"]) -> None:
+    def add_notables(self, notables: List["RepositoryNotable"]) -> None:
         notables.sort(key=attrgetter("path"))
         self.notable = {n.path: n.asdict() for n in notables}
 
@@ -956,7 +964,7 @@ class ServicePolicies:
 
 
 @dataclass
-class Service:
+class Service(VersionedRecord):
     """A service instance."""
 
     url: str
@@ -1006,7 +1014,7 @@ class Service:
         self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         # Convert versions dict entries to Service instances if they're still dicts
         if self.versions:
-            self.versions = _load_versions(self)
+            self.versions = self._load_versions()
         self._parent = _parent  # type: ignore # (don't mark as field to exclude from asdict)
 
     def asdict(self) -> Dict[str, Any]:
@@ -1091,7 +1099,7 @@ CloudTypeDict = Dict[str, CloudType]
 RepositoryDict = Dict[str, Repository]
 
 
-T = TypeVar("T", bound="Notable")
+T = TypeVar("T", bound="RepositoryNotable")
 
 
 class CloudMapView(Protocol):
@@ -1140,7 +1148,7 @@ class CloudMapView(Protocol):
     def find_repositories(self) -> Iterable["Repository"]: ...
 
 
-class NotableContext(CloudMapView, Protocol):
+class AnalyzerContext(CloudMapView, Protocol):
     """Abstract interface to a cloudmap.
 
     Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
@@ -1169,31 +1177,42 @@ class NotableContext(CloudMapView, Protocol):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union["Repository", "Artifact", "Service"]]:
+    ) -> Optional[Union["Repository", "Artifact", "Service", "Instantiation"]]:
         """Record (and optionally recursively analyze) a URL: git repo, pkg: PURL,
         or service URL. Returns the record that was added or already existed."""
         ...
 
 
-class Notable:
+class Analyzer:
+    """Common base for cloudmap analyzers.
+
+    Both file/folder-based :class:`RepositoryNotable` and URL-based
+    :class:`URLAnalyzer` subclasses inherit from this so they share the
+    ``artifact_type`` class attribute (the EntitySchema string assigned to
+    artifacts produced by the analyzer).
+    """
+
+    artifact_type: str = EntitySchema.GenericFile
+
+
+class RepositoryNotable(Analyzer):
     """
     Base class for plugins that discover notable files or directories in a repository
     -- for example, a Dockerfile, Helm chart, or TOSCA service template.
 
     Subclasses declare which filenames or directory names they match via the
-    ``files`` and ``folders`` class attributes. The ``Analyzer`` walks a repository
-    tree, instantiates the appropriate Notable subclass for each match, and
-    calls ``analyze()`` to produce an ``Artifact`` for the cloud map.
+    ``files`` and ``folders`` class attributes. The ``RepositoryAnalyzer`` walks
+    a repository tree, instantiates the appropriate Notable subclass for each
+    match, and calls ``analyze()`` to produce an ``Artifact`` for the cloud map.
 
     Attributes:
         files: Filenames that this Notable class matches (e.g. ``["Dockerfile"]``).
         folders: Directory names that this Notable class matches (e.g. ``["charts"]``).
-        artifact_type: The TOSCA artifact type to assign to matched artifacts.
+        artifact_type: The artifact type to assign to matched artifacts (inherited from :class:`Analyzer`).
     """
 
     files: Sequence[str] = ()
     folders: Sequence[str] = ()
-    artifact_type = EntitySchema.GenericFile
 
     def __init__(
         self,
@@ -1213,7 +1232,7 @@ class Notable:
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
 
     def analyze(
-        self, directory: NotableContext, repo_info: Repository, root_path: str
+        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         """Analyze the matched file and return an Artifact for the cloud map.
 
@@ -1245,7 +1264,7 @@ class Notable:
             return self.folder
 
     @classmethod
-    def _exist_in_folder(cls, folder: str, notables: List["Notable"]):
+    def _exist_in_folder(cls, folder: str, notables: List["RepositoryNotable"]):
         """Check whether a Notable of this class already exists for the given folder."""
         for n in notables:
             if cls is n.__class__ and n.folder == folder:
@@ -1272,6 +1291,49 @@ class Notable:
         if self.artifact_id:
             metadata["artifact"] = self.artifact_id
         return metadata
+
+
+class URLAnalyzer(Analyzer):
+    """Base class for analyzers that produce records from a URL.
+
+    Whereas :class:`RepositoryNotable` analyzes files/directories inside a git
+    repository, ``URLAnalyzer`` subclasses handle URLs directly — for
+    example PURL-based references like ``pkg:oci/...``, ``pkg:npm/...``, or
+    custom schemes contributed by plugins.
+
+    Subclasses declare which URL-prefix(es) they handle via the
+    ``url_schemes`` class attribute (longest-prefix wins, so ``"pkg:oci"``
+    beats ``"pkg:"`` for an OCI image). They override two methods:
+
+    - :py:meth:`init_from_url` — factory that parses the URL and returns a
+      configured instance, or ``None`` to decline (e.g. malformed input).
+    - :py:meth:`analyze_url` — produces an :class:`Artifact` (and any related
+      :class:`Instantiation` records via the passed-in :class:`CloudMapView`).
+
+    Custom subclasses can be loaded via the ``cloudmaps.analyzers`` config in
+    the same way as :class:`RepositoryNotable` subclasses.
+    """
+
+    url_schemes: Sequence[str] = ()
+
+    @classmethod
+    def init_from_url(cls, url: str, parsed: ParseResult) -> Optional[Self]:
+        """Construct an analyzer instance for ``url`` or return ``None`` to decline.
+
+        Override in subclasses. The default implementation returns ``None``,
+        meaning the analyzer cannot handle any URL.
+        """
+        return None
+
+    def analyze_url(self, directory: "CloudMapView") -> Optional["VersionedRecord"]:
+        """Produce an Artifact for the URL this analyzer was constructed with.
+
+        Subclasses can also write related records (Instantiation, Service,
+        etc.) directly via ``directory.add_*`` methods. The returned
+        :class:`Artifact` is added to the cloudmap by the caller; return
+        ``None`` if no artifact should be recorded.
+        """
+        return None
 
 
 class HostConfig(TypedDict, total=False):
@@ -1308,6 +1370,7 @@ CloudMapRecord = Union[
 ]
 
 __all__ = [
+    "VersionedRecord",
     # Dataclasses
     "Namespace",
     "RepositoryMetadata",
@@ -1351,8 +1414,10 @@ __all__ = [
     "join_resource_url",
     "build_oci_purl",
     "get_repository_url",
-    # Notable base & context
+    # Analyzer base classes & context
     "CloudMapView",
-    "Notable",
-    "NotableContext",
+    "Analyzer",
+    "RepositoryNotable",
+    "URLAnalyzer",
+    "AnalyzerContext",
 ]

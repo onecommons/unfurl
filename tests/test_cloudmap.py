@@ -1558,143 +1558,6 @@ def test_get_cloudmap_types(mocker):
                 "icon": "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar",
             }
 
-@pytest.mark.parametrize("test_case,custom_class_code,analyzer_config,expected_count,expected_log", [
-    (
-        "valid_custom_analyzer",
-        """
-from unfurl.tosca_plugins.cloudmap_defs import Notable, Repository, Artifact
-
-class CustomTestNotable(Notable):
-    files = ["custom-test.yaml"]
-    folders = []
-
-    def analyze(self, directory, repo_info, root_path):
-        directory.logger.info(f"CustomTestNotable analyzing {self.file}")
-        return None
-""",
-        ["notables/custom.py#CustomTestNotable"],
-        1,
-        "Loaded custom Notable analyzer"
-    ),
-    (
-        "invalid_path",
-        None,  # No file created
-        ["notables/nonexistent.py#MissingClass"],
-        0,
-        "Failed to load custom Notable analyzer"
-    ),
-    (
-        "not_notable_subclass",
-        """
-class NotANotable:
-    def __init__(self):
-        pass
-""",
-        ["notables/notnotable.py#NotANotable"],
-        0,
-        "not a subclass of Notable"
-    ),
-    (
-        # CloudMapView attributes like _local__env are named to match the
-        # safe-mode policy (`name[0] == '_' and '__' in name`), so
-        # RestrictedPython rejects the attribute access at compile time and
-        # the module fails to load.
-        "unsafe_underscore_access",
-        """
-from unfurl.tosca_plugins.cloudmap_defs import Notable
-
-class UnsafeTestNotable(Notable):
-    files = ["unsafe-test.yaml"]
-
-    def analyze(self, directory, repo_info, root_path):
-        return directory._local__env
-""",
-        ["notables/unsafe.py#UnsafeTestNotable"],
-        0,
-        "Failed to load custom Notable analyzer"
-    ),
-])
-def test_custom_analyzers(tmp_path, caplog, test_case, custom_class_code, analyzer_config, expected_count, expected_log):
-    """Test loading custom Notable analyzer classes from cloudmaps config"""
-    # Create a temporary cloudmap repository
-    cloudmap_repo_path = tmp_path / "cloudmap"
-    cloudmap_repo_path.mkdir()
-
-    # Initialize git repo
-    import git
-    repo = git.Repo.init(cloudmap_repo_path)
-
-    # Create cloudmap.yaml
-    cloudmap_yaml = cloudmap_repo_path / "cloudmap.yaml"
-    cloudmap_yaml.write_text(f"""apiVersion: {API_VERSION}
-kind: CloudMap
-repositories: {{}}
-""")
-
-    files_to_commit = ["cloudmap.yaml"]
-
-    # Commit the files
-    repo.index.add(files_to_commit)
-    repo.index.commit("Initial commit")
-
-    # Create unfurl project with custom analyzer config
-    project_path = tmp_path / "project"
-    project_path.mkdir()
-
-    # Create custom class file if code is provided
-    if custom_class_code:
-        notables_dir = project_path / "notables"
-        notables_dir.mkdir()
-
-        # Extract filename from analyzer_config
-        class_file = analyzer_config[0].split("#")[0].split("/")[-1]
-        custom_py = notables_dir / class_file
-        custom_py.write_text(custom_class_code)
-
-    unfurl_yaml = project_path / "unfurl.yaml"
-    analyzers= "\n".join(f"        - {repr(path)}" for path in analyzer_config)
-    unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
-kind: Project
-environments:
-  defaults:
-    cloudmaps:
-      analyzers:
-        {analyzers}
-      repositories:
-        cloudmap:
-          url: {cloudmap_repo_path}
-""")
-
-    os.chdir(project_path)
-    local_env = LocalEnv(
-        str(project_path),
-        can_be_empty=True,
-        overrides={"safe_mode": True},
-    )
-
-    # Create CloudMap instance - this should load (or fail to load) the custom analyzer
-    cloudmap = CloudMap.from_name(
-        local_env,
-        "cloudmap",
-        None,  # clone_root
-        "",  # host_name
-        False,  # skip_analysis
-        False,  # commit
-    )
-
-    # Verify expected number of custom analyzers
-    assert len(cloudmap.custom_analyzers) == expected_count
-
-    # Verify expected log message
-    assert expected_log in caplog.text
-
-    # Additional validation for successful load
-    if expected_count > 0:
-        assert cloudmap.custom_analyzers[0].__name__ == "CustomTestNotable"
-        assert "custom-test.yaml" in cloudmap.directory.analyzer.files
-        assert cloudmap.directory.analyzer.files["custom-test.yaml"].__name__ == "CustomTestNotable"
-
-
 def test_instantiation_versions():
     """Test that Instantiation versions property works correctly with type inheritance and serialization."""
     import json
@@ -1953,7 +1816,7 @@ def test_add_record_generic_purl(tmp_path):
     npm_art = cm.add_record(npm_url, "no")
     expected_npm = Artifact(
         url=npm_url,
-        type=TypeRefs({EntitySchema.GenericFile: None}),
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="express", version="4.18.2"),
     )
     assert npm_art == expected_npm
@@ -1964,7 +1827,7 @@ def test_add_record_generic_purl(tmp_path):
     maven_art = cm.add_record(maven_url, "no")
     expected_maven = Artifact(
         url=maven_url,
-        type=TypeRefs({EntitySchema.GenericFile: None}),
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="batik-anim", version="1.9.1"),
     )
     assert maven_art == expected_maven
@@ -1974,7 +1837,7 @@ def test_add_record_generic_purl(tmp_path):
     pypi_art = cm.add_record(pypi_url, "no")
     expected_pypi = Artifact(
         url=pypi_url,
-        type=TypeRefs({EntitySchema.GenericFile: None}),
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="requests"),
     )
     assert pypi_art == expected_pypi

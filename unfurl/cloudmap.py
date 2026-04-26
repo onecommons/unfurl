@@ -88,15 +88,16 @@ from .tosca_plugins.cloudmap_defs import (
     HostConfig,
     CloudMapInputs,
     LocalHostConfig,
+    Analyzer,
     ArtifactDict,
-    ArtifactMetadata,
+    URLAnalyzer,
     Artifact,
     CloudType,
     CloudTypeDict,
     CommonMetadata,
     EntitySchema,
     Instantiation,
-    Notable,
+    RepositoryNotable,
     NotableDict,
     PipelineArtifact,
     PipelineRunProperties,
@@ -110,7 +111,7 @@ from .tosca_plugins.cloudmap_defs import (
     TypeRefs,
     get_repository_url,
     join_resource_url,
-    NotableContext,
+    AnalyzerContext,
 )
 from .support import ContainerImage
 from .configurator import Configurator, TaskView
@@ -188,28 +189,28 @@ def force_merge_local_and_push_to_remote(
         logger.info(f"pushed to {sanitize_url(remote.url, True)}: {pushinfo.summary}")
 
 
-class Analyzer:
+class RepositoryAnalyzer:
     max_analyze_depth = 4
 
-    def __init__(self, notables: List[Type[Notable]], logger=logger):
+    def __init__(self, notables: List[Type[RepositoryNotable]], logger=logger):
         self.logger = logger
-        self.files: Dict[str, Type[Notable]] = {}
-        self.folders: Dict[str, Type[Notable]] = {}
+        self.files: Dict[str, Type[RepositoryNotable]] = {}
+        self.folders: Dict[str, Type[RepositoryNotable]] = {}
         for n in notables:
             self.add_notable_class(n)
 
-    def add_notable_class(self, cls: Type[Notable]):
+    def add_notable_class(self, cls: Type[RepositoryNotable]):
         for file in cls.files:
             self.files[file] = cls
         for folder in cls.folders:
             self.folders[folder] = cls
 
-    def analyze_local(self, root_dir: str, start_path: str) -> List[Notable]:
-        notables: List[Notable] = []
+    def analyze_local(self, root_dir: str, start_path: str) -> List[RepositoryNotable]:
+        notables: List[RepositoryNotable] = []
         for root, dirs, files in os.walk(start_path):
             notable = None
             notable_cls = None
-            notables_found: List[Type[Notable]] = []
+            notables_found: List[Type[RepositoryNotable]] = []
             rel_root = str(Path(root).relative_to(Path(root_dir)))
             for folder in dirs:
                 notable_cls = self.folders.get(folder)
@@ -229,7 +230,9 @@ class Analyzer:
                 notables_found.append(notable_cls)
         return notables
 
-    def analyze_path(self, file_path: str, root_dir: str = "") -> List[Notable]:
+    def analyze_path(
+        self, file_path: str, root_dir: str = ""
+    ) -> List[RepositoryNotable]:
         """Analyze a single file or directory path for notables.
 
         If the path points to a directory under root_dir, delegates to analyze_local().
@@ -261,13 +264,13 @@ class Analyzer:
         self,
         root_path: str,
         children: List[IndexObject],
-        notables: List[Notable],
+        notables: List[RepositoryNotable],
         depth=-1,
     ):
         descend: List[IndexObject] = []
         if depth > self.max_analyze_depth:
             return descend
-        notables_found: List[Type[Notable]] = []
+        notables_found: List[Type[RepositoryNotable]] = []
         for item in children:
             notable = None
             notable_cls = None
@@ -510,7 +513,7 @@ class CloudMapDB:
             repo = Repository(url=r.pop("git", url), **r)
             # Backwards compatibility: migrate old notable dictionary format to new format
             if isinstance(repo.notable, dict):
-                from .notables import migrate_old_notable_format
+                from .analyzers import migrate_old_notable_format
 
                 migrate_old_notable_format(self, repo)
             self.add_repository(repo)
@@ -672,14 +675,20 @@ class Directory(_LocalGitRepos):
                     self._add_repo(repo)
         self.do_analysis = not skip_analysis
 
-        # Start with default Notable classes and add custom analyzers from cloudmap
-        from .notables import Notables
+        # Start with default Notable classes and add custom analyzers from cloudmap.
+        # Only RepositoryNotable subclasses go through RepositoryAnalyzer;
+        # URLAnalyzer subclasses live on cloudmap.url_analyzers instead.
+        from .analyzers import Notables
 
-        notable_classes: List[Type[Notable]] = list(Notables)
-        # note: these will override built-in analyzers if register the same files and folders types
-        notable_classes.extend(cloudmap.custom_analyzers)
+        notable_classes: List[Type[RepositoryNotable]] = list(Notables)
+        # note: these will override built-in analyzers if they register the same files and folders types
+        notable_classes.extend(
+            cls
+            for cls in cloudmap.custom_analyzers
+            if issubclass(cls, RepositoryNotable)
+        )
 
-        self.analyzer = Analyzer(notable_classes, self.logger)
+        self.analyzer = RepositoryAnalyzer(notable_classes, self.logger)
 
     # --- CloudMapView implementation ---
 
@@ -691,7 +700,7 @@ class Directory(_LocalGitRepos):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union[Repository, Artifact, Service]]:
+    ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
         return self.cloudmap.add_record(url, analyze)
 
     def add_artifact(self, artifact: Artifact) -> str:
@@ -789,8 +798,10 @@ class Directory(_LocalGitRepos):
         self._add_repo(gitrepo)
         return gitrepo
 
-    def analyze_repo(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
-        notables: List[Notable] = []
+    def analyze_repo(
+        self, repo_info: Repository, repo: GitRepo
+    ) -> List[RepositoryNotable]:
+        notables: List[RepositoryNotable] = []
 
         root = repo.repo.head.commit.tree
         items = [root]
@@ -816,7 +827,7 @@ class Directory(_LocalGitRepos):
         repo_info: Repository,
         repo: GitRepo,
         previous_notables: Dict[str, NotableDict],
-    ) -> Optional[List[Notable]]:
+    ) -> Optional[List[RepositoryNotable]]:
         if self.do_analysis:
             try:
                 return self.analyze(repo_info, repo)
@@ -830,7 +841,7 @@ class Directory(_LocalGitRepos):
         repo_info.notable = previous_notables
         return None
 
-    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[Notable]:
+    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryNotable]:
         self.logger.verbose("analyzing %s", repo_info.url)
         notables = self.analyze_repo(repo_info, repo)
         for n in notables:
@@ -2208,6 +2219,20 @@ class CloudMap:
         self.repo = repo
         self.commit = commit
 
+        # URL-based analyzer registry, keyed by URL prefix. Seeded with the
+        # built-in OCI/PURL handlers from .analyzers; any custom
+        # URLAnalyzer subclasses loaded from cloudmaps.analyzers config
+        # are registered as well. Overlapping prefixes are resolved by
+        # longest-prefix-wins in match_url_analyzer().
+        self.url_analyzers: Dict[str, Type[URLAnalyzer]] = {}
+        from .analyzers import URLAnalyzers
+
+        for url_cls in cast("Sequence[Type[URLAnalyzer]]", URLAnalyzers):
+            self.register_url_analyzer(url_cls)
+        for cls in self.custom_analyzers:
+            if issubclass(cls, URLAnalyzer):
+                self.register_url_analyzer(cls)
+
         self._visited: set[str] = set()
         self.directory = Directory(
             self,
@@ -2215,6 +2240,29 @@ class CloudMap:
             localrepo_root,
             skip_analysis,
         )
+
+    def register_url_analyzer(self, cls: Type[URLAnalyzer]) -> None:
+        """Register a :class:`URLAnalyzer` subclass for each of its ``url_schemes``."""
+        for scheme in cls.url_schemes:
+            self.url_analyzers[scheme] = cls
+
+    def match_url_analyzer(self, url: str) -> Iterator[Type[URLAnalyzer]]:
+        """Yield every registered analyzer whose URL prefix matches ``url``,
+        ordered longest-prefix-first.
+
+        Multiple analyzers can match (e.g. both ``"pkg:oci"`` and ``"pkg:"``
+        match ``"pkg:oci/..."``); :meth:`add_record` walks them in order and
+        falls back to the next when one declines via ``init_from_url``
+        returning ``None``.
+        """
+        matches = [
+            (prefix, cls)
+            for prefix, cls in self.url_analyzers.items()
+            if url.startswith(prefix)
+        ]
+        matches.sort(key=lambda item: len(item[0]), reverse=True)
+        for _prefix, cls in matches:
+            yield cls
 
     @classmethod
     def get_db(
@@ -2335,7 +2383,7 @@ class CloudMap:
         local_env: Optional["LocalEnv"],
         base_dir: str,
         logger,
-    ) -> List[Type[Notable]]:
+    ) -> List[Type[Analyzer]]:
         """
         Load custom Notable analyzer classes from cloudmaps config.
 
@@ -2347,7 +2395,7 @@ class CloudMap:
         Returns:
             List of loaded Notable analyzer classes
         """
-        custom_analyzers: List[Type[Notable]] = []
+        custom_analyzers: List[Type[Analyzer]] = []
         if not local_env:
             return custom_analyzers
 
@@ -2358,19 +2406,23 @@ class CloudMap:
                 analyzer_class = load_class_from_file(
                     analyzer_path,
                     base_dir,
-                    "Notable analyzer class",
+                    "Analyzer class",
                     local_env.overrides.get("safe_mode"),
                 )
-                if analyzer_class and issubclass(analyzer_class, Notable):
+                if analyzer_class and issubclass(analyzer_class, Analyzer):
+                    # Both RepositoryNotable and URLAnalyzer subclasses are
+                    # accepted; CloudMap dispatches them to the right registry.
                     custom_analyzers.append(analyzer_class)
-                    logger.debug(f"Loaded custom Notable analyzer from {analyzer_path}")
+                    logger.debug(
+                        f"Loaded custom {analyzer_class.__name__} from {analyzer_path}"
+                    )
                 else:
                     logger.warning(
-                        f"Class loaded from {analyzer_path} is not a subclass of Notable"
+                        f"Class loaded from {analyzer_path} is not a subclass of Analyzer"
                     )
             except Exception as e:
                 logger.error(
-                    f"Failed to load custom Notable analyzer from {analyzer_path}: {e}"
+                    f"Failed to load custom Analyzer from {analyzer_path}: {e}"
                 )
 
         return custom_analyzers
@@ -2585,7 +2637,7 @@ class CloudMap:
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union[Repository, Artifact, Service]]:
+    ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
         """Add a record to the cloudmap from a URL.
 
         Determines the record type based on the URL scheme and structure:
@@ -2619,90 +2671,53 @@ class CloudMap:
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
 
-        if parts.scheme == "pkg":
-            return self._add_pkg_record(url, parts)
+        # Short-circuit: a record already added under this URL is treated as
+        # cached (matches the previous _add_pkg_record behaviour for the
+        # generic-PURL branch). URLAnalyzers may produce Artifact / Service /
+        # Instantiation records, so check all three slots.
+        existing = (
+            db.get_artifact(url) or db.get_service(url) or db.get_instantiation(url)
+        )
+        if existing is not None:
+            return existing
+
+        # Dispatch URL-based records to a registered URLAnalyzer (covers
+        # pkg:oci, pkg:docker, any other pkg:* and custom URL schemes).
+        # match_url_analyzer yields every matching analyzer in
+        # longest-prefix-first order; we try each until one accepts
+        # (init_from_url returning a non-None instance).
+        for analyzer_cls in self.match_url_analyzer(url):
+            analyzer = analyzer_cls.init_from_url(url, parts)
+            if analyzer is None:
+                continue
+            record = analyzer.analyze_url(self.directory)
+            if record is not None:
+                # Route the returned VersionedRecord to the right collection
+                # by type. Repository isn't a VersionedRecord so it's not
+                # handled here — URLAnalyzers that need to record a
+                # Repository should call directory.add_repository directly.
+                if isinstance(record, Artifact):
+                    db.add_artifact(record)
+                elif isinstance(record, Service):
+                    db.add_service(record)
+                elif isinstance(record, Instantiation):
+                    db.add_instantiation(record)
+                else:
+                    self.logger.warning(
+                        "URLAnalyzer %s returned unsupported record type %s for %s",
+                        analyzer_cls.__name__,
+                        type(record).__name__,
+                        url,
+                    )
+            return cast(Optional[Union[Artifact, Service, Instantiation]], record)
 
         if self._is_git_url(url):
             return self._add_repository_record(url, analyze)
 
         # Everything else → Service record
-        existing = db.services.get(url)
-        if existing is not None:
-            return existing
         service = Service(url=url)
-        db.services[url] = service
+        db.add_service(service)
         return service
-
-    def _add_pkg_record(self, url: str, parts: ParseResult) -> Artifact:
-        """Add an Artifact record from a pkg: (PURL) URL.
-
-        Handles pkg:oci and pkg:docker as container images,
-        other PURL types as generic artifacts.
-        """
-        from urllib.parse import parse_qs, unquote
-
-        db = self.directory.db
-        # path is e.g. "oci/nginx@sha256:..." or "docker/library/nginx@latest"
-        pkg_type, _, name_and_version = parts.path.partition("/")
-        if pkg_type in ("oci", "docker"):
-            # Split off @version (digest or tag)
-            name_part, _, version = name_and_version.partition("@")
-            version = unquote(version)  # sha256%3A... → sha256:...
-            query = parse_qs(parts.query)
-            is_digest = version.startswith("sha256:")
-            digest = version if is_digest else None
-            tag: Optional[str]
-            registry_host: str
-            image_name: str
-
-            if pkg_type == "oci":
-                # pkg:oci/<name>@<digest>?repository_url=<registry>/<repo>&tag=<tag>
-                repository_url = query.get("repository_url", [""])[0]
-                tag = query.get("tag", [None])[0]
-                if not is_digest and version:
-                    tag = tag or version
-                # repository_url is e.g. "docker.io/library/nginx"
-                if repository_url:
-                    repo_parts = urlparse("https://" + repository_url)
-                    registry_host = repo_parts.hostname or ""
-                    image_name = repo_parts.path.lstrip("/")
-                else:
-                    registry_host = ""
-                    image_name = name_part
-            else:
-                # pkg:docker/<namespace>/<name>@<version>?repository_url=<registry>
-                registry_host = query.get("repository_url", [""])[0]
-                tag = None if is_digest else (version or None)
-                image_name = name_part
-
-            image = ContainerImage(
-                name=image_name,
-                tag=tag,
-                digest=digest,
-                registry_host=registry_host or None,
-            )
-            return db.add_image_artifact(image)
-
-        # Other PURL types (npm, pypi, maven, etc.) → generic Artifact
-        # Parse: pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>
-        existing = db.artifacts.get(url)
-        if existing is not None:
-            return existing
-        name_part, _, version = name_and_version.partition("@")
-        version = unquote(version)
-        # name_part may include namespace: "namespace/name"
-        name = name_part.rpartition("/")[2]
-        metadata = ArtifactMetadata(
-            title=name,
-            version=version,
-        )
-        artifact = Artifact(
-            url=url,
-            type=TypeRefs({EntitySchema.GenericFile: None}),
-            metadata=metadata,
-        )
-        db.artifacts[url] = artifact
-        return artifact
 
     def _add_repository_record(
         self,

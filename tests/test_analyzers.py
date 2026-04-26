@@ -9,11 +9,11 @@ from unfurl.cloudmap import (
     GithubManager,
     GitlabManager,
     RepositoryHost,
-    Analyzer,
+    RepositoryAnalyzer,
 )
 from unfurl.localenv import LocalEnv
 from unfurl.util import API_VERSION
-from unfurl.notables import (
+from unfurl.analyzers import (
     GitHubWorkflowNotable,
     GitLabPipelineNotable,
     Notables,
@@ -45,7 +45,7 @@ class TestCINotables:
     def test_gitlab_pipeline_notable_match(self, tmp_path):
         """Create a temp repo with .gitlab-ci.yml, verify GitLabPipelineNotable is found."""
         (tmp_path / ".gitlab-ci.yml").write_text("stages:\n  - build\n")
-        analyzer = Analyzer(list(Notables))
+        analyzer = RepositoryAnalyzer(list(Notables))
         notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
         ci_notables = [n for n in notables if isinstance(n, GitLabPipelineNotable)]
         assert len(ci_notables) == 1
@@ -56,7 +56,7 @@ class TestCINotables:
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
         (workflows_dir / "ci.yml").write_text("name: CI\non: push\n")
-        analyzer = Analyzer(list(Notables))
+        analyzer = RepositoryAnalyzer(list(Notables))
         notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
         gh_notables = [n for n in notables if isinstance(n, GitHubWorkflowNotable)]
         assert len(gh_notables) == 1
@@ -66,7 +66,7 @@ class TestCINotables:
         """If .github exists but no workflows/ subdir, analyze returns None."""
         (tmp_path / ".github").mkdir()
         (tmp_path / ".github" / "CODEOWNERS").write_text("* @owner\n")
-        analyzer = Analyzer(list(Notables))
+        analyzer = RepositoryAnalyzer(list(Notables))
         notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
         gh_notables = [n for n in notables if isinstance(n, GitHubWorkflowNotable)]
         # The notable is created but analyze() should return None
@@ -78,7 +78,7 @@ class TestCINotables:
     def test_no_ci_notable(self, tmp_path):
         """Repo without CI files returns no CI notables."""
         (tmp_path / "README.md").write_text("# Hello\n")
-        analyzer = Analyzer(list(Notables))
+        analyzer = RepositoryAnalyzer(list(Notables))
         notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
         ci_notables = [
             n
@@ -578,3 +578,319 @@ class TestGitHubWorkflowRunsIntegration:
     def test_github_workflow_runs_limit(self, github_manager, github_repo_info):
         runs = list(github_manager.get_pipeline_runs(github_repo_info, ref="main", limit=2))
         assert len(runs) <= 2
+
+
+class TestArtifactAnalyzerRegistry:
+    """Tests for the URL-based ``URLAnalyzer`` dispatch on :class:`CloudMap`.
+
+    Covers:
+    - Built-in ``OCIArtifactAnalyzer`` and ``GenericPkgArtifactAnalyzer`` are
+      registered via ``URLAnalyzers`` and selected by longest-prefix match.
+    - A custom ``URLAnalyzer`` subclass registered via
+      :meth:`CloudMap.register_url_analyzer` is dispatched by
+      :meth:`CloudMap.add_record`.
+    - When ``init_from_url`` returns ``None`` the dispatcher records nothing
+      and returns ``None``.
+    """
+
+    @staticmethod
+    def _make_cloudmap(tmp_path):
+        unfurl_yaml = tmp_path / "unfurl.yaml"
+        unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
+        cloudmap_file = tmp_path / "cloudmap.yaml"
+        local_env = LocalEnv(str(unfurl_yaml), can_be_empty=True)
+        return CloudMap(
+            repo=None,
+            host_branch="main",
+            path=str(cloudmap_file),
+            local_env=local_env,
+            localrepo_root=str(tmp_path),
+        )
+
+    def test_match_url_longest_prefix_wins(self, tmp_path):
+        """``match_url_analyzer`` yields every matching analyzer in
+        longest-prefix-first order. ``pkg:oci`` beats the generic ``pkg:``
+        fallback for OCI URLs; ``pkg:npm/...`` only matches the generic one;
+        non-pkg URLs match nothing.
+        """
+        from unfurl.analyzers import (
+            OCIArtifactAnalyzer,
+            GenericPkgArtifactAnalyzer,
+        )
+
+        cm = self._make_cloudmap(tmp_path)
+
+        oci = list(cm.match_url_analyzer("pkg:oci/library/nginx@latest"))
+        assert oci == [OCIArtifactAnalyzer, GenericPkgArtifactAnalyzer]
+
+        docker = list(cm.match_url_analyzer("pkg:docker/library/nginx@1"))
+        assert docker == [OCIArtifactAnalyzer, GenericPkgArtifactAnalyzer]
+
+        npm = list(cm.match_url_analyzer("pkg:npm/lodash@4.17.21"))
+        assert npm == [GenericPkgArtifactAnalyzer]
+
+        assert list(cm.match_url_analyzer("https://example.com/foo")) == []
+
+    def test_generic_pkg_analyzer_creates_artifact(self, tmp_path):
+        """``add_record()`` dispatches non-OCI PURLs to the generic analyzer,
+        which produces an artifact tagged ``GenericPackage`` and populates
+        ``title``/``version`` from the parsed PURL."""
+        cm = self._make_cloudmap(tmp_path)
+        url = "pkg:npm/lodash@4.17.21"
+
+        artifact = cm.add_record(url)
+
+        assert artifact is not None
+        assert artifact.url == url
+        assert EntitySchema.GenericPackage in artifact.type.types
+        assert artifact.metadata.title == "lodash"
+        assert artifact.metadata.version == "4.17.21"
+        # Persisted in the cloudmap and idempotent on repeat calls.
+        assert cm.directory.db.get_artifact(url) is artifact
+        assert cm.add_record(url) is artifact
+
+    def test_generic_pkg_analyzer_omits_empty_metadata(self, tmp_path):
+        """When the PURL has no name/version components, ``title`` and
+        ``version`` are left at their dataclass defaults rather than set to
+        empty strings explicitly — keeping the YAML round-trip minimal."""
+        cm = self._make_cloudmap(tmp_path)
+        # pkg:<type>/ with no name and no @version
+        url = "pkg:foo/"
+
+        artifact = cm.add_record(url)
+
+        assert artifact is not None
+        assert artifact.url == url
+        # Both fields default to "" when not parsed from the URL.
+        assert artifact.metadata.title == ""
+        assert artifact.metadata.version == ""
+
+    def test_custom_analyzer_dispatch(self, tmp_path):
+        """A user-registered ``URLAnalyzer`` whose ``url_schemes`` prefix
+        is more specific than the built-ins is selected by
+        ``match_url_analyzer`` and invoked by ``add_record``."""
+        from unfurl.tosca_plugins.cloudmap_defs import (
+            URLAnalyzer,
+            Artifact,
+            EntitySchema,
+            TypeRefs,
+        )
+
+        class CustomTestAnalyzer(URLAnalyzer):
+            # Longer than the built-in "pkg:" so it wins for "pkg:test/..."
+            # but still satisfies Artifact.url's pkg/git scheme requirement.
+            url_schemes = ("pkg:test",)
+            artifact_type = EntitySchema.GenericFile
+
+            def __init__(self, url):
+                self.url = url
+
+            @classmethod
+            def init_from_url(cls, url, parsed):
+                return cls(url)
+
+            def analyze_url(self, directory):
+                return Artifact(
+                    url=self.url,
+                    type=TypeRefs({EntitySchema.GenericFile: None}),
+                )
+
+        cm = self._make_cloudmap(tmp_path)
+        cm.register_url_analyzer(CustomTestAnalyzer)
+
+        url = "pkg:test/widget@1"
+        # CustomTestAnalyzer is yielded first (longer prefix), the generic
+        # pkg: fallback after it.
+        from unfurl.analyzers import GenericPkgArtifactAnalyzer
+
+        assert list(cm.match_url_analyzer(url)) == [
+            CustomTestAnalyzer,
+            GenericPkgArtifactAnalyzer,
+        ]
+
+        artifact = cm.add_record(url)
+        assert artifact is not None
+        assert artifact.url == url
+        assert cm.directory.db.get_artifact(url) is artifact
+
+    def test_init_from_url_decline_falls_through_to_next_analyzer(self, tmp_path):
+        """When the most-specific analyzer declines via ``init_from_url``
+        returning ``None``, ``add_record()`` walks the longest-prefix-first
+        chain and falls back to the next matching analyzer (here, the
+        built-in generic ``pkg:`` handler)."""
+        from unfurl.tosca_plugins.cloudmap_defs import URLAnalyzer, Artifact
+        from unfurl.analyzers import GenericPkgArtifactAnalyzer
+
+        decline_calls: list = []
+
+        class DecliningAnalyzer(URLAnalyzer):
+            # More specific than "pkg:" so it's tried first.
+            url_schemes = ("pkg:decline",)
+
+            @classmethod
+            def init_from_url(cls, url, parsed):
+                decline_calls.append(url)
+                return None
+
+        cm = self._make_cloudmap(tmp_path)
+        cm.register_url_analyzer(DecliningAnalyzer)
+
+        url = "pkg:decline/widget@1"
+        assert list(cm.match_url_analyzer(url)) == [
+            DecliningAnalyzer,
+            GenericPkgArtifactAnalyzer,
+        ]
+
+        record = cm.add_record(url)
+        # DecliningAnalyzer.init_from_url was consulted...
+        assert decline_calls == [url]
+        # ...and the generic fallback created an Artifact.
+        assert isinstance(record, Artifact)
+        assert record.url == url
+        assert cm.directory.db.get_artifact(url) is record
+
+
+# ---------------------------------------------------------------------------
+# Custom-analyzer loading from cloudmap config
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "test_case,custom_class_code,analyzer_config,expected_count,expected_log",
+    [
+        (
+            "valid_custom_analyzer",
+            """
+from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable, Repository, Artifact
+
+class CustomTestNotable(RepositoryNotable):
+    files = ["custom-test.yaml"]
+    folders = []
+
+    def analyze(self, directory, repo_info, root_path):
+        directory.logger.info(f"CustomTestNotable analyzing {self.file}")
+        return None
+""",
+            ["notables/custom.py#CustomTestNotable"],
+            1,
+            "Loaded custom CustomTestNotable",
+        ),
+        (
+            "invalid_path",
+            None,  # No file created
+            ["notables/nonexistent.py#MissingClass"],
+            0,
+            "Failed to load custom Analyzer",
+        ),
+        (
+            "not_notable_subclass",
+            """
+class NotANotable:
+    def __init__(self):
+        pass
+""",
+            ["notables/notnotable.py#NotANotable"],
+            0,
+            "not a subclass of Analyzer",
+        ),
+        (
+            # CloudMapView attributes like _local__env are named to match the
+            # safe-mode policy (`name[0] == '_' and '__' in name`), so
+            # RestrictedPython rejects the attribute access at compile time and
+            # the module fails to load.
+            "unsafe_underscore_access",
+            """
+from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+
+class UnsafeTestNotable(RepositoryNotable):
+    files = ["unsafe-test.yaml"]
+
+    def analyze(self, directory, repo_info, root_path):
+        return directory._local__env
+""",
+            ["notables/unsafe.py#UnsafeTestNotable"],
+            0,
+            "Failed to load custom Analyzer",
+        ),
+    ],
+)
+def test_custom_analyzers(
+    tmp_path,
+    caplog,
+    test_case,
+    custom_class_code,
+    analyzer_config,
+    expected_count,
+    expected_log,
+):
+    """Test loading custom Analyzer classes from cloudmaps config."""
+    cloudmap_repo_path = tmp_path / "cloudmap"
+    cloudmap_repo_path.mkdir()
+
+    import git
+
+    repo = git.Repo.init(cloudmap_repo_path)
+
+    cloudmap_yaml = cloudmap_repo_path / "cloudmap.yaml"
+    cloudmap_yaml.write_text(
+        f"""apiVersion: {API_VERSION}
+kind: CloudMap
+repositories: {{}}
+"""
+    )
+
+    repo.index.add(["cloudmap.yaml"])
+    repo.index.commit("Initial commit")
+
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+
+    if custom_class_code:
+        notables_dir = project_path / "notables"
+        notables_dir.mkdir()
+        class_file = analyzer_config[0].split("#")[0].split("/")[-1]
+        custom_py = notables_dir / class_file
+        custom_py.write_text(custom_class_code)
+
+    unfurl_yaml = project_path / "unfurl.yaml"
+    analyzers = "\n".join(f"        - {repr(path)}" for path in analyzer_config)
+    unfurl_yaml.write_text(
+        f"""apiVersion: {API_VERSION}
+kind: Project
+environments:
+  defaults:
+    cloudmaps:
+      analyzers:
+        {analyzers}
+      repositories:
+        cloudmap:
+          url: {cloudmap_repo_path}
+"""
+    )
+
+    os.chdir(project_path)
+    local_env = LocalEnv(
+        str(project_path),
+        can_be_empty=True,
+        overrides={"safe_mode": True},
+    )
+
+    cloudmap = CloudMap.from_name(
+        local_env,
+        "cloudmap",
+        None,  # clone_root
+        "",  # host_name
+        False,  # skip_analysis
+        False,  # commit
+    )
+
+    assert len(cloudmap.custom_analyzers) == expected_count
+    assert expected_log in caplog.text
+
+    if expected_count > 0:
+        assert cloudmap.custom_analyzers[0].__name__ == "CustomTestNotable"
+        assert "custom-test.yaml" in cloudmap.directory.analyzer.files
+        assert (
+            cloudmap.directory.analyzer.files["custom-test.yaml"].__name__
+            == "CustomTestNotable"
+        )
