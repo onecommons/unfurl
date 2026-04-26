@@ -112,6 +112,104 @@ class TestCINotables:
         assert ".github/workflows" in artifact.url
 
 
+class TestGenericRepositoryNotableFallback:
+    """Generic ``RepositoryNotable`` subclasses (no ``files``/``folders``
+    declared) are consulted as fallbacks: for every path the walker visits
+    where no name-specific class matched, ``RepositoryAnalyzer`` calls
+    ``init()`` on each generic class in registration order and uses the
+    first instance returned.
+    """
+
+    @staticmethod
+    def _make_generic_class():
+        """A generic Notable that accepts ``*.toml`` files and reports them."""
+        from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+
+        class TomlNotable(RepositoryNotable):
+            files = ()  # generic — no name-keyed registration
+            folders = ()
+            artifact_type = EntitySchema.GenericFile
+            init_calls: list = []
+
+            @classmethod
+            def init(cls, folder, file, digest=""):
+                cls.init_calls.append((folder, file, digest))
+                # Accept .toml files only; decline everything else.
+                if file.endswith(".toml"):
+                    return cls(folder, file, digest)
+                return None
+
+        return TomlNotable
+
+    def test_register_classifies_as_generic(self):
+        """Classes with empty ``files``/``folders`` go onto
+        ``RepositoryAnalyzer.generic`` instead of the file/folder maps."""
+        TomlNotable = self._make_generic_class()
+        analyzer = RepositoryAnalyzer([TomlNotable])
+        assert analyzer.generic == [TomlNotable]
+        assert analyzer.files == {}
+        assert analyzer.folders == {}
+
+    def test_analyze_local_falls_back_to_generic(self, tmp_path):
+        """``analyze_local`` consults the generic class for unmatched files
+        and uses whatever ``init()`` returns."""
+        TomlNotable = self._make_generic_class()
+        (tmp_path / "pyproject.toml").write_text("[tool.x]\n")
+        (tmp_path / "README.md").write_text("# hi\n")
+
+        analyzer = RepositoryAnalyzer(list(Notables) + [TomlNotable])
+        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+
+        # The generic class accepted pyproject.toml and produced an instance.
+        toml_hits = [n for n in notables if isinstance(n, TomlNotable)]
+        assert len(toml_hits) == 1
+        assert toml_hits[0].file == "pyproject.toml"
+
+        # init() was consulted for the unmatched file.
+        seen_files = {filename for (_dir, filename, _digest) in TomlNotable.init_calls}
+        assert "pyproject.toml" in seen_files
+
+    def test_analyze_path_falls_back_to_generic(self, tmp_path):
+        """``analyze_path`` for a single file with no name match consults
+        the generic chain."""
+        TomlNotable = self._make_generic_class()
+        (tmp_path / "Cargo.toml").write_text("[package]\nname='x'\n")
+
+        analyzer = RepositoryAnalyzer(list(Notables) + [TomlNotable])
+        result = analyzer.analyze_path("Cargo.toml", str(tmp_path))
+
+        assert len(result) == 1
+        assert isinstance(result[0], TomlNotable)
+        assert result[0].file == "Cargo.toml"
+
+    def test_specific_match_wins_over_generic(self, tmp_path):
+        """Name-specific classes are tried first; the generic fallback only
+        runs if nothing claimed the file."""
+        from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+
+        class NoOpGeneric(RepositoryNotable):
+            files = ()
+            folders = ()
+            init_calls: list = []
+
+            @classmethod
+            def init(cls, folder, file, digest=""):
+                cls.init_calls.append(file)
+                return cls(folder, file, digest)
+
+        # .gitlab-ci.yml is claimed by the built-in GitLabPipelineNotable.
+        (tmp_path / ".gitlab-ci.yml").write_text("stages: []\n")
+
+        analyzer = RepositoryAnalyzer(list(Notables) + [NoOpGeneric])
+        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+
+        # The generic was never consulted for the matched file.
+        assert ".gitlab-ci.yml" not in NoOpGeneric.init_calls
+        # And exactly one notable was produced — the specific GitLab one.
+        gitlab_hits = [n for n in notables if isinstance(n, GitLabPipelineNotable)]
+        assert len(gitlab_hits) == 1
+
+
 class TestPipelineRunsMocked:
     """Mock-based tests for get_pipeline_runs."""
 
@@ -816,6 +914,7 @@ class UnsafeTestNotable(RepositoryNotable):
 )
 def test_custom_analyzers(
     tmp_path,
+    monkeypatch,
     caplog,
     test_case,
     custom_class_code,
@@ -868,7 +967,7 @@ environments:
 """
     )
 
-    os.chdir(project_path)
+    monkeypatch.chdir(project_path)
     local_env = LocalEnv(
         str(project_path),
         can_be_empty=True,

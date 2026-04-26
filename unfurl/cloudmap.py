@@ -196,6 +196,12 @@ class RepositoryAnalyzer:
         self.logger = logger
         self.files: Dict[str, Type[RepositoryNotable]] = {}
         self.folders: Dict[str, Type[RepositoryNotable]] = {}
+        # Generic catch-all RepositoryNotable subclasses (those that declare
+        # neither files nor folders). Each entry is consulted via its
+        # ``init()`` factory whenever no name-specific class matched a path,
+        # in registration order; the first ``init()`` returning a non-None
+        # instance wins.
+        self.generic: List[Type[RepositoryNotable]] = []
         for n in notables:
             self.add_notable_class(n)
 
@@ -204,6 +210,20 @@ class RepositoryAnalyzer:
             self.files[file] = cls
         for folder in cls.folders:
             self.folders[folder] = cls
+        if not cls.files and not cls.folders:
+            # No specific match keys → register as a generic fallback.
+            self.generic.append(cls)
+
+    def _match_generic(
+        self, dirname: str, filename: str, digest: str = ""
+    ) -> Tuple[Optional[RepositoryNotable], Optional[Type[RepositoryNotable]]]:
+        """Try every generic RepositoryNotable; return the first instance
+        that ``init()`` produces, along with its class."""
+        for cls in self.generic:
+            instance = cls.init(dirname, filename, digest)
+            if instance is not None:
+                return instance, cls
+        return None, None
 
     def analyze_local(self, root_dir: str, start_path: str) -> List[RepositoryNotable]:
         notables: List[RepositoryNotable] = []
@@ -217,6 +237,10 @@ class RepositoryAnalyzer:
                 if notable_cls:
                     if notable_cls not in notables_found:
                         notable = notable_cls.init(rel_root, "")
+                if not notable:
+                    # Fall back to generic RepositoryNotables (no files/folders
+                    # declared). The first init() to accept the folder wins.
+                    notable, notable_cls = self._match_generic(rel_root, "")
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
@@ -224,6 +248,8 @@ class RepositoryAnalyzer:
                 if file_cls and file_cls not in notables_found:
                     notable_cls = file_cls
                     notable = notable_cls.init(rel_root, filename)
+                if not notable:
+                    notable, notable_cls = self._match_generic(rel_root, filename)
             if notable:
                 notables.append(notable)
                 assert notable_cls
@@ -258,6 +284,10 @@ class RepositoryAnalyzer:
             notable_inst = notable_cls.init(dirname, filename)
             if notable_inst:
                 return [notable_inst]
+        # Fall back to generic RepositoryNotables.
+        generic_inst, _ = self._match_generic(dirname, filename)
+        if generic_inst is not None:
+            return [generic_inst]
         return []
 
     def analyze_repo_tree(
@@ -277,17 +307,25 @@ class RepositoryAnalyzer:
             dirname, filename = os.path.split(item.path)
             if item.type == "tree":
                 notable_cls = self.folders.get(filename)
+                digest = f"git:tree:{item.hexsha}"
                 if notable_cls:
                     # XXX if notable_cls not in notables_found:
-                    digest = f"git:tree:{item.hexsha}"
                     notable = notable_cls.init(cast(str, item.path), "", digest)
-                else:
+                if not notable:
+                    notable, notable_cls = self._match_generic(
+                        cast(str, item.path), "", digest
+                    )
+                if not notable:
                     descend.append(item)
             elif item.type == "blob":
                 notable_cls = self.files.get(filename)
+                digest = f"git:blob:{item.hexsha}"
                 if notable_cls:  # XXX and notable_cls not in notables_found:
-                    digest = f"git:blob:{item.hexsha}"
                     notable = notable_cls.init(dirname, filename, digest)
+                if not notable:
+                    notable, notable_cls = self._match_generic(
+                        dirname, filename, digest
+                    )
             if notable:
                 notables.append(notable)
                 assert notable_cls
