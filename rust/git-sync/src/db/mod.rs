@@ -11,6 +11,13 @@
 
 use crate::error::{Error, Result};
 
+pub mod alias;
+pub mod commit;
+pub mod file;
+pub mod record;
+pub mod tx;
+pub mod worktree;
+
 /// User-facing connection configuration.
 #[derive(Debug, Clone)]
 pub enum DbConfig {
