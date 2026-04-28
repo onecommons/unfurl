@@ -20,6 +20,7 @@ jobs:
       UNFURL_LOGGING: info
       UNFURL_TEST_CLOUDMAP_URL: ${{ secrets.UNFURL_TEST_CLOUDMAP_URL }}
       UNFURL_TEST_REDIS_URL: redis://localhost:6379/0
+      UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
     steps:
       - uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4
         with:
@@ -68,6 +69,13 @@ jobs:
         run: |
             sudo apt-get update -y
             sudo apt install -y valkey
+      - name: Install and start postgres
+        run: |
+            sudo apt-get update -y
+            sudo apt install -y postgresql
+            sudo systemctl start postgresql.service
+            sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
+            sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
       - name: Run mypy and Tox
@@ -100,6 +108,7 @@ jobs:
         run: |
           cargo clippy --manifest-path rust/Cargo.toml
           cargo test --no-default-features --manifest-path rust/Cargo.toml
+          cargo test -p unfurl-git-sync --manifest-path rust/Cargo.toml --no-default-features --features postgres
       - name: upload code coverage report
         if: matrix.python == 3.14
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
