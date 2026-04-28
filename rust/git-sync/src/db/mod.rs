@@ -1,13 +1,18 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! Database connection / dialect abstraction.
+//! Database connection and per-dialect SQL helpers.
 //!
-//! A dialect-tagged enum (`Db::Sqlite | Db::Postgres`) with:
+//! [`Db`] is a dialect-tagged enum that wraps either a SQLite or a
+//! Postgres connection pool. Submodules ([`worktree`], [`mod@file`],
+//! [`record`], [`alias`], [`commit`], [`tx`]) hold the SQL helpers
+//! used by [`crate::sync`]; sync code only sees these high-level
+//! functions, never raw `sqlx::query` invocations.
 //!
-//! - per-dialect SQL where the syntax differs (`jsonb(?)` vs `$N::jsonb`,
-//!   bind placeholders `?` vs `$1`, etc.);
-//! - feature-gated compilation so a build with only the `sqlite` feature
-//!   never pulls in postgres deps.
+//! `sqlx::Any` is intentionally avoided — it would erase the dialect
+//! at runtime but couldn't express the SQL differences (`jsonb(?)` vs
+//! `$N::jsonb`, `?` vs `$1` placeholders, `INTEGER 0/1` vs `BOOLEAN
+//! FALSE/TRUE`). The trade-off: every helper that holds a transaction
+//! has to branch on [`Db`] once.
 
 use crate::error::{Error, Result};
 
@@ -18,29 +23,51 @@ pub mod record;
 pub mod tx;
 pub mod worktree;
 
-/// User-facing connection configuration.
+/// User-facing database connection configuration.
+///
+/// Pass to [`Db::connect`] (or, more commonly, [`crate::GitSync::open`])
+/// to choose a backend. `Postgres` is gated behind the `postgres`
+/// cargo feature.
 #[derive(Debug, Clone)]
 pub enum DbConfig {
-    /// SQLite. URL must be in sqlx format, e.g. `sqlite::memory:` or
-    /// `sqlite:///absolute/path.db`.
-    Sqlite { url: String },
-    /// Postgres. URL passed to sqlx unchanged.
+    /// Connect to SQLite. URL must be in sqlx format, e.g.
+    /// `sqlite::memory:` or `sqlite:///absolute/path.db`.
+    Sqlite {
+        /// Sqlx-style sqlite connection URL.
+        url: String,
+    },
+    /// Connect to Postgres. URL is passed to sqlx unchanged.
     #[cfg(feature = "postgres")]
-    Postgres { url: String },
+    Postgres {
+        /// Postgres connection URL (libpq syntax).
+        url: String,
+    },
 }
 
-/// Concrete database handle. Dialect-tagged so each call site knows which
-/// flavour of SQL to run.
+/// Concrete database handle, dialect-tagged so each helper picks the
+/// right SQL.
+///
+/// Cheaply cloneable — both variants wrap an `Arc`-backed sqlx pool.
+/// Build one via [`Db::connect`].
 #[derive(Clone, Debug)]
 pub enum Db {
+    /// SQLite-backed pool.
     Sqlite(sqlx::Pool<sqlx::Sqlite>),
+    /// Postgres-backed pool.
     #[cfg(feature = "postgres")]
     Postgres(sqlx::Pool<sqlx::Postgres>),
 }
 
 impl Db {
-    /// Connect, run migrations, and (for SQLite) verify the JSONB-capable
-    /// minimum version.
+    /// Connect to the configured backend, run schema migrations, and
+    /// (for SQLite) check that the runtime is recent enough to support
+    /// JSONB (≥ 3.45).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] for connection failures,
+    /// [`crate::Error::Migrate`] if migrations fail, or
+    /// [`crate::Error::Other`] when the SQLite runtime is too old.
     pub async fn connect(cfg: &DbConfig) -> Result<Self> {
         match cfg {
             DbConfig::Sqlite { url } => {

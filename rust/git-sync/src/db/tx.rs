@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Transaction-scoped helpers used by the CRUD primitives in `sync`.
 //!
-//! Each helper is generic over a [`Dialect`] which supplies the
+//! Each helper is generic over a `Dialect` which supplies the
 //! per-dialect SQL string. Two impls — `sqlx::Sqlite` (always
 //! compiled) and `sqlx::Postgres` (gated on the `postgres` feature) —
 //! hold the dialect-specific text. The function bodies (bind, execute,

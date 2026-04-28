@@ -1,12 +1,16 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! gix helpers: open repos, list tracked files, derive `(origin, branch)`,
-//! create commits.
+//! Thin gix helpers used by the rest of the crate.
 //!
-//! For commit creation we deliberately avoid mutating the gix index
-//! (the API surface for that is verbose in 0.66). Instead we walk the
-//! current `HEAD` tree, replace blobs for the modified paths, and write
-//! a new tree directly via gix's object database.
+//! Wraps the parts of [`gix`] we need: open a working tree, list its
+//! tracked files, derive `(origin, branch, head_oid)`, walk
+//! `git log -- <path>` lazily ([`last_commits_for_paths`]), and create
+//! a commit by overlaying blobs on top of the current HEAD tree.
+//!
+//! Commit creation deliberately bypasses the gix index API (verbose in
+//! 0.66) — we walk the current HEAD tree, replace blobs for the
+//! modified paths, and write a new tree directly through gix's object
+//! database.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};

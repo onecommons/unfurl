@@ -1,7 +1,18 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! `GitSync` — the public type tying the pool, gix repo, and
-//! [`FormatRegistry`] together.
+//! [`GitSync`], the public top-level handle, plus its [`CommitRef`] token.
+//!
+//! The methods on `GitSync` are the crate's main API:
+//!
+//! - [`GitSync::open`], [`GitSync::get_working_dir`].
+//! - Sync from disk: [`GitSync::update_from_working_dir`].
+//! - Read: [`GitSync::find_records`], [`GitSync::find_records_follow`],
+//!   [`GitSync::get_record`], [`GitSync::get_record_by_id`],
+//!   [`GitSync::get_file`], [`GitSync::get_worktree`].
+//! - Mutate: [`GitSync::create_record`], [`GitSync::update_record`],
+//!   [`GitSync::upsert_record`], [`GitSync::delete_record`].
+//! - Persist: [`GitSync::save_changes`], [`GitSync::write_file`],
+//!   [`GitSync::commit_repository`].
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -14,20 +25,30 @@ use crate::format::FormatRegistry;
 use crate::git;
 use crate::model::{Record, UpdateStats};
 
-/// Optimistic-concurrency token passed to mutating CRUD calls.
+/// Optimistic-concurrency token used by mutating CRUD calls.
+///
+/// Pass `Some(token)` as the `expected_commit` argument to
+/// [`GitSync::create_record`] / [`GitSync::update_record`] /
+/// [`GitSync::upsert_record`] / [`GitSync::delete_record`] to assert
+/// what the caller believes the row's current `commit_id` is. Mismatch
+/// returns [`crate::Error::Conflict`] and rolls back the transaction.
+/// Pass `None` to skip the check entirely.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommitRef {
-    /// Caller expects the row's `commit_id` to be NULL (a pending edit).
+    /// Caller expects the row's `commit_id` to be `NULL` — i.e. a
+    /// pending in-flight edit, not yet committed.
     Pending,
     /// Caller expects the row's `commit_id` to equal this hex commit
-    /// oid string.
+    /// oid string (40 hex chars for SHA-1).
     Oid(String),
 }
 
-/// Sync handle bundling a sqlx pool, a gix repo, and a format registry.
+/// Top-level handle bundling a sqlx pool, a gix repository path, and a
+/// [`FormatRegistry`].
 ///
-/// Cheaply cloneable (`Arc`-wrapped state) so callers can hand it to
-/// background tasks without juggling lifetimes.
+/// Build one with [`GitSync::open`]. Cheaply cloneable — internal state
+/// sits behind an [`Arc`], so background tasks can hold their own
+/// clone without juggling lifetimes.
 #[derive(Clone)]
 pub struct GitSync {
     inner: Arc<GitSyncInner>,
@@ -41,8 +62,19 @@ struct GitSyncInner {
 }
 
 impl GitSync {
-    /// Open a working tree, ensure the schema is up to date, and ensure
-    /// a `worktree` row exists for `(origin, branch)`.
+    /// Open a working tree and a database, returning a [`GitSync`].
+    ///
+    /// Connects to the database and runs schema migrations, opens the
+    /// gix repository at `working_dir`, derives `(origin, branch)` from
+    /// it, and ensures a `worktree` row exists for that pair. The
+    /// repo handle is then dropped — each subsequent call re-opens via
+    /// `gix::open` to keep `Send` guarantees out of long-lived state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Db`] / [`crate::Error::Migrate`] for
+    /// database failures and [`crate::Error::Git`] if the repo can't
+    /// be opened.
     pub async fn open(
         working_dir: impl AsRef<Path>,
         db: DbConfig,
@@ -86,10 +118,13 @@ impl GitSync {
         &self.inner.formats
     }
 
-    /// Snapshot the working tree: its filesystem path, current branch
-    /// name, and HEAD commit oid (as a hex string). Used by tests to
-    /// assert conflict-token semantics and by callers that need to
-    /// stash a reference to the current commit.
+    /// Returns a [`crate::model::WorkingDir`] snapshot of this handle.
+    ///
+    /// Reads `(repo_path, branch, head_commit)` directly from the gix
+    /// repository — `head_commit` is `None` for an unborn / empty
+    /// repo. Useful for stashing a reference to the current commit
+    /// before issuing CRUD calls so that conflict tokens can be
+    /// constructed later.
     pub async fn get_working_dir(&self) -> Result<crate::model::WorkingDir> {
         let repo = self.repo()?;
         let meta = git::worktree_meta(&repo)?;
@@ -100,7 +135,23 @@ impl GitSync {
         })
     }
 
-    /// Walk the working tree, parse new/changed files, upsert records.
+    /// Walk the working tree, parse new/changed files, and upsert
+    /// records into the database.
+    ///
+    /// Two-pass implementation: the first pass parses each tracked
+    /// `.yaml` / `.yml` / `.json` file and classifies it via the
+    /// registry's [`FormatRegistry::detect`]; the second pass resolves
+    /// the last-commit oid per "clean" file (where the on-disk blob
+    /// matches the index entry) by walking ancestors of HEAD once via
+    /// [`crate::git::last_commits_for_paths`]. Dirty files get
+    /// `commit_id = None`. After indexing, the worktree's
+    /// `commit_id` is bumped to HEAD.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Yaml`] / [`crate::Error::Json`] when a
+    /// tracked file fails to parse, or any underlying git / database
+    /// error.
     pub async fn update_from_working_dir(&self) -> Result<UpdateStats> {
         let repo = self.repo()?;
         let meta = git::worktree_meta(&repo)?;
@@ -280,10 +331,15 @@ impl GitSync {
         Ok(())
     }
 
-    /// Search records by optional filters. All `Some(...)` filters AND
-    /// together. With `alias = true` and a `key` filter, a record also
-    /// matches when one of its alias rows has that key (joined on
-    /// `record_id`); without a `key` filter, `alias` is a no-op.
+    /// Search records by optional `file_path` / `path` / `key` filters.
+    ///
+    /// All `Some(...)` filters are AND'd together; `None` matches any
+    /// value. With `alias = true` and a `key` filter, a record also
+    /// matches when one of its [`crate::Alias`] rows has that key
+    /// (joined on `record_id`). Without a `key` filter, `alias` is a
+    /// no-op. Tombstoned records are hidden.
+    ///
+    /// Results are ordered by `(path, key)` for stable output.
     pub async fn find_records(
         &self,
         file_path: Option<String>,
@@ -302,12 +358,22 @@ impl GitSync {
         .await
     }
 
-    /// Same filters as [`Self::find_records`]; additionally walks
-    /// [`crate::DataFormat::follow`] outgoing edges from each match
-    /// breadth-first, returning at most `follow` newly-discovered
-    /// records. Returns `(initial, followed)` where `initial` is what
-    /// `find_records` would have returned and `followed` is the new
-    /// set, capped at `follow` entries (alias-resolved).
+    /// Like [`Self::find_records`], but also walks
+    /// [`crate::DataFormat::follow`] outgoing edges from each match.
+    ///
+    /// Performs a breadth-first traversal starting from the initial
+    /// match set, following `(path, key)` references returned by each
+    /// record's [`crate::DataFormat`]. Returns at most `follow` newly
+    /// discovered records, alias-resolved (so versioned URLs hit
+    /// their canonical record). The starting set is never re-emitted
+    /// in the followed set, and `(path, key)` duplicates are
+    /// suppressed.
+    ///
+    /// Returns `(initial, followed)` where `initial` is what
+    /// [`Self::find_records`] would have returned for the same
+    /// filters, and `followed` is the breadth-first frontier capped
+    /// at `follow` entries. `follow == 0` returns an empty followed
+    /// set.
     pub async fn find_records_follow(
         &self,
         file_path: Option<String>,
@@ -384,8 +450,8 @@ impl GitSync {
         Ok((initial, followed))
     }
 
-    /// Read a single record by `(file_path, path, key)` within this
-    /// worktree.
+    /// Returns the record at `(file_path, path, key)` within this
+    /// worktree, or `None` if absent or tombstoned.
     pub async fn get_record(
         &self,
         file_path: &str,
@@ -395,24 +461,41 @@ impl GitSync {
         db::record::get(self.db(), self.worktree_id(), file_path, path, key).await
     }
 
-    /// Read a single record by primary key.
+    /// Returns the record with the given primary key.
+    ///
+    /// Unlike [`Self::get_record`], this does **not** hide tombstoned
+    /// rows — useful for tests and for inspecting the in-flight delete
+    /// state.
     pub async fn get_record_by_id(&self, id: i64) -> Result<Option<Record>> {
         db::record::get_by_id(self.db(), id).await
     }
 
-    /// Read the `file` row for a given working-tree path. Returns
-    /// `None` if no row exists for this worktree.
+    /// Returns the [`crate::model::File`] row for `file_path` within
+    /// this worktree, or `None` if no row exists.
     pub async fn get_file(&self, file_path: &str) -> Result<Option<crate::model::File>> {
         db::file::get(self.db(), self.worktree_id(), file_path).await
     }
 
-    /// Read the `worktree` row this `GitSync` is bound to.
+    /// Returns the [`crate::model::Worktree`] row this `GitSync` is
+    /// bound to.
     pub async fn get_worktree(&self) -> Result<crate::model::Worktree> {
         db::worktree::get(self.db(), self.worktree_id()).await
     }
 
-    /// Create a new record. Fails with `AlreadyExists` if
-    /// `(file_path, path, key)` is already present.
+    /// Insert a new record at `(file_path, path, key)`.
+    ///
+    /// If a tombstoned row already exists at that location, it is
+    /// resurrected with the new value. Live (non-tombstoned) rows
+    /// cause [`crate::Error::AlreadyExists`].
+    ///
+    /// `expected_commit` is the optimistic-concurrency token. When
+    /// the record row is absent, the check is performed against the
+    /// containing file's `commit_id`. See [`CommitRef`] for the
+    /// semantics. The conflict check + INSERT + alias refresh run in
+    /// a single sqlx transaction; on mismatch the transaction rolls
+    /// back and [`crate::Error::Conflict`] is returned.
+    ///
+    /// Returns the new record's primary key.
     pub async fn create_record(
         &self,
         file_path: &str,
@@ -424,8 +507,12 @@ impl GitSync {
         crud_create(self, file_path, path, key, json, expected_commit).await
     }
 
-    /// Update an existing record's JSON. Fails with `NotFound` if no row
-    /// matches.
+    /// Replace an existing record's JSON.
+    ///
+    /// Fails with [`crate::Error::NotFound`] if the row is absent or
+    /// tombstoned. `expected_commit` is the optimistic-concurrency
+    /// token; see [`CommitRef`]. Sets the row's `commit_id` back to
+    /// `NULL` (in-flight). Returns the row's primary key.
     pub async fn update_record(
         &self,
         file_path: &str,
@@ -437,7 +524,12 @@ impl GitSync {
         crud_update(self, file_path, path, key, json, expected_commit).await
     }
 
-    /// Insert-or-update.
+    /// Insert-or-replace a record.
+    ///
+    /// Behaves like [`Self::create_record`] when the row is absent,
+    /// and like [`Self::update_record`] when it's present (live or
+    /// tombstoned). `expected_commit` is checked the same way as in
+    /// the other CRUD methods.
     pub async fn upsert_record(
         &self,
         file_path: &str,
@@ -449,8 +541,16 @@ impl GitSync {
         crud_upsert(self, file_path, path, key, json, expected_commit).await
     }
 
-    /// Delete the record (and its aliases). Fails with `NotFound` if
-    /// missing.
+    /// Tombstone the record at `(file_path, path, key)` and clear its
+    /// aliases.
+    ///
+    /// The row stays in the database (marked `deleted = TRUE`,
+    /// `commit_id = NULL`) until the next [`Self::commit_repository`]
+    /// purges it. Reads via [`Self::get_record`] /
+    /// [`Self::find_records`] hide tombstones.
+    ///
+    /// Fails with [`crate::Error::NotFound`] if the row is absent or
+    /// already tombstoned.
     pub async fn delete_record(
         &self,
         file_path: &str,
@@ -461,10 +561,12 @@ impl GitSync {
         crud_delete(self, file_path, path, key, expected_commit).await
     }
 
-    /// Re-serialize each file with at least one record whose
-    /// `commit_id IS NULL` and write it back to disk. Returns the paths
-    /// that were actually rewritten (skipped when output bytes match
-    /// what's on disk).
+    /// Persist every in-flight record edit to disk.
+    ///
+    /// For each file with at least one record whose `commit_id IS
+    /// NULL`, calls [`Self::write_file`]. Returns the paths that were
+    /// actually rewritten — files whose bytes turned out to match
+    /// what's already on disk are skipped.
     pub async fn save_changes(&self) -> Result<Vec<PathBuf>> {
         let dirty: Vec<String> =
             db::record::list_dirty_files(self.db(), self.worktree_id()).await?;
@@ -477,21 +579,30 @@ impl GitSync {
         Ok(written)
     }
 
-    /// Lower-level: apply pending record changes for `file_path` to the
-    /// existing on-disk file (parsed as YAML or JSON), preserving the
-    /// document's original key ordering, formatting, and any keys we
-    /// don't track. Returns `Some(path)` when on-disk bytes changed,
-    /// `None` otherwise.
+    /// Apply pending record changes for `file_path` to the on-disk
+    /// file in place.
     ///
-    /// Pending changes are records whose `commit_id IS NULL`:
-    /// - non-tombstone rows are written at `obj[trim(path)][key]`,
-    ///   creating the section object if missing;
-    /// - tombstones (`deleted = TRUE`) remove `obj[trim(path)][key]`;
-    /// - if the resulting section becomes empty it is removed.
+    /// Reads the file, parses it (YAML or JSON, by extension), then
+    /// applies each in-flight (`commit_id IS NULL`) record:
     ///
-    /// If the file does not exist on disk, a fresh document is
-    /// synthesised from the non-tombstone records (tombstones in this
-    /// case are no-ops).
+    /// - Non-tombstone rows are written at `obj[trim(path)][key]`,
+    ///   creating the section object if missing.
+    /// - Tombstones (`deleted = TRUE`) remove `obj[trim(path)][key]`.
+    /// - A section that becomes empty is removed entirely.
+    ///
+    /// Untouched keys keep their original position and value, so the
+    /// rewrite is "minimal": only the diff is reflected. If the file
+    /// doesn't exist on disk, a fresh document is synthesised from
+    /// the non-tombstone records (tombstones are no-ops in that case).
+    ///
+    /// Returns `Some(path)` when the on-disk bytes changed, `None`
+    /// when the freshly-rendered output matches what was already on
+    /// disk.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::Error::Yaml`] / [`crate::Error::Json`] on parse / emit
+    /// failure; [`crate::Error::Io`] for filesystem failures.
     pub async fn write_file(&self, file_path: &str) -> Result<Option<PathBuf>> {
         let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
         if pending.is_empty() {
@@ -585,10 +696,22 @@ impl GitSync {
         Ok(Some(abs))
     }
 
-    /// Run `save_changes`, stage the dirty paths, create a commit on
-    /// HEAD, and roll the new oid into the records / files in one
-    /// transaction. Returns the new commit oid as a hex string, or
-    /// `None` if nothing was committed.
+    /// Persist all pending edits and create a git commit.
+    ///
+    /// Equivalent to [`Self::save_changes`], followed by a gix commit
+    /// of the dirty paths under `message`, followed by rolling the
+    /// new commit oid into every affected `record` / `file` /
+    /// `worktree` row in a single transaction. Tombstones for the
+    /// committed paths are purged at the same time.
+    ///
+    /// Returns the new commit oid as a hex string, or `None` when
+    /// there was nothing to commit (no in-flight records).
+    ///
+    /// # Errors
+    ///
+    /// Surfaces [`crate::Error::Git`] if gix can't construct the
+    /// commit, [`crate::Error::Io`] for filesystem trouble during
+    /// `save_changes`, and any underlying database error.
     pub async fn commit_repository(&self, message: &str) -> Result<Option<String>> {
         // Snapshot the dirty file list *before* save_changes (which sets
         // no commit_id changes) so we know what to stage even when bytes
