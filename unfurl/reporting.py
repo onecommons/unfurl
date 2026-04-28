@@ -485,7 +485,7 @@ class CloudMapGraphVisitor:
         record: "CloudMapRecord",
         *,
         seen: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
     ) -> None:
         """Called for each record node.
@@ -518,7 +518,7 @@ class CloudMapGraphVisitor:
         url: str,
         *,
         missing: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
     ) -> None:
         """Called for a URL reference that is not resolved as a child record."""
 
@@ -536,6 +536,21 @@ class CloudMapGraphVisitor:
 
     def not_found(self, url: str) -> None:
         """Called when a start_url is not found in the db."""
+
+
+def _merge_typerefs(
+    record: "CloudMapRecord", type_refs: Optional[TypeRefs] = None
+) -> Optional[TypeRefs]:
+    record_type = getattr(record, "type", None)
+    if isinstance(record_type, TypeRefs):
+        if type_refs:
+            # Merge type_refs from typed-URL with record's own type refs, prioritising the former
+            merged_types = dict(record_type.types)
+            merged_types.update(type_refs.types)
+            type_refs = TypeRefs(types=merged_types)
+        else:
+            type_refs = record_type
+    return type_refs
 
 
 class CloudMapGraphWalker:
@@ -564,7 +579,9 @@ class CloudMapGraphWalker:
                 return
             visited: set = {start_url}
             for kind, record in all_found:
-                self.visitor.visit_record(kind, start_url, record)
+                self.visitor.visit_record(
+                    kind, start_url, record, type_refs=_merge_typerefs(record)
+                )
                 self._walk_edges(record, kind, visited)
                 self.visitor.leave_record(kind, start_url, record)
         else:
@@ -587,45 +604,43 @@ class CloudMapGraphWalker:
                 for record in records_list:
                     key = self._record_key(record)
                     if key in visited:
-                        self.visitor.visit_record(kind, key, record, seen=True)
+                        self.visitor.visit_record(
+                            kind,
+                            key,
+                            record,
+                            seen=True,
+                            type_refs=_merge_typerefs(record),
+                        )
                         continue
                     visited.add(key)
-                    self.visitor.visit_record(kind, key, record)
+                    self.visitor.visit_record(
+                        kind, key, record, type_refs=_merge_typerefs(record)
+                    )
                     self._walk_edges(record, kind, visited)
                     self.visitor.leave_record(kind, key, record)
             self.visitor.end_graph(empty=not visited)
 
-    def _find_record(self, url: str) -> Optional[Tuple[str, Any]]:
-        # Lookup order matches the historical behaviour: services, then
-        # instantiations, then artifacts, then repositories, then types.
-        for kind, getter in (
-            ("Service", self.view.get_service),
-            ("Instantiation", self.view.get_instantiation),
-            ("Artifact", self.view.get_artifact),
-            ("Repository", self.view.get_repository),
-            ("Type", self.view.get_type),
-        ):
-            found = getter(url)
-            if found is not None:
-                return kind, found
-        if url.startswith("git:") and not url.endswith(".git") and "#" not in url:
-            repo = self.view.get_repository(url + ".git")
-            if repo is not None:
-                return "Repository", repo
-        return None
-
-    def _find_all_records(self, url: str) -> List[Tuple[str, Any]]:
+    def _find_all_records(
+        self, url: str, type_refs: Optional[TypeRefs] = None
+    ) -> List[Tuple[str, Any]]:
         results: List[Tuple[str, Any]] = []
         for kind, getter in (
             ("Instantiation", self.view.get_instantiation),
-            ("Repository", self.view.get_repository),
             ("Artifact", self.view.get_artifact),
             ("Service", self.view.get_service),
+            ("Repository", self.view.get_repository),
             ("Type", self.view.get_type),
         ):
             found = getter(url)
-            if found is not None:
+            if found is not None and (kind != "Repository" or "#" not in url):
+                # get_repository() normalizes git artifact URLs with # fragments, so skip those
                 results.append((kind, found))
+        if not results and type_refs:
+            pairs = type_refs.aslist()
+            if pairs and pairs[0][0].startswith("cloudmap.artifacts."):
+                # add an artifact record even though its missing
+                results.append(("Artifact", Artifact(url=url, type=type_refs)))
+            # XXX if type in get_types() construct a record from type kind
         return results
 
     @staticmethod
@@ -639,15 +654,12 @@ class CloudMapGraphWalker:
             return
         self.visitor.visit_relationship(label)
         for key, tr in typed_urls.items():
-            tr_pairs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None
-            if isinstance(tr, TypeRefs) and tr.types:
-                tr_pairs = [(n, dict(c) if c else None) for n, c in tr.types.items()]
             if self._is_url(key):
                 # Key is a URL — walk as a record ref with type_refs metadata
-                self._walk_child(key, visited, type_refs=tr_pairs)
-            elif tr_pairs:
+                self._walk_child(key, visited, type_refs=tr)
+            elif isinstance(tr, TypeRefs) and tr.types:
                 # Key is a label — each type name becomes a type ref
-                for name, constraint in tr_pairs:
+                for name, constraint in tr.aslist():
                     self.visitor.visit_type_ref(name, constraint, label=key)
                     self._walk_child(name, visited, _walk_only=True)
                     self.visitor.leave_type_ref()
@@ -680,7 +692,14 @@ class CloudMapGraphWalker:
             if record.notable:
                 self._walk_typed_urls("notable", record.notable, visited)
             if record.references:
-                self._walk_typed_urls("references", record.references, visited)
+                # if this artifact is part of a repository, reference the repository URL
+                repo_url = record.get_repository_url()
+                if repo_url and repo_url not in record.references:
+                    referenced = record.references.copy()
+                    referenced[repo_url] = None
+                else:
+                    referenced = record.references
+                self._walk_typed_urls("references", referenced, visited)
             if record.dependencies:
                 self._walk_typed_urls("dependencies", record.dependencies, visited)
             if record.instantiates and record.instantiates.types:
@@ -743,7 +762,7 @@ class CloudMapGraphWalker:
         self,
         url: str,
         visited: set,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
         _walk_only: bool = False,
     ) -> None:
         """Walk a child record.
@@ -752,21 +771,29 @@ class CloudMapGraphWalker:
         sections) but no ref is added to the current relationship list — a
         ``visit_type_ref`` call should have already been made.
         """
-        found = self._find_record(url)
-        if found is None:
+        found = self._find_all_records(url, type_refs)
+        if not found:
             if not _walk_only:
                 self.visitor.visit_ref(url, missing=True, type_refs=type_refs)
             return
-        child_kind, child_record = found
+        child_kind, child_record = found[0]
         if url in visited:
             if not _walk_only:
                 self.visitor.visit_record(
-                    child_kind, url, child_record, seen=True, type_refs=type_refs
+                    child_kind,
+                    url,
+                    child_record,
+                    seen=True,
+                    type_refs=_merge_typerefs(child_record, type_refs),
                 )
             return
         visited.add(url)
         self.visitor.visit_record(
-            child_kind, url, child_record, type_refs=type_refs, walk_only=_walk_only
+            child_kind,
+            url,
+            child_record,
+            type_refs=_merge_typerefs(child_record),
+            walk_only=_walk_only,
         )
         self._walk_edges(child_record, child_kind, visited)
         self.visitor.leave_record(child_kind, url, child_record)
@@ -802,7 +829,12 @@ class RichTreeVisitor(CloudMapGraphVisitor):
         return self._stack[-1]
 
     def _label(
-        self, kind: str, url: str, record: "CloudMapRecord", guide_style: str = ""
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        guide_style: str = "",
+        type_refs: Optional[TypeRefs] = None,
     ) -> str:
         title = ""
         if hasattr(record, "metadata") and hasattr(record.metadata, "title"):
@@ -811,10 +843,10 @@ class RichTreeVisitor(CloudMapGraphVisitor):
             title = record.name
         prefix = f"{title} " if title and title != url else ""
         type_str = ""
-        if hasattr(record, "type") and isinstance(record.type, TypeRefs):
+        if type_refs:
             names = [
                 f"{name}{(' v' + str(ref['version'])).lstrip('v') if ref and 'version' in ref else ''}"
-                for name, ref in record.type.types.items()
+                for name, ref in type_refs.types.items()
             ]
             if names or prefix:
                 pad = " " * len(kind)
@@ -846,14 +878,11 @@ class RichTreeVisitor(CloudMapGraphVisitor):
         record: "CloudMapRecord",
         *,
         seen: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
     ) -> None:
         style = self._KIND_STYLES.get(kind, "")
-        label = self._label(kind, url, record, style)
-        if type_refs:
-            names = ", ".join(n for n, _ in type_refs)
-            label += f" [dim]({escape(names)})[/]"
+        label = self._label(kind, url, record, style, type_refs)
         if seen:
             parent = self._stack[-1] if self._stack else None
             if parent:
@@ -896,11 +925,11 @@ class RichTreeVisitor(CloudMapGraphVisitor):
         url: str,
         *,
         missing: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
     ) -> None:
         suffix = ""
         if type_refs:
-            names = ", ".join(n for n, _ in type_refs)
+            names = ", ".join(n for n, _ in type_refs.aslist())
             suffix = f" ({escape(names)})"
         if missing:
             suffix += " \\[missing]"
@@ -1006,7 +1035,7 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
         record: "CloudMapRecord",
         *,
         seen: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
     ) -> None:
         node = self._ensure_record(kind, url)
@@ -1016,7 +1045,9 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
             if rel_list is not None:
                 ref = RecordRef(url=url, kind=kind)
                 if type_refs:
-                    ref["type_refs"] = [_make_type_ref_json(n, c) for n, c in type_refs]
+                    ref["type_refs"] = [
+                        _make_type_ref_json(n, c) for n, c in type_refs.aslist()
+                    ]
                 rel_list.append(ref)
 
         if not seen:
@@ -1047,7 +1078,7 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
         url: str,
         *,
         missing: bool = False,
-        type_refs: Optional[List[Tuple[str, Optional[Dict[str, Any]]]]] = None,
+        type_refs: Optional[TypeRefs] = None,
     ) -> None:
         rel_list = self._current_rel_list()
         if rel_list is not None:
@@ -1055,7 +1086,9 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
             if missing:
                 ref["missing"] = missing
             if type_refs:
-                ref["type_refs"] = [_make_type_ref_json(n, c) for n, c in type_refs]
+                ref["type_refs"] = [
+                    _make_type_ref_json(n, c) for n, c in type_refs.aslist()
+                ]
             rel_list.append(ref)
 
     def visit_type_ref(

@@ -19,6 +19,7 @@ from typing import (
     TYPE_CHECKING,
     Any,
     Dict,
+    Tuple,
     Iterable,
     List,
     Mapping,
@@ -329,6 +330,10 @@ class TypeRefs:
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
         return {k: filter_dict(self.types[k]) or None for k in sorted(self.types)}
+
+    def aslist(self) -> List[Tuple[str, Optional[Any]]]:
+        """Return list of (type name, constraints) pairs."""
+        return [(n, dict(c) if c else None) for n, c in self.types.items()]
 
     def names(self) -> List[str]:
         """Return list of type names."""
@@ -686,6 +691,15 @@ class Artifact(VersionedRecord):
         if self.versions:
             self.versions = self._load_versions()
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
+
+    def get_repository_url(self) -> Optional[str]:
+        """If the artifact references a repository, return the git:// URL for that repository."""
+        if self.url.startswith("git://"):
+            url = self.url.partition("#")[0]
+            if not url.endswith(".git"):
+                url += ".git"
+            return url
+        return None
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
