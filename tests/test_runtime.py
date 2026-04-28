@@ -27,6 +27,7 @@ from unfurl.util import (
     UnfurlValidationError,
     lookup_class,
     API_VERSION,
+    path_startswith,
     sensitive_str,
     should_include_path
 )
@@ -814,3 +815,20 @@ def test_job_timeout():
             },
         ],
     }
+
+
+def test_path_startswith():
+    sep = os.path.sep
+    # equal paths match
+    assert path_startswith(f"{sep}a{sep}b", f"{sep}a{sep}b")
+    # strict descendant matches
+    assert path_startswith(f"{sep}a{sep}b{sep}c", f"{sep}a{sep}b")
+    assert path_startswith(f"{sep}a{sep}b{sep}c{sep}d", f"{sep}a{sep}b")
+    # false-prefix neighbor does NOT match
+    assert not path_startswith(f"{sep}a{sep}bc", f"{sep}a{sep}b")
+    assert not path_startswith(f"{sep}a{sep}bb", f"{sep}a{sep}b")
+    # unrelated paths don't match
+    assert not path_startswith(f"{sep}x{sep}y", f"{sep}a{sep}b")
+    # trailing separator on parent is tolerated
+    assert path_startswith(f"{sep}a{sep}b{sep}c", f"{sep}a{sep}b{sep}")
+    assert path_startswith(f"{sep}a{sep}b", f"{sep}a{sep}b{sep}")

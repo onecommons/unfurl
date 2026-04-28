@@ -41,7 +41,7 @@ from .lock import Lock
 from .util import (
     UnfurlBadDocumentError,
     UnfurlSchemaError,
-    is_relative_to,
+    path_startswith,
     to_bytes,
     to_text,
     sensitive_str,
@@ -924,18 +924,20 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repoview_from_path(self, base: str) -> Optional[RepoView]:
         assert base
+        if not self.manifest:
+            return None
         nearest = ""
         candidate = None
-        if self.manifest:
-            # if repository is nested in another choose the most nested
-            for repo_view in self.manifest.repositories.values():
-                if not repo_view.repo:
-                    if self.local_env:
-                        repo_view.repo = self.local_env.find_git_repo(repo_view.url)
-                if is_relative_to(base, repo_view.working_dir):
-                    if len(repo_view.working_dir) > len(nearest):
-                        nearest = repo_view.working_dir
-                        candidate = repo_view
+        for repo_view in self.manifest.repositories.values():
+            if not repo_view.repo:
+                if self.local_env:
+                    repo_view.repo = self.local_env.find_git_repo(repo_view.url)
+            wd = repo_view.working_dir
+            if not wd:
+                continue
+            if path_startswith(base, wd) and len(wd) > len(nearest):
+                nearest = wd
+                candidate = repo_view
         return candidate
 
     def resolve_url(
