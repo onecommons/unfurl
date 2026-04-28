@@ -785,7 +785,9 @@ class CacheEntry:
                         self.pull_state = action
                         return self.checked_repo
 
-            if stale_ok_age and (stale_ok_age == -1 or time.time() - last_check <= stale_ok_age):
+            if stale_ok_age and (
+                stale_ok_age == -1 or time.time() - last_check <= stale_ok_age
+            ):
                 # last_check was recent enough, no need to pull if the local clone still exists
                 if not self.repo:
                     self._set_project_repo()
@@ -1164,9 +1166,7 @@ class CacheEntry:
         cache_dependency: Optional[CacheItemDependency] = None,
     ) -> Tuple[CacheError, Any]:
         try:
-            if (
-                latest_commit is None and not self.stale_pull_age
-            ):
+            if latest_commit is None and not self.stale_pull_age:
                 # don't use the cache
                 return self._do_work(work, latest_commit)[0:2]
 
@@ -1486,7 +1486,11 @@ def _export(
     if latest_commit == "undefined":
         latest_commit = None
     project_id = get_project_id(request)
-    if not deployment_path and include_all and project_id in ("onecommons/std", "onecommons/unfurl-types"):
+    if (
+        not deployment_path
+        and include_all
+        and project_id in ("onecommons/std", "onecommons/unfurl-types")
+    ):
         file_path = "dummy-ensemble.yaml"
     else:
         file_path = _get_filepath(requested_format, deployment_path)

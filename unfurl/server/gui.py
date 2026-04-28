@@ -98,7 +98,9 @@ def serve_document(
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
 
-    localrepo_is_dashboard = bool(localenv.manifestPath and localenv.overrides.get("format") != "blueprint")
+    localrepo_is_dashboard = bool(
+        localenv.manifestPath and localenv.overrides.get("format") != "blueprint"
+    )
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
