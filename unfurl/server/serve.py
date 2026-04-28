@@ -3166,6 +3166,19 @@ def serve(
 
     wlogger = logging.getLogger("waitress.queue")
     wlogger.setLevel(Levels.ERROR)  # suppress queue warning spam
+
+    # Enable per-request profiling by setting UNFURL_PROFILE_REQUEST=<dir>.
+    # Each request produces a .prof file named after the path + timestamp.
+    if profile_dir := os.environ.get("UNFURL_PROFILE_REQUEST"):
+        from werkzeug.middleware.profiler import ProfilerMiddleware
+
+        os.makedirs(profile_dir, exist_ok=True)
+        app.wsgi_app = ProfilerMiddleware(  # type: ignore[method-assign]
+            app.wsgi_app,
+            profile_dir=profile_dir,
+            filename_format="{method}.{path}.{time:.0f}.{elapsed:.0f}ms.prof",
+        )
+        logger.info("Per-request profiling enabled; output to %s", profile_dir)
     # Optionally start the Rust proxy server in front of waitress.
     rust_proc = None
     try:

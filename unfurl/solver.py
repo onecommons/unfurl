@@ -1,5 +1,6 @@
 # Copyright (c) 2024 Adam Souzis
 # SPDX-License-Identifier: MIT
+from time import perf_counter
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 import sys
 
@@ -716,9 +717,12 @@ def solve_topology(
     # print ('types', graph.types)
     # print("!solving " + "\n\n".join(repr(n) for n in nodes.values()))
     # graph.add_referenced_topologies()
+    t0 = perf_counter()
     solved = cast(Solution, solve(nodes, graph.types))
     logger.debug(
-        f"Solver found {len(solved)} requirements match{'es' if len(solved) != 1 else ''} for {len(nodes)} Node template{'s' if len(nodes) != 1 else ''}."
+        f"Solver found {len(solved)} requirements match{'es' if len(solved) != 1 else ''} "
+        f"for {len(nodes)} Node template{'s' if len(nodes) != 1 else ''} "
+        f"in {(perf_counter() - t0) * 1000:.1f}ms."
     )
     # print("SOLVED", solved)
     for (source_name, req), targets in solved.items():
