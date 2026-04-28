@@ -14,7 +14,7 @@
 //!
 //! # YAML round-trip
 //!
-//! Modified records 
+//! Modified records
 
 #![deny(rust_2018_idioms)]
 #![allow(clippy::too_many_arguments)]
