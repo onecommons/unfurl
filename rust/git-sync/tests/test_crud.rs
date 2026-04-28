@@ -515,13 +515,55 @@ async fn run_find_records_alias_lookup(sync: &GitSync, _tmp: &TempDir) {
 async fn run_find_records_follow_walk(sync: &GitSync, _tmp: &TempDir) {
     // find_records_follow walks DataFormat::follow edges from each
     // initial match, breadth-first, returning at most `follow` newly
-    // visited records. We start from a single ensemble artifact and
-    // expect the walk to traverse into the records it references.
+    // visited records.
+    //
+    // Start: /repositories # git://unfurl.cloud/onecommons/blueprints/odoo.git
+    //
+    // Breadth-first expectation:
+    //
+    // 1. The repository's `notable["ensemble-template.yaml#…"]
+    //    .artifact` URL adds:
+    //        /artifacts # git://…blueprints/odoo.git#:ensemble-template.yaml
+    //    (The strip-and-`.git`-normalise step also emits the bare
+    //    `git://…blueprints/odoo.git`, but that's the start record —
+    //    deduped.)
+    //
+    // 2. That artifact's `references` block has two URLs.
+    //    a. `git://…/unfurl-types#v0.7.7:.` — strip + normalise to
+    //       `git://…/unfurl-types.git`, which matches the repository:
+    //           /repositories # git://unfurl.cloud/onecommons/unfurl-types.git
+    //    b. `pkg:oci/odoo?…&tag=latest` — alias-resolves to:
+    //           /artifacts # pkg:oci/odoo?repository_url=docker.io/bitnami/odoo
+    //
+    // 3. The unfurl-types repository's `notable["dummy-ensemble.yaml"]
+    //    .artifact` URL reaches:
+    //        /artifacts # git://…/unfurl-types.git#:dummy-ensemble.yaml
+    //
+    // 4. The OCI image and the dummy-ensemble TypeLibrary have no
+    //    follow-shaped fields. BFS ends.
     sync.update_from_working_dir().await.expect("update");
 
-    let start_path = "/artifacts";
-    let start_key =
-        "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml";
+    let start_path = "/repositories";
+    let start_key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
+
+    let expected_walk: Vec<(&str, &str)> = vec![
+        (
+            "/artifacts",
+            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        ),
+        (
+            "/repositories",
+            "git://unfurl.cloud/onecommons/unfurl-types.git",
+        ),
+        (
+            "/artifacts",
+            "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo",
+        ),
+        (
+            "/artifacts",
+            "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml",
+        ),
+    ];
 
     // follow=0 → the followed Vec is empty, regardless of edges.
     let (init, follow0) = sync
@@ -535,9 +577,11 @@ async fn run_find_records_follow_walk(sync: &GitSync, _tmp: &TempDir) {
         .await
         .expect("follow 0");
     assert_eq!(init.len(), 1);
+    assert_eq!(init[0].path, start_path);
+    assert_eq!(init[0].key, start_key);
     assert!(follow0.is_empty(), "follow=0 returns no walked records");
 
-    // follow=10 → walk up to 10 reachable records.
+    // follow=10 → walk up to 10 reachable records (more than enough).
     let (init, walked) = sync
         .find_records_follow(
             None,
@@ -549,32 +593,75 @@ async fn run_find_records_follow_walk(sync: &GitSync, _tmp: &TempDir) {
         .await
         .expect("follow 10");
     assert_eq!(init.len(), 1);
-    assert!(
-        !walked.is_empty(),
-        "ensemble artifact should reach at least one referenced record"
+    assert_eq!(init[0].path, start_path);
+    assert_eq!(init[0].key, start_key);
+
+    let walked_ids: Vec<(&str, &str)> = walked
+        .iter()
+        .map(|r| (r.path.as_str(), r.key.as_str()))
+        .collect();
+    assert_eq!(
+        walked_ids, expected_walk,
+        "follow walk should reach the four expected records",
+    );
+
+    // Spot-check a few payloads to confirm these are the expected
+    // records (and not coincidental key matches).
+    let ensemble_template = &walked[0];
+    assert_eq!(
+        ensemble_template
+            .json
+            .get("type")
+            .and_then(|t| t.as_object())
+            .and_then(|t| t.keys().next())
+            .map(|s| s.as_str()),
+        Some("cloudmap.artifacts.tosca.ServiceTemplate"),
+    );
+    let unfurl_types_repo = &walked[1];
+    assert_eq!(
+        unfurl_types_repo.json.get("name").and_then(|n| n.as_str()),
+        Some("unfurl-types"),
+    );
+    let oci = &walked[2];
+    assert_eq!(
+        oci.json
+            .get("type")
+            .and_then(|t| t.as_object())
+            .and_then(|t| t.keys().next())
+            .map(|s| s.as_str()),
+        Some("cloudmap.artifacts.oci.Image"),
     );
     assert!(
-        walked.len() as u32 <= 10,
-        "follow budget must be respected; got {}",
-        walked.len()
+        oci.json.get("versions").is_some(),
+        "the OCI artifact still has its versions block"
     );
-    // The starting record must not appear in the followed set.
-    assert!(
-        !walked
-            .iter()
-            .any(|r| r.path == start_path && r.key == start_key),
-        "the starting record shouldn't be re-emitted in `followed`"
+    let dummy_ensemble = &walked[3];
+    assert_eq!(
+        dummy_ensemble
+            .json
+            .get("type")
+            .and_then(|t| t.as_object())
+            .and_then(|t| t.keys().next())
+            .map(|s| s.as_str()),
+        Some("cloudmap.artifacts.tosca.TypeLibrary"),
     );
-    // Every walked record is unique by (path, key).
-    let mut seen = std::collections::BTreeSet::new();
-    for r in &walked {
-        assert!(
-            seen.insert((r.path.clone(), r.key.clone())),
-            "follow walk emitted a duplicate ({}, {})",
-            r.path,
-            r.key
-        );
-    }
+
+    // follow=1 → BFS truncates after the first hop (ensemble-template).
+    let (_, walked_small) = sync
+        .find_records_follow(
+            None,
+            Some(start_path.into()),
+            Some(start_key.into()),
+            false,
+            1,
+        )
+        .await
+        .expect("follow 1");
+    let walked_small_ids: Vec<(&str, &str)> = walked_small
+        .iter()
+        .map(|r| (r.path.as_str(), r.key.as_str()))
+        .collect();
+    assert_eq!(walked_small_ids, vec![expected_walk[0]]);
 }
 
 // ---------------------------------------------------------------------------

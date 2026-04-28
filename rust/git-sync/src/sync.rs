@@ -352,19 +352,17 @@ impl GitSync {
             let Some(fmt) = self.formats().by_name(&name) else {
                 continue;
             };
-            for (p, k) in fmt.follow(&rec) {
-                if visited.contains(&(p.clone(), k.clone())) {
-                    continue;
-                }
-                // Each follow target is an exact (path, key) lookup,
-                // alias-aware so versioned URLs resolve to their
-                // canonical record.
+            for key in fmt.follow(&rec) {
+                // Each follow target is a key matched against
+                // `record.key` and `alias.key` across every record in
+                // the worktree (no path filter). One URL may resolve
+                // to multiple records — they're all added.
                 let hits = db::record::find(
                     self.db(),
                     self.worktree_id(),
                     None,
-                    Some(p.as_str()),
-                    Some(k.as_str()),
+                    None,
+                    Some(key.as_str()),
                     true,
                 )
                 .await?;

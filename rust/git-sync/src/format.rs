@@ -1,49 +1,83 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! Pluggable data format trait + registry.
+//! Pluggable [`DataFormat`] trait and its [`FormatRegistry`].
+//!
+//! A `DataFormat` describes one kind of YAML/JSON document: how to
+//! recognise it, where its records live, and how records cross-reference
+//! each other. The crate ships [`crate::CloudMapFormat`]; callers can
+//! plug in additional implementations.
 
 use crate::Record;
 
-/// A pluggable JSON/YAML-on-disk format.
+/// Defines one JSON/YAML on-disk format the crate can index.
 ///
-/// Implementations classify a parsed value, declare which top-level keys
-/// hold individual records, and expose graph-walking helpers used by
-/// callers that need aliases or follow-pointers.
+/// Implementations classify a parsed value (`is_format`), declare which
+/// top-level keys hold individual records (`path_prefixes`), and expose
+/// graph helpers used by [`crate::GitSync::find_records`] (`find_alias`)
+/// and [`crate::GitSync::find_records_follow`] (`follow`). Implementors
+/// must be `Send + Sync` so a registry can be shared across tasks.
 pub trait DataFormat: Send + Sync {
-    /// Format key (e.g. `"cloudmap"`).
+    /// The format's unique name (e.g. `"cloudmap"`).
+    ///
+    /// Stored in the `file.format` column and looked up via
+    /// [`FormatRegistry::by_name`].
     fn name(&self) -> &str;
 
-    /// Quick predicate to decide whether a parsed JSON value belongs to
-    /// this format.
+    /// Returns `true` if the supplied parsed value matches this format.
+    ///
+    /// Used by [`FormatRegistry::detect`] to classify newly-seen files.
+    /// Implementations typically inspect a `kind` or `apiVersion`
+    /// header.
     fn is_format(&self, json: &serde_json::Value) -> bool;
 
-    /// Top-level keys whose direct children are individual records.
+    /// Lists the top-level keys whose direct children are individual
+    /// records.
+    ///
+    /// During [`crate::GitSync::update_from_working_dir`] each entry
+    /// `(prefix, key, value)` under `value[prefix]` becomes one
+    /// [`Record`] with `path = "/{prefix}"` and the literal map `key`.
     fn path_prefixes(&self) -> &[&str];
 
-    /// Alternative `(path, key)` pairs under which this record should
-    /// also be findable. Used to populate the `alias` table. `path` is
-    /// the parent JSON-pointer; `key` is the unescaped alias key.
+    /// Returns alternate `(path, key)` lookups that should resolve to
+    /// `record`.
+    ///
+    /// Used to populate the `alias` table during
+    /// [`crate::GitSync::update_from_working_dir`]. `path` is the
+    /// parent JSON-pointer (e.g. `/repositories`); `key` is the
+    /// unescaped alias key. Returning an empty `Vec` means the record
+    /// has no aliases.
     fn find_alias(&self, record: &Record) -> Vec<(String, String)>;
 
-    /// `(path, key)` pairs (within the same file or worktree) of
-    /// records this record references. Used by
-    /// `find_records(.., follow=true)`.
-    fn follow(&self, record: &Record) -> Vec<(String, String)>;
+    /// Returns the keys this record points at.
+    ///
+    /// Used by [`crate::GitSync::find_records_follow`] to walk
+    /// outgoing edges; each returned key is matched against
+    /// `record.key` and (alias-resolved) `alias.key` across every
+    /// record in the worktree. Implementations should only return
+    /// URL-shaped (or otherwise resolvable) references; label-only
+    /// references should be skipped.
+    fn follow(&self, record: &Record) -> Vec<String>;
 }
 
-/// Registry of [`DataFormat`] implementations. Owns the boxed trait
-/// objects.
+/// Registry of [`DataFormat`] implementations.
+///
+/// Owns its boxed formats and is consumed (by value) when constructing
+/// a [`crate::GitSync`]. Iteration order is registration order; the
+/// first format whose [`DataFormat::is_format`] accepts a value wins
+/// the [`detect`](Self::detect) call.
 #[derive(Default)]
 pub struct FormatRegistry {
     formats: Vec<Box<dyn DataFormat>>,
 }
 
 impl FormatRegistry {
+    /// Create an empty registry.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Return a registry pre-loaded with every format the crate ships.
+    /// Create a registry pre-loaded with every format the crate ships.
+    ///
     /// Currently that's just [`crate::CloudMapFormat`].
     pub fn with_builtins() -> Self {
         let mut r = Self::default();
@@ -51,12 +85,17 @@ impl FormatRegistry {
         r
     }
 
+    /// Register an additional [`DataFormat`] implementation.
+    ///
+    /// Order matters for [`detect`](Self::detect): formats registered
+    /// earlier are tried first.
     pub fn register<F: DataFormat + 'static>(&mut self, fmt: F) {
         self.formats.push(Box::new(fmt));
     }
 
-    /// Return the first registered format whose `is_format` accepts the
-    /// supplied value.
+    /// Return the first registered format whose
+    /// [`DataFormat::is_format`] accepts `json`, or `None` if no
+    /// format matches.
     pub fn detect(&self, json: &serde_json::Value) -> Option<&dyn DataFormat> {
         self.formats
             .iter()
@@ -64,7 +103,8 @@ impl FormatRegistry {
             .map(|b| b.as_ref())
     }
 
-    /// Look up a format by name.
+    /// Look up a format by its [`DataFormat::name`], or `None` if no
+    /// format with that name is registered.
     pub fn by_name(&self, name: &str) -> Option<&dyn DataFormat> {
         self.formats
             .iter()

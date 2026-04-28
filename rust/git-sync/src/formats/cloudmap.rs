@@ -2,13 +2,19 @@
 // SPDX-License-Identifier: MIT
 //! CloudMap [`DataFormat`] implementation.
 //!
-//! Ports the cloudmap-specific helpers from the Python codebase:
-//! - `is_format`: matches `unfurl/cloudmap.py:518` (`kind == "CloudMap"`).
-//! - `path_prefixes`: matches `unfurl/cloudmap.py:533–565`.
-//! - `find_alias`: ports `VersionedRecord._load_versions`
-//!   (`unfurl/tosca_plugins/cloudmap_defs.py:416–441`) plus `join_resource_url`
-//!   (`unfurl/tosca_plugins/cloudmap_defs.py:64–92`).
-//! - `follow`: ports `CloudMapGraphWalker._walk_edges`
+//! Recognises documents with `kind: CloudMap` and extracts records
+//! under the five path-prefix sections (`services`, `repositories`,
+//! `artifacts`, `instantiations`, `types`).
+//!
+//! The helpers port logic from the Python codebase:
+//!
+//! - [`CloudMapFormat::is_format`] matches `unfurl/cloudmap.py:518`
+//!   (`kind == "CloudMap"`).
+//! - [`CloudMapFormat::path_prefixes`] matches `unfurl/cloudmap.py:533–565`.
+//! - [`CloudMapFormat::find_alias`] ports `VersionedRecord._load_versions`
+//!   (`unfurl/tosca_plugins/cloudmap_defs.py:416–441`) plus
+//!   `join_resource_url` (`unfurl/tosca_plugins/cloudmap_defs.py:64–92`).
+//! - [`CloudMapFormat::follow`] ports `CloudMapGraphWalker._walk_edges`
 //!   (`unfurl/reporting.py:658–740`).
 
 use std::collections::BTreeSet;
@@ -26,7 +32,11 @@ const PATH_PREFIXES: &[&str] = &[
     "types",
 ];
 
-/// CloudMap data format.
+/// The CloudMap [`DataFormat`] implementation.
+///
+/// Zero-sized; construct with `CloudMapFormat` or
+/// [`CloudMapFormat::new`]. Pre-registered by
+/// [`crate::FormatRegistry::with_builtins`].
 #[derive(Debug, Default, Clone)]
 pub struct CloudMapFormat;
 
@@ -93,8 +103,8 @@ impl DataFormat for CloudMapFormat {
         out
     }
 
-    fn follow(&self, record: &Record) -> Vec<(String, String)> {
-        // Ports CloudMapGraphWalker._walk_edges (`unfurl/reporting.py:658–740`).
+    fn follow(&self, record: &Record) -> Vec<String> {
+        // Equivalent to CloudMapGraphWalker._walk_edges in `unfurl/reporting.py`.
         // Only URL-shaped edges are returned (`_is_url`, line 632).
         let Some(prefix) = Self::record_section(record) else {
             return Vec::new();
@@ -143,19 +153,42 @@ impl DataFormat for CloudMapFormat {
             _ => {}
         }
 
-        // Convert URLs → (parent_path, key) targets. We don't know which
-        // prefix each URL lives under; emit one target per prefix and
-        // let the caller filter by what exists in the database.
-        let mut out: BTreeSet<(String, String)> = BTreeSet::new();
+        // Filter URL-shaped values, plus — matching
+        // CloudMapGraphWalker — strip the `#fragment` from `git:` URLs
+        // and emit the bare repository URL alongside the original.
+        let mut out: BTreeSet<String> = BTreeSet::new();
         for url in urls {
             if !is_url(&url) {
                 continue;
             }
-            for p in PATH_PREFIXES {
-                out.insert((format!("/{p}"), url.clone()));
+            if let Some(stripped) = strip_git_fragment(&url) {
+                out.insert(stripped);
             }
+            out.insert(url);
         }
         out.into_iter().collect()
+    }
+}
+
+/// If `url` starts with `git:` and contains a `#` fragment, return the
+/// bare repository URL: everything before the first `#`, with `.git`
+/// appended when the stripped path doesn't already end in `.git`.
+///
+/// Cloudmap repository keys conventionally include the `.git` suffix
+/// (e.g. `git://unfurl.cloud/onecommons/std.git`), but reference URLs
+/// in artifacts often omit it (e.g.
+/// `git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.`). Normalising
+/// the stripped form to always end in `.git` lets follow-edges resolve
+/// to the canonical repository record.
+fn strip_git_fragment(url: &str) -> Option<String> {
+    if !url.starts_with("git:") {
+        return None;
+    }
+    let (head, _frag) = url.split_once('#')?;
+    if head.ends_with(".git") {
+        Some(head.to_string())
+    } else {
+        Some(format!("{head}.git"))
     }
 }
 
@@ -374,6 +407,25 @@ mod tests {
         assert!(f.is_format(&json!({"kind":"CloudMap"})));
         assert!(!f.is_format(&json!({"kind":"Other"})));
         assert!(!f.is_format(&json!({})));
+    }
+
+    #[test]
+    fn strip_git_fragment_normalises_to_dot_git() {
+        // .git suffix is preserved when present.
+        assert_eq!(
+            strip_git_fragment("git://unfurl.cloud/x/y.git#v1.0:."),
+            Some("git://unfurl.cloud/x/y.git".to_string()),
+        );
+        // .git suffix is appended when missing.
+        assert_eq!(
+            strip_git_fragment("git://unfurl.cloud/x/y#v1.0:."),
+            Some("git://unfurl.cloud/x/y.git".to_string()),
+        );
+        // No fragment → no strip.
+        assert_eq!(strip_git_fragment("git://unfurl.cloud/x/y.git"), None);
+        // Non-git URLs are not normalised.
+        assert_eq!(strip_git_fragment("https://example.com/x#frag"), None,);
+        assert_eq!(strip_git_fragment("pkg:oci/x?repo=y&tag=z"), None);
     }
 
     #[test]
