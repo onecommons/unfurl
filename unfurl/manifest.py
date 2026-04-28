@@ -53,7 +53,6 @@ from .util import (
     to_enum,
     sensitive_str,
     get_base_dir,
-    taketwo,
 )
 from .repo import Repo, normalize_git_url, split_git_url, RepoView, GitRepo
 from .localenv import RepoViewPath

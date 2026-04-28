@@ -1638,7 +1638,13 @@ class LocalEnv:
         if not env_package_spec and self.overrides.get("UNFURL_CLOUD_SERVER"):
             env_package_spec = "unfurl.cloud " + self.overrides["UNFURL_CLOUD_SERVER"]
         if env_package_spec:
-            for key, value in taketwo(env_package_spec.split()):
+            tokens = env_package_spec.split()
+            if len(tokens) % 2 != 0:
+                raise UnfurlError(
+                    f"UNFURL_PACKAGE_RULES must contain an even number of whitespace-separated tokens "
+                    f"(package-spec / url-or-package-id pairs); got {len(tokens)}: {env_package_spec!r}"
+                )
+            for key, value in taketwo(tokens):
                 package_specs.append(PackageSpec(key, value, None))
         return repositories, package_specs
 
