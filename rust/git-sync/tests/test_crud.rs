@@ -440,6 +440,143 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     );
 }
 
+async fn run_find_records_alias_lookup(sync: &GitSync, _tmp: &TempDir) {
+    // The fixture's pkg:oci/odoo OCI artifact has a `versions` map
+    // (`@sha256:…`, `?tag=latest`); CloudMapFormat::find_alias turns
+    // each into an alias row at (record.path, joined_url). Looking up
+    // those alias keys with `alias=true` should resolve to the parent
+    // OCI artifact record.
+    sync.update_from_working_dir().await.expect("update");
+
+    let parent_path = "/artifacts";
+    let parent_key = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo";
+
+    // Sanity: the parent record exists.
+    let direct = sync
+        .find_records(
+            None,
+            Some(parent_path.into()),
+            Some(parent_key.into()),
+            false,
+        )
+        .await
+        .expect("find_records direct");
+    assert_eq!(direct.len(), 1, "parent OCI record should be found");
+    let parent_id = direct[0].id;
+
+    // The version `?tag=latest` joins onto the parent URL by merging
+    // the query string → alias key
+    // `pkg:oci/odoo?repository_url=…&tag=latest`. Without `alias=true`
+    // a search for the alias key returns nothing.
+    let alias_key = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest";
+    let no_alias = sync
+        .find_records(
+            None,
+            Some(parent_path.into()),
+            Some(alias_key.into()),
+            false,
+        )
+        .await
+        .expect("find_records without alias");
+    assert!(
+        no_alias.is_empty(),
+        "without alias=true, an alias key should not match"
+    );
+
+    // With `alias=true`, the same lookup resolves to the parent record.
+    let via_alias = sync
+        .find_records(None, Some(parent_path.into()), Some(alias_key.into()), true)
+        .await
+        .expect("find_records via alias");
+    assert_eq!(via_alias.len(), 1, "alias lookup should hit the parent");
+    assert_eq!(
+        via_alias[0].id, parent_id,
+        "alias should point at the OCI artifact record"
+    );
+    assert_eq!(via_alias[0].key, parent_key);
+
+    // alias=true is a no-op when key is None — should give the same
+    // result as alias=false.
+    let any_artifact = sync
+        .find_records(None, Some(parent_path.into()), None, true)
+        .await
+        .expect("find_records no key, alias=true");
+    let any_artifact_no_alias = sync
+        .find_records(None, Some(parent_path.into()), None, false)
+        .await
+        .expect("find_records no key, alias=false");
+    assert_eq!(
+        any_artifact.len(),
+        any_artifact_no_alias.len(),
+        "alias is a no-op when key is None"
+    );
+}
+
+async fn run_find_records_follow_walk(sync: &GitSync, _tmp: &TempDir) {
+    // find_records_follow walks DataFormat::follow edges from each
+    // initial match, breadth-first, returning at most `follow` newly
+    // visited records. We start from a single ensemble artifact and
+    // expect the walk to traverse into the records it references.
+    sync.update_from_working_dir().await.expect("update");
+
+    let start_path = "/artifacts";
+    let start_key =
+        "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml";
+
+    // follow=0 → the followed Vec is empty, regardless of edges.
+    let (init, follow0) = sync
+        .find_records_follow(
+            None,
+            Some(start_path.into()),
+            Some(start_key.into()),
+            false,
+            0,
+        )
+        .await
+        .expect("follow 0");
+    assert_eq!(init.len(), 1);
+    assert!(follow0.is_empty(), "follow=0 returns no walked records");
+
+    // follow=10 → walk up to 10 reachable records.
+    let (init, walked) = sync
+        .find_records_follow(
+            None,
+            Some(start_path.into()),
+            Some(start_key.into()),
+            false,
+            10,
+        )
+        .await
+        .expect("follow 10");
+    assert_eq!(init.len(), 1);
+    assert!(
+        !walked.is_empty(),
+        "ensemble artifact should reach at least one referenced record"
+    );
+    assert!(
+        walked.len() as u32 <= 10,
+        "follow budget must be respected; got {}",
+        walked.len()
+    );
+    // The starting record must not appear in the followed set.
+    assert!(
+        !walked
+            .iter()
+            .any(|r| r.path == start_path && r.key == start_key),
+        "the starting record shouldn't be re-emitted in `followed`"
+    );
+    // Every walked record is unique by (path, key).
+    let mut seen = std::collections::BTreeSet::new();
+    for r in &walked {
+        assert!(
+            seen.insert((r.path.clone(), r.key.clone())),
+            "follow walk emitted a duplicate ({}, {})",
+            r.path,
+            r.key
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Backend wrappers
 // ---------------------------------------------------------------------------
@@ -493,3 +630,5 @@ crud_test!(
     create_with_pending_token_on_committed_file_is_conflict,
     run_create_with_pending_token_on_committed_file_is_conflict
 );
+crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
+crud_test!(find_records_follow_walk, run_find_records_follow_walk);

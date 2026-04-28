@@ -254,227 +254,167 @@ pub(crate) async fn load_pending(
     Ok(out)
 }
 
+/// Search records by optional `file_path` / `path` / `key` filters.
+/// All `Some(...)` filters AND together. With `alias = true` and
+/// `key = Some(...)`, a record also matches when one of its alias rows
+/// has that key (joined on `record_id`).
 pub(crate) async fn find(
     db: &Db,
     worktree_id: i64,
-    targets: &[(String, Option<String>)],
-    format: &str,
+    file_path: Option<&str>,
+    path: Option<&str>,
+    key: Option<&str>,
+    alias: bool,
 ) -> Result<Vec<Record>> {
-    // Split targets into "path-only" (any key under that parent) and
-    // "exact (path, key)" buckets so we can build the WHERE clause
-    // simply in either dialect.
-    let mut path_only: Vec<String> = Vec::new();
-    let mut path_key: Vec<(String, String)> = Vec::new();
-    for (p, k) in targets {
-        match k {
-            Some(k) => path_key.push((p.clone(), k.clone())),
-            None => path_only.push(p.clone()),
-        }
-    }
-
+    // The alias OR-clause is a no-op without a key.
+    let alias_active = alias && key.is_some();
     match db {
         Db::Sqlite(pool) => {
-            let mut sql = String::from(
-                "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json) FROM record r \
-                 JOIN file f ON f.worktree_id = r.worktree_id AND f.path = r.file_path \
-                 WHERE r.worktree_id = ?1 AND f.format = ?2 AND r.deleted = 0",
-            );
-            if !targets.is_empty() {
-                // Bind layout: ?1 = worktree_id, ?2 = format, then
-                // path_only paths, then path_key flattened (path, key)*,
-                // and then again for the alias subquery.
-                sql.push_str(" AND (");
-                let mut idx: usize = 3;
-                let mut clauses: Vec<String> = Vec::new();
-                if !path_only.is_empty() {
-                    let placeholders: Vec<String> = (0..path_only.len())
-                        .map(|i| format!("?{}", idx + i))
-                        .collect();
-                    clauses.push(format!("r.path IN ({})", placeholders.join(",")));
-                    idx += path_only.len();
-                }
-                if !path_key.is_empty() {
-                    let pairs: Vec<String> = (0..path_key.len())
-                        .map(|i| {
-                            let p = idx + i * 2;
-                            let k = idx + i * 2 + 1;
-                            format!("(r.path = ?{p} AND r.key = ?{k})")
-                        })
-                        .collect();
-                    clauses.push(format!("({})", pairs.join(" OR ")));
-                    idx += path_key.len() * 2;
-                }
-                if !path_key.is_empty() {
-                    let pairs: Vec<String> = (0..path_key.len())
-                        .map(|i| {
-                            let p = idx + i * 2;
-                            let k = idx + i * 2 + 1;
-                            format!("(a.path = ?{p} AND a.key = ?{k})")
-                        })
-                        .collect();
-                    clauses.push(format!(
-                        "EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND ({}))",
-                        pairs.join(" OR ")
-                    ));
-                }
-                sql.push_str(&clauses.join(" OR "));
-                sql.push(')');
-            }
-            sql.push_str(" ORDER BY r.path, r.key");
-
-            let mut q =
-                sqlx::query_as::<_, (i64, String, String, String, Option<String>, String)>(&sql)
-                    .bind(worktree_id)
-                    .bind(format);
-            for p in &path_only {
-                q = q.bind(p);
-            }
-            for (p, k) in &path_key {
-                q = q.bind(p).bind(k);
-            }
-            // alias clause repeats path_key.
-            for (p, k) in &path_key {
-                q = q.bind(p).bind(k);
-            }
-            let rows = q.fetch_all(pool).await?;
-
-            let mut out = Vec::with_capacity(rows.len());
-            for (id, file_path, path, key, commit_id, json_text) in rows {
-                let json: serde_json::Value =
-                    serde_json::from_str(&json_text).map_err(|e| Error::Json {
-                        path: path.clone(),
-                        source: e,
-                    })?;
-                out.push(Record {
-                    id,
-                    worktree_id,
-                    file_path,
-                    path,
-                    key,
-                    commit_id,
-                    json,
-                    deleted: false,
-                });
-            }
-            Ok(out)
+            find_sqlite(pool, worktree_id, file_path, path, key, alias_active).await
         }
         #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            if targets.is_empty() {
-                let rows: Vec<(
-                    i64,
-                    String,
-                    String,
-                    String,
-                    Option<String>,
-                    serde_json::Value,
-                )> = sqlx::query_as(
-                    "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json \
-                         FROM record r \
-                         JOIN file f ON f.worktree_id = r.worktree_id AND f.path = r.file_path \
-                         WHERE r.worktree_id = $1 AND f.format = $2 AND r.deleted = FALSE \
-                         ORDER BY r.path, r.key",
-                )
-                .bind(worktree_id)
-                .bind(format)
-                .fetch_all(pool)
-                .await?;
-                return Ok(rows
-                    .into_iter()
-                    .map(|(id, fp, p, k, cid, json)| Record {
-                        id,
-                        worktree_id,
-                        file_path: fp,
-                        path: p,
-                        key: k,
-                        commit_id: cid,
-                        json,
-                        deleted: false,
-                    })
-                    .collect());
-            }
-
-            // Build the SQL with $-placeholders.
-            let mut sql = String::from(
-                "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json \
-                 FROM record r \
-                 JOIN file f ON f.worktree_id = r.worktree_id AND f.path = r.file_path \
-                 WHERE r.worktree_id = $1 AND f.format = $2 AND r.deleted = FALSE AND (",
-            );
-            let mut idx: usize = 3;
-            let mut clauses: Vec<String> = Vec::new();
-            if !path_only.is_empty() {
-                let placeholders: Vec<String> = (0..path_only.len())
-                    .map(|i| format!("${}", idx + i))
-                    .collect();
-                clauses.push(format!("r.path IN ({})", placeholders.join(",")));
-                idx += path_only.len();
-            }
-            if !path_key.is_empty() {
-                let pairs: Vec<String> = (0..path_key.len())
-                    .map(|i| {
-                        let p = idx + i * 2;
-                        let k = idx + i * 2 + 1;
-                        format!("(r.path = ${p} AND r.key = ${k})")
-                    })
-                    .collect();
-                clauses.push(format!("({})", pairs.join(" OR ")));
-                idx += path_key.len() * 2;
-            }
-            if !path_key.is_empty() {
-                let pairs: Vec<String> = (0..path_key.len())
-                    .map(|i| {
-                        let p = idx + i * 2;
-                        let k = idx + i * 2 + 1;
-                        format!("(a.path = ${p} AND a.key = ${k})")
-                    })
-                    .collect();
-                clauses.push(format!(
-                    "EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND ({}))",
-                    pairs.join(" OR ")
-                ));
-            }
-            sql.push_str(&clauses.join(" OR "));
-            sql.push_str(") ORDER BY r.path, r.key");
-
-            let mut q = sqlx::query_as::<
-                _,
-                (
-                    i64,
-                    String,
-                    String,
-                    String,
-                    Option<String>,
-                    serde_json::Value,
-                ),
-            >(&sql)
-            .bind(worktree_id)
-            .bind(format);
-            for p in &path_only {
-                q = q.bind(p);
-            }
-            for (p, k) in &path_key {
-                q = q.bind(p).bind(k);
-            }
-            for (p, k) in &path_key {
-                q = q.bind(p).bind(k);
-            }
-            let rows = q.fetch_all(pool).await?;
-            Ok(rows
-                .into_iter()
-                .map(|(id, fp, p, k, cid, json)| Record {
-                    id,
-                    worktree_id,
-                    file_path: fp,
-                    path: p,
-                    key: k,
-                    commit_id: cid,
-                    json,
-                    deleted: false,
-                })
-                .collect())
-        }
+        Db::Postgres(pool) => find_pg(pool, worktree_id, file_path, path, key, alias_active).await,
     }
+}
+
+async fn find_sqlite(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    worktree_id: i64,
+    file_path: Option<&str>,
+    path: Option<&str>,
+    key: Option<&str>,
+    alias_active: bool,
+) -> Result<Vec<Record>> {
+    let mut sql = String::from(
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json) FROM record r \
+         WHERE r.worktree_id = ?1 AND r.deleted = 0",
+    );
+    let mut idx: usize = 2;
+    if file_path.is_some() {
+        sql.push_str(&format!(" AND r.file_path = ?{idx}"));
+        idx += 1;
+    }
+    if path.is_some() {
+        sql.push_str(&format!(" AND r.path = ?{idx}"));
+        idx += 1;
+    }
+    if let Some(_k) = key {
+        if alias_active {
+            sql.push_str(&format!(
+                " AND (r.key = ?{idx} OR EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND a.key = ?{idx}))"
+            ));
+        } else {
+            sql.push_str(&format!(" AND r.key = ?{idx}"));
+        }
+        idx += 1;
+    }
+    sql.push_str(" ORDER BY r.path, r.key");
+    let _ = idx; // silence unused-assignment lint when no key bind is added
+
+    let mut q = sqlx::query_as::<_, (i64, String, String, String, Option<String>, String)>(&sql)
+        .bind(worktree_id);
+    if let Some(fp) = file_path {
+        q = q.bind(fp);
+    }
+    if let Some(p) = path {
+        q = q.bind(p);
+    }
+    if let Some(k) = key {
+        q = q.bind(k);
+    }
+    let rows = q.fetch_all(pool).await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, file_path, path, key, commit_id, json_text) in rows {
+        let json: serde_json::Value =
+            serde_json::from_str(&json_text).map_err(|e| Error::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        out.push(Record {
+            id,
+            worktree_id,
+            file_path,
+            path,
+            key,
+            commit_id,
+            json,
+            deleted: false,
+        });
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "postgres")]
+async fn find_pg(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    worktree_id: i64,
+    file_path: Option<&str>,
+    path: Option<&str>,
+    key: Option<&str>,
+    alias_active: bool,
+) -> Result<Vec<Record>> {
+    let mut sql = String::from(
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json FROM record r \
+         WHERE r.worktree_id = $1 AND r.deleted = FALSE",
+    );
+    let mut idx: usize = 2;
+    if file_path.is_some() {
+        sql.push_str(&format!(" AND r.file_path = ${idx}"));
+        idx += 1;
+    }
+    if path.is_some() {
+        sql.push_str(&format!(" AND r.path = ${idx}"));
+        idx += 1;
+    }
+    if key.is_some() {
+        if alias_active {
+            sql.push_str(&format!(
+                " AND (r.key = ${idx} OR EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND a.key = ${idx}))"
+            ));
+        } else {
+            sql.push_str(&format!(" AND r.key = ${idx}"));
+        }
+        idx += 1;
+    }
+    sql.push_str(" ORDER BY r.path, r.key");
+    let _ = idx;
+
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            Option<String>,
+            serde_json::Value,
+        ),
+    >(&sql)
+    .bind(worktree_id);
+    if let Some(fp) = file_path {
+        q = q.bind(fp);
+    }
+    if let Some(p) = path {
+        q = q.bind(p);
+    }
+    if let Some(k) = key {
+        q = q.bind(k);
+    }
+    let rows = q.fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, fp, p, k, cid, json)| Record {
+            id,
+            worktree_id,
+            file_path: fp,
+            path: p,
+            key: k,
+            commit_id: cid,
+            json,
+            deleted: false,
+        })
+        .collect())
 }
 
 pub(crate) async fn get(

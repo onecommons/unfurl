@@ -280,51 +280,110 @@ impl GitSync {
         Ok(())
     }
 
-    /// Search records by `(path, optional key)` targets within this
-    /// worktree's records of the given format.
-    ///
-    /// - empty `targets` → all records of that format.
-    /// - `(path, None)` → all records under `path`.
-    /// - `(path, Some(key))` → that exact record (or via alias).
+    /// Search records by optional filters. All `Some(...)` filters AND
+    /// together. With `alias = true` and a `key` filter, a record also
+    /// matches when one of its alias rows has that key (joined on
+    /// `record_id`); without a `key` filter, `alias` is a no-op.
     pub async fn find_records(
         &self,
-        targets: &[(String, Option<String>)],
-        format: &str,
-        follow: bool,
+        file_path: Option<String>,
+        path: Option<String>,
+        key: Option<String>,
+        alias: bool,
     ) -> Result<Vec<Record>> {
-        let mut out = db::record::find(self.db(), self.worktree_id(), targets, format).await?;
+        db::record::find(
+            self.db(),
+            self.worktree_id(),
+            file_path.as_deref(),
+            path.as_deref(),
+            key.as_deref(),
+            alias,
+        )
+        .await
+    }
 
-        if follow {
-            let Some(fmt) = self.formats().by_name(format) else {
-                return Err(Error::UnknownFormat(format.to_string()));
+    /// Same filters as [`Self::find_records`]; additionally walks
+    /// [`crate::DataFormat::follow`] outgoing edges from each match
+    /// breadth-first, returning at most `follow` newly-discovered
+    /// records. Returns `(initial, followed)` where `initial` is what
+    /// `find_records` would have returned and `followed` is the new
+    /// set, capped at `follow` entries (alias-resolved).
+    pub async fn find_records_follow(
+        &self,
+        file_path: Option<String>,
+        path: Option<String>,
+        key: Option<String>,
+        alias: bool,
+        follow: u32,
+    ) -> Result<(Vec<Record>, Vec<Record>)> {
+        let initial = self.find_records(file_path, path, key, alias).await?;
+        if follow == 0 || initial.is_empty() {
+            return Ok((initial, Vec::new()));
+        }
+
+        // Memoize file_path → format-name so we don't query `file` once
+        // per visited record.
+        let mut format_cache: std::collections::HashMap<String, Option<String>> =
+            std::collections::HashMap::new();
+
+        let mut visited: BTreeSet<(String, String)> = initial
+            .iter()
+            .map(|r| (r.path.clone(), r.key.clone()))
+            .collect();
+        let mut queue: std::collections::VecDeque<Record> = initial.iter().cloned().collect();
+        let mut followed: Vec<Record> = Vec::new();
+
+        while let Some(rec) = queue.pop_front() {
+            if followed.len() as u32 >= follow {
+                break;
+            }
+            let format_name = match format_cache.get(&rec.file_path) {
+                Some(v) => v.clone(),
+                None => {
+                    let f = db::file::get(self.db(), self.worktree_id(), &rec.file_path).await?;
+                    let name = f.map(|f| f.format);
+                    format_cache.insert(rec.file_path.clone(), name.clone());
+                    name
+                }
             };
-            let mut visited: BTreeSet<(String, String)> = out
-                .iter()
-                .map(|r| (r.path.clone(), r.key.clone()))
-                .collect();
-            let mut queue: Vec<Record> = out.clone();
-            while let Some(rec) = queue.pop() {
-                let next = fmt.follow(&rec);
-                let new_targets: Vec<(String, Option<String>)> = next
-                    .into_iter()
-                    .filter(|p| !visited.contains(p))
-                    .map(|(p, k)| (p, Some(k)))
-                    .collect();
-                if new_targets.is_empty() {
+            let Some(name) = format_name else {
+                continue;
+            };
+            let Some(fmt) = self.formats().by_name(&name) else {
+                continue;
+            };
+            for (p, k) in fmt.follow(&rec) {
+                if visited.contains(&(p.clone(), k.clone())) {
                     continue;
                 }
-                let more =
-                    db::record::find(self.db(), self.worktree_id(), &new_targets, format).await?;
-                for r in more {
+                // Each follow target is an exact (path, key) lookup,
+                // alias-aware so versioned URLs resolve to their
+                // canonical record.
+                let hits = db::record::find(
+                    self.db(),
+                    self.worktree_id(),
+                    None,
+                    Some(p.as_str()),
+                    Some(k.as_str()),
+                    true,
+                )
+                .await?;
+                for r in hits {
                     let id = (r.path.clone(), r.key.clone());
                     if visited.insert(id) {
-                        queue.push(r.clone());
-                        out.push(r);
+                        queue.push_back(r.clone());
+                        followed.push(r);
+                        if followed.len() as u32 >= follow {
+                            break;
+                        }
                     }
+                }
+                if followed.len() as u32 >= follow {
+                    break;
                 }
             }
         }
-        Ok(out)
+        Ok((initial, followed))
     }
 
     /// Read a single record by `(file_path, path, key)` within this

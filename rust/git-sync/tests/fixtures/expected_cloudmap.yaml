@@ -223,7 +223,7 @@ artifacts:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
-  pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
+  pkg:oci/odoo?repository_url=docker.io/bitnami/odoo:
     type:
       cloudmap.artifacts.oci.Image:
     metadata:
@@ -231,6 +231,15 @@ artifacts:
     discovery:
       sources:
       - https://hub.docker.com/v2/repositories/bitnami/odoo/
+    versions:
+      "@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49":
+        digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
+        immutable: true
+      ?tag=latest:
+        digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
+        immutable: false
+        metadata:
+          version: latest
 services:
   https://example.com/oodo:
     type:

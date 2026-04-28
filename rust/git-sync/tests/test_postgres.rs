@@ -42,11 +42,9 @@ async fn cloudmap_end_to_end_postgres() {
 
     let after = sync
         .find_records(
-            &[(
-                "/repositories".into(),
-                Some("git://example.com/x.git".into()),
-            )],
-            "cloudmap",
+            None,
+            Some("/repositories".into()),
+            Some("git://example.com/x.git".into()),
             false,
         )
         .await
