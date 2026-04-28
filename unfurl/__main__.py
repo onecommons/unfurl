@@ -1654,10 +1654,12 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         return
 
     try:
+        overrides = dict(ENVIRONMENT=options.get("use_environment", ""),
+                    skip_secret_files=True)
         local_env = LocalEnv(
             path,
             options.get("home"),
-            override_environment=options.get("use_environment") or "",
+            overrides=overrides,
             readonly=True,
         )
     except Exception:

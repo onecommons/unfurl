@@ -319,6 +319,7 @@ def set_current_ensemble_git_url(gui: bool = False):
             overrides = dict(
                 ENVIRONMENT="*",
                 UNFURL_SKIP_UPSTREAM_CHECK=True,
+                UNFURL_SKIP_VAULT_DECRYPT=True,
                 apply_url_credentials=True,
             )
         else:
@@ -1926,9 +1927,8 @@ def _do_export(
     assert local_env
     if args.get("environment"):
         local_env.manifest_environment_name = args["environment"]
-    elif args.get("implementation_requirements"):
-        primary_provider = args["implementation_requirements"]
-        if local_env.project:
+    elif primary_provider := args.get("implementation_requirements"):
+        if primary_provider not in ("null", "undefined") and local_env.project:
             local_env.project.contexts["_export_types_placeholder"] = dict(
                 connections=dict(primary_provider=dict(type=primary_provider))
             )

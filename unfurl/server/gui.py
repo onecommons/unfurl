@@ -409,9 +409,25 @@ def create_routes(localenv: LocalEnv):
             local_path = os.path.join(dist_dir, path)
             if os.path.isfile(local_path):
                 response = make_response(send_from_directory(dist_dir, path))
-                if not development_mode:
+                # Content-hashed webpack assets are immutable — safe to
+                # cache forever even in development mode. Otherwise a
+                # reload redownloads ~80 chunks.
+                #
+                # Webpack outputs hashes in two formats:
+                #   - `.<hex8+>.<ext>`: JS/CSS/sourcemap chunks, e.g.
+                #     `3124.39cada19.js`, `app.1f2e3d4c.css`
+                #   - `<hash>.<ext>`: font/image assets where the whole
+                #     basename is the hash, e.g.
+                #     `o-0NIpQlx3QUlC5A4PNjXhFVZNyB.woff2` (base64-ish,
+                #     20+ chars).
+                basename = os.path.basename(path)
+                has_content_hash = bool(
+                    re.search(r"\.[0-9a-f]{8,}\.[^.]+$", basename)
+                    or re.match(r"^[A-Za-z0-9_-]{20,}\.[^.]+$", basename)
+                )
+                if not development_mode or has_content_hash:
                     response.headers["Cache-Control"] = (
-                        "public, max-age=31536000"  # 1 year
+                        "public, max-age=31536000, immutable"  # 1 year
                     )
                 return response
             return serve_document(path, localenv, webpack_origin, public_files_dir)
