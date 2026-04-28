@@ -1,0 +1,48 @@
+[package]
+name = "unfurl-git-sync"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Adam Souzis <adam@souzis.com>"]
+license = "MIT"
+description = "Sync JSON/YAML data tracked in a git repository with SQLite or Postgres."
+homepage = "https://github.com/onecommons/unfurl"
+repository = "https://github.com/onecommons/unfurl"
+
+[lib]
+name = "unfurl_git_sync"
+path = "src/lib.rs"
+
+[features]
+# SQLite support is always compiled in (it's the simple default backend).
+# Postgres is opt-in via this feature flag.
+default = []
+postgres = ["sqlx/postgres"]
+# Compatibility alias so callers can still write `--features sqlite` —
+# SQLite is always built in, this is a no-op flag.
+sqlite = []
+
+[dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "macros",
+    "migrate",
+    "chrono",
+    "sqlite",
+] }
+gix = { version = "0.66", default-features = false, features = ["max-performance-safe", "index", "blob-diff", "revision"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde-saphyr = "0.0.25"
+async-trait = "0.1"
+thiserror = "1"
+tracing = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+url = "2"
+tempfile = "3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
