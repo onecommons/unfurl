@@ -426,6 +426,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             self.solve_topology = solve_topology
         self.readonly = bool(self.local_env and self.local_env.readonly)
         self.importslist: Optional[List[Union[str, Dict]]] = None
+        # memo for _find_repoview_from_path; keyed by (id(manifest.repositories), base)
+        self._repoview_by_path_cache: Dict[Tuple[int, str], Optional[RepoView]] = {}
 
     def _solve_topology(self, topology_template):
         assert self.manifest
@@ -926,6 +928,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         assert base
         if not self.manifest:
             return None
+        # Memoize per-resolver: this function is called once per TOSCA import
+        # (~1000s of times for a large export), almost always with a few
+        # repeated base paths.  Include the repositories dict id so the cache
+        # auto-invalidates if the manifest swaps in a new dict (which does
+        # happen during some loads).
+        cache_key = (id(self.manifest.repositories), base)
+        if cache_key in self._repoview_by_path_cache:
+            return self._repoview_by_path_cache[cache_key]
+
         nearest = ""
         candidate = None
         for repo_view in self.manifest.repositories.values():
@@ -938,6 +949,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if path_startswith(base, wd) and len(wd) > len(nearest):
                 nearest = wd
                 candidate = repo_view
+
+        self._repoview_by_path_cache[cache_key] = candidate
         return candidate
 
     def resolve_url(
