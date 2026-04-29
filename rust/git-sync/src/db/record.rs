@@ -9,7 +9,7 @@ use crate::error::{Error, Result};
 use crate::model::Record;
 
 /// `(id, worktree_id, file_path, path, key, commit_id, json_text,
-/// deleted)` — the row shape for the SQLite `get_by_id` query.
+/// deleted, version)` — the row shape for the SQLite `get_by_id` query.
 type FullRecordRowSqlite = (
     i64,
     i64,
@@ -18,6 +18,7 @@ type FullRecordRowSqlite = (
     String,
     Option<String>,
     String,
+    i64,
     i64,
 );
 
@@ -31,7 +32,37 @@ type FullRecordRowPg = (
     Option<String>,
     serde_json::Value,
     bool,
+    i64,
 );
+
+/// Atomically bump `worktree.next_version` and return a fresh version
+/// stamp. Called from the from-disk re-sync path
+/// ([`crate::SyncedRepo::update_from_working_dir`]).
+pub(crate) async fn next_version_pool(db: &Db, worktree_id: i64) -> Result<i64> {
+    match db {
+        Db::Sqlite(pool) => {
+            let row: (i64,) = sqlx::query_as(
+                "UPDATE worktree SET next_version = next_version + 1 \
+                 WHERE id = ?1 RETURNING next_version - 1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?;
+            Ok(row.0)
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let row: (i64,) = sqlx::query_as(
+                "UPDATE worktree SET next_version = next_version + 1 \
+                 WHERE id = $1 RETURNING next_version - 1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?;
+            Ok(row.0)
+        }
+    }
+}
 
 pub(crate) async fn upsert(
     db: &Db,
@@ -41,6 +72,7 @@ pub(crate) async fn upsert(
     key: &str,
     json: &serde_json::Value,
     commit_id: Option<&str>,
+    version: i64,
 ) -> Result<i64> {
     let json_text = serde_json::to_string(json).map_err(|e| Error::Json {
         path: path.to_string(),
@@ -51,12 +83,13 @@ pub(crate) async fn upsert(
     match db {
         Db::Sqlite(pool) => {
             let row: (i64,) = sqlx::query_as(
-                "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted) \
-                 VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, 0) \
+                "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+                 VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, 0, ?7) \
                  ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
                    json = excluded.json, \
                    commit_id = excluded.commit_id, \
-                   deleted = 0 \
+                   deleted = 0, \
+                   version = excluded.version \
                  RETURNING id",
             )
             .bind(worktree_id)
@@ -65,6 +98,7 @@ pub(crate) async fn upsert(
             .bind(key)
             .bind(&json_text)
             .bind(commit_id)
+            .bind(version)
             .fetch_one(pool)
             .await?;
             Ok(row.0)
@@ -72,12 +106,13 @@ pub(crate) async fn upsert(
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let row: (i64,) = sqlx::query_as(
-                "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted) \
-                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, FALSE) \
+                "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+                 VALUES ($1, $2, $3, $4, $5::jsonb, $6, FALSE, $7) \
                  ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
                    json = EXCLUDED.json, \
                    commit_id = EXCLUDED.commit_id, \
-                   deleted = FALSE \
+                   deleted = FALSE, \
+                   version = EXCLUDED.version \
                  RETURNING id",
             )
             .bind(worktree_id)
@@ -86,6 +121,7 @@ pub(crate) async fn upsert(
             .bind(key)
             .bind(&json_text)
             .bind(commit_id)
+            .bind(version)
             .fetch_one(pool)
             .await?;
             Ok(row.0)
@@ -201,8 +237,8 @@ pub(crate) async fn load_pending(
 ) -> Result<Vec<Record>> {
     let rows = match db {
         Db::Sqlite(pool) => {
-            sqlx::query_as::<_, (i64, String, String, Option<String>, String, i64)>(
-                "SELECT id, path, key, commit_id, json(json), deleted FROM record \
+            sqlx::query_as::<_, (i64, String, String, Option<String>, String, i64, i64)>(
+                "SELECT id, path, key, commit_id, json(json), deleted, version FROM record \
                  WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NULL \
                  ORDER BY id",
             )
@@ -211,30 +247,38 @@ pub(crate) async fn load_pending(
             .fetch_all(pool)
             .await?
             .into_iter()
-            .map(|(id, p, k, c, t, d)| (id, p, k, c, t, d != 0))
+            .map(|(id, p, k, c, t, d, v)| (id, p, k, c, t, d != 0, v))
             .collect::<Vec<_>>()
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            let pg_rows: Vec<(i64, String, String, Option<String>, serde_json::Value, bool)> =
-                sqlx::query_as(
-                    "SELECT id, path, key, commit_id, json::jsonb, deleted FROM record \
+            type PendingRowPg = (
+                i64,
+                String,
+                String,
+                Option<String>,
+                serde_json::Value,
+                bool,
+                i64,
+            );
+            let pg_rows: Vec<PendingRowPg> = sqlx::query_as(
+                "SELECT id, path, key, commit_id, json::jsonb, deleted, version FROM record \
                      WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NULL \
                      ORDER BY id",
-                )
-                .bind(worktree_id)
-                .bind(file_path)
-                .fetch_all(pool)
-                .await?;
+            )
+            .bind(worktree_id)
+            .bind(file_path)
+            .fetch_all(pool)
+            .await?;
             pg_rows
                 .into_iter()
-                .map(|(id, p, k, c, v, d)| (id, p, k, c, v.to_string(), d))
+                .map(|(id, p, k, c, v, d, ver)| (id, p, k, c, v.to_string(), d, ver))
                 .collect()
         }
     };
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, path, key, commit_id, json_text, deleted) in rows {
+    for (id, path, key, commit_id, json_text, deleted, version) in rows {
         let json: serde_json::Value =
             serde_json::from_str(&json_text).map_err(|e| Error::Json {
                 path: path.clone(),
@@ -249,6 +293,7 @@ pub(crate) async fn load_pending(
             commit_id,
             json,
             deleted,
+            version,
         });
     }
     Ok(out)
@@ -286,7 +331,7 @@ async fn find_sqlite(
     alias_active: bool,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json) FROM record r \
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
          WHERE r.worktree_id = ?1 AND r.deleted = 0",
     );
     let mut idx: usize = 2;
@@ -311,8 +356,9 @@ async fn find_sqlite(
     sql.push_str(" ORDER BY r.path, r.key");
     let _ = idx; // silence unused-assignment lint when no key bind is added
 
-    let mut q = sqlx::query_as::<_, (i64, String, String, String, Option<String>, String)>(&sql)
-        .bind(worktree_id);
+    let mut q =
+        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, i64)>(&sql)
+            .bind(worktree_id);
     if let Some(fp) = file_path {
         q = q.bind(fp);
     }
@@ -325,7 +371,7 @@ async fn find_sqlite(
     let rows = q.fetch_all(pool).await?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, file_path, path, key, commit_id, json_text) in rows {
+    for (id, file_path, path, key, commit_id, json_text, version) in rows {
         let json: serde_json::Value =
             serde_json::from_str(&json_text).map_err(|e| Error::Json {
                 path: path.clone(),
@@ -340,6 +386,7 @@ async fn find_sqlite(
             commit_id,
             json,
             deleted: false,
+            version,
         });
     }
     Ok(out)
@@ -355,7 +402,7 @@ async fn find_pg(
     alias_active: bool,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json FROM record r \
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
          WHERE r.worktree_id = $1 AND r.deleted = FALSE",
     );
     let mut idx: usize = 2;
@@ -389,6 +436,7 @@ async fn find_pg(
             String,
             Option<String>,
             serde_json::Value,
+            i64,
         ),
     >(&sql)
     .bind(worktree_id);
@@ -404,7 +452,7 @@ async fn find_pg(
     let rows = q.fetch_all(pool).await?;
     Ok(rows
         .into_iter()
-        .map(|(id, fp, p, k, cid, json)| Record {
+        .map(|(id, fp, p, k, cid, json, version)| Record {
             id,
             worktree_id,
             file_path: fp,
@@ -413,6 +461,7 @@ async fn find_pg(
             commit_id: cid,
             json,
             deleted: false,
+            version,
         })
         .collect())
 }
@@ -426,8 +475,8 @@ pub(crate) async fn get(
 ) -> Result<Option<Record>> {
     match db {
         Db::Sqlite(pool) => {
-            let row: Option<(i64, Option<String>, String)> = sqlx::query_as(
-                "SELECT id, commit_id, json(json) FROM record \
+            let row: Option<(i64, Option<String>, String, i64)> = sqlx::query_as(
+                "SELECT id, commit_id, json(json), version FROM record \
                  WHERE worktree_id = ?1 AND file_path = ?2 AND path = ?3 AND key = ?4 \
                    AND deleted = 0",
             )
@@ -441,8 +490,8 @@ pub(crate) async fn get(
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            let row: Option<(i64, Option<String>, serde_json::Value)> = sqlx::query_as(
-                "SELECT id, commit_id, json FROM record \
+            let row: Option<(i64, Option<String>, serde_json::Value, i64)> = sqlx::query_as(
+                "SELECT id, commit_id, json, version FROM record \
                  WHERE worktree_id = $1 AND file_path = $2 AND path = $3 AND key = $4 \
                    AND deleted = FALSE",
             )
@@ -453,7 +502,7 @@ pub(crate) async fn get(
             .fetch_optional(pool)
             .await?;
             match row {
-                Some((id, commit_id, json)) => Ok(Some(Record {
+                Some((id, commit_id, json, version)) => Ok(Some(Record {
                     id,
                     worktree_id,
                     file_path: file_path.to_string(),
@@ -462,6 +511,7 @@ pub(crate) async fn get(
                     commit_id,
                     json,
                     deleted: false,
+                    version,
                 })),
                 None => Ok(None),
             }
@@ -470,14 +520,14 @@ pub(crate) async fn get(
 }
 
 fn row_to_record(
-    row: Option<(i64, Option<String>, String)>,
+    row: Option<(i64, Option<String>, String, i64)>,
     worktree_id: i64,
     file_path: &str,
     path: &str,
     key: &str,
 ) -> Result<Option<Record>> {
     match row {
-        Some((id, commit_id, json_text)) => {
+        Some((id, commit_id, json_text, version)) => {
             let json: serde_json::Value =
                 serde_json::from_str(&json_text).map_err(|e| Error::Json {
                     path: path.to_string(),
@@ -492,6 +542,7 @@ fn row_to_record(
                 commit_id,
                 json,
                 deleted: false,
+                version,
             }))
         }
         None => Ok(None),
@@ -502,14 +553,14 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
     match db {
         Db::Sqlite(pool) => {
             let row: Option<FullRecordRowSqlite> = sqlx::query_as(
-                "SELECT id, worktree_id, file_path, path, key, commit_id, json(json), deleted \
+                "SELECT id, worktree_id, file_path, path, key, commit_id, json(json), deleted, version \
                      FROM record WHERE id = ?1",
             )
             .bind(id)
             .fetch_optional(pool)
             .await?;
             match row {
-                Some((id, wt, fp, p, k, c, t, d)) => {
+                Some((id, wt, fp, p, k, c, t, d, version)) => {
                     let json: serde_json::Value =
                         serde_json::from_str(&t).map_err(|e| Error::Json {
                             path: p.clone(),
@@ -524,6 +575,7 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
                         commit_id: c,
                         json,
                         deleted: d != 0,
+                        version,
                     }))
                 }
                 None => Ok(None),
@@ -532,14 +584,14 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let row: Option<FullRecordRowPg> = sqlx::query_as(
-                "SELECT id, worktree_id, file_path, path, key, commit_id, json, deleted \
+                "SELECT id, worktree_id, file_path, path, key, commit_id, json, deleted, version \
                      FROM record WHERE id = $1",
             )
             .bind(id)
             .fetch_optional(pool)
             .await?;
             match row {
-                Some((id, wt, fp, p, k, c, json, d)) => Ok(Some(Record {
+                Some((id, wt, fp, p, k, c, json, d, version)) => Ok(Some(Record {
                     id,
                     worktree_id: wt,
                     file_path: fp,
@@ -548,9 +600,112 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
                     commit_id: c,
                     json,
                     deleted: d,
+                    version,
                 })),
                 None => Ok(None),
             }
+        }
+    }
+}
+
+/// Listing API: when `since` is `Some(v)`, return every record whose
+/// `version > v` (committed or in-flight, including tombstones); when
+/// `since` is `None`, return only the in-flight (`commit_id IS NULL`)
+/// records — what `commit_repository` would write next.
+pub(crate) async fn list_changes(
+    db: &Db,
+    worktree_id: i64,
+    since: Option<i64>,
+) -> Result<Vec<Record>> {
+    match db {
+        Db::Sqlite(pool) => {
+            let rows: Vec<FullRecordRowSqlite> = match since {
+                Some(v) => {
+                    sqlx::query_as(
+                        "SELECT id, worktree_id, file_path, path, key, commit_id, \
+                                json(json), deleted, version \
+                         FROM record WHERE worktree_id = ?1 AND version > ?2 \
+                         ORDER BY version",
+                    )
+                    .bind(worktree_id)
+                    .bind(v)
+                    .fetch_all(pool)
+                    .await?
+                }
+                None => {
+                    sqlx::query_as(
+                        "SELECT id, worktree_id, file_path, path, key, commit_id, \
+                                json(json), deleted, version \
+                         FROM record WHERE worktree_id = ?1 AND commit_id IS NULL \
+                         ORDER BY version",
+                    )
+                    .bind(worktree_id)
+                    .fetch_all(pool)
+                    .await?
+                }
+            };
+            let mut out = Vec::with_capacity(rows.len());
+            for (id, wt, fp, p, k, c, t, d, version) in rows {
+                let json: serde_json::Value =
+                    serde_json::from_str(&t).map_err(|e| Error::Json {
+                        path: p.clone(),
+                        source: e,
+                    })?;
+                out.push(Record {
+                    id,
+                    worktree_id: wt,
+                    file_path: fp,
+                    path: p,
+                    key: k,
+                    commit_id: c,
+                    json,
+                    deleted: d != 0,
+                    version,
+                });
+            }
+            Ok(out)
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let rows: Vec<FullRecordRowPg> = match since {
+                Some(v) => {
+                    sqlx::query_as(
+                        "SELECT id, worktree_id, file_path, path, key, commit_id, \
+                                json, deleted, version \
+                         FROM record WHERE worktree_id = $1 AND version > $2 \
+                         ORDER BY version",
+                    )
+                    .bind(worktree_id)
+                    .bind(v)
+                    .fetch_all(pool)
+                    .await?
+                }
+                None => {
+                    sqlx::query_as(
+                        "SELECT id, worktree_id, file_path, path, key, commit_id, \
+                                json, deleted, version \
+                         FROM record WHERE worktree_id = $1 AND commit_id IS NULL \
+                         ORDER BY version",
+                    )
+                    .bind(worktree_id)
+                    .fetch_all(pool)
+                    .await?
+                }
+            };
+            Ok(rows
+                .into_iter()
+                .map(|(id, wt, fp, p, k, c, json, d, version)| Record {
+                    id,
+                    worktree_id: wt,
+                    file_path: fp,
+                    path: p,
+                    key: k,
+                    commit_id: c,
+                    json,
+                    deleted: d,
+                    version,
+                })
+                .collect())
         }
     }
 }

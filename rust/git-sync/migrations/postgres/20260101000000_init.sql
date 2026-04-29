@@ -1,8 +1,11 @@
 CREATE TABLE worktree (
-    id        BIGSERIAL PRIMARY KEY,
-    origin    TEXT    NOT NULL,
-    branch    TEXT    NOT NULL,
-    commit_id TEXT,
+    id           BIGSERIAL PRIMARY KEY,
+    origin       TEXT      NOT NULL,
+    branch       TEXT      NOT NULL,
+    commit_id    TEXT,
+    -- Per-worktree monotonic version counter. Bumped on every CRUD
+    -- write; the previous value is stamped on `record.version`.
+    next_version BIGINT    NOT NULL DEFAULT 1,
     UNIQUE (origin, branch)
 );
 
@@ -16,13 +19,18 @@ CREATE TABLE file (
 
 CREATE TABLE record (
     id          BIGSERIAL PRIMARY KEY,
-    worktree_id BIGINT NOT NULL,
-    file_path   TEXT   NOT NULL,
-    path        TEXT   NOT NULL,
-    key         TEXT   NOT NULL,
+    worktree_id BIGINT  NOT NULL,
+    file_path   TEXT    NOT NULL,
+    path        TEXT    NOT NULL,
+    key         TEXT    NOT NULL,
     commit_id   TEXT,
-    json        JSONB  NOT NULL,
+    json        JSONB   NOT NULL,
     deleted     BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Per-row monotonic stamp (drawn from `worktree.next_version`).
+    -- Doubles as the optimistic-concurrency token (`CommitRef::Pending`)
+    -- and the cursor for `SyncedRepo::list_changes`. Preserved across
+    -- commit roll-forward.
+    version     BIGINT  NOT NULL DEFAULT 0,
     FOREIGN KEY (worktree_id, file_path)
         REFERENCES file (worktree_id, path) ON DELETE CASCADE
 );

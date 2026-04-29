@@ -30,14 +30,23 @@ use crate::model::{Record, UpdateStats};
 /// Pass `Some(token)` as the `expected_commit` argument to
 /// [`SyncedRepo::create_record`] / [`SyncedRepo::update_record`] /
 /// [`SyncedRepo::upsert_record`] / [`SyncedRepo::delete_record`] to assert
-/// what the caller believes the row's current `commit_id` is. Mismatch
-/// returns [`crate::Error::Conflict`] and rolls back the transaction.
-/// Pass `None` to skip the check entirely.
+/// what the caller observed about the row before issuing the write.
+/// Mismatch returns [`crate::Error::Conflict`] and rolls back the
+/// transaction. Pass `None` to skip the check entirely.
+///
+/// The two variants check different columns. They're checked
+/// disjunctively: a write succeeds if **either** the row's `version`
+/// matches a [`CommitRef::Pending`] token **or** its `commit_id`
+/// matches a [`CommitRef::Oid`] token. This means a `Pending(v)` token
+/// remains valid after [`SyncedRepo::commit_repository`] rolls
+/// forward, as long as no one else has rewritten the row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommitRef {
-    /// Caller expects the row's `commit_id` to be `NULL` — i.e. a
-    /// pending in-flight edit, not yet committed.
-    Pending,
+    /// Caller expects the row's `version` to equal this number — the
+    /// per-worktree monotonic counter stamped on every CRUD write.
+    /// Two callers racing on the same record will read different
+    /// versions and only one will succeed.
+    Pending(i64),
     /// Caller expects the row's `commit_id` to equal this hex commit
     /// oid string (40 hex chars for SHA-1).
     Oid(String),
@@ -297,6 +306,7 @@ impl SyncedRepo {
         }
 
         for (path, key, child) in to_upsert {
+            let version = db::record::next_version_pool(self.db(), self.worktree_id()).await?;
             let id = db::record::upsert(
                 self.db(),
                 self.worktree_id(),
@@ -305,6 +315,7 @@ impl SyncedRepo {
                 &key,
                 &child,
                 last_commit_id,
+                version,
             )
             .await?;
             stats.records_upserted += 1;
@@ -319,6 +330,7 @@ impl SyncedRepo {
                 commit_id: last_commit_id.map(|s| s.to_string()),
                 json: child,
                 deleted: false,
+                version,
             };
             db::alias::replace(self.db(), id, &format.find_alias(&record)).await?;
         }
@@ -480,6 +492,25 @@ impl SyncedRepo {
     /// bound to.
     pub async fn get_worktree(&self) -> Result<crate::model::Worktree> {
         db::worktree::get(self.db(), self.worktree_id()).await
+    }
+
+    /// List changes within this worktree.
+    ///
+    /// `since == Some(v)` returns every record whose
+    /// [`Record::version`] is strictly greater than `v` — both
+    /// committed and in-flight, including tombstones — in version
+    /// order. Pass the largest version your caller has previously
+    /// observed to receive only what has changed since.
+    ///
+    /// `since == None` returns only the in-flight records
+    /// (`commit_id IS NULL`) — i.e. exactly what
+    /// [`Self::commit_repository`] would write next, again in version
+    /// order. Equivalent to "give me the pending work-list."
+    ///
+    /// Tombstones (`deleted == true`) are returned in both modes so
+    /// callers can tell apart "still here" from "in-flight delete."
+    pub async fn list_changes(&self, since: Option<i64>) -> Result<Vec<Record>> {
+        db::record::list_changes(self.db(), self.worktree_id(), since).await
     }
 
     /// Insert a new record at `(file_path, path, key)`.
@@ -770,12 +801,17 @@ fn enforce_conflict(
     path: &str,
     expected: &CommitRef,
     existing_record_commit: Option<&String>,
+    existing_record_version: Option<i64>,
     file_commit: Option<&String>,
     record_present: bool,
 ) -> Result<()> {
     match expected {
-        CommitRef::Pending => {
-            if record_present && existing_record_commit.is_none() {
+        CommitRef::Pending(expected_version) => {
+            // The record must exist and its `version` must match. The
+            // `commit_id` doesn't matter — a `Pending(v)` token is still
+            // valid after `commit_repository` rolls forward, as long as
+            // no one else has rewritten the row.
+            if record_present && existing_record_version == Some(*expected_version) {
                 Ok(())
             } else {
                 Err(Error::Conflict {
@@ -844,10 +880,12 @@ async fn crud_create(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     false,
                 )?;
             }
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -855,6 +893,7 @@ async fn crud_create(
                 path,
                 key,
                 &json_text,
+                version,
             )
             .await?;
             format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -892,10 +931,12 @@ async fn crud_create(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     false,
                 )?;
             }
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -903,6 +944,7 @@ async fn crud_create(
                 path,
                 key,
                 &json_text,
+                version,
             )
             .await?;
             format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -955,11 +997,13 @@ async fn crud_update(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
-            db::tx::update_record(&mut tx, id, &json_text).await?;
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            db::tx::update_record(&mut tx, id, &json_text, version).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
                 &mut tx,
@@ -992,11 +1036,13 @@ async fn crud_update(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
-            db::tx::update_record(&mut tx, id, &json_text).await?;
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            db::tx::update_record(&mut tx, id, &json_text, version).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
                 &mut tx,
@@ -1043,10 +1089,12 @@ async fn crud_upsert(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     lookup.record_id.is_some(),
                 )?;
             }
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1054,6 +1102,7 @@ async fn crud_upsert(
                 path,
                 key,
                 &json_text,
+                version,
             )
             .await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1085,10 +1134,12 @@ async fn crud_upsert(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     lookup.record_id.is_some(),
                 )?;
             }
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1096,6 +1147,7 @@ async fn crud_upsert(
                 path,
                 key,
                 &json_text,
+                version,
             )
             .await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1144,11 +1196,13 @@ async fn crud_delete(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
-            db::tx::delete_record(&mut tx, id).await?;
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            db::tx::delete_record(&mut tx, id, version).await?;
             tx.commit().await?;
         }
         #[cfg(feature = "postgres")]
@@ -1166,11 +1220,13 @@ async fn crud_delete(
                     path,
                     exp,
                     lookup.record_commit.as_ref(),
+                    lookup.record_version,
                     lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
-            db::tx::delete_record(&mut tx, id).await?;
+            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            db::tx::delete_record(&mut tx, id, version).await?;
             tx.commit().await?;
         }
     }
@@ -1201,6 +1257,10 @@ fn compute_aliases(
         commit_id: None,
         json: json.clone(),
         deleted: false,
+        // version isn't read by `DataFormat::find_alias` impls, so a
+        // placeholder is fine — this struct is only consulted for
+        // alias derivation.
+        version: 0,
     };
     fmt.find_alias(&record)
 }

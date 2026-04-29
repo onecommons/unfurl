@@ -247,14 +247,16 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
         "expected Conflict, got {res:?}"
     );
 
-    // Pending check: caller asserts uncommitted, but it IS committed.
+    // Pending check with a stale version → Conflict. (Pending(v) tokens
+    // are valid only when the row's `version` column matches; version=0
+    // is below the smallest bumped version, so it's guaranteed stale.)
     let res = sync
         .update_record(
             "cloudmap.yaml",
             path,
             key,
             serde_json::json!({"name":"v3"}),
-            Some(CommitRef::Pending),
+            Some(CommitRef::Pending(0)),
         )
         .await;
     assert!(matches!(res, Err(Error::Conflict { .. })));
@@ -423,7 +425,9 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     _tmp: &TempDir,
 ) {
     // create_record's expected_commit checks the file's commit when the
-    // record row is absent. Pending on a committed file → Conflict.
+    // record row is absent. A `Pending(v)` token requires the row to
+    // exist *and* its version to match — neither holds here, so any
+    // value yields Conflict.
     sync.update_from_working_dir().await.expect("update");
     let res = sync
         .create_record(
@@ -431,7 +435,7 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
             "/repositories",
             "brand-new",
             serde_json::json!({"name":"x"}),
-            Some(CommitRef::Pending),
+            Some(CommitRef::Pending(0)),
         )
         .await;
     assert!(
@@ -664,6 +668,263 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     assert_eq!(walked_small_ids, vec![expected_walk[0]]);
 }
 
+async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _tmp: &TempDir) {
+    // Two writers race on the same in-flight record. They both read
+    // `Pending(v)` for the same `v`, but only one's update succeeds —
+    // the other's `version` no longer matches and gets a Conflict.
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    // First update lifts the row to in-flight (commit_id = NULL) and
+    // bumps `version` to v1.
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key,
+        serde_json::json!({"name": "v1"}),
+        None,
+    )
+    .await
+    .expect("update v1");
+    let v1 = sync
+        .get_record("cloudmap.yaml", path, key)
+        .await
+        .expect("get")
+        .expect("present")
+        .version;
+
+    // Both writers observe `Pending(v1)`. Writer A wins.
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key,
+        serde_json::json!({"name": "v2-A"}),
+        Some(CommitRef::Pending(v1)),
+    )
+    .await
+    .expect("A: update with valid Pending(v1)");
+
+    // Writer B still holds Pending(v1) — but the row's version is now
+    // v2 (post-A). Conflict.
+    let res = sync
+        .update_record(
+            "cloudmap.yaml",
+            path,
+            key,
+            serde_json::json!({"name": "v2-B"}),
+            Some(CommitRef::Pending(v1)),
+        )
+        .await;
+    assert!(
+        matches!(res, Err(Error::Conflict { .. })),
+        "expected Conflict for stale Pending(v1), got {res:?}"
+    );
+
+    // Writer B re-reads, picks up v2, retries — succeeds.
+    let v2 = sync
+        .get_record("cloudmap.yaml", path, key)
+        .await
+        .expect("get")
+        .expect("present")
+        .version;
+    assert!(v2 > v1, "version should have advanced past v1");
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key,
+        serde_json::json!({"name": "v3-B"}),
+        Some(CommitRef::Pending(v2)),
+    )
+    .await
+    .expect("B: retry with valid Pending(v2)");
+}
+
+async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp: &TempDir) {
+    // A `Pending(v)` token doesn't depend on `commit_id` — once issued,
+    // it stays valid as long as nobody else has rewritten the row,
+    // even after `commit_repository` rolls forward.
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key,
+        serde_json::json!({"name": "edited"}),
+        None,
+    )
+    .await
+    .expect("update");
+    let v = sync
+        .get_record("cloudmap.yaml", path, key)
+        .await
+        .expect("get")
+        .expect("present")
+        .version;
+
+    // Save + commit → record now has a non-null commit_id but version
+    // is preserved.
+    sync.save_changes().await.expect("save");
+    let oid = sync
+        .commit_repository("v")
+        .await
+        .expect("commit")
+        .expect("returned");
+    let after = sync
+        .get_record("cloudmap.yaml", path, key)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(after.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(after.version, v, "version preserved across commit");
+
+    // Pending(v) still wins post-commit.
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key,
+        serde_json::json!({"name": "edited-again"}),
+        Some(CommitRef::Pending(v)),
+    )
+    .await
+    .expect("Pending(v) still valid after commit");
+}
+
+async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
+    // `list_changes(None)` returns only the in-flight (commit_id IS
+    // NULL) records — exactly what `commit_repository` would write.
+    sync.update_from_working_dir().await.expect("update");
+    assert!(
+        sync.list_changes(None).await.expect("list").is_empty(),
+        "no pending changes after a fresh update_from_working_dir"
+    );
+
+    sync.update_record(
+        "cloudmap.yaml",
+        "/repositories",
+        "git://unfurl.cloud/onecommons/std.git",
+        serde_json::json!({"name": "edited"}),
+        None,
+    )
+    .await
+    .expect("update");
+    sync.delete_record(
+        "cloudmap.yaml",
+        "/repositories",
+        "git://unfurl.cloud/feb20a/dashboard.git",
+        None,
+    )
+    .await
+    .expect("delete");
+
+    let pending = sync.list_changes(None).await.expect("list");
+    let kinds: Vec<(&str, &str, bool)> = pending
+        .iter()
+        .map(|r| (r.path.as_str(), r.key.as_str(), r.deleted))
+        .collect();
+    assert_eq!(
+        kinds,
+        vec![
+            (
+                "/repositories",
+                "git://unfurl.cloud/onecommons/std.git",
+                false,
+            ),
+            (
+                "/repositories",
+                "git://unfurl.cloud/feb20a/dashboard.git",
+                true,
+            ),
+        ],
+        "pending list should include the update and the tombstone, in version order"
+    );
+    assert!(
+        pending.iter().all(|r| r.commit_id.is_none()),
+        "list_changes(None) only yields commit_id IS NULL records"
+    );
+
+    // After commit, the listing is empty again (tombstones are purged,
+    // updates roll forward).
+    sync.save_changes().await.expect("save");
+    sync.commit_repository("v")
+        .await
+        .expect("commit")
+        .expect("returned");
+    assert!(
+        sync.list_changes(None).await.expect("list").is_empty(),
+        "no pending changes after commit"
+    );
+}
+
+async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
+    // `list_changes(Some(v))` returns records (committed or not) whose
+    // version is greater than `v`. Useful for "sync me forward."
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key_a = "git://unfurl.cloud/onecommons/std.git";
+
+    // Read the current head version: snapshot all records and take the
+    // max — anything written after is what we want to enumerate.
+    let after_initial = sync
+        .list_changes(Some(0))
+        .await
+        .expect("list since 0")
+        .iter()
+        .map(|r| r.version)
+        .max()
+        .expect("at least one record after initial sync");
+
+    // Two writes after the snapshot: one update + one delete.
+    sync.update_record(
+        "cloudmap.yaml",
+        path,
+        key_a,
+        serde_json::json!({"name": "edited"}),
+        None,
+    )
+    .await
+    .expect("update");
+    sync.delete_record(
+        "cloudmap.yaml",
+        path,
+        "git://unfurl.cloud/feb20a/dashboard.git",
+        None,
+    )
+    .await
+    .expect("delete");
+
+    let since = sync
+        .list_changes(Some(after_initial))
+        .await
+        .expect("list since head");
+    let keys: Vec<(&str, bool)> = since.iter().map(|r| (r.key.as_str(), r.deleted)).collect();
+    assert_eq!(
+        keys,
+        vec![
+            ("git://unfurl.cloud/onecommons/std.git", false),
+            ("git://unfurl.cloud/feb20a/dashboard.git", true),
+        ],
+        "since={after_initial} should yield the two new writes in version order"
+    );
+
+    // Versions are monotonic and strictly greater than the cursor.
+    assert!(since.iter().all(|r| r.version > after_initial));
+    assert!(since[0].version < since[1].version);
+
+    // A cursor at the very last version yields nothing further.
+    let head = since.iter().map(|r| r.version).max().unwrap();
+    assert!(sync
+        .list_changes(Some(head))
+        .await
+        .expect("list since head")
+        .is_empty());
+}
+
 // ---------------------------------------------------------------------------
 // Backend wrappers
 // ---------------------------------------------------------------------------
@@ -719,3 +980,13 @@ crud_test!(
 );
 crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
 crud_test!(find_records_follow_walk, run_find_records_follow_walk);
+crud_test!(
+    pending_token_distinguishes_concurrent_updates,
+    run_pending_token_distinguishes_concurrent_updates
+);
+crud_test!(
+    pending_token_survives_commit_roll_forward,
+    run_pending_token_survives_commit_roll_forward
+);
+crud_test!(list_changes_pending_only, run_list_changes_pending_only);
+crud_test!(list_changes_since_version, run_list_changes_since_version);

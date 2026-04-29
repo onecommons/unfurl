@@ -1,8 +1,11 @@
 CREATE TABLE worktree (
-    id        INTEGER PRIMARY KEY,
-    origin    TEXT    NOT NULL,
-    branch    TEXT    NOT NULL,
-    commit_id TEXT,
+    id           INTEGER PRIMARY KEY,
+    origin       TEXT    NOT NULL,
+    branch       TEXT    NOT NULL,
+    commit_id    TEXT,
+    -- Per-worktree monotonic version counter. Bumped on every CRUD
+    -- write; the previous value is stamped on `record.version`.
+    next_version INTEGER NOT NULL DEFAULT 1,
     UNIQUE (origin, branch)
 );
 
@@ -23,6 +26,11 @@ CREATE TABLE record (
     commit_id   TEXT,
     json        BLOB    NOT NULL,
     deleted     INTEGER NOT NULL DEFAULT 0,
+    -- Per-row monotonic stamp (drawn from `worktree.next_version`).
+    -- Doubles as the optimistic-concurrency token (`CommitRef::Pending`)
+    -- and the cursor for `SyncedRepo::list_changes`. Preserved across
+    -- commit roll-forward.
+    version     INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (worktree_id, file_path)
         REFERENCES file (worktree_id, path) ON DELETE CASCADE
 );

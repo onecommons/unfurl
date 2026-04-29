@@ -27,15 +27,24 @@ pub(crate) struct RecordLookup {
     pub(crate) record_id: Option<i64>,
     /// Live row's `commit_id`; `None` when absent or a tombstone.
     pub(crate) record_commit: Option<String>,
+    /// Live row's `version` stamp; `None` when absent or a tombstone.
+    pub(crate) record_version: Option<i64>,
     /// File row's `commit_id` (used as a fallback in the conflict
     /// check when `record_id.is_none()`).
     pub(crate) file_commit: Option<String>,
 }
 
 /// `(record.id, record.commit_id, CAST(record.deleted AS INTEGER),
-/// file.commit_id)` — the row shape of [`lookup_commits`]. The
-/// integer cast normalizes the `deleted` column across dialects.
-type LookupRow = (Option<i64>, Option<String>, Option<i64>, Option<String>);
+/// record.version, file.commit_id)` — the row shape of
+/// [`lookup_commits`]. The integer cast normalizes the `deleted`
+/// column across dialects.
+type LookupRow = (
+    Option<i64>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+    Option<String>,
+);
 
 // ---------------------------------------------------------------------------
 // Dialect: per-database SQL strings.
@@ -44,6 +53,11 @@ type LookupRow = (Option<i64>, Option<String>, Option<i64>, Option<String>);
 pub(crate) trait Dialect: Database {
     /// `INSERT … ON CONFLICT(worktree_id, path) DO NOTHING` for the file row.
     const ENSURE_FILE_ROW: &'static str;
+    /// `UPDATE worktree SET next_version = next_version + 1
+    /// WHERE id = ? RETURNING next_version - 1`. Used to pull a fresh,
+    /// monotonic version stamp inside the same transaction as the
+    /// record write.
+    const NEXT_VERSION: &'static str;
     /// Joined SELECT for the conflict-check, with `deleted` cast to INTEGER.
     const LOOKUP_COMMITS: &'static str;
     /// `SELECT format FROM file WHERE worktree_id = ? AND path = ?`.
@@ -56,11 +70,13 @@ pub(crate) trait Dialect: Database {
     /// `create_record` (with the resurrect-tombstone semantics) and
     /// `upsert_record` (where overwrite-live is the documented behaviour).
     /// The two SQL bodies are identical so we share one constant.
+    /// Sets `version` to the supplied bind value.
     const UPSERT_RECORD: &'static str;
-    /// `UPDATE record SET json = …, commit_id = NULL, deleted = 0/FALSE
-    /// WHERE id = ?`.
+    /// `UPDATE record SET json = …, commit_id = NULL, deleted = 0/FALSE,
+    /// version = ? WHERE id = ?`.
     const UPDATE_RECORD: &'static str;
-    /// `UPDATE record SET deleted = 1/TRUE, commit_id = NULL WHERE id = ?`.
+    /// `UPDATE record SET deleted = 1/TRUE, commit_id = NULL,
+    /// version = ? WHERE id = ?`.
     const TOMBSTONE_RECORD: &'static str;
 }
 
@@ -69,8 +85,10 @@ impl Dialect for sqlx::Sqlite {
         "INSERT INTO file (worktree_id, path, format, commit_id) \
          VALUES (?1, ?2, 'unknown', NULL) \
          ON CONFLICT(worktree_id, path) DO NOTHING";
+    const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
+         WHERE id = ?1 RETURNING next_version - 1";
     const LOOKUP_COMMITS: &'static str =
-        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1 ELSE 0 END, f.commit_id \
+        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1 ELSE 0 END, r.version, f.commit_id \
          FROM file f \
          LEFT JOIN record r ON r.worktree_id = f.worktree_id \
                            AND r.file_path = f.path \
@@ -83,16 +101,16 @@ impl Dialect for sqlx::Sqlite {
     const INSERT_ALIAS: &'static str =
         "INSERT OR IGNORE INTO alias (record_id, path, key) VALUES (?1, ?2, ?3)";
     const UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted) \
-         VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, 0) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+         VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, 0, ?6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
-           json = excluded.json, commit_id = NULL, deleted = 0 \
+           json = excluded.json, commit_id = NULL, deleted = 0, version = excluded.version \
          RETURNING id";
     const UPDATE_RECORD: &'static str =
-        "UPDATE record SET json = jsonb(?1), commit_id = NULL, deleted = 0 \
+        "UPDATE record SET json = jsonb(?1), commit_id = NULL, deleted = 0, version = ?3 \
          WHERE id = ?2";
     const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = 1, commit_id = NULL WHERE id = ?1";
+        "UPDATE record SET deleted = 1, commit_id = NULL, version = ?2 WHERE id = ?1";
 }
 
 #[cfg(feature = "postgres")]
@@ -101,8 +119,10 @@ impl Dialect for sqlx::Postgres {
         "INSERT INTO file (worktree_id, path, format, commit_id) \
          VALUES ($1, $2, 'unknown', NULL) \
          ON CONFLICT(worktree_id, path) DO NOTHING";
+    const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
+         WHERE id = $1 RETURNING next_version - 1";
     const LOOKUP_COMMITS: &'static str =
-        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1::BIGINT ELSE 0::BIGINT END, f.commit_id \
+        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1::BIGINT ELSE 0::BIGINT END, r.version, f.commit_id \
          FROM file f \
          LEFT JOIN record r ON r.worktree_id = f.worktree_id \
                            AND r.file_path = f.path \
@@ -116,16 +136,16 @@ impl Dialect for sqlx::Postgres {
         "INSERT INTO alias (record_id, path, key) VALUES ($1, $2, $3) \
          ON CONFLICT DO NOTHING";
     const UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted) \
-         VALUES ($1, $2, $3, $4, $5::jsonb, NULL, FALSE) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+         VALUES ($1, $2, $3, $4, $5::jsonb, NULL, FALSE, $6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
-           json = EXCLUDED.json, commit_id = NULL, deleted = FALSE \
+           json = EXCLUDED.json, commit_id = NULL, deleted = FALSE, version = EXCLUDED.version \
          RETURNING id";
     const UPDATE_RECORD: &'static str =
-        "UPDATE record SET json = $1::jsonb, commit_id = NULL, deleted = FALSE \
+        "UPDATE record SET json = $1::jsonb, commit_id = NULL, deleted = FALSE, version = $3 \
          WHERE id = $2";
     const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = TRUE, commit_id = NULL WHERE id = $1";
+        "UPDATE record SET deleted = TRUE, commit_id = NULL, version = $2 WHERE id = $1";
 }
 
 // ---------------------------------------------------------------------------
@@ -177,22 +197,44 @@ where
         .bind(key)
         .fetch_optional(&mut **tx)
         .await?;
-    let (raw_id, rec_commit, deleted, file_commit) = row.unwrap_or((None, None, None, None));
+    let (raw_id, rec_commit, deleted, rec_version, file_commit) =
+        row.unwrap_or((None, None, None, None, None));
     let is_tombstone = matches!(deleted, Some(d) if d != 0);
     let record_id = match (raw_id, is_tombstone) {
         (Some(id), false) => Some(id),
         _ => None,
     };
-    let record_commit = if record_id.is_some() {
-        rec_commit
+    let (record_commit, record_version) = if record_id.is_some() {
+        (rec_commit, rec_version)
     } else {
-        None
+        (None, None)
     };
     Ok(RecordLookup {
         record_id,
         record_commit,
+        record_version,
         file_commit,
     })
+}
+
+/// Atomically increment `worktree.next_version` and return the value
+/// that should be stamped on the record being written. Call this once
+/// per CRUD write inside the same transaction as the record mutation.
+pub(crate) async fn next_version<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+) -> Result<i64>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let row: (i64,) = sqlx::query_as(DB::NEXT_VERSION)
+        .bind(worktree_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(row.0)
 }
 
 pub(crate) async fn file_format<DB: Dialect>(
@@ -244,7 +286,8 @@ where
 /// INSERT-or-resurrect: if no live row exists, insert a fresh record;
 /// if a tombstone exists for this `(worktree_id, file_path, path, key)`,
 /// resurrect it by clearing the tombstone bit. The unique index makes
-/// both branches converge on the same row id.
+/// both branches converge on the same row id. `version` is stamped
+/// onto the row.
 pub(crate) async fn create_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     worktree_id: i64,
@@ -252,6 +295,7 @@ pub(crate) async fn create_record<DB: Dialect>(
     path: &str,
     key: &str,
     json_text: &str,
+    version: i64,
 ) -> Result<i64>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -266,6 +310,7 @@ where
         .bind(path)
         .bind(key)
         .bind(json_text)
+        .bind(version)
         .fetch_one(&mut **tx)
         .await?;
     Ok(row.0)
@@ -275,6 +320,7 @@ pub(crate) async fn update_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     id: i64,
     json_text: &str,
+    version: i64,
 ) -> Result<()>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -285,6 +331,7 @@ where
     sqlx::query(DB::UPDATE_RECORD)
         .bind(json_text)
         .bind(id)
+        .bind(version)
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -299,6 +346,7 @@ pub(crate) async fn upsert_record<DB: Dialect>(
     path: &str,
     key: &str,
     json_text: &str,
+    version: i64,
 ) -> Result<i64>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -307,15 +355,17 @@ where
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    create_record(tx, worktree_id, file_path, path, key, json_text).await
+    create_record(tx, worktree_id, file_path, path, key, json_text, version).await
 }
 
 /// Tombstone the record and drop its aliases. We never hard-delete here;
 /// `commit_repository` is the only path that purges tombstones once
-/// they've been written to disk.
+/// they've been written to disk. `version` is stamped onto the row so
+/// the tombstone shows up in `list_changes(Some(prev_version))`.
 pub(crate) async fn delete_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     id: i64,
+    version: i64,
 ) -> Result<()>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -324,6 +374,7 @@ where
 {
     sqlx::query(DB::TOMBSTONE_RECORD)
         .bind(id)
+        .bind(version)
         .execute(&mut **tx)
         .await?;
     sqlx::query(DB::DELETE_ALIASES)

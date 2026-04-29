@@ -79,6 +79,12 @@ pub struct Record {
     /// [`crate::SyncedRepo::find_records`] hide tombstones; only
     /// [`crate::SyncedRepo::get_record_by_id`] returns them.
     pub deleted: bool,
+    /// Monotonic per-worktree version. Bumped on every CRUD write and
+    /// preserved across commit roll-forward, so it doubles as both the
+    /// optimistic-concurrency token (see
+    /// [`crate::CommitRef::Pending`]) and a cursor for
+    /// [`crate::SyncedRepo::list_changes`].
+    pub version: i64,
 }
 
 /// One row of the `alias` table — an alternate `(path, key)` lookup
