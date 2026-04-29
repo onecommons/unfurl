@@ -7,7 +7,7 @@
 use std::path::Path;
 
 use tempfile::TempDir;
-use unfurl_git_sync::{DbConfig, FormatRegistry, GitSync};
+use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
 
 /// Initialise a fresh git repository at `path` and commit
 /// `expected_cloudmap.yaml` (copied from this crate's fixtures dir) as
@@ -26,14 +26,14 @@ pub async fn init_repo_with_fixture(path: &Path) -> gix::ObjectId {
     .expect("init repo")
 }
 
-/// Spin up an in-memory SQLite-backed `GitSync` over a fresh temp git
+/// Spin up an in-memory SQLite-backed `SyncedRepo` over a fresh temp git
 /// repo seeded with the cloudmap fixture. Returns `(sync, tempdir)` so
 /// the caller controls when the dir is dropped.
-pub async fn sqlite_fixture() -> (GitSync, TempDir) {
+pub async fn sqlite_fixture() -> (SyncedRepo, TempDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     init_repo_with_fixture(tmp.path()).await;
 
-    let sync = GitSync::open(
+    let sync = SyncedRepo::open(
         tmp.path(),
         DbConfig::Sqlite {
             url: "sqlite::memory:".into(),
@@ -41,7 +41,7 @@ pub async fn sqlite_fixture() -> (GitSync, TempDir) {
         FormatRegistry::with_builtins(),
     )
     .await
-    .expect("open GitSync");
+    .expect("open SyncedRepo");
     (sync, tmp)
 }
 
@@ -104,18 +104,18 @@ mod pg {
         }
     }
 
-    pub async fn pg_fixture() -> Option<(GitSync, TempDir, PgScope)> {
+    pub async fn pg_fixture() -> Option<(SyncedRepo, TempDir, PgScope)> {
         let scope = PgScope::setup().await?;
         let tmp = tempfile::tempdir().expect("tempdir");
         init_repo_with_fixture(tmp.path()).await;
 
-        let sync = GitSync::open(
+        let sync = SyncedRepo::open(
             tmp.path(),
             scope.db_config(),
             FormatRegistry::with_builtins(),
         )
         .await
-        .expect("open GitSync");
+        .expect("open SyncedRepo");
         Some((sync, tmp, scope))
     }
 }
@@ -135,6 +135,6 @@ impl PgScope {
 }
 
 #[cfg(not(feature = "postgres"))]
-pub async fn pg_fixture() -> Option<(GitSync, TempDir, PgScope)> {
+pub async fn pg_fixture() -> Option<(SyncedRepo, TempDir, PgScope)> {
     None
 }

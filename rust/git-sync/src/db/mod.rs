@@ -25,7 +25,7 @@ pub mod worktree;
 
 /// User-facing database connection configuration.
 ///
-/// Pass to [`Db::connect`] (or, more commonly, [`crate::GitSync::open`])
+/// Pass to [`Db::connect`] (or, more commonly, [`crate::SyncedRepo::open`])
 /// to choose a backend. `Postgres` is gated behind the `postgres`
 /// cargo feature.
 #[derive(Debug, Clone)]

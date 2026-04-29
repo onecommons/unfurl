@@ -1,18 +1,18 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! [`GitSync`], the public top-level handle, plus its [`CommitRef`] token.
+//! [`SyncedRepo`], the public top-level handle, plus its [`CommitRef`] token.
 //!
-//! The methods on `GitSync` are the crate's main API:
+//! The methods on `SyncedRepo` are the crate's main API:
 //!
-//! - [`GitSync::open`], [`GitSync::get_working_dir`].
-//! - Sync from disk: [`GitSync::update_from_working_dir`].
-//! - Read: [`GitSync::find_records`], [`GitSync::find_records_follow`],
-//!   [`GitSync::get_record`], [`GitSync::get_record_by_id`],
-//!   [`GitSync::get_file`], [`GitSync::get_worktree`].
-//! - Mutate: [`GitSync::create_record`], [`GitSync::update_record`],
-//!   [`GitSync::upsert_record`], [`GitSync::delete_record`].
-//! - Persist: [`GitSync::save_changes`], [`GitSync::write_file`],
-//!   [`GitSync::commit_repository`].
+//! - [`SyncedRepo::open`], [`SyncedRepo::get_working_dir`].
+//! - Sync from disk: [`SyncedRepo::update_from_working_dir`].
+//! - Read: [`SyncedRepo::find_records`], [`SyncedRepo::find_records_follow`],
+//!   [`SyncedRepo::get_record`], [`SyncedRepo::get_record_by_id`],
+//!   [`SyncedRepo::get_file`], [`SyncedRepo::get_worktree`].
+//! - Mutate: [`SyncedRepo::create_record`], [`SyncedRepo::update_record`],
+//!   [`SyncedRepo::upsert_record`], [`SyncedRepo::delete_record`].
+//! - Persist: [`SyncedRepo::save_changes`], [`SyncedRepo::write_file`],
+//!   [`SyncedRepo::commit_repository`].
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -28,8 +28,8 @@ use crate::model::{Record, UpdateStats};
 /// Optimistic-concurrency token used by mutating CRUD calls.
 ///
 /// Pass `Some(token)` as the `expected_commit` argument to
-/// [`GitSync::create_record`] / [`GitSync::update_record`] /
-/// [`GitSync::upsert_record`] / [`GitSync::delete_record`] to assert
+/// [`SyncedRepo::create_record`] / [`SyncedRepo::update_record`] /
+/// [`SyncedRepo::upsert_record`] / [`SyncedRepo::delete_record`] to assert
 /// what the caller believes the row's current `commit_id` is. Mismatch
 /// returns [`crate::Error::Conflict`] and rolls back the transaction.
 /// Pass `None` to skip the check entirely.
@@ -46,23 +46,23 @@ pub enum CommitRef {
 /// Top-level handle bundling a sqlx pool, a gix repository path, and a
 /// [`FormatRegistry`].
 ///
-/// Build one with [`GitSync::open`]. Cheaply cloneable — internal state
+/// Build one with [`SyncedRepo::open`]. Cheaply cloneable — internal state
 /// sits behind an [`Arc`], so background tasks can hold their own
 /// clone without juggling lifetimes.
 #[derive(Clone)]
-pub struct GitSync {
-    inner: Arc<GitSyncInner>,
+pub struct SyncedRepo {
+    inner: Arc<SyncedRepoInner>,
 }
 
-struct GitSyncInner {
+struct SyncedRepoInner {
     db: Db,
     repo_path: PathBuf,
     formats: FormatRegistry,
     worktree_id: i64,
 }
 
-impl GitSync {
-    /// Open a working tree and a database, returning a [`GitSync`].
+impl SyncedRepo {
+    /// Open a working tree and a database, returning a [`SyncedRepo`].
     ///
     /// Connects to the database and runs schema migrations, opens the
     /// gix repository at `working_dir`, derives `(origin, branch)` from
@@ -93,7 +93,7 @@ impl GitSync {
         let worktree_id = db::worktree::upsert(&db, &meta.origin, &meta.branch).await?;
 
         Ok(Self {
-            inner: Arc::new(GitSyncInner {
+            inner: Arc::new(SyncedRepoInner {
                 db,
                 repo_path,
                 formats,
@@ -476,7 +476,7 @@ impl GitSync {
         db::file::get(self.db(), self.worktree_id(), file_path).await
     }
 
-    /// Returns the [`crate::model::Worktree`] row this `GitSync` is
+    /// Returns the [`crate::model::Worktree`] row this `SyncedRepo` is
     /// bound to.
     pub async fn get_worktree(&self) -> Result<crate::model::Worktree> {
         db::worktree::get(self.db(), self.worktree_id()).await
@@ -811,7 +811,7 @@ fn enforce_conflict(
 // Postgres roll it back atomically.
 
 async fn crud_create(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     file_path: &str,
     path: &str,
     key: &str,
@@ -927,7 +927,7 @@ async fn crud_create(
 }
 
 async fn crud_update(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     file_path: &str,
     path: &str,
     key: &str,
@@ -1019,7 +1019,7 @@ async fn crud_update(
 }
 
 async fn crud_upsert(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     file_path: &str,
     path: &str,
     key: &str,
@@ -1120,7 +1120,7 @@ async fn crud_upsert(
 }
 
 async fn crud_delete(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     file_path: &str,
     path: &str,
     key: &str,
@@ -1178,7 +1178,7 @@ async fn crud_delete(
 }
 
 fn compute_aliases(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     format_owner: Option<&str>,
     record_id: i64,
     file_path: &str,

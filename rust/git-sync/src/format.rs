@@ -13,8 +13,8 @@ use crate::Record;
 ///
 /// Implementations classify a parsed value (`is_format`), declare which
 /// top-level keys hold individual records (`path_prefixes`), and expose
-/// graph helpers used by [`crate::GitSync::find_records`] (`find_alias`)
-/// and [`crate::GitSync::find_records_follow`] (`follow`). Implementors
+/// graph helpers used by [`crate::SyncedRepo::find_records`] (`find_alias`)
+/// and [`crate::SyncedRepo::find_records_follow`] (`follow`). Implementors
 /// must be `Send + Sync` so a registry can be shared across tasks.
 pub trait DataFormat: Send + Sync {
     /// The format's unique name (e.g. `"cloudmap"`).
@@ -33,7 +33,7 @@ pub trait DataFormat: Send + Sync {
     /// Lists the top-level keys whose direct children are individual
     /// records.
     ///
-    /// During [`crate::GitSync::update_from_working_dir`] each entry
+    /// During [`crate::SyncedRepo::update_from_working_dir`] each entry
     /// `(prefix, key, value)` under `value[prefix]` becomes one
     /// [`Record`] with `path = "/{prefix}"` and the literal map `key`.
     fn path_prefixes(&self) -> &[&str];
@@ -42,7 +42,7 @@ pub trait DataFormat: Send + Sync {
     /// `record`.
     ///
     /// Used to populate the `alias` table during
-    /// [`crate::GitSync::update_from_working_dir`]. `path` is the
+    /// [`crate::SyncedRepo::update_from_working_dir`]. `path` is the
     /// parent JSON-pointer (e.g. `/repositories`); `key` is the
     /// unescaped alias key. Returning an empty `Vec` means the record
     /// has no aliases.
@@ -50,7 +50,7 @@ pub trait DataFormat: Send + Sync {
 
     /// Returns the keys this record points at.
     ///
-    /// Used by [`crate::GitSync::find_records_follow`] to walk
+    /// Used by [`crate::SyncedRepo::find_records_follow`] to walk
     /// outgoing edges; each returned key is matched against
     /// `record.key` and (alias-resolved) `alias.key` across every
     /// record in the worktree. Implementations should only return
@@ -62,7 +62,7 @@ pub trait DataFormat: Send + Sync {
 /// Registry of [`DataFormat`] implementations.
 ///
 /// Owns its boxed formats and is consumed (by value) when constructing
-/// a [`crate::GitSync`]. Iteration order is registration order; the
+/// a [`crate::SyncedRepo`]. Iteration order is registration order; the
 /// first format whose [`DataFormat::is_format`] accepts a value wins
 /// the [`detect`](Self::detect) call.
 #[derive(Default)]

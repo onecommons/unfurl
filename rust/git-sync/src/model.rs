@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 /// crate has indexed.
 ///
 /// `commit_id` is the most recent HEAD oid observed on the branch; it
-/// advances whenever [`crate::GitSync::update_from_working_dir`] or
-/// [`crate::GitSync::commit_repository`] runs.
+/// advances whenever [`crate::SyncedRepo::update_from_working_dir`] or
+/// [`crate::SyncedRepo::commit_repository`] runs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Worktree {
     /// Auto-assigned primary key.
@@ -31,7 +31,7 @@ pub struct Worktree {
 ///
 /// `format` is the [`crate::DataFormat::name`] that classified the
 /// file's contents on the most recent
-/// [`crate::GitSync::update_from_working_dir`]; `commit_id` is the
+/// [`crate::SyncedRepo::update_from_working_dir`]; `commit_id` is the
 /// last-known commit that touched this path.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct File {
@@ -74,10 +74,10 @@ pub struct Record {
     ///
     /// A row with `deleted == true` AND `commit_id == None` is an
     /// in-flight delete waiting for the next
-    /// [`crate::GitSync::commit_repository`] to purge it.
-    /// [`crate::GitSync::get_record`] and
-    /// [`crate::GitSync::find_records`] hide tombstones; only
-    /// [`crate::GitSync::get_record_by_id`] returns them.
+    /// [`crate::SyncedRepo::commit_repository`] to purge it.
+    /// [`crate::SyncedRepo::get_record`] and
+    /// [`crate::SyncedRepo::find_records`] hide tombstones; only
+    /// [`crate::SyncedRepo::get_record_by_id`] returns them.
     pub deleted: bool,
 }
 
@@ -85,7 +85,7 @@ pub struct Record {
 /// pointing at a record.
 ///
 /// Aliases let callers find a record by a synonym (e.g. a versioned
-/// URL) via [`crate::GitSync::find_records`] with `alias = true`.
+/// URL) via [`crate::SyncedRepo::find_records`] with `alias = true`.
 /// They are populated by [`crate::DataFormat::find_alias`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Alias {
@@ -97,9 +97,9 @@ pub struct Alias {
     pub key: String,
 }
 
-/// Snapshot of the gix working tree this [`crate::GitSync`] is bound to.
+/// Snapshot of the gix working tree this [`crate::SyncedRepo`] is bound to.
 ///
-/// Returned by [`crate::GitSync::get_working_dir`]. `head_commit` is
+/// Returned by [`crate::SyncedRepo::get_working_dir`]. `head_commit` is
 /// `None` for an empty / unborn repository.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WorkingDir {
@@ -112,7 +112,7 @@ pub struct WorkingDir {
     pub head_commit: Option<String>,
 }
 
-/// Counters returned by [`crate::GitSync::update_from_working_dir`].
+/// Counters returned by [`crate::SyncedRepo::update_from_working_dir`].
 ///
 /// `files_updated` ≤ `files_seen`; `records_upserted` and
 /// `records_deleted` are totals across the whole sync pass.

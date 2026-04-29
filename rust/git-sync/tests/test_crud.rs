@@ -14,13 +14,13 @@ mod common;
 use common::pg_fixture;
 use common::sqlite_fixture;
 use tempfile::TempDir;
-use unfurl_git_sync::{CommitRef, Error, GitSync};
+use unfurl_git_sync::{CommitRef, Error, SyncedRepo};
 
 // ---------------------------------------------------------------------------
 // Test bodies
 // ---------------------------------------------------------------------------
 
-async fn run_create_update_delete_round_trip(sync: &GitSync, _tmp: &TempDir) {
+async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
 
     // create_record fails on existing path.
@@ -89,7 +89,7 @@ async fn run_create_update_delete_round_trip(sync: &GitSync, _tmp: &TempDir) {
     assert!(matches!(dne, Err(Error::NotFound { .. })));
 }
 
-async fn run_save_changes_round_trips_to_disk(sync: &GitSync, tmp: &TempDir) {
+async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
 
     let path = "/repositories";
@@ -203,7 +203,7 @@ async fn run_save_changes_round_trips_to_disk(sync: &GitSync, tmp: &TempDir) {
     );
 }
 
-async fn run_commit_conflict_is_detected(sync: &GitSync, _tmp: &TempDir) {
+async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
     let oid_a = sync
         .get_working_dir()
@@ -292,7 +292,7 @@ async fn run_commit_conflict_is_detected(sync: &GitSync, _tmp: &TempDir) {
     assert_eq!(r.commit_id.as_deref(), Some(oid_c.as_str()));
 }
 
-async fn run_conflict_rolls_back_alias_writes(sync: &GitSync, _tmp: &TempDir) {
+async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir) {
     // Regression: the conflict check + mutation + alias refresh must
     // happen in a single transaction. Before the fix, a Conflict
     // returned partway through left stale alias rows in the DB.
@@ -339,7 +339,7 @@ async fn run_conflict_rolls_back_alias_writes(sync: &GitSync, _tmp: &TempDir) {
     );
 }
 
-async fn run_create_resurrects_tombstone(sync: &GitSync, tmp: &TempDir) {
+async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // delete_record only marks `deleted = TRUE` (a tombstone). A
     // subsequent create_record at the same (path, key) must succeed —
     // resurrecting the row — rather than seeing the tombstone as an
@@ -419,7 +419,7 @@ async fn run_create_resurrects_tombstone(sync: &GitSync, tmp: &TempDir) {
 }
 
 async fn run_create_with_pending_token_on_committed_file_is_conflict(
-    sync: &GitSync,
+    sync: &SyncedRepo,
     _tmp: &TempDir,
 ) {
     // create_record's expected_commit checks the file's commit when the
@@ -440,7 +440,7 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     );
 }
 
-async fn run_find_records_alias_lookup(sync: &GitSync, _tmp: &TempDir) {
+async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // The fixture's pkg:oci/odoo OCI artifact has a `versions` map
     // (`@sha256:…`, `?tag=latest`); CloudMapFormat::find_alias turns
     // each into an alias row at (record.path, joined_url). Looking up
@@ -512,7 +512,7 @@ async fn run_find_records_alias_lookup(sync: &GitSync, _tmp: &TempDir) {
     );
 }
 
-async fn run_find_records_follow_walk(sync: &GitSync, _tmp: &TempDir) {
+async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // find_records_follow walks DataFormat::follow edges from each
     // initial match, breadth-first, returning at most `follow` newly
     // visited records.

@@ -11,16 +11,16 @@
 //!
 //! # Architecture
 //!
-//! - [`GitSync`] is the top-level handle, bundling a sqlx pool, the
+//! - [`SyncedRepo`] is the top-level handle, bundling a sqlx pool, the
 //!   gix repository path, and a [`FormatRegistry`].
 //! - [`DataFormat`] classifies parsed values, declares which top-level
 //!   keys hold records, and exposes graph helpers used by
-//!   [`GitSync::find_records_follow`].
+//!   [`SyncedRepo::find_records_follow`].
 //! - The shipped concrete format is [`CloudMapFormat`].
 //!
 //! # YAML round-trip
 //!
-//! Files are modified in place: [`GitSync::save_changes`] reads the
+//! Files are modified in place: [`SyncedRepo::save_changes`] reads the
 //! existing file from disk, applies in-flight record changes
 //! (`commit_id IS NULL`) — set, replace, or delete — and writes the
 //! result back. Untouched keys preserve their original ordering and
@@ -36,10 +36,10 @@
 //! # Example
 //!
 //! ```no_run
-//! use unfurl_git_sync::{DbConfig, FormatRegistry, GitSync};
+//! use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
 //!
 //! # async fn run() -> unfurl_git_sync::Result<()> {
-//! let sync = GitSync::open(
+//! let sync = SyncedRepo::open(
 //!     "/path/to/working/dir",
 //!     DbConfig::Sqlite { url: "sqlite::memory:".into() },
 //!     FormatRegistry::with_builtins(),
@@ -76,4 +76,4 @@ pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
 pub use model::{Alias, File, Record, UpdateStats, WorkingDir, Worktree};
 #[doc(inline)]
-pub use sync::{CommitRef, GitSync};
+pub use sync::{CommitRef, SyncedRepo};
