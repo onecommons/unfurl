@@ -487,7 +487,7 @@ class CloudMapGraphVisitor:
         seen: bool = False,
         type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
-    ) -> None:
+    ) -> bool:
         """Called for each record node.
 
         Args:
@@ -496,7 +496,10 @@ class CloudMapGraphVisitor:
             walk_only: When True the record is being walked only so its edges
                        are discovered; a ``visit_type_ref`` has already been
                        emitted for it and no additional ref should be added.
+        Returns:
+            True to stop walking further, False to continue.
         """
+        return False
 
     def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
         """Called after all edges of a record have been visited."""
@@ -579,9 +582,10 @@ class CloudMapGraphWalker:
                 return
             visited: set = {start_url}
             for kind, record in all_found:
-                self.visitor.visit_record(
+                if self.visitor.visit_record(
                     kind, start_url, record, type_refs=_merge_typerefs(record)
-                )
+                ):
+                    break
                 self._walk_edges(record, kind, visited)
                 self.visitor.leave_record(kind, start_url, record)
         else:
@@ -604,18 +608,20 @@ class CloudMapGraphWalker:
                 for record in records_list:
                     key = self._record_key(record)
                     if key in visited:
-                        self.visitor.visit_record(
+                        if self.visitor.visit_record(
                             kind,
                             key,
                             record,
                             seen=True,
                             type_refs=_merge_typerefs(record),
-                        )
+                        ):
+                            break
                         continue
                     visited.add(key)
-                    self.visitor.visit_record(
+                    if self.visitor.visit_record(
                         kind, key, record, type_refs=_merge_typerefs(record)
-                    )
+                    ):
+                        break
                     self._walk_edges(record, kind, visited)
                     self.visitor.leave_record(kind, key, record)
             self.visitor.end_graph(empty=not visited)
@@ -788,13 +794,14 @@ class CloudMapGraphWalker:
                 )
             return
         visited.add(url)
-        self.visitor.visit_record(
+        if self.visitor.visit_record(
             child_kind,
             url,
             child_record,
             type_refs=_merge_typerefs(child_record),
             walk_only=_walk_only,
-        )
+        ):
+            return
         self._walk_edges(child_record, child_kind, visited)
         self.visitor.leave_record(child_kind, url, child_record)
 
@@ -880,18 +887,18 @@ class RichTreeVisitor(CloudMapGraphVisitor):
         seen: bool = False,
         type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
-    ) -> None:
+    ) -> bool:
         style = self._KIND_STYLES.get(kind, "")
         label = self._label(kind, url, record, style, type_refs)
         if seen:
             parent = self._stack[-1] if self._stack else None
             if parent:
                 parent.add(f"{label} [dim]\\[seen][/]")
-            return
+            return False
         if walk_only:
             # Record is being walked only for its edges — visit_type_ref
             # already pushed a node, so just reuse it.
-            return
+            return False
         if self._stack:
             node = self._stack[-1].add(label, guide_style=style)
         else:
@@ -900,6 +907,7 @@ class RichTreeVisitor(CloudMapGraphVisitor):
             # For start_url mode, print each root immediately
             self._deferred_print = node
         self._stack.append(node)
+        return False
 
     def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
         left = self._stack.pop()
@@ -1037,7 +1045,7 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
         seen: bool = False,
         type_refs: Optional[TypeRefs] = None,
         walk_only: bool = False,
-    ) -> None:
+    ) -> bool:
         node = self._ensure_record(kind, url)
         if not walk_only:
             # Add a ref to the current rels list (roots or parent rel); skip at section top-level
@@ -1052,6 +1060,7 @@ class JsonGraphVisitor(CloudMapGraphVisitor):
 
         if not seen:
             self._stack.append((node, ""))
+        return False
 
     def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
         self._stack.pop()
@@ -1126,6 +1135,58 @@ def cloudmap_graph_json(view: "CloudMapView", start_url: str = "") -> GraphJson:
         visitor.result["roots"] = []
     walk_cloudmap_graph(view, visitor, start_url)
     return visitor.result
+
+
+_CLOUDMAP_KIND_TO_SECTION: Dict[str, str] = {
+    "Repository": "repositories",
+    "Artifact": "artifacts",
+    "Instantiation": "instantiations",
+    "Service": "services",
+    "Type": "types",
+}
+
+
+class CollectVisitor(CloudMapGraphVisitor):
+    """Visitor that collects walked records into a CloudMap-shaped dict.
+
+    Used by the ``/cloudmap`` endpoint to build the followed-records
+    portion of its response. Records are grouped by section
+    (``repositories``, ``artifacts``, ``services``, ``instantiations``,
+    ``types``) and stored as ``record.asdict()`` payloads keyed by URL.
+
+    Args:
+        start_key: URL of the starting record; never re-emitted.
+        limit: Maximum number of records to collect. Once reached,
+            subsequent ``visit_record`` calls become no-ops.
+    """
+
+    def __init__(self, start_key: str, limit: int) -> None:
+        self.start_key = start_key
+        self.limit = limit
+        self.result: Dict[str, Dict[str, Any]] = {}
+        self._seen: set = set()
+
+    def visit_record(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        *,
+        seen: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+        walk_only: bool = False,
+    ) -> bool:
+        if len(self._seen) >= self.limit:
+            return True
+        if seen or url == self.start_key:
+            return False
+        section_name = _CLOUDMAP_KIND_TO_SECTION.get(kind, kind.lower() + "s")
+        pair = (section_name, url)
+        if pair in self._seen:
+            return False
+        self._seen.add(pair)
+        self.result.setdefault(section_name, {})[url] = record.asdict()
+        return False
 
 
 def cloudmap_graph_console(

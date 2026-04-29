@@ -70,6 +70,9 @@ from ..graphql import (
 from .schemas import (
     BatchPatchBody,
     ClearProjectQuery,
+    CloudMapDocQuery,
+    CloudMapDocument,
+    CloudMapDocumentPair,
     CloudMapQuery,
     CloudMapResponse,
     EmptyCacheQuery,
@@ -82,6 +85,7 @@ from .schemas import (
     TypesQuery,
     EXPORT_RESPONSES,
     PATCH_RESPONSES,
+    hoist_cloudmap_definitions,
 )
 from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url, ProxiedRepo
@@ -123,6 +127,15 @@ logger = getLogger("unfurl.server")
 
 
 app = APIFlask(__name__, title="Unfurl Server API", version=__version__())
+
+
+@app.spec_processor
+def _hoist_cloudmap_defs(spec):
+    """Lift CloudMap schema definitions into components.schemas so that
+    the canonical cloudmap-schema.json definitions appear as named
+    OpenAPI components and ``$ref`` arrows resolve.
+    """
+    return hoist_cloudmap_definitions(spec)
 
 
 def configure_app(app: APIFlask = app) -> Cache:
@@ -1648,13 +1661,72 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
 
 @app.get("/cloudmap")
 @app.doc(
+    summary="CloudMap document",
+    description=(
+        "Return a pair ``[document, follow]`` of CloudMap documents. "
+        "``document`` is the raw CloudMap (or a subset filtered by "
+        "``kind`` / ``key``). ``follow`` contains records reachable "
+        "from ``key`` when ``follow`` > 0, otherwise it is ``{}``."
+    ),
+    tags=["Export"],
+)
+@app.input(CloudMapDocQuery, location="query", arg_name="query")
+@app.output(
+    CloudMapDocumentPair,
+    description="Pair: [filtered CloudMap document, followed records]",
+)
+def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
+    from .cache import CLOUDMAP_BRANCH, load_yaml
+
+    project_id = get_project_id(request)
+    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml")
+    if doc is None:
+        if isinstance(err, Response):
+            return err
+        return make_response(jsonify(error=str(err)), 500)
+
+    kind = request.args.get("kind")
+    key = request.args.get("key")
+    try:
+        follow = int(request.args.get("follow") or 0)
+    except ValueError:
+        follow = 0
+
+    if not kind:
+        primary: Any = doc
+    else:
+        section = doc.get(kind, {})
+        if key is None:
+            primary = {kind: section}
+        elif not isinstance(section, dict) or key not in section:
+            return make_response(
+                jsonify(error=f"key {key!r} not found in {kind!r}"), 404
+            )
+        else:
+            primary = {kind: {key: section[key]}}
+
+    followed: Dict[str, Any] = {}
+    if follow > 0 and key:
+        from ..cloudmap import CloudMapDB
+        from ..reporting import CollectVisitor, walk_cloudmap_graph
+
+        db = CloudMapDB("", doc, False)
+        visitor = CollectVisitor(key, follow)
+        walk_cloudmap_graph(db, visitor, key)
+        followed = visitor.result
+
+    return [primary, followed]
+
+
+@app.get("/graph")
+@app.doc(
     summary="CloudMap graph",
     description="Return the CloudMap dependency graph as JSON, optionally filtered to a single URL.",
     tags=["Export"],
 )
 @app.input(CloudMapQuery, location="query", arg_name="query")
 @app.output(CloudMapResponse, description="CloudMap dependency graph as JSON")
-def get_cloudmap(query: CloudMapQuery) -> ResponseReturnValue:
+def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
     from .cache import CLOUDMAP_BRANCH, load_yaml
 
     from ..cloudmap import CloudMapDB

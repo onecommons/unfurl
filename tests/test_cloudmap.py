@@ -1558,6 +1558,157 @@ def test_get_cloudmap_types(mocker):
                 "icon": "https://unfurl.cloud/onecommons/blueprints/cronicle/-/avatar",
             }
 
+
+# ---------------------------------------------------------------------------
+# /cloudmap endpoint tests
+#
+# Mirror the Rust integration tests in
+# rust/server/tests/test_cloudmap.rs. They follow the
+# test_get_cloudmap_types() pattern: mock load_yaml so the handler
+# operates on a fixed cloudmap dict, then exercise the route via
+# Flask's test client.
+#
+# We load the same fixture used by the Rust crate so the BFS expectations
+# stay in lock-step across both implementations.
+# ---------------------------------------------------------------------------
+
+
+def _load_cloudmap_fixture():
+    """Read tests/fixtures/expected_cloudmap.yaml."""
+    import yaml as _yaml
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    fixture_path = os.path.join(here, "fixtures", "expected_cloudmap.yaml")
+    with open(fixture_path) as f:
+        return _yaml.safe_load(f)
+
+
+@pytest.fixture
+def cloudmap_test_client():
+    """Yield a Flask test client wired to the unfurl server app, with
+    `unfurl.server.cache.load_yaml` patched to return the cloudmap
+    fixture from ``tests/fixtures/``."""
+    from unfurl.server.serve import app
+
+    cloudmap_doc = _load_cloudmap_fixture()
+    with patch("unfurl.server.cache.load_yaml") as mock_load_yaml:
+        mock_load_yaml.return_value = (None, cloudmap_doc)
+        with app.test_client() as client:
+            yield client
+
+
+def test_cloudmap_endpoint_full_document(cloudmap_test_client):
+    resp = cloudmap_test_client.get("/cloudmap")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert isinstance(body, list)
+    assert len(body) == 2, "response is a [primary, followed] pair"
+    primary, followed = body
+    assert "repositories" in primary
+    assert "artifacts" in primary
+    assert followed == {}
+
+
+def test_cloudmap_endpoint_kind_only(cloudmap_test_client):
+    resp = cloudmap_test_client.get("/cloudmap?kind=repositories")
+    assert resp.status_code == 200
+    primary, followed = resp.get_json()
+    assert "repositories" in primary
+    assert "artifacts" not in primary
+    assert followed == {}
+
+
+def test_cloudmap_endpoint_kind_and_key(cloudmap_test_client):
+    from urllib.parse import quote
+
+    key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+    resp = cloudmap_test_client.get(f"/cloudmap?kind=repositories&key={quote(key)}")
+    assert resp.status_code == 200
+    primary, followed = resp.get_json()
+    assert list(primary["repositories"].keys()) == [key]
+    assert followed == {}
+
+
+def test_cloudmap_endpoint_missing_key(cloudmap_test_client):
+    resp = cloudmap_test_client.get(
+        "/cloudmap?kind=repositories&key=git://no/such/repo.git"
+    )
+    assert resp.status_code == 404
+
+
+def test_cloudmap_endpoint_follow_walks_graph(cloudmap_test_client):
+    from urllib.parse import quote
+
+    key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+    resp = cloudmap_test_client.get(
+        f"/cloudmap?kind=repositories&key={quote(key)}&follow=10"
+    )
+    assert resp.status_code == 200
+    _primary, followed = resp.get_json()
+    assert followed, "follow=10 should reach at least one record"
+
+    # Collect every key across every section in the followed dict.
+    keys = []
+    for section, records in followed.items():
+        for k in records:
+            keys.append(k)
+    keys.sort()
+    # The Python CloudMapGraphWalker traverses more edges than the Rust
+    # BFS — it follows type references and the original (un-normalised)
+    # artifact URLs — so the reachable set is larger and slightly
+    # different from rust/server/tests/test_cloudmap.rs.
+    expected = sorted(
+        [
+            "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+            "PostgresDB@unfurl.cloud/onecommons/unfurl-types",
+            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+            "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.",
+            "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml",
+            "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+            "unfurl.relationships.ConnectsTo.AWSAccount",
+            "unfurl.relationships.ConnectsTo.GoogleCloudProject",
+        ]
+    )
+    assert keys == expected
+
+    ensemble = followed["artifacts"][
+        "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml"
+    ]
+    assert "type" in ensemble
+
+
+def test_cloudmap_endpoint_follow_caps_record_count(cloudmap_test_client):
+    from urllib.parse import quote
+
+    key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+    resp = cloudmap_test_client.get(
+        f"/cloudmap?kind=repositories&key={quote(key)}&follow=2"
+    )
+    assert resp.status_code == 200
+    _primary, followed = resp.get_json()
+    total = sum(len(records) for records in followed.values())
+    assert total == 2
+
+
+def test_cloudmap_endpoint_follow_zero(cloudmap_test_client):
+    from urllib.parse import quote
+
+    key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+    resp = cloudmap_test_client.get(
+        f"/cloudmap?kind=repositories&key={quote(key)}&follow=0"
+    )
+    assert resp.status_code == 200
+    _primary, followed = resp.get_json()
+    assert followed == {}
+
+
+def test_cloudmap_endpoint_follow_without_key(cloudmap_test_client):
+    resp = cloudmap_test_client.get("/cloudmap?follow=10")
+    assert resp.status_code == 200
+    _primary, followed = resp.get_json()
+    assert followed == {}
+
+
 def test_instantiation_versions():
     """Test that Instantiation versions property works correctly with type inheritance and serialization."""
     import json

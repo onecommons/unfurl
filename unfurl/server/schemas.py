@@ -7,6 +7,9 @@ These are used with @app.input() and @app.output() decorators to provide
 request validation and OpenAPI spec generation.
 """
 
+import json
+import os
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal, TypedDict
 
@@ -148,6 +151,7 @@ class ExportQuery(ExportBaseQuery):
         description="Return any cache hit without checking if it's out of date.",
     )
 
+
 class TypesQuery(ExportBaseQuery):
     """Query parameters for /types."""
 
@@ -160,13 +164,146 @@ class TypesQuery(ExportBaseQuery):
     )
 
 
+CloudMapKind = Literal[
+    "repositories", "artifacts", "services", "instantiations", "types"
+]
+
+
 class CloudMapQuery(ProjectQuery):
-    """Query parameters for /cloudmap."""
+    """Query parameters for /cloudmap (graph) endpoint."""
 
     url: Optional[str] = Field(
         default=None,
         description="Optional artifact or instantiation URL to filter the graph to",
     )
+
+
+class CloudMapDocQuery(ProjectQuery):
+    """Query parameters for /cloudmap (raw document) endpoint."""
+
+    kind: Optional[CloudMapKind] = Field(
+        default=None,
+        description=(
+            "Top-level CloudMap section to return; if omitted the full "
+            "document is returned."
+        ),
+    )
+    key: Optional[str] = Field(
+        default=None,
+        description=(
+            "Record key (URL) within the selected ``kind`` section; "
+            "ignored when ``kind`` is omitted."
+        ),
+    )
+    follow: int = Field(
+        default=0,
+        description=(
+            "If > 0 and ``key`` is supplied, walk the CloudMap graph "
+            "starting at ``key`` and return the discovered records in "
+            "the second element of the response pair. Otherwise the "
+            "second element is an empty dict."
+        ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# CloudMap document response — references docs/cloudmap-schema.json
+# ---------------------------------------------------------------------------
+
+
+@lru_cache(maxsize=1)
+def _load_cloudmap_schema() -> Dict[str, Any]:
+    """Return the canonical cloudmap JSON schema as a dict."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    schema_path = os.path.join(here, "..", "..", "docs", "cloudmap-schema.json")
+    with open(schema_path, "r") as f:
+        return json.load(f)
+
+
+class CloudMapDocument(BaseModel):
+    """Placeholder Pydantic model for the CloudMap document response.
+
+    The model intentionally has no fields — APIFlask emits an empty
+    stub for it, which is then replaced wholesale by
+    :func:`hoist_cloudmap_definitions` (registered as a
+    ``@app.spec_processor``) with the contents of
+    ``docs/cloudmap-schema.json``.  Doing the substitution at spec-build
+    time avoids Pydantic v2's internal ``$defs`` ref-counting machinery.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+class CloudMapDocumentPair(BaseModel):
+    """Placeholder for the ``/cloudmap`` response: a 2-element array of
+    CloudMap documents.
+
+    APIFlask emits an empty stub which :func:`hoist_cloudmap_definitions`
+    replaces with a fixed-length array schema referencing
+    :class:`CloudMapDocument`.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+
+def _rewrite_refs_to_components(node: Any, prefix: str = "cloudmap_") -> Any:
+    """Return a deep copy of ``node`` with ``#/definitions/<X>``
+    rewritten to ``#/components/schemas/{prefix}<X>``."""
+    if isinstance(node, dict):
+        out: Dict[str, Any] = {}
+        for k, v in node.items():
+            if k == "$ref" and isinstance(v, str) and v.startswith("#/definitions/"):
+                out[k] = "#/components/schemas/" + prefix + v.split("/", 2)[2]
+            else:
+                out[k] = _rewrite_refs_to_components(v, prefix)
+        return out
+    if isinstance(node, list):
+        return [_rewrite_refs_to_components(v, prefix) for v in node]
+    return node
+
+
+def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """APIFlask ``spec_processor``: replace the placeholder
+    ``CloudMapDocument`` schema with the canonical CloudMap schema and
+    hoist its ``definitions`` into ``components.schemas`` under a
+    ``cloudmap_`` prefix.
+
+    Internal ``$ref`` arrows of the form ``#/definitions/<name>`` are
+    rewritten to ``#/components/schemas/cloudmap_<name>`` so they
+    resolve in the OpenAPI spec.
+    """
+    components = spec.setdefault("components", {})
+    schemas = components.setdefault("schemas", {})
+    has_doc = "CloudMapDocument" in schemas
+    has_pair = "CloudMapDocumentPair" in schemas
+    if not (has_doc or has_pair):
+        return spec
+    canonical = _load_cloudmap_schema()
+    defs = canonical.get("definitions", {})
+    for name, definition in defs.items():
+        schemas["cloudmap_" + name] = _rewrite_refs_to_components(definition)
+    schemas["CloudMapDocument"] = {
+        "title": canonical.get("title", "CloudMap"),
+        "type": canonical.get("type", "object"),
+        "properties": _rewrite_refs_to_components(canonical.get("properties", {})),
+        "required": canonical.get("required", []),
+    }
+    if has_pair:
+        schemas["CloudMapDocumentPair"] = {
+            "title": "CloudMap document pair",
+            "description": (
+                "Two-element array: the queried (and optionally filtered) "
+                "CloudMap document followed by a CloudMap document of "
+                "records discovered by following the graph from the "
+                "filter key (empty dict when ``follow`` is 0 or no key "
+                "was supplied)."
+            ),
+            "type": "array",
+            "items": {"$ref": "#/components/schemas/CloudMapDocument"},
+            "minItems": 2,
+            "maxItems": 2,
+        }
+    return spec
 
 
 class PopulateCacheQuery(ProjectQuery):
@@ -310,7 +447,6 @@ class PatchResponse(BaseModel):
         default=None,
         description="Commit hash after applying the patch, or null if no changes were committed",
     )
-
 
 
 class ExportResponse(BaseModel):
