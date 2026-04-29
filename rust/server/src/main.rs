@@ -166,7 +166,10 @@ async fn main() {
         // Cache-aware read endpoints.
         .route("/export", get(routes::handle_export))
         .route("/types", get(routes::handle_types))
-        .route("/cloudmap", get(cloudmap::handle_cloudmap))
+        .route(
+            "/cloudmap",
+            get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap),
+        )
         // Write endpoints queued to Redis.
         .route("/create_ensemble", post(routes::handle_write))
         .route("/update_ensemble", post(routes::handle_write))

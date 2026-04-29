@@ -25,6 +25,11 @@ pub struct Worktree {
     pub branch: String,
     /// Last HEAD oid the crate has observed for this `(origin, branch)`.
     pub commit_id: Option<String>,
+    /// Working-tree-relative path of the file new records go to when a
+    /// CRUD call passes `file_path = None`. Set on the first
+    /// [`crate::SyncedRepo::update_from_working_dir`] run; never
+    /// overwritten afterwards (operators can pin it manually).
+    pub default_file_path: Option<String>,
 }
 
 /// One row of the `file` table — a tracked file within a worktree.

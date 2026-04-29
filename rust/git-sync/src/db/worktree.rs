@@ -71,19 +71,25 @@ pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str
 }
 
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
-    let row: (i64, String, String, Option<String>) = match db {
+    let row: (i64, String, String, Option<String>, Option<String>) = match db {
         Db::Sqlite(pool) => {
-            sqlx::query_as("SELECT id, origin, branch, commit_id FROM worktree WHERE id = ?1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
+            sqlx::query_as(
+                "SELECT id, origin, branch, commit_id, default_file_path \
+                 FROM worktree WHERE id = ?1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            sqlx::query_as("SELECT id, origin, branch, commit_id FROM worktree WHERE id = $1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
+            sqlx::query_as(
+                "SELECT id, origin, branch, commit_id, default_file_path \
+                 FROM worktree WHERE id = $1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?
         }
     };
     Ok(crate::model::Worktree {
@@ -91,5 +97,69 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
         origin: row.1,
         branch: row.2,
         commit_id: row.3,
+        default_file_path: row.4,
     })
+}
+
+/// Auto-pick `worktree.default_file_path` if not already set.
+///
+/// Run once at the end of [`crate::SyncedRepo::update_from_working_dir`].
+/// `COALESCE` keeps the existing value when set (so operator
+/// overrides survive re-syncs) and otherwise drops in the smallest
+/// `file_path` that contributed a record. `MIN()` is deterministic
+/// and supported identically on both backends; when no records
+/// exist it returns NULL and the column stays NULL.
+pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<()> {
+    match db {
+        Db::Sqlite(pool) => {
+            sqlx::query(
+                "UPDATE worktree \
+                 SET default_file_path = COALESCE( \
+                     default_file_path, \
+                     (SELECT MIN(file_path) FROM record WHERE worktree_id = ?1)) \
+                 WHERE id = ?1",
+            )
+            .bind(worktree_id)
+            .execute(pool)
+            .await?;
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query(
+                "UPDATE worktree \
+                 SET default_file_path = COALESCE( \
+                     default_file_path, \
+                     (SELECT MIN(file_path) FROM record WHERE worktree_id = $1)) \
+                 WHERE id = $1",
+            )
+            .bind(worktree_id)
+            .execute(pool)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// Unconditionally set `worktree.default_file_path` (or clear it
+/// when `value == None`). Used by operators to override the auto-pick
+/// done by `update_from_working_dir` on first run.
+pub(crate) async fn set_default_file(db: &Db, worktree_id: i64, value: Option<&str>) -> Result<()> {
+    match db {
+        Db::Sqlite(pool) => {
+            sqlx::query("UPDATE worktree SET default_file_path = ?2 WHERE id = ?1")
+                .bind(worktree_id)
+                .bind(value)
+                .execute(pool)
+                .await?;
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query("UPDATE worktree SET default_file_path = $2 WHERE id = $1")
+                .bind(worktree_id)
+                .bind(value)
+                .execute(pool)
+                .await?;
+        }
+    }
+    Ok(())
 }

@@ -26,7 +26,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
     // create_record fails on existing path.
     let dup = sync
         .create_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             "/repositories",
             "git://unfurl.cloud/onecommons/std.git",
             serde_json::json!({}),
@@ -41,7 +41,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
     // create on a fresh path.
     let id = sync
         .create_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             "/repositories",
             "new",
             serde_json::json!({"name":"new"}),
@@ -61,7 +61,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
     // update_record on a missing path returns NotFound.
     let missing = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             "/repositories",
             "missing",
             serde_json::json!({}),
@@ -73,7 +73,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
         "expected NotFound, got {missing:?}"
     );
 
-    sync.delete_record("cloudmap.yaml", "/repositories", "new", None)
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", "new", None)
         .await
         .expect("delete");
     assert!(sync
@@ -84,7 +84,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
 
     // delete_record on a missing path returns NotFound.
     let dne = sync
-        .delete_record("cloudmap.yaml", "/repositories", "new", None)
+        .delete_record(Some("cloudmap.yaml"), "/repositories", "new", None)
         .await;
     assert!(matches!(dne, Err(Error::NotFound { .. })));
 }
@@ -98,7 +98,7 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
     let updated_key = "git://unfurl.cloud/onecommons/std.git";
     let updated_id = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             updated_key,
             serde_json::json!({"name": "renamed"}),
@@ -109,14 +109,14 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
 
     // 2) Delete an existing record.
     let deleted_key = "git://unfurl.cloud/feb20a/dashboard.git";
-    sync.delete_record("cloudmap.yaml", path, deleted_key, None)
+    sync.delete_record(Some("cloudmap.yaml"), path, deleted_key, None)
         .await
         .expect("delete");
 
     // 3) Add a brand-new record.
     let added_key = "git://example.com/added.git";
     sync.create_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         added_key,
         serde_json::json!({
@@ -217,7 +217,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Edit + commit so the record's commit_id becomes oid_b ≠ oid_a.
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name":"v2"}),
@@ -235,7 +235,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     // A caller still holding oid_a tries to update → Conflict.
     let res = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             key,
             serde_json::json!({"name":"v3"}),
@@ -252,7 +252,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     // is below the smallest bumped version, so it's guaranteed stale.)
     let res = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             key,
             serde_json::json!({"name":"v3"}),
@@ -264,7 +264,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     // Correct token succeeds and clears commit_id back to NULL.
     let id = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             key,
             serde_json::json!({"name":"v3"}),
@@ -313,7 +313,7 @@ async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir)
     let bogus = "0000000000000000000000000000000000000000".to_string();
     let res = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             target_path,
             target_key,
             serde_json::json!({"name": "should-not-stick"}),
@@ -352,7 +352,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     let key = "git://unfurl.cloud/onecommons/std.git";
 
     // Tombstone the existing record.
-    sync.delete_record("cloudmap.yaml", path, key, None)
+    sync.delete_record(Some("cloudmap.yaml"), path, key, None)
         .await
         .expect("delete");
     assert!(
@@ -367,7 +367,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // NOT return AlreadyExists.
     let id = sync
         .create_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             key,
             serde_json::json!({"name": "resurrected"}),
@@ -431,7 +431,7 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     sync.update_from_working_dir().await.expect("update");
     let res = sync
         .create_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             "/repositories",
             "brand-new",
             serde_json::json!({"name":"x"}),
@@ -680,7 +680,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
     // First update lifts the row to in-flight (commit_id = NULL) and
     // bumps `version` to v1.
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name": "v1"}),
@@ -697,7 +697,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
 
     // Both writers observe `Pending(v1)`. Writer A wins.
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name": "v2-A"}),
@@ -710,7 +710,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
     // v2 (post-A). Conflict.
     let res = sync
         .update_record(
-            "cloudmap.yaml",
+            Some("cloudmap.yaml"),
             path,
             key,
             serde_json::json!({"name": "v2-B"}),
@@ -731,7 +731,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
         .version;
     assert!(v2 > v1, "version should have advanced past v1");
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name": "v3-B"}),
@@ -751,7 +751,7 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
     let key = "git://unfurl.cloud/onecommons/std.git";
 
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name": "edited"}),
@@ -784,7 +784,7 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
 
     // Pending(v) still wins post-commit.
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key,
         serde_json::json!({"name": "edited-again"}),
@@ -804,7 +804,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         "/repositories",
         "git://unfurl.cloud/onecommons/std.git",
         serde_json::json!({"name": "edited"}),
@@ -813,7 +813,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     .await
     .expect("update");
     sync.delete_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         "/repositories",
         "git://unfurl.cloud/feb20a/dashboard.git",
         None,
@@ -881,7 +881,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Two writes after the snapshot: one update + one delete.
     sync.update_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         key_a,
         serde_json::json!({"name": "edited"}),
@@ -890,7 +890,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     .await
     .expect("update");
     sync.delete_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         path,
         "git://unfurl.cloud/feb20a/dashboard.git",
         None,
@@ -923,6 +923,107 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("list since head")
         .is_empty());
+}
+
+async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &TempDir) {
+    // The fresh fixture has only `cloudmap.yaml`. After the first
+    // `update_from_working_dir` run, that should become the default
+    // file path. A subsequent run must NOT clobber a manually-set
+    // value.
+    sync.update_from_working_dir().await.expect("update");
+    let wt = sync.get_worktree().await.expect("get_worktree");
+    assert_eq!(wt.default_file_path.as_deref(), Some("cloudmap.yaml"));
+
+    // Manually pin a different value, then re-run.
+    sync.set_default_file_path(Some("pinned.yaml"))
+        .await
+        .expect("manual override");
+    sync.update_from_working_dir().await.expect("update again");
+    let wt2 = sync.get_worktree().await.expect("get_worktree");
+    assert_eq!(
+        wt2.default_file_path.as_deref(),
+        Some("pinned.yaml"),
+        "operator override should not be clobbered by a re-sync"
+    );
+}
+
+async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp: &TempDir) {
+    // `update_record(None, ...)` should look up the existing record
+    // by `(path, key)` and use *its* file_path.
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    let id = sync
+        .update_record(
+            None,
+            path,
+            key,
+            serde_json::json!({"name": "via-none"}),
+            None,
+        )
+        .await
+        .expect("update with file_path=None");
+
+    let r = sync
+        .get_record_by_id(id)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(r.file_path, "cloudmap.yaml");
+    assert_eq!(r.json["name"], "via-none");
+}
+
+async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _tmp: &TempDir) {
+    // `upsert_record(None, ...)` for a *new* (path, key) falls back
+    // to `worktree.default_file_path`.
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key = "git://example.com/brand-new.git";
+
+    let id = sync
+        .upsert_record(
+            None,
+            path,
+            key,
+            serde_json::json!({"name": "brand-new"}),
+            None,
+        )
+        .await
+        .expect("upsert with file_path=None");
+
+    let r = sync
+        .get_record_by_id(id)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(r.file_path, "cloudmap.yaml");
+}
+
+async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo, _tmp: &TempDir) {
+    // Sync (which auto-sets default_file_path), then explicitly clear
+    // it. `upsert_record(None, ...)` for a brand-new key now has no
+    // file to fall back on → NotFound.
+    sync.update_from_working_dir().await.expect("update");
+    sync.set_default_file_path(None)
+        .await
+        .expect("clear default");
+
+    let res = sync
+        .upsert_record(
+            None,
+            "/repositories",
+            "git://example.com/no-default.git",
+            serde_json::json!({}),
+            None,
+        )
+        .await;
+    assert!(
+        matches!(res, Err(Error::NotFound { .. })),
+        "expected NotFound, got {res:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -990,3 +1091,19 @@ crud_test!(
 );
 crud_test!(list_changes_pending_only, run_list_changes_pending_only);
 crud_test!(list_changes_since_version, run_list_changes_since_version);
+crud_test!(
+    default_file_path_set_on_first_update,
+    run_default_file_path_set_on_first_update
+);
+crud_test!(
+    crud_with_none_file_path_resolves_existing,
+    run_crud_with_none_file_path_resolves_existing
+);
+crud_test!(
+    crud_with_none_file_path_uses_default_for_new,
+    run_crud_with_none_file_path_uses_default_for_new
+);
+crud_test!(
+    crud_none_file_path_no_default_returns_not_found,
+    run_crud_none_file_path_no_default_returns_not_found
+);

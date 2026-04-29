@@ -268,6 +268,10 @@ impl SyncedRepo {
             db::worktree::update_commit(self.db(), self.worktree_id(), Some(&oid)).await?;
         }
 
+        // Auto-pick a default file_path for new records on the first
+        // run. No-op when an operator has already pinned a value.
+        db::worktree::auto_pick_default_file(self.db(), self.worktree_id()).await?;
+
         Ok(stats)
     }
 
@@ -494,6 +498,16 @@ impl SyncedRepo {
         db::worktree::get(self.db(), self.worktree_id()).await
     }
 
+    /// Override (or clear) `worktree.default_file_path`.
+    ///
+    /// Pass `Some(path)` to pin a value, `None` to clear it. The
+    /// auto-pick in [`Self::update_from_working_dir`] only runs when
+    /// the column is `NULL`, so pinning a value protects it from
+    /// later re-syncs.
+    pub async fn set_default_file_path(&self, value: Option<&str>) -> Result<()> {
+        db::worktree::set_default_file(self.db(), self.worktree_id(), value).await
+    }
+
     /// List changes within this worktree.
     ///
     /// `since == Some(v)` returns every record whose
@@ -527,9 +541,14 @@ impl SyncedRepo {
     /// back and [`crate::Error::Conflict`] is returned.
     ///
     /// Returns the new record's primary key.
+    ///
+    /// `file_path == None` resolves to the worktree's
+    /// `default_file_path` (set on the first
+    /// [`Self::update_from_working_dir`] run); errors with
+    /// [`crate::Error::NotFound`] when the default is unset.
     pub async fn create_record(
         &self,
-        file_path: &str,
+        file_path: Option<&str>,
         path: &str,
         key: &str,
         json: serde_json::Value,
@@ -544,9 +563,13 @@ impl SyncedRepo {
     /// tombstoned. `expected_commit` is the optimistic-concurrency
     /// token; see [`CommitRef`]. Sets the row's `commit_id` back to
     /// `NULL` (in-flight). Returns the row's primary key.
+    ///
+    /// `file_path == None` resolves to the existing record's own
+    /// `file_path`. Errors with [`crate::Error::NotFound`] when no
+    /// record matches `(path, key)`.
     pub async fn update_record(
         &self,
-        file_path: &str,
+        file_path: Option<&str>,
         path: &str,
         key: &str,
         json: serde_json::Value,
@@ -561,9 +584,14 @@ impl SyncedRepo {
     /// and like [`Self::update_record`] when it's present (live or
     /// tombstoned). `expected_commit` is checked the same way as in
     /// the other CRUD methods.
+    ///
+    /// `file_path == None` resolves to the existing record's
+    /// `file_path` when one matches `(path, key)`, falling back to
+    /// the worktree's `default_file_path` for new records. Errors
+    /// when the record is new and no default is set.
     pub async fn upsert_record(
         &self,
-        file_path: &str,
+        file_path: Option<&str>,
         path: &str,
         key: &str,
         json: serde_json::Value,
@@ -582,9 +610,12 @@ impl SyncedRepo {
     ///
     /// Fails with [`crate::Error::NotFound`] if the row is absent or
     /// already tombstoned.
+    ///
+    /// `file_path == None` resolves to the existing record's own
+    /// `file_path`.
     pub async fn delete_record(
         &self,
-        file_path: &str,
+        file_path: Option<&str>,
         path: &str,
         key: &str,
         expected_commit: Option<CommitRef>,
@@ -802,7 +833,6 @@ fn enforce_conflict(
     expected: &CommitRef,
     existing_record_commit: Option<&String>,
     existing_record_version: Option<i64>,
-    file_commit: Option<&String>,
     record_present: bool,
 ) -> Result<()> {
     match expected {
@@ -818,17 +848,16 @@ fn enforce_conflict(
                     file_path: file_path.to_string(),
                     path: path.to_string(),
                     expected: expected.clone(),
-                    actual: existing_record_commit.or(file_commit).cloned(),
+                    actual: existing_record_commit.cloned(),
                 })
             }
         }
         CommitRef::Oid(expected_oid) => {
-            let target = if record_present {
-                existing_record_commit
-            } else {
-                file_commit
-            };
-            match target {
+            // Oid token requires an existing record at the given key,
+            // and its commit_id must match. (Previously this fell back
+            // to the file's commit_id when the record was absent;
+            // dropped along with the resolver helper.)
+            match existing_record_commit {
                 Some(actual) if actual == expected_oid => Ok(()),
                 actual => Err(Error::Conflict {
                     file_path: file_path.to_string(),
@@ -848,7 +877,7 @@ fn enforce_conflict(
 
 async fn crud_create(
     sync: &SyncedRepo,
-    file_path: &str,
+    file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
@@ -863,9 +892,21 @@ async fn crud_create(
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
-            db::tx::ensure_file_row(&mut tx, sync.worktree_id(), file_path).await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file, then worktree default. NotFound
+            // when none of those yield a value (e.g. brand-new key
+            // and no `default_file_path` set).
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .or_else(|| lookup.default_file_path.clone())
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: path.to_string(),
+                })?;
+            let file_path: &str = &resolved_fp;
             // Live row → conflict. Tombstones are treated as absent so
             // `create_record` resurrects them.
             if lookup.record_id.is_some() {
@@ -881,7 +922,6 @@ async fn crud_create(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     false,
                 )?;
             }
@@ -916,9 +956,21 @@ async fn crud_create(
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            db::tx::ensure_file_row(&mut tx, sync.worktree_id(), file_path).await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file, then worktree default. NotFound
+            // when none of those yield a value (e.g. brand-new key
+            // and no `default_file_path` set).
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .or_else(|| lookup.default_file_path.clone())
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: path.to_string(),
+                })?;
+            let file_path: &str = &resolved_fp;
             if lookup.record_id.is_some() {
                 return Err(Error::AlreadyExists {
                     file_path: file_path.to_string(),
@@ -932,7 +984,6 @@ async fn crud_create(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     false,
                 )?;
             }
@@ -970,7 +1021,7 @@ async fn crud_create(
 
 async fn crud_update(
     sync: &SyncedRepo,
-    file_path: &str,
+    file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
@@ -986,6 +1037,16 @@ async fn crud_update(
             let mut tx = pool.begin().await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file. update/delete don't fall back
+            // to the worktree default — they require an existing
+            // record, and the `record_id.ok_or(NotFound)` below
+            // catches the absent case.
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .unwrap_or_default();
+            let file_path: &str = &resolved_fp;
             // Tombstone or absent → NotFound.
             id = lookup.record_id.ok_or_else(|| Error::NotFound {
                 file_path: file_path.to_string(),
@@ -998,7 +1059,6 @@ async fn crud_update(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
@@ -1026,6 +1086,16 @@ async fn crud_update(
             let mut tx = pool.begin().await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file. update/delete don't fall back
+            // to the worktree default — they require an existing
+            // record, and the `record_id.ok_or(NotFound)` below
+            // catches the absent case.
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .unwrap_or_default();
+            let file_path: &str = &resolved_fp;
             id = lookup.record_id.ok_or_else(|| Error::NotFound {
                 file_path: file_path.to_string(),
                 path: path.to_string(),
@@ -1037,7 +1107,6 @@ async fn crud_update(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
@@ -1066,7 +1135,7 @@ async fn crud_update(
 
 async fn crud_upsert(
     sync: &SyncedRepo,
-    file_path: &str,
+    file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
@@ -1080,9 +1149,21 @@ async fn crud_upsert(
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
-            db::tx::ensure_file_row(&mut tx, sync.worktree_id(), file_path).await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file, then worktree default. NotFound
+            // when none of those yield a value (e.g. brand-new key
+            // and no `default_file_path` set).
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .or_else(|| lookup.default_file_path.clone())
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: path.to_string(),
+                })?;
+            let file_path: &str = &resolved_fp;
             if let Some(exp) = expected_commit.as_ref() {
                 enforce_conflict(
                     file_path,
@@ -1090,7 +1171,6 @@ async fn crud_upsert(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     lookup.record_id.is_some(),
                 )?;
             }
@@ -1125,9 +1205,21 @@ async fn crud_upsert(
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let mut tx = pool.begin().await?;
-            db::tx::ensure_file_row(&mut tx, sync.worktree_id(), file_path).await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file, then worktree default. NotFound
+            // when none of those yield a value (e.g. brand-new key
+            // and no `default_file_path` set).
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .or_else(|| lookup.default_file_path.clone())
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: path.to_string(),
+                })?;
+            let file_path: &str = &resolved_fp;
             if let Some(exp) = expected_commit.as_ref() {
                 enforce_conflict(
                     file_path,
@@ -1135,7 +1227,6 @@ async fn crud_upsert(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     lookup.record_id.is_some(),
                 )?;
             }
@@ -1173,7 +1264,7 @@ async fn crud_upsert(
 
 async fn crud_delete(
     sync: &SyncedRepo,
-    file_path: &str,
+    file_path: Option<&str>,
     path: &str,
     key: &str,
     expected_commit: Option<CommitRef>,
@@ -1183,6 +1274,16 @@ async fn crud_delete(
             let mut tx = pool.begin().await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file. update/delete don't fall back
+            // to the worktree default — they require an existing
+            // record, and the `record_id.ok_or(NotFound)` below
+            // catches the absent case.
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .unwrap_or_default();
+            let file_path: &str = &resolved_fp;
             // Tombstone or absent → NotFound. We never hard-delete here;
             // `commit_repository` is the only path that purges
             // tombstones once they've been written to disk.
@@ -1197,7 +1298,6 @@ async fn crud_delete(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     true,
                 )?;
             }
@@ -1210,6 +1310,16 @@ async fn crud_delete(
             let mut tx = pool.begin().await?;
             let lookup =
                 db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file. update/delete don't fall back
+            // to the worktree default — they require an existing
+            // record, and the `record_id.ok_or(NotFound)` below
+            // catches the absent case.
+            let resolved_fp: String = file_path
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .unwrap_or_default();
+            let file_path: &str = &resolved_fp;
             let id = lookup.record_id.ok_or_else(|| Error::NotFound {
                 file_path: file_path.to_string(),
                 path: path.to_string(),
@@ -1221,7 +1331,6 @@ async fn crud_delete(
                     exp,
                     lookup.record_commit.as_ref(),
                     lookup.record_version,
-                    lookup.file_commit.as_ref(),
                     true,
                 )?;
             }

@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use unfurl_git_sync::{DbConfig, FormatRegistry, Record, SyncedRepo};
+use unfurl_git_sync::{CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
 use crate::proxy;
 use crate::AppState;
@@ -254,4 +254,247 @@ fn annotate_record(json: Value, version: i64, commit_id: Option<String>) -> Valu
         commit_id.map(Value::from).unwrap_or(Value::Null),
     );
     Value::Object(map)
+}
+
+// ---------------------------------------------------------------------------
+// POST /cloudmap — write handler.
+// ---------------------------------------------------------------------------
+
+/// Pop the OCC tokens out of a record's JSON object and convert them
+/// into a [`CommitRef`].
+///
+/// - `unfurl.server.commit` (string) → [`CommitRef::Oid`].
+/// - `unfurl.server.version` (i64) → [`CommitRef::Pending`].
+/// - When both are present, `Oid` wins (it's the stricter token).
+/// - Both keys are popped regardless so neither leaks into the
+///   payload that gets persisted to disk.
+fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
+    let oid = map
+        .remove("unfurl.server.commit")
+        .and_then(|v| v.as_str().map(str::to_string));
+    let version = map.remove("unfurl.server.version").and_then(|v| v.as_i64());
+    if let Some(o) = oid {
+        return Some(CommitRef::Oid(o));
+    }
+    version.map(CommitRef::Pending)
+}
+
+/// Axum handler for `POST /cloudmap`.
+///
+/// Body shape mirrors the GET response's primary half: a top-level
+/// object whose keys are section names (`repositories`, `artifacts`,
+/// `services`, `instantiations`, `types`). Each section maps record
+/// keys (URLs) to a JSON object that schema-validates as the
+/// corresponding cloudmap entity. Two extension keys on the record
+/// drive special behaviour:
+///
+/// - `unfurl.server.{version,commit}` — optional OCC token gating
+///   the write.
+/// - `unfurl.server.deleted: true` — delete the record (with OCC
+///   tokens still honoured).
+///
+/// Errors fail fast: the first record that mismatches its OCC token
+/// returns 409 and the remainder are not attempted; previously-applied
+/// edits in this request stay in-flight (queryable via
+/// [`unfurl_git_sync::SyncedRepo::list_changes`]). No `save_changes`
+/// or `commit_repository` is invoked — the caller drives commit
+/// separately.
+///
+/// When `state.cloudmap` is `None`, the request is proxied to the
+/// Python backend, same as `GET /cloudmap`.
+pub async fn post_cloudmap(
+    State(state): State<AppState>,
+    req: Request<axum::body::Body>,
+) -> Response {
+    let Some(cm) = state.cloudmap.clone() else {
+        return proxy::forward(
+            &state.client,
+            &state.config.backend_url(),
+            req,
+            state.config.max_body_bytes,
+        )
+        .await;
+    };
+
+    let body_bytes = match axum::body::to_bytes(req.into_body(), state.config.max_body_bytes).await
+    {
+        Ok(b) => b,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("read body: {e}")})),
+            )
+                .into_response();
+        }
+    };
+    let body: Value = match serde_json::from_slice(&body_bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("parse json: {e}")})),
+            )
+                .into_response();
+        }
+    };
+
+    match apply_writes(&cm, body).await {
+        Ok(echo) => Json(echo).into_response(),
+        Err(WriteError::BadRequest(msg)) => {
+            (StatusCode::BAD_REQUEST, Json(json!({"error": msg}))).into_response()
+        }
+        Err(WriteError::NotFound(msg)) => {
+            (StatusCode::NOT_FOUND, Json(json!({"error": msg}))).into_response()
+        }
+        Err(WriteError::Conflict {
+            section,
+            key,
+            actual,
+        }) => (
+            StatusCode::CONFLICT,
+            Json(json!({
+                "error": "conflict",
+                "section": section,
+                "key": key,
+                "actual": actual,
+            })),
+        )
+            .into_response(),
+        Err(WriteError::Internal(msg)) => {
+            tracing::error!("post_cloudmap error: {}", msg);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": msg})),
+            )
+                .into_response()
+        }
+    }
+}
+
+enum WriteError {
+    BadRequest(String),
+    NotFound(String),
+    Conflict {
+        section: String,
+        key: String,
+        actual: Option<String>,
+    },
+    Internal(String),
+}
+
+async fn apply_writes(cm: &CloudMapState, body: Value) -> Result<Value, WriteError> {
+    let Value::Object(sections) = body else {
+        return Err(WriteError::BadRequest(
+            "request body must be a JSON object".to_string(),
+        ));
+    };
+
+    let synced = cm.inner.as_ref();
+    let mut echo: Map<String, Value> = Map::new();
+
+    for (section_name, records) in sections {
+        let path = path_for_kind(&section_name)
+            .ok_or_else(|| WriteError::BadRequest(format!("unknown section {section_name:?}")))?;
+        let Value::Object(entries) = records else {
+            return Err(WriteError::BadRequest(format!(
+                "section {section_name:?} must be an object"
+            )));
+        };
+        let mut echoed_section: Map<String, Value> = Map::new();
+        for (key, value) in entries {
+            let echoed_value = apply_one(synced, &section_name, path, &key, value).await?;
+            echoed_section.insert(key, echoed_value);
+        }
+        echo.insert(section_name, Value::Object(echoed_section));
+    }
+
+    Ok(Value::Object(echo))
+}
+
+/// Apply a single `(section, key, value)` write. Returns the value to
+/// echo back in the response (with refreshed OCC tokens).
+async fn apply_one(
+    synced: &SyncedRepo,
+    section: &str,
+    path: &'static str,
+    key: &str,
+    value: Value,
+) -> Result<Value, WriteError> {
+    match value {
+        Value::Object(mut map) => {
+            let commit_ref = pop_commit_ref(&mut map);
+            let is_delete = matches!(map.remove("unfurl.server.deleted"), Some(Value::Bool(true)));
+            if is_delete {
+                do_delete(synced, section, path, key, commit_ref).await
+            } else {
+                do_upsert(synced, section, path, key, map, commit_ref).await
+            }
+        }
+        other => Err(WriteError::BadRequest(format!(
+            "section {section:?} key {key:?}: value must be a JSON object, got {other:?}"
+        ))),
+    }
+}
+
+async fn do_upsert(
+    synced: &SyncedRepo,
+    section: &str,
+    path: &'static str,
+    key: &str,
+    payload: Map<String, Value>,
+    commit_ref: Option<CommitRef>,
+) -> Result<Value, WriteError> {
+    let json = Value::Object(payload);
+    let id = synced
+        .upsert_record(None, path, key, json, commit_ref)
+        .await
+        .map_err(|e| map_git_sync_err(e, section, key))?;
+    let record = synced
+        .get_record_by_id(id)
+        .await
+        .map_err(|e| WriteError::Internal(format!("get_record_by_id: {e}")))?
+        .ok_or_else(|| {
+            WriteError::Internal(format!(
+                "upserted record {id} not found in get_record_by_id"
+            ))
+        })?;
+    Ok(annotate_record(
+        record.json,
+        record.version,
+        record.commit_id,
+    ))
+}
+
+async fn do_delete(
+    synced: &SyncedRepo,
+    section: &str,
+    path: &'static str,
+    key: &str,
+    commit_ref: Option<CommitRef>,
+) -> Result<Value, WriteError> {
+    synced
+        .delete_record(None, path, key, commit_ref)
+        .await
+        .map_err(|e| map_git_sync_err(e, section, key))?;
+    Ok(Value::Null)
+}
+
+/// Convert a [`unfurl_git_sync::Error`] into a typed [`WriteError`],
+/// carrying the offending section/key into the user-facing JSON.
+fn map_git_sync_err(err: unfurl_git_sync::Error, section: &str, key: &str) -> WriteError {
+    use unfurl_git_sync::Error as E;
+    match err {
+        E::Conflict { actual, .. } => WriteError::Conflict {
+            section: section.to_string(),
+            key: key.to_string(),
+            actual,
+        },
+        E::NotFound { .. } => WriteError::NotFound(format!(
+            "section {section:?} key {key:?}: record not found (and no default file path set)"
+        )),
+        E::AlreadyExists { .. } => WriteError::Internal(format!(
+            "section {section:?} key {key:?}: AlreadyExists from upsert (unexpected)"
+        )),
+        other => WriteError::Internal(format!("section {section:?} key {key:?}: {other}")),
+    }
 }

@@ -21,7 +21,7 @@ use serde_json::Value;
 use tempfile::TempDir;
 use tower::util::ServiceExt;
 use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
-use unfurl_server::cloudmap::{handle_cloudmap, CloudMapState};
+use unfurl_server::cloudmap::{handle_cloudmap, post_cloudmap, CloudMapState};
 use unfurl_server::config::Config;
 use unfurl_server::AppState;
 
@@ -84,7 +84,7 @@ async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
 
 fn router(state: AppState) -> Router {
     Router::new()
-        .route("/cloudmap", get(handle_cloudmap))
+        .route("/cloudmap", get(handle_cloudmap).post(post_cloudmap))
         .with_state(state)
 }
 
@@ -93,6 +93,23 @@ async fn get_json(app: Router, uri: &str) -> (StatusCode, Value) {
         .method("GET")
         .uri(uri)
         .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.expect("handler");
+    let status = resp.status();
+    let body_bytes = axum::body::to_bytes(resp.into_body(), 16 * 1024 * 1024)
+        .await
+        .expect("read body");
+    let body: Value = serde_json::from_slice(&body_bytes)
+        .unwrap_or(Value::String(String::from_utf8_lossy(&body_bytes).into()));
+    (status, body)
+}
+
+async fn post_json(app: Router, body: Value) -> (StatusCode, Value) {
+    let req = Request::builder()
+        .method("POST")
+        .uri("/cloudmap")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     let resp = app.oneshot(req).await.expect("handler");
     let status = resp.status();
@@ -315,5 +332,263 @@ async fn follow_without_key_returns_empty_dict() {
         body[1],
         serde_json::json!({}),
         "follow without key → empty dict"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// POST /cloudmap tests
+// ---------------------------------------------------------------------------
+
+/// Helper: read the current `version` of an existing record via GET.
+async fn read_version(cm: CloudMapState, kind: &str, key: &str) -> i64 {
+    let app = router(make_state(cm));
+    let uri = format!("/cloudmap?kind={}&key={}", kind, urlencoding::encode(key));
+    let (status, body) = get_json(app, &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    body[0][kind][key]["unfurl.server.version"]
+        .as_i64()
+        .expect("version present")
+}
+
+#[tokio::test]
+async fn post_upsert_writes_record() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    let v_before = read_version(cm.clone(), "repositories", key).await;
+
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "repositories": {
+            key: { "name": "renamed-via-post" },
+        }
+    });
+    let (status, echo) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+    let echoed = &echo["repositories"][key];
+    assert_eq!(echoed["name"], "renamed-via-post");
+    let v_after = echoed["unfurl.server.version"]
+        .as_i64()
+        .expect("version in echo");
+    assert!(
+        v_after > v_before,
+        "version should advance: {v_before} → {v_after}"
+    );
+    // Commit token is null because the row is now in-flight.
+    assert!(echoed["unfurl.server.commit"].is_null());
+
+    // GET confirms the new value is visible.
+    let v_via_get = read_version(cm, "repositories", key).await;
+    assert_eq!(v_via_get, v_after);
+}
+
+#[tokio::test]
+async fn post_creates_new_record_in_default_file() {
+    use unfurl_git_sync::SyncedRepo;
+
+    // Construct the SyncedRepo separately so the test can inspect
+    // file_path on the new record.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("cloudmap.yaml".to_string(), fixture)],
+        "initial",
+    )
+    .expect("init repo");
+    let synced = SyncedRepo::open(
+        tmp.path(),
+        unfurl_git_sync::DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        },
+        unfurl_git_sync::FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo");
+    synced.update_from_working_dir().await.expect("update");
+
+    // Default file path was set on first sync.
+    let wt = synced.get_worktree().await.expect("get_worktree");
+    assert_eq!(wt.default_file_path.as_deref(), Some("cloudmap.yaml"));
+
+    let cm = CloudMapState::from_synced(synced.clone());
+    let app = router(make_state(cm));
+    let new_url = "git://example.com/brand-new.git";
+    let body = serde_json::json!({
+        "repositories": {
+            new_url: { "name": "brand-new" },
+        }
+    });
+    let (status, _echo) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // The new record's file_path must be the worktree default.
+    let rec = synced
+        .get_record("cloudmap.yaml", "/repositories", new_url)
+        .await
+        .expect("get_record")
+        .expect("present");
+    assert_eq!(rec.file_path, "cloudmap.yaml");
+    assert_eq!(rec.json["name"], "brand-new");
+}
+
+#[tokio::test]
+async fn post_deleted_marker_deletes_record() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "repositories": {
+            key: {"unfurl.server.deleted": true},
+        }
+    });
+    let (status, echo) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(echo["repositories"][key].is_null());
+
+    // The record is now hidden (tombstoned) — GET returns 404 for the
+    // single-key filter.
+    let app = router(make_state(cm));
+    let (status, _) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&key={}",
+            urlencoding::encode(key)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn post_with_stale_version_returns_409() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let v_before = read_version(cm.clone(), "repositories", key).await;
+
+    // First write succeeds and bumps the version.
+    let app = router(make_state(cm.clone()));
+    let _ = post_json(
+        app,
+        serde_json::json!({
+            "repositories": { key: { "name": "v2" } }
+        }),
+    )
+    .await;
+
+    // Second write submits the *stale* version → 409.
+    let app = router(make_state(cm));
+    let body = serde_json::json!({
+        "repositories": {
+            key: {
+                "name": "v3",
+                "unfurl.server.version": v_before,
+            }
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "conflict");
+    assert_eq!(body["section"], "repositories");
+    assert_eq!(body["key"], key);
+}
+
+#[tokio::test]
+async fn post_with_oid_token_succeeds_when_matches() {
+    use unfurl_git_sync::SyncedRepo;
+
+    // Need to commit first so a real oid exists. Reconstruct so we
+    // can drive `commit_repository`.
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("cloudmap.yaml".to_string(), fixture)],
+        "initial",
+    )
+    .expect("init repo");
+    let synced = SyncedRepo::open(
+        tmp.path(),
+        unfurl_git_sync::DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        },
+        unfurl_git_sync::FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo");
+    synced.update_from_working_dir().await.expect("update");
+
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    // Mutate, save, commit so the record now has a non-null commit_id.
+    synced
+        .upsert_record(
+            None,
+            "/repositories",
+            key,
+            serde_json::json!({"name": "via-test"}),
+            None,
+        )
+        .await
+        .expect("upsert");
+    synced.save_changes().await.expect("save");
+    let oid = synced
+        .commit_repository("test")
+        .await
+        .expect("commit")
+        .expect("returned");
+    let rec = synced
+        .get_record("cloudmap.yaml", "/repositories", key)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+
+    // POST with the matching commit oid → success.
+    let cm = CloudMapState::from_synced(synced);
+    let app = router(make_state(cm));
+    let body = serde_json::json!({
+        "repositories": {
+            key: {
+                "name": "post-commit",
+                "unfurl.server.commit": oid,
+            }
+        }
+    });
+    let (status, _) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn post_unknown_section_returns_400() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let body = serde_json::json!({ "flarp": {} });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        body["error"].as_str().unwrap().contains("flarp"),
+        "error mentions the bad section: {body:?}"
+    );
+}
+
+#[tokio::test]
+async fn post_proxies_when_cloudmap_unconfigured() {
+    // No cloudmap state → proxy::forward runs. The default_config()
+    // backend points at 127.0.0.1:1 (port 0 + 1) which isn't
+    // listening, so the proxy should return 502 Bad Gateway.
+    let state = AppState {
+        config: Arc::new(default_config()),
+        client: reqwest::Client::new(),
+        redis: None,
+        cloudmap: None,
+    };
+    let app = router(state);
+    let body = serde_json::json!({});
+    let (status, _) = post_json(app, body).await;
+    assert!(
+        status.is_server_error() || status == StatusCode::BAD_GATEWAY,
+        "expected proxy failure (no python backend running), got {status}"
     );
 }

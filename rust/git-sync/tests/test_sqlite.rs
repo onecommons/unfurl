@@ -26,7 +26,7 @@ async fn cloudmap_end_to_end_sqlite() {
     // Edit through upsert_record + persist to disk + commit.
     let new_json = serde_json::json!({"name": "x", "path": "x"});
     sync.upsert_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         "/repositories",
         "git://example.com/x.git",
         new_json,

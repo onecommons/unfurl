@@ -1,11 +1,16 @@
 CREATE TABLE worktree (
-    id           BIGSERIAL PRIMARY KEY,
-    origin       TEXT      NOT NULL,
-    branch       TEXT      NOT NULL,
-    commit_id    TEXT,
+    id                BIGSERIAL PRIMARY KEY,
+    origin            TEXT      NOT NULL,
+    branch            TEXT      NOT NULL,
+    commit_id         TEXT,
     -- Per-worktree monotonic version counter. Bumped on every CRUD
     -- write; the previous value is stamped on `record.version`.
-    next_version BIGINT    NOT NULL DEFAULT 1,
+    next_version      BIGINT    NOT NULL DEFAULT 1,
+    -- Working-tree-relative path of the file new records go to when
+    -- the caller passes `file_path = None` to a CRUD call. Set on
+    -- the first `update_from_working_dir` run; never overwritten
+    -- afterwards (operators can pin it manually).
+    default_file_path TEXT,
     UNIQUE (origin, branch)
 );
 

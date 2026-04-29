@@ -20,8 +20,10 @@ use sqlx::{Database, Encode, Executor, IntoArguments, Type};
 use crate::error::Result;
 
 /// Lookup result from [`lookup_commits`]. Tombstones surface as if
-/// absent: the `record_id` and `record_commit` fields are `None`, and
-/// the conflict checker falls back to `file_commit`.
+/// absent: the `record_*` fields are `None`. The `record_file_path`
+/// and `default_file_path` fields let the caller resolve a missing
+/// `file_path` argument (existing record's file, else worktree
+/// default) without a second query.
 pub(crate) struct RecordLookup {
     /// Live record id; `None` when the row is absent or a tombstone.
     pub(crate) record_id: Option<i64>,
@@ -29,20 +31,25 @@ pub(crate) struct RecordLookup {
     pub(crate) record_commit: Option<String>,
     /// Live row's `version` stamp; `None` when absent or a tombstone.
     pub(crate) record_version: Option<i64>,
-    /// File row's `commit_id` (used as a fallback in the conflict
-    /// check when `record_id.is_none()`).
-    pub(crate) file_commit: Option<String>,
+    /// Live row's `file_path`; `None` when absent or a tombstone.
+    pub(crate) record_file_path: Option<String>,
+    /// Worktree's `default_file_path`. `None` when the operator
+    /// hasn't pinned one and `update_from_working_dir` hasn't run
+    /// yet.
+    pub(crate) default_file_path: Option<String>,
 }
 
 /// `(record.id, record.commit_id, CAST(record.deleted AS INTEGER),
-/// record.version, file.commit_id)` — the row shape of
-/// [`lookup_commits`]. The integer cast normalizes the `deleted`
-/// column across dialects.
+/// record.version, record.file_path, worktree.default_file_path)` —
+/// the row shape of [`lookup_commits`]. Always returns one row
+/// (worktree-driven LEFT JOIN onto record). The integer cast
+/// normalizes the `deleted` column across dialects.
 type LookupRow = (
     Option<i64>,
     Option<String>,
     Option<i64>,
     Option<i64>,
+    Option<String>,
     Option<String>,
 );
 
@@ -51,8 +58,6 @@ type LookupRow = (
 // ---------------------------------------------------------------------------
 
 pub(crate) trait Dialect: Database {
-    /// `INSERT … ON CONFLICT(worktree_id, path) DO NOTHING` for the file row.
-    const ENSURE_FILE_ROW: &'static str;
     /// `UPDATE worktree SET next_version = next_version + 1
     /// WHERE id = ? RETURNING next_version - 1`. Used to pull a fresh,
     /// monotonic version stamp inside the same transaction as the
@@ -81,20 +86,18 @@ pub(crate) trait Dialect: Database {
 }
 
 impl Dialect for sqlx::Sqlite {
-    const ENSURE_FILE_ROW: &'static str =
-        "INSERT INTO file (worktree_id, path, format, commit_id) \
-         VALUES (?1, ?2, 'unknown', NULL) \
-         ON CONFLICT(worktree_id, path) DO NOTHING";
     const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
          WHERE id = ?1 RETURNING next_version - 1";
     const LOOKUP_COMMITS: &'static str =
-        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1 ELSE 0 END, r.version, f.commit_id \
-         FROM file f \
-         LEFT JOIN record r ON r.worktree_id = f.worktree_id \
-                           AND r.file_path = f.path \
+        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1 ELSE 0 END, r.version, \
+                r.file_path, w.default_file_path \
+         FROM worktree w \
+         LEFT JOIN record r ON r.worktree_id = w.id \
                            AND r.path = ?3 \
                            AND r.key = ?4 \
-         WHERE f.worktree_id = ?1 AND f.path = ?2";
+                           AND (?2 IS NULL OR r.file_path = ?2) \
+         WHERE w.id = ?1 \
+         LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = ?1 AND path = ?2";
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = ?1";
@@ -115,20 +118,18 @@ impl Dialect for sqlx::Sqlite {
 
 #[cfg(feature = "postgres")]
 impl Dialect for sqlx::Postgres {
-    const ENSURE_FILE_ROW: &'static str =
-        "INSERT INTO file (worktree_id, path, format, commit_id) \
-         VALUES ($1, $2, 'unknown', NULL) \
-         ON CONFLICT(worktree_id, path) DO NOTHING";
     const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
          WHERE id = $1 RETURNING next_version - 1";
     const LOOKUP_COMMITS: &'static str =
-        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1::BIGINT ELSE 0::BIGINT END, r.version, f.commit_id \
-         FROM file f \
-         LEFT JOIN record r ON r.worktree_id = f.worktree_id \
-                           AND r.file_path = f.path \
+        "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1::BIGINT ELSE 0::BIGINT END, r.version, \
+                r.file_path, w.default_file_path \
+         FROM worktree w \
+         LEFT JOIN record r ON r.worktree_id = w.id \
                            AND r.path = $3 \
                            AND r.key = $4 \
-         WHERE f.worktree_id = $1 AND f.path = $2";
+                           AND ($2::TEXT IS NULL OR r.file_path = $2) \
+         WHERE w.id = $1 \
+         LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = $1 AND path = $2";
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = $1";
@@ -157,63 +158,71 @@ impl Dialect for sqlx::Postgres {
 // clauses into function bodies, and `where` clauses don't accept
 // macro expansion, so the bounds stay inline.
 
-pub(crate) async fn ensure_file_row<DB: Dialect>(
-    tx: &mut sqlx::Transaction<'_, DB>,
-    worktree_id: i64,
-    file_path: &str,
-) -> Result<()>
-where
-    for<'q> i64: Encode<'q, DB> + Type<DB>,
-    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
-    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
-    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
-{
-    sqlx::query(DB::ENSURE_FILE_ROW)
-        .bind(worktree_id)
-        .bind(file_path)
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
-}
-
+/// One-query precondition fetch for the CRUD helpers.
+///
+/// Runs the worktree-driven [`Dialect::LOOKUP_COMMITS`] join: looks
+/// for a live record at `(worktree_id, path, key)` (optionally
+/// further constrained to `file_path`) and returns the worktree's
+/// `default_file_path` alongside, so the caller can resolve a
+/// missing `file_path` argument as
+/// `caller.or(record_file_path).or(default_file_path)` without a
+/// second query.
+///
+/// Always returns one row — the join is anchored on the `worktree`
+/// row, so an absent record surfaces as `record_id == None` rather
+/// than a missing row. Tombstones (`deleted == TRUE`) are treated as
+/// absent: their `record_id`, `record_commit`, `record_version`, and
+/// `record_file_path` come back as `None`. The `default_file_path`
+/// column is populated regardless.
+///
+/// `file_path == None` drops the `r.file_path = ?2` filter from the
+/// join, so the returned record (if any) is whichever live record
+/// matches `(path, key)` in any file. The cloudmap format treats
+/// `(path, key)` as globally unique within a worktree, so this is
+/// well-defined; if multiple records ever match, `LIMIT 1` picks
+/// one arbitrarily.
 pub(crate) async fn lookup_commits<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     worktree_id: i64,
-    file_path: &str,
+    file_path: Option<&str>,
     path: &str,
     key: &str,
 ) -> Result<RecordLookup>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
     for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     LookupRow: for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    let row: Option<LookupRow> = sqlx::query_as(DB::LOOKUP_COMMITS)
+    // Always returns one row (worktree-driven), with optional record
+    // fields and `default_file_path`. Caller resolves the effective
+    // `file_path` as `caller.or(record_file_path).or(default_file_path)`.
+    let row: LookupRow = sqlx::query_as(DB::LOOKUP_COMMITS)
         .bind(worktree_id)
         .bind(file_path)
         .bind(path)
         .bind(key)
-        .fetch_optional(&mut **tx)
+        .fetch_one(&mut **tx)
         .await?;
-    let (raw_id, rec_commit, deleted, rec_version, file_commit) =
-        row.unwrap_or((None, None, None, None, None));
+    let (raw_id, rec_commit, deleted, rec_version, rec_file_path, default_file_path) = row;
     let is_tombstone = matches!(deleted, Some(d) if d != 0);
     let record_id = match (raw_id, is_tombstone) {
         (Some(id), false) => Some(id),
         _ => None,
     };
-    let (record_commit, record_version) = if record_id.is_some() {
-        (rec_commit, rec_version)
+    let (record_commit, record_version, record_file_path) = if record_id.is_some() {
+        (rec_commit, rec_version, rec_file_path)
     } else {
-        (None, None)
+        (None, None, None)
     };
     Ok(RecordLookup {
         record_id,
         record_commit,
         record_version,
-        file_commit,
+        record_file_path,
+        default_file_path,
     })
 }
 

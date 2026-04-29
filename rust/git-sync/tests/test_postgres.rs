@@ -25,7 +25,7 @@ async fn cloudmap_end_to_end_postgres() {
 
     let new_json = serde_json::json!({"name": "x"});
     sync.upsert_record(
-        "cloudmap.yaml",
+        Some("cloudmap.yaml"),
         "/repositories",
         "git://example.com/x.git",
         new_json,
