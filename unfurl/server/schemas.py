@@ -13,7 +13,7 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from ..graphql import (
     ApplicationBlueprint as ApplicationBlueprintType,
@@ -24,6 +24,7 @@ from ..graphql import (
     ResourceTemplate as ResourceTemplateType,
     ResourceType as ResourceTypeType,
 )
+from ..util import find_schema_errors
 
 
 # ---------------------------------------------------------------------------
@@ -220,18 +221,68 @@ def _load_cloudmap_schema() -> Dict[str, Any]:
         return json.load(f)
 
 
-class CloudMapDocument(BaseModel):
-    """Placeholder Pydantic model for the CloudMap document response.
+_CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset(
+    [
+        "latest_commit",
+        "cloudmap_path",
+        "username",
+        "private_token",
+        "password",
+        "commit_msg",
+    ]
+)
 
-    The model intentionally has no fields — APIFlask emits an empty
-    stub for it, which is then replaced wholesale by
+
+class CloudMapDocument(BaseModel):
+    """Pydantic stub for a CloudMap document, used as the **response
+    element** for GET ``/cloudmap`` and as the **request body** for
+    POST ``/cloudmap``.
+
+    The model has no declared fields — APIFlask emits an empty stub
+    in the OpenAPI spec, which is then replaced wholesale by
     :func:`hoist_cloudmap_definitions` (registered as a
     ``@app.spec_processor``) with the contents of
-    ``docs/cloudmap-schema.json``.  Doing the substitution at spec-build
-    time avoids Pydantic v2's internal ``$defs`` ref-counting machinery.
+    ``docs/cloudmap-schema.json``. Doing the substitution at spec-build
+    time avoids Pydantic v2's internal ``$defs`` ref-counting
+    machinery.
+
+    Runtime validation is wired through ``__validate_cloudmap_schema``
+    below: every request body that arrives via ``@app.input()`` is
+    checked against the canonical ``docs/cloudmap-schema.json`` (after
+    stripping known envelope keys like ``latest_commit`` /
+    ``cloudmap_path``). Violations surface as a Pydantic
+    ``ValidationError``, which APIFlask returns as a 422.
+
+    For POST, deletes are signalled by an ``unfurl.server.deleted:
+    true`` flag on the record (handled by the endpoint after schema
+    validation passes). Record values must always be objects.
     """
 
     model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="after")
+    def __validate_cloudmap_schema(self):
+        # Build the dict to validate by stripping envelope keys (they
+        # belong to the request, not the cloudmap document).
+        payload: Dict[str, Any] = {}
+        # `model_dump` includes extras when extra="allow".
+        for k, v in self.model_dump().items():
+            if k in _CLOUDMAP_REQUEST_ENVELOPE_KEYS:
+                continue
+            payload[k] = v
+        # An empty payload (envelope only) is trivially valid.
+        if not payload:
+            return self
+        # apiVersion + kind are required by the schema. POST callers
+        # commonly omit them — supply defaults so they don't have to.
+        payload.setdefault("apiVersion", "unfurl/v1.0.0")
+        payload.setdefault("kind", "CloudMap")
+        schema = _load_cloudmap_schema()
+        err = find_schema_errors(payload, schema)
+        if err is not None:
+            message, _details = err
+            raise ValueError(f"cloudmap schema violation: {message}")
+        return self
 
 
 class CloudMapDocumentPair(BaseModel):

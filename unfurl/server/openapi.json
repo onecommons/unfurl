@@ -2460,6 +2460,45 @@
         "tags": [
           "Export"
         ]
+      },
+      "post": {
+        "description": "Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``types``).\n\nEach section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.\n\nThe body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudMapDocument"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "commit oid produced by the local commit, or null when nothing changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Modify the CloudMap document",
+        "tags": [
+          "Export"
+        ]
       }
     },
     "/create_ensemble": {

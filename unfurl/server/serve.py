@@ -1679,7 +1679,8 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     from .cache import CLOUDMAP_BRANCH, load_yaml
 
     project_id = get_project_id(request)
-    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml")
+    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml", 
+                         latest_commit=request.args.get("latest_commit"))
     if doc is None:
         if isinstance(err, Response):
             return err
@@ -1716,6 +1717,171 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         followed = visitor.result
 
     return [primary, followed]
+
+
+_CLOUDMAP_SECTIONS: Tuple[str, ...] = (
+    "repositories",
+    "artifacts",
+    "services",
+    "instantiations",
+    "types",
+)
+_CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
+    "latest_commit",
+    "cloudmap_path",
+    "username",
+    "private_token",
+    "password",
+    "commit_msg",
+)
+
+
+@app.post("/cloudmap")
+@app.doc(
+    summary="Modify the CloudMap document",
+    description=(
+        "Apply a batch of add / update / delete operations to "
+        "``cloudmap.yaml``. Top-level keys split between an envelope "
+        "(``latest_commit`` / ``cloudmap_path`` / ``username`` / "
+        "``private_token`` / ``commit_msg``) and the cloudmap "
+        "sections (``repositories``, ``artifacts``, ``services``, "
+        "``instantiations``, ``types``).\n\n"
+        "Each section maps record keys to a JSON object that "
+        "schema-validates as the corresponding cloudmap entity. To "
+        "delete a record, send the object with "
+        "``unfurl.server.deleted: true``.\n\n"
+        "The body is validated against "
+        "``docs/cloudmap-schema.json`` (a 422 is returned on schema "
+        "violation). On success the file is committed locally (no "
+        "push) and the new commit oid is returned."
+    ),
+    tags=["Export"],
+)
+@app.input(CloudMapDocument, location="json", arg_name="body")
+@app.output(
+    PatchResponse,
+    description="commit oid produced by the local commit, or null when nothing changed",
+)
+def post_cloudmap(body: dict) -> ResponseReturnValue:
+    from .cache import CLOUDMAP_BRANCH, load_yaml
+
+    # Schema validation (against `docs/cloudmap-schema.json`) runs
+    # inside `CloudMapDocument`'s `model_validator`; @app.input has
+    # already returned 422 to the client before we get here for any
+    # schema violation.
+    raw = _get_body(request)
+    if not isinstance(raw, dict):
+        return make_response(
+            jsonify(error="request body must be a JSON object"), 400
+        )
+
+    cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
+    latest_commit = raw.get("latest_commit")
+    username = raw.get("username")
+    password = raw.get("private_token", raw.get("password"))
+
+    # Split the body: envelope keys vs cloudmap sections.
+    body_sections: Dict[str, Dict[str, Any]] = {}
+    for section, entries in raw.items():
+        if section in _CLOUDMAP_ENVELOPE_KEYS:
+            continue
+        if section not in _CLOUDMAP_SECTIONS:
+            return make_response(
+                jsonify(error=f"unknown section {section!r}"), 400
+            )
+        if not isinstance(entries, dict):
+            return make_response(
+                jsonify(error=f"section {section!r} must be a JSON object"),
+                400,
+            )
+        body_sections[section] = entries
+
+    project_id = get_project_id(request)
+    err, doc = load_yaml(
+        project_id, CLOUDMAP_BRANCH, cloudmap_path, latest_commit=latest_commit
+    )
+    if doc is None:
+        if isinstance(err, Response):
+            return err
+        return make_response(jsonify(error=str(err)), 500)
+    if not isinstance(doc, dict):
+        return make_response(
+            jsonify(error=f"{cloudmap_path} is not a YAML mapping"), 500
+        )
+
+    # Resolve the on-disk path and the GitRepo for `_commit_and_push`.
+    cache_entry = CacheEntry(
+        project_id, CLOUDMAP_BRANCH, cloudmap_path, "load_yaml", do_clone=True
+    )
+    cache_entry._set_project_repo()
+    repo = cache_entry.checked_repo
+    if not isinstance(repo, GitRepo):
+        return make_response(
+            jsonify(error="cloudmap repository not available"), 500
+        )
+    full_path = os.path.join(repo.working_dir, cloudmap_path)
+    starting_revision = repo.revision
+
+    # Apply the body to `doc`. A record with `unfurl.server.deleted:
+    # true` is removed; any other object replaces (or inserts). Track
+    # whether any actual change happened so we can short-circuit the
+    # disk write + commit on a no-op POST.
+    changed = False
+    for section, entries in body_sections.items():
+        section_doc: Dict[str, Any] = doc.setdefault(section, {})
+        for key, value in entries.items():
+            if not isinstance(value, dict):
+                return make_response(
+                    jsonify(
+                        error=f"{section}.{key}: value must be a JSON object",
+                    ),
+                    400,
+                )
+            payload = dict(value)
+            if payload.pop("unfurl.server.deleted", False):
+                if section_doc.pop(key, None) is not None:
+                    changed = True
+            else:
+                # Strip OCC keys so they don't leak into the persisted YAML.
+                payload.pop("unfurl.server.commit", None)
+                payload.pop("unfurl.server.version", None)
+                if section_doc.get(key) != payload:
+                    section_doc[key] = payload
+                    changed = True
+
+    if not changed:
+        return {"commit": latest_commit}
+
+    # Write back to disk using the project's ruamel-based loader so
+    # we preserve quoting / commenting style that toscaparser's
+    # `load_yaml` already round-trips for the on-disk fixture.
+    from ..yamlloader import yaml as _yaml
+
+    try:
+        with open(full_path, "w") as f:
+            _yaml.dump(doc, f)
+    except OSError as e:
+        return make_response(
+            jsonify(error=f"could not write {cloudmap_path}: {e}"), 500
+        )
+
+    # Commit locally (no push). `changed` guarantees the working tree
+    # is dirty, so no `is_dirty()` check is required here.
+    commit_msg = raw.get("commit_msg") or f"Update {cloudmap_path}"
+    commit_err = _commit_and_push(
+        repo,
+        full_path,
+        commit_msg,
+        cast(str, username or ""),
+        cast(str, password or ""),
+        starting_revision,
+        batched=True,
+    )
+    if commit_err:
+        return commit_err
+    new_commit = repo.revision
+
+    return {"commit": new_commit}
 
 
 @app.get("/graph")

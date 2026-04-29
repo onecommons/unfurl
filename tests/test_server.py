@@ -1738,6 +1738,75 @@ def test_server_cloudmap():
             # Not found
             res = requests.get(base, params={"url": "nonexistent://url"})
             assert res.status_code == 404
+
+            # ----- POST /cloudmap end-to-end -----
+            cloudmap_url = f"http://{HOST}:{port}/cloudmap"
+            cloudmap_path = os.path.abspath("cloudmap.yaml")
+
+            # 1. Upsert: rewrite an existing repository entry. The
+            #    fixture's `repository` schema requires `path`, so
+            #    include it alongside `name`.
+            existing_key = "git://unfurl.cloud/onecommons/std.git"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "repositories": {
+                        existing_key: {
+                            "path": "onecommons/std",
+                            "name": "renamed-via-post",
+                        }
+                    }
+                },
+            )
+            assert res.status_code == 200, res.text
+            response = res.json()
+            assert "commit" in response
+            assert isinstance(response["commit"], str)
+            assert response["commit"], "commit oid should be non-empty"
+            on_disk = Path(cloudmap_path).read_text()
+            assert "renamed-via-post" in on_disk
+
+            # 2. Delete via `unfurl.server.deleted: true`.
+            import yaml as _yaml
+
+            delete_key = "git://unfurl.cloud/feb20a/dashboard.git"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "repositories": {
+                        delete_key: {"unfurl.server.deleted": True}
+                    }
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert "commit" in res.json()
+            on_disk_doc = _yaml.safe_load(Path(cloudmap_path).read_text())
+            assert delete_key not in on_disk_doc.get("repositories", {})
+
+            # 3. Unknown section → 400.
+            res = requests.post(cloudmap_url, json={"flarp": {}})
+            assert res.status_code == 400
+
+            # 4. Schema-violating record → 422. The repository schema
+            #    requires `protocols` to be an array of strings.
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "repositories": {
+                        existing_key: {
+                            "path": "onecommons/std",
+                            "protocols": "not-an-array",
+                        }
+                    }
+                },
+            )
+            assert res.status_code == 422, (
+                f"expected 422 schema violation, got {res.status_code}: {res.text}"
+            )
+            # APIFlask wraps Pydantic validation errors under
+            # `detail.json._schema`; the message includes
+            # 'cloudmap schema violation' from our model_validator.
+            assert "cloudmap schema violation" in res.text
         finally:
             _terminate_process(p)
 
