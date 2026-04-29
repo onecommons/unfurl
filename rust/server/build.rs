@@ -120,6 +120,41 @@ fn simplify_responses(spec: &mut serde_json::Value) {
     }
 }
 
+/// Strip JSON-Schema-only fields and patch a couple of OpenAPI-3.0
+/// rough edges the cloudmap schema introduces.
+///
+/// - `propertyNames` is JSON-Schema; drop it.
+/// - `const: X` without a `type` field; convert to `enum: [X]` so
+///   progenitor can derive a type.
+/// - bare `{"type": "null"}` left over after `rewrite_nullable` (e.g.
+///   inside an `anyOf` with more than two items) gets rewritten as
+///   `{}` so progenitor sees a permissive any-type rather than null.
+fn sanitise_schemas(val: &mut serde_json::Value) {
+    match val {
+        serde_json::Value::Object(map) => {
+            map.remove("propertyNames");
+            // const without type → enum
+            if map.contains_key("const") && !map.contains_key("type") {
+                let v = map.remove("const").unwrap();
+                map.insert("enum".to_string(), serde_json::Value::Array(vec![v]));
+            }
+            // bare null type
+            if map.get("type").and_then(|t| t.as_str()) == Some("null") {
+                map.clear();
+            }
+            for v in map.values_mut() {
+                sanitise_schemas(v);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                sanitise_schemas(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn main() {
     let src = "../../unfurl/server/openapi.json";
     println!("cargo:rerun-if-changed={src}");
@@ -130,6 +165,7 @@ fn main() {
     // Preprocess: rewrite OpenAPI 3.1 nullable patterns to 3.0 style,
     // synthesise missing operationIds, and strip non-2xx response bodies.
     rewrite_nullable(&mut spec);
+    sanitise_schemas(&mut spec);
     add_operation_ids(&mut spec);
     simplify_responses(&mut spec);
     // downgrade_to_3_0(&mut spec);

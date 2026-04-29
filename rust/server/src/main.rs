@@ -6,34 +6,17 @@
 //! - Enqueues POST write operations to a Redis list
 //! - Transparently proxies everything else to Python
 
-mod cache;
-mod client;
-mod config;
-// Will be used in future patch routes.
-#[allow(dead_code)]
-mod patch;
-mod proxy;
-mod queue;
-mod routes;
-
 use axum::{
     routing::{get, post},
     Router,
 };
 use clap::Parser;
-use config::Config;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
-
-/// Shared application state available to all handlers.
-#[derive(Clone)]
-pub struct AppState {
-    pub config: Arc<Config>,
-    pub client: reqwest::Client,
-    pub redis: Option<redis::aio::MultiplexedConnection>,
-}
+use unfurl_server::config::Config;
+use unfurl_server::{cloudmap, queue, routes, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -144,10 +127,38 @@ async fn main() {
         builder.build().expect("failed to build HTTP client")
     };
 
+    // Optional cloudmap fast-path: when both cloudmap_repo and
+    // cloudmap_db_url are set, open a SyncedRepo and serve GET /cloudmap
+    // locally; otherwise it falls through to the proxy.
+    let cloudmap_state = match (
+        config.cloudmap_repo.as_deref(),
+        config.cloudmap_db_url.as_deref(),
+    ) {
+        (Some(repo), Some(db_url)) => {
+            tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
+            match cloudmap::CloudMapState::open(repo, db_url).await {
+                Ok(cm) => Some(cm),
+                Err(e) => {
+                    tracing::error!("failed to open cloudmap repo: {}", e);
+                    std::process::exit(1);
+                }
+            }
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            tracing::info!(
+                "cloudmap_repo and cloudmap_db_url not set; \
+                 GET /cloudmap will be proxied"
+            );
+            None
+        }
+        _ => None,
+    };
+
     let state = AppState {
         config: Arc::new(config.clone()),
         client: http_client,
         redis: redis_conn,
+        cloudmap: cloudmap_state,
     };
 
     // Build router.
@@ -155,6 +166,7 @@ async fn main() {
         // Cache-aware read endpoints.
         .route("/export", get(routes::handle_export))
         .route("/types", get(routes::handle_types))
+        .route("/cloudmap", get(cloudmap::handle_cloudmap))
         // Write endpoints queued to Redis.
         .route("/create_ensemble", post(routes::handle_write))
         .route("/update_ensemble", post(routes::handle_write))

@@ -1707,7 +1707,7 @@ def test_server_cloudmap():
         p._error_queue = error_queue
         try:
             start_server_process(p, port)
-            base = f"http://{HOST}:{port}/cloudmap"
+            base = f"http://{HOST}:{port}/graph"
 
             # Full graph
             res = requests.get(base)

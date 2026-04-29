@@ -78,6 +78,19 @@ pub struct Config {
     /// individually).  Default: 5 seconds.
     #[arg(long, env = "UNFURL_BATCH_WINDOW_SECS", default_value_t = 5)]
     pub batch_window_secs: u64,
+
+    /// Path to a working directory of a cloudmap git repo.
+    /// When set together with `cloudmap_db_url`, GET /cloudmap is served
+    /// using the `unfurl-git-sync` crate; otherwise it is proxied to the Python
+    /// backend.
+    #[arg(long, env = "UNFURL_CLOUDMAP_REPO")]
+    pub cloudmap_repo: Option<String>,
+
+    /// SQL database URL backing the cloudmap index. Accepts
+    /// `sqlite::memory:`, `sqlite:///path/to.db`, or a Postgres URL
+    /// (`postgres://...`). Required for the local cloudmap handler.
+    #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
+    pub cloudmap_db_url: Option<String>,
 }
 
 impl Config {
@@ -173,6 +186,8 @@ mod tests {
             package_digest: String::new(),
             max_body_bytes: 10 * 1024 * 1024,
             batch_window_secs: 5,
+            cloudmap_repo: None,
+            cloudmap_db_url: None,
         }
     }
 
