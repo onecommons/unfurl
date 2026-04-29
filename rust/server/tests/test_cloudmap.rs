@@ -224,6 +224,48 @@ async fn follow_walks_graph_when_key_supplied() {
         .get("git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml")
         .expect("ensemble-template artifact");
     assert!(ensemble.get("type").is_some(), "artifact has a type field");
+
+    // Each record carries OCC tokens the client can echo back as a
+    // CommitRef on subsequent writes.
+    assert!(
+        ensemble["unfurl.server.version"].is_i64(),
+        "version token present"
+    );
+    assert!(
+        ensemble.get("unfurl.server.commit").is_some(),
+        "commit token present (may be null when in-flight)"
+    );
+}
+
+#[tokio::test]
+async fn records_carry_occ_tokens() {
+    // Every record in the response — primary or followed — gets
+    // `unfurl.server.version` and `unfurl.server.commit` keys.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap").await;
+    assert_eq!(status, StatusCode::OK);
+    let primary = &body[0];
+    let repos = primary
+        .get("repositories")
+        .and_then(|v| v.as_object())
+        .expect("repositories section");
+    assert!(!repos.is_empty(), "fixture has at least one repository");
+    for (k, record) in repos {
+        let obj = record.as_object().expect("record is an object");
+        let v = obj
+            .get("unfurl.server.version")
+            .expect("version token")
+            .as_i64()
+            .expect("version is i64");
+        assert!(v > 0, "{k} has positive version, got {v}");
+        // commit token is present (and may be a string OR null).
+        let commit = obj.get("unfurl.server.commit").expect("commit token");
+        assert!(
+            commit.is_string() || commit.is_null(),
+            "{k} commit token should be string or null, got {commit:?}"
+        );
+    }
 }
 
 #[tokio::test]

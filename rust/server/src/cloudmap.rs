@@ -212,17 +212,46 @@ async fn build_response(cm: &CloudMapState, params: &CloudMapParams) -> Result<V
 
 /// Group records by section (`record.path`) and emit a CloudMap-shaped
 /// object: `{ section: { key: json } }`.
+///
+/// Each record's JSON object is enriched with two extra keys so
+/// clients can echo back a [`unfurl_git_sync::CommitRef`] for
+/// optimistic-concurrency on subsequent writes:
+///
+/// - `"unfurl.server.version"` — the row's [`Record::version`]
+///   (always present); use as `CommitRef::Pending(v)`.
+/// - `"unfurl.server.commit"` — the row's `commit_id`, or `null`
+///   when the record is in-flight; use as `CommitRef::Oid(o)` when
+///   non-null.
+///
+/// Records whose JSON payload isn't an object are left as-is — the
+/// cloudmap format only emits map-valued records, so this is a
+/// defensive fallthrough.
 fn records_to_document(records: Vec<Record>) -> Value {
     let mut sections: BTreeMap<&'static str, Map<String, Value>> = BTreeMap::new();
     for r in records {
         let Some(section) = section_for_path(&r.path) else {
             continue;
         };
-        sections.entry(section).or_default().insert(r.key, r.json);
+        let enriched = annotate_record(r.json, r.version, r.commit_id);
+        sections.entry(section).or_default().insert(r.key, enriched);
     }
     let mut out = Map::new();
     for (section, entries) in sections {
         out.insert(section.to_string(), Value::Object(entries));
     }
     Value::Object(out)
+}
+
+/// Splice the OCC tokens onto a record's JSON payload. No-op when the
+/// payload isn't a JSON object.
+fn annotate_record(json: Value, version: i64, commit_id: Option<String>) -> Value {
+    let Value::Object(mut map) = json else {
+        return json;
+    };
+    map.insert("unfurl.server.version".to_string(), Value::from(version));
+    map.insert(
+        "unfurl.server.commit".to_string(),
+        commit_id.map(Value::from).unwrap_or(Value::Null),
+    );
+    Value::Object(map)
 }
