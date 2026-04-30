@@ -14,6 +14,7 @@ from multiprocessing import Process, set_start_method, get_context, Queue
 import requests
 from click.testing import CliRunner
 from git import Repo
+from unfurl.server import endpoints as server_endpoints
 from unfurl.server import serve as server
 from unfurl.server import gui
 from unfurl.packages import is_semver_compatible_with
@@ -1822,7 +1823,7 @@ class TestDoPatch:
     @staticmethod
     def _apply(patches, target):
         # _do_patch mutates target in place; return it for assertion convenience.
-        server._do_patch(patches, target)
+        server_endpoints._do_patch(patches, target)
         return target
 
     def test_insert_into_typename_bucket(self):
