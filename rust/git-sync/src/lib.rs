@@ -74,6 +74,6 @@ pub use format::{DataFormat, FormatRegistry};
 #[doc(inline)]
 pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
-pub use model::{Alias, File, Record, UpdateStats, WorkingDir, Worktree};
+pub use model::{Alias, File, Record, UpdateStats, WorkingDir, Worktree, WriteOutcome};
 #[doc(inline)]
 pub use sync::{CommitRef, SyncedRepo};

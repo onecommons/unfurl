@@ -49,7 +49,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
         )
         .await
         .expect("create");
-    assert!(id > 0);
+    assert!(id.id > 0);
 
     let r = sync
         .get_record("cloudmap.yaml", "/repositories", "new")
@@ -164,7 +164,7 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
     );
 
     let updated = sync
-        .get_record_by_id(updated_id)
+        .get_record_by_id(updated_id.id)
         .await
         .expect("get")
         .expect("present");
@@ -239,7 +239,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             path,
             key,
             serde_json::json!({"name":"v3"}),
-            Some(CommitRef::Oid(oid_a.clone())),
+            Some(CommitRef::Commit(oid_a.clone())),
         )
         .await;
     assert!(
@@ -268,12 +268,12 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             path,
             key,
             serde_json::json!({"name":"v3"}),
-            Some(CommitRef::Oid(oid_b.clone())),
+            Some(CommitRef::Commit(oid_b.clone())),
         )
         .await
         .expect("update with correct oid");
     let r = sync
-        .get_record_by_id(id)
+        .get_record_by_id(id.id)
         .await
         .expect("get")
         .expect("present");
@@ -287,7 +287,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("commit v3")
         .expect("returned");
     let r = sync
-        .get_record_by_id(id)
+        .get_record_by_id(id.id)
         .await
         .expect("get")
         .expect("present");
@@ -317,7 +317,7 @@ async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir)
             target_path,
             target_key,
             serde_json::json!({"name": "should-not-stick"}),
-            Some(CommitRef::Oid(bogus)),
+            Some(CommitRef::Commit(bogus)),
         )
         .await;
     assert!(
@@ -375,7 +375,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
         )
         .await
         .expect("create resurrects tombstone");
-    assert!(id > 0);
+    assert!(id.id > 0);
 
     // The resurrected row must be visible and live (deleted = false).
     let r = sync
@@ -412,7 +412,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // After commit, the resurrected record carries the new oid and
     // there are no leftover tombstones for this worktree.
     let after = sync
-        .get_record_by_id(id)
+        .get_record_by_id(id.id)
         .await
         .expect("get")
         .expect("present");
@@ -967,7 +967,7 @@ async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp:
         .expect("update with file_path=None");
 
     let r = sync
-        .get_record_by_id(id)
+        .get_record_by_id(id.id)
         .await
         .expect("get")
         .expect("present");
@@ -995,7 +995,7 @@ async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _t
         .expect("upsert with file_path=None");
 
     let r = sync
-        .get_record_by_id(id)
+        .get_record_by_id(id.id)
         .await
         .expect("get")
         .expect("present");

@@ -23,7 +23,7 @@ use crate::db::{self, Db, DbConfig};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
-use crate::model::{Record, UpdateStats};
+use crate::model::{Record, UpdateStats, WriteOutcome};
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
 ///
@@ -36,20 +36,27 @@ use crate::model::{Record, UpdateStats};
 ///
 /// The two variants check different columns. They're checked
 /// disjunctively: a write succeeds if **either** the row's `version`
-/// matches a [`CommitRef::Pending`] token **or** its `commit_id`
-/// matches a [`CommitRef::Oid`] token. This means a `Pending(v)` token
-/// remains valid after [`SyncedRepo::commit_repository`] rolls
-/// forward, as long as no one else has rewritten the row.
+/// passes the [`CommitRef::Pending`] check **or** its `commit_id`
+/// matches a [`CommitRef::Commit`] token. A `Pending(v)` token remains
+/// valid after [`SyncedRepo::commit_repository`] rolls forward,
+/// since commit attribution doesn't bump `version`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CommitRef {
-    /// Caller expects the row's `version` to equal this number — the
-    /// per-worktree monotonic counter stamped on every CRUD write.
-    /// Two callers racing on the same record will read different
-    /// versions and only one will succeed.
+    /// Caller expects the row's `version` to be `<= v` — i.e. no
+    /// other writer has rewritten the row since the client's
+    /// observation point at version `v`.
+    ///
+    /// `v` is normally the worktree's batch-level "queueid" (the
+    /// largest version the client has seen across any record), so
+    /// the check passes for rows the client hasn't touched and any
+    /// row still at the version it had when the client read. Two
+    /// callers racing on the same record will see one bump the
+    /// version past the other's `v`, and the loser gets
+    /// [`crate::Error::Conflict`].
     Pending(i64),
     /// Caller expects the row's `commit_id` to equal this hex commit
-    /// oid string (40 hex chars for SHA-1).
-    Oid(String),
+    /// git oid string (40 hex chars for SHA-1).
+    Commit(String),
 }
 
 /// Top-level handle bundling a sqlx pool, a gix repository path, and a
@@ -540,7 +547,8 @@ impl SyncedRepo {
     /// a single sqlx transaction; on mismatch the transaction rolls
     /// back and [`crate::Error::Conflict`] is returned.
     ///
-    /// Returns the new record's primary key.
+    /// Returns the new record's [`WriteOutcome`] (primary key + the
+    /// monotonic version stamped on this write).
     ///
     /// `file_path == None` resolves to the worktree's
     /// `default_file_path` (set on the first
@@ -553,7 +561,7 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
-    ) -> Result<i64> {
+    ) -> Result<WriteOutcome> {
         crud_create(self, file_path, path, key, json, expected_commit).await
     }
 
@@ -562,7 +570,8 @@ impl SyncedRepo {
     /// Fails with [`crate::Error::NotFound`] if the row is absent or
     /// tombstoned. `expected_commit` is the optimistic-concurrency
     /// token; see [`CommitRef`]. Sets the row's `commit_id` back to
-    /// `NULL` (in-flight). Returns the row's primary key.
+    /// `NULL` (in-flight). Returns the row's [`WriteOutcome`]
+    /// (primary key + the new monotonic version).
     ///
     /// `file_path == None` resolves to the existing record's own
     /// `file_path`. Errors with [`crate::Error::NotFound`] when no
@@ -574,7 +583,7 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
-    ) -> Result<i64> {
+    ) -> Result<WriteOutcome> {
         crud_update(self, file_path, path, key, json, expected_commit).await
     }
 
@@ -596,7 +605,7 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
-    ) -> Result<i64> {
+    ) -> Result<WriteOutcome> {
         crud_upsert(self, file_path, path, key, json, expected_commit).await
     }
 
@@ -619,7 +628,7 @@ impl SyncedRepo {
         path: &str,
         key: &str,
         expected_commit: Option<CommitRef>,
-    ) -> Result<()> {
+    ) -> Result<WriteOutcome> {
         crud_delete(self, file_path, path, key, expected_commit).await
     }
 
@@ -837,11 +846,19 @@ fn enforce_conflict(
 ) -> Result<()> {
     match expected {
         CommitRef::Pending(expected_version) => {
-            // The record must exist and its `version` must match. The
-            // `commit_id` doesn't matter — a `Pending(v)` token is still
-            // valid after `commit_repository` rolls forward, as long as
-            // no one else has rewritten the row.
-            if record_present && existing_record_version == Some(*expected_version) {
+            // The record must exist and its `version` must be <=
+            // `expected_version`. Versions are monotonic per record
+            // (writes always bump), so `record.version > expected`
+            // means someone rewrote the row after the client's last
+            // observation — that's the conflict signal. `<=` covers
+            // both the unchanged case (`==`) and the case where the
+            // client is holding a queueid from a *later* batch in
+            // which this particular row wasn't touched.
+            //
+            // The `commit_id` doesn't matter — a `Pending(v)` token
+            // remains valid after `commit_repository` rolls forward
+            // (commit attribution doesn't bump version).
+            if record_present && existing_record_version.is_some_and(|v| v <= *expected_version) {
                 Ok(())
             } else {
                 Err(Error::Conflict {
@@ -852,7 +869,7 @@ fn enforce_conflict(
                 })
             }
         }
-        CommitRef::Oid(expected_oid) => {
+        CommitRef::Commit(expected_oid) => {
             // Oid token requires an existing record at the given key,
             // and its commit_id must match. (Previously this fell back
             // to the file's commit_id when the record was absent;
@@ -882,13 +899,14 @@ async fn crud_create(
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<i64> {
+) -> Result<WriteOutcome> {
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
     let format_owner: Option<String>;
     let id: i64;
+    let version: i64;
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
@@ -925,7 +943,7 @@ async fn crud_create(
                     false,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -987,7 +1005,7 @@ async fn crud_create(
                     false,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1016,7 +1034,7 @@ async fn crud_create(
             tx.commit().await?;
         }
     }
-    Ok(id)
+    Ok(WriteOutcome { id, version })
 }
 
 async fn crud_update(
@@ -1026,12 +1044,13 @@ async fn crud_update(
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<i64> {
+) -> Result<WriteOutcome> {
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
     let id: i64;
+    let version: i64;
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
@@ -1062,7 +1081,7 @@ async fn crud_update(
                     true,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             db::tx::update_record(&mut tx, id, &json_text, version).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
@@ -1110,7 +1129,7 @@ async fn crud_update(
                     true,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             db::tx::update_record(&mut tx, id, &json_text, version).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
@@ -1130,7 +1149,7 @@ async fn crud_update(
             tx.commit().await?;
         }
     }
-    Ok(id)
+    Ok(WriteOutcome { id, version })
 }
 
 async fn crud_upsert(
@@ -1140,12 +1159,13 @@ async fn crud_upsert(
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<i64> {
+) -> Result<WriteOutcome> {
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
     let id: i64;
+    let version: i64;
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
@@ -1174,7 +1194,7 @@ async fn crud_upsert(
                     lookup.record_id.is_some(),
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1230,7 +1250,7 @@ async fn crud_upsert(
                     lookup.record_id.is_some(),
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1259,7 +1279,7 @@ async fn crud_upsert(
             tx.commit().await?;
         }
     }
-    Ok(id)
+    Ok(WriteOutcome { id, version })
 }
 
 async fn crud_delete(
@@ -1268,7 +1288,9 @@ async fn crud_delete(
     path: &str,
     key: &str,
     expected_commit: Option<CommitRef>,
-) -> Result<()> {
+) -> Result<WriteOutcome> {
+    let id: i64;
+    let version: i64;
     match sync.db() {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
@@ -1287,7 +1309,7 @@ async fn crud_delete(
             // Tombstone or absent → NotFound. We never hard-delete here;
             // `commit_repository` is the only path that purges
             // tombstones once they've been written to disk.
-            let id = lookup.record_id.ok_or_else(|| Error::NotFound {
+            id = lookup.record_id.ok_or_else(|| Error::NotFound {
                 file_path: file_path.to_string(),
                 path: path.to_string(),
             })?;
@@ -1301,7 +1323,7 @@ async fn crud_delete(
                     true,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             db::tx::delete_record(&mut tx, id, version).await?;
             tx.commit().await?;
         }
@@ -1320,7 +1342,7 @@ async fn crud_delete(
                 .or_else(|| lookup.record_file_path.clone())
                 .unwrap_or_default();
             let file_path: &str = &resolved_fp;
-            let id = lookup.record_id.ok_or_else(|| Error::NotFound {
+            id = lookup.record_id.ok_or_else(|| Error::NotFound {
                 file_path: file_path.to_string(),
                 path: path.to_string(),
             })?;
@@ -1334,12 +1356,12 @@ async fn crud_delete(
                     true,
                 )?;
             }
-            let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
             db::tx::delete_record(&mut tx, id, version).await?;
             tx.commit().await?;
         }
     }
-    Ok(())
+    Ok(WriteOutcome { id, version })
 }
 
 fn compute_aliases(

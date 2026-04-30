@@ -21,7 +21,9 @@ use serde_json::Value;
 use tempfile::TempDir;
 use tower::util::ServiceExt;
 use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
-use unfurl_server::cloudmap::{handle_cloudmap, post_cloudmap, CloudMapState};
+use unfurl_server::cloudmap::{
+    handle_cloudmap, post_cloudmap_local, post_cloudmap_proxy, CloudMapState,
+};
 use unfurl_server::config::Config;
 use unfurl_server::AppState;
 
@@ -83,8 +85,13 @@ async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
 }
 
 fn router(state: AppState) -> Router {
+    let cloudmap_route = if state.cloudmap.is_some() {
+        get(handle_cloudmap).post(post_cloudmap_local)
+    } else {
+        get(handle_cloudmap).post(post_cloudmap_proxy)
+    };
     Router::new()
-        .route("/cloudmap", get(handle_cloudmap).post(post_cloudmap))
+        .route("/cloudmap", cloudmap_route)
         .with_state(state)
 }
 
@@ -363,23 +370,25 @@ async fn post_upsert_writes_record() {
             key: { "name": "renamed-via-post" },
         }
     });
-    let (status, echo) = post_json(app, body).await;
+    let (status, response) = post_json(app, body).await;
     assert_eq!(status, StatusCode::OK);
-    let echoed = &echo["repositories"][key];
-    assert_eq!(echoed["name"], "renamed-via-post");
-    let v_after = echoed["unfurl.server.version"]
-        .as_i64()
-        .expect("version in echo");
+    // The Rust handler stages records as in-flight (no git commit
+    // yet) so the spec's `commit` field is null/absent here. Mirrors
+    // the Python handler when its working tree was already clean.
+    // `skip_serializing_none` on the generated PatchResponse means
+    // an absent key is equivalent to `null`.
+    assert!(
+        matches!(response.get("commit"), None | Some(Value::Null)),
+        "response should match PatchResponse shape with commit=null: {response:?}"
+    );
+
+    // GET confirms the new value is visible and the row's version
+    // advanced past `v_before`.
+    let v_after = read_version(cm, "repositories", key).await;
     assert!(
         v_after > v_before,
         "version should advance: {v_before} → {v_after}"
     );
-    // Commit token is null because the row is now in-flight.
-    assert!(echoed["unfurl.server.commit"].is_null());
-
-    // GET confirms the new value is visible.
-    let v_via_get = read_version(cm, "repositories", key).await;
-    assert_eq!(v_via_get, v_after);
 }
 
 #[tokio::test]
@@ -561,16 +570,24 @@ async fn post_with_oid_token_succeeds_when_matches() {
 }
 
 #[tokio::test]
-async fn post_unknown_section_returns_400() {
+async fn post_schema_violation_returns_422() {
+    // The cloudmap schema declares `protocols` as an array of
+    // strings; a string fails serde-deser into the typed
+    // `generated::CloudMapDocument`. axum's `Json` extractor
+    // returns 422 automatically on shape mismatch.
     let (cm, _tmp) = open_cloudmap_state().await;
     let app = router(make_state(cm));
-    let body = serde_json::json!({ "flarp": {} });
-    let (status, body) = post_json(app, body).await;
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(
-        body["error"].as_str().unwrap().contains("flarp"),
-        "error mentions the bad section: {body:?}"
-    );
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let body = serde_json::json!({
+        "repositories": {
+            key: {
+                "path": "onecommons/std",
+                "protocols": "not-an-array",
+            }
+        }
+    });
+    let (status, _body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

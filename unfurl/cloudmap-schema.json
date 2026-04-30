@@ -329,7 +329,8 @@
             "$ref": "#/definitions/artifact"
           }
         }
-      }
+      },
+      "additionalProperties": true
     },
     "service": {
       "type": "object",
@@ -404,7 +405,8 @@
             "$ref": "#/definitions/service"
           }
         }
-      }
+      },
+      "additionalProperties": true
     },
     "instantiation": {
       "type": "object",
@@ -479,7 +481,8 @@
             "$ref": "#/definitions/instantiation"
           }
         }
-      }
+      },
+      "additionalProperties": true
     },
     "inlineArtifact": {
       "type": "object",
@@ -586,7 +589,7 @@
         },
         "project_url": {
           "type": "string",
-          "description": "URL to the repository's project page on the host (e.g., https://github.com/user/repo)."
+          "description": "URL to the repository's project page on the host (e.g., <https://github.com/user/repo>)."
         },
         "mirror_of": {
           "type": "string",
@@ -687,7 +690,8 @@
             }
           ]
         }
-      }
+      },
+      "additionalProperties": true
     },
     "type": {
       "$$target": "#/definitions/type",
@@ -740,7 +744,8 @@
             "type": "string"
           }
         }
-      }
+      },
+      "additionalProperties": true
     }
   },
   "type": "object",
@@ -772,7 +777,7 @@
     },
     "artifacts": {
       "type": "object",
-      "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (https://github.com/package-url/purl-spec) or repository URL with path.",
+      "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.",
       "propertyNames": {
         "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
         "pattern": "^[^\\s]*$"
@@ -815,6 +820,7 @@
       }
     }
   },
+  "additionalProperties": true,
   "required": [
     "apiVersion",
     "kind"

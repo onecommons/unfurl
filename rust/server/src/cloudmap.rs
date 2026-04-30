@@ -18,12 +18,13 @@ use axum::{
     http::{Request, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use serde::Deserialize;
+use serde::Serialize;
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use unfurl_git_sync::{CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
+use crate::generated;
 use crate::proxy;
 use crate::AppState;
 
@@ -112,22 +113,13 @@ impl CloudMapState {
     }
 }
 
-/// Query parameters for `GET /cloudmap`.
-#[derive(Debug, Deserialize)]
-pub struct CloudMapParams {
-    pub kind: Option<String>,
-    pub key: Option<String>,
-    #[serde(default)]
-    pub follow: u32,
-}
-
 /// Axum handler for `GET /cloudmap`.
 ///
 /// Local fast-path when [`AppState::cloudmap`] is set; otherwise
 /// proxies to the Python backend.
 pub async fn handle_cloudmap(
     State(state): State<AppState>,
-    Query(params): Query<CloudMapParams>,
+    Query(params): Query<generated::GetCloudmapRequestQuery>,
     req: Request<axum::body::Body>,
 ) -> Response {
     let Some(cm) = state.cloudmap.clone() else {
@@ -162,7 +154,20 @@ enum LocalError {
     Internal(String),
 }
 
-async fn build_response(cm: &CloudMapState, params: &CloudMapParams) -> Result<Value, LocalError> {
+/// Build the `[primary, followed]` pair returned by `GET /cloudmap`.
+///
+/// Each element is a CloudMap-shaped object — declared as
+/// [`generated::CloudMapDocumentPair`] in the OpenAPI spec. We don't
+/// strict-deserialize through [`generated::CloudMapDocument`] on emit
+/// because the typed struct has required fields (`apiVersion`,
+/// `kind`) that get filled with defaults; Python's `get_cloudmap`
+/// returns a bare `{}` for an empty `followed` and we keep wire
+/// parity. So we emit each element as a [`Value::Object`] containing
+/// only the section maps that actually have records.
+async fn build_response(
+    cm: &CloudMapState,
+    params: &generated::GetCloudmapRequestQuery,
+) -> Result<Vec<Value>, LocalError> {
     let synced = cm.inner.as_ref();
     let kind = params.kind.as_deref();
     let key = params.key.as_deref();
@@ -180,7 +185,11 @@ async fn build_response(cm: &CloudMapState, params: &CloudMapParams) -> Result<V
     // Walking only makes sense when we have a starting key.
     // alias=true when filtering by key (so versioned URLs hit their
     // canonical record); alias=false for the full document.
-    let follow = if key.is_some() { params.follow } else { 0 };
+    let follow = if key.is_some() {
+        params.follow.unwrap_or(0).max(0) as u32
+    } else {
+        0
+    };
     let alias = key.is_some();
 
     // Single DB query for both halves of the response. With follow=0
@@ -207,11 +216,11 @@ async fn build_response(cm: &CloudMapState, params: &CloudMapParams) -> Result<V
 
     let primary = records_to_document(initial);
     let followed = records_to_document(followed_records);
-    Ok(Value::Array(vec![primary, followed]))
+    Ok(vec![primary, followed])
 }
 
 /// Group records by section (`record.path`) and emit a CloudMap-shaped
-/// object: `{ section: { key: json } }`.
+/// object: `{ section: { key: json } }`. An empty input produces `{}`.
 ///
 /// Each record's JSON object is enriched with two extra keys so
 /// clients can echo back a [`unfurl_git_sync::CommitRef`] for
@@ -220,7 +229,7 @@ async fn build_response(cm: &CloudMapState, params: &CloudMapParams) -> Result<V
 /// - `"unfurl.server.version"` — the row's [`Record::version`]
 ///   (always present); use as `CommitRef::Pending(v)`.
 /// - `"unfurl.server.commit"` — the row's `commit_id`, or `null`
-///   when the record is in-flight; use as `CommitRef::Oid(o)` when
+///   when the record is in-flight; use as `CommitRef::Commit(o)` when
 ///   non-null.
 ///
 /// Records whose JSON payload isn't an object are left as-is — the
@@ -263,9 +272,9 @@ fn annotate_record(json: Value, version: i64, commit_id: Option<String>) -> Valu
 /// Pop the OCC tokens out of a record's JSON object and convert them
 /// into a [`CommitRef`].
 ///
-/// - `unfurl.server.commit` (string) → [`CommitRef::Oid`].
+/// - `unfurl.server.commit` (string) → [`CommitRef::Commit`].
 /// - `unfurl.server.version` (i64) → [`CommitRef::Pending`].
-/// - When both are present, `Oid` wins (it's the stricter token).
+/// - When both are present, `Commit` wins (it's the stricter token).
 /// - Both keys are popped regardless so neither leaks into the
 ///   payload that gets persisted to disk.
 fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
@@ -274,99 +283,123 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
         .and_then(|v| v.as_str().map(str::to_string));
     let version = map.remove("unfurl.server.version").and_then(|v| v.as_i64());
     if let Some(o) = oid {
-        return Some(CommitRef::Oid(o));
+        return Some(CommitRef::Commit(o));
     }
     version.map(CommitRef::Pending)
 }
 
-/// Axum handler for `POST /cloudmap`.
+/// Local axum handler for `POST /cloudmap`.
 ///
-/// Body shape mirrors the GET response's primary half: a top-level
-/// object whose keys are section names (`repositories`, `artifacts`,
-/// `services`, `instantiations`, `types`). Each section maps record
-/// keys (URLs) to a JSON object that schema-validates as the
-/// corresponding cloudmap entity. Two extension keys on the record
-/// drive special behaviour:
+/// Body is the typed [`generated::CloudMapDocument`]; axum's `Json`
+/// extractor returns a 422 automatically on shape mismatch. Each
+/// section maps record keys (URLs) to objects that schema-validate
+/// as the corresponding cloudmap entity. Two extension keys on the
+/// record drive special behaviour:
 ///
 /// - `unfurl.server.{version,commit}` — optional OCC token gating
 ///   the write.
-/// - `unfurl.server.deleted: true` — delete the record (with OCC
-///   tokens still honoured).
+/// - `unfurl.server.deleted: true` — delete the record (OCC tokens
+///   still honoured).
 ///
-/// Errors fail fast: the first record that mismatches its OCC token
-/// returns 409 and the remainder are not attempted; previously-applied
-/// edits in this request stay in-flight (queryable via
-/// [`unfurl_git_sync::SyncedRepo::list_changes`]). No `save_changes`
-/// or `commit_repository` is invoked — the caller drives commit
+/// Unknown top-level sections are silently ignored (no
+/// `#[serde(deny_unknown_fields)]` on the generated type); record
+/// fields not in the schema are also silently dropped.
+///
+/// Errors fail fast: the first record whose OCC token mismatches
+/// returns 409 and the remainder are skipped. Previously-applied
+/// edits stay in-flight (queryable via
+/// [`unfurl_git_sync::SyncedRepo::list_changes`]); no `save_changes`
+/// / `commit_repository` is invoked — the caller drives commit
 /// separately.
 ///
-/// When `state.cloudmap` is `None`, the request is proxied to the
-/// Python backend, same as `GET /cloudmap`.
-pub async fn post_cloudmap(
+/// This handler is registered only when `state.cloudmap` is `Some`;
+/// see [`post_cloudmap_proxy`] for the unconfigured fall-through.
+pub async fn post_cloudmap_local(
+    State(state): State<AppState>,
+    Json(body): Json<generated::CloudMapDocument>,
+) -> Result<Json<generated::PatchResponse>, ApiError> {
+    let cm = state
+        .cloudmap
+        .as_ref()
+        .expect("post_cloudmap_local registered without CloudMapState");
+    // The Rust handler stages records to the SyncedRepo's database
+    // (in-flight, `commit_id IS NULL`). It does not drive a git
+    // commit — the caller does that separately — so `commit` is
+    // always null here. We return the largest `version` the CRUD
+    // calls stamped during this batch as `queueid`: the client can
+    // echo it back as `unfurl.server.version` on the next request to
+    // gate the optimistic-concurrency check. Versions are monotonic
+    // per worktree, so the last write's version is also the largest.
+    let last_version = apply_writes(cm, body).await?;
+    Ok(Json(generated::PatchResponse {
+        commit: None,
+        queueid: last_version,
+    }))
+}
+
+/// Proxy fallthrough for `POST /cloudmap` when `state.cloudmap` is
+/// `None`. Forwards the request verbatim to the Python backend.
+///
+/// Registered in place of [`post_cloudmap_local`] at server startup
+/// when no cloudmap repo is configured; see `main.rs` for the
+/// branching.
+pub async fn post_cloudmap_proxy(
     State(state): State<AppState>,
     req: Request<axum::body::Body>,
 ) -> Response {
-    let Some(cm) = state.cloudmap.clone() else {
-        return proxy::forward(
-            &state.client,
-            &state.config.backend_url(),
-            req,
-            state.config.max_body_bytes,
-        )
-        .await;
-    };
+    proxy::forward(
+        &state.client,
+        &state.config.backend_url(),
+        req,
+        state.config.max_body_bytes,
+    )
+    .await
+}
 
-    let body_bytes = match axum::body::to_bytes(req.into_body(), state.config.max_body_bytes).await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": format!("read body: {e}")})),
-            )
-                .into_response();
-        }
-    };
-    let body: Value = match serde_json::from_slice(&body_bytes) {
-        Ok(v) => v,
-        Err(e) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(json!({"error": format!("parse json: {e}")})),
-            )
-                .into_response();
-        }
-    };
+/// Errors returned by [`post_cloudmap_local`]. `IntoResponse` maps
+/// each variant to the appropriate HTTP status with a JSON body.
+pub struct ApiError {
+    status: StatusCode,
+    body: Value,
+}
 
-    match apply_writes(&cm, body).await {
-        Ok(echo) => Json(echo).into_response(),
-        Err(WriteError::BadRequest(msg)) => {
-            (StatusCode::BAD_REQUEST, Json(json!({"error": msg}))).into_response()
-        }
-        Err(WriteError::NotFound(msg)) => {
-            (StatusCode::NOT_FOUND, Json(json!({"error": msg}))).into_response()
-        }
-        Err(WriteError::Conflict {
-            section,
-            key,
-            actual,
-        }) => (
-            StatusCode::CONFLICT,
-            Json(json!({
-                "error": "conflict",
-                "section": section,
-                "key": key,
-                "actual": actual,
-            })),
-        )
-            .into_response(),
-        Err(WriteError::Internal(msg)) => {
-            tracing::error!("post_cloudmap error: {}", msg);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": msg})),
-            )
-                .into_response()
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        (self.status, Json(self.body)).into_response()
+    }
+}
+
+impl From<WriteError> for ApiError {
+    fn from(err: WriteError) -> Self {
+        match err {
+            WriteError::BadRequest(msg) => Self {
+                status: StatusCode::BAD_REQUEST,
+                body: json!({"error": msg}),
+            },
+            WriteError::NotFound(msg) => Self {
+                status: StatusCode::NOT_FOUND,
+                body: json!({"error": msg}),
+            },
+            WriteError::Conflict {
+                section,
+                key,
+                actual,
+            } => Self {
+                status: StatusCode::CONFLICT,
+                body: json!({
+                    "error": "conflict",
+                    "section": section,
+                    "key": key,
+                    "actual": actual,
+                }),
+            },
+            WriteError::Internal(msg) => {
+                tracing::error!("post_cloudmap error: {}", msg);
+                Self {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    body: json!({"error": msg}),
+                }
+            }
         }
     }
 }
@@ -382,44 +415,95 @@ enum WriteError {
     Internal(String),
 }
 
-async fn apply_writes(cm: &CloudMapState, body: Value) -> Result<Value, WriteError> {
-    let Value::Object(sections) = body else {
-        return Err(WriteError::BadRequest(
-            "request body must be a JSON object".to_string(),
-        ));
-    };
-
+/// Apply each section of the request body and return the largest
+/// `version` stamped on any single CRUD write — `None` if the body
+/// produced no writes. Versions are monotonic per worktree, so the
+/// last write's version is also the maximum.
+async fn apply_writes(
+    cm: &CloudMapState,
+    body: generated::CloudMapDocument,
+) -> Result<Option<i64>, WriteError> {
     let synced = cm.inner.as_ref();
-    let mut echo: Map<String, Value> = Map::new();
+    let mut last_version: Option<i64> = None;
 
-    for (section_name, records) in sections {
-        let path = path_for_kind(&section_name)
-            .ok_or_else(|| WriteError::BadRequest(format!("unknown section {section_name:?}")))?;
-        let Value::Object(entries) = records else {
-            return Err(WriteError::BadRequest(format!(
-                "section {section_name:?} must be an object"
-            )));
-        };
-        let mut echoed_section: Map<String, Value> = Map::new();
-        for (key, value) in entries {
-            let echoed_value = apply_one(synced, &section_name, path, &key, value).await?;
-            echoed_section.insert(key, echoed_value);
-        }
-        echo.insert(section_name, Value::Object(echoed_section));
+    if let Some(records) = body.repositories {
+        update_last(
+            &mut last_version,
+            apply_section(synced, "repositories", "/repositories", records).await?,
+        );
+    }
+    if let Some(records) = body.artifacts {
+        update_last(
+            &mut last_version,
+            apply_section(synced, "artifacts", "/artifacts", records).await?,
+        );
+    }
+    if let Some(records) = body.services {
+        update_last(
+            &mut last_version,
+            apply_section(synced, "services", "/services", records).await?,
+        );
+    }
+    if let Some(records) = body.instantiations {
+        update_last(
+            &mut last_version,
+            apply_section(synced, "instantiations", "/instantiations", records).await?,
+        );
+    }
+    if let Some(records) = body.types {
+        update_last(
+            &mut last_version,
+            apply_section(synced, "types", "/types", records).await?,
+        );
     }
 
-    Ok(Value::Object(echo))
+    Ok(last_version)
 }
 
-/// Apply a single `(section, key, value)` write. Returns the value to
-/// echo back in the response (with refreshed OCC tokens).
+/// Roll the most recent CRUD `version` into `last`. Both arguments are
+/// monotonic in batch-order, so a plain `Some(v)` overwrite of `last`
+/// is correct.
+fn update_last(last: &mut Option<i64>, latest: Option<i64>) {
+    if let Some(v) = latest {
+        *last = Some(v);
+    }
+}
+
+/// Serialize each typed record back to a JSON `Value` (this flattens
+/// the OCC marker keys captured in `additional_properties` back onto
+/// the top level) and dispatch to [`apply_one`]. Records from the
+/// spec come in as `HashMap<String, T>` for sections like
+/// `repositories` (T = `CloudmapRepository`) or
+/// `HashMap<String, Box<T>>` for sections that recurse (artifacts,
+/// services, instantiations); the bound is just `Serialize` so a
+/// single helper covers both.
+async fn apply_section<T: Serialize>(
+    synced: &SyncedRepo,
+    section: &str,
+    path: &'static str,
+    records: HashMap<String, T>,
+) -> Result<Option<i64>, WriteError> {
+    let mut last: Option<i64> = None;
+    for (key, record) in records {
+        let value = serde_json::to_value(&record).map_err(|e| {
+            WriteError::Internal(format!(
+                "section {section:?} key {key:?}: serialize record: {e}"
+            ))
+        })?;
+        last = Some(apply_one(synced, section, path, &key, value).await?);
+    }
+    Ok(last)
+}
+
+/// Apply a single `(section, key, value)` write. Returns the
+/// `version` stamped on the resulting CRUD row.
 async fn apply_one(
     synced: &SyncedRepo,
     section: &str,
     path: &'static str,
     key: &str,
     value: Value,
-) -> Result<Value, WriteError> {
+) -> Result<i64, WriteError> {
     match value {
         Value::Object(mut map) => {
             let commit_ref = pop_commit_ref(&mut map);
@@ -443,26 +527,13 @@ async fn do_upsert(
     key: &str,
     payload: Map<String, Value>,
     commit_ref: Option<CommitRef>,
-) -> Result<Value, WriteError> {
+) -> Result<i64, WriteError> {
     let json = Value::Object(payload);
-    let id = synced
+    let outcome = synced
         .upsert_record(None, path, key, json, commit_ref)
         .await
         .map_err(|e| map_git_sync_err(e, section, key))?;
-    let record = synced
-        .get_record_by_id(id)
-        .await
-        .map_err(|e| WriteError::Internal(format!("get_record_by_id: {e}")))?
-        .ok_or_else(|| {
-            WriteError::Internal(format!(
-                "upserted record {id} not found in get_record_by_id"
-            ))
-        })?;
-    Ok(annotate_record(
-        record.json,
-        record.version,
-        record.commit_id,
-    ))
+    Ok(outcome.version)
 }
 
 async fn do_delete(
@@ -471,12 +542,12 @@ async fn do_delete(
     path: &'static str,
     key: &str,
     commit_ref: Option<CommitRef>,
-) -> Result<Value, WriteError> {
-    synced
+) -> Result<i64, WriteError> {
+    let outcome = synced
         .delete_record(None, path, key, commit_ref)
         .await
         .map_err(|e| map_git_sync_err(e, section, key))?;
-    Ok(Value::Null)
+    Ok(outcome.version)
 }
 
 /// Convert a [`unfurl_git_sync::Error`] into a typed [`WriteError`],

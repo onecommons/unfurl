@@ -238,25 +238,26 @@ class CloudMapDocument(BaseModel):
     element** for GET ``/cloudmap`` and as the **request body** for
     POST ``/cloudmap``.
 
-    The model has no declared fields — APIFlask emits an empty stub
-    in the OpenAPI spec, which is then replaced wholesale by
-    :func:`hoist_cloudmap_definitions` (registered as a
-    ``@app.spec_processor``) with the contents of
-    ``docs/cloudmap-schema.json``. Doing the substitution at spec-build
-    time avoids Pydantic v2's internal ``$defs`` ref-counting
-    machinery.
-
-    Runtime validation is wired through ``__validate_cloudmap_schema``
-    below: every request body that arrives via ``@app.input()`` is
-    checked against the canonical ``docs/cloudmap-schema.json`` (after
-    stripping known envelope keys like ``latest_commit`` /
-    ``cloudmap_path``). Violations surface as a Pydantic
-    ``ValidationError``, which APIFlask returns as a 422.
-
     For POST, deletes are signalled by an ``unfurl.server.deleted:
     true`` flag on the record (handled by the endpoint after schema
     validation passes). Record values must always be objects.
     """
+
+    # The model has no declared fields — APIFlask emits an empty stub
+    # in the OpenAPI spec, which is then replaced wholesale by
+    # :func:`hoist_cloudmap_definitions` (registered as a
+    # ``@app.spec_processor``) with the contents of
+    # ``docs/cloudmap-schema.json``. Doing the substitution at spec-build
+    # time avoids Pydantic v2's internal ``$defs`` ref-counting
+    # machinery.
+
+    # Runtime validation is wired through ``__validate_cloudmap_schema``
+    # below: every request body that arrives via ``@app.input()`` is
+    # checked against the canonical ``docs/cloudmap-schema.json`` (after
+    # stripping known envelope keys like ``latest_commit`` /
+    # ``cloudmap_path``). Violations surface as a Pydantic
+    # ``ValidationError``, which APIFlask returns as a 422.
+
 
     model_config = ConfigDict(extra="allow")
 
@@ -492,11 +493,22 @@ class ErrorResponse(BaseModel):
 
 
 class PatchResponse(BaseModel):
-    """Response from all write endpoints after a successful commit."""
+    """Response from write endpoints.
+
+    Either ``commit`` (a git commit hash) or ``queueid`` (a monotonic
+    version counter) used as a optimistic-concurrency
+    token the client should echo back on its next write.
+    """
 
     commit: Optional[str] = Field(
         default=None,
         description="Commit hash after applying the patch, or null if no changes were committed",
+    )
+    queueid: Optional[int] = Field(
+        default=None,
+        description=(
+            "Monotonic version assigned to this uncommitted write operation."
+        ),
     )
 
 

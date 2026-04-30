@@ -3,9 +3,9 @@
 //! Library re-exports for integration tests.
 
 pub mod cache;
-pub mod client;
 pub mod cloudmap;
 pub mod config;
+pub mod generated;
 pub mod patch;
 pub mod proxy;
 pub mod queue;

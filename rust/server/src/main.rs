@@ -162,21 +162,39 @@ async fn main() {
     };
 
     // Build router.
+    // POST /cloudmap is registered as the typed local handler when a
+    // cloudmap repo is configured, otherwise the proxy fallthrough.
+    // Splitting at startup lets the local handler use a clean
+    // `Json<generated::CloudMapDocument>` extractor without losing
+    // the proxy path.
+    let cloudmap_route = if state.cloudmap.is_some() {
+        get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap_local)
+    } else {
+        get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap_proxy)
+    };
+
     let app = Router::new()
         // Cache-aware read endpoints.
         .route("/export", get(routes::handle_export))
         .route("/types", get(routes::handle_types))
+        .route("/cloudmap", cloudmap_route)
+        // Write endpoints queued to Redis. Follow the openapi spec: Two typed wrappers around
+        // `handle_write` validate the request body against its
+        // OpenAPI request schema and declare `Json<PatchResponse>`
+        // Three endpoints share `PatchEnsembleBody`,
+        // the other three share `PatchEnvironmentBody`.
+        .route("/create_ensemble", post(routes::handle_patch_ensemble))
+        .route("/update_ensemble", post(routes::handle_patch_ensemble))
+        .route("/create_provider", post(routes::handle_patch_ensemble))
+        .route("/delete_deployment", post(routes::handle_patch_environment))
         .route(
-            "/cloudmap",
-            get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap),
+            "/update_environment",
+            post(routes::handle_patch_environment),
         )
-        // Write endpoints queued to Redis.
-        .route("/create_ensemble", post(routes::handle_write))
-        .route("/update_ensemble", post(routes::handle_write))
-        .route("/create_provider", post(routes::handle_write))
-        .route("/delete_deployment", post(routes::handle_write))
-        .route("/update_environment", post(routes::handle_write))
-        .route("/delete_environment", post(routes::handle_write))
+        .route(
+            "/delete_environment",
+            post(routes::handle_patch_environment),
+        )
         // Everything else proxied transparently.
         .fallback(routes::handle_fallback)
         .layer(TraceLayer::new_for_http())

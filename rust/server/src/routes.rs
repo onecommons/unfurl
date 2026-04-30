@@ -2,9 +2,19 @@
 // SPDX-License-Identifier: MIT
 //! Axum route handlers for the unfurl server proxy.
 
+// Several handlers in this module return `Result<TypedSuccess,
+// axum::response::Response>` so the success body type stays linked
+// to the generated OpenAPI schema in the function signature, while
+// the `Err` arm carries pre-built raw responses (proxy passthrough,
+// 304, error envelopes). axum's `Response` is ~128 bytes which trips
+// the `result_large_err` lint on every such return type — boxing it
+// would obscure the signature without changing wire behaviour, so we
+// allow the lint at module scope instead.
+#![allow(clippy::result_large_err)]
+
 use axum::{
     body::Body,
-    extract::{Request, State},
+    extract::{Query, Request, State},
     http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
@@ -13,6 +23,7 @@ use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
 use crate::cache;
+use crate::generated;
 use crate::proxy;
 use crate::queue::{self, QueueIdResult, QueueItem};
 use crate::AppState;
@@ -21,38 +32,36 @@ use crate::AppState;
 // Cache-aware GET handlers
 // ---------------------------------------------------------------------------
 
-/// Build the Redis cache key for a `/export` request from its query params.
-fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
-    let project_id = params.get("auth_project").map(|s| s.as_str()).unwrap_or("");
+/// Build the Redis cache key for a `/export` request from its typed
+/// query.
+fn export_cache_key(prefix: &str, params: &generated::GetExportRequestQuery) -> String {
+    let project_id = params.auth_project.as_deref().unwrap_or("");
     // Python resolves missing/HEAD branch to the repo's default branch (typically "main").
     // Use "main" here to match the key Python stores.
-    let branch = match params.get("branch").map(|s| s.as_str()) {
+    let branch = match params.branch.as_deref() {
         Some("HEAD") | None => "main",
         Some(b) => b,
     };
-    let format = params
-        .get("format")
-        .map(|s| s.as_str())
-        .unwrap_or("deployment");
-    let deployment_path = params.get("deployment_path").map(|s| s.as_str());
+    let format = params.format.as_ref();
+    let deployment_path = params.deployment_path.as_deref();
 
+    use generated::GetExportRequestQueryFormat as Fmt;
     let file_path = match format {
-        "blueprint" => "ensemble-template.yaml".to_string(),
-        "environments" => "unfurl.yaml".to_string(),
-        _ => {
-            // deployment: Python's _get_filepath returns "ensemble/ensemble.yaml" by default
-            match deployment_path {
-                None | Some("") => "ensemble/ensemble.yaml".to_string(),
-                Some(p) if p.ends_with(".yaml") => p.to_string(),
-                Some(p) => format!("{}/ensemble.yaml", p),
-            }
-        }
+        Some(Fmt::Blueprint) => "ensemble-template.yaml".to_string(),
+        Some(Fmt::Environments) => "unfurl.yaml".to_string(),
+        // deployment (default): Python's _get_filepath returns
+        // "ensemble/ensemble.yaml" by default.
+        _ => match deployment_path {
+            None | Some("") => "ensemble/ensemble.yaml".to_string(),
+            Some(p) if p.ends_with(".yaml") => p.to_string(),
+            Some(p) => format!("{}/ensemble.yaml", p),
+        },
     };
 
     let key_suffix = match format {
-        "blueprint" => "blueprint".to_string(),
-        "environments" => {
-            if let Some(env) = params.get("environment") {
+        Some(Fmt::Blueprint) => "blueprint".to_string(),
+        Some(Fmt::Environments) => {
+            if let Some(env) = params.environment.as_deref() {
                 format!("environments+{}", env)
             } else {
                 "environments".to_string()
@@ -67,17 +76,15 @@ fn export_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
     )
 }
 
-/// Build the Redis cache key for a `/types` request.
-fn types_cache_key(prefix: &str, params: &HashMap<String, String>) -> String {
-    let project_id = params.get("auth_project").map(|s| s.as_str()).unwrap_or("");
-    let branch = match params.get("branch").map(|s| s.as_str()) {
+/// Build the Redis cache key for a `/types` request from its typed
+/// query.
+fn types_cache_key(prefix: &str, params: &generated::GetTypesRequestQuery) -> String {
+    let project_id = params.auth_project.as_deref().unwrap_or("");
+    let branch = match params.branch.as_deref() {
         Some("HEAD") | None => "main",
         Some(b) => b,
     };
-    let file = params
-        .get("file")
-        .map(|s| s.as_str())
-        .unwrap_or("dummy-ensemble.yaml");
+    let file = params.file.as_deref().unwrap_or("dummy-ensemble.yaml");
 
     format!(
         "{}{}:{}:{}:blueprint+types",
@@ -100,17 +107,48 @@ fn parse_query(uri: &axum::http::Uri) -> HashMap<String, String> {
         .unwrap_or_default()
 }
 
+/// What `handle_cached_get` produced. Keeps the typed-vs-raw split
+/// out of [`handle_cached_get`] so per-route handlers can map each
+/// variant to their own typed response enum.
+enum CacheOutcome {
+    /// Cache hit + the payload deserialized cleanly into the strict
+    /// [`generated::ExportResponse`]. The accompanying `String` is the
+    /// `Etag` header to set. Boxed because `ExportResponse` is large
+    /// (~900B) and would otherwise dominate the enum's discriminant
+    /// size.
+    Typed(Box<generated::ExportResponse>, String),
+    /// Cache hit + `If-None-Match` matched the stored etag.
+    NotModified,
+    /// Cache hit but the typed deserialize failed (legacy entry,
+    /// schema drift) — pass the raw JSON through with the etag.
+    RawJson(JsonValue, String),
+    /// Cache miss, no Redis, or any other reason to fall through to
+    /// the Python backend. The contained [`Response`] is the proxy's
+    /// raw response.
+    Proxied(Response),
+}
+
 /// Shared logic for cache-aware GET handlers.
 ///
 /// Tries the Redis cache with `key`; on a hit, honours `If-None-Match` (→ 304)
 /// or returns 200 with the cached body and an `Etag` header.  On a miss (or
 /// when Redis is not configured) falls through to the Python backend.
+///
+/// On a cache hit we attempt to deserialize the stored payload into the
+/// strict [`generated::ExportResponse`] type so the wire response is
+/// typed (matches the `ExportResponse` schema declared in
+/// `openapi.json` for both `/export` and `/types`). If deserialization
+/// fails — e.g. a legacy entry whose shape doesn't match the current
+/// schema — the [`CacheOutcome::RawJson`] variant lets the caller
+/// pass the raw [`JsonValue`] through. `ExportResponse` carries a
+/// `#[serde(flatten)] additional_properties` catch-all so unknown
+/// top-level keys don't fail the round-trip.
 async fn handle_cached_get(
     state: AppState,
     req: Request,
     key: String,
     latest_commit: Option<String>,
-) -> Response {
+) -> CacheOutcome {
     if let Some(ref redis) = state.redis {
         let mut conn = redis.clone();
         if let Some((json_val, etag)) = cache::try_cache(
@@ -129,7 +167,7 @@ async fn handle_cached_get(
                 .and_then(|v| v.to_str().ok());
             if if_none_match == Some(etag.as_str()) {
                 tracing::info!("cache hit, etag matched: {}", key);
-                return StatusCode::NOT_MODIFIED.into_response();
+                return CacheOutcome::NotModified;
             }
             tracing::info!(
                 "cache hit {} if_none_match={:?} setting etag={}",
@@ -137,60 +175,107 @@ async fn handle_cached_get(
                 if_none_match,
                 etag
             );
-            let mut response = Json(json_val).into_response();
-            if let Ok(hv) = HeaderValue::from_str(&etag) {
-                response.headers_mut().insert(header::ETAG, hv);
-            }
-            return response;
+            return match serde_json::from_value::<generated::ExportResponse>(json_val.clone()) {
+                Ok(typed) => CacheOutcome::Typed(Box::new(typed), etag),
+                Err(e) => {
+                    tracing::debug!(
+                        "cache hit {key}: typed ExportResponse deserialize failed \
+                         ({e}); falling back to raw JSON passthrough"
+                    );
+                    CacheOutcome::RawJson(json_val, etag)
+                }
+            };
         }
         tracing::info!("cache miss, proxying to backend: {}", key);
     } else {
         tracing::debug!("no Redis configured, skipping cache for: {}", key);
     }
-    proxy::forward(
-        &state.client,
-        &state.config.backend_url(),
-        req,
-        state.config.max_body_bytes,
+    CacheOutcome::Proxied(
+        proxy::forward(
+            &state.client,
+            &state.config.backend_url(),
+            req,
+            state.config.max_body_bytes,
+        )
+        .await,
     )
-    .await
+}
+
+/// Build the final HTTP response for a [`CacheOutcome::Typed`] /
+/// [`CacheOutcome::RawJson`] variant, attaching the `Etag` header.
+fn with_etag(mut response: Response, etag: &str) -> Response {
+    if let Ok(hv) = HeaderValue::from_str(etag) {
+        response.headers_mut().insert(header::ETAG, hv);
+    }
+    response
 }
 
 /// GET /export -- try Redis cache first, fall back to proxying.
-pub async fn handle_export(State(state): State<AppState>, req: Request) -> Response {
-    let params = parse_query(req.uri());
-    let latest_commit = params.get("latest_commit").cloned();
+///
+/// The query string is parsed via the generated
+/// [`generated::GetExportRequestQuery`] extractor so the schema stays
+/// in lockstep with `unfurl/server/openapi.json`. A malformed
+/// `format` value gets a 400 from axum's `Query` extractor before we
+/// hit any cache logic.
+///
+/// Success body type is [`Json<generated::ExportResponse>`]. 304, raw-fallback, proxy passthrough — and the
+/// typed cache hit (which needs an `Etag` header) — flow through the
+/// `Err` branch as a raw [`Response`]. axum can't compose extra
+/// headers onto a bare `Json<T>` Ok value without a tuple wrapper.
+pub async fn handle_export(
+    State(state): State<AppState>,
+    Query(params): Query<generated::GetExportRequestQuery>,
+    req: Request,
+) -> Result<Json<generated::ExportResponse>, Response> {
+    let latest_commit = params.latest_commit.clone();
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
-    handle_cached_get(state, req, key, latest_commit).await
+    match handle_cached_get(state, req, key, latest_commit).await {
+        CacheOutcome::Typed(typed, etag) => Err(with_etag(Json(*typed).into_response(), &etag)),
+        CacheOutcome::NotModified => Err(StatusCode::NOT_MODIFIED.into_response()),
+        CacheOutcome::RawJson(val, etag) => Err(with_etag(Json(val).into_response(), &etag)),
+        CacheOutcome::Proxied(resp) => Err(resp),
+    }
 }
 
 /// GET /types -- try Redis cache first, fall back to proxying.
-pub async fn handle_types(State(state): State<AppState>, req: Request) -> Response {
-    let params = parse_query(req.uri());
-    let latest_commit = params.get("latest_commit").cloned();
+///
+/// The query string is parsed via the generated
+/// [`generated::GetTypesRequestQuery`] extractor. The success and 304
+/// paths are produced as [`generated::GetTypesResponse`] variants
+/// (`Ok` and `NotModified` respectively); raw-fallback and proxy
+/// passthrough flow through as `Response` via `Result<_, Response>`'s
+/// `Err` branch.
+pub async fn handle_types(
+    State(state): State<AppState>,
+    Query(params): Query<generated::GetTypesRequestQuery>,
+    req: Request,
+) -> Result<generated::GetTypesResponse, Response> {
+    let latest_commit = params.latest_commit.clone();
     let key = types_cache_key(&state.config.cache_key_prefix, &params);
-    handle_cached_get(state, req, key, latest_commit).await
+    match handle_cached_get(state, req, key, latest_commit).await {
+        CacheOutcome::Typed(typed, etag) => {
+            // The typed enum's `IntoResponse` impl handles status +
+            // body. We still want the `Etag` header on the wire, so
+            // route through `RawJson`'s helper to splice it on.
+            Err(with_etag(
+                generated::GetTypesResponse::Ok(*typed).into_response(),
+                &etag,
+            ))
+        }
+        CacheOutcome::NotModified => Ok(generated::GetTypesResponse::NotModified),
+        CacheOutcome::RawJson(val, etag) => Err(with_etag(Json(val).into_response(), &etag)),
+        CacheOutcome::Proxied(resp) => Err(resp),
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Write / queue handlers
 // ---------------------------------------------------------------------------
 
-/// POST write endpoints -- enqueue to Redis batch list and return immediately.
-pub async fn handle_write(State(state): State<AppState>, req: Request) -> Response {
-    // Capture the full path + query string for forwarding.
-    let endpoint = req
-        .uri()
-        .path_and_query()
-        .map(|pq| pq.as_str().to_string())
-        .unwrap_or_else(|| req.uri().path().to_string());
-
-    // Extract project_id from the query string for per-project batching.
-    let params = parse_query(req.uri());
-    let project_id = params.get("auth_project").cloned().unwrap_or_default();
-
-    let headers_map: HashMap<String, String> = req
-        .headers()
+/// Filter the upstream request's headers down to the set we want to
+/// forward to the Python backend (or stash on a queued item).
+fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
+    headers
         .iter()
         .filter_map(|(k, v)| {
             let name = k.as_str();
@@ -206,17 +291,28 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
                 .ok()
                 .map(|val| (name.to_string(), val.to_string()))
         })
-        .collect();
+        .collect()
+}
 
-    // Read body.
-    let body_bytes = match axum::body::to_bytes(req.into_body(), state.config.max_body_bytes).await
-    {
-        Ok(b) => b,
-        Err(e) => {
-            tracing::error!("failed to read write request body: {}", e);
-            return (StatusCode::BAD_REQUEST, "bad request").into_response();
-        }
-    };
+/// Core POST-write logic, shared by [`handle_patch_ensemble`] and
+/// [`handle_patch_environment`].
+///
+/// Validation happens in the typed wrappers (axum extractors); this
+/// function takes the raw client bytes, parses them once for queue
+/// inspection (`queueid` / `latest_commit`) and forwards them to the
+/// Python backend on the proxy fall-through path. Bytes flow through
+/// unchanged — we never re-serialize a validated body.
+async fn handle_write(
+    state: AppState,
+    endpoint: String,
+    headers_map: HashMap<String, String>,
+    body_bytes: axum::body::Bytes,
+) -> Response {
+    // Extract project_id from the endpoint's query string for
+    // per-project batching.
+    let endpoint_uri: axum::http::Uri = endpoint.parse().unwrap_or_default();
+    let params = parse_query(&endpoint_uri);
+    let project_id = params.get("auth_project").cloned().unwrap_or_default();
 
     let body: JsonValue = serde_json::from_slice(&body_bytes).unwrap_or(JsonValue::Null);
 
@@ -318,6 +414,63 @@ pub async fn handle_write(State(state): State<AppState>, req: Request) -> Respon
         state.config.max_body_bytes,
     )
     .await
+}
+
+/// We extract raw `Bytes` (rather than `Json<T>`) so the original
+/// client bytes flow straight through to `handle_write` for
+/// proxy forwarding; the body is validated as
+/// [`generated::`PatchEnsembleBody`]. The
+/// success body type on the `Ok` arm is dead but documents the
+/// OpenAPI `PatchResponse` schema; the actual response (queue
+/// envelope or proxied Python response) flows through `Err`.
+pub async fn handle_patch_ensemble(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+    body_bytes: axum::body::Bytes,
+) -> Result<Json<generated::PatchResponse>, Response> {
+    validate_body::<generated::PatchEnsembleBody>(&body_bytes)?;
+    let endpoint = uri
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| uri.path().to_string());
+    let headers_map = filter_forward_headers(&headers);
+    Err(handle_write(state, endpoint, headers_map, body_bytes).await)
+}
+
+/// `POST /delete_deployment`, `/update_environment`,
+/// `/delete_environment` — typed wrapper around `handle_write`.
+/// Validates body as [`generated::PatchEnvironmentBody`]. Response:
+/// [`generated::PatchResponse`].
+pub async fn handle_patch_environment(
+    State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+    body_bytes: axum::body::Bytes,
+) -> Result<Json<generated::PatchResponse>, Response> {
+    validate_body::<generated::PatchEnvironmentBody>(&body_bytes)?;
+    let endpoint = uri
+        .path_and_query()
+        .map(|pq| pq.as_str().to_string())
+        .unwrap_or_else(|| uri.path().to_string());
+    let headers_map = filter_forward_headers(&headers);
+    Err(handle_write(state, endpoint, headers_map, body_bytes).await)
+}
+
+/// Validate raw body bytes as JSON shape `T`, returning a 422
+/// response on failure so callers can early-return with `?`.
+fn validate_body<T: serde::de::DeserializeOwned>(
+    body_bytes: &axum::body::Bytes,
+) -> Result<(), Response> {
+    serde_json::from_slice::<T>(body_bytes)
+        .map(|_| ())
+        .map_err(|e| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"error": "validation_error", "detail": e.to_string()})),
+            )
+                .into_response()
+        })
 }
 
 // ---------------------------------------------------------------------------

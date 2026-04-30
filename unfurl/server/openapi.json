@@ -66,7 +66,7 @@
             "additionalProperties": {
               "$ref": "#/components/schemas/cloudmap_artifact"
             },
-            "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (https://github.com/package-url/purl-spec) or repository URL with path.",
+            "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.",
             "propertyNames": {
               "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
               "pattern": "^[^\\s]*$"
@@ -1447,7 +1447,7 @@
         "type": "object"
       },
       "PatchResponse": {
-        "description": "Response from all write endpoints after a successful commit.",
+        "description": "Response from write endpoints.\n\nEither ``commit`` (a git commit hash) or ``queueid`` (a monotonic\nversion counter) used as a optimistic-concurrency\ntoken the client should echo back on its next write.",
         "properties": {
           "commit": {
             "anyOf": [
@@ -1461,6 +1461,19 @@
             "default": null,
             "description": "Commit hash after applying the patch, or null if no changes were committed",
             "title": "Commit"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Monotonic version assigned to this uncommitted write operation.",
+            "title": "Queueid"
           }
         },
         "title": "PatchResponse",
@@ -1492,6 +1505,7 @@
       },
       "cloudmap_artifact": {
         "$$target": "#/definitions/artifact",
+        "additionalProperties": true,
         "properties": {
           "dependencies": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
@@ -1682,6 +1696,7 @@
       },
       "cloudmap_instantiation": {
         "$$target": "#/definitions/instantiation",
+        "additionalProperties": true,
         "properties": {
           "digest": {
             "description": "Cryptographic digest of the document referenced by the instantiation URL.",
@@ -1890,6 +1905,7 @@
       },
       "cloudmap_repository": {
         "$$target": "#/definitions/repository",
+        "additionalProperties": true,
         "properties": {
           "branches": {
             "additionalProperties": {
@@ -1999,7 +2015,7 @@
             "type": "boolean"
           },
           "project_url": {
-            "description": "URL to the repository's project page on the host (e.g., https://github.com/user/repo).",
+            "description": "URL to the repository's project page on the host (e.g., <https://github.com/user/repo>).",
             "type": "string"
           },
           "protocols": {
@@ -2026,6 +2042,7 @@
       },
       "cloudmap_service": {
         "$$target": "#/definitions/service",
+        "additionalProperties": true,
         "properties": {
           "access": {
             "description": "Access to the service (who can resolve the URL).",
@@ -2101,6 +2118,7 @@
       },
       "cloudmap_type": {
         "$$target": "#/definitions/type",
+        "additionalProperties": true,
         "properties": {
           "extends": {
             "description": "List of fully-qualified type names that this type extends.",

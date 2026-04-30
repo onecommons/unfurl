@@ -78,6 +78,8 @@ jobs:
             sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
+      - name: Install oas3-gen
+        run: cargo install oas3-gen
       - name: Run mypy and Tox
         # Run tox using the version of Python in `PATH`
         run: |
@@ -398,9 +400,10 @@ jobs:
         CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_2
         CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:latest
         CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_2
-        CIBW_BEFORE_BUILD: rustup show
+        CIBW_BEFORE_BUILD: cargo install oas3-gen && rustup show
         CIBW_BEFORE_BUILD_LINUX: >
           curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y &&
+          cargo install oas3-gen &&
           rustup show
 
     - run: ${{ matrix.ls || 'ls -lh' }} dist/

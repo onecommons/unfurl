@@ -123,6 +123,24 @@ pub struct WorkingDir {
     pub head_commit: Option<String>,
 }
 
+/// Result of a CRUD write
+/// ([`crate::SyncedRepo::create_record`] /
+/// [`crate::SyncedRepo::update_record`] /
+/// [`crate::SyncedRepo::upsert_record`] /
+/// [`crate::SyncedRepo::delete_record`]).
+///
+/// `version` is the worktree-scoped monotonic counter stamped on this
+/// write — pass it back as a [`crate::CommitRef::Pending`] token on the
+/// next request to scope the optimistic-concurrency check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WriteOutcome {
+    /// Primary key of the affected `record` row. For `delete_record`,
+    /// this is the id of the row that was tombstoned.
+    pub id: i64,
+    /// Worktree-scoped monotonic version stamped on this write.
+    pub version: i64,
+}
+
 /// Counters returned by [`crate::SyncedRepo::update_from_working_dir`].
 ///
 /// `files_updated` ≤ `files_seen`; `records_upserted` and
