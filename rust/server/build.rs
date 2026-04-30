@@ -4,13 +4,17 @@
 //! using `oas3-gen`.
 //!
 //! `oas3-gen` is a CLI binary distributed via `cargo install
-//! oas3-gen` (see https://crates.io/crates/oas3-gen). The script
-//! shells out to it to produce a `types.rs` that the runtime crate
-//! includes via `src/generated.rs`. We deliberately ignore the
-//! generated `server.rs` / `mod.rs` from `server-mod` mode — our
-//! handlers are hand-rolled around axum middleware (cache / queue /
-//! proxy fallthrough) that doesn't fit the trait-impl pattern the
-//! generator assumes.
+//! oas3-gen` (see https://crates.io/crates/oas3-gen). When available,
+//! the script shells out to it, post-processes the output, and writes
+//! the result to `src/unfurl_types.rs`, a committed normal Rust module.
+//! Builds without
+//! `oas3-gen` installed just use the committed snapshot and return
+//! early — no OUT_DIR copy required.
+//!
+//! We deliberately ignore the generated `server.rs` / `mod.rs` from
+//! `server-mod` mode — our handlers are hand-rolled around axum
+//! middleware (cache / queue / proxy fallthrough) that doesn't fit the
+//! trait-impl pattern the generator assumes.
 //!
 //! `server-mod` mode (rather than `types`) is used because it
 //! derives `Deserialize` on request-body types and `Serialize` on
@@ -24,9 +28,13 @@ const SPEC_PATH: &str = "../../unfurl/server/openapi.json";
 fn main() {
     println!("cargo:rerun-if-changed={SPEC_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=src/unfurl_types.rs");
 
-    let out_dir = std::env::var_os("OUT_DIR").expect("OUT_DIR not set");
-    let out_dir = PathBuf::from(out_dir);
+    let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let committed = manifest_dir.join("src/unfurl_types.rs");
+
+    // Use OUT_DIR only as a scratch space for oas3-gen's intermediate output.
+    let out_dir = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR not set"));
     let work_dir = out_dir.join("oas3out");
     std::fs::create_dir_all(&work_dir).expect("create oas3out directory");
 
@@ -42,6 +50,17 @@ fn main() {
 
     let status = match status {
         Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            // oas3-gen not installed: src/unfurl_types.rs is a committed
+            // module, so there's nothing to do.
+            assert!(
+                committed.exists(),
+                "oas3-gen is not installed and the committed fallback \
+                 src/unfurl_types.rs is missing. \
+                 Install with `cargo install oas3-gen` and rebuild."
+            );
+            return;
+        }
         Err(e) => panic!(
             "failed to run `oas3-gen`: {e}.\n\
              Install with `cargo install oas3-gen` (the binary lives \
@@ -62,21 +81,14 @@ fn main() {
     let generated_types = work_dir.join("types.rs");
     let raw = std::fs::read_to_string(&generated_types).expect("read generated types.rs");
     let cleaned = strip_inner_doc_header(&raw);
-    let dest = out_dir.join("unfurl_types.rs");
-    std::fs::write(&dest, &cleaned).expect("write cleaned types.rs into OUT_DIR");
 
-    // Also drop a copy at a stable path for ergonomic inspection
-    // (`rust/target/oas3-gen/types.rs`). The OUT_DIR path embeds a
-    // build-fingerprint hash so it's hard to find by eye; the stable
-    // copy is the same content, easier to grep.
-    if let Some(target_dir) = out_dir
-        .ancestors()
-        .find(|p| p.file_name().and_then(|n| n.to_str()) == Some("target"))
-    {
-        let stable_dir = target_dir.join("oas3-gen");
-        let _ = std::fs::create_dir_all(&stable_dir);
-        let _ = std::fs::write(stable_dir.join("unfurl_types.rs"), &cleaned);
-    }
+    // Prepend the allow header so the file is a valid stand-alone module.
+    let with_header = format!(
+        "#![allow(unused_imports, dead_code, deprecated, clippy::all)]\n{cleaned}"
+    );
+    // Write directly to src/unfurl_types.rs — declared as a normal module in
+    // lib.rs and committed to git as the fallback for builds without oas3-gen.
+    std::fs::write(&committed, with_header).expect("write src/unfurl_types.rs");
 }
 
 /// Remove leading inner-doc-comment (`//!`) lines and any blank

@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use unfurl_git_sync::{CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
-use crate::generated;
+use crate::unfurl_types;
 use crate::proxy;
 use crate::AppState;
 
@@ -119,7 +119,7 @@ impl CloudMapState {
 /// proxies to the Python backend.
 pub async fn handle_cloudmap(
     State(state): State<AppState>,
-    Query(params): Query<generated::GetCloudmapRequestQuery>,
+    Query(params): Query<unfurl_types::GetCloudmapRequestQuery>,
     req: Request<axum::body::Body>,
 ) -> Response {
     let Some(cm) = state.cloudmap.clone() else {
@@ -157,8 +157,8 @@ enum LocalError {
 /// Build the `[primary, followed]` pair returned by `GET /cloudmap`.
 ///
 /// Each element is a CloudMap-shaped object — declared as
-/// [`generated::CloudMapDocumentPair`] in the OpenAPI spec. We don't
-/// strict-deserialize through [`generated::CloudMapDocument`] on emit
+/// [`unfurl_types::CloudMapDocumentPair`] in the OpenAPI spec. We don't
+/// strict-deserialize through [`unfurl_types::CloudMapDocument`] on emit
 /// because the typed struct has required fields (`apiVersion`,
 /// `kind`) that get filled with defaults; Python's `get_cloudmap`
 /// returns a bare `{}` for an empty `followed` and we keep wire
@@ -166,7 +166,7 @@ enum LocalError {
 /// only the section maps that actually have records.
 async fn build_response(
     cm: &CloudMapState,
-    params: &generated::GetCloudmapRequestQuery,
+    params: &unfurl_types::GetCloudmapRequestQuery,
 ) -> Result<Vec<Value>, LocalError> {
     let synced = cm.inner.as_ref();
     let kind = params.kind.as_deref();
@@ -290,7 +290,7 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 
 /// Local axum handler for `POST /cloudmap`.
 ///
-/// Body is the typed [`generated::CloudMapDocument`]; axum's `Json`
+/// Body is the typed [`unfurl_types::CloudMapDocument`]; axum's `Json`
 /// extractor returns a 422 automatically on shape mismatch. Each
 /// section maps record keys (URLs) to objects that schema-validate
 /// as the corresponding cloudmap entity. Two extension keys on the
@@ -316,8 +316,8 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// see [`post_cloudmap_proxy`] for the unconfigured fall-through.
 pub async fn post_cloudmap_local(
     State(state): State<AppState>,
-    Json(body): Json<generated::CloudMapDocument>,
-) -> Result<Json<generated::PatchResponse>, ApiError> {
+    Json(body): Json<unfurl_types::CloudMapDocument>,
+) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
     let cm = state
         .cloudmap
         .as_ref()
@@ -331,7 +331,7 @@ pub async fn post_cloudmap_local(
     // gate the optimistic-concurrency check. Versions are monotonic
     // per worktree, so the last write's version is also the largest.
     let last_version = apply_writes(cm, body).await?;
-    Ok(Json(generated::PatchResponse {
+    Ok(Json(unfurl_types::PatchResponse {
         commit: None,
         queueid: last_version,
     }))
@@ -421,7 +421,7 @@ enum WriteError {
 /// last write's version is also the maximum.
 async fn apply_writes(
     cm: &CloudMapState,
-    body: generated::CloudMapDocument,
+    body: unfurl_types::CloudMapDocument,
 ) -> Result<Option<i64>, WriteError> {
     let synced = cm.inner.as_ref();
     let mut last_version: Option<i64> = None;

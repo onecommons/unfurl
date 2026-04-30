@@ -165,7 +165,7 @@ async fn main() {
     // POST /cloudmap is registered as the typed local handler when a
     // cloudmap repo is configured, otherwise the proxy fallthrough.
     // Splitting at startup lets the local handler use a clean
-    // `Json<generated::CloudMapDocument>` extractor without losing
+    // `Json<unfurl_types::CloudMapDocument>` extractor without losing
     // the proxy path.
     let cloudmap_route = if state.cloudmap.is_some() {
         get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap_local)

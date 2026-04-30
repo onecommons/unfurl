@@ -5,7 +5,7 @@
 pub mod cache;
 pub mod cloudmap;
 pub mod config;
-pub mod generated;
+pub mod unfurl_types;
 pub mod patch;
 pub mod proxy;
 pub mod queue;

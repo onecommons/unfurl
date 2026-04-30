@@ -23,7 +23,7 @@ use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
 use crate::cache;
-use crate::generated;
+use crate::unfurl_types;
 use crate::proxy;
 use crate::queue::{self, QueueIdResult, QueueItem};
 use crate::AppState;
@@ -34,7 +34,7 @@ use crate::AppState;
 
 /// Build the Redis cache key for a `/export` request from its typed
 /// query.
-fn export_cache_key(prefix: &str, params: &generated::GetExportRequestQuery) -> String {
+fn export_cache_key(prefix: &str, params: &unfurl_types::GetExportRequestQuery) -> String {
     let project_id = params.auth_project.as_deref().unwrap_or("");
     // Python resolves missing/HEAD branch to the repo's default branch (typically "main").
     // Use "main" here to match the key Python stores.
@@ -45,7 +45,7 @@ fn export_cache_key(prefix: &str, params: &generated::GetExportRequestQuery) -> 
     let format = params.format.as_ref();
     let deployment_path = params.deployment_path.as_deref();
 
-    use generated::GetExportRequestQueryFormat as Fmt;
+    use unfurl_types::GetExportRequestQueryFormat as Fmt;
     let file_path = match format {
         Some(Fmt::Blueprint) => "ensemble-template.yaml".to_string(),
         Some(Fmt::Environments) => "unfurl.yaml".to_string(),
@@ -78,7 +78,7 @@ fn export_cache_key(prefix: &str, params: &generated::GetExportRequestQuery) -> 
 
 /// Build the Redis cache key for a `/types` request from its typed
 /// query.
-fn types_cache_key(prefix: &str, params: &generated::GetTypesRequestQuery) -> String {
+fn types_cache_key(prefix: &str, params: &unfurl_types::GetTypesRequestQuery) -> String {
     let project_id = params.auth_project.as_deref().unwrap_or("");
     let branch = match params.branch.as_deref() {
         Some("HEAD") | None => "main",
@@ -112,11 +112,11 @@ fn parse_query(uri: &axum::http::Uri) -> HashMap<String, String> {
 /// variant to their own typed response enum.
 enum CacheOutcome {
     /// Cache hit + the payload deserialized cleanly into the strict
-    /// [`generated::ExportResponse`]. The accompanying `String` is the
+    /// [`unfurl_types::ExportResponse`]. The accompanying `String` is the
     /// `Etag` header to set. Boxed because `ExportResponse` is large
     /// (~900B) and would otherwise dominate the enum's discriminant
     /// size.
-    Typed(Box<generated::ExportResponse>, String),
+    Typed(Box<unfurl_types::ExportResponse>, String),
     /// Cache hit + `If-None-Match` matched the stored etag.
     NotModified,
     /// Cache hit but the typed deserialize failed (legacy entry,
@@ -135,7 +135,7 @@ enum CacheOutcome {
 /// when Redis is not configured) falls through to the Python backend.
 ///
 /// On a cache hit we attempt to deserialize the stored payload into the
-/// strict [`generated::ExportResponse`] type so the wire response is
+/// strict [`unfurl_types::ExportResponse`] type so the wire response is
 /// typed (matches the `ExportResponse` schema declared in
 /// `openapi.json` for both `/export` and `/types`). If deserialization
 /// fails — e.g. a legacy entry whose shape doesn't match the current
@@ -175,7 +175,7 @@ async fn handle_cached_get(
                 if_none_match,
                 etag
             );
-            return match serde_json::from_value::<generated::ExportResponse>(json_val.clone()) {
+            return match serde_json::from_value::<unfurl_types::ExportResponse>(json_val.clone()) {
                 Ok(typed) => CacheOutcome::Typed(Box::new(typed), etag),
                 Err(e) => {
                     tracing::debug!(
@@ -213,20 +213,20 @@ fn with_etag(mut response: Response, etag: &str) -> Response {
 /// GET /export -- try Redis cache first, fall back to proxying.
 ///
 /// The query string is parsed via the generated
-/// [`generated::GetExportRequestQuery`] extractor so the schema stays
+/// [`unfurl_types::GetExportRequestQuery`] extractor so the schema stays
 /// in lockstep with `unfurl/server/openapi.json`. A malformed
 /// `format` value gets a 400 from axum's `Query` extractor before we
 /// hit any cache logic.
 ///
-/// Success body type is [`Json<generated::ExportResponse>`]. 304, raw-fallback, proxy passthrough — and the
+/// Success body type is [`Json<unfurl_types::ExportResponse>`]. 304, raw-fallback, proxy passthrough — and the
 /// typed cache hit (which needs an `Etag` header) — flow through the
 /// `Err` branch as a raw [`Response`]. axum can't compose extra
 /// headers onto a bare `Json<T>` Ok value without a tuple wrapper.
 pub async fn handle_export(
     State(state): State<AppState>,
-    Query(params): Query<generated::GetExportRequestQuery>,
+    Query(params): Query<unfurl_types::GetExportRequestQuery>,
     req: Request,
-) -> Result<Json<generated::ExportResponse>, Response> {
+) -> Result<Json<unfurl_types::ExportResponse>, Response> {
     let latest_commit = params.latest_commit.clone();
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
     match handle_cached_get(state, req, key, latest_commit).await {
@@ -240,16 +240,16 @@ pub async fn handle_export(
 /// GET /types -- try Redis cache first, fall back to proxying.
 ///
 /// The query string is parsed via the generated
-/// [`generated::GetTypesRequestQuery`] extractor. The success and 304
-/// paths are produced as [`generated::GetTypesResponse`] variants
+/// [`unfurl_types::GetTypesRequestQuery`] extractor. The success and 304
+/// paths are produced as [`unfurl_types::GetTypesResponse`] variants
 /// (`Ok` and `NotModified` respectively); raw-fallback and proxy
 /// passthrough flow through as `Response` via `Result<_, Response>`'s
 /// `Err` branch.
 pub async fn handle_types(
     State(state): State<AppState>,
-    Query(params): Query<generated::GetTypesRequestQuery>,
+    Query(params): Query<unfurl_types::GetTypesRequestQuery>,
     req: Request,
-) -> Result<generated::GetTypesResponse, Response> {
+) -> Result<unfurl_types::GetTypesResponse, Response> {
     let latest_commit = params.latest_commit.clone();
     let key = types_cache_key(&state.config.cache_key_prefix, &params);
     match handle_cached_get(state, req, key, latest_commit).await {
@@ -258,11 +258,11 @@ pub async fn handle_types(
             // body. We still want the `Etag` header on the wire, so
             // route through `RawJson`'s helper to splice it on.
             Err(with_etag(
-                generated::GetTypesResponse::Ok(*typed).into_response(),
+                unfurl_types::GetTypesResponse::Ok(*typed).into_response(),
                 &etag,
             ))
         }
-        CacheOutcome::NotModified => Ok(generated::GetTypesResponse::NotModified),
+        CacheOutcome::NotModified => Ok(unfurl_types::GetTypesResponse::NotModified),
         CacheOutcome::RawJson(val, etag) => Err(with_etag(Json(val).into_response(), &etag)),
         CacheOutcome::Proxied(resp) => Err(resp),
     }
@@ -419,7 +419,7 @@ async fn handle_write(
 /// We extract raw `Bytes` (rather than `Json<T>`) so the original
 /// client bytes flow straight through to `handle_write` for
 /// proxy forwarding; the body is validated as
-/// [`generated::`PatchEnsembleBody`]. The
+/// [`unfurl_types::`PatchEnsembleBody`]. The
 /// success body type on the `Ok` arm is dead but documents the
 /// OpenAPI `PatchResponse` schema; the actual response (queue
 /// envelope or proxied Python response) flows through `Err`.
@@ -428,8 +428,8 @@ pub async fn handle_patch_ensemble(
     headers: axum::http::HeaderMap,
     uri: axum::http::Uri,
     body_bytes: axum::body::Bytes,
-) -> Result<Json<generated::PatchResponse>, Response> {
-    validate_body::<generated::PatchEnsembleBody>(&body_bytes)?;
+) -> Result<Json<unfurl_types::PatchResponse>, Response> {
+    validate_body::<unfurl_types::PatchEnsembleBody>(&body_bytes)?;
     let endpoint = uri
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
@@ -440,15 +440,15 @@ pub async fn handle_patch_ensemble(
 
 /// `POST /delete_deployment`, `/update_environment`,
 /// `/delete_environment` — typed wrapper around `handle_write`.
-/// Validates body as [`generated::PatchEnvironmentBody`]. Response:
-/// [`generated::PatchResponse`].
+/// Validates body as [`unfurl_types::PatchEnvironmentBody`]. Response:
+/// [`unfurl_types::PatchResponse`].
 pub async fn handle_patch_environment(
     State(state): State<AppState>,
     headers: axum::http::HeaderMap,
     uri: axum::http::Uri,
     body_bytes: axum::body::Bytes,
-) -> Result<Json<generated::PatchResponse>, Response> {
-    validate_body::<generated::PatchEnvironmentBody>(&body_bytes)?;
+) -> Result<Json<unfurl_types::PatchResponse>, Response> {
+    validate_body::<unfurl_types::PatchEnvironmentBody>(&body_bytes)?;
     let endpoint = uri
         .path_and_query()
         .map(|pq| pq.as_str().to_string())

@@ -5,32 +5,32 @@ A Rust HTTP api server that acts as caching proxy to the `unfurl server` Python 
 ## Build prerequisites
 
 OpenAPI type generation is driven by the [`oas3-gen`](https://crates.io/crates/oas3-gen)
-CLI tool, which `build.rs` shells out to. Cargo does **not**
-install it automatically (build scripts only auto-resolve library
-crates declared as `[build-dependencies]`, not external binaries).
-Install it once per dev machine and CI runner:
+CLI tool. `build.rs` shells out to it when available, post-processes
+the output, and writes the result directly to `src/unfurl_types.rs`,
+which is committed to git. **Builds without `oas3-gen` installed use
+the committed file and succeed without it.**
+
+To regenerate after OpenAPI spec changes, install `oas3-gen` and rebuild:
 
 ```bash
 cargo install oas3-gen
+cargo build -p unfurl-server
 ```
 
-The binary lands in `~/.cargo/bin`, which must be on `PATH` for
-`cargo build`'s build-script step to find it. If `oas3-gen` is
-missing, `cargo build` fails with:
-
-```
-failed to run `oas3-gen`: ...
-Install with `cargo install oas3-gen` ...
-```
+The binary lands in `~/.cargo/bin`, which must be on `PATH`.
 
 ## Generated types
 
-`build.rs`:
+`build.rs` runs:
 
-Runs `oas3-gen generate --input ../../unfurl/server/openapi.json
-   --output $OUT_DIR/oas3out --all-schemas server-mod`.
-Post-processes at "$OUT_DIR/unfurl_types.rs", which `src/generated.rs` `include!`'s.
-A copy is also placed at `rust/target/oas3-gen/unfurl_types.rs` for easy inspection.
+```
+oas3-gen generate --input ../../unfurl/server/openapi.json
+    --output $OUT_DIR/oas3out --all-schemas server-mod
+```
+
+Post-processes the output and writes it to `src/unfurl_types.rs`,
+committed to git as a normal Rust module.
+Commit `src/unfurl_types.rs` whenever the OpenAPI spec changes.
 
 ## Running the server
 
@@ -124,6 +124,6 @@ OPENAPI_VERSION=3.0.3 FLASK_APP=unfurl.server.serve UNFURL_HOME="" \
     .tox/py314/bin/flask spec --output unfurl/server/openapi.json --format json
 ```
 
-`build.rs` already declares
-`println!("cargo:rerun-if-changed=../../unfurl/server/openapi.json")`,
-so the next `cargo build` picks up the new spec automatically.
+`build.rs` declares `cargo:rerun-if-changed` on the spec, so the next
+`cargo build` (with `oas3-gen` installed) regenerates and updates
+`src/unfurl_types.rs` automatically. Commit that file alongside the spec change.
