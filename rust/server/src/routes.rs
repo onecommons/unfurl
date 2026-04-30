@@ -215,8 +215,8 @@ fn with_etag(mut response: Response, etag: &str) -> Response {
 /// The query string is parsed via the generated
 /// [`unfurl_types::GetExportRequestQuery`] extractor so the schema stays
 /// in lockstep with `unfurl/server/openapi.json`. A malformed
-/// `format` value gets a 400 from axum's `Query` extractor before we
-/// hit any cache logic.
+/// `format` value short-circuits with a 422 (via [`ValidatedQuery`])
+/// to match the Python backend's APIFlask response.
 ///
 /// Success body type is [`Json<unfurl_types::ExportResponse>`]. 304, raw-fallback, proxy passthrough — and the
 /// typed cache hit (which needs an `Etag` header) — flow through the
@@ -224,7 +224,7 @@ fn with_etag(mut response: Response, etag: &str) -> Response {
 /// headers onto a bare `Json<T>` Ok value without a tuple wrapper.
 pub async fn handle_export(
     State(state): State<AppState>,
-    Query(params): Query<unfurl_types::GetExportRequestQuery>,
+    ValidatedQuery(params): ValidatedQuery<unfurl_types::GetExportRequestQuery>,
     req: Request,
 ) -> Result<Json<unfurl_types::ExportResponse>, Response> {
     let latest_commit = params.latest_commit.clone();
@@ -247,7 +247,7 @@ pub async fn handle_export(
 /// `Err` branch.
 pub async fn handle_types(
     State(state): State<AppState>,
-    Query(params): Query<unfurl_types::GetTypesRequestQuery>,
+    ValidatedQuery(params): ValidatedQuery<unfurl_types::GetTypesRequestQuery>,
     req: Request,
 ) -> Result<unfurl_types::GetTypesResponse, Response> {
     let latest_commit = params.latest_commit.clone();
@@ -471,6 +471,67 @@ fn validate_body<T: serde::de::DeserializeOwned>(
             )
                 .into_response()
         })
+}
+
+/// Drop-in replacement for [`axum::extract::Query`] that maps a
+/// deserialization failure to **422 Unprocessable Entity** (matching
+/// APIFlask's convention on the Python backend) instead of axum's
+/// default **400 Bad Request**. Use this whenever the query schema is
+/// part of the OpenAPI contract — the Python and Rust servers must
+/// agree on the status code so clients can pick a single error path.
+pub struct ValidatedQuery<T>(pub T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ValidatedQuery<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        match Query::<T>::from_request_parts(parts, state).await {
+            Ok(Query(value)) => Ok(Self(value)),
+            Err(rej) => Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"message": rej.to_string()})),
+            )
+                .into_response()),
+        }
+    }
+}
+
+/// Drop-in replacement for [`axum::Json`] as a body extractor that
+/// maps a deserialization failure to **422 Unprocessable Entity**
+/// (matching APIFlask's convention on the Python backend) instead of
+/// axum's default **400 Bad Request**. Use this on every POST/PATCH
+/// handler whose body shape is part of the OpenAPI contract so the
+/// Python and Rust servers return identical statuses on schema
+/// violations.
+pub struct ValidatedJson<T>(pub T);
+
+impl<T, S> axum::extract::FromRequest<S> for ValidatedJson<T>
+where
+    T: serde::de::DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(
+        req: axum::extract::Request,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(Self(value)),
+            Err(rej) => Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"message": rej.to_string()})),
+            )
+                .into_response()),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

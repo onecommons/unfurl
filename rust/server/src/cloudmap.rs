@@ -14,7 +14,7 @@
 //! the Python backend.
 
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::{Request, StatusCode},
     response::{IntoResponse, Json, Response},
 };
@@ -24,8 +24,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use unfurl_git_sync::{CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
-use crate::unfurl_types;
 use crate::proxy;
+use crate::routes::{ValidatedJson, ValidatedQuery};
+use crate::unfurl_types;
 use crate::AppState;
 
 /// Maps cloudmap section name (the URL query value) to its
@@ -119,7 +120,7 @@ impl CloudMapState {
 /// proxies to the Python backend.
 pub async fn handle_cloudmap(
     State(state): State<AppState>,
-    Query(params): Query<unfurl_types::GetCloudmapRequestQuery>,
+    ValidatedQuery(params): ValidatedQuery<unfurl_types::GetCloudmapRequestQuery>,
     req: Request<axum::body::Body>,
 ) -> Response {
     let Some(cm) = state.cloudmap.clone() else {
@@ -290,8 +291,10 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 
 /// Local axum handler for `POST /cloudmap`.
 ///
-/// Body is the typed [`unfurl_types::CloudMapDocument`]; axum's `Json`
-/// extractor returns a 422 automatically on shape mismatch. Each
+/// Body is the typed [`unfurl_types::CloudMapDocument`]; the
+/// [`ValidatedJson`] extractor turns a shape mismatch into a **422
+/// Unprocessable Entity** (matching APIFlask on the Python backend)
+/// instead of axum's default 400. Each
 /// section maps record keys (URLs) to objects that schema-validate
 /// as the corresponding cloudmap entity. Two extension keys on the
 /// record drive special behaviour:
@@ -316,7 +319,7 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// see [`post_cloudmap_proxy`] for the unconfigured fall-through.
 pub async fn post_cloudmap_local(
     State(state): State<AppState>,
-    Json(body): Json<unfurl_types::CloudMapDocument>,
+    ValidatedJson(body): ValidatedJson<unfurl_types::CloudMapDocument>,
 ) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
     let cm = state
         .cloudmap
