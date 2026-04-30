@@ -10,7 +10,7 @@ from typing_extensions import Literal, Self
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 
-from .cloudmap import (
+from . import (
     CloudMapDB,
     CloudType,
     RepositoryNotable,
@@ -19,10 +19,10 @@ from .cloudmap import (
     Service,
     get_repository_url,
 )
-from .graphql import ResourceTypesByName, get_deployment_url, TypeName
-from .spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
-from .support import ContainerImage
-from .tosca_plugins.cloudmap_defs import (
+from ..graphql import ResourceTypesByName, get_deployment_url, TypeName
+from ..spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
+from ..support import ContainerImage
+from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
     URLAnalyzer,
@@ -35,15 +35,15 @@ from .tosca_plugins.cloudmap_defs import (
     filter_dict,
     build_oci_purl,
 )
-from .to_json import get_blueprint_path, node_type_to_graphql
-from .util import UnfurlError, assert_not_none
-from .localenv import LocalEnv
-from .logs import getLogger
-from . import DefaultNames
-from .repo import RepoView
+from ..to_json import get_blueprint_path, node_type_to_graphql
+from ..util import UnfurlError, assert_not_none
+from ..localenv import LocalEnv
+from ..logs import getLogger
+from .. import DefaultNames
+from ..repo import RepoView
 
 if TYPE_CHECKING:
-    from .yamlmanifest import YamlManifest
+    from ..yamlmanifest import YamlManifest
 
 logger = getLogger("unfurl")
 
@@ -666,7 +666,7 @@ class OCIArtifactAnalyzer(URLAnalyzer):
 
     def analyze_url(self, directory: CloudMapView) -> Optional[Artifact]:
         # Local import avoids a top-level circular dep with unfurl.oci.
-        from .oci import create_oci_artifact
+        from ..oci import create_oci_artifact
 
         artifact, instantiation, _artifact_fetch = create_oci_artifact(self.image)
         if instantiation:

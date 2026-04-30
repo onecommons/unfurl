@@ -13,7 +13,7 @@ from unfurl.cloudmap import (
 )
 from unfurl.localenv import LocalEnv
 from unfurl.util import API_VERSION
-from unfurl.analyzers import (
+from unfurl.cloudmap.analyzers import (
     GitHubWorkflowNotable,
     GitLabPipelineNotable,
     Notables,
@@ -711,7 +711,7 @@ class TestArtifactAnalyzerRegistry:
         fallback for OCI URLs; ``pkg:npm/...`` only matches the generic one;
         non-pkg URLs match nothing.
         """
-        from unfurl.analyzers import (
+        from unfurl.cloudmap.analyzers import (
             OCIArtifactAnalyzer,
             GenericPkgArtifactAnalyzer,
         )
@@ -799,7 +799,7 @@ class TestArtifactAnalyzerRegistry:
         url = "pkg:test/widget@1"
         # CustomTestAnalyzer is yielded first (longer prefix), the generic
         # pkg: fallback after it.
-        from unfurl.analyzers import GenericPkgArtifactAnalyzer
+        from unfurl.cloudmap.analyzers import GenericPkgArtifactAnalyzer
 
         assert list(cm.match_url_analyzer(url)) == [
             CustomTestAnalyzer,
@@ -817,7 +817,7 @@ class TestArtifactAnalyzerRegistry:
         chain and falls back to the next matching analyzer (here, the
         built-in generic ``pkg:`` handler)."""
         from unfurl.tosca_plugins.cloudmap_defs import URLAnalyzer, Artifact
-        from unfurl.analyzers import GenericPkgArtifactAnalyzer
+        from unfurl.cloudmap.analyzers import GenericPkgArtifactAnalyzer
 
         decline_calls: list = []
 

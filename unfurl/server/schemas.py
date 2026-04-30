@@ -216,7 +216,7 @@ class CloudMapDocQuery(ProjectQuery):
 def _load_cloudmap_schema() -> Dict[str, Any]:
     """Return the canonical cloudmap JSON schema as a dict."""
     here = os.path.dirname(os.path.abspath(__file__))
-    schema_path = os.path.join(here, "..", "..", "docs", "cloudmap-schema.json")
+    schema_path = os.path.join(here, "..", "cloudmap", "cloudmap-schema.json")
     with open(schema_path, "r") as f:
         return json.load(f)
 
@@ -247,13 +247,13 @@ class CloudMapDocument(BaseModel):
     # in the OpenAPI spec, which is then replaced wholesale by
     # :func:`hoist_cloudmap_definitions` (registered as a
     # ``@app.spec_processor``) with the contents of
-    # ``docs/cloudmap-schema.json``. Doing the substitution at spec-build
+    # ``unfurl/cloudmap/cloudmap-schema.json``. Doing the substitution at spec-build
     # time avoids Pydantic v2's internal ``$defs`` ref-counting
     # machinery.
 
     # Runtime validation is wired through ``__validate_cloudmap_schema``
     # below: every request body that arrives via ``@app.input()`` is
-    # checked against the canonical ``docs/cloudmap-schema.json`` (after
+    # checked against the canonical ``unfurl/cloudmap/cloudmap-schema.json`` (after
     # stripping known envelope keys like ``latest_commit`` /
     # ``cloudmap_path``). Violations surface as a Pydantic
     # ``ValidationError``, which APIFlask returns as a 422.

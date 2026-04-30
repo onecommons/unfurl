@@ -82,9 +82,9 @@ import git.cmd
 from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
-from .server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
-from .projectpaths import _getdir
-from .tosca_plugins.cloudmap_defs import (
+from ..server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
+from ..projectpaths import _getdir
+from ..tosca_plugins.cloudmap_defs import (
     HostConfig,
     CloudMapInputs,
     LocalHostConfig,
@@ -113,12 +113,12 @@ from .tosca_plugins.cloudmap_defs import (
     join_resource_url,
     AnalyzerContext,
 )
-from .support import ContainerImage
-from .configurator import Configurator, TaskView
-from .util import load_class_from_file
-from .oci import create_oci_artifact
+from ..support import ContainerImage
+from ..configurator import Configurator, TaskView
+from ..util import load_class_from_file
+from ..oci import create_oci_artifact
 
-from .repo import (
+from ..repo import (
     GitRepo,
     Repo,
     git_url_join,
@@ -128,10 +128,10 @@ from .repo import (
     split_git_url,
     split_git_url_with_commit,
 )
-from .util import API_VERSION, UnfurlError
-from .localenv import LocalEnv
-from .yamlloader import YamlConfig, urlopen as _urlopen
-from .logs import getLogger, UnfurlLogger
+from ..util import API_VERSION, UnfurlError
+from ..localenv import LocalEnv
+from ..yamlloader import YamlConfig, urlopen as _urlopen
+from ..logs import getLogger, UnfurlLogger
 from unfurl import repo
 
 logger = getLogger("unfurl")

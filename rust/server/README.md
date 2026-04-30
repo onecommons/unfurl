@@ -117,7 +117,7 @@ unfurl-server
 
 ## Regenerating after schema changes
 
-When `unfurl/server/serve.py`, `unfurl/server/schemas.py`, or `unfurl/cloudmap-schema.json` change, regenerate the OpenAPI spec on the Python side:
+When `unfurl/server/serve.py`, `unfurl/server/schemas.py`, or `unfurl/cloudmap/cloudmap-schema.json` change, regenerate the OpenAPI spec on the Python side:
 
 ```bash
 OPENAPI_VERSION=3.0.3 FLASK_APP=unfurl.server.serve UNFURL_HOME="" \
