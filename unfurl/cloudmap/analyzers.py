@@ -200,7 +200,7 @@ class UnfurlNotable(RepositoryNotable):
 
             # Add CloudType if created
             if cloud_type:
-                directory.add_type(cloud_type)
+                directory.add_record(cloud_type)
 
             # Create CloudTypes for dependencies
             if node:
@@ -218,7 +218,7 @@ class UnfurlNotable(RepositoryNotable):
                                 dep_type_info, directory
                             )
                             if dep_cloud_type:
-                                directory.add_type(dep_cloud_type)
+                                directory.add_record(dep_cloud_type)
 
             # Create Instantiation and Service for Ensemble artifacts
             if self.artifact_type == EntitySchema.Ensemble and typename:
@@ -372,10 +372,10 @@ class UnfurlNotable(RepositoryNotable):
                 type=TypeRefs(types={typename: None}),
                 instantiated_by={instantiation.url: None},
             )
-            directory.add_service(service)
+            directory.add_record(service)
             instantiation.instantiated = {deployment_url: None}
 
-        directory.add_instantiation(instantiation)
+        directory.add_record(instantiation)
         if instantiation.source and not directory.get_artifact(instantiation.source):
             directory.analyze_url(instantiation.source, analyze)
 
@@ -547,7 +547,7 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
 
             # Add CloudType if created
             if cloud_type:
-                db.add_type(cloud_type)
+                db.add_record(cloud_type)
 
             # Add to artifacts dict
             db.artifacts[artifact_pkg] = artifact
@@ -670,7 +670,7 @@ class OCIArtifactAnalyzer(URLAnalyzer):
 
         artifact, instantiation, _artifact_fetch = create_oci_artifact(self.image)
         if instantiation:
-            directory.add_instantiation(instantiation)
+            directory.add_record(instantiation)
         return artifact
 
 

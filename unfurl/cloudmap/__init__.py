@@ -87,6 +87,7 @@ from ..projectpaths import _getdir
 from ..tosca_plugins.cloudmap_defs import (
     HostConfig,
     CloudMapInputs,
+    CloudMapRecord,
     LocalHostConfig,
     Analyzer,
     ArtifactDict,
@@ -436,11 +437,6 @@ class CloudMapDB(CloudMapView):
             repo_url = repo_url.replace("git://", "https://")
         return git_url_join(repo_url, filePath, revision)
 
-    def add_repository(self, repository: Repository) -> str:
-        """Add or update a repository in the cloudmap."""
-        self.repositories[repository.url] = repository
-        return repository.url
-
     def get_artifact(self, url: str) -> Optional[Artifact]:
         if url.startswith("#/artifacts/"):
             # support artifact references by url fragment
@@ -459,36 +455,58 @@ class CloudMapDB(CloudMapView):
             url = url[len("#/instantiations/") :]
         return self.instantiations.get(url)
 
-    def add_instantiation(self, instantiation: Instantiation) -> str:
-        """
-        Add an instantiation and return its unique key.
-
-        Args:
-            instantiation: Instantiation object to add (id is auto-generated if not set)
-
-        Returns:
-            The unique key (URL) of the added instantiation
-        """
-        # The id is auto-generated in Instantiation.__post_init__ if not set
-        key = instantiation.url
-        self.instantiations[key] = instantiation
-        return key
-
-    def add_artifact(self, artifact: Artifact) -> str:
-        # Add artifact to database
-        self.artifacts[artifact.url] = artifact
-        return artifact.url
-
-    def add_service(self, service: Service) -> str:
-        self.services[service.url] = service
-        return service.url
-
     def get_type(self, name: str) -> Optional[CloudType]:
         return self.types.get(name)
 
-    def add_type(self, cloud_type: CloudType) -> str:
-        self.types[cloud_type.name] = cloud_type
-        return cloud_type.name
+    def add_record(self, record: CloudMapRecord) -> None:
+        if isinstance(record, Repository):
+            self.repositories[record.url] = record
+        elif isinstance(record, Artifact):
+            self.artifacts[record.url] = record
+            for art in record.versions.values():
+                self.artifacts[art.url] = art
+        elif isinstance(record, Service):
+            self.services[record.url] = record
+            for svc in record.versions.values():
+                self.services[svc.url] = svc
+        elif isinstance(record, Instantiation):
+            # Instantiation.__post_init__ auto-generates `url` when not
+            # set, so reading record.url is safe here.
+            self.instantiations[record.url] = record
+            for inst in record.versions.values():
+                self.instantiations[inst.url] = inst
+        elif isinstance(record, CloudType):
+            self.types[record.name] = record
+        else:
+            raise TypeError(
+                f"unsupported cloudmap record type: {type(record).__name__}"
+            )
+
+    def delete_record(self, record: CloudMapRecord) -> None:
+        """Remove ``record`` (and any version variants) from the
+        appropriate section. Missing keys are silently ignored.
+        Inverse of :meth:`add_record`.
+        """
+        if isinstance(record, Repository):
+            self.repositories.pop(record.url, None)
+        elif isinstance(record, Artifact):
+            self.artifacts.pop(record.url, None)
+            for art in record.versions.values():
+                self.artifacts.pop(art.url, None)
+        elif isinstance(record, Service):
+            self.services.pop(record.url, None)
+            for svc in record.versions.values():
+                self.services.pop(svc.url, None)
+        elif isinstance(record, Instantiation):
+            self.instantiations.pop(record.url, None)
+            for inst in record.versions.values():
+                self.instantiations.pop(inst.url, None)
+        elif isinstance(record, CloudType):
+            self.types.pop(record.name, None)
+        else:
+            raise TypeError(
+                f"unsupported cloudmap record type: {type(record).__name__}"
+            )
 
     def add_image_artifact(self, image: "ContainerImage") -> Artifact:
         """
@@ -506,9 +524,9 @@ class CloudMapDB(CloudMapView):
 
         # Add instantiation and update artifact.instantiated_by
         if instantiation:
-            self.add_instantiation(instantiation)
+            self.add_record(instantiation)
         # Add artifact to database
-        self.artifacts[artifact.url] = artifact
+        self.add_record(artifact)
 
         return artifact
 
@@ -554,7 +572,7 @@ class CloudMapDB(CloudMapView):
                 from .analyzers import migrate_old_notable_format
 
                 migrate_old_notable_format(self, repo)
-            self.add_repository(repo)
+            self.add_record(repo)
 
         # Load services
         services = cast(Dict, db.get("services") or {})
@@ -741,8 +759,11 @@ class Directory(_LocalGitRepos, AnalyzerContext):
     ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
         return self.cloudmap.analyze_url(url, analyze)
 
-    def add_artifact(self, artifact: Artifact) -> str:
-        return self.db.add_artifact(artifact)
+    def add_record(self, record: CloudMapRecord) -> None:
+        self.db.add_record(record)
+
+    def delete_record(self, record: CloudMapRecord) -> None:
+        self.db.delete_record(record)
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
         return self.db.get_artifact(url)
@@ -762,26 +783,14 @@ class Directory(_LocalGitRepos, AnalyzerContext):
     def find_repositories(self) -> Iterable[Repository]:
         return self.db.find_repositories()
 
-    def add_service(self, service: Service) -> str:
-        return self.db.add_service(service)
-
     def get_service(self, url: str) -> Optional[Service]:
         return self.db.get_service(url)
-
-    def add_instantiation(self, instantiation: Instantiation) -> str:
-        return self.db.add_instantiation(instantiation)
-
-    def add_repository(self, repository: Repository) -> str:
-        return self.db.add_repository(repository)
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         return self.db.get_instantiation(url)
 
     def add_image_artifact(self, image: "ContainerImage") -> Artifact:
         return self.db.add_image_artifact(image)
-
-    def add_type(self, cloud_type: CloudType) -> str:
-        return self.db.add_type(cloud_type)
 
     def get_type(self, name: str) -> Optional[CloudType]:
         return self.db.get_type(name)
@@ -887,7 +896,7 @@ class Directory(_LocalGitRepos, AnalyzerContext):
             if artifact:
                 # XXX what to do if self.db.get_artifact(artifact.url)?
                 # (currently we want to give this priority for the git digest)
-                self.db.add_artifact(artifact)
+                self.db.add_record(artifact)
                 url = artifact.metadata.source_url
                 if (
                     url
@@ -1178,7 +1187,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                         previous.initial_revision = repository.initial_revision
                     repository = previous
                 else:
-                    directory.db.add_repository(repository)
+                    directory.db.add_record(repository)
                 directory.maybe_analyze(
                     repository, repo, previous.notable if previous else {}
                 )
@@ -1350,7 +1359,7 @@ class GitlabManager(RepositoryHost):
     ) -> Repository:
         r = self.gitlab_project_to_repository(dest_proj)
         previous = directory.db.get_repository(r)
-        directory.db.add_repository(r)
+        directory.db.add_record(r)
         if download:
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?
@@ -2005,7 +2014,7 @@ else:
             # Convert and add to directory
             repo_info = self.github_repository_to_repository(repo)
             previous = directory.db.get_repository(repo_info)
-            directory.db.add_repository(repo_info)
+            directory.db.add_record(repo_info)
             if download:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
@@ -2733,13 +2742,9 @@ class CloudMap:
                 # Route the returned VersionedRecord to the right collection
                 # by type. Repository isn't a VersionedRecord so it's not
                 # handled here — URLAnalyzers that need to record a
-                # Repository should call directory.add_repository directly.
-                if isinstance(record, Artifact):
-                    db.add_artifact(record)
-                elif isinstance(record, Service):
-                    db.add_service(record)
-                elif isinstance(record, Instantiation):
-                    db.add_instantiation(record)
+                # Repository should call directory.add_record directly.
+                if isinstance(record, (Artifact, Service, Instantiation)):
+                    db.add_record(record)
                 else:
                     self.logger.warning(
                         "URLAnalyzer %s returned unsupported record type %s for %s",
@@ -2754,7 +2759,7 @@ class CloudMap:
 
         # Everything else → Service record
         service = Service(url=url)
-        db.add_service(service)
+        db.add_record(service)
         return service
 
     def _add_repository_record(
@@ -2839,7 +2844,7 @@ class CloudMap:
                     name=name,
                     protocols=protocols,
                 )
-                db.add_repository(repo_info)
+                db.add_record(repo_info)
 
         if file_path:
             if analyze == "yes":
@@ -2861,7 +2866,7 @@ class CloudMap:
                         try:
                             artifact = n.analyze(self.directory, repo_info, root_path)
                             if artifact and not db.get_artifact(artifact.url):
-                                db.add_artifact(artifact)
+                                db.add_record(artifact)
                         except Exception:
                             self.logger.error(
                                 "Unexpected error analyzing %s.",
@@ -2876,7 +2881,7 @@ class CloudMap:
                             url=artifact_url,
                             type=TypeRefs({EntitySchema.GenericFile: None}),
                         )
-                        db.add_artifact(artifact)
+                        db.add_record(artifact)
                     if file_path not in repo_info.notable:
                         repo_info.notable[file_path] = {}
 
@@ -2900,7 +2905,7 @@ class CloudMap:
                     for instantiation in host.get_pipeline_runs(
                         repo_info, ref=revision, commit=commit
                     ):
-                        db.add_instantiation(instantiation)
+                        db.add_record(instantiation)
                 except Exception:
                     self.logger.error(
                         "Failed to fetch pipeline runs for %s",

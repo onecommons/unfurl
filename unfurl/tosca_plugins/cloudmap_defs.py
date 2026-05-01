@@ -1213,19 +1213,25 @@ class AnalyzerContext(CloudMapView):
     # --- Add records ---
 
     @abstractmethod
-    def add_artifact(self, artifact: "Artifact") -> str: ...
+    def add_record(self, record: "CloudMapRecord") -> None:
+        """Add or replace a record in the cloudmap.
+        For :class:`VersionedRecord` (``Artifact`` / ``Service``
+        / ``Instantiation``), each entry of ``record.versions`` are
+        also added under its own ``obj.url``
+        """
 
     @abstractmethod
-    def add_service(self, service: "Service") -> str: ...
+    def delete_record(self, record: "CloudMapRecord") -> None:
+        """Remove a record from the cloudmap.
 
-    @abstractmethod
-    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
-
-    @abstractmethod
-    def add_type(self, cloud_type: "CloudType") -> str: ...
-
-    @abstractmethod
-    def add_repository(self, repository: Repository) -> str: ...
+        Inverse of :meth:`add_record`: dispatches by concrete type
+        and removes the entry from the matching per-section storage.
+        For :class:`VersionedRecord` subclasses each entry of
+        ``record.versions`` is also removed under its own
+        ``obj.url`` so a parent delete cleans up its variants too.
+        Implementations should treat missing keys as a no-op rather
+        than raising.
+        """
 
     @abstractmethod
     def analyze_url(
