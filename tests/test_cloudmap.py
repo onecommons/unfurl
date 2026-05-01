@@ -1816,8 +1816,8 @@ def test_release_schedule():
     assert recreated.release_schedule[0].url == "https://new-example.com/api"
 
 
-def test_add_record(tmp_path):
-    """Test CloudMap.add_record() correctly identifies and creates Repository, Artifact, and Service records."""
+def test_analyze_url(tmp_path):
+    """Test CloudMap.analyze_url() correctly identifies and creates Repository, Artifact, and Service records."""
 
     unfurl_yaml = tmp_path / "unfurl.yaml"
     unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
@@ -1839,7 +1839,7 @@ kind: Project
 
     # Case 1: plain git URL without file path → creates a Repository
     repo_url = "git://gitrepos.org/someorg/somerepo.git"
-    repo = cm.add_record(repo_url, "no")
+    repo = cm.analyze_url(repo_url, "no")
     assert isinstance(repo, Repository)
     expected_repo = Repository(
         url=repo_url,
@@ -1849,11 +1849,11 @@ kind: Project
     assert repo == expected_repo
     assert db.repositories[repo_url] is repo
     # Calling again should return the same repository (idempotent)
-    repo2 = cm.add_record(repo_url, "no")
+    repo2 = cm.analyze_url(repo_url, "no")
     assert repo2 is repo
 
     # Case 2: git URL with a file path fragment → creates Repository + Artifact
-    result = cm.add_record(
+    result = cm.analyze_url(
         "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
     )
     assert result.notable == {
@@ -1874,7 +1874,7 @@ kind: Project
 
     # Case 3: pkg:oci PURL with pinned tag → creates Artifact + Instantiation via OCI
     pkg_url = "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4"
-    oci_artifact = cm.add_record(pkg_url, "yes")
+    oci_artifact = cm.analyze_url(pkg_url, "yes")
     instantiation_url = "https://registry-1.docker.io/v2/library/nginx/blobs/sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635"
     expected_oci = Artifact(
         url=pkg_url,
@@ -1930,19 +1930,19 @@ kind: Project
 
     # Case 4: regular HTTPS URL → creates a Service
     svc_url = "https://example.com/myservice"
-    service = cm.add_record(svc_url, "no")
+    service = cm.analyze_url(svc_url, "no")
     expected_service = Service(url=svc_url)
     assert service == expected_service
     assert db.services[svc_url] is service
     # Calling again is idempotent
-    service2 = cm.add_record(svc_url, "no")
+    service2 = cm.analyze_url(svc_url, "no")
     assert service2 is service
 
     # Case 5: missing git repository → should return None and not create a record
-    assert cm.add_record("git://github.com/onecommons/does-not-exist", "no") is None
+    assert cm.analyze_url("git://github.com/onecommons/does-not-exist", "no") is None
 
     # Case 6: git+https scheme URL → treated as git repository
-    gitplus_repo = cm.add_record("git+https://rando.com/org/repo.git", "no")
+    gitplus_repo = cm.analyze_url("git+https://rando.com/org/repo.git", "no")
     expected_gitplus = Repository(
         url="git://rando.com/org/repo.git",
         path="org/repo",
@@ -1952,8 +1952,8 @@ kind: Project
     assert gitplus_repo == expected_gitplus
 
 
-def test_add_record_generic_purl(tmp_path):
-    """Test CloudMap.add_record() with generic (non-OCI/Docker) PURLs."""
+def test_analyze_url_generic_purl(tmp_path):
+    """Test CloudMap.analyze_url() with generic (non-OCI/Docker) PURLs."""
 
     cloudmap_file = tmp_path / "cloudmap.yaml"
 
@@ -1964,7 +1964,7 @@ def test_add_record_generic_purl(tmp_path):
 
     # Simple PURL with name and version
     npm_url = "pkg:npm/express@4.18.2"
-    npm_art = cm.add_record(npm_url, "no")
+    npm_art = cm.analyze_url(npm_url, "no")
     expected_npm = Artifact(
         url=npm_url,
         type=TypeRefs({EntitySchema.GenericPackage: None}),
@@ -1975,7 +1975,7 @@ def test_add_record_generic_purl(tmp_path):
 
     # PURL with namespace
     maven_url = "pkg:maven/org.apache.xmlgraphics/batik-anim@1.9.1"
-    maven_art = cm.add_record(maven_url, "no")
+    maven_art = cm.analyze_url(maven_url, "no")
     expected_maven = Artifact(
         url=maven_url,
         type=TypeRefs({EntitySchema.GenericPackage: None}),
@@ -1985,7 +1985,7 @@ def test_add_record_generic_purl(tmp_path):
 
     # PURL without version
     pypi_url = "pkg:pypi/requests"
-    pypi_art = cm.add_record(pypi_url, "no")
+    pypi_art = cm.analyze_url(pypi_url, "no")
     expected_pypi = Artifact(
         url=pypi_url,
         type=TypeRefs({EntitySchema.GenericPackage: None}),
@@ -1994,11 +1994,11 @@ def test_add_record_generic_purl(tmp_path):
     assert pypi_art == expected_pypi
 
     # Idempotent
-    pypi_art2 = cm.add_record(pypi_url, "no")
+    pypi_art2 = cm.analyze_url(pypi_url, "no")
     assert pypi_art2 is pypi_art
 
 
-def test_add_record_is_git_url():
+def test_analyze_url_is_git_url():
     """Test the _is_git_url static method with various URL formats."""
     from unfurl.cloudmap import CloudMap
 

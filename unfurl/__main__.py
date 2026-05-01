@@ -2154,7 +2154,7 @@ def cloudmap(
         commit,
     )
     if add:
-        r = cloud_map.add_record(add, analyze)
+        r = cloud_map.analyze_url(add, analyze)
         if r:
             cloud_map.save(f"Added {r.__class__.__name__} record for " + r.url)
         else:

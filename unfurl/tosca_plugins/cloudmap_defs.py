@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict, field, InitVar
 from functools import total_ordering
 import os
 import os.path
+from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from operator import attrgetter
 from typing import (
@@ -30,7 +31,7 @@ from typing import (
     Union,
     cast,
 )
-from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack, Self
+from typing_extensions import Literal, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from unfurl.repo import normalize_git_url
@@ -418,13 +419,24 @@ class TypeRefs:
 TypedUrls = Dict[str, Optional[TypeRefs]]
 
 
-class VersionedRecord:
+class CloudMapRecord:
+    @property
+    def key(self) -> str:
+        """The unique key for this record."""
+        raise NotImplementedError("Subclasses must implement the key property")
+
+    def asdict(self) -> Dict[str, Any]:
+        return {}
+
+
+class VersionedRecord(CloudMapRecord):
     url: str
     versions: Dict[str, Self]
     type: TypeRefs
 
-    def __init__(self, **kwargs):
-        pass
+    @property
+    def key(self) -> str:
+        return self.url
 
     def _load_versions(self) -> Dict[str, Self]:
         new_versions: Dict[str, Self] = {}
@@ -835,7 +847,7 @@ class NotableDict(TypedDict, total=False):
 
 
 @dataclass
-class Repository:
+class Repository(CloudMapRecord):
     url: str
     """URL of the repository using the git:// URL scheme"""
     path: str
@@ -862,6 +874,10 @@ class Repository:
     tags: Dict[str, str] = field(default_factory=dict)
     notable: Dict[str, NotableDict] = field(default_factory=dict)
     """Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map"""
+
+    @property
+    def key(self) -> str:
+        return self.url
 
     def __post_init__(self):
         if self.url:
@@ -1069,7 +1085,7 @@ class Service(VersionedRecord):
 
 
 @dataclass
-class CloudType:
+class CloudType(CloudMapRecord):
     """A type definition for artifacts, services, software, or capabilities."""
 
     name: str
@@ -1089,6 +1105,10 @@ class CloudType:
     """URL of artifact or service to use as a model for instances of this type"""
     metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Additional metadata about the type"""
+
+    @property
+    def key(self) -> str:
+        return self.name
 
     def __post_init__(self):
         if self.source:
@@ -1116,54 +1136,57 @@ RepositoryDict = Dict[str, Repository]
 T = TypeVar("T", bound="RepositoryNotable")
 
 
-class CloudMapView(Protocol):
-    # --- Add records ---
+class CloudMapView(ABC):
+    """Abstract base class for cloudmap views.
 
-    def add_artifact(self, artifact: "Artifact") -> str: ...
-
-    def add_service(self, service: "Service") -> str: ...
-
-    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
-
-    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
-
-    def add_type(self, cloud_type: "CloudType") -> str: ...
-
-    def add_repository(self, repository: Repository) -> str: ...
+    All concrete cloudmap implementations (the local ``CloudMapDB`` /
+    ``Directory`` and the remote ``CloudMapProxy``) inherit from this.
+    Replaces the earlier ``Protocol`` form so subclasses get the usual
+    ABC guarantees (``isinstance`` checks, missing-method
+    ``TypeError`` on instantiation, ``super()``-callable concrete
+    methods).
+    """
 
     # --- Look up existing records ---
 
+    @abstractmethod
     def get_artifact(self, url: str) -> Optional["Artifact"]: ...
 
+    @abstractmethod
     def get_service(self, url: str) -> Optional["Service"]: ...
 
+    @abstractmethod
     def get_instantiation(self, url: str) -> Optional["Instantiation"]: ...
 
+    @abstractmethod
     def get_type(self, name: str) -> Optional["CloudType"]: ...
 
+    @abstractmethod
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]: ...
 
     # --- Iterate / search records ---
 
+    @abstractmethod
     def find_artifacts(self, type: str = "") -> Iterable["Artifact"]:
         """An empty filter returns all artifacts."""
-        ...
 
+    @abstractmethod
     def find_services(self, type: str = "") -> Iterable["Service"]:
         """An empty filter returns all services."""
-        ...
 
+    @abstractmethod
     def find_instantiations(self, type: str = "") -> Iterable["Instantiation"]:
         """An empty filter returns all instantiations."""
-        ...
 
+    @abstractmethod
     def find_types(self) -> Iterable["CloudType"]: ...
 
+    @abstractmethod
     def find_repositories(self) -> Iterable["Repository"]: ...
 
 
-class AnalyzerContext(CloudMapView, Protocol):
-    """Abstract interface to a cloudmap.
+class AnalyzerContext(CloudMapView):
+    """Abstract base class for the cloudmap context analyzers see.
 
     Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
     custom Notable subclasses (possibly loaded in safe mode) need to contribute
@@ -1179,22 +1202,43 @@ class AnalyzerContext(CloudMapView, Protocol):
     as stubs)."""
 
     @property
+    @abstractmethod
     def _local__env(self) -> Optional["LocalEnv"]:
         """Parent environment for loading nested unfurl projects.
 
         Names with _<name>__<suffix> can not be accessed from sandboxed Notables,
         so this is only accessible to built-in Notable classes and not custom Notables loaded in safe mode.
         """
-        ...
 
-    def add_record(
+    # --- Add records ---
+
+    @abstractmethod
+    def add_artifact(self, artifact: "Artifact") -> str: ...
+
+    @abstractmethod
+    def add_service(self, service: "Service") -> str: ...
+
+    @abstractmethod
+    def add_instantiation(self, instantiation: "Instantiation") -> str: ...
+
+    @abstractmethod
+    def add_type(self, cloud_type: "CloudType") -> str: ...
+
+    @abstractmethod
+    def add_repository(self, repository: Repository) -> str: ...
+
+    @abstractmethod
+    def analyze_url(
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union["Repository", "Artifact", "Service", "Instantiation"]]:
-        """Record (and optionally recursively analyze) a URL: git repo, pkg: PURL,
-        or service URL. Returns the record that was added or already existed."""
-        ...
+    ) -> Optional["CloudMapRecord"]:
+        """Analyze a URL (git repo, pkg: PURL, or service URL) and add the
+        resulting record to the cloudmap. Returns the record that was
+        added or already existed."""
+
+    @abstractmethod
+    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
 
 
 class Analyzer:
@@ -1322,7 +1366,7 @@ class URLAnalyzer(Analyzer):
     - :py:meth:`init_from_url` — factory that parses the URL and returns a
       configured instance, or ``None`` to decline (e.g. malformed input).
     - :py:meth:`analyze_url` — produces an :class:`Artifact` (and any related
-      :class:`Instantiation` records via the passed-in :class:`CloudMapView`).
+      :class:`Instantiation` records via the passed-in :class:`AnalyzerContext`).
 
     Custom subclasses can be loaded via the ``cloudmaps.analyzers`` config in
     the same way as :class:`RepositoryNotable` subclasses.
@@ -1339,7 +1383,7 @@ class URLAnalyzer(Analyzer):
         """
         return None
 
-    def analyze_url(self, directory: "CloudMapView") -> Optional["VersionedRecord"]:
+    def analyze_url(self, directory: "AnalyzerContext") -> Optional["VersionedRecord"]:
         """Produce an Artifact for the URL this analyzer was constructed with.
 
         Subclasses can also write related records (Instantiation, Service,
@@ -1378,10 +1422,6 @@ class CloudMapInputs(TypedDict, total=False):
     force: bool
     host_branch: Optional[str]
 
-
-CloudMapRecord = Union[
-    "Repository", "Artifact", "Instantiation", "Service", "CloudType"
-]
 
 __all__ = [
     "VersionedRecord",

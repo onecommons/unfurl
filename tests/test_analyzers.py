@@ -384,11 +384,11 @@ class TestPipelineRunsMocked:
         assert len(results) == 2
 
 
-class TestAddRecordPipelineRuns:
-    """Test that add_record fetches pipeline runs when URL has ref or commit."""
+class TestAnalyzeUrlPipelineRuns:
+    """Test that analyze_url fetches pipeline runs when URL has ref or commit."""
 
-    def test_add_record_with_ref_fetches_pipelines(self, tmp_path):
-        """add_record with a #ref fragment should call get_pipeline_runs and store results."""
+    def test_analyze_url_with_ref_fetches_pipelines(self, tmp_path):
+        """analyze_url with a #ref fragment should call get_pipeline_runs and store results."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -420,7 +420,7 @@ class TestAddRecordPipelineRuns:
                 local_env=local_env,
                 localrepo_root=str(tmp_path),
             )
-            result = cm.add_record(
+            result = cm.analyze_url(
                 "https://example.com/owner/repo.git#main", "no"
             )
 
@@ -434,8 +434,8 @@ class TestAddRecordPipelineRuns:
             result, ref="main", commit=""
         )
 
-    def test_add_record_with_commit_fetches_pipelines(self, tmp_path):
-        """add_record with a #~commit fragment should pass commit to get_pipeline_runs."""
+    def test_analyze_url_with_commit_fetches_pipelines(self, tmp_path):
+        """analyze_url with a #~commit fragment should pass commit to get_pipeline_runs."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -457,7 +457,7 @@ class TestAddRecordPipelineRuns:
                 local_env=local_env,
                 localrepo_root=str(tmp_path),
             )
-            cm.add_record(
+            cm.analyze_url(
                 "https://example.com/owner/repo.git#~deadbeef", "no"
             )
 
@@ -466,8 +466,8 @@ class TestAddRecordPipelineRuns:
         assert call_kwargs[1]["ref"] == ""
         assert call_kwargs[1]["commit"] == "deadbeef"
 
-    def test_add_record_ref_resolves_branch_to_commit(self, tmp_path):
-        """add_record with a #ref resolves the ref to a commit SHA from branches."""
+    def test_analyze_url_ref_resolves_branch_to_commit(self, tmp_path):
+        """analyze_url with a #ref resolves the ref to a commit SHA from branches."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -490,15 +490,15 @@ class TestAddRecordPipelineRuns:
                 local_env=local_env,
                 localrepo_root=str(tmp_path),
             )
-            cm.add_record("https://example.com/owner/repo.git#main", "no")
+            cm.analyze_url("https://example.com/owner/repo.git#main", "no")
 
         mock_host.get_pipeline_runs.assert_called_once()
         call_args = mock_host.get_pipeline_runs.call_args
         assert call_args[1]["ref"] == "main"
         assert call_args[1]["commit"] == "aaa111"
 
-    def test_add_record_ref_resolves_tag_to_commit(self, tmp_path):
-        """add_record with a #ref resolves the ref to a commit SHA from tags."""
+    def test_analyze_url_ref_resolves_tag_to_commit(self, tmp_path):
+        """analyze_url with a #ref resolves the ref to a commit SHA from tags."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -522,15 +522,15 @@ class TestAddRecordPipelineRuns:
                 local_env=local_env,
                 localrepo_root=str(tmp_path),
             )
-            cm.add_record("https://example.com/owner/repo.git#v1.2.0", "no")
+            cm.analyze_url("https://example.com/owner/repo.git#v1.2.0", "no")
 
         mock_host.get_pipeline_runs.assert_called_once()
         call_args = mock_host.get_pipeline_runs.call_args
         assert call_args[1]["ref"] == "v1.2.0"
         assert call_args[1]["commit"] == "ccc333"
 
-    def test_add_record_without_ref_skips_pipelines(self, tmp_path):
-        """add_record without ref or commit should NOT call get_pipeline_runs."""
+    def test_analyze_url_without_ref_skips_pipelines(self, tmp_path):
+        """analyze_url without ref or commit should NOT call get_pipeline_runs."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -551,12 +551,12 @@ class TestAddRecordPipelineRuns:
                 local_env=local_env,
                 localrepo_root=str(tmp_path),
             )
-            cm.add_record("https://example.com/owner/repo.git", "no")
+            cm.analyze_url("https://example.com/owner/repo.git", "no")
 
         mock_host.get_pipeline_runs.assert_not_called()
 
-    def test_add_record_pipeline_error_is_caught(self, tmp_path):
-        """add_record should catch and log errors from get_pipeline_runs."""
+    def test_analyze_url_pipeline_error_is_caught(self, tmp_path):
+        """analyze_url should catch and log errors from get_pipeline_runs."""
         unfurl_yaml = tmp_path / "unfurl.yaml"
         unfurl_yaml.write_text(f"apiVersion: {API_VERSION}\nkind: Project\n")
         cloudmap_file = tmp_path / "cloudmap.yaml"
@@ -579,7 +579,7 @@ class TestAddRecordPipelineRuns:
                 localrepo_root=str(tmp_path),
             )
             # Should not raise
-            result = cm.add_record(
+            result = cm.analyze_url(
                 "https://example.com/owner/repo.git#main", "no"
             )
 
@@ -686,7 +686,7 @@ class TestArtifactAnalyzerRegistry:
       registered via ``URLAnalyzers`` and selected by longest-prefix match.
     - A custom ``URLAnalyzer`` subclass registered via
       :meth:`CloudMap.register_url_analyzer` is dispatched by
-      :meth:`CloudMap.add_record`.
+      :meth:`CloudMap.analyze_url`.
     - When ``init_from_url`` returns ``None`` the dispatcher records nothing
       and returns ``None``.
     """
@@ -730,13 +730,13 @@ class TestArtifactAnalyzerRegistry:
         assert list(cm.match_url_analyzer("https://example.com/foo")) == []
 
     def test_generic_pkg_analyzer_creates_artifact(self, tmp_path):
-        """``add_record()`` dispatches non-OCI PURLs to the generic analyzer,
+        """``analyze_url()`` dispatches non-OCI PURLs to the generic analyzer,
         which produces an artifact tagged ``GenericPackage`` and populates
         ``title``/``version`` from the parsed PURL."""
         cm = self._make_cloudmap(tmp_path)
         url = "pkg:npm/lodash@4.17.21"
 
-        artifact = cm.add_record(url)
+        artifact = cm.analyze_url(url)
 
         assert artifact is not None
         assert artifact.url == url
@@ -745,7 +745,7 @@ class TestArtifactAnalyzerRegistry:
         assert artifact.metadata.version == "4.17.21"
         # Persisted in the cloudmap and idempotent on repeat calls.
         assert cm.directory.db.get_artifact(url) is artifact
-        assert cm.add_record(url) is artifact
+        assert cm.analyze_url(url) is artifact
 
     def test_generic_pkg_analyzer_omits_empty_metadata(self, tmp_path):
         """When the PURL has no name/version components, ``title`` and
@@ -755,7 +755,7 @@ class TestArtifactAnalyzerRegistry:
         # pkg:<type>/ with no name and no @version
         url = "pkg:foo/"
 
-        artifact = cm.add_record(url)
+        artifact = cm.analyze_url(url)
 
         assert artifact is not None
         assert artifact.url == url
@@ -766,7 +766,7 @@ class TestArtifactAnalyzerRegistry:
     def test_custom_analyzer_dispatch(self, tmp_path):
         """A user-registered ``URLAnalyzer`` whose ``url_schemes`` prefix
         is more specific than the built-ins is selected by
-        ``match_url_analyzer`` and invoked by ``add_record``."""
+        ``match_url_analyzer`` and invoked by ``analyze_url``."""
         from unfurl.tosca_plugins.cloudmap_defs import (
             URLAnalyzer,
             Artifact,
@@ -806,14 +806,14 @@ class TestArtifactAnalyzerRegistry:
             GenericPkgArtifactAnalyzer,
         ]
 
-        artifact = cm.add_record(url)
+        artifact = cm.analyze_url(url)
         assert artifact is not None
         assert artifact.url == url
         assert cm.directory.db.get_artifact(url) is artifact
 
     def test_init_from_url_decline_falls_through_to_next_analyzer(self, tmp_path):
         """When the most-specific analyzer declines via ``init_from_url``
-        returning ``None``, ``add_record()`` walks the longest-prefix-first
+        returning ``None``, ``analyze_url()`` walks the longest-prefix-first
         chain and falls back to the next matching analyzer (here, the
         built-in generic ``pkg:`` handler)."""
         from unfurl.tosca_plugins.cloudmap_defs import URLAnalyzer, Artifact
@@ -839,7 +839,7 @@ class TestArtifactAnalyzerRegistry:
             GenericPkgArtifactAnalyzer,
         ]
 
-        record = cm.add_record(url)
+        record = cm.analyze_url(url)
         # DecliningAnalyzer.init_from_url was consulted...
         assert decline_calls == [url]
         # ...and the generic fallback created an Artifact.

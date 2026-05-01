@@ -110,8 +110,8 @@ from ..tosca_plugins.cloudmap_defs import (
     TypeRefConstraint,
     TypeRefs,
     get_repository_url,
-    join_resource_url,
     AnalyzerContext,
+    CloudMapView,
 )
 from ..support import ContainerImage
 from ..configurator import Configurator, TaskView
@@ -393,7 +393,7 @@ class _LocalGitRepos:
         return None
 
 
-class CloudMapDB:
+class CloudMapDB(CloudMapView):
     """
     Loads the cloudmap yaml file
     """
@@ -693,7 +693,7 @@ class CloudMapDB:
         return self.repositories.values()
 
 
-class Directory(_LocalGitRepos):
+class Directory(_LocalGitRepos, AnalyzerContext):
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(
@@ -734,12 +734,12 @@ class Directory(_LocalGitRepos):
     def _local__env(self) -> Optional["LocalEnv"]:
         return self.cloudmap.local_env
 
-    def add_record(
+    def analyze_url(
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
     ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
-        return self.cloudmap.add_record(url, analyze)
+        return self.cloudmap.analyze_url(url, analyze)
 
     def add_artifact(self, artifact: Artifact) -> str:
         return self.db.add_artifact(artifact)
@@ -894,7 +894,7 @@ class Directory(_LocalGitRepos):
                     and CloudMap._is_git_url(url)
                     and not self.db.get_repository(url)
                 ):
-                    self.cloudmap.add_record(url, "no")
+                    self.cloudmap.analyze_url(url, "no")
         repo_info.add_notables(notables)
         return notables
 
@@ -2289,7 +2289,7 @@ class CloudMap:
         ordered longest-prefix-first.
 
         Multiple analyzers can match (e.g. both ``"pkg:oci"`` and ``"pkg:"``
-        match ``"pkg:oci/..."``); :meth:`add_record` walks them in order and
+        match ``"pkg:oci/..."``); :meth:`analyze_url` walks them in order and
         falls back to the next when one declines via ``init_from_url``
         returning ``None``.
         """
@@ -2671,12 +2671,12 @@ class CloudMap:
             return True
         return False
 
-    def add_record(
+    def analyze_url(
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
     ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
-        """Add a record to the cloudmap from a URL.
+        """Analyze a URL and add the resulting record to the cloudmap.
 
         Determines the record type based on the URL scheme and structure:
 

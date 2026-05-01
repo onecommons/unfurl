@@ -149,7 +149,7 @@ class UnfurlNotable(RepositoryNotable):
                         if manifest.tosca and manifest.tosca.import_resolver:
                             manifest.tosca.import_resolver._resolve_repoview(repo_view)
                     giturl = self._add_repository_reference(repo_view, references)
-                    directory.add_record(giturl, analyze)
+                    directory.analyze_url(giturl, analyze)
 
             node = self._get_root_node(spec)
             if node:
@@ -377,7 +377,7 @@ class UnfurlNotable(RepositoryNotable):
 
         directory.add_instantiation(instantiation)
         if instantiation.source and not directory.get_artifact(instantiation.source):
-            directory.add_record(instantiation.source, analyze)
+            directory.analyze_url(instantiation.source, analyze)
 
     def _get_artifacttype(self, path: str) -> str:
         if path.endswith(DefaultNames.EnsembleTemplate):
@@ -664,7 +664,7 @@ class OCIArtifactAnalyzer(URLAnalyzer):
         )
         return cls(url, image)
 
-    def analyze_url(self, directory: CloudMapView) -> Optional[Artifact]:
+    def analyze_url(self, directory: AnalyzerContext) -> Optional[Artifact]:
         # Local import avoids a top-level circular dep with unfurl.oci.
         from ..oci import create_oci_artifact
 
@@ -705,7 +705,7 @@ class GenericPkgArtifactAnalyzer(URLAnalyzer):
         )
         return cls(artifact)
 
-    def analyze_url(self, directory: CloudMapView) -> Optional[Artifact]:
+    def analyze_url(self, directory: AnalyzerContext) -> Optional[Artifact]:
         return self.artifact
 
 

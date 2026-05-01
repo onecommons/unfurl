@@ -599,13 +599,11 @@ class CloudMapGraphWalker:
                 ("Types", "Type", self.view.find_types()),
             ]
             for section_name, kind, records in sections:
-                # Materialise the iterable so we can both detect emptiness and
-                # iterate without re-running the underlying generator.
-                records_list = list(records)
-                if not records_list:
-                    continue
-                self.visitor.start_section(section_name)
-                for record in records_list:
+                started_section = False
+                for record in records:
+                    if not started_section:
+                        started_section = True
+                        self.visitor.start_section(section_name)
                     key = self._record_key(record)
                     if key in visited:
                         if self.visitor.visit_record(
