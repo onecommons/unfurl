@@ -2450,6 +2450,24 @@
               "title": "Follow",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "since_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "When set, return only records whose ``unfurl.server.version`` is greater than this value. Requires the rust git-sync backend; ignored by the Python YAML fallback.",
+              "title": "Since Version"
+            }
           }
         ],
         "responses": {

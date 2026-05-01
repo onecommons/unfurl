@@ -303,6 +303,10 @@ pub(crate) async fn load_pending(
 /// All `Some(...)` filters AND together. With `alias = true` and
 /// `key = Some(...)`, a record also matches when one of its alias rows
 /// has that key (joined on `record_id`).
+///
+/// `since_version`, when set, restricts results to rows with
+/// `version > since_version`. Pushed down into SQL so the database
+/// drives the filter rather than the caller.
 pub(crate) async fn find(
     db: &Db,
     worktree_id: i64,
@@ -310,15 +314,36 @@ pub(crate) async fn find(
     path: Option<&str>,
     key: Option<&str>,
     alias: bool,
+    since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     // The alias OR-clause is a no-op without a key.
     let alias_active = alias && key.is_some();
     match db {
         Db::Sqlite(pool) => {
-            find_sqlite(pool, worktree_id, file_path, path, key, alias_active).await
+            find_sqlite(
+                pool,
+                worktree_id,
+                file_path,
+                path,
+                key,
+                alias_active,
+                since_version,
+            )
+            .await
         }
         #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => find_pg(pool, worktree_id, file_path, path, key, alias_active).await,
+        Db::Postgres(pool) => {
+            find_pg(
+                pool,
+                worktree_id,
+                file_path,
+                path,
+                key,
+                alias_active,
+                since_version,
+            )
+            .await
+        }
     }
 }
 
@@ -329,6 +354,7 @@ async fn find_sqlite(
     path: Option<&str>,
     key: Option<&str>,
     alias_active: bool,
+    since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
@@ -353,8 +379,12 @@ async fn find_sqlite(
         }
         idx += 1;
     }
+    if since_version.is_some() {
+        sql.push_str(&format!(" AND r.version > ?{idx}"));
+        idx += 1;
+    }
     sql.push_str(" ORDER BY r.path, r.key");
-    let _ = idx; // silence unused-assignment lint when no key bind is added
+    let _ = idx; // silence unused-assignment lint when the last bind isn't used
 
     let mut q =
         sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, i64)>(&sql)
@@ -367,6 +397,9 @@ async fn find_sqlite(
     }
     if let Some(k) = key {
         q = q.bind(k);
+    }
+    if let Some(v) = since_version {
+        q = q.bind(v);
     }
     let rows = q.fetch_all(pool).await?;
 
@@ -400,6 +433,7 @@ async fn find_pg(
     path: Option<&str>,
     key: Option<&str>,
     alias_active: bool,
+    since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
@@ -422,6 +456,10 @@ async fn find_pg(
         } else {
             sql.push_str(&format!(" AND r.key = ${idx}"));
         }
+        idx += 1;
+    }
+    if since_version.is_some() {
+        sql.push_str(&format!(" AND r.version > ${idx}"));
         idx += 1;
     }
     sql.push_str(" ORDER BY r.path, r.key");
@@ -448,6 +486,9 @@ async fn find_pg(
     }
     if let Some(k) = key {
         q = q.bind(k);
+    }
+    if let Some(v) = since_version {
+        q = q.bind(v);
     }
     let rows = q.fetch_all(pool).await?;
     Ok(rows

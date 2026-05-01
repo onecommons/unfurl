@@ -196,6 +196,9 @@ async fn build_response(
     // Single DB query for both halves of the response. With follow=0
     // `find_records_follow` returns the initial set and an empty
     // followed Vec — same shape as a plain `find_records` call.
+    // `since_version` is pushed into the SQL `WHERE` clause by
+    // `db::record::find`, so both the initial set and any follow-walk
+    // edge lookups are filtered at the database.
     let (initial, followed_records) = synced
         .find_records_follow(
             None,
@@ -203,6 +206,7 @@ async fn build_response(
             key.map(|s| s.to_string()),
             alias,
             follow,
+            params.since_version,
         )
         .await
         .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;

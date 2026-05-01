@@ -369,6 +369,7 @@ impl SyncedRepo {
         path: Option<String>,
         key: Option<String>,
         alias: bool,
+        since_version: Option<i64>,
     ) -> Result<Vec<Record>> {
         db::record::find(
             self.db(),
@@ -377,6 +378,7 @@ impl SyncedRepo {
             path.as_deref(),
             key.as_deref(),
             alias,
+            since_version,
         )
         .await
     }
@@ -404,8 +406,11 @@ impl SyncedRepo {
         key: Option<String>,
         alias: bool,
         follow: u32,
+        since_version: Option<i64>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
-        let initial = self.find_records(file_path, path, key, alias).await?;
+        let initial = self
+            .find_records(file_path, path, key, alias, since_version)
+            .await?;
         if follow == 0 || initial.is_empty() {
             return Ok((initial, Vec::new()));
         }
@@ -453,6 +458,7 @@ impl SyncedRepo {
                     None,
                     Some(key.as_str()),
                     true,
+                    since_version,
                 )
                 .await?;
                 for r in hits {

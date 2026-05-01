@@ -1146,6 +1146,8 @@ pub struct GetCloudmapRequestQuery {
     /// If > 0 and ``key`` is supplied, walk the CloudMap graph starting at ``key`` and return the discovered records in the second element of the response pair. Otherwise the second element is an empty dict.
     #[default(Some(0i64))]
     pub follow: Option<i64>,
+    /// When set, return only records whose ``unfurl.server.version`` is greater than this value. Requires the rust git-sync backend; ignored by the Python YAML fallback.
+    pub since_version: Option<i64>,
 }
 /// Response types for GetCloudmapResponse
 #[derive(Debug, Clone)]

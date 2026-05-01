@@ -462,6 +462,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(parent_path.into()),
             Some(parent_key.into()),
             false,
+            None,
         )
         .await
         .expect("find_records direct");
@@ -479,6 +480,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(parent_path.into()),
             Some(alias_key.into()),
             false,
+            None,
         )
         .await
         .expect("find_records without alias");
@@ -489,7 +491,13 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // With `alias=true`, the same lookup resolves to the parent record.
     let via_alias = sync
-        .find_records(None, Some(parent_path.into()), Some(alias_key.into()), true)
+        .find_records(
+            None,
+            Some(parent_path.into()),
+            Some(alias_key.into()),
+            true,
+            None,
+        )
         .await
         .expect("find_records via alias");
     assert_eq!(via_alias.len(), 1, "alias lookup should hit the parent");
@@ -502,11 +510,11 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(None, Some(parent_path.into()), None, true)
+        .find_records(None, Some(parent_path.into()), None, true, None)
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
-        .find_records(None, Some(parent_path.into()), None, false)
+        .find_records(None, Some(parent_path.into()), None, false, None)
         .await
         .expect("find_records no key, alias=false");
     assert_eq!(
@@ -577,6 +585,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(start_key.into()),
             false,
             0,
+            None,
         )
         .await
         .expect("follow 0");
@@ -593,6 +602,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(start_key.into()),
             false,
             10,
+            None,
         )
         .await
         .expect("follow 10");
@@ -658,6 +668,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(start_key.into()),
             false,
             1,
+            None,
         )
         .await
         .expect("follow 1");

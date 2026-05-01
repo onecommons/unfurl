@@ -205,6 +205,15 @@ class CloudMapDocQuery(ProjectQuery):
             "second element is an empty dict."
         ),
     )
+    since_version: Optional[int] = Field(
+        default=None,
+        description=(
+            "When set, return only records whose "
+            "``unfurl.server.version`` is greater than this value. "
+            "Requires the rust git-sync backend; ignored by the "
+            "Python YAML fallback."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
