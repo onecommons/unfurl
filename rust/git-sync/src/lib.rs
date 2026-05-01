@@ -70,7 +70,7 @@ pub use db::{Db, DbConfig};
 #[doc(inline)]
 pub use error::{Error, Result};
 #[doc(inline)]
-pub use format::{DataFormat, FormatRegistry};
+pub use format::{DataFormat, FormatRegistry, Order};
 #[doc(inline)]
 pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]

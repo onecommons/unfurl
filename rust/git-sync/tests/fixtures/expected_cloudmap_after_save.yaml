@@ -1,6 +1,9 @@
 apiVersion: unfurl/v1.0.0
 kind: CloudMap
 repositories:
+  "git://example.com/added.git":
+    name: added
+    path: example/added
   "git://unfurl.cloud/onecommons/blueprints/odoo.git":
     path: onecommons/blueprints/odoo
     name: Odoo
@@ -87,9 +90,6 @@ repositories:
         type:
           cloudmap.artifacts.tosca.TypeLibrary:
         artifact: "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml"
-  "git://example.com/added.git":
-    name: added
-    path: example/added
 artifacts:
   "git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml":
     type:

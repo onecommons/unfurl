@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 use url::Url;
 
 use crate::format::DataFormat;
-use crate::Record;
+use crate::{Order, Record};
 
 const PATH_PREFIXES: &[&str] = &[
     "services",
@@ -167,6 +167,20 @@ impl DataFormat for CloudMapFormat {
             out.insert(url);
         }
         out.into_iter().collect()
+    }
+
+    fn get_order(&self, path: &str) -> Order {
+        // Only the top-level cloudmap sections (`repositories`,
+        // `artifacts`, etc.) get key-sorted so git diffs stay stable
+        // across runs and clients. Anything else (e.g. envelope keys
+        // like `apiVersion`/`kind`, or sections added by a future
+        // schema extension we don't know about) keeps its existing
+        // key order.
+        if PATH_PREFIXES.iter().any(|p| *p == path) {
+            Order::Sort
+        } else {
+            Order::PreserveOrder
+        }
     }
 }
 

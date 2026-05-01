@@ -707,8 +707,10 @@ impl SyncedRepo {
             root = serde_json::Value::Object(serde_json::Map::new());
         }
 
+        let mut touched_sections: Vec<String> = Vec::new();
+
         for rec in pending {
-            let section_name = rec.path.trim_start_matches('/');
+            let section_name = rec.path.trim_start_matches('/').to_string();
             if section_name.is_empty() {
                 // v1 supports single-segment parents only.
                 continue;
@@ -720,23 +722,49 @@ impl SyncedRepo {
                 // critical for the "minimally-edited" output the tests
                 // assert against.
                 if let Some(section) = root_obj
-                    .get_mut(section_name)
+                    .get_mut(&section_name)
                     .and_then(|v| v.as_object_mut())
                 {
                     section.shift_remove(&rec.key);
                     if section.is_empty() {
-                        root_obj.shift_remove(section_name);
+                        root_obj.shift_remove(&section_name);
                     }
                 }
             } else {
                 let section = root_obj
-                    .entry(section_name.to_string())
+                    .entry(section_name.clone())
                     .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
                 if !section.is_object() {
                     *section = serde_json::Value::Object(serde_json::Map::new());
                 }
                 let section_obj = section.as_object_mut().expect("section is object");
                 section_obj.insert(rec.key, rec.json);
+            }
+            if !touched_sections.contains(&section_name) {
+                touched_sections.push(section_name);
+            }
+        }
+
+        // Apply the format's per-section ordering policy, but only to
+        // sections this batch actually wrote into.
+        let format_name = db::file::get(self.db(), self.worktree_id(), file_path)
+            .await?
+            .map(|f| f.format);
+        if let Some(name) = format_name {
+            if let Some(fmt) = self.formats().by_name(&name) {
+                if let Some(root_obj) = root.as_object_mut() {
+                    for section_name in &touched_sections {
+                        if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
+                            continue;
+                        }
+                        if let Some(section_obj) = root_obj
+                            .get_mut(section_name.as_str())
+                            .and_then(|v| v.as_object_mut())
+                        {
+                            section_obj.sort_keys();
+                        }
+                    }
+                }
             }
         }
 

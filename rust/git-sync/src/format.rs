@@ -9,6 +9,22 @@
 
 use crate::Record;
 
+/// Per-section ordering policy for serialized output.
+///
+/// Returned by [`DataFormat::get_order`] and consulted by
+/// [`crate::SyncedRepo::write_file`] after pending edits are merged
+/// into the on-disk document. ``Sort`` triggers a key-sort on that
+/// section before serialization; ``PreserveOrder`` leaves the
+/// existing key order alone (matching the file's pre-edit layout
+/// modulo any inserts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Order {
+    /// Keep the section's existing key order; new keys append.
+    PreserveOrder,
+    /// Lexicographically sort the section's keys after applying edits.
+    Sort,
+}
+
 /// Defines one JSON/YAML on-disk format the crate can index.
 ///
 /// Implementations classify a parsed value (`is_format`), declare which
@@ -57,6 +73,21 @@ pub trait DataFormat: Send + Sync {
     /// URL-shaped (or otherwise resolvable) references; label-only
     /// references should be skipped.
     fn follow(&self, record: &Record) -> Vec<String>;
+
+    /// Per-section key-ordering policy applied at write time.
+    ///
+    /// Called by [`crate::SyncedRepo::write_file`] for each top-level
+    /// section after pending edits have been merged into the on-disk
+    /// document. Returning [`Order::Sort`] sorts that section's keys
+    /// lexicographically before serialization; [`Order::PreserveOrder`]
+    /// (the default) leaves them as-is.
+    ///
+    /// `path` is the section name without leading slash (e.g.
+    /// `"repositories"`) — same shape as
+    /// [`DataFormat::path_prefixes`] entries.
+    fn get_order(&self, _path: &str) -> Order {
+        Order::PreserveOrder
+    }
 }
 
 /// Registry of [`DataFormat`] implementations.
