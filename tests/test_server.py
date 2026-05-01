@@ -1812,6 +1812,157 @@ def test_server_cloudmap():
             _terminate_process(p)
 
 
+@pytest.mark.parametrize("server_env", server_env)
+def test_cloudmap_proxy_round_trip(server_env):
+    """End-to-end CloudMapProxy round-trip against every server variant.
+
+    Runs against the four server flavours from :data:`server_env`:
+
+    - ``no-redis`` / ``redis``: pure Python server. The /cloudmap
+      handler reads / writes ``cloudmap.yaml`` directly. No
+      ``unfurl.server.{id,version,commit}`` annotations on records;
+      ``since_version`` / ``exclude`` are accepted but ignored. Each
+      successful POST produces a real git commit oid in the response.
+    - ``redis-rust``: rust proxy in front of Python, with the rust
+      cloudmap fast-path enabled (``UNFURL_CLOUDMAP_REPO`` +
+      ``UNFURL_CLOUDMAP_DB_URL``). Records carry the OCC + id
+      annotations; POST stages an in-flight write (commit=None,
+      queueid bumped).
+    - ``queue-rust``: the rust proxy's redis-batched-write path.
+      The proxy doesn't currently send the queue-layer ``queueid``
+      that mode requires, so we skip — exercising it would need
+      additional plumbing in CloudMapProxy.
+    """
+    from pathlib import Path
+    from unfurl.cloudmap.proxy import CloudMapProxy
+    from unfurl.tosca_plugins.cloudmap_defs import (
+        Artifact,
+        ArtifactMetadata,
+    )
+
+    if server_env == "queue-rust":
+        pytest.skip(
+            "CloudMapProxy doesn't drive the queue-layer queueid yet"
+        )
+
+    is_rust = "rust" in server_env
+
+    fixture_dir = Path(__file__).parent / "fixtures"
+    cloudmap_content = (fixture_dir / "expected_cloudmap.yaml").read_text()
+
+    runner = CliRunner()
+    port = _next_port()
+    with runner.isolated_filesystem() as tmpdir:
+        # cloudmap repo: a real git worktree with cloudmap.yaml.
+        cloudmap_path = os.path.abspath("cloudmap.yaml")
+        with open(cloudmap_path, "w") as f:
+            f.write(cloudmap_content)
+        repo = GitRepo(Repo.init("."))
+        repo.add_all(os.path.abspath("."))
+        repo.commit_files([cloudmap_path], "Add cloudmap")
+
+        extra_env = _env_for(server_env, "cloudmap-proxy")
+        if is_rust:
+            # sqlite db file for the rust SyncedRepo backend.
+            # `?mode=rwc` tells sqlx to create the file if it
+            # doesn't exist.
+            sqlite_path = os.path.abspath("cloudmap-sync.sqlite")
+            extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
+            extra_env["UNFURL_CLOUDMAP_DB_URL"] = (
+                f"sqlite://{sqlite_path}?mode=rwc"
+            )
+
+        ctx = get_context()
+        error_queue = ctx.Queue()
+        p = ctx.Process(
+            target=serve_server,
+            args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
+            kwargs={
+                "error_queue": error_queue,
+                "extra_env": extra_env,
+            },
+        )
+        p._error_queue = error_queue
+        try:
+            start_server_process(p, port, is_rust=is_rust)
+
+            base_url = f"http://{HOST}:{port}"
+            proxy = CloudMapProxy(base_url)
+
+            # find_repositories triggers a per-section fetch and returns
+            # an iterator (not a list) — paging-ready.
+            repos_iter = proxy.find_repositories()
+            assert iter(repos_iter) is repos_iter
+            repos = list(repos_iter)
+            assert repos, "expected fixture cloudmap to have repositories"
+
+            # OCC tokens are only stamped on the rust path; the
+            # Python YAML fallback returns records without them.
+            if is_rust:
+                assert proxy._cache._max_version > 0
+            else:
+                assert proxy._cache._max_version == 0
+
+            # Second find_repositories call is local-only (no HTTP).
+            list(proxy.find_repositories())
+            assert "repositories" in proxy._cache._section_loaded
+
+            # find_artifacts is a separate fetch.
+            artifacts = list(proxy.find_artifacts())
+            assert artifacts, "expected fixture cloudmap to have artifacts"
+
+            # get_artifact for one we already have is a cache hit.
+            first_url = artifacts[0].url
+            assert proxy.get_artifact(first_url) is artifacts[0]
+
+            # Stage a new artifact and save().
+            initial_max = proxy._cache._max_version
+            new = Artifact(
+                url="pkg:oci/proxy-test/new@1.0",
+                metadata=ArtifactMetadata(title="proxy-injected"),
+            )
+            proxy.add_record(new)
+            commit_oid = proxy.save()
+
+            if is_rust:
+                # Rust local handler stages to its in-flight db;
+                # commit is null but the response's queueid
+                # (== largest unfurl.server.version stamped) is
+                # folded into the cache's _max_version.
+                assert commit_oid is None
+                assert proxy._cache._max_version > initial_max
+                cached_record = proxy.get_artifact(new.url)
+                assert cached_record is not None
+                assert (
+                    cached_record._unfurl_server_version
+                    == proxy._cache._max_version
+                )
+                # In-flight: no commit yet.
+                assert cached_record._unfurl_server_commit is None
+            else:
+                # Python handler commits to git and returns the oid.
+                assert isinstance(commit_oid, str) and commit_oid
+                # _max_version doesn't advance — Python doesn't stamp
+                # version tokens on records.
+                assert proxy._cache._max_version == 0
+
+            # Refresh: server returns the latest. With no since_version
+            # filter (Python ignores it; rust's since=0 returns
+            # everything > 0), at minimum the cache stays consistent.
+            after_save_max = proxy._cache._max_version
+            proxy.refresh()
+            assert proxy._cache._max_version >= after_save_max
+
+            # The new artifact should now be retrievable from a fresh
+            # proxy instance — tests the server-side persistence.
+            proxy2 = CloudMapProxy(base_url)
+            fetched = proxy2.get_artifact(new.url)
+            assert fetched is not None
+            assert fetched.url == new.url
+        finally:
+            _terminate_process(p)
+
+
 class TestDoPatch:
     """Unit tests for serve._do_patch.
 
