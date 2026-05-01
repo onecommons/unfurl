@@ -171,7 +171,7 @@ CloudMapKind = Literal[
 
 
 class CloudMapQuery(ProjectQuery):
-    """Query parameters for /cloudmap (graph) endpoint."""
+    """Query parameters for /graph endpoint."""
 
     url: Optional[str] = Field(
         default=None,
@@ -212,6 +212,17 @@ class CloudMapDocQuery(ProjectQuery):
             "``unfurl.server.version`` is greater than this value. "
             "Requires the rust git-sync backend; ignored by the "
             "Python YAML fallback."
+        ),
+    )
+    exclude: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated list of record primary-key ids "
+            "(``unfurl.server.id`` values) to exclude from the "
+            "response. Used by clients with a warm cache to avoid "
+            "re-receiving records they already hold during a "
+            "``follow`` walk. Requires the rust git-sync backend; "
+            "ignored by the Python YAML fallback."
         ),
     )
 

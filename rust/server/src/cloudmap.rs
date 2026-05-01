@@ -199,6 +199,19 @@ async fn build_response(
     // `since_version` is pushed into the SQL `WHERE` clause by
     // `db::record::find`, so both the initial set and any follow-walk
     // edge lookups are filtered at the database.
+    // `exclude` arrives as a comma-separated list of record primary-key
+    // ids; non-numeric tokens are silently dropped. Empty / `None`
+    // string means "no exclusion" — matches the schema description.
+    let exclude_ids: Vec<i64> = params
+        .exclude
+        .as_deref()
+        .map(|s| {
+            s.split(',')
+                .filter_map(|tok| tok.trim().parse::<i64>().ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
     let (initial, followed_records) = synced
         .find_records_follow(
             None,
@@ -207,6 +220,7 @@ async fn build_response(
             alias,
             follow,
             params.since_version,
+            exclude_ids,
         )
         .await
         .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;
@@ -227,10 +241,15 @@ async fn build_response(
 /// Group records by section (`record.path`) and emit a CloudMap-shaped
 /// object: `{ section: { key: json } }`. An empty input produces `{}`.
 ///
-/// Each record's JSON object is enriched with two extra keys so
-/// clients can echo back a [`unfurl_git_sync::CommitRef`] for
-/// optimistic-concurrency on subsequent writes:
+/// Each record's JSON object is enriched with three extra keys so
+/// clients can identify the row and echo back a
+/// [`unfurl_git_sync::CommitRef`] for optimistic-concurrency on
+/// subsequent writes:
 ///
+/// - `"unfurl.server.id"` — the row's primary-key id (always
+///   present); useful as a stable identifier across renames and as
+///   an entry in the `exclude` list passed to a follow-up
+///   `find_records_follow`.
 /// - `"unfurl.server.version"` — the row's [`Record::version`]
 ///   (always present); use as `CommitRef::Pending(v)`.
 /// - `"unfurl.server.commit"` — the row's `commit_id`, or `null`
@@ -246,7 +265,7 @@ fn records_to_document(records: Vec<Record>) -> Value {
         let Some(section) = section_for_path(&r.path) else {
             continue;
         };
-        let enriched = annotate_record(r.json, r.version, r.commit_id);
+        let enriched = annotate_record(r.json, r.id, r.version, r.commit_id);
         sections.entry(section).or_default().insert(r.key, enriched);
     }
     let mut out = Map::new();
@@ -256,12 +275,13 @@ fn records_to_document(records: Vec<Record>) -> Value {
     Value::Object(out)
 }
 
-/// Splice the OCC tokens onto a record's JSON payload. No-op when the
-/// payload isn't a JSON object.
-fn annotate_record(json: Value, version: i64, commit_id: Option<String>) -> Value {
+/// Splice the row's identity + OCC tokens onto its JSON payload.
+/// No-op when the payload isn't a JSON object.
+fn annotate_record(json: Value, id: i64, version: i64, commit_id: Option<String>) -> Value {
     let Value::Object(mut map) = json else {
         return json;
     };
+    map.insert("unfurl.server.id".to_string(), Value::from(id));
     map.insert("unfurl.server.version".to_string(), Value::from(version));
     map.insert(
         "unfurl.server.commit".to_string(),
@@ -280,13 +300,18 @@ fn annotate_record(json: Value, version: i64, commit_id: Option<String>) -> Valu
 /// - `unfurl.server.commit` (string) → [`CommitRef::Commit`].
 /// - `unfurl.server.version` (i64) → [`CommitRef::Pending`].
 /// - When both are present, `Commit` wins (it's the stricter token).
-/// - Both keys are popped regardless so neither leaks into the
-///   payload that gets persisted to disk.
+/// - All three identity keys (including `unfurl.server.id`) are
+///   popped regardless so none leak into the payload that gets
+///   persisted to disk.
 fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
     let oid = map
         .remove("unfurl.server.commit")
         .and_then(|v| v.as_str().map(str::to_string));
     let version = map.remove("unfurl.server.version").and_then(|v| v.as_i64());
+    // `unfurl.server.id` is server-assigned identity; the row already
+    // owns its id, so the client's echo is dropped without affecting
+    // the OCC decision.
+    map.remove("unfurl.server.id");
     if let Some(o) = oid {
         return Some(CommitRef::Commit(o));
     }

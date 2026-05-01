@@ -558,18 +558,23 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     let start_path = "/repositories";
     let start_key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
 
+    // BFS now batches per-level (one `key IN (...)` query per
+    // frontier), so within each level the database returns rows in
+    // its `ORDER BY path, key` order. That puts the 2nd-level
+    // entries `/artifacts pkg:oci/odoo` before
+    // `/repositories git://…unfurl-types.git` here.
     let expected_walk: Vec<(&str, &str)> = vec![
         (
             "/artifacts",
             "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
         ),
         (
-            "/repositories",
-            "git://unfurl.cloud/onecommons/unfurl-types.git",
-        ),
-        (
             "/artifacts",
             "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo",
+        ),
+        (
+            "/repositories",
+            "git://unfurl.cloud/onecommons/unfurl-types.git",
         ),
         (
             "/artifacts",
@@ -586,6 +591,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             0,
             None,
+            Vec::new(),
         )
         .await
         .expect("follow 0");
@@ -603,6 +609,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             10,
             None,
+            Vec::new(),
         )
         .await
         .expect("follow 10");
@@ -631,12 +638,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             .map(|s| s.as_str()),
         Some("cloudmap.artifacts.tosca.ServiceTemplate"),
     );
-    let unfurl_types_repo = &walked[1];
-    assert_eq!(
-        unfurl_types_repo.json.get("name").and_then(|n| n.as_str()),
-        Some("unfurl-types"),
-    );
-    let oci = &walked[2];
+    let oci = &walked[1];
     assert_eq!(
         oci.json
             .get("type")
@@ -644,6 +646,11 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             .and_then(|t| t.keys().next())
             .map(|s| s.as_str()),
         Some("cloudmap.artifacts.oci.Image"),
+    );
+    let unfurl_types_repo = &walked[2];
+    assert_eq!(
+        unfurl_types_repo.json.get("name").and_then(|n| n.as_str()),
+        Some("unfurl-types"),
     );
     assert!(
         oci.json.get("versions").is_some(),
@@ -669,6 +676,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             1,
             None,
+            Vec::new(),
         )
         .await
         .expect("follow 1");

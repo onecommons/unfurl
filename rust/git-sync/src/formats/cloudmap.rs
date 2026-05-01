@@ -176,7 +176,7 @@ impl DataFormat for CloudMapFormat {
         // like `apiVersion`/`kind`, or sections added by a future
         // schema extension we don't know about) keeps its existing
         // key order.
-        if PATH_PREFIXES.iter().any(|p| *p == path) {
+        if PATH_PREFIXES.contains(&path) {
             Order::Sort
         } else {
             Order::PreserveOrder

@@ -407,7 +407,25 @@ impl SyncedRepo {
         alias: bool,
         follow: u32,
         since_version: Option<i64>,
+        exclude: Vec<i64>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
+        // Soft cap on the size of a single batched `key IN (...)`
+        // query. Each follow batch binds `2 * keys` parameters (the
+        // alias OR-clause re-binds the same set), so 100 keys → 200
+        // bindings — newer SQLite has a 32766 cap (we require ≥ 3.45 for JSONB anyway).
+        const MAX_BATCH_KEYS: usize = 100;
+        // Hard cap on `exclude.len() + |visited_ids|`. Each id binds one parameter
+        const MAX_EXCLUDE_IDS: usize = 10000;
+
+        if exclude.len() > MAX_EXCLUDE_IDS {
+            return Err(Error::Other(format!(
+                "find_records_follow: exclude list too large \
+                 ({} > {MAX_EXCLUDE_IDS}); shrink the caller's cache \
+                 or split the walk",
+                exclude.len()
+            )));
+        }
+
         let initial = self
             .find_records(file_path, path, key, alias, since_version)
             .await?;
@@ -420,59 +438,91 @@ impl SyncedRepo {
         let mut format_cache: std::collections::HashMap<String, Option<String>> =
             std::collections::HashMap::new();
 
+        // (path, key) tracking dedupes the followed Vec; id tracking
+        // becomes the SQL `id NOT IN (...)` predicate so the database
+        // skips records the walker has already emitted (or that the
+        // caller pre-excluded).
         let mut visited: BTreeSet<(String, String)> = initial
             .iter()
             .map(|r| (r.path.clone(), r.key.clone()))
             .collect();
+        let mut visited_ids: BTreeSet<i64> = exclude.into_iter().collect();
+        for r in &initial {
+            visited_ids.insert(r.id);
+        }
         let mut queue: std::collections::VecDeque<Record> = initial.iter().cloned().collect();
         let mut followed: Vec<Record> = Vec::new();
+        let mut batch_keys: Vec<String> = Vec::new();
 
-        while let Some(rec) = queue.pop_front() {
-            if followed.len() as u32 >= follow {
+        // Outer loop: accumulate follow keys from the queue into
+        // `batch_keys` and flush in one query whenever the buffer
+        // crosses MAX_BATCH_KEYS (or the queue runs dry). Compared
+        // to the original per-key query, this collapses many records'
+        // `key = ?` lookups into a single `key IN (...)` query; the
+        // `id NOT IN (...)` predicate keeps already-visited records
+        // out of every result set.
+        loop {
+            while let Some(rec) = queue.pop_front() {
+                let format_name = match format_cache.get(&rec.file_path) {
+                    Some(v) => v.clone(),
+                    None => {
+                        let f =
+                            db::file::get(self.db(), self.worktree_id(), &rec.file_path).await?;
+                        let name = f.map(|f| f.format);
+                        format_cache.insert(rec.file_path.clone(), name.clone());
+                        name
+                    }
+                };
+                let Some(name) = format_name else {
+                    continue;
+                };
+                let Some(fmt) = self.formats().by_name(&name) else {
+                    continue;
+                };
+                for key in fmt.follow(&rec) {
+                    batch_keys.push(key);
+                }
+                if batch_keys.len() >= MAX_BATCH_KEYS {
+                    break;
+                }
+            }
+            if batch_keys.is_empty() {
                 break;
             }
-            let format_name = match format_cache.get(&rec.file_path) {
-                Some(v) => v.clone(),
-                None => {
-                    let f = db::file::get(self.db(), self.worktree_id(), &rec.file_path).await?;
-                    let name = f.map(|f| f.format);
-                    format_cache.insert(rec.file_path.clone(), name.clone());
-                    name
+
+            // visited_ids grows as the walk discovers records, so
+            // re-check the cap against the live set before each
+            // flush. Unlike the entry-time check (which is the
+            // caller's mistake), exceeding here is just the walk
+            // outgrowing the SQL parameter budget — stop following
+            // and return what we've collected so far.
+            if visited_ids.len() > MAX_EXCLUDE_IDS * 2 {
+                break;
+            }
+
+            let key_refs: Vec<&str> = batch_keys.iter().map(|s| s.as_str()).collect();
+            let exclude_ids: Vec<i64> = visited_ids.iter().copied().collect();
+            let hits = db::record::find_many(
+                self.db(),
+                self.worktree_id(),
+                &key_refs,
+                true,
+                &exclude_ids,
+                since_version,
+            )
+            .await?;
+            batch_keys.clear();
+
+            for r in hits {
+                let pair = (r.path.clone(), r.key.clone());
+                if !visited.insert(pair) {
+                    continue;
                 }
-            };
-            let Some(name) = format_name else {
-                continue;
-            };
-            let Some(fmt) = self.formats().by_name(&name) else {
-                continue;
-            };
-            for key in fmt.follow(&rec) {
-                // Each follow target is a key matched against
-                // `record.key` and `alias.key` across every record in
-                // the worktree (no path filter). One URL may resolve
-                // to multiple records — they're all added.
-                let hits = db::record::find(
-                    self.db(),
-                    self.worktree_id(),
-                    None,
-                    None,
-                    Some(key.as_str()),
-                    true,
-                    since_version,
-                )
-                .await?;
-                for r in hits {
-                    let id = (r.path.clone(), r.key.clone());
-                    if visited.insert(id) {
-                        queue.push_back(r.clone());
-                        followed.push(r);
-                        if followed.len() as u32 >= follow {
-                            break;
-                        }
-                    }
-                }
-                if followed.len() as u32 >= follow {
-                    break;
+                visited_ids.insert(r.id);
+                queue.push_back(r.clone());
+                followed.push(r);
+                if (followed.len() as u32) >= follow {
+                    return Ok((initial, followed));
                 }
             }
         }

@@ -8,6 +8,7 @@ from typing import (
     Iterable,
     List,
     Sequence,
+    Set,
     Tuple,
     Union,
     Optional,
@@ -1156,11 +1157,23 @@ class CollectVisitor(CloudMapGraphVisitor):
         start_key: URL of the starting record; never re-emitted.
         limit: Maximum number of records to collect. Once reached,
             subsequent ``visit_record`` calls become no-ops.
+        exclude: Optional set of record primary-key ids
+            (``unfurl.server.id`` values, stashed on hydrated records
+            as ``_unfurl_server_id``) to skip during the walk.
+            Records without that attribute fall through unchanged —
+            this matches the rust handler's ``id NOT IN (...)``
+            filter for clients with a warm cache.
     """
 
-    def __init__(self, start_key: str, limit: int) -> None:
+    def __init__(
+        self,
+        start_key: str,
+        limit: int,
+        exclude: Optional[Set[int]] = None,
+    ) -> None:
         self.start_key = start_key
         self.limit = limit
+        self.exclude = exclude or set()
         self.result: Dict[str, Dict[str, Any]] = {}
         self._seen: set = set()
 
@@ -1177,6 +1190,14 @@ class CollectVisitor(CloudMapGraphVisitor):
         if len(self._seen) >= self.limit:
             return True
         if seen or url == self.start_key:
+            return False
+        # Skip records the caller already holds. The id attr is only
+        # set on records hydrated by `CloudMapCache._hydrate_one`
+        # (i.e. records that came back from the rust git-sync
+        # backend's annotate_record) — pure YAML-loaded records have
+        # no id and fall through.
+        rid = getattr(record, "_unfurl_server_id", None)
+        if isinstance(rid, int) and rid in self.exclude:
             return False
         section_name = _CLOUDMAP_KIND_TO_SECTION.get(kind, kind.lower() + "s")
         pair = (section_name, url)

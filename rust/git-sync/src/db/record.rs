@@ -507,6 +507,222 @@ async fn find_pg(
         .collect())
 }
 
+/// Search records whose `key` matches one of `keys`, optionally
+/// resolving alias rows for the same set, and excluding rows whose
+/// `id` appears in `exclude_ids`.
+///
+/// Wider variant of [`find`] for batch lookups: the
+/// [`crate::SyncedRepo::find_records_follow`] walker uses it to issue
+/// one query per BFS frontier rather than one query per follow edge.
+/// Empty `keys` returns an empty `Vec` without touching the database.
+pub(crate) async fn find_many(
+    db: &Db,
+    worktree_id: i64,
+    keys: &[&str],
+    alias: bool,
+    exclude_ids: &[i64],
+    since_version: Option<i64>,
+) -> Result<Vec<Record>> {
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    match db {
+        Db::Sqlite(pool) => {
+            find_many_sqlite(pool, worktree_id, keys, alias, exclude_ids, since_version).await
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            find_many_pg(pool, worktree_id, keys, alias, exclude_ids, since_version).await
+        }
+    }
+}
+
+async fn find_many_sqlite(
+    pool: &sqlx::Pool<sqlx::Sqlite>,
+    worktree_id: i64,
+    keys: &[&str],
+    alias: bool,
+    exclude_ids: &[i64],
+    since_version: Option<i64>,
+) -> Result<Vec<Record>> {
+    let mut sql = String::from(
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
+         WHERE r.worktree_id = ?1 AND r.deleted = 0",
+    );
+    let mut idx: usize = 2;
+
+    let key_start = idx;
+    let key_phs: Vec<String> = (0..keys.len())
+        .map(|i| format!("?{}", key_start + i))
+        .collect();
+    idx += keys.len();
+    if alias {
+        let alias_start = idx;
+        let alias_phs: Vec<String> = (0..keys.len())
+            .map(|i| format!("?{}", alias_start + i))
+            .collect();
+        idx += keys.len();
+        sql.push_str(&format!(
+            " AND (r.key IN ({}) OR EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND a.key IN ({})))",
+            key_phs.join(", "),
+            alias_phs.join(", ")
+        ));
+    } else {
+        sql.push_str(&format!(" AND r.key IN ({})", key_phs.join(", ")));
+    }
+
+    if !exclude_ids.is_empty() {
+        let exclude_start = idx;
+        let exclude_phs: Vec<String> = (0..exclude_ids.len())
+            .map(|i| format!("?{}", exclude_start + i))
+            .collect();
+        idx += exclude_ids.len();
+        sql.push_str(&format!(" AND r.id NOT IN ({})", exclude_phs.join(", ")));
+    }
+
+    if since_version.is_some() {
+        sql.push_str(&format!(" AND r.version > ?{idx}"));
+        idx += 1;
+    }
+    sql.push_str(" ORDER BY r.path, r.key");
+    let _ = idx;
+
+    let mut q =
+        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, i64)>(&sql)
+            .bind(worktree_id);
+    for k in keys {
+        q = q.bind(*k);
+    }
+    if alias {
+        for k in keys {
+            q = q.bind(*k);
+        }
+    }
+    for id in exclude_ids {
+        q = q.bind(*id);
+    }
+    if let Some(v) = since_version {
+        q = q.bind(v);
+    }
+    let rows = q.fetch_all(pool).await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, file_path, path, key, commit_id, json_text, version) in rows {
+        let json: serde_json::Value =
+            serde_json::from_str(&json_text).map_err(|e| Error::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+        out.push(Record {
+            id,
+            worktree_id,
+            file_path,
+            path,
+            key,
+            commit_id,
+            json,
+            deleted: false,
+            version,
+        });
+    }
+    Ok(out)
+}
+
+#[cfg(feature = "postgres")]
+async fn find_many_pg(
+    pool: &sqlx::Pool<sqlx::Postgres>,
+    worktree_id: i64,
+    keys: &[&str],
+    alias: bool,
+    exclude_ids: &[i64],
+    since_version: Option<i64>,
+) -> Result<Vec<Record>> {
+    let mut sql = String::from(
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
+         WHERE r.worktree_id = $1 AND r.deleted = FALSE",
+    );
+    let mut idx: usize = 2;
+
+    let key_start = idx;
+    let key_phs: Vec<String> = (0..keys.len())
+        .map(|i| format!("${}", key_start + i))
+        .collect();
+    idx += keys.len();
+    if alias {
+        let alias_start = idx;
+        let alias_phs: Vec<String> = (0..keys.len())
+            .map(|i| format!("${}", alias_start + i))
+            .collect();
+        idx += keys.len();
+        sql.push_str(&format!(
+            " AND (r.key IN ({}) OR EXISTS (SELECT 1 FROM alias a WHERE a.record_id = r.id AND a.key IN ({})))",
+            key_phs.join(", "),
+            alias_phs.join(", ")
+        ));
+    } else {
+        sql.push_str(&format!(" AND r.key IN ({})", key_phs.join(", ")));
+    }
+
+    if !exclude_ids.is_empty() {
+        let exclude_start = idx;
+        let exclude_phs: Vec<String> = (0..exclude_ids.len())
+            .map(|i| format!("${}", exclude_start + i))
+            .collect();
+        idx += exclude_ids.len();
+        sql.push_str(&format!(" AND r.id NOT IN ({})", exclude_phs.join(", ")));
+    }
+
+    if since_version.is_some() {
+        sql.push_str(&format!(" AND r.version > ${idx}"));
+        idx += 1;
+    }
+    sql.push_str(" ORDER BY r.path, r.key");
+    let _ = idx;
+
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            Option<String>,
+            serde_json::Value,
+            i64,
+        ),
+    >(&sql)
+    .bind(worktree_id);
+    for k in keys {
+        q = q.bind(*k);
+    }
+    if alias {
+        for k in keys {
+            q = q.bind(*k);
+        }
+    }
+    for id in exclude_ids {
+        q = q.bind(*id);
+    }
+    if let Some(v) = since_version {
+        q = q.bind(v);
+    }
+    let rows = q.fetch_all(pool).await?;
+    Ok(rows
+        .into_iter()
+        .map(|(id, fp, p, k, cid, json, version)| Record {
+            id,
+            worktree_id,
+            file_path: fp,
+            path: p,
+            key: k,
+            commit_id: cid,
+            json,
+            deleted: false,
+            version,
+        })
+        .collect())
+}
+
 pub(crate) async fn get(
     db: &Db,
     worktree_id: i64,

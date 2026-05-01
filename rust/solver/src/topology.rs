@@ -449,6 +449,7 @@ impl PartialOrd for SimpleValue {
 }
 
 impl Eq for SimpleValue {
+    #[allow(internal_eq_trait_method_impls)]
     fn assert_receiver_is_total_eq(&self) {
         // skip this check so we can pretend f64 are Eq
         // XXX fix this (use float_eq::FloatEq? or ordered-float

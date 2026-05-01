@@ -108,7 +108,7 @@ jobs:
       - name: Run cargo clippy and cargo test
         if: matrix.python == '3.14'
         run: |
-          cargo clippy --manifest-path rust/Cargo.toml
+          cargo clippy --manifest-path rust/Cargo.toml --all-features -- -D warnings
           cargo test --no-default-features --manifest-path rust/Cargo.toml
           cargo test -p unfurl-git-sync --manifest-path rust/Cargo.toml --no-default-features --features postgres
       - name: upload code coverage report

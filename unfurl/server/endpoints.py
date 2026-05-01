@@ -18,7 +18,7 @@ import json
 import os
 import re
 from base64 import b64decode
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
 from flask import Response, current_app, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
@@ -118,6 +118,20 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     except ValueError:
         follow = 0
 
+    # `exclude` is a CSV of record primary-key ids the caller already
+    # holds (matches the rust handler's contract). Non-numeric tokens
+    # are silently dropped — same as the rust side.
+    exclude_param = request.args.get("exclude") or ""
+    exclude_ids: Set[int] = set()
+    for tok in exclude_param.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            exclude_ids.add(int(tok))
+        except ValueError:
+            pass
+
     if not kind:
         primary: Any = doc
     else:
@@ -137,7 +151,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         from ..reporting import CollectVisitor, walk_cloudmap_graph
 
         db = CloudMapDB("", doc, False)
-        visitor = CollectVisitor(key, follow)
+        visitor = CollectVisitor(key, follow, exclude=exclude_ids)
         walk_cloudmap_graph(db, visitor, key)
         followed = visitor.result
 
