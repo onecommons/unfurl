@@ -117,6 +117,33 @@ def test_convert():
         assert tosca_to_rust(prop)
 
 
+def test_simple_value_float():
+    """SimpleValue.float round-trips through Python and supports value equality + ordering."""
+    a = ToscaValue(SimpleValue.float(v=1.5))
+    b = ToscaValue(SimpleValue.float(v=1.5))
+    c = ToscaValue(SimpleValue.float(v=2.5))
+    assert a == b
+    assert a != c
+    # underlying f64 reads back as a Python float
+    assert isinstance(a.v.v, float)
+    assert a.v.v == 1.5
+    # SimpleValue equality bridges to Python too
+    assert SimpleValue.float(v=1.5) == SimpleValue.float(v=1.5)
+    assert SimpleValue.float(v=1.5) != SimpleValue.float(v=2.5)
+    # NaN is accepted (the case OrderedF64 was introduced to handle); two NaN
+    # SimpleValues compare equal (matching the Hash impl).
+    nan_a = SimpleValue.float(v=float("nan"))
+    nan_b = SimpleValue.float(v=float("nan"))
+    assert nan_a == nan_b
+    # Ordering bridges to Python (pyclass(ord)).
+    assert a < c
+    assert SimpleValue.float(v=1.5) < SimpleValue.float(v=2.5)
+    # ToscaValue ordering compares `v` before `type_name`.
+    typed_low = ToscaValue(SimpleValue.float(v=1.5), name="zzz")
+    untyped_high = ToscaValue(SimpleValue.float(v=2.5))
+    assert typed_low < untyped_high
+
+
 def test_solve():
     f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0)), None))
     na = Node("a", "Foo", fields=[f])

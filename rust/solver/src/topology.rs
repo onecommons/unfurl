@@ -11,7 +11,12 @@ use ascent::{ascent, lattice::set::Set};
 use regex::Regex;
 use semver::{Version, VersionReq};
 use std::convert::From;
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
@@ -79,7 +84,7 @@ type Query = Vec<(QueryType, String, String)>;
 ///
 /// Corresponds to "node", "capability", and "node_filter"
 /// fields on a TOSCA requirement and "valid_target_types" on relationship types.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq))]
 #[derive(Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
 
 pub enum CriteriaTerm {
@@ -326,7 +331,7 @@ impl Constraint {
                 let version_str = match &t.v {
                     SimpleValue::string { v } => v.clone(),
                     SimpleValue::integer { v } => v.to_string(),
-                    SimpleValue::float { v } => v.to_string(),
+                    SimpleValue::float { v } => v.0.to_string(),
                     _ => return Some(false), // other types can't be semver compatible
                 };
 
@@ -394,16 +399,88 @@ fn match_criteria(full: &Criteria, current: &Criteria) -> bool {
     full == current
 }
 
+/// `f64` wrapper that defines a total equality, ordering, and hash so it can
+/// be used inside types that need `Eq`/`Hash`. NaN is treated as equal to
+/// NaN (consistent with hashing the bit pattern), and `total_cmp` provides a
+/// total order over all `f64` values including NaN.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct OrderedF64(pub f64);
+
+impl PartialEq for OrderedF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for OrderedF64 {}
+
+impl Hash for OrderedF64 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
+impl PartialOrd for OrderedF64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF64 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+impl From<f64> for OrderedF64 {
+    fn from(v: f64) -> Self {
+        OrderedF64(v)
+    }
+}
+
+impl From<OrderedF64> for f64 {
+    fn from(v: OrderedF64) -> Self {
+        v.0
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> IntoPyObject<'py> for OrderedF64 {
+    type Target = pyo3::types::PyFloat;
+    type Output = Bound<'py, pyo3::types::PyFloat>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> IntoPyObject<'py> for &OrderedF64 {
+    type Target = pyo3::types::PyFloat;
+    type Output = Bound<'py, pyo3::types::PyFloat>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> FromPyObject<'py> for OrderedF64 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(OrderedF64(ob.extract::<f64>()?))
+    }
+}
+
 /// Simple TOSCA value
 #[allow(non_camel_case_types)]
-#[cfg_attr(feature = "python", pyclass)]
-#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SimpleValue {
     // tosca simple values
     integer { v: i128 },
     string { v: String },
     boolean { v: bool },
-    float { v: f64 },
+    float { v: OrderedF64 },
     list { v: Vec<ToscaValue> },
     range { v: (i128, i128) },
     map { v: BTreeMap<String, ToscaValue> },
@@ -448,27 +525,19 @@ impl PartialOrd for SimpleValue {
     }
 }
 
-impl Eq for SimpleValue {
-    #[allow(internal_eq_trait_method_impls)]
-    fn assert_receiver_is_total_eq(&self) {
-        // skip this check so we can pretend f64 are Eq
-        // XXX fix this (use float_eq::FloatEq? or ordered-float
-    }
-}
-
 impl Hash for SimpleValue {
     #[inline]
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) {
-        let __self_tag = std::mem::discriminant(self);
-        Hash::hash(&__self_tag, state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let tag = std::mem::discriminant(self);
+        Hash::hash(&tag, state);
         match self {
-            SimpleValue::integer { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::string { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::boolean { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::float { v: __self_0 } => Hash::hash(&__self_0.to_bits(), state),
-            SimpleValue::list { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::range { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::map { v: __self_0 } => Hash::hash(__self_0, state),
+            SimpleValue::integer { v } => Hash::hash(v, state),
+            SimpleValue::string { v } => Hash::hash(v, state),
+            SimpleValue::boolean { v } => Hash::hash(v, state),
+            SimpleValue::float { v } => Hash::hash(v, state),
+            SimpleValue::list { v } => Hash::hash(v, state),
+            SimpleValue::range { v } => Hash::hash(v, state),
+            SimpleValue::map { v } => Hash::hash(v, state),
         }
     }
 }
@@ -484,7 +553,14 @@ macro_rules! sv_from {
 }
 
 sv_from!(i128, integer);
-sv_from!(f64, float);
+sv_from!(OrderedF64, float);
+impl From<f64> for SimpleValue {
+    fn from(item: f64) -> Self {
+        SimpleValue::float {
+            v: OrderedF64(item),
+        }
+    }
+}
 sv_from!(bool, boolean);
 sv_from!(String, string);
 sv_from!((i128, i128), range);
@@ -492,22 +568,24 @@ sv_from!(Vec<ToscaValue>, list);
 sv_from!(BTreeMap<String, ToscaValue>, map);
 
 /// A TOSCA value. If a complex value or typed scalar, type_name will be set.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct ToscaValue {
-    #[cfg(feature = "python")]
-    #[pyo3(get, set)]
-    pub type_name: Option<String>,
-
-    #[cfg(not(feature = "python"))]
-    pub type_name: Option<String>,
-
+    // `v` comes before `type_name` so the derived ordering compares the
+    // underlying value first; `type_name` is a tie-breaker.
     #[cfg(feature = "python")]
     #[pyo3(get)]
     pub v: SimpleValue,
 
     #[cfg(not(feature = "python"))]
     pub v: SimpleValue,
+
+    #[cfg(feature = "python")]
+    #[pyo3(get, set)]
+    pub type_name: Option<String>,
+
+    #[cfg(not(feature = "python"))]
+    pub type_name: Option<String>,
 }
 
 #[cfg(feature = "python")]
@@ -551,7 +629,7 @@ tv_from!(Vec<ToscaValue>);
 tv_from!(BTreeMap<String, ToscaValue>);
 
 /// Value of a [Node](crate::Node) field.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
@@ -570,7 +648,7 @@ pub enum FieldValue {
 }
 
 /// [Node](crate::Node) field.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct Field {
     #[cfg(feature = "python")]
@@ -879,6 +957,53 @@ mod tests {
         };
         assert!(range.matches(&ToscaValue::from(1)).unwrap());
         assert!(!range.matches(&ToscaValue::from(6)).unwrap());
+    }
+
+    #[test]
+    fn test_tvalue_float_eq() {
+        use std::collections::hash_map::DefaultHasher;
+
+        fn assert_eq_bound<T: Eq>(_: &T) {}
+
+        let a = SimpleValue::float { v: OrderedF64(1.5) };
+        let b = SimpleValue::float { v: OrderedF64(1.5) };
+        let c = SimpleValue::float { v: OrderedF64(2.5) };
+        let nan1 = SimpleValue::float {
+            v: OrderedF64(f64::NAN),
+        };
+        let nan2 = SimpleValue::float {
+            v: OrderedF64(f64::NAN),
+        };
+
+        // Eq holds (compiler check) and PartialEq agrees on equal/unequal pairs.
+        assert_eq_bound(&a);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+
+        // NaN is treated as equal to NaN — consistent with the Hash impl.
+        assert_eq!(nan1, nan2);
+
+        // Equal values hash the same.
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        a.hash(&mut h1);
+        b.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+
+        // From<f64> still produces an equivalent SimpleValue::float.
+        assert_eq!(SimpleValue::from(1.5_f64), a);
+
+        // Total ordering on floats; NaN sorts after finite values.
+        assert!(a < c);
+        assert!(c < nan1);
+
+        // SimpleValue can now live in a HashSet (requires Eq + Hash).
+        let mut set = std::collections::HashSet::new();
+        set.insert(a.clone());
+        set.insert(b.clone());
+        assert_eq!(set.len(), 1);
+        set.insert(c);
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
