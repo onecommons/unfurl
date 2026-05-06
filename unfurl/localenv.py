@@ -882,16 +882,17 @@ class LocalConfig:
         from .runtime import NodeInstance
 
         if "default" in attributes:
-            if not "default" in attributes.get(".interfaces", {}):
-                attributes.setdefault(".interfaces", {})["default"] = (
-                    "unfurl.support.DelegateAttributes"
-                )
+            attributes.setdefault(".interfaces", {})["default"] = (
+                "unfurl.support.DelegateAttributes"
+            )
         if "inheritFrom" in attributes:
-            if not "inherit" in attributes.get(".interfaces", {}):
-                attributes.setdefault(".interfaces", {})["inherit"] = (
-                    "unfurl.support.DelegateAttributes"
-                )
+            attributes.setdefault(".interfaces", {})["inherit"] = (
+                "unfurl.support.DelegateAttributes"
+            )
         instance = NodeInstance(localName, attributes)
+        # preload
+        instance._get_interface("inherit")
+        instance._get_interface("default")
         instance._baseDir = self.config.get_base_dir()
         return instance
 

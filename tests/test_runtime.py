@@ -421,7 +421,7 @@ class InterfaceTest(unittest.TestCase):
         r.add_interface(TestInterface)
         className = __name__ + ".TestInterface"
         self.assertEqual(r.attributes[".interfaces"], {className: className})
-        i = r.get_interface(className)
+        i = r._get_interface(className)
         assert i, "interface not found"
         self.assertIs(r, i.resource)
         self.assertEqual(i.name, className)

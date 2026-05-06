@@ -1085,9 +1085,6 @@ class NodeInstance(HasInstancesInstance):
         HasInstancesInstance.__init__(self, name, attributes, parent, template, status)
 
         self._interfaces = {}
-        # preload
-        self.get_interface("inherit")
-        self.get_interface("default")
 
     def _find_relationship(
         self, relationship: RelationshipSpec
@@ -1366,8 +1363,8 @@ class NodeInstance(HasInstancesInstance):
         current[name or klass] = klass
         return current
 
-    def get_interface(self, name):
-        # XXX uses TOSCA interfaces instead
+    def _get_interface(self, name):
+        # note: jinja2 sandbox environment disallows attribute access starting with "_"
         if ".interfaces" not in self._attributes:
             return None  # no interfaces
 

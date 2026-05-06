@@ -2056,16 +2056,13 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         assert output[1] == exp_path
 
 
-def test_sandbox(capsys):
-    _to_yaml("print('hello', 'world')", True)
-    captured = capsys.readouterr()
-    assert captured.out == "hello world"
-
+def test_sandbox_denied():
     # disallowed imports parse but raise ImportError when accessed
     imports = [
         "import sys",
         "import tosca.python2yaml",
         "from tosca.python2yaml import ALLOWED_MODULE, missing",
+        "from unfurl.repo import normalize_git_url",
     ]
     for src in imports:
         assert _to_yaml(src, True)
@@ -2119,12 +2116,22 @@ tosca.nodes.Root._type_name = 'pown'""",
         "import unfurl; unfurl._ImmutableModule__set_sub_module('foo', 'bar')",
         "import tosca; del tosca.nodes.Root().__class__._name"
         "import tosca; tosca.nodes.Root().__class__.trick = 'tricky'",
+        '''
+        def t():
+            from unfurl.repo import normalize_git_url
+            normalize_git_url('http://example.com')
+        '''
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
         with pytest.raises(Exception):
             assert _to_yaml(src, True)
 
+def test_sandbox_allowed(capsys):
+    _to_yaml("print('hello', 'world')", True)
+    captured = capsys.readouterr()
+    assert captured.out == "hello world"
+    
     allowed = [
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
@@ -2148,6 +2155,7 @@ node.__class__.feature
         "a, b = 1, 2; assert a == 1 and b == 2",
         "(foo := 1)",
         "try: a='ok'\nexcept: a='fail'",
+        "from unfurl.tosca_plugins.cloudmap_defs import get_repository_url; get_repository_url('https://example.com')",
     ]
     for src in allowed:
         # print("\nallowed?\n", src)

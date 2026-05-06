@@ -144,12 +144,14 @@ class ResourceRef(ABC):
     def base_dir(self) -> str:
         return ""
 
-    def _get_prop(self, name):
+    def _get_prop(self, name: str):
         if name == ".":
             return self
         elif name == "..":
             return self.parent
         name = name[1:]
+        if name.startswith("_"):  # disallow access to private attributes
+            raise AttributeError(name)
         # XXX3 use propmap
         return getattr(self, name)
 
