@@ -14,6 +14,7 @@ POSTs the diff. Per-record OCC tokens (``unfurl.server.version`` /
 
 from __future__ import annotations
 
+import base64
 from typing import (
     Any,
     Dict,
@@ -25,6 +26,7 @@ from typing import (
     Tuple,
     Union,
 )
+from urllib.parse import parse_qsl, urlparse, urlunparse
 
 import requests
 
@@ -256,6 +258,9 @@ class CloudMapCache(CloudMapDB):
         return getattr(self, section, {}).get(key)
 
 
+DEFAULT_REQUEST_TIMEOUT = 30.0
+
+
 class CloudMapProxy(CloudMapView):
     """:class:`CloudMapView` implementation backed by a remote
     unfurl-server.
@@ -289,22 +294,28 @@ class CloudMapProxy(CloudMapView):
         self,
         base_url: str,
         *,
-        auth_project: Optional[str] = None,
         username: Optional[str] = None,
         private_token: Optional[str] = None,
-        commit_msg: Optional[str] = None,
         follow_depth: int = 1024,
         session: Optional[requests.Session] = None,
-        timeout: float = 30.0,
+        timeout: Optional[float] = None,
     ) -> None:
-        self._base_url = base_url.rstrip("/")
-        self._auth_project = auth_project
+        # ``base_url`` may carry query parameters (e.g.
+        # ``http://server/?auth_project=foo``); split them out so each
+        # request preserves them while still allowing per-call extras.
+        parsed = urlparse(base_url)
+        path = parsed.path.rstrip("/")
+        self._endpoint = urlunparse(
+            parsed._replace(path=f"{path}/cloudmap", query="", fragment="")
+        )
+        self._base_query: List[Tuple[str, str]] = parse_qsl(
+            parsed.query, keep_blank_values=True
+        )
         self._username = username
         self._private_token = private_token
-        self._commit_msg = commit_msg
         self._follow_depth = follow_depth
         self._session = session or requests.Session()
-        self._timeout = timeout
+        self._timeout = timeout if timeout is not None else DEFAULT_REQUEST_TIMEOUT
 
         # In-memory mirror of records observed from the server.
         self._cache = CloudMapCache()
@@ -317,28 +328,46 @@ class CloudMapProxy(CloudMapView):
     # HTTP plumbing
     # -----------------------------------------------------------------
 
-    def _query_params(self, **extra: Any) -> Dict[str, Any]:
-        params: Dict[str, Any] = {}
-        if self._auth_project:
-            params["auth_project"] = self._auth_project
+    def _query_params(self, **extra: Any) -> List[Tuple[str, str]]:
+        # Merge the base_url's query params with per-call extras. A list
+        # of pairs is used (not a dict) so that base_url query keys with
+        # multiple values round-trip unchanged.
+        params: List[Tuple[str, str]] = list(self._base_query)
         for k, v in extra.items():
             if v is not None:
-                params[k] = v
+                params.append((k, str(v)))
         return params
 
-    def _get(self, params: Dict[str, Any]) -> Any:
-        url = f"{self._base_url}/cloudmap"
-        r = self._session.get(url, params=params, timeout=self._timeout)
+    def _headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if self._username and self._private_token:
+            creds = f"{self._username}:{self._private_token}".encode("utf-8")
+            headers["X-Git-Credentials"] = base64.b64encode(creds).decode("ascii")
+        return headers
+
+    def _get(self, params: List[Tuple[str, str]]) -> Any:
+        r = self._session.get(
+            self._endpoint,
+            params=params,
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
         if r.status_code == 404:
             return None
         if not r.ok:
-            raise CloudMapProxyError(f"GET {url} -> {r.status_code}: {r.text}")
+            raise CloudMapProxyError(
+                f"GET {self._endpoint} -> {r.status_code}: {r.text}"
+            )
         return r.json()
 
     def _post(self, body: Dict[str, Any]) -> Dict[str, Any]:
-        url = f"{self._base_url}/cloudmap"
-        params = self._query_params()
-        r = self._session.post(url, params=params, json=body, timeout=self._timeout)
+        r = self._session.post(
+            self._endpoint,
+            params=self._query_params(),
+            json=body,
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
         if r.status_code == 409:
             try:
                 detail = r.json()
@@ -351,7 +380,9 @@ class CloudMapProxy(CloudMapView):
                 message=str(detail),
             )
         if not r.ok:
-            raise CloudMapProxyError(f"POST {url} -> {r.status_code}: {r.text}")
+            raise CloudMapProxyError(
+                f"POST {self._endpoint} -> {r.status_code}: {r.text}"
+            )
         return r.json()
 
     # -----------------------------------------------------------------
@@ -538,7 +569,7 @@ class CloudMapProxy(CloudMapView):
     # save / refresh
     # -----------------------------------------------------------------
 
-    def save(self) -> Optional[str]:
+    def save(self, commit_msg: Optional[str] = None) -> Optional[str]:
         """POST buffered writes to the server. Returns the new commit
         oid (or ``None`` if there were no changes).
 
@@ -560,8 +591,8 @@ class CloudMapProxy(CloudMapView):
             body["username"] = self._username
         if self._private_token:
             body["private_token"] = self._private_token
-        if self._commit_msg:
-            body["commit_msg"] = self._commit_msg
+        if commit_msg:
+            body["commit_msg"] = commit_msg
         for section, entries in self._pending_writes.items():
             body[section] = entries
 

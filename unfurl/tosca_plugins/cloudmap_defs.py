@@ -34,7 +34,7 @@ from typing import (
 from typing_extensions import Literal, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
-from unfurl.repo import normalize_git_url
+from unfurl.repo import normalize_git_url, split_git_url, git_url_join
 from unfurl.tosca_plugins.functions import ContainerImageParts
 
 if TYPE_CHECKING:
@@ -1183,6 +1183,23 @@ class CloudMapView(ABC):
 
     @abstractmethod
     def find_repositories(self) -> Iterable["Repository"]: ...
+
+    def resolve_cloudmap_url(self, cloudmap_url: str) -> Optional[str]:
+        "Convert 'cloudmap:<package_id>' pseudo-URLs to resolvable (e.g. https://) git URL."
+        # call split_git_url to parse the #fragment
+        repo_url, filePath, revision = split_git_url(cloudmap_url)
+        found_prefix = ""
+        for prefix in ("cloudmap:", "repository:", "artifact:", "instantiation:"):
+            if repo_url.startswith(prefix):
+                found_prefix = prefix
+                repo_url = repo_url[len(prefix) :]
+        repo_record = self.get_repository(repo_url)
+        if repo_record:
+            repo_url = repo_record.git_url()
+        else:
+            # XXX if found_prefix = artifact or instantiation, get source from record
+            repo_url = repo_url.replace("git://", "https://")
+        return git_url_join(repo_url, filePath, revision)
 
 
 class AnalyzerContext(CloudMapView):

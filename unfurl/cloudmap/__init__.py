@@ -339,27 +339,46 @@ class _LocalGitRepos:
         self, local_repo_root: str = "", _logger: Optional[UnfurlLogger] = None
     ) -> None:
         self.logger = _logger or logger
-        # Repository url => remotes
-        self.remotes: Dict[str, List[git.Remote]] = {}
-        # working_dir => repo
-        self.repos: Dict[str, GitRepo] = {}
-        self._set_repos(os.path.expanduser(local_repo_root))
+        # Repository url => remotes (populated lazily; access via the ``remotes`` property).
+        self._remotes: Dict[str, List[git.Remote]] = {}
+        # working_dir => repo (populated lazily; access via the ``repos`` property).
+        self._repos: Dict[str, GitRepo] = {}
+        self.repos_root: str = os.path.expanduser(local_repo_root)
+        self._repos_loaded = False
+
+    def _ensure_loaded(self) -> None:
+        if self._repos_loaded:
+            return
+        # set first so re-entrant ``self.repos`` accesses inside ``_set_repos``
+        # (e.g. via subclass overrides) don't recurse back into the loader.
+        self._repos_loaded = True
+        self._set_repos(self.repos_root)
+
+    @property
+    def repos(self) -> Dict[str, GitRepo]:
+        self._ensure_loaded()
+        return self._repos
+
+    @property
+    def remotes(self) -> Dict[str, List[git.Remote]]:
+        self._ensure_loaded()
+        return self._remotes
 
     def _add_repo(self, repo: GitRepo) -> Optional[GitRepo]:
         working_dir = repo.working_dir
         if not repo.remote:
             self.logger.debug(f"skipping git repo in {working_dir}: no remote set")
-        elif working_dir not in self.repos:
+        elif working_dir not in self._repos:
             gitrepo: git.Repo = repo.repo
             for remote in gitrepo.remotes:
                 if not remote.url:
                     continue
                 url = get_repository_url(remote.url)
-                remotes = self.remotes.setdefault(url, [])
+                remotes = self._remotes.setdefault(url, [])
                 if remote not in remotes:
                     remotes.append(remote)
                 self.logger.trace(f"found git repo {url} in {working_dir}")
-            self.repos[working_dir.rstrip("/")] = repo
+            self._repos[working_dir.rstrip("/")] = repo
         return None
 
     def _set_repos(self, root: str) -> None:
@@ -419,23 +438,6 @@ class CloudMapDB(CloudMapView):
             # package ids don't have .git suffix, try adding it
             return self.repositories.get(url + ".git")
         return found
-
-    def cloudmap_to_git_url(self, cloudmap_url: str) -> Optional[str]:
-        "Convert 'cloudmap:<package_id>' pseudo-URLs to resolvable (e.g. https://) git URL."
-        # call split_git_url to parse the #fragment
-        repo_url, filePath, revision = split_git_url(cloudmap_url)
-        found_prefix = ""
-        for prefix in ("cloudmap:", "repository:", "artifact:", "instantiation:"):
-            if repo_url.startswith(prefix):
-                found_prefix = prefix
-                repo_url = repo_url[len(prefix) :]
-        repo_record = self.get_repository(repo_url)
-        if repo_record:
-            repo_url = repo_record.git_url()
-        else:
-            # XXX if found_prefix = artifact or instantiation, get source from record
-            repo_url = repo_url.replace("git://", "https://")
-        return git_url_join(repo_url, filePath, revision)
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
         if url.startswith("#/artifacts/"):
@@ -725,10 +727,6 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         self.cloudmap = cloudmap
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
-        if cloudmap.local_env:
-            for repo in cloudmap.local_env._get_repos():
-                if isinstance(repo, GitRepo):
-                    self._add_repo(repo)
         self.do_analysis = not skip_analysis
 
         # Start with default Notable classes and add custom analyzers from cloudmap.
@@ -745,6 +743,13 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         )
 
         self.analyzer = RepositoryAnalyzer(notable_classes, self.logger)
+
+    def _set_repos(self, root: str) -> None:
+        super()._set_repos(root)
+        if self.cloudmap.local_env:
+            for repo in self.cloudmap.local_env._get_repos():
+                if isinstance(repo, GitRepo):
+                    self._add_repo(repo)
 
     # --- CloudMapView implementation ---
 
@@ -2245,11 +2250,11 @@ class CloudMap:
             host_branch:  Working cloudmap branch (default to ``hosts/{host_name}``)
             source_branch: Source-of-truth cloudmap branch used for exporting to a host.
             localrepo_root: Root directory for local repository clones used by sync.
-            path: Path to the cloudmap file relative to the ``repo`` root.
+            path: Path to the cloudmap file, if relative, relative to the ``repo`` root or project root if ``repo`` is None.
             skip_analysis: Skip repository content analysis when True.
+            commit: Whether to commit changes to the cloudmap repository after syncing.
             logger: Logger used for cloudmap operations.
             local_env: Optional local environment used for context and config.
-            custom_analyzers: Optional additional Notable analyzers.
         """
         self.logger = logger
         self.host_branch = host_branch or source_branch
@@ -2258,7 +2263,12 @@ class CloudMap:
         project_path = (
             local_env and local_env.project and local_env.project.projectRoot
         ) or "."
-        base_path = repo.working_dir if repo else project_path
+        if os.path.isabs(path):
+            filepath = path
+        elif repo:
+            filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
+        else:
+            filepath = str(Path(project_path) / (path or "cloudmap.yaml"))
         # Load custom analyzers after repo is available
         self.custom_analyzers = self._load_custom_analyzers(
             local_env, project_path, logger
@@ -2283,7 +2293,7 @@ class CloudMap:
         self._visited: set[str] = set()
         self.directory = Directory(
             self,
-            str(Path(base_path) / (path or "cloudmap.yaml")),
+            filepath,
             localrepo_root,
             skip_analysis,
         )
@@ -2312,17 +2322,55 @@ class CloudMap:
             yield cls
 
     @classmethod
-    def get_db(
+    def get_context(
         cls,
         local_env: "LocalEnv",
         name: str = "cloudmap",
-    ) -> "CloudMapDB":
+    ) -> "CloudMapView":
+        # XXX change this to AnalyzerContext and use this for the --add cloudmap cli option
+        env_context = local_env.get_context()
+        environment = env_context.get("cloudmaps", {})
+        # check "servers" first (what to return if server??)
+        server = environment.get("servers", {}).get(name)
+        url = ""
+        if server:
+            server = local_env.map_value(server, env_context.get("variables"))
+            url = server.get("url")
+        else:
+            server = {}
+            if name == "cloudmap":
+                url = ""  # XXX when live: DEFAULT_CLOUDMAP_URL
+            else:
+                parts = urlparse(name)
+                if (
+                    parts.scheme
+                    and not cls._is_git_url(name)
+                    and parts.hostname not in ("github.com", "gitlab.com")
+                ):
+                    url = name
+        if url:
+            from .proxy import CloudMapProxy
+
+            return CloudMapProxy(
+                url,
+                username=server.get("username"),
+                private_token=server.get("password"),
+                timeout=server.get("timeout"),
+            )
+        # no server, use repository instead
         url, path, revision, repository = cls.get_config(local_env, name)
         repo, _, _ = local_env.find_or_create_working_dir(url, revision)
         if not repo:
             raise UnfurlError(f"couldn't clone {url}")
         filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
-        return CloudMapDB(filepath)
+        return CloudMap(
+            repo if isinstance(repo, GitRepo) else None,
+            "",
+            revision,
+            "",
+            filepath,  # use absolute path in case repo is not a git repo
+            local_env=local_env,
+        ).directory
 
     @staticmethod
     def _checkout_cloudmap(
@@ -2456,9 +2504,7 @@ class CloudMap:
                 continue
             analyzer_path = entry.get("path")
             if not analyzer_path:
-                logger.warning(
-                    f"Analyzer config entry missing 'path' key: {entry!r}"
-                )
+                logger.warning(f"Analyzer config entry missing 'path' key: {entry!r}")
                 continue
             try:
                 analyzer_class = load_class_from_file(

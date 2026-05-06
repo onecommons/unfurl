@@ -132,6 +132,9 @@
             "hosts": {
               "type": "object"
             },
+            "servers": {
+              "type": "object"
+            },
             "analyzers": {
               "type": "array",
               "items": {
