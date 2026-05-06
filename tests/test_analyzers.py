@@ -952,7 +952,7 @@ repositories: {{}}
         custom_py.write_text(custom_class_code)
 
     unfurl_yaml = project_path / "unfurl.yaml"
-    analyzers = "\n".join(f"        - {repr(path)}" for path in analyzer_config)
+    analyzers = "\n".join(f"        - path: {repr(path)}" for path in analyzer_config)
     unfurl_yaml.write_text(
         f"""apiVersion: {API_VERSION}
 kind: Project

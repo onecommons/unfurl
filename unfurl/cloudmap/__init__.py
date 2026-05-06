@@ -2447,8 +2447,19 @@ class CloudMap:
             return custom_analyzers
 
         cloudmaps_config = local_env.get_context().get("cloudmaps", {})
-        analyzer_paths = cloudmaps_config.get("analyzers", [])
-        for analyzer_path in analyzer_paths:
+        analyzer_entries = cloudmaps_config.get("analyzers", [])
+        for entry in analyzer_entries:
+            if not isinstance(entry, dict):
+                logger.warning(
+                    f"Analyzer config entry must be a mapping with a 'path' key, got: {entry!r}"
+                )
+                continue
+            analyzer_path = entry.get("path")
+            if not analyzer_path:
+                logger.warning(
+                    f"Analyzer config entry missing 'path' key: {entry!r}"
+                )
+                continue
             try:
                 analyzer_class = load_class_from_file(
                     analyzer_path,
@@ -2476,7 +2487,7 @@ class CloudMap:
 
     @classmethod
     def get_config(cls, local_env: "LocalEnv", name: str) -> Tuple[str, str, str, dict]:
-        # name is a cloudmap url or a named cloudmap repository
+        """name is a cloudmap url or a named cloudmap repository."""
         environment = local_env.get_context().get("cloudmaps", {})
         # for now name is just the name of repository
         repository = environment.get("repositories", {}).get(name)

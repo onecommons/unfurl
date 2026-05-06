@@ -131,6 +131,18 @@
             },
             "hosts": {
               "type": "object"
+            },
+            "analyzers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              }
             }
           }
         },
