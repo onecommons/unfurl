@@ -103,17 +103,36 @@ impl Dialect for sqlx::Sqlite {
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = ?1";
     const INSERT_ALIAS: &'static str =
         "INSERT OR IGNORE INTO alias (record_id, path, key) VALUES (?1, ?2, ?3)";
+    // Embeds the OCC check in the ON CONFLICT DO UPDATE WHERE: the
+    // existing row's version must be <= expected_version (when set)
+    // and its commit_id must equal expected_commit (when set). If
+    // either bind is NULL (caller skipped OCC), the corresponding
+    // arm short-circuits true. RETURNING returns 0 rows when the
+    // WHERE filtered out, which the caller maps to Error::Conflict.
     const UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
          VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, 0, ?6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
            json = excluded.json, commit_id = NULL, deleted = 0, version = excluded.version \
+         WHERE (?7 IS NULL OR record.version <= ?7) \
+           AND (?8 IS NULL OR record.commit_id = ?8) \
          RETURNING id";
+    // Same OCC predicate appended to the UPDATE WHERE clause; the
+    // ``RETURNING id`` lets the caller distinguish "no rows matched"
+    // (race detected → Error::Conflict) from a genuine update via
+    // fetch_optional, without needing a portable rows_affected() bound.
     const UPDATE_RECORD: &'static str =
         "UPDATE record SET json = jsonb(?1), commit_id = NULL, deleted = 0, version = ?3 \
-         WHERE id = ?2";
+         WHERE id = ?2 \
+           AND (?4 IS NULL OR version <= ?4) \
+           AND (?5 IS NULL OR commit_id = ?5) \
+         RETURNING id";
     const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = 1, commit_id = NULL, version = ?2 WHERE id = ?1";
+        "UPDATE record SET deleted = 1, commit_id = NULL, version = ?2 \
+         WHERE id = ?1 \
+           AND (?3 IS NULL OR version <= ?3) \
+           AND (?4 IS NULL OR commit_id = ?4) \
+         RETURNING id";
 }
 
 #[cfg(feature = "postgres")]
@@ -136,17 +155,30 @@ impl Dialect for sqlx::Postgres {
     const INSERT_ALIAS: &'static str =
         "INSERT INTO alias (record_id, path, key) VALUES ($1, $2, $3) \
          ON CONFLICT DO NOTHING";
+    // Embeds the OCC check in the ON CONFLICT DO UPDATE WHERE
+    // (mirrors the SQLite impl; ``::BIGINT`` / ``::TEXT`` casts on
+    // the bind sites are required because postgres can't infer the
+    // type of a NULL parameter).
     const UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
          VALUES ($1, $2, $3, $4, $5::jsonb, NULL, FALSE, $6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
            json = EXCLUDED.json, commit_id = NULL, deleted = FALSE, version = EXCLUDED.version \
+         WHERE ($7::BIGINT IS NULL OR record.version <= $7) \
+           AND ($8::TEXT IS NULL OR record.commit_id = $8) \
          RETURNING id";
     const UPDATE_RECORD: &'static str =
         "UPDATE record SET json = $1::jsonb, commit_id = NULL, deleted = FALSE, version = $3 \
-         WHERE id = $2";
+         WHERE id = $2 \
+           AND ($4::BIGINT IS NULL OR version <= $4) \
+           AND ($5::TEXT IS NULL OR commit_id = $5) \
+         RETURNING id";
     const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = TRUE, commit_id = NULL, version = $2 WHERE id = $1";
+        "UPDATE record SET deleted = TRUE, commit_id = NULL, version = $2 \
+         WHERE id = $1 \
+           AND ($3::BIGINT IS NULL OR version <= $3) \
+           AND ($4::TEXT IS NULL OR commit_id = $4) \
+         RETURNING id";
 }
 
 // ---------------------------------------------------------------------------
@@ -300,8 +332,17 @@ where
 /// INSERT-or-resurrect: if no live row exists, insert a fresh record;
 /// if a tombstone exists for this `(worktree_id, file_path, path, key)`,
 /// resurrect it by clearing the tombstone bit. The unique index makes
-/// both branches converge on the same row id. `version` is stamped
-/// onto the row.
+/// both branches converge on the same row id.
+///
+/// On the `ON CONFLICT DO UPDATE` branch the SQL also enforces an
+/// optional OCC predicate against the existing row's
+/// `(version, commit_id)`. Pass `None`/`None` to skip the check;
+/// otherwise pass the expected upper-bound `version` (Pending token)
+/// or expected `commit_id` (Commit token) and the SQL will only
+/// rewrite the row if it still matches. A WHERE-mismatch returns 0
+/// rows; this function maps that to [`crate::Error::Conflict`].
+///
+/// `version` is the new value stamped onto the row.
 pub(crate) async fn create_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     worktree_id: i64,
@@ -310,24 +351,46 @@ pub(crate) async fn create_record<DB: Dialect>(
     key: &str,
     json_text: &str,
     version: i64,
+    expected_version: Option<i64>,
+    expected_commit: Option<&str>,
 ) -> Result<i64>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
     for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<i64>: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    let row: (i64,) = sqlx::query_as(DB::UPSERT_RECORD)
+    let row: Option<(i64,)> = sqlx::query_as(DB::UPSERT_RECORD)
         .bind(worktree_id)
         .bind(file_path)
         .bind(path)
         .bind(key)
         .bind(json_text)
         .bind(version)
-        .fetch_one(&mut **tx)
+        .bind(expected_version)
+        .bind(expected_commit)
+        .fetch_optional(&mut **tx)
         .await?;
-    Ok(row.0)
+    match row {
+        Some((id,)) => Ok(id),
+        None => {
+            // The DO UPDATE WHERE filtered out — the row exists but
+            // its (version, commit_id) doesn't match what the caller
+            // expected. (If the row didn't exist at all, the INSERT
+            // arm would have returned the new id.) The caller's
+            // earlier `enforce_conflict` snapshot was racy: another
+            // tx wrote between the lookup and this statement.
+            Err(crate::error::Error::Conflict {
+                file_path: file_path.to_string(),
+                path: path.to_string(),
+                expected: race_expected(expected_version, expected_commit),
+                actual: None,
+            })
+        }
+    }
 }
 
 pub(crate) async fn update_record<DB: Dialect>(
@@ -335,19 +398,38 @@ pub(crate) async fn update_record<DB: Dialect>(
     id: i64,
     json_text: &str,
     version: i64,
+    expected_version: Option<i64>,
+    expected_commit: Option<&str>,
 ) -> Result<()>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
     for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<i64>: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    sqlx::query(DB::UPDATE_RECORD)
+    let row: Option<(i64,)> = sqlx::query_as(DB::UPDATE_RECORD)
         .bind(json_text)
         .bind(id)
         .bind(version)
-        .execute(&mut **tx)
+        .bind(expected_version)
+        .bind(expected_commit)
+        .fetch_optional(&mut **tx)
         .await?;
+    if row.is_none() {
+        // Either the row vanished or its (version, commit_id) drifted
+        // from what the caller's snapshot saw. Map both to Conflict
+        // since the caller's intent (write into a known state) didn't
+        // hold.
+        return Err(crate::error::Error::Conflict {
+            file_path: String::new(),
+            path: String::new(),
+            expected: race_expected(expected_version, expected_commit),
+            actual: None,
+        });
+    }
     Ok(())
 }
 
@@ -361,39 +443,93 @@ pub(crate) async fn upsert_record<DB: Dialect>(
     key: &str,
     json_text: &str,
     version: i64,
+    expected_version: Option<i64>,
+    expected_commit: Option<&str>,
 ) -> Result<i64>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
     for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<i64>: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    create_record(tx, worktree_id, file_path, path, key, json_text, version).await
+    create_record(
+        tx,
+        worktree_id,
+        file_path,
+        path,
+        key,
+        json_text,
+        version,
+        expected_version,
+        expected_commit,
+    )
+    .await
 }
 
 /// Tombstone the record and drop its aliases. We never hard-delete here;
 /// `commit_repository` is the only path that purges tombstones once
 /// they've been written to disk. `version` is stamped onto the row so
 /// the tombstone shows up in `list_changes(Some(prev_version))`.
+///
+/// The OCC predicate behaves the same as in [`update_record`] — pass
+/// `None`/`None` to skip, otherwise the SQL will only mutate the row
+/// if its `(version, commit_id)` still matches the bound expectation.
 pub(crate) async fn delete_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
     id: i64,
     version: i64,
+    expected_version: Option<i64>,
+    expected_commit: Option<&str>,
 ) -> Result<()>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<i64>: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    sqlx::query(DB::TOMBSTONE_RECORD)
+    let row: Option<(i64,)> = sqlx::query_as(DB::TOMBSTONE_RECORD)
         .bind(id)
         .bind(version)
-        .execute(&mut **tx)
+        .bind(expected_version)
+        .bind(expected_commit)
+        .fetch_optional(&mut **tx)
         .await?;
+    if row.is_none() {
+        return Err(crate::error::Error::Conflict {
+            file_path: String::new(),
+            path: String::new(),
+            expected: race_expected(expected_version, expected_commit),
+            actual: None,
+        });
+    }
     sqlx::query(DB::DELETE_ALIASES)
         .bind(id)
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// Reconstruct a [`crate::CommitRef`] from the (expected_version,
+/// expected_commit) bind pair so the SQL-level conflict carries the
+/// same shape as the early-bailout one from `enforce_conflict`.
+fn race_expected(
+    expected_version: Option<i64>,
+    expected_commit: Option<&str>,
+) -> crate::CommitRef {
+    match (expected_commit, expected_version) {
+        (Some(c), _) => crate::CommitRef::Commit(c.to_string()),
+        (None, Some(v)) => crate::CommitRef::Pending(v),
+        // Both None — caller didn't pass an OCC token. We still
+        // synthesize a Pending(0) for the error so the variant
+        // construction is total. In practice this branch is hit
+        // only when the row was hard-deleted between lookup and
+        // write, which is a real concurrency anomaly worth
+        // surfacing.
+        (None, None) => crate::CommitRef::Pending(0),
+    }
 }

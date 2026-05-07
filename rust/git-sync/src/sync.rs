@@ -943,6 +943,23 @@ fn parse_bytes_for_extension(
 // CRUD with optimistic concurrency check.
 // ---------------------------------------------------------------------------
 
+/// Extract the (expected_version, expected_commit) bind pair from a
+/// [`CommitRef`] for the SQL-level OCC predicate baked into
+/// [`db::tx::update_record`] / [`db::tx::upsert_record`] /
+/// [`db::tx::delete_record`].
+///
+/// `enforce_conflict` is still called separately as an early-bailout
+/// (avoids acquiring write locks for clearly-stale clients) — these
+/// binds are the second-line race guard against another tx writing
+/// between our lookup and our write.
+fn occ_binds(expected: Option<&CommitRef>) -> (Option<i64>, Option<&str>) {
+    match expected {
+        Some(CommitRef::Pending(v)) => (Some(*v), None),
+        Some(CommitRef::Commit(c)) => (None, Some(c.as_str())),
+        None => (None, None),
+    }
+}
+
 fn enforce_conflict(
     file_path: &str,
     path: &str,
@@ -1051,6 +1068,7 @@ async fn crud_create(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1059,6 +1077,8 @@ async fn crud_create(
                 key,
                 &json_text,
                 version,
+                exp_v,
+                exp_c,
             )
             .await?;
             format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1113,6 +1133,7 @@ async fn crud_create(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
             id = db::tx::create_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1121,6 +1142,8 @@ async fn crud_create(
                 key,
                 &json_text,
                 version,
+                exp_v,
+                exp_c,
             )
             .await?;
             format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1189,7 +1212,8 @@ async fn crud_update(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            db::tx::update_record(&mut tx, id, &json_text, version).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+            db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
                 &mut tx,
@@ -1237,7 +1261,8 @@ async fn crud_update(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            db::tx::update_record(&mut tx, id, &json_text, version).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+            db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
             db::tx::replace_aliases(
                 &mut tx,
@@ -1302,6 +1327,7 @@ async fn crud_upsert(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1310,6 +1336,8 @@ async fn crud_upsert(
                 key,
                 &json_text,
                 version,
+                exp_v,
+                exp_c,
             )
             .await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1358,6 +1386,7 @@ async fn crud_upsert(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
             id = db::tx::upsert_record(
                 &mut tx,
                 sync.worktree_id(),
@@ -1366,6 +1395,8 @@ async fn crud_upsert(
                 key,
                 &json_text,
                 version,
+                exp_v,
+                exp_c,
             )
             .await?;
             let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1431,7 +1462,8 @@ async fn crud_delete(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            db::tx::delete_record(&mut tx, id, version).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+            db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
             tx.commit().await?;
         }
         #[cfg(feature = "postgres")]
@@ -1464,7 +1496,8 @@ async fn crud_delete(
                 )?;
             }
             version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            db::tx::delete_record(&mut tx, id, version).await?;
+            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+            db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
             tx.commit().await?;
         }
     }
@@ -1490,6 +1523,7 @@ where
     // bind-value bounds (every db::tx::* helper calls `.bind(...)`)
     for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     // arguments + executor (every helper runs a query through `&mut **tx`)
     for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
@@ -1544,6 +1578,7 @@ where
                 )?;
             }
             let version = db::tx::next_version(tx, sync.worktree_id()).await?;
+            let (exp_v, exp_c) = occ_binds(expected.as_ref());
             let id = db::tx::upsert_record(
                 tx,
                 sync.worktree_id(),
@@ -1552,6 +1587,8 @@ where
                 &op_key,
                 &json_text,
                 version,
+                exp_v,
+                exp_c,
             )
             .await?;
             let format_owner = db::tx::file_format(tx, sync.worktree_id(), &resolved_fp).await?;
@@ -1610,7 +1647,8 @@ where
                 )?;
             }
             let version = db::tx::next_version(tx, sync.worktree_id()).await?;
-            db::tx::delete_record(tx, id, version).await?;
+            let (exp_v, exp_c) = occ_binds(expected.as_ref());
+            db::tx::delete_record(tx, id, version, exp_v, exp_c).await?;
             Ok(WriteOutcome { id, version })
         }
     }
@@ -1631,6 +1669,7 @@ where
     DB: db::tx::Dialect,
     for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
     for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
