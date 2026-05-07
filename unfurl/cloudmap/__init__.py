@@ -2356,6 +2356,7 @@ class CloudMap:
                 username=server.get("username"),
                 private_token=server.get("password"),
                 timeout=server.get("timeout"),
+                logger=logger,
             )
         # no server, use repository instead
         url, path, revision, repository = cls.get_config(local_env, name)

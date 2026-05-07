@@ -44,7 +44,7 @@ pub(crate) struct RecordLookup {
 /// the row shape of [`lookup_commits`]. Always returns one row
 /// (worktree-driven LEFT JOIN onto record). The integer cast
 /// normalizes the `deleted` column across dialects.
-type LookupRow = (
+pub(crate) type LookupRow = (
     Option<i64>,
     Option<String>,
     Option<i64>,
@@ -153,10 +153,15 @@ impl Dialect for sqlx::Postgres {
 // Generic transaction helpers.
 // ---------------------------------------------------------------------------
 //
-// Each helper repeats the same four bind/exec bounds. Rust's
-// implied-bounds machinery doesn't propagate supertrait `where`
-// clauses into function bodies, and `where` clauses don't accept
-// macro expansion, so the bounds stay inline.
+// Why do we need all these `where` clauses on all these generic functions??
+//
+// The sqlx Database supertrait of the Dialect trait includes GATs that are referenced
+// via impls for primitives like i64, &str, String, Vec<u8>, e.g. `Encode<'q, DB>`
+// and `Decode<'r,DB>` etc. So each concrete type
+// passed to a generic helper function via one of those traits needs a where bound.
+// And we can't hoist these where bounds onto our Dialect trait because
+// GATs with lifetimes require us to use HRTB where bounds like for<'q>
+// and Rust does not yet support HRTB as implied bounds.
 
 /// One-query precondition fetch for the CRUD helpers.
 ///

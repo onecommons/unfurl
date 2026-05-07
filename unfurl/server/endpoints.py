@@ -24,7 +24,6 @@ from flask import Response, current_app, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
 
 from toscaparser.elements.entity_type import Namespace
-
 from .. import init
 from ..graphql import (
     GraphqlObject,
@@ -48,7 +47,6 @@ from ..yamlmanifest import YamlManifest
 from .schemas import (
     BatchPatchBody,
     CloudMapDocQuery,
-    CloudMapDocument,
     CloudMapDocumentPair,
     CloudMapQuery,
     CloudMapResponse,
@@ -56,6 +54,7 @@ from .schemas import (
     PatchEnvironmentBody,
     PatchResponse,
     PATCH_RESPONSES,
+    PostCloudmapRequest,
 )
 
 # Imported from .serve at the bottom of this file; serve.py imports
@@ -172,6 +171,7 @@ _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
     "private_token",
     "password",
     "commit_msg",
+    "atomic",
 )
 
 
@@ -196,24 +196,18 @@ _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
     ),
     tags=["Export"],
 )
-@app.input(CloudMapDocument, location="json", arg_name="body")
+@app.input(PostCloudmapRequest, location="json", arg_name="body")
 @app.output(
     PatchResponse,
-    description="commit oid produced by the local commit, or null when nothing changed",
+    description="commit and list of applied changes (mirrors the rust handler's per-record response)",
 )
-def post_cloudmap(body: dict) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, load_yaml
-
-    # Schema validation (against `docs/cloudmap-schema.json`) runs
-    # inside `CloudMapDocument`'s `model_validator`; @app.input has
-    # already returned 422 to the client before we get here for any
-    # schema violation.
+def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
+    """
+    Unlike the Rust server, the atomic flag is ignored, posts are always atomic.
+    Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
+    so the ``latest_commit`` check is the only concurrency control in place.
+    """
     raw = _get_body(request)
-    if not isinstance(raw, dict):
-        return make_response(
-            jsonify(error="request body must be a JSON object"), 400
-        )
-
     cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
     latest_commit = raw.get("latest_commit")
     username = raw.get("username")
@@ -260,12 +254,23 @@ def post_cloudmap(body: dict) -> ResponseReturnValue:
         )
     full_path = os.path.join(repo.working_dir, cloudmap_path)
     starting_revision = repo.revision
+    if starting_revision and latest_commit and starting_revision != latest_commit:
+        return make_response(
+            jsonify(
+                error=(
+                    f"cloudmap has changed since latest_commit {latest_commit}, "
+                    f"current revision is {starting_revision}"
+                )
+            ),
+            409,
+        )
 
     # Apply the body to `doc`. A record with `unfurl.server.deleted:
     # true` is removed; any other object replaces (or inserts). Track
-    # whether any actual change happened so we can short-circuit the
-    # disk write + commit on a no-op POST.
-    changed = False
+    # which records actually changed so the response can list them in
+    # ``applied`` (mirrors the rust handler's per-record response).
+    # See the docstring above for the OCC / `atomic` story.
+    applied: List[Dict[str, Any]] = []
     for section, entries in body_sections.items():
         section_doc: Dict[str, Any] = doc.setdefault(section, {})
         for key, value in entries.items():
@@ -279,17 +284,17 @@ def post_cloudmap(body: dict) -> ResponseReturnValue:
             payload = dict(value)
             if payload.pop("unfurl.server.deleted", False):
                 if section_doc.pop(key, None) is not None:
-                    changed = True
+                    applied.append({"section": section, "key": key, "version": 0})
             else:
                 # Strip OCC keys so they don't leak into the persisted YAML.
                 payload.pop("unfurl.server.commit", None)
                 payload.pop("unfurl.server.version", None)
                 if section_doc.get(key) != payload:
                     section_doc[key] = payload
-                    changed = True
+                    applied.append({"section": section, "key": key, "version": 0})
 
-    if not changed:
-        return {"commit": latest_commit}
+    if not applied:
+        return {"commit": latest_commit, "applied": []}
 
     # Write back to disk using the project's ruamel-based loader so
     # we preserve quoting / commenting style that toscaparser's
@@ -320,7 +325,7 @@ def post_cloudmap(body: dict) -> ResponseReturnValue:
         return commit_err
     new_commit = repo.revision
 
-    return {"commit": new_commit}
+    return {"commit": new_commit, "applied": applied}
 
 
 @app.get("/graph")
@@ -356,7 +361,7 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
 # ---------------------------------------------------------------------------
 
 
-def _get_body(request):
+def _get_body(request) -> dict:
     body = request.json
     if request.headers.get("X-Git-Credentials"):
         body["username"], body["private_token"] = (

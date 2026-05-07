@@ -5,11 +5,11 @@
 pub mod cache;
 pub mod cloudmap;
 pub mod config;
-pub mod unfurl_types;
 pub mod patch;
 pub mod proxy;
 pub mod queue;
 pub mod routes;
+pub mod unfurl_types;
 
 use std::sync::Arc;
 

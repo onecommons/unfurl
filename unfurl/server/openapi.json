@@ -1449,6 +1449,14 @@
       "PatchResponse": {
         "description": "Response from write endpoints.\n\nEither ``commit`` (a git commit hash) or ``queueid`` (a monotonic\nversion counter) used as a optimistic-concurrency\ntoken the client should echo back on its next write.",
         "properties": {
+          "applied": {
+            "description": "Per-record results for batch CloudMap writes. Empty for single-record endpoints. In non-atomic mode, contains the records that committed even though the batch reported a conflict.",
+            "items": {
+              "$ref": "#/components/schemas/PatchResponse.AppliedRecord"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
           "commit": {
             "anyOf": [
               {
@@ -1477,6 +1485,211 @@
           }
         },
         "title": "PatchResponse",
+        "type": "object"
+      },
+      "PatchResponse.AppliedRecord": {
+        "description": "One record successfully applied during a CloudMap batch write.\n\nReturned in :attr:`PatchResponse.applied`.",
+        "properties": {
+          "key": {
+            "description": "Record key within the section.",
+            "title": "Key",
+            "type": "string"
+          },
+          "section": {
+            "description": "CloudMap section, e.g. ``artifacts``.",
+            "title": "Section",
+            "type": "string"
+          },
+          "version": {
+            "description": "``unfurl.server.version`` stamped on the row by this write.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "section",
+          "key",
+          "version"
+        ],
+        "title": "AppliedRecord",
+        "type": "object"
+      },
+      "PostCloudmapRequest": {
+        "additionalProperties": true,
+        "description": "Request body for ``POST /cloudmap``.\n\nA CloudMap document portion (``apiVersion`` / ``kind`` / the five\nsection maps) plus request-only envelope/control fields\n(``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``\n/ ``private_token`` / ``commit_msg``).\n\nDeclared as a flat object \u2014 the cloudmap section maps and the\nenvelope keys live side-by-side at the top level. The endpoint\nsplits them apart by name; the JSON-Schema validation only runs on\nthe cloudmap-document subset.\n\nThis is the *typed request body* that ``oas3-gen`` propagates into\nthe rust ``unfurl_types`` types so the rust handler can use a\nsingle typed extractor instead of hand-rolling a wrapper struct.",
+        "properties": {
+          "apiVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Apiversion"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_artifact"
+            },
+            "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.",
+            "propertyNames": {
+              "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "atomic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only \u2014 the Python YAML fallback is implicitly atomic.",
+            "title": "Atomic"
+          },
+          "cloudmap_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+            "title": "Cloudmap Path"
+          },
+          "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Commit message for the local commit; falls back to a generated default.",
+            "title": "Commit Msg"
+          },
+          "instantiations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_instantiation"
+            },
+            "description": "Build and deployment information for artifacts and services. Keys are URLs.",
+            "propertyNames": {
+              "description": "URL of the instantiation.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Last commit oid the client observed. Forwarded to git-level OCC checks.",
+            "title": "Latest Commit"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Metadata"
+          },
+          "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential token; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Private Token"
+          },
+          "repositories": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_repository"
+            },
+            "description": "Git repositories. Keys are URLs that start with git://",
+            "propertyNames": {
+              "description": "URL of the repository using the git:// URL scheme.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "services": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_service"
+            },
+            "description": "Instances of services.",
+            "propertyNames": {
+              "description": "URL of the service.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_type"
+            },
+            "description": "Type definitions for artifacts, services, software, and capabilities.",
+            "propertyNames": {
+              "description": "Fully-qualified type name with namespace (e.g., Compute@unfurl.cloud/onecommons/std).",
+              "pattern": "^[^\\s]+$"
+            },
+            "type": "object"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential username; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Username"
+          }
+        },
+        "title": "PostCloudmapRequest",
         "type": "object"
       },
       "ValidationError": {
@@ -2399,6 +2612,60 @@
           },
           {
             "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
             "name": "kind",
             "required": false,
             "schema": {
@@ -2522,7 +2789,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CloudMapDocument"
+                "$ref": "#/components/schemas/PostCloudmapRequest"
               }
             }
           }
@@ -2953,6 +3220,24 @@
           },
           {
             "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
             "name": "pretty",
             "required": false,
             "schema": {
@@ -3000,24 +3285,6 @@
               "default": null,
               "description": "Repository visibility",
               "title": "Visibility"
-            }
-          },
-          {
-            "in": "query",
-            "name": "queueid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
-              "title": "Queueid"
             }
           },
           {
@@ -3183,6 +3450,60 @@
           },
           {
             "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
             "name": "url",
             "required": false,
             "schema": {
@@ -3270,13 +3591,56 @@
           },
           {
             "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
             "name": "branch",
             "required": false,
             "schema": {
-              "default": "main",
-              "description": "Branch name; also accepts 'refs/heads/\u2026' and 'refs/tags/\u2026' prefixes",
-              "title": "Branch",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
             }
           },
           {
@@ -3286,16 +3650,6 @@
             "schema": {
               "description": "File path relative to the project root",
               "title": "Path",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "latest_commit",
-            "required": true,
-            "schema": {
-              "description": "Latest commit hash for this file",
-              "title": "Latest Commit",
               "type": "string"
             }
           },
@@ -3426,6 +3780,24 @@
           },
           {
             "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
             "name": "pretty",
             "required": false,
             "schema": {
@@ -3477,7 +3849,7 @@
           },
           {
             "in": "query",
-            "name": "queueid",
+            "name": "file",
             "required": false,
             "schema": {
               "anyOf": [
@@ -3488,20 +3860,9 @@
                   "type": "null"
                 }
               ],
-              "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
-              "title": "Queueid"
-            }
-          },
-          {
-            "in": "query",
-            "name": "file",
-            "required": false,
-            "schema": {
-              "default": "dummy-ensemble.yaml",
+              "default": "",
               "description": "Filename used as template context",
-              "title": "File",
-              "type": "string"
+              "title": "File"
             }
           },
           {

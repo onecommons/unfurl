@@ -156,3 +156,95 @@ pub struct UpdateStats {
     /// Records hard-deleted because they disappeared from disk.
     pub records_deleted: usize,
 }
+
+/// One operation in a batch passed to
+/// [`crate::SyncedRepo::apply_batch`].
+#[derive(Debug, Clone)]
+pub enum BatchOp {
+    /// Insert-or-update — same semantics as
+    /// [`crate::SyncedRepo::upsert_record`].
+    Upsert {
+        /// Effective file path; `None` falls back to the existing
+        /// record's file then the worktree's `default_file_path`.
+        file_path: Option<String>,
+        /// Parent JSON-pointer the record sits under.
+        path: String,
+        /// Record key.
+        key: String,
+        /// Record payload.
+        json: serde_json::Value,
+        /// Optional OCC token gating the write.
+        expected: Option<crate::CommitRef>,
+    },
+    /// Tombstone — same semantics as
+    /// [`crate::SyncedRepo::delete_record`].
+    Delete {
+        /// Effective file path; `None` falls back to the existing
+        /// record's file (deletes have no default-path fallback).
+        file_path: Option<String>,
+        /// Parent JSON-pointer.
+        path: String,
+        /// Record key.
+        key: String,
+        /// Optional OCC token gating the delete.
+        expected: Option<crate::CommitRef>,
+    },
+}
+
+impl BatchOp {
+    /// Parent JSON-pointer this op targets.
+    pub fn path(&self) -> &str {
+        match self {
+            BatchOp::Upsert { path, .. } | BatchOp::Delete { path, .. } => path,
+        }
+    }
+    /// Record key this op targets.
+    pub fn key(&self) -> &str {
+        match self {
+            BatchOp::Upsert { key, .. } | BatchOp::Delete { key, .. } => key,
+        }
+    }
+}
+
+/// A single [`BatchOp`] that landed successfully.
+#[derive(Debug, Clone)]
+pub struct Applied {
+    /// Index of the op in the original batch.
+    pub index: usize,
+    /// Op's parent JSON-pointer.
+    pub path: String,
+    /// Op's record key.
+    pub key: String,
+    /// `(id, version)` stamped on the row.
+    pub outcome: WriteOutcome,
+}
+
+/// A single [`BatchOp`] that did not land.
+///
+/// In atomic mode, a populated `failed` always means the whole batch
+/// was rolled back (so [`BatchOutcome::applied`] is empty). In
+/// non-atomic mode, ``failed`` and ``applied`` may both be non-empty:
+/// the failed records were skipped, the others committed.
+#[derive(Debug)]
+pub struct Failed {
+    /// Index of the op in the original batch.
+    pub index: usize,
+    /// Op's parent JSON-pointer.
+    pub path: String,
+    /// Op's record key.
+    pub key: String,
+    /// The error raised when applying this op.
+    pub error: crate::Error,
+}
+
+/// Result of [`crate::SyncedRepo::apply_batch`].
+#[derive(Debug, Default)]
+pub struct BatchOutcome {
+    /// Records successfully applied (committed to the database).
+    pub applied: Vec<Applied>,
+    /// Records that were skipped.
+    pub failed: Vec<Failed>,
+    /// Largest `version` stamped during this batch, or ``None`` when
+    /// nothing was applied.
+    pub last_version: Option<i64>,
+}

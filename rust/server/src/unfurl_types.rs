@@ -53,16 +53,7 @@ pub struct CloudMapDocument {
     /// Type definitions for artifacts, services, software, and capabilities.
     pub types: Option<std::collections::HashMap<String, CloudmapType>>,
 }
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudMapDocumentApiVersion {
     #[serde(rename = "unfurl/v1alpha1")]
     #[default]
@@ -1139,6 +1130,12 @@ impl GetCloudmapRequest {}
 pub struct GetCloudmapRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
+    /// Commit hash used to validate the cache entry
+    pub latest_commit: Option<String>,
+    /// Git branch name
+    pub branch: Option<String>,
+    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
+    pub queueid: Option<String>,
     /// Top-level CloudMap section to return; if omitted the full document is returned.
     pub kind: Option<String>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
@@ -1187,6 +1184,8 @@ pub struct GetExportRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
+    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
+    pub queueid: Option<String>,
     /// Pretty-print the JSON response
     #[default(Some(false))]
     pub pretty: Option<bool>,
@@ -1194,8 +1193,6 @@ pub struct GetExportRequestQuery {
     pub username: Option<String>,
     /// Repository visibility
     pub visibility: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
     /// Export format
     #[default(Some(Default::default()))]
     pub format: Option<GetExportRequestQueryFormat>,
@@ -1257,6 +1254,12 @@ impl GetGraphRequest {}
 pub struct GetGraphRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
+    /// Commit hash used to validate the cache entry
+    pub latest_commit: Option<String>,
+    /// Git branch name
+    pub branch: Option<String>,
+    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
+    pub queueid: Option<String>,
     /// Optional artifact or instantiation URL to filter the graph to
     pub url: Option<String>,
 }
@@ -1316,6 +1319,8 @@ pub struct GetTypesRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
+    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
+    pub queueid: Option<String>,
     /// Pretty-print the JSON response
     #[default(Some(false))]
     pub pretty: Option<bool>,
@@ -1323,10 +1328,8 @@ pub struct GetTypesRequestQuery {
     pub username: Option<String>,
     /// Repository visibility
     pub visibility: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
     /// Filename used as template context
-    #[default(Some("dummy-ensemble.yaml".to_string()))]
+    #[default(Some(String::new()))]
     pub file: Option<String>,
     /// CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'
     pub cloudmap: Option<String>,
@@ -1443,10 +1446,24 @@ pub struct PatchEnvironmentBody {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct PatchResponse {
+    /// Per-record results for batch CloudMap writes. Empty for single-record endpoints. In non-atomic mode, contains the records that committed even though the batch reported a conflict.
+    pub applied: Option<Vec<PatchResponseAppliedRecord>>,
     /// Commit hash after applying the patch, or null if no changes were committed
     pub commit: Option<String>,
     /// Monotonic version assigned to this uncommitted write operation.
     pub queueid: Option<i64>,
+}
+/// One record successfully applied during a CloudMap batch write.
+///
+/// Returned in :attr:`PatchResponse.applied`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct PatchResponseAppliedRecord {
+    /// Record key within the section.
+    pub key: String,
+    /// CloudMap section, e.g. ``artifacts``.
+    pub section: String,
+    /// ``unfurl.server.version`` stamped on the row by this write.
+    pub version: i64,
 }
 /// Used by the Rust proxy to forward a batch of write requests that share the same branch and latest_commit.  Each request in the ``requests`` list is applied in order; a single push is performed at the end.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
@@ -1503,16 +1520,65 @@ pub struct PostClearProjectFileCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
 }
+/// Request body for ``POST /cloudmap``.
+///
+/// A CloudMap document portion (``apiVersion`` / ``kind`` / the five
+/// section maps) plus request-only envelope/control fields
+/// (``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``
+/// / ``private_token`` / ``commit_msg``).
+///
+/// Declared as a flat object — the cloudmap section maps and the
+/// envelope keys live side-by-side at the top level. The endpoint
+/// splits them apart by name; the JSON-Schema validation only runs on
+/// the cloudmap-document subset.
+///
+/// This is the *typed request body* that ``oas3-gen`` propagates into
+/// the rust ``unfurl_types`` types so the rust handler can use a
+/// single typed extractor instead of hand-rolling a wrapper struct.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostCloudmapRequest {
+    #[serde(rename = "apiVersion")]
+    pub api_version: Option<String>,
+    /// Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.
+    pub artifacts: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
+    /// When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only — the Python YAML fallback is implicitly atomic.
+    pub atomic: Option<bool>,
+    /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
+    pub cloudmap_path: Option<String>,
+    /// Commit message for the local commit; falls back to a generated default.
+    pub commit_msg: Option<String>,
+    /// Build and deployment information for artifacts and services. Keys are URLs.
+    pub instantiations: Option<
+        std::collections::HashMap<String, Box<CloudmapInstantiation>>,
+    >,
+    pub kind: Option<String>,
+    /// Last commit oid the client observed. Forwarded to git-level OCC checks.
+    pub latest_commit: Option<String>,
+    pub metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    /// Git credential token; can also be sent via the ``X-Git-Credentials`` header.
+    pub private_token: Option<String>,
+    /// Git repositories. Keys are URLs that start with git://
+    pub repositories: Option<std::collections::HashMap<String, CloudmapRepository>>,
+    /// Instances of services.
+    pub services: Option<std::collections::HashMap<String, Box<CloudmapService>>>,
+    /// Type definitions for artifacts, services, software, and capabilities.
+    pub types: Option<std::collections::HashMap<String, CloudmapType>>,
+    /// Git credential username; can also be sent via the ``X-Git-Credentials`` header.
+    pub username: Option<String>,
+    /// Additional properties not defined in the schema.
+    #[serde(flatten)]
+    pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
+}
 /// Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``types``).
 ///
 /// Each section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.
 ///
 /// The body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
-pub struct PostCloudmapRequest {
-    pub body: Option<CloudMapDocument>,
+pub struct PostCloudmapRequestParams {
+    pub body: Option<PostCloudmapRequest>,
 }
-impl PostCloudmapRequest {}
+impl PostCloudmapRequestParams {}
 /// Response types for PostCloudmapResponse
 #[derive(Debug, Clone)]
 pub enum PostCloudmapResponse {
@@ -1621,15 +1687,15 @@ impl PostPopulateCacheRequest {}
 pub struct PostPopulateCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
-    /// Branch name; also accepts 'refs/heads/…' and 'refs/tags/…' prefixes
-    #[default(Some("main".to_string()))]
+    /// Commit hash used to validate the cache entry
+    pub latest_commit: Option<String>,
+    /// Git branch name
     pub branch: Option<String>,
+    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
+    pub queueid: Option<String>,
     /// File path relative to the project root
     #[validate(length(min = 1u64))]
     pub path: String,
-    /// Latest commit hash for this file
-    #[validate(length(min = 1u64))]
-    pub latest_commit: String,
     /// If truthy (not '0' or 'false'), delete the cache entry instead of populating it
     pub removed: Option<String>,
     /// Repository visibility; private repositories are not cloned automatically

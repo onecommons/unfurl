@@ -23,9 +23,9 @@ use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 
 use crate::cache;
-use crate::unfurl_types;
 use crate::proxy;
 use crate::queue::{self, QueueIdResult, QueueItem};
+use crate::unfurl_types;
 use crate::AppState;
 
 // ---------------------------------------------------------------------------

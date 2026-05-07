@@ -1828,10 +1828,6 @@ def test_cloudmap_proxy_round_trip(server_env):
       ``UNFURL_CLOUDMAP_DB_URL``). Records carry the OCC + id
       annotations; POST stages an in-flight write (commit=None,
       queueid bumped).
-    - ``queue-rust``: the rust proxy's redis-batched-write path.
-      The proxy doesn't currently send the queue-layer ``queueid``
-      that mode requires, so we skip — exercising it would need
-      additional plumbing in CloudMapProxy.
     """
     from pathlib import Path
     from unfurl.cloudmap.proxy import CloudMapProxy
@@ -1842,7 +1838,7 @@ def test_cloudmap_proxy_round_trip(server_env):
 
     if server_env == "queue-rust":
         pytest.skip(
-            "CloudMapProxy doesn't drive the queue-layer queueid yet"
+            "cloudmap endpoints on a server using git-sync doesn't queue writes, so this test is redundant."
         )
 
     is_rust = "rust" in server_env

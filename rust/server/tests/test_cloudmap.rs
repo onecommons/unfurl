@@ -591,6 +591,134 @@ async fn post_schema_violation_returns_422() {
 }
 
 #[tokio::test]
+async fn post_default_atomic_rolls_back_partial_batch() {
+    // Default mode (atomic flag absent → true): a single conflict in
+    // the batch must roll back every other write.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let tracked_key = "git://unfurl.cloud/onecommons/std.git";
+    let v_before = read_version(cm.clone(), "repositories", tracked_key).await;
+
+    // Out-of-band update advances the version on `tracked_key` so the
+    // batch's stale token will conflict.
+    let app = router(make_state(cm.clone()));
+    let _ = post_json(
+        app,
+        serde_json::json!({
+            "repositories": { tracked_key: { "name": "v2" } }
+        }),
+    )
+    .await;
+
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "repositories": {
+            "fresh-key": { "name": "fresh" },
+            tracked_key: {
+                "name": "v3",
+                "unfurl.server.version": v_before, // stale
+            },
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(body["error"], "conflict");
+    // Atomic rollback: applied is empty, fresh-key did not commit.
+    assert_eq!(
+        body["applied"].as_array().expect("applied array").len(),
+        0,
+        "atomic mode: applied must be empty, got {body:?}"
+    );
+    // The fresh key must not exist.
+    let app = router(make_state(cm.clone()));
+    let (s, _) = get_json(app, "/cloudmap?kind=repositories&key=fresh-key").await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn post_non_atomic_skips_failures_and_commits_rest() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let tracked_key = "git://unfurl.cloud/onecommons/std.git";
+    let v_before = read_version(cm.clone(), "repositories", tracked_key).await;
+
+    // OOB update so the stale token will conflict.
+    let app = router(make_state(cm.clone()));
+    let _ = post_json(
+        app,
+        serde_json::json!({
+            "repositories": { tracked_key: { "name": "v2" } }
+        }),
+    )
+    .await;
+
+    let app = router(make_state(cm.clone()));
+    let body = serde_json::json!({
+        "atomic": false,
+        "repositories": {
+            "fresh-key": { "name": "fresh" },
+            tracked_key: {
+                "name": "v3",
+                "unfurl.server.version": v_before,
+            },
+            "another-fresh": { "name": "after" },
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    let applied = body["applied"].as_array().expect("applied array");
+    assert_eq!(
+        applied.len(),
+        2,
+        "expected fresh + after to land, got {body}"
+    );
+    let applied_keys: Vec<&str> = applied
+        .iter()
+        .map(|a| a["key"].as_str().expect("key str"))
+        .collect();
+    assert!(applied_keys.contains(&"fresh-key"));
+    assert!(applied_keys.contains(&"another-fresh"));
+    let failed = body["failed"].as_array().expect("failed array");
+    assert_eq!(failed.len(), 1);
+    assert_eq!(failed[0]["key"], tracked_key);
+    assert_eq!(failed[0]["error"], "conflict");
+    // The fresh records should be retrievable.
+    for k in ["fresh-key", "another-fresh"] {
+        let app = router(make_state(cm.clone()));
+        let (s, _) = get_json(
+            app,
+            &format!("/cloudmap?kind=repositories&key={}", urlencoding::encode(k)),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "expected {k} to exist");
+    }
+}
+
+#[tokio::test]
+async fn post_success_returns_applied_list() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let body = serde_json::json!({
+        "repositories": {
+            "k1": { "name": "one" },
+            "k2": { "name": "two" },
+        }
+    });
+    let (status, body) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+    let applied = body["applied"].as_array().expect("applied array");
+    assert_eq!(applied.len(), 2);
+    let keys: std::collections::BTreeSet<&str> = applied
+        .iter()
+        .map(|a| a["key"].as_str().expect("key str"))
+        .collect();
+    assert!(keys.contains("k1"));
+    assert!(keys.contains("k2"));
+    for entry in applied {
+        assert_eq!(entry["section"], "repositories");
+        assert!(entry["version"].is_i64());
+    }
+}
+
+#[tokio::test]
 async fn post_proxies_when_cloudmap_unconfigured() {
     // No cloudmap state → proxy::forward runs. The default_config()
     // backend points at 127.0.0.1:1 (port 0 + 1) which isn't

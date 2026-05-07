@@ -14,7 +14,7 @@ mod common;
 use common::pg_fixture;
 use common::sqlite_fixture;
 use tempfile::TempDir;
-use unfurl_git_sync::{CommitRef, Error, SyncedRepo};
+use unfurl_git_sync::{BatchOp, CommitRef, Error, SyncedRepo};
 
 // ---------------------------------------------------------------------------
 // Test bodies
@@ -1053,6 +1053,179 @@ async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo,
 // one Postgres test (skipped at runtime when `UNFURL_TEST_PG_URL` is
 // unset, and compiled away entirely without the `postgres` feature).
 
+async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    let ops = vec![
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "batch-a".into(),
+            json: serde_json::json!({"name": "a"}),
+            expected: None,
+        },
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "batch-b".into(),
+            json: serde_json::json!({"name": "b"}),
+            expected: None,
+        },
+    ];
+    let outcome = sync.apply_batch(ops, true).await.expect("apply_batch");
+    assert!(outcome.failed.is_empty(), "failed: {:?}", outcome.failed);
+    assert_eq!(outcome.applied.len(), 2);
+    assert!(outcome.last_version.is_some());
+    // Both records readable post-commit.
+    for k in ["batch-a", "batch-b"] {
+        let rec = sync
+            .get_record("cloudmap.yaml", "/repositories", k)
+            .await
+            .expect("get")
+            .expect("found");
+        assert_eq!(rec.json["name"], k.split('-').nth(1).unwrap());
+    }
+}
+
+async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    // First batch: stage record so we have a known version for the
+    // OCC token. Capture the version.
+    let first = sync
+        .apply_batch(
+            vec![BatchOp::Upsert {
+                file_path: Some("cloudmap.yaml".into()),
+                path: "/repositories".into(),
+                key: "tracked".into(),
+                json: serde_json::json!({"name": "v1"}),
+                expected: None,
+            }],
+            true,
+        )
+        .await
+        .expect("first");
+    let v1 = first.applied[0].outcome.version;
+
+    // Now mutate "tracked" out-of-band so the next OCC token (=v1) is
+    // stale.
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "tracked",
+        serde_json::json!({"name": "v2"}),
+        None,
+    )
+    .await
+    .expect("oob update");
+
+    // Submit a batch of two upserts: "fresh" (no conflict) and
+    // "tracked" with the stale OCC token. Atomic mode must roll back
+    // both.
+    let ops = vec![
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "fresh".into(),
+            json: serde_json::json!({"name": "fresh"}),
+            expected: None,
+        },
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "tracked".into(),
+            json: serde_json::json!({"name": "stomp"}),
+            expected: Some(CommitRef::Pending(v1)),
+        },
+    ];
+    let outcome = sync.apply_batch(ops, true).await.expect("apply_batch");
+    assert!(outcome.applied.is_empty(), "atomic rollback expected");
+    assert_eq!(outcome.failed.len(), 1);
+    assert_eq!(outcome.failed[0].key, "tracked");
+    assert!(matches!(outcome.failed[0].error, Error::Conflict { .. }));
+    // The "fresh" record must NOT exist — atomic rollback.
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", "fresh")
+        .await
+        .expect("get")
+        .is_none());
+}
+
+async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    let first = sync
+        .apply_batch(
+            vec![BatchOp::Upsert {
+                file_path: Some("cloudmap.yaml".into()),
+                path: "/repositories".into(),
+                key: "tracked".into(),
+                json: serde_json::json!({"name": "v1"}),
+                expected: None,
+            }],
+            true,
+        )
+        .await
+        .expect("first");
+    let v1 = first.applied[0].outcome.version;
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "tracked",
+        serde_json::json!({"name": "v2"}),
+        None,
+    )
+    .await
+    .expect("oob update");
+
+    let ops = vec![
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "fresh".into(),
+            json: serde_json::json!({"name": "fresh"}),
+            expected: None,
+        },
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "tracked".into(),
+            json: serde_json::json!({"name": "stomp"}),
+            expected: Some(CommitRef::Pending(v1)),
+        },
+        BatchOp::Upsert {
+            file_path: Some("cloudmap.yaml".into()),
+            path: "/repositories".into(),
+            key: "after".into(),
+            json: serde_json::json!({"name": "after"}),
+            expected: None,
+        },
+    ];
+    let outcome = sync.apply_batch(ops, false).await.expect("apply_batch");
+    assert_eq!(outcome.applied.len(), 2, "{:?}", outcome.applied);
+    assert_eq!(outcome.failed.len(), 1);
+    assert_eq!(outcome.failed[0].key, "tracked");
+    let applied_keys: Vec<&str> = outcome.applied.iter().map(|a| a.key.as_str()).collect();
+    assert!(applied_keys.contains(&"fresh"));
+    assert!(applied_keys.contains(&"after"));
+    // "tracked" must keep its v2 OOB value (not stomped).
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", "tracked")
+        .await
+        .expect("get")
+        .expect("found");
+    assert_eq!(rec.json["name"], "v2");
+    // "fresh" and "after" persisted.
+    for k in ["fresh", "after"] {
+        assert!(sync
+            .get_record("cloudmap.yaml", "/repositories", k)
+            .await
+            .expect("get")
+            .is_some());
+    }
+}
+
 macro_rules! crud_test {
     ($name:ident, $body:ident) => {
         mod $name {
@@ -1125,4 +1298,13 @@ crud_test!(
 crud_test!(
     crud_none_file_path_no_default_returns_not_found,
     run_crud_none_file_path_no_default_returns_not_found
+);
+crud_test!(apply_batch_atomic_success, run_apply_batch_atomic_success);
+crud_test!(
+    apply_batch_atomic_conflict_rolls_back,
+    run_apply_batch_atomic_conflict_rolls_back
+);
+crud_test!(
+    apply_batch_non_atomic_partial,
+    run_apply_batch_non_atomic_partial
 );

@@ -31,6 +31,7 @@ from urllib.parse import parse_qsl, urlparse, urlunparse
 import requests
 
 from . import CloudMapDB
+from ..logs import getLogger, UnfurlLogger
 from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     CloudMapRecord,
@@ -41,6 +42,8 @@ from ..tosca_plugins.cloudmap_defs import (
     Service,
 )
 from ..util import UnfurlError
+
+logger = getLogger("unfurl.cloudmap.proxy")
 
 __all__ = [
     "CloudMapCache",
@@ -130,8 +133,17 @@ class CloudMapProxyError(UnfurlError):
 class CloudMapProxyConflict(CloudMapProxyError):
     """Raised on HTTP 409 from POST /cloudmap.
 
-    Carries the section/key/actual triple so the caller can refresh
-    the conflicting record and retry.
+    Carries the (section, key, actual) triple identifying the *first*
+    conflicting record (the only one in atomic mode), plus
+    :attr:`applied` and :attr:`failed` from the response body so the
+    caller can reconcile per-record results when ``atomic=False``.
+
+    In atomic mode (the default) the server rolls back the whole
+    batch, so :attr:`applied` is empty and :attr:`failed` always
+    contains exactly one entry (matching the singleton section/key).
+    In non-atomic mode :attr:`applied` lists every record that
+    committed despite the failure, and :attr:`failed` lists every
+    record that did not.
     """
 
     def __init__(
@@ -140,11 +152,15 @@ class CloudMapProxyConflict(CloudMapProxyError):
         key: str,
         actual: Any,
         message: Optional[str] = None,
+        applied: Optional[List[Tuple[str, str, int]]] = None,
+        failed: Optional[List[Tuple[str, str, Optional[str], Optional[str]]]] = None,
     ) -> None:
         super().__init__(message or f"cloudmap conflict on {section}/{key}")
         self.section = section
         self.key = key
         self.actual = actual
+        self.applied: List[Tuple[str, str, int]] = applied or []
+        self.failed: List[Tuple[str, str, Optional[str], Optional[str]]] = failed or []
 
 
 class CloudMapCache(CloudMapDB):
@@ -299,6 +315,7 @@ class CloudMapProxy(CloudMapView):
         follow_depth: int = 1024,
         session: Optional[requests.Session] = None,
         timeout: Optional[float] = None,
+        logger: UnfurlLogger = logger,
     ) -> None:
         # ``base_url`` may carry query parameters (e.g.
         # ``http://server/?auth_project=foo``); split them out so each
@@ -316,6 +333,7 @@ class CloudMapProxy(CloudMapView):
         self._follow_depth = follow_depth
         self._session = session or requests.Session()
         self._timeout = timeout if timeout is not None else DEFAULT_REQUEST_TIMEOUT
+        self.logger: UnfurlLogger = logger
 
         # In-memory mirror of records observed from the server.
         self._cache = CloudMapCache()
@@ -373,11 +391,40 @@ class CloudMapProxy(CloudMapView):
                 detail = r.json()
             except ValueError:
                 detail = {"error": r.text}
+            applied_raw = detail.get("applied") or []
+            failed_raw = detail.get("failed") or []
+            applied: List[Tuple[str, str, int]] = []
+            for entry in applied_raw:
+                if not isinstance(entry, dict):
+                    continue
+                applied.append(
+                    (
+                        str(entry.get("section", "")),
+                        str(entry.get("key", "")),
+                        int(entry.get("version") or 0),
+                    )
+                )
+            failed: List[Tuple[str, str, Optional[str], Optional[str]]] = []
+            for entry in failed_raw:
+                if not isinstance(entry, dict):
+                    continue
+                actual = entry.get("actual")
+                err_kind = entry.get("error")
+                failed.append(
+                    (
+                        str(entry.get("section", "")),
+                        str(entry.get("key", "")),
+                        str(actual) if actual is not None else None,
+                        str(err_kind) if err_kind is not None else None,
+                    )
+                )
             raise CloudMapProxyConflict(
                 section=detail.get("section", ""),
                 key=detail.get("key", ""),
                 actual=detail.get("actual"),
                 message=str(detail),
+                applied=applied,
+                failed=failed,
             )
         if not r.ok:
             raise CloudMapProxyError(
@@ -569,17 +616,57 @@ class CloudMapProxy(CloudMapView):
     # save / refresh
     # -----------------------------------------------------------------
 
-    def save(self, commit_msg: Optional[str] = None) -> Optional[str]:
+    def _evict_conflicted(self, section: str, key: str) -> None:
+        """Drop a conflicting (section, key) from pending writes and the
+        cache so the next refetch sees the server's current state."""
+        if not section or not key:
+            return
+        section_pending = self._pending_writes.get(section)
+        if section_pending is not None:
+            section_pending.pop(key, None)
+            if not section_pending:
+                self._pending_writes.pop(section, None)
+        section_dict = getattr(self._cache, section, None)
+        if isinstance(section_dict, dict):
+            section_dict.pop(key, None)
+        # Also drop any negative-cache entry so the next get_* really
+        # hits the server.
+        self._cache._negative.discard((section, key))
+
+    def _stamp_applied(self, section: str, key: str, version: int) -> None:
+        """Stamp OCC tokens on a record the server *did* commit and
+        drop it from pending writes.
+
+        Used in non-atomic mode after a partial 409 (and after a
+        successful save) so the cached record's ``unfurl.server.*``
+        attrs match the server's current state.
+        """
+        if not section or not key:
+            return
+        section_pending = self._pending_writes.get(section)
+        if section_pending is not None:
+            section_pending.pop(key, None)
+            if not section_pending:
+                self._pending_writes.pop(section, None)
+        record = self._cache.get_record(section, key)
+        if record is not None:
+            _set_occ_tokens(record, version, None, _get_occ_id(record))
+
+    def save(
+        self,
+        commit_msg: Optional[str] = None,
+        *,
+        atomic: bool = True,
+    ) -> Optional[str]:
         """POST buffered writes to the server. Returns the new commit
         oid (or ``None`` if there were no changes).
 
-        On success the cached payload of every just-posted record is
-        stamped with the OCC tokens from the response — ``queueid``
-        (the largest ``unfurl.server.version`` the server stamped during
-        the batch) becomes ``unfurl.server.version`` and the
-        response's ``commit`` becomes ``unfurl.server.commit``. That
-        way the next ``add_*`` for the same key copies the tokens
-        forward into the next POST without an intervening fetch.
+        ``atomic`` (default ``True``)
+        If atomic is true, individual record failures, including concurrency conflicts rollback all changes.
+        If atomic is false, individual record failures are skipped, the rest commits, and a CloudMapProxyConflict is still raised with details on which records applied and which failed.
+
+        On *successful* save, the cached payload of every just-posted
+        record is updated with concurrency tokens from the response.
         """
         if not self._pending_writes:
             return None
@@ -593,10 +680,38 @@ class CloudMapProxy(CloudMapView):
             body["private_token"] = self._private_token
         if commit_msg:
             body["commit_msg"] = commit_msg
+        # Only include ``atomic`` when overriding the server default (true).
+        if not atomic:
+            body["atomic"] = False
         for section, entries in self._pending_writes.items():
             body[section] = entries
 
-        resp = self._post(body)
+        try:
+            resp = self._post(body)
+        except CloudMapProxyConflict as exc:
+            # In atomic mode the server rolled the whole batch back, so
+            # ``exc.applied`` is empty and ``exc.failed`` carries just
+            # the first conflicting record. In non-atomic mode
+            # ``exc.applied`` lists every record that *did* land — we
+            # stamp OCC tokens on those (so retries don't double-apply)
+            # and drop them from ``_pending_writes``. Failed records
+            # are evicted from the cache + pending buffer so the next
+            # ``get_*`` / ``save_with_retry`` refetches the server's
+            # current state.
+            self.logger.warning(
+                "cloudmap conflict on %s/%s (server actual=%r); applied=%d "
+                "failed=%d; dropping conflicting writes from this batch",
+                exc.section,
+                exc.key,
+                exc.actual,
+                len(exc.applied),
+                len(exc.failed),
+            )
+            for section, key, version in exc.applied:
+                self._stamp_applied(section, key, version)
+            for section, key, _actual, _err in exc.failed:
+                self._evict_conflicted(section, key)
+            raise
 
         new_commit = resp.get("commit")  # str or None
         new_queueid = resp.get("queueid")  # int — largest unfurl.server.version

@@ -18,11 +18,10 @@ use axum::{
     http::{Request, StatusCode},
     response::{IntoResponse, Json, Response},
 };
-use serde::Serialize;
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use unfurl_git_sync::{CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
+use unfurl_git_sync::{BatchOp, CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
 use crate::proxy;
 use crate::routes::{ValidatedJson, ValidatedQuery};
@@ -348,7 +347,7 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// see [`post_cloudmap_proxy`] for the unconfigured fall-through.
 pub async fn post_cloudmap_local(
     State(state): State<AppState>,
-    ValidatedJson(body): ValidatedJson<unfurl_types::CloudMapDocument>,
+    ValidatedJson(body): ValidatedJson<unfurl_types::PostCloudmapRequest>,
 ) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
     let cm = state
         .cloudmap
@@ -362,10 +361,12 @@ pub async fn post_cloudmap_local(
     // echo it back as `unfurl.server.version` on the next request to
     // gate the optimistic-concurrency check. Versions are monotonic
     // per worktree, so the last write's version is also the largest.
-    let last_version = apply_writes(cm, body).await?;
+    let atomic = body.atomic.unwrap_or(true);
+    let result = apply_writes(cm, body, atomic).await?;
     Ok(Json(unfurl_types::PatchResponse {
         commit: None,
-        queueid: last_version,
+        queueid: result.last_version,
+        applied: Some(result.applied),
     }))
 }
 
@@ -408,14 +409,12 @@ impl From<WriteError> for ApiError {
                 status: StatusCode::BAD_REQUEST,
                 body: json!({"error": msg}),
             },
-            WriteError::NotFound(msg) => Self {
-                status: StatusCode::NOT_FOUND,
-                body: json!({"error": msg}),
-            },
             WriteError::Conflict {
                 section,
                 key,
                 actual,
+                applied,
+                failed,
             } => Self {
                 status: StatusCode::CONFLICT,
                 body: json!({
@@ -423,6 +422,23 @@ impl From<WriteError> for ApiError {
                     "section": section,
                     "key": key,
                     "actual": actual,
+                    "applied": applied
+                        .iter()
+                        .map(|a| json!({
+                            "section": a.section,
+                            "key": a.key,
+                            "version": a.version,
+                        }))
+                        .collect::<Vec<_>>(),
+                    "failed": failed
+                        .iter()
+                        .map(|f| json!({
+                            "section": f.section,
+                            "key": f.key,
+                            "actual": f.actual,
+                            "error": f.error,
+                        }))
+                        .collect::<Vec<_>>(),
                 }),
             },
             WriteError::Internal(msg) => {
@@ -438,112 +454,181 @@ impl From<WriteError> for ApiError {
 
 enum WriteError {
     BadRequest(String),
-    NotFound(String),
     Conflict {
+        /// First conflicting record's section (back-compat with the
+        /// pre-batch response shape).
         section: String,
+        /// First conflicting record's key.
         key: String,
+        /// First conflicting record's server-side ``commit_id``.
         actual: Option<String>,
+        /// All records that committed before the failure (atomic mode
+        /// always rolls back, so this is empty there). Non-atomic
+        /// mode populates this with everything that landed.
+        applied: Vec<unfurl_types::PatchResponseAppliedRecord>,
+        /// All records that did not commit. In atomic mode this is the
+        /// single record that triggered the rollback; in non-atomic
+        /// mode this is every record skipped.
+        failed: Vec<FailedJson>,
     },
     Internal(String),
 }
 
-/// Apply each section of the request body and return the largest
-/// `version` stamped on any single CRUD write — `None` if the body
-/// produced no writes. Versions are monotonic per worktree, so the
-/// last write's version is also the maximum.
+/// Per-record failure detail surfaced in the 409 response body.
+#[derive(Clone, Debug)]
+struct FailedJson {
+    section: String,
+    key: String,
+    actual: Option<String>,
+    error: Option<String>,
+}
+
+/// Result of applying a CloudMapDocument body via [`apply_writes`].
+struct WriteOutcome {
+    last_version: Option<i64>,
+    applied: Vec<unfurl_types::PatchResponseAppliedRecord>,
+}
+
+/// Convert each section of the request body into [`BatchOp`]s, dispatch
+/// to [`SyncedRepo::apply_batch`], then map the outcome → either a
+/// success [`WriteOutcome`] or a [`WriteError::Conflict`] carrying the
+/// per-record applied/failed lists.
 async fn apply_writes(
     cm: &CloudMapState,
-    body: unfurl_types::CloudMapDocument,
-) -> Result<Option<i64>, WriteError> {
+    body: unfurl_types::PostCloudmapRequest,
+    atomic: bool,
+) -> Result<WriteOutcome, WriteError> {
     let synced = cm.inner.as_ref();
-    let mut last_version: Option<i64> = None;
 
-    if let Some(records) = body.repositories {
-        update_last(
-            &mut last_version,
-            apply_section(synced, "repositories", "/repositories", records).await?,
-        );
-    }
-    if let Some(records) = body.artifacts {
-        update_last(
-            &mut last_version,
-            apply_section(synced, "artifacts", "/artifacts", records).await?,
-        );
-    }
-    if let Some(records) = body.services {
-        update_last(
-            &mut last_version,
-            apply_section(synced, "services", "/services", records).await?,
-        );
-    }
-    if let Some(records) = body.instantiations {
-        update_last(
-            &mut last_version,
-            apply_section(synced, "instantiations", "/instantiations", records).await?,
-        );
-    }
-    if let Some(records) = body.types {
-        update_last(
-            &mut last_version,
-            apply_section(synced, "types", "/types", records).await?,
-        );
+    // Build (BatchOp, section_name) pairs in a fixed section order so
+    // the batch is deterministic across requests.
+    let mut ops: Vec<BatchOp> = Vec::new();
+    // Parallel vector mapping each op's index → its section name. The
+    // batch outcome reports `path` (JSON-pointer) and `key`; we look
+    // up the section here for the response, since "/repositories" →
+    // "repositories" is well-defined but spelled twice in the body
+    // would be confusing if derived in two places.
+    let mut sections: Vec<&'static str> = Vec::new();
+
+    macro_rules! collect {
+        ($field:expr, $section:literal, $path:literal) => {
+            if let Some(records) = $field {
+                for (key, record) in records {
+                    let value = serde_json::to_value(&record).map_err(|e| {
+                        WriteError::Internal(format!(
+                            "section {:?} key {:?}: serialize record: {e}",
+                            $section, key
+                        ))
+                    })?;
+                    let op = build_batch_op($section, $path, key, value)?;
+                    ops.push(op);
+                    sections.push($section);
+                }
+            }
+        };
     }
 
-    Ok(last_version)
+    collect!(body.repositories, "repositories", "/repositories");
+    collect!(body.artifacts, "artifacts", "/artifacts");
+    collect!(body.services, "services", "/services");
+    collect!(body.instantiations, "instantiations", "/instantiations");
+    collect!(body.types, "types", "/types");
+
+    if ops.is_empty() {
+        return Ok(WriteOutcome {
+            last_version: None,
+            applied: Vec::new(),
+        });
+    }
+
+    let outcome = synced
+        .apply_batch(ops, atomic)
+        .await
+        .map_err(|e| WriteError::Internal(format!("apply_batch: {e}")))?;
+
+    let applied: Vec<unfurl_types::PatchResponseAppliedRecord> = outcome
+        .applied
+        .iter()
+        .map(|a| {
+            let section = sections.get(a.index).copied().unwrap_or("");
+            unfurl_types::PatchResponseAppliedRecord {
+                section: section.to_string(),
+                key: a.key.clone(),
+                version: a.outcome.version,
+            }
+        })
+        .collect();
+
+    if !outcome.failed.is_empty() {
+        // Take the first failure as the canonical conflict identity
+        // (matches the existing CloudMapProxyConflict's section/key
+        // contract) but include the full `failed` list for callers
+        // that want to handle non-atomic mode.
+        let primary = &outcome.failed[0];
+        let primary_section = sections
+            .get(primary.index)
+            .copied()
+            .unwrap_or("")
+            .to_string();
+        let mut failed_records: Vec<FailedJson> = Vec::with_capacity(outcome.failed.len());
+        let mut primary_actual: Option<String> = None;
+        for f in &outcome.failed {
+            let section = sections.get(f.index).copied().unwrap_or("").to_string();
+            let (kind, actual) = classify_failure(&f.error);
+            if std::ptr::eq(f, primary) {
+                primary_actual.clone_from(&actual);
+            }
+            failed_records.push(FailedJson {
+                section,
+                key: f.key.clone(),
+                actual,
+                error: kind,
+            });
+        }
+        return Err(WriteError::Conflict {
+            section: primary_section,
+            key: primary.key.clone(),
+            actual: primary_actual,
+            applied,
+            failed: failed_records,
+        });
+    }
+
+    Ok(WriteOutcome {
+        last_version: outcome.last_version,
+        applied,
+    })
 }
 
-/// Roll the most recent CRUD `version` into `last`. Both arguments are
-/// monotonic in batch-order, so a plain `Some(v)` overwrite of `last`
-/// is correct.
-fn update_last(last: &mut Option<i64>, latest: Option<i64>) {
-    if let Some(v) = latest {
-        *last = Some(v);
-    }
-}
-
-/// Serialize each typed record back to a JSON `Value` (this flattens
-/// the OCC marker keys captured in `additional_properties` back onto
-/// the top level) and dispatch to [`apply_one`]. Records from the
-/// spec come in as `HashMap<String, T>` for sections like
-/// `repositories` (T = `CloudmapRepository`) or
-/// `HashMap<String, Box<T>>` for sections that recurse (artifacts,
-/// services, instantiations); the bound is just `Serialize` so a
-/// single helper covers both.
-async fn apply_section<T: Serialize>(
-    synced: &SyncedRepo,
+/// Convert a single ``(section, path, key, value)`` triple into a
+/// [`BatchOp`]. The OCC marker keys (``unfurl.server.{commit,version,
+/// id}``) and the ``unfurl.server.deleted`` flag are popped here so
+/// the JSON that goes into git-sync is the bare record payload.
+fn build_batch_op(
     section: &str,
     path: &'static str,
-    records: HashMap<String, T>,
-) -> Result<Option<i64>, WriteError> {
-    let mut last: Option<i64> = None;
-    for (key, record) in records {
-        let value = serde_json::to_value(&record).map_err(|e| {
-            WriteError::Internal(format!(
-                "section {section:?} key {key:?}: serialize record: {e}"
-            ))
-        })?;
-        last = Some(apply_one(synced, section, path, &key, value).await?);
-    }
-    Ok(last)
-}
-
-/// Apply a single `(section, key, value)` write. Returns the
-/// `version` stamped on the resulting CRUD row.
-async fn apply_one(
-    synced: &SyncedRepo,
-    section: &str,
-    path: &'static str,
-    key: &str,
+    key: String,
     value: Value,
-) -> Result<i64, WriteError> {
+) -> Result<BatchOp, WriteError> {
     match value {
         Value::Object(mut map) => {
             let commit_ref = pop_commit_ref(&mut map);
             let is_delete = matches!(map.remove("unfurl.server.deleted"), Some(Value::Bool(true)));
             if is_delete {
-                do_delete(synced, section, path, key, commit_ref).await
+                Ok(BatchOp::Delete {
+                    file_path: None,
+                    path: path.to_string(),
+                    key,
+                    expected: commit_ref,
+                })
             } else {
-                do_upsert(synced, section, path, key, map, commit_ref).await
+                Ok(BatchOp::Upsert {
+                    file_path: None,
+                    path: path.to_string(),
+                    key,
+                    json: Value::Object(map),
+                    expected: commit_ref,
+                })
             }
         }
         other => Err(WriteError::BadRequest(format!(
@@ -552,52 +637,11 @@ async fn apply_one(
     }
 }
 
-async fn do_upsert(
-    synced: &SyncedRepo,
-    section: &str,
-    path: &'static str,
-    key: &str,
-    payload: Map<String, Value>,
-    commit_ref: Option<CommitRef>,
-) -> Result<i64, WriteError> {
-    let json = Value::Object(payload);
-    let outcome = synced
-        .upsert_record(None, path, key, json, commit_ref)
-        .await
-        .map_err(|e| map_git_sync_err(e, section, key))?;
-    Ok(outcome.version)
-}
-
-async fn do_delete(
-    synced: &SyncedRepo,
-    section: &str,
-    path: &'static str,
-    key: &str,
-    commit_ref: Option<CommitRef>,
-) -> Result<i64, WriteError> {
-    let outcome = synced
-        .delete_record(None, path, key, commit_ref)
-        .await
-        .map_err(|e| map_git_sync_err(e, section, key))?;
-    Ok(outcome.version)
-}
-
-/// Convert a [`unfurl_git_sync::Error`] into a typed [`WriteError`],
-/// carrying the offending section/key into the user-facing JSON.
-fn map_git_sync_err(err: unfurl_git_sync::Error, section: &str, key: &str) -> WriteError {
+fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<String>) {
     use unfurl_git_sync::Error as E;
     match err {
-        E::Conflict { actual, .. } => WriteError::Conflict {
-            section: section.to_string(),
-            key: key.to_string(),
-            actual,
-        },
-        E::NotFound { .. } => WriteError::NotFound(format!(
-            "section {section:?} key {key:?}: record not found (and no default file path set)"
-        )),
-        E::AlreadyExists { .. } => WriteError::Internal(format!(
-            "section {section:?} key {key:?}: AlreadyExists from upsert (unexpected)"
-        )),
-        other => WriteError::Internal(format!("section {section:?} key {key:?}: {other}")),
+        E::Conflict { actual, .. } => (Some("conflict".to_string()), actual.clone()),
+        E::NotFound { .. } => (Some("not_found".to_string()), None),
+        _ => (Some("error".to_string()), None),
     }
 }

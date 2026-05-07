@@ -30,7 +30,8 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/unfurl_types.rs");
 
-    let manifest_dir = PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+    let manifest_dir =
+        PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let committed = manifest_dir.join("src/unfurl_types.rs");
 
     // Use OUT_DIR only as a scratch space for oas3-gen's intermediate output.
@@ -83,9 +84,8 @@ fn main() {
     let cleaned = strip_inner_doc_header(&raw);
 
     // Prepend the allow header so the file is a valid stand-alone module.
-    let with_header = format!(
-        "#![allow(unused_imports, dead_code, deprecated, clippy::all)]\n{cleaned}"
-    );
+    let with_header =
+        format!("#![allow(unused_imports, dead_code, deprecated, clippy::all)]\n{cleaned}");
     // Write directly to src/unfurl_types.rs — declared as a normal module in
     // lib.rs and committed to git as the fallback for builds without oas3-gen.
     std::fs::write(&committed, with_header).expect("write src/unfurl_types.rs");

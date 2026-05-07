@@ -23,7 +23,7 @@ use crate::db::{self, Db, DbConfig};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
-use crate::model::{Record, UpdateStats, WriteOutcome};
+use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, UpdateStats, WriteOutcome};
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
 ///
@@ -686,6 +686,29 @@ impl SyncedRepo {
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
         crud_delete(self, file_path, path, key, expected_commit).await
+    }
+
+    /// Apply a batch of [`BatchOp`]s under a single SQL transaction.
+    ///
+    /// In **atomic** mode (`atomic == true`), the first per-record
+    /// [`Error::Conflict`] / [`Error::NotFound`] aborts the batch: the
+    /// surrounding transaction is rolled back, the offending op is
+    /// returned in [`BatchOutcome::failed`], and
+    /// [`BatchOutcome::applied`] is empty.
+    ///
+    /// In **non-atomic** mode (`atomic == false`), per-record
+    /// [`Error::Conflict`] / [`Error::NotFound`] are caught: the op
+    /// is recorded in [`BatchOutcome::failed`] and the loop continues.
+    /// All non-failing ops commit together at the end of the batch.
+    ///
+    /// Other (non-CRUD) errors — I/O, malformed JSON, SQL backend
+    /// failures — always abort and propagate as `Err`.
+    pub async fn apply_batch(&self, ops: Vec<BatchOp>, atomic: bool) -> Result<BatchOutcome> {
+        match self.db() {
+            Db::Sqlite(pool) => apply_batch_inner(self, pool, ops, atomic).await,
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => apply_batch_inner(self, pool, ops, atomic).await,
+        }
     }
 
     /// Persist every in-flight record edit to disk.
@@ -1446,6 +1469,219 @@ async fn crud_delete(
         }
     }
     Ok(WriteOutcome { id, version })
+}
+
+// Note: See the comment in tx.rs on why we need all these `where` clauses on these generic functions.
+
+/// Apply a single [`BatchOp`] in the caller-owned transaction,
+/// returning the new `(id, version)` on success.
+///
+/// Layered over [`db::tx::lookup_commits`] / [`enforce_conflict`] /
+/// [`db::tx::next_version`] / [`db::tx::upsert_record`] /
+/// [`db::tx::file_format`] / [`db::tx::replace_aliases`] /
+/// [`db::tx::delete_record`].
+async fn apply_one_in_tx<DB>(
+    sync: &SyncedRepo,
+    tx: &mut sqlx::Transaction<'_, DB>,
+    op: BatchOp,
+) -> Result<WriteOutcome>
+where
+    DB: db::tx::Dialect,
+    // bind-value bounds (every db::tx::* helper calls `.bind(...)`)
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    // arguments + executor (every helper runs a query through `&mut **tx`)
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    // row-decoding bounds: the three concrete row shapes used by
+    // lookup_commits / next_version / file_format.
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    match op {
+        BatchOp::Upsert {
+            file_path,
+            path: op_path,
+            key: op_key,
+            json,
+            expected,
+        } => {
+            let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
+                path: op_path.clone(),
+                source: e,
+            })?;
+            let lookup = db::tx::lookup_commits(
+                tx,
+                sync.worktree_id(),
+                file_path.as_deref(),
+                &op_path,
+                &op_key,
+            )
+            .await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file, then worktree default. NotFound
+            // when none of those yield a value (e.g. brand-new key
+            // and no `default_file_path` set).
+            let resolved_fp: String = file_path
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .or_else(|| lookup.default_file_path.clone())
+                .ok_or_else(|| Error::NotFound {
+                    file_path: String::new(),
+                    path: op_path.clone(),
+                })?;
+            if let Some(exp) = expected.as_ref() {
+                enforce_conflict(
+                    &resolved_fp,
+                    &op_path,
+                    exp,
+                    lookup.record_commit.as_ref(),
+                    lookup.record_version,
+                    lookup.record_id.is_some(),
+                )?;
+            }
+            let version = db::tx::next_version(tx, sync.worktree_id()).await?;
+            let id = db::tx::upsert_record(
+                tx,
+                sync.worktree_id(),
+                &resolved_fp,
+                &op_path,
+                &op_key,
+                &json_text,
+                version,
+            )
+            .await?;
+            let format_owner = db::tx::file_format(tx, sync.worktree_id(), &resolved_fp).await?;
+            db::tx::replace_aliases(
+                tx,
+                id,
+                &compute_aliases(
+                    sync,
+                    format_owner.as_deref(),
+                    id,
+                    &resolved_fp,
+                    &op_path,
+                    &op_key,
+                    &json,
+                ),
+            )
+            .await?;
+            Ok(WriteOutcome { id, version })
+        }
+        BatchOp::Delete {
+            file_path,
+            path: op_path,
+            key: op_key,
+            expected,
+        } => {
+            let lookup = db::tx::lookup_commits(
+                tx,
+                sync.worktree_id(),
+                file_path.as_deref(),
+                &op_path,
+                &op_key,
+            )
+            .await?;
+            // Resolve the effective file_path: caller-supplied, then
+            // existing record's file. update/delete don't fall back
+            // to the worktree default — they require an existing
+            // record, and the `record_id.ok_or(NotFound)` below
+            // catches the absent case.
+            let resolved_fp: String = file_path
+                .as_deref()
+                .map(str::to_string)
+                .or_else(|| lookup.record_file_path.clone())
+                .unwrap_or_default();
+            let id = lookup.record_id.ok_or_else(|| Error::NotFound {
+                file_path: resolved_fp.clone(),
+                path: op_path.clone(),
+            })?;
+            if let Some(exp) = expected.as_ref() {
+                enforce_conflict(
+                    &resolved_fp,
+                    &op_path,
+                    exp,
+                    lookup.record_commit.as_ref(),
+                    lookup.record_version,
+                    true,
+                )?;
+            }
+            let version = db::tx::next_version(tx, sync.worktree_id()).await?;
+            db::tx::delete_record(tx, id, version).await?;
+            Ok(WriteOutcome { id, version })
+        }
+    }
+}
+
+/// Generic batch driver: opens one transaction on `pool`, walks
+/// `ops`, accumulates [`Applied`] / [`Failed`] entries, and either
+/// commits (success / non-atomic with failures) or rolls back (atomic
+/// + first failure).
+//
+async fn apply_batch_inner<DB>(
+    sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
+    ops: Vec<BatchOp>,
+    atomic: bool,
+) -> Result<BatchOutcome>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    let mut outcome = BatchOutcome::default();
+    let mut tx = pool.begin().await?;
+    for (index, op) in ops.into_iter().enumerate() {
+        let path = op.path().to_string();
+        let key = op.key().to_string();
+        match apply_one_in_tx(sync, &mut tx, op).await {
+            Ok(write) => {
+                let v = write.version;
+                if outcome.last_version.map_or(true, |cur| v > cur) {
+                    outcome.last_version = Some(v);
+                }
+                outcome.applied.push(Applied {
+                    index,
+                    path,
+                    key,
+                    outcome: write,
+                });
+            }
+            Err(err @ (Error::Conflict { .. } | Error::NotFound { .. })) => {
+                outcome.failed.push(Failed {
+                    index,
+                    path,
+                    key,
+                    error: err,
+                });
+                if atomic {
+                    // Drop the tx without commit → rollback; clear any
+                    // "applied" entries we'd optimistically pushed
+                    // (they didn't really commit).
+                    drop(tx);
+                    outcome.applied.clear();
+                    outcome.last_version = None;
+                    return Ok(outcome);
+                }
+                // Non-atomic: the application-level conflict didn't
+                // poison the SQL tx, so continue.
+            }
+            Err(other) => {
+                return Err(other);
+            }
+        }
+    }
+    tx.commit().await?;
+    Ok(outcome)
 }
 
 fn compute_aliases(

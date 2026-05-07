@@ -98,7 +98,7 @@ class CloudMapResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-class ProjectQuery(BaseModel):
+class ProjectAuthQuery(BaseModel):
     """Common auth query parameter shared by all endpoints."""
 
     model_config = ConfigDict(
@@ -109,14 +109,19 @@ class ProjectQuery(BaseModel):
         default=None, description="Project ID for authorization and cache key scoping"
     )
 
-
-class ExportBaseQuery(ProjectQuery):
-    """Shared query parameters for /export and /types."""
-
+class ProjectQuery(ProjectAuthQuery):
     latest_commit: Optional[str] = Field(
         default=None, description="Commit hash used to validate the cache entry"
     )
     branch: Optional[str] = Field(default=None, description="Git branch name")
+    queueid: Optional[str] = Field(
+        default=None,
+        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+    )
+
+class ExportBaseQuery(ProjectQuery):
+    """Shared query parameters for /export and /types."""
+
     pretty: bool = Field(default=False, description="Pretty-print the JSON response")
     username: Optional[str] = Field(
         default=None,
@@ -124,10 +129,6 @@ class ExportBaseQuery(ProjectQuery):
     )
     visibility: Optional[Literal["public", "private"]] = Field(
         default=None, description="Repository visibility"
-    )
-    queueid: Optional[str] = Field(
-        default=None,
-        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
     )
 
 
@@ -156,8 +157,8 @@ class ExportQuery(ExportBaseQuery):
 class TypesQuery(ExportBaseQuery):
     """Query parameters for /types."""
 
-    file: str = Field(
-        default="dummy-ensemble.yaml", description="Filename used as template context"
+    file: Optional[str] = Field(
+        default="", description="Filename used as template context"
     )
     cloudmap: Optional[str] = Field(
         default=None,
@@ -249,6 +250,7 @@ _CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset(
         "private_token",
         "password",
         "commit_msg",
+        "atomic",
     ]
 )
 
@@ -306,6 +308,103 @@ class CloudMapDocument(BaseModel):
         return self
 
 
+class PostCloudmapRequest(BaseModel):
+    """Request body for ``POST /cloudmap``.
+
+    A CloudMap document portion (``apiVersion`` / ``kind`` / the five
+    section maps) plus request-only envelope/control fields
+    (``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``
+    / ``private_token`` / ``commit_msg``).
+
+    Declared as a flat object — the cloudmap section maps and the
+    envelope keys live side-by-side at the top level. The endpoint
+    splits them apart by name; the JSON-Schema validation only runs on
+    the cloudmap-document subset.
+
+    This is the *typed request body* that ``oas3-gen`` propagates into
+    the rust ``unfurl_types`` types so the rust handler can use a
+    single typed extractor instead of hand-rolling a wrapper struct.
+    """
+
+    # --- cloudmap document portion ---
+    # Declared as `Dict[str, Any]` so the OpenAPI schema is permissive;
+    # the canonical per-record validation runs in the model_validator
+    # below against `cloudmap-schema.json`.
+    apiVersion: Optional[str] = Field(default=None)
+    kind: Optional[str] = Field(default=None)
+    metadata: Optional[Dict[str, Any]] = Field(default=None)
+    repositories: Optional[Dict[str, Any]] = Field(default=None)
+    artifacts: Optional[Dict[str, Any]] = Field(default=None)
+    services: Optional[Dict[str, Any]] = Field(default=None)
+    instantiations: Optional[Dict[str, Any]] = Field(default=None)
+    types: Optional[Dict[str, Any]] = Field(default=None)
+
+    # --- envelope / control ---
+    atomic: Optional[bool] = Field(
+        default=None,
+        description=(
+            "When ``true`` (default), the batch is all-or-nothing: any "
+            "per-record OCC failure rolls everything back. When "
+            "``false``, per-record failures are skipped and the rest "
+            "of the batch commits; the 409 body lists ``applied`` and "
+            "``failed`` arrays. Honoured by the rust local handler "
+            "only — the Python YAML fallback is implicitly atomic."
+        ),
+    )
+    latest_commit: Optional[str] = Field(
+        default=None,
+        description="Last commit oid the client observed. Forwarded to git-level OCC checks.",
+    )
+    cloudmap_path: Optional[str] = Field(
+        default=None,
+        description="Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Git credential username; can also be sent via the ``X-Git-Credentials`` header.",
+    )
+    private_token: Optional[str] = Field(
+        default=None,
+        description="Git credential token; can also be sent via the ``X-Git-Credentials`` header.",
+    )
+    commit_msg: Optional[str] = Field(
+        default=None,
+        description="Commit message for the local commit; falls back to a generated default.",
+    )
+
+    # `extra="allow"` is required because per-record payloads inside
+    # the section maps may carry the OCC marker keys
+    # (``unfurl.server.{commit,version,id,deleted}``); those land in
+    # the section dicts (typed as `Dict[str, Any]`) so the
+    # `extra="allow"` here is for forward-compat with new envelope
+    # keys, not for the per-record markers.
+    model_config = ConfigDict(extra="allow")
+
+    @model_validator(mode="after")
+    def __validate_cloudmap_schema(self):
+        # Build the cloudmap-document subset (excluding envelope keys)
+        # and run it through the canonical JSON-Schema validator.
+        # Skip when no document fields are present (envelope-only POSTs
+        # are accepted as no-ops).
+        payload: Dict[str, Any] = {}
+        for k, v in self.model_dump(exclude_none=True).items():
+            if k in _CLOUDMAP_REQUEST_ENVELOPE_KEYS:
+                continue
+            if k == "atomic":
+                continue
+            payload[k] = v
+        if not payload:
+            return self
+        payload.setdefault("apiVersion", "unfurl/v1.0.0")
+        payload.setdefault("kind", "CloudMap")
+        schema = _load_cloudmap_schema()
+        err = find_schema_errors(payload, schema)
+        if err is not None:
+            message, _details = err
+            raise ValueError(f"cloudmap schema violation: {message}")
+        return self
+
+
 class CloudMapDocumentPair(BaseModel):
     """Placeholder for the ``/cloudmap`` response: a 2-element array of
     CloudMap documents.
@@ -348,18 +447,25 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     schemas = components.setdefault("schemas", {})
     has_doc = "CloudMapDocument" in schemas
     has_pair = "CloudMapDocumentPair" in schemas
-    if not (has_doc or has_pair):
+    has_post = "PostCloudmapRequest" in schemas
+    if not (has_doc or has_pair or has_post):
         return spec
     canonical = _load_cloudmap_schema()
     defs = canonical.get("definitions", {})
     for name, definition in defs.items():
         schemas["cloudmap_" + name] = _rewrite_refs_to_components(definition)
-    schemas["CloudMapDocument"] = {
-        "title": canonical.get("title", "CloudMap"),
-        "type": canonical.get("type", "object"),
-        "properties": _rewrite_refs_to_components(canonical.get("properties", {})),
-        "required": canonical.get("required", []),
-    }
+    canonical_props = _rewrite_refs_to_components(canonical.get("properties", {}))
+    # ``CloudMapDocumentPair`` $refs ``CloudMapDocument`` so the latter
+    # has to exist whenever the pair does, even if no request body
+    # references it directly (APIFlask only emits stubs for types
+    # listed on @app.input / @app.output).
+    if has_doc or has_pair:
+        schemas["CloudMapDocument"] = {
+            "title": canonical.get("title", "CloudMap"),
+            "type": canonical.get("type", "object"),
+            "properties": canonical_props,
+            "required": canonical.get("required", []),
+        }
     if has_pair:
         schemas["CloudMapDocumentPair"] = {
             "title": "CloudMap document pair",
@@ -375,18 +481,32 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
             "minItems": 2,
             "maxItems": 2,
         }
+    if has_post:
+        # Replace the loose `Dict[str, Any]` shape Pydantic emits for
+        # the cloudmap section fields with the typed
+        # ``additionalProperties: {$ref: cloudmap_<section>}`` shape
+        # the canonical schema declares. This restores per-record
+        # serde-level type checking on the rust path (without it,
+        # malformed records like ``{"protocols": "not-an-array"}``
+        # would slip through to the handler instead of being rejected
+        # at the JSON-extractor layer with 422).
+        post_props = schemas["PostCloudmapRequest"].setdefault("properties", {})
+        for section in (
+            "repositories",
+            "artifacts",
+            "services",
+            "instantiations",
+            "types",
+        ):
+            if section in canonical_props and section in post_props:
+                post_props[section] = canonical_props[section]
     return spec
 
 
 class PopulateCacheQuery(ProjectQuery):
     """Query parameters for /populate_cache."""
 
-    branch: str = Field(
-        default="main",
-        description="Branch name; also accepts 'refs/heads/…' and 'refs/tags/…' prefixes",
-    )
     path: str = Field(description="File path relative to the project root")
-    latest_commit: str = Field(description="Latest commit hash for this file")
     removed: Optional[str] = Field(
         default=None,
         description="If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
@@ -397,7 +517,7 @@ class PopulateCacheQuery(ProjectQuery):
     )
 
 
-class EmptyCacheQuery(ProjectQuery):
+class EmptyCacheQuery(ProjectAuthQuery):
     """Query parameters for /empty_cache."""
 
     auth_project: str = Field(  # type: ignore[assignment]  # overrides Optional[str] in parent
@@ -409,7 +529,7 @@ class EmptyCacheQuery(ProjectQuery):
     )
 
 
-class ClearProjectQuery(ProjectQuery):
+class ClearProjectQuery(ProjectAuthQuery):
     """Query parameters for /clear_project_file_cache."""
 
 
@@ -512,6 +632,53 @@ class ErrorResponse(BaseModel):
     )
 
 
+class AppliedRecord(BaseModel):
+    """One record successfully applied during a CloudMap batch write.
+
+    Returned in :attr:`PatchResponse.applied`.
+    """
+
+    section: str = Field(description="CloudMap section, e.g. ``artifacts``.")
+    key: str = Field(description="Record key within the section.")
+    version: int = Field(
+        description="``unfurl.server.version`` stamped on the row by this write."
+    )
+
+
+# TODO: wire up a typed ConflictBody for the 409 response shape and use
+# this model inside it. Today the rust handler at
+# `rust/server/src/cloudmap.rs::From<WriteError> for ApiError` emits the
+# 409 body as a freeform `serde_json::Value` and the proxy parses it as
+# a raw dict — neither side goes through pydantic, so there's nowhere to
+# attach this model. Defining ConflictBody requires:
+#   * a pydantic model with `{section, key, actual, applied, failed}`
+#     registered as the 409 response on POST /cloudmap,
+#   * the rust handler emitting through the regenerated typed
+#     `unfurl_types::ConflictBody` instead of `json!(...)`,
+#   * the proxy's `_post` deserializing into the typed shape.
+# Until that's done this model is the *accurate description* of the
+# wire format produced by the rust handler — kept here as documentation.
+#
+# class FailedRecord(BaseModel):
+#     """One record that did *not* apply during a CloudMap batch write.
+#
+#     Returned in the 409 conflict body's ``failed`` array (non-atomic
+#     mode only). The atomic-mode 409 body uses the singleton ``section``
+#     / ``key`` / ``actual`` fields and leaves ``failed`` empty.
+#     """
+#
+#     section: str = Field(description="CloudMap section, e.g. ``artifacts``.")
+#     key: str = Field(description="Record key within the section.")
+#     actual: Optional[str] = Field(
+#         default=None,
+#         description="The row's current ``commit_id`` at the time of the conflict.",
+#     )
+#     error: Optional[str] = Field(
+#         default=None,
+#         description="Short error label, e.g. ``conflict`` or ``not_found``.",
+#     )
+
+
 class PatchResponse(BaseModel):
     """Response from write endpoints.
 
@@ -528,6 +695,15 @@ class PatchResponse(BaseModel):
         default=None,
         description=(
             "Monotonic version assigned to this uncommitted write operation."
+        ),
+    )
+    applied: List[AppliedRecord] = Field(
+        default_factory=list,
+        description=(
+            "Per-record results for batch CloudMap writes. Empty for "
+            "single-record endpoints. In non-atomic mode, contains the "
+            "records that committed even though the batch reported a "
+            "conflict."
         ),
     )
 
