@@ -71,10 +71,35 @@ impl Db {
     pub async fn connect(cfg: &DbConfig) -> Result<Self> {
         match cfg {
             DbConfig::Sqlite { url } => {
-                use sqlx::sqlite::SqlitePoolOptions;
+                use sqlx::sqlite::{
+                    SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+                };
+                use std::str::FromStr;
+                use std::time::Duration;
+
+                // Concurrency-friendly defaults:
+                //
+                // - WAL: concurrent readers + serialized writers via the
+                //   write-ahead log instead of the rollback journal.
+                //   Without WAL, every read blocks every write and vice
+                //   versa.
+                // - synchronous=NORMAL: safe with WAL and noticeably
+                //   faster than FULL. Crash-recoverable; only
+                //   power-cycle scenarios may lose the most recent
+                //   commit (which we'd lose anyway since git would
+                //   reflect the last `commit_repository`).
+                // - busy_timeout=5s: the second writer waits up to 5s
+                //   for the first to commit instead of erroring
+                //   immediately with SQLITE_BUSY. Eliminates the
+                //   "deferred-transaction upgrade collision" failure
+                //   mode for typical workloads.
+                let opts = SqliteConnectOptions::from_str(url)?
+                    .journal_mode(SqliteJournalMode::Wal)
+                    .synchronous(SqliteSynchronous::Normal)
+                    .busy_timeout(Duration::from_secs(5));
                 let pool = SqlitePoolOptions::new()
                     .max_connections(5)
-                    .connect(url)
+                    .connect_with(opts)
                     .await?;
 
                 // Need JSONB (`jsonb()` / `json()` builtins), introduced
@@ -86,8 +111,45 @@ impl Db {
             }
             #[cfg(feature = "postgres")]
             DbConfig::Postgres { url } => {
-                use sqlx::postgres::PgPoolOptions;
-                let pool = PgPoolOptions::new().max_connections(5).connect(url).await?;
+                use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+                use std::str::FromStr;
+
+                // Defensive timeouts:
+                //
+                // - statement_timeout=30s: aborts a single statement
+                //   that runs longer than 30s. Catches runaway queries
+                //   before they pile up locks.
+                // - lock_timeout=10s: aborts if waiting for a row /
+                //   table lock takes more than 10s. Bounds the time
+                //   one stuck writer can block a queue of others.
+                // - idle_in_transaction_session_timeout=60s: aborts
+                //   sessions that opened a transaction and went idle.
+                //   Protects against a client that crashed mid-tx
+                //   leaving locks held (postgres' rough equivalent of
+                //   SQLite's busy_timeout for stuck-tx scenarios).
+                //
+                // None of these change correctness — they bound the
+                // blast radius of pathological clients.
+                let opts = PgConnectOptions::from_str(url)?
+                    .options([
+                        ("statement_timeout", "30s"),
+                        ("lock_timeout", "10s"),
+                        ("idle_in_transaction_session_timeout", "60s"),
+                    ]);
+
+                // Postgres scales with concurrent connections better
+                // than SQLite (no global write lock), so default to a
+                // bigger pool. ``UNFURL_GIT_SYNC_DB_POOL_SIZE``
+                // overrides for tuning per deployment.
+                let max_connections = std::env::var("UNFURL_GIT_SYNC_DB_POOL_SIZE")
+                    .ok()
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(20);
+
+                let pool = PgPoolOptions::new()
+                    .max_connections(max_connections)
+                    .connect_with(opts)
+                    .await?;
                 sqlx::migrate!("./migrations/postgres").run(&pool).await?;
                 Ok(Db::Postgres(pool))
             }
