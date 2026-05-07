@@ -1194,16 +1194,18 @@ def _write_yaml(
     dest_path: Optional[str] = None,
 ):
     try:
-        from unfurl.yamlloader import yaml
+        from unfurl import yamlloader
     except ImportError:
-        import yaml
+        import yaml as _yaml
+    else:
+        _yaml = yamlloader.yaml
     prologue = write_policy.generate_comment("tosca.python2yaml", src_path)
     if dest_path:
         output = io.StringIO()
-        yaml.dump(tosca_tpl, output)
+        _yaml.dump(tosca_tpl, output)
         with open(dest_path, "w") as f:
             f.write(prologue)
             f.write(output.getvalue())
     else:
         print(prologue)
-        yaml.dump(tosca_tpl, sys.stdout)
+        _yaml.dump(tosca_tpl, sys.stdout)

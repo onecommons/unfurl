@@ -97,7 +97,7 @@ if TYPE_CHECKING:
     from .repo import RepoView
     from .yamlmanifest import YamlManifest
 
-_latestJobs = []  # for testing
+_latestJobs: List[Optional[Job]] = []  # for testing
 _args: List[str] = []  # for testing
 
 

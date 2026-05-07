@@ -1020,7 +1020,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         raise AttributeError(name)
 
 
-_proxies = {}
+_proxies: Dict[type, type] = {}
 
 
 def get_proxy_class(cls, base: type = InstanceProxyBase):
