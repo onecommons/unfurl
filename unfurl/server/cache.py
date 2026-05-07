@@ -13,7 +13,7 @@ from typing import (
     cast,
     Callable,
 )
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import os
 
 from ..cloudmap import CloudMapDB, EntitySchema
@@ -23,7 +23,8 @@ from ..graphql import ImportDef, ResourceType, ResourceTypesByName
 
 from toscaparser.elements.entity_type import Namespace
 
-from flask import current_app
+from flask import current_app, has_app_context, request
+import requests
 from .serve import (
     CacheEntry,
     CacheError,
@@ -53,7 +54,7 @@ logger = getLogger("unfurl.server")
 CLOUDMAP_BRANCH = "main"
 
 
-def load_yaml(
+def load_yaml_from_cache(
     project_id: str,
     branch: str,
     file_name: str,
@@ -88,13 +89,104 @@ def load_yaml(
         return _work(cache_entry, latest_commit)[:2]
 
 
+def load_cloudmap_local(
+    project_id: str,
+    branch: str = CLOUDMAP_BRANCH,
+    file_name: str = "cloudmap.yaml",
+    root_entry: Optional["CacheEntry"] = None,
+    latest_commit: Optional[str] = None,
+    validate: bool = False,
+    create_db: bool = True,
+) -> Tuple[CacheError, Optional[Dict[str, Any]], Optional[CloudMapDB]]:
+    """Load ``file_name`` from cache and (optionally) wrap it in a
+    :class:`CloudMapDB`.
+
+    Returns ``(err, doc, db)``. When the YAML couldn't be loaded, ``doc``
+    and ``db`` are both ``None``. When ``create_db`` is ``False`` the
+    document is loaded but ``db`` is left as ``None``; callers that only
+    need the raw doc can pass ``create_db=False`` to skip the
+    ``CloudMapDB`` construction.
+    """
+    err, doc = load_yaml_from_cache(
+        project_id, branch, file_name, root_entry, latest_commit
+    )
+    if doc is None or not create_db:
+        return err, doc, None
+    return err, doc, CloudMapDB("", doc, validate)
+
+
+def get_cloudmap_view(
+    project_id: str,
+    branch: str = CLOUDMAP_BRANCH,
+    file_name: str = "cloudmap.yaml",
+    root_entry: Optional["CacheEntry"] = None,
+    latest_commit: Optional[str] = None,
+    validate: bool = False,
+) -> Tuple[CacheError, Optional[CloudMapView]]:
+    """Load ``file_name`` from cache and wrap it in a :class:`CloudMapDB`.
+
+    When the app is configured with ``UNFURL_LOCAL_CLOUDMAP_URL`` (the local
+    Rust proxy server has a cloudmap-sync DB attached) read access is
+    routed through a :class:`CloudMapProxy` against that URL instead of
+    a local YAML clone — the Rust process owns the authoritative
+    cloudmap.
+
+    Returns ``(err, db)``. When the YAML couldn't be loaded, ``db``
+    is ``None``.
+    """
+    # called by /get_types and /graph because they have python only logic.
+    syncing_url = (
+        current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL")
+        if has_app_context()
+        else None
+    )
+    if syncing_url:
+        from ..cloudmap.proxy import CloudMapProxy
+
+        # Forward auth_project and latest_commit so the rust handler
+        # can scope/pin its read against the same project + commit the
+        # caller is asking about. CloudMapProxy preserves query params
+        # from base_url on every request.
+        extra: List[Tuple[str, str]] = []
+        if project_id:
+            extra.append(("auth_project", project_id))
+        if latest_commit:
+            extra.append(("latest_commit", latest_commit))
+        if extra:
+            parsed = urlparse(syncing_url)
+            existing = parse_qsl(parsed.query, keep_blank_values=True)
+            new_query = urlencode(existing + extra)
+            syncing_url = urlunparse(parsed._replace(query=new_query))
+        # Forward auth headers from the inbound request onto the
+        # session so they're attached to every request the proxy makes.
+        session = requests.Session()
+        for header in ("X-Git-Credentials", "Authorization", "WWW-Authenticate"):
+            value = request.headers.get(header)
+            if value:
+                session.headers[header] = value
+        logger.verbose(
+            "routing CloudMapView through CloudMapProxy at %s (forwarded headers: %s)",
+            syncing_url,
+            sorted(session.headers.keys()),
+        )
+        return None, CloudMapProxy(syncing_url, session=session, logger=logger)
+
+    err, doc = load_yaml_from_cache(
+        project_id, branch, file_name, root_entry, latest_commit
+    )
+    if doc is None:
+        return err, None
+    return err, CloudMapDB("", doc, validate)
+
+
 def get_cloudmap_types(
     project_id: str, root_cache_entry: CacheEntry, validate: bool = False
 ) -> Tuple[CacheError, Dict[str, ResourceType]]:
-    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml", root_cache_entry)
-    if doc is None:
+    err, db = get_cloudmap_view(
+        project_id, root_entry=root_cache_entry, validate=validate
+    )
+    if db is None:
         return err, {}
-    db = CloudMapDB("", doc, validate)
     return err, _get_cloudmap_types(db)
 
 

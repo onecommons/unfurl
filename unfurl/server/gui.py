@@ -159,7 +159,7 @@ def _get_project_path(repo: Repo):
     return get_project_path(repo, urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname)
 
 
-def proxy_webpack(url):
+def proxy_request(url: str) -> Response:
     logger.trace(f"Proxying request to webpack dev server: {url}")
     res = requests.request(  # ref. https://stackoverflow.com/a/36601467/248616
         method=request.method,
@@ -405,7 +405,7 @@ def create_routes(localenv: LocalEnv):
             qs = request.query_string.decode("utf-8")
             if qs != "":
                 url += "?" + qs
-            return proxy_webpack(url)
+            return proxy_request(url)
         else:
             assert path and path[0] != "/"
             local_path = os.path.join(dist_dir, path)

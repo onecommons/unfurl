@@ -332,9 +332,13 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// - `unfurl.server.deleted: true` — delete the record (OCC tokens
 ///   still honoured).
 ///
-/// Unknown top-level sections are silently ignored (no
-/// `#[serde(deny_unknown_fields)]` on the generated type); record
-/// fields not in the schema are also silently dropped.
+/// Unknown top-level sections produce a **400 Bad Request** with an
+/// `error: "unknown section <name>"` body, matching the Python
+/// handler's behaviour. Serde alone would silently drop them (the
+/// generated type uses `#[serde(flatten)] additional_properties` for
+/// forward-compat with new envelope keys); the handler explicitly
+/// inspects that bag and rejects truly unknown keys before applying.
+/// Record fields not in the schema are still silently dropped.
 ///
 /// Errors fail fast: the first record whose OCC token mismatches
 /// returns 409 and the remainder are skipped. Previously-applied
@@ -353,6 +357,14 @@ pub async fn post_cloudmap_local(
         .cloudmap
         .as_ref()
         .expect("post_cloudmap_local registered without CloudMapState");
+    // Reject unknown top-level keys (sections or envelope) the same
+    // way the Python handler does — they end up in the typed
+    // request's `additional_properties` bag because oas3-gen reflects
+    // the Pydantic `extra="allow"` config as a flatten'd HashMap, and
+    // serde otherwise drops them silently.
+    if let Some(unknown) = body.additional_properties.keys().next() {
+        return Err(WriteError::BadRequest(format!("unknown section {unknown:?}")).into());
+    }
     // The Rust handler stages records to the SyncedRepo's database
     // (in-flight, `commit_id IS NULL`). It does not drive a git
     // commit — the caller does that separately — so `commit` is

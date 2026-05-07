@@ -1480,7 +1480,7 @@ types:
 
 
 def test_get_cloudmap_types(mocker):
-    """Test get_cloudmap_types with mocked load_yaml."""
+    """Test get_cloudmap_types with mocked load_yaml_from_cache."""
     from unfurl.server.cache import get_cloudmap_types, CLOUDMAP_BRANCH
     import yaml
 
@@ -1498,8 +1498,8 @@ def test_get_cloudmap_types(mocker):
         captured_db = original_cloudmapdb(*args, **kwargs)
         return captured_db
 
-    # Mock load_yaml to return the parsed cloudmap
-    with patch("unfurl.server.cache.load_yaml") as mock_load_yaml:
+    # Mock load_yaml_from_cache to return the parsed cloudmap
+    with patch("unfurl.server.cache.load_yaml_from_cache") as mock_load_yaml:
         mock_load_yaml.return_value = (None, cloudmap_doc)
 
         # Spy on CloudMapDB to capture the instance
@@ -1510,9 +1510,13 @@ def test_get_cloudmap_types(mocker):
             # Call the function
             err, types = get_cloudmap_types("test_project", mock_cache_entry, True)
 
-            # Verify load_yaml was called correctly
+            # Verify load_yaml_from_cache was called correctly
             mock_load_yaml.assert_called_once_with(
-                "test_project", CLOUDMAP_BRANCH, "cloudmap.yaml", mock_cache_entry
+                "test_project",
+                CLOUDMAP_BRANCH,
+                "cloudmap.yaml",
+                mock_cache_entry,
+                None,
             )
 
             # Verify no error
@@ -1564,7 +1568,7 @@ def test_get_cloudmap_types(mocker):
 #
 # Mirror the Rust integration tests in
 # rust/server/tests/test_cloudmap.rs. They follow the
-# test_get_cloudmap_types() pattern: mock load_yaml so the handler
+# test_get_cloudmap_types() pattern: mock load_yaml_from_cache so the handler
 # operates on a fixed cloudmap dict, then exercise the route via
 # Flask's test client.
 #
@@ -1586,12 +1590,12 @@ def _load_cloudmap_fixture():
 @pytest.fixture
 def cloudmap_test_client():
     """Yield a Flask test client wired to the unfurl server app, with
-    `unfurl.server.cache.load_yaml` patched to return the cloudmap
+    `unfurl.server.cache.load_yaml_from_cache` patched to return the cloudmap
     fixture from ``tests/fixtures/``."""
     from unfurl.server.serve import app
 
     cloudmap_doc = _load_cloudmap_fixture()
-    with patch("unfurl.server.cache.load_yaml") as mock_load_yaml:
+    with patch("unfurl.server.cache.load_yaml_from_cache") as mock_load_yaml:
         mock_load_yaml.return_value = (None, cloudmap_doc)
         with app.test_client() as client:
             yield client

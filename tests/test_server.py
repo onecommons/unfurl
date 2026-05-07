@@ -1681,9 +1681,32 @@ def test_rust_server_proxy():
             os.unlink(rust_log_file)
 
 
-def test_server_cloudmap():
-    """Test /cloudmap endpoint returns expected JSON graph."""
+@pytest.mark.parametrize("server_env", server_env)
+def test_server_cloudmap(server_env):
+    """Test /cloudmap and /graph endpoints across all server variants.
+
+    Variants exercised:
+
+    - ``no-redis`` / ``redis``: pure Python; /cloudmap and /graph read
+      ``cloudmap.yaml`` directly.
+    - ``redis-rust``: rust proxy with the cloudmap fast-path
+      (``UNFURL_CLOUDMAP_REPO`` + ``UNFURL_CLOUDMAP_DB_URL`` set).
+      /graph reaches the fast-path through ``CloudMapProxy`` (wired up
+      via ``UNFURL_LOCAL_CLOUDMAP_URL``); /cloudmap POSTs stage in-flight
+      (``commit=None``) instead of committing synchronously.
+    - ``queue-rust``: rust proxy *without* a cloudmap-sync DB. /cloudmap
+      and /graph are proxied through to Python — same behavior as the
+      pure-Python variants. This is the rust passthrough path.
+    """
     from pathlib import Path
+
+    is_rust = "rust" in server_env
+    # Only the ``redis-rust`` variant configures the rust cloudmap
+    # fast-path; ``queue-rust`` runs the rust proxy *without* a
+    # cloudmap-sync DB, so /cloudmap and /graph are proxied through to
+    # the Python backend (the YAML path) — that's the variant we use to
+    # exercise the passthrough.
+    rust_cloudmap_local = server_env == "redis-rust"
 
     fixture_dir = Path(__file__).parent / "fixtures"
     cloudmap_content = (fixture_dir / "expected_cloudmap.yaml").read_text()
@@ -1698,16 +1721,22 @@ def test_server_cloudmap():
         repo.add_all(os.path.abspath("."))
         repo.commit_files([os.path.abspath("cloudmap.yaml")], "Add cloudmap")
 
+        extra_env = _env_for(server_env, "server-cloudmap")
+        if rust_cloudmap_local:
+            sqlite_path = os.path.abspath("cloudmap-sync.sqlite")
+            extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
+            extra_env["UNFURL_CLOUDMAP_DB_URL"] = f"sqlite://{sqlite_path}?mode=rwc"
+
         ctx = get_context()
         error_queue = ctx.Queue()
         p = ctx.Process(
             target=serve_server,
             args=(HOST, port, None, ".", f"{tmpdir}", {"home": ""}),
-            kwargs={"error_queue": error_queue},
+            kwargs={"error_queue": error_queue, "extra_env": extra_env},
         )
         p._error_queue = error_queue
         try:
-            start_server_process(p, port)
+            start_server_process(p, port, is_rust=is_rust)
             base = f"http://{HOST}:{port}/graph"
 
             # Full graph
@@ -1761,11 +1790,32 @@ def test_server_cloudmap():
             )
             assert res.status_code == 200, res.text
             response = res.json()
-            assert "commit" in response
-            assert isinstance(response["commit"], str)
-            assert response["commit"], "commit oid should be non-empty"
-            on_disk = Path(cloudmap_path).read_text()
-            assert "renamed-via-post" in on_disk
+            # ``commit`` differs by path:
+            #   - rust local: stages in-flight (commit_id IS NULL); the
+            #     PatchResponse field is None and serde's
+            #     `skip_serializing_if = Option::is_none` drops it
+            #     entirely.
+            #   - python YAML (including queue-rust passthrough): a
+            #     real git oid is returned and ``cloudmap.yaml`` on
+            #     disk is updated synchronously.
+            if rust_cloudmap_local:
+                assert response.get("commit") is None
+            else:
+                assert "commit" in response
+                assert isinstance(response["commit"], str)
+                assert response["commit"], "commit oid should be non-empty"
+                on_disk = Path(cloudmap_path).read_text()
+                assert "renamed-via-post" in on_disk
+            # GET-after-upsert: both paths reflect the change. GET
+            # returns ``[primary, followed]``; primary is a
+            # CloudMap-shaped doc keyed by section -> key -> record.
+            read_back = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "key": existing_key},
+            )
+            assert read_back.status_code == 200, read_back.text
+            primary = read_back.json()[0]["repositories"][existing_key]
+            assert primary.get("name") == "renamed-via-post"
 
             # 2. Delete via `unfurl.server.deleted: true`.
             import yaml as _yaml
@@ -1780,13 +1830,33 @@ def test_server_cloudmap():
                 },
             )
             assert res.status_code == 200, res.text
-            assert "commit" in res.json()
-            on_disk_doc = _yaml.safe_load(Path(cloudmap_path).read_text())
-            assert delete_key not in on_disk_doc.get("repositories", {})
+            response = res.json()
+            if rust_cloudmap_local:
+                # Same in-flight semantics as the upsert: ``commit`` is
+                # null and dropped by serde's
+                # `skip_serializing_if = Option::is_none`.
+                assert response.get("commit") is None
+            else:
+                assert "commit" in response
+            # GET-after-delete: both paths return 404 for the gone key.
+            read_back = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "key": delete_key},
+            )
+            assert read_back.status_code == 404, read_back.text
+            if not rust_cloudmap_local:
+                # Python YAML path commits the delete synchronously, so
+                # the file on disk no longer mentions the key.
+                on_disk_doc = _yaml.safe_load(Path(cloudmap_path).read_text())
+                assert delete_key not in on_disk_doc.get("repositories", {})
 
-            # 3. Unknown section → 400.
+            # 3. Unknown section → 400. Both Python and the rust local
+            #    handler explicitly check unknown top-level keys before
+            #    applying (rust inspects the typed request's
+            #    `additional_properties` flatten bag, mirroring
+            #    Pydantic's `extra="allow"` + manual section check).
             res = requests.post(cloudmap_url, json={"flarp": {}})
-            assert res.status_code == 400
+            assert res.status_code == 400, res.text
 
             # 4. Schema-violating record → 422. The repository schema
             #    requires `protocols` to be an array of strings.
@@ -1804,10 +1874,11 @@ def test_server_cloudmap():
             assert res.status_code == 422, (
                 f"expected 422 schema violation, got {res.status_code}: {res.text}"
             )
-            # APIFlask wraps Pydantic validation errors under
-            # `detail.json._schema`; the message includes
-            # 'cloudmap schema violation' from our model_validator.
-            assert "cloudmap schema violation" in res.text
+            if not rust_cloudmap_local:
+                # APIFlask wraps Pydantic validation errors under
+                # `detail.json._schema`; the message includes
+                # 'cloudmap schema violation' from our model_validator.
+                assert "cloudmap schema violation" in res.text
         finally:
             _terminate_process(p)
 

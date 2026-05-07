@@ -1167,7 +1167,7 @@ class CollectVisitor(CloudMapGraphVisitor):
 
     def __init__(
         self,
-        start_key: str,
+        start_key: Optional[str],
         limit: int,
         exclude: Optional[Set[int]] = None,
     ) -> None:

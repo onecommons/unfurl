@@ -188,6 +188,7 @@ def configure_app(app: APIFlask = app) -> Cache:
         os.getenv("UNFURL_CLOUD_SERVER") or DEFAULT_CLOUD_SERVER
     )
     app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
+    app.config["UNFURL_LOCAL_CLOUDMAP_URL"] = os.getenv("UNFURL_LOCAL_CLOUDMAP_URL")
     app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
         os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
     )
@@ -2077,8 +2078,8 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
 
     bin_path = _find_rust_server_bin()
     if not bin_path:
-        if os.environ.get("UNFURL_RUST_SERVER") == "1":
-            logger.warning("UNFURL_RUST_SERVER=1 but unfurl-server binary not found")
+        if os.environ.get("UNFURL_RUST_SERVER"):
+            logger.warning("UNFURL_RUST_SERVER set but unfurl-server binary not found")
         return None
 
     backend_port = _backend_port(port)
@@ -2248,6 +2249,19 @@ def serve(
     try:
         if app.config["CACHE_TYPE"] == "RedisCache":
             rust_proc = _start_proxy_server(host, port)
+
+        # When the Rust proxy is running with a cloudmap-sync DB, that
+        # process owns the authoritative cloudmap and Python read paths
+        # (``get_cloudmap_view`` in cache.py) should hit it over HTTP
+        # instead of loading ``cloudmap.yaml`` from a local clone.
+        if (
+            rust_proc
+            and os.environ.get("UNFURL_CLOUDMAP_REPO")
+            and os.environ.get("UNFURL_CLOUDMAP_DB_URL")
+            and not app.config.get("UNFURL_LOCAL_CLOUDMAP_URL")
+        ):
+            proxy_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+            app.config["UNFURL_LOCAL_CLOUDMAP_URL"] = f"http://{proxy_host}:{port}"
 
         # Start single-threaded WSGI server
         waitress.serve(

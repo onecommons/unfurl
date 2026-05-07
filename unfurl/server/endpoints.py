@@ -100,27 +100,27 @@ logger = getLogger("unfurl.server")
     description="Pair: [filtered CloudMap document, followed records]",
 )
 def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, load_yaml
+    from .cache import load_cloudmap_local
 
-    project_id = get_project_id(request)
-    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml",
-                         latest_commit=request.args.get("latest_commit"))
+    project_id = query.auth_project or ""
+    kind = query.kind
+    key = query.key
+    follow = query.follow
+    need_db = follow > 0 and bool(key)
+    err, doc, db = load_cloudmap_local(
+        project_id,
+        latest_commit=query.latest_commit,
+        create_db=need_db,
+    )
     if doc is None:
         if isinstance(err, Response):
             return err
         return make_response(jsonify(error=str(err)), 500)
 
-    kind = request.args.get("kind")
-    key = request.args.get("key")
-    try:
-        follow = int(request.args.get("follow") or 0)
-    except ValueError:
-        follow = 0
-
     # `exclude` is a CSV of record primary-key ids the caller already
     # holds (matches the rust handler's contract). Non-numeric tokens
     # are silently dropped — same as the rust side.
-    exclude_param = request.args.get("exclude") or ""
+    exclude_param = query.exclude or ""
     exclude_ids: Set[int] = set()
     for tok in exclude_param.split(","):
         tok = tok.strip()
@@ -132,7 +132,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
             pass
 
     if not kind:
-        primary: Any = doc
+        primary = doc
     else:
         section = doc.get(kind, {})
         if key is None:
@@ -145,13 +145,11 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
             primary = {kind: {key: section[key]}}
 
     followed: Dict[str, Any] = {}
-    if follow > 0 and key:
-        from ..cloudmap import CloudMapDB
+    if db is not None:
         from ..reporting import CollectVisitor, walk_cloudmap_graph
 
-        db = CloudMapDB("", doc, False)
         visitor = CollectVisitor(key, follow, exclude=exclude_ids)
-        walk_cloudmap_graph(db, visitor, key)
+        walk_cloudmap_graph(db, visitor, key or "")
         followed = visitor.result
 
     return [primary, followed]
@@ -207,6 +205,8 @@ def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
     so the ``latest_commit`` check is the only concurrency control in place.
     """
+    from .cache import CLOUDMAP_BRANCH, load_cloudmap_local
+
     raw = _get_body(request)
     cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
     latest_commit = raw.get("latest_commit")
@@ -230,8 +230,12 @@ def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
         body_sections[section] = entries
 
     project_id = get_project_id(request)
-    err, doc = load_yaml(
-        project_id, CLOUDMAP_BRANCH, cloudmap_path, latest_commit=latest_commit
+    err, doc, _ = load_cloudmap_local(
+        project_id,
+        branch=CLOUDMAP_BRANCH,
+        file_name=cloudmap_path,
+        latest_commit=latest_commit,
+        create_db=False,
     )
     if doc is None:
         if isinstance(err, Response):
@@ -337,18 +341,15 @@ def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
 @app.input(CloudMapQuery, location="query", arg_name="query")
 @app.output(CloudMapResponse, description="CloudMap dependency graph as JSON")
 def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, load_yaml
-
-    from ..cloudmap import CloudMapDB
+    from .cache import get_cloudmap_view
     from ..reporting import cloudmap_graph_json
 
     project_id = get_project_id(request)
-    err, doc = load_yaml(project_id, CLOUDMAP_BRANCH, "cloudmap.yaml")
-    if doc is None:
+    err, db = get_cloudmap_view(project_id)
+    if db is None:
         if isinstance(err, Response):
             return err
         return make_response(jsonify(error=str(err)), 500)
-    db = CloudMapDB("", doc, False)
     url = request.args.get("url") or ""
     result = cloudmap_graph_json(db, url)
     if "error" in result:
