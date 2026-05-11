@@ -104,7 +104,7 @@ def serve_document(
 
     if localrepo_is_dashboard and localrepo.url:
         parsed = urlparse(normalize_git_url(localrepo.url))
-        [user, _, *_] = re.split(r"[@:]", parsed.netloc)
+        user = parsed.username or ""
         origin = f"{parsed.scheme}://{parsed.hostname}"
     else:
         parsed = None
