@@ -109,9 +109,9 @@ def serve_document(
     origin = ""
     if localrepo_is_dashboard and localrepo.url:
         parsed = urlparse(normalize_git_url(localrepo.url))
-        if parsed.netloc:  # skip file: urls
-            [user, _, *_] = re.split(r"[@:]", parsed.netloc)
-        origin = f"{parsed.scheme}://{parsed.hostname}"
+        if parsed.netloc:  # skip file: urls (no hostname => no usable origin)
+            user = parsed.username or ""
+            origin = f"{parsed.scheme}://{parsed.hostname}"
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
     projectPath = server_fragment[0].lstrip("/")

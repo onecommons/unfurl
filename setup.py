@@ -1,6 +1,46 @@
 """A setuptools based setup module.
 """
+import os
+import os.path
+import re
+import subprocess
+
 from setuptools import setup
+
+_here = os.path.dirname(os.path.abspath(__file__))
+
+
+def _ensure_pbr_version() -> None:
+    # PBR derives the version from `git describe`. On a shallow clone
+    # (e.g. `git clone --depth 1` in CI) no tags are reachable and PBR
+    # returns "0.0.0". If we're in a git checkout but no tag is visible,
+    # fall back to the latest version listed in CHANGELOG.md and expose
+    # it via PBR_VERSION (which takes precedence over git inspection).
+    if os.environ.get("PBR_VERSION"):
+        return
+    if not os.path.isdir(os.path.join(_here, ".git")):
+        return  # sdist / wheel install — pbr reads PKG-INFO instead
+    try:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=_here, capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return  # tags are present, let pbr do its normal thing
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    try:
+        with open(os.path.join(_here, "CHANGELOG.md"), "r") as fh:
+            for line in fh:
+                m = re.match(r"^##\s+v(\d+\.\d+\.\d+)", line)
+                if m:
+                    os.environ["PBR_VERSION"] = m.group(1) + ".dev0"
+                    return
+    except OSError:
+        pass
+
+
+_ensure_pbr_version()
 
 # XXX stop depending on pbr.json and delete this hack
 # this fails (can't load pbr.packaging module):
@@ -8,9 +48,8 @@ from setuptools import setup
 #     "pbr.json" = "pbr.packaging.write_pbr_json"
 # so emulate:
 import pbr.packaging
-import os.path
 
-egg_dir = os.path.join(os.path.dirname(__file__), "unfurl.egg-info")
+egg_dir = os.path.join(_here, "unfurl.egg-info")
 if not os.path.isdir(egg_dir):
     os.mkdir(egg_dir)
 
