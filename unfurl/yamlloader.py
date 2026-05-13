@@ -797,42 +797,45 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             return False
 
+    @staticmethod
+    def _is_inside(path: str, root: str) -> bool:
+        # Accept if either the un-resolved (abspath) form or the symlink-resolved
+        # (realpath) form of `path` is inside `root`. Comparing abspaths preserves
+        # the case where a symlink inside the project points outside it (user
+        # intent: still inside). Comparing realpaths handles cases like macOS
+        # /tmp vs /private/tmp where one side is a symlink to the other.
+        for resolver in (os.path.abspath, os.path.realpath):
+            if not os.path.relpath(resolver(path), resolver(root)).startswith(".."):
+                return True
+        return False
+
     def _has_path_escaped_base(self, path: str, base) -> bool:
         if not self.confine_user_paths:
             return False
         if not base:
             return self._has_path_escaped_project(path)
-
-        # relative to file
-        absbase = os.path.abspath(base)
-        if not absbase[-1] != "/":
-            absbase += "/"
-        if not os.path.abspath(path).startswith(absbase):
-            msg = f'Path not allowed outside of repository or document root "{absbase}": "{path}"'
-            ExceptionCollector.appendException(ImportError(msg))
-            return True
-        else:
+        if self._is_inside(path, base):
             return False
+        msg = f'Path not allowed outside of repository or document root "{os.path.abspath(base)}": "{path}"'
+        ExceptionCollector.appendException(ImportError(msg))
+        return True
 
     def _has_path_escaped_project(self, path) -> bool:
         if not self.confine_user_paths:
             return False
 
-        # user supplied path can't be outside of the project or the home project
+        # user supplied path can't be outside of the project or the home project.
         if self.local_env and self.local_env.project:
-            if os.path.abspath(path).startswith(
-                os.path.abspath(os.path.dirname(__file__))
-            ):
+            if self._is_inside(path, os.path.dirname(__file__)):
                 # special case for built-in "unfurl" repository
                 return False
-            if self.local_env.project.get_relative_path(path).startswith(".."):
-                if (
-                    not self.local_env.homeProject
-                    or self.local_env.homeProject.get_relative_path(path).startswith(
-                        ".."
-                    )
+            if not self._is_inside(path, self.local_env.project.projectRoot):
+                if not self.local_env.homeProject or not self._is_inside(
+                    path, self.local_env.homeProject.projectRoot
                 ):
                     msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
+                    if self.local_env.homeProject:
+                        msg += f' or home project: "{self.local_env.homeProject.projectRoot}"'
                     ExceptionCollector.appendException(ImportError(msg))
                     return True
         return False
