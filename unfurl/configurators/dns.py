@@ -3,8 +3,6 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
-from octodns.manager import Manager
-from octodns.zone import Zone
 try:
   # octodns installs natsort_keygen
   from natsort import natsort_keygen
@@ -138,6 +136,8 @@ class DNSConfigurator(Configurator):
 
     def render(self, task: TaskView):
         """Create yaml config files which will be consumed by OctoDNS"""
+        from octodns.manager import Manager
+
         properties = self._extract_properties_from(task)
         managed = properties.records
         if isinstance(task.target, NodeInstance):
@@ -203,6 +203,8 @@ class DNSConfigurator(Configurator):
 
     def _dump_current_dns_records(self, task: TaskView, folder: WorkFolder):
         task.logger.debug("OctoDNS configurator - downloading current DNS records")
+        from octodns.zone import Zone
+        from octodns.manager import Manager
 
         path = folder.cwd
         zone_name = _get_zone(task.vars["SELF"]["name"])
@@ -274,6 +276,8 @@ class DNSConfigurator(Configurator):
             return task.done(success=True, modified=False)
 
         with change_cwd(folder.cwd, task.logger):
+            from octodns.manager import Manager
+
             manager = Manager(config_file="main-config.yaml")
             changes = manager.sync(dry_run=task.dry_run)
             if changes:
