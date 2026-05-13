@@ -193,11 +193,14 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
         return localenv.project.project_repoview.repo if localenv.project else None
 
     local_projects = app.config["UNFURL_LOCAL_PROJECTS"]
+    # try with and without trailing slash since project_path might have one but local_projects keys don't
+    lookup_keys = (project_path.rstrip("/"), project_path)
+    for key in lookup_keys:
+        if key in local_projects:
+            working_dir = local_projects[key]
+            return Repo.make_repo(working_dir)
     if project_path[-1] != "/":
         project_path += "/"
-    if project_path in local_projects:
-        working_dir = local_projects[project_path]
-        return Repo.make_repo(working_dir)
 
     if project_path.startswith("local:"):
         # it's not a cloud server project

@@ -1425,7 +1425,10 @@ def get_project_path(repo: Repo, server_host: str) -> str:
 
 def get_local_project_path(repo: Repo):
     # XXX use different scheme if repo has a remote?
-    return "local:" + repo.working_dir
+    # gitpython's working_dir can include a trailing slash; strip it so the
+    # project_id form matches what callers (frontend, /clear_project_file_cache)
+    # send for the same project.
+    return "local:" + repo.working_dir.rstrip("/")
 
 
 def _add_repositories(db: dict, tpl: dict):
