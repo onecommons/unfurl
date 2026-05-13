@@ -275,7 +275,7 @@ class ShellConfigurator(TemplateConfigurator):
             err.error = err  # type: ignore
             return err
 
-    def _handle_result(self, task: TaskView, result, cwd, successCodes=(0,)):
+    def _handle_result(self, task: TaskView, result, cwd, successCodes=(0,), env=None):
         # strips terminal escapes
         result.stdout = AnsibleUnsafeText(clean_output(result.stdout or ""))
         result.stderr = AnsibleUnsafeText(clean_output(result.stderr or ""))
@@ -288,6 +288,8 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info("task timed out in %s", result.timeout)
             else:
                 task.logger.info("shell task return code: %s", result.returncode)
+            if env is not None:
+                task.logger.debug("shell task env: %s", env)
         else:
             task.logger.info("shell task run success: %s", result.cmd)
         if result.stderr:

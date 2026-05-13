@@ -206,7 +206,7 @@ class TerraformConfigurator(ShellConfigurator):
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
-        if not self._handle_result(task, result, cwd):
+        if not self._handle_result(task, result, cwd, env=env):
             return None
 
         if os.path.exists(folder.get_current_path(".terraform.lock.hcl", False)):
@@ -217,7 +217,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         cmd = terraform + "providers schema -json".split(" ")
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
-        if not self._handle_result(task, result, cwd):
+        if not self._handle_result(task, result, cwd, env=env):
             task.logger.warning(
                 "terraform providers schema failed: %s %s",
                 result.returncode,
@@ -483,7 +483,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         # process the result
         status = None
-        success = self._handle_result(task, result, cwd.cwd, (0, 2))
+        success = self._handle_result(task, result, cwd.cwd, (0, 2), env)
         # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
         needs_changes = False
         if result.returncode == 2:

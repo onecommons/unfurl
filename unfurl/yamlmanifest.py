@@ -638,14 +638,17 @@ class YamlManifest(ReadOnlyManifest):
             root._environ = filter_env(rules, root._environ)
         finally:
             self.validate = _previous_validate
-        paths = self.localEnv and self.localEnv.get_paths()
-        if paths:
-            path = os.pathsep.join(paths)
-            if path not in root._environ["PATH"]:  # avoid setting twice
-                root._environ["PATH"] = (
-                    path + os.pathsep + root._environ.get("PATH", "")
-                )
-                logger.debug("PATH set to %s", root._environ["PATH"])
+        if self.localEnv:
+            paths = self.localEnv.get_paths()
+            if paths:
+                path = os.pathsep.join(paths)
+                if path not in root._environ["PATH"]:  # avoid setting twice
+                    root._environ["PATH"] = (
+                        path + os.pathsep + root._environ.get("PATH", "")
+                    )
+                    logger.debug("PATH set to %s", root._environ["PATH"])
+                    return
+            logger.trace("PATH already includes: %s", paths)
 
     def create_topology_instance(self, status: dict) -> TopologyInstance:
         """
@@ -670,6 +673,10 @@ class YamlManifest(ReadOnlyManifest):
         root.imports = self.imports
         if not self.safe_mode:
             self._set_root_environ()
+        else:
+            logger.trace(
+                "Safe mode is enabled, skipping setting environment variables on root resource"
+            )
         return root
 
     def _load_resource_templates(self, templates, node_templates, virtual):
