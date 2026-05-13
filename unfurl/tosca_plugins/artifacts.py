@@ -38,11 +38,16 @@ asdf {%if task.operation == 'delete' %}uninstall{%else%}install{%endif%} {{SELF.
             shell=Eval('{{ "bash" | which }}'),
             resultTemplate=Eval(
                 {
-                    "to_env": {
-                        "^PATH": '{{ lookup("env", "ASDF_DATA_DIR") }}/installs/{{ '
-                        "SELF.file}}/{{SELF.version}}/bin }}"
-                    },
-                    "update_os_environ": True,
+                    "eval": {
+                        "to_env": {
+                            "^PATH": (
+                                '{{ lookup("env", "ASDF_DATA_DIR") '
+                                '| default("asdf" | get_dir, true) }}'
+                                "/installs/{{ SELF.file }}/{{ SELF.version }}/bin"
+                            ),
+                        },
+                        "update_os_environ": True,
+                    }
                 }
             ),
         )
