@@ -896,10 +896,6 @@ def _patch_environment(
     return _patch_response(repo)
 
 
-# def queue_request(environ):
-#   url = f"{environ['wsgi.url_scheme']}://{environ['SERVER_NAME']}:{environ['SERVER_PORT']}/"
-
-
 def invalidate_cache(body: dict, format: str, project_id: str) -> bool:
     if project_id and project_id != ".":
         branch = body.get("branch")
@@ -1044,6 +1040,19 @@ def _patch_ensemble(
 
     if batched is None:  # XXX
         invalidate_cache(body, "deployment", project_id)
+        if create:
+            # Creating a deployment also changes the project's
+            # DeploymentPath list (in unfurl.yaml's environments view), so the
+            # cached `environments` export — which the dashboard relies on to
+            # discover deployments — is also stale.
+            invalidate_cache({"branch": body.get("branch")}, "environments", project_id)
+            # The cached LocalEnv holds a Project whose localConfig.ensembles list is now stale too, so
+            # invalidate the cached localenv too
+            invalidate_cache(
+                {"branch": body.get("branch"), "deployment_path": "unfurl.yaml"},
+                "localenv",
+                project_id,
+            )
     if existing_repo:
         was_dirty = existing_repo.is_dirty()
         if isinstance(existing_repo, GitRepo):
@@ -1112,6 +1121,17 @@ def _patch_ensemble(
         committed = manifest.commit(commit_msg, True, ensemble_only=True)
         if committed or create:
             logger.info(f"committed to {committed} repositories")
+            # In standalone gui mode, app.config["UNFURL_GUI_MODE"] holds the
+            # LocalEnv that /export reads to enumerate DeploymentPath. A new
+            # ensemble just registered in unfurl.yaml isn't in that view
+            # until we rebuild it, so the dashboard's include_all_deployments
+            # wouldn't iterate the new deployment.
+            if create and app.config.get("UNFURL_GUI_MODE"):
+                from .serve import set_current_ensemble_git_url
+
+                refreshed = set_current_ensemble_git_url(gui=True)
+                if refreshed:
+                    app.config["UNFURL_GUI_MODE"] = refreshed
             if manifest.repo and not app.config.get("UNFURL_GUI_MODE") and not batched:
                 err = _push_changes(
                     manifest.repo, username, password, starting_revision

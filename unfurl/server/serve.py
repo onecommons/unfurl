@@ -323,7 +323,7 @@ def set_local_projects(local_env: LocalEnv, clone_root: str, gui: bool):
     app.config["UNFURL_LOCAL_PROJECTS"] = local_projects
 
 
-def set_current_ensemble_git_url(gui: bool = False):
+def set_current_ensemble_git_url(gui: bool = False) -> Optional[LocalEnv]:
     project_or_ensemble_path = os.getenv("UNFURL_SERVE_PATH")
     if not project_or_ensemble_path:
         return None
@@ -1750,6 +1750,15 @@ def _clear_project(project_id: str) -> ResponseReturnValue:
     if cleared is None:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred")
     clear_cache(cache, "_inflight::" + project_id + ":")
+    if app.config.get("UNFURL_GUI_MODE"):
+        # In standalone gui mode /export uses the LocalEnv held in
+        # app.config["UNFURL_GUI_MODE"] directly; reload it from disk so the
+        # next request picks up newly-added environments or other on-disk
+        # changes that the project_id-scoped invalidation above wouldn't
+        # notice.
+        refreshed = set_current_ensemble_git_url(gui=True)
+        if refreshed:
+            app.config["UNFURL_GUI_MODE"] = refreshed
     return f"{len(cleared)}"
 
 
@@ -1785,6 +1794,14 @@ def _make_readonly_localenv(
             readonly=True,
             overrides=overrides,
         )
+        # In standalone gui mode the parent LocalEnv caches YamlManifest
+        # objects by path in `_manifests`. When the on-disk manifest is
+        # modified out-of-band (e.g. by a `unfurl deploy` CLI run), the
+        # cached YamlManifest still has the pre-change state —-
+        # so evict the cached manifest so the next get_manifest()
+        # call re-reads from disk.
+        if gui_local_env and local_env.manifestPath:
+            local_env._manifests.pop(local_env.manifestPath, None)
     except UnfurlError as e:
         logger.error("error loading project at %s", clone_location, exc_info=True)
         return e, None
