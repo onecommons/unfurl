@@ -147,6 +147,33 @@ class TestSensitiveFilter:
             record.getMessage() == "This should {'also': 'work', 'not': '<<REDACTED>>'}"
         )
 
+    def test_dict_log_record_sensitive_keyname(self):
+        record = logging.LogRecord(
+            msg="creds %s",
+            args=(
+                {
+                    "user": "alice",
+                    "token": "uc-4aefafdase8",
+                    "private_token": "uc-CVFGFFEEE",
+                    "secret": "shh",
+                    "api_key": "abc123",
+                    "password": "hunter2",
+                    "note": "ok",
+                },
+            ),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        assert record.getMessage() == (
+            "creds {'user': 'alice', "
+            "'token': '<<REDACTED>>', "
+            "'private_token': '<<REDACTED>>', "
+            "'secret': '<<REDACTED>>', "
+            "'api_key': '<<REDACTED>>', "
+            "'password': '<<REDACTED>>', "
+            "'note': 'ok'}"
+        )
+
     def test_url_redaction(self):
         record = logging.LogRecord(
             msg="Bad https://user:uc-4aefafdase8@unfurl.cloud/onecommons/?private_token=uc-4aefafdase8 %s %s",

@@ -28,10 +28,19 @@ sensitive_params = (
     "secret",
     "password",
 )  # note: matches private_token etc too
-sensitive_params_regex = re.compile(rf"({'|'.join(sensitive_params)})=([^&\s]+)")
-sensitive_args_regex = re.compile(
-    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))(\S+)"""
+sensitive_params_regex = re.compile(
+    rf"({'|'.join(sensitive_params)})=([^&\s]+)", re.IGNORECASE
 )
+sensitive_args_regex = re.compile(
+    rf"""(--\S{{0,50}}({"|".join(sensitive_params)})('|")?(=|\s+))(\S+)""",
+    re.IGNORECASE,
+)
+
+
+def sensitive_keyname(k) -> bool:
+    if isinstance(k, str):
+        return any(param in k.lower() for param in sensitive_params + ("key",))
+    return False
 
 
 def truncate(s: str, max: int = DEFAULT_TRUNCATE_LENGTH, omitted="omitted...") -> str:
@@ -363,7 +372,9 @@ class SensitiveFilter(logging.Filter):
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
         if isinstance(value, collections.abc.Mapping):
             return {
-                SensitiveFilter.redact(k): SensitiveFilter.redact(v)
+                SensitiveFilter.redact(k): sensitive.redacted_str
+                if sensitive_keyname(k)
+                else SensitiveFilter.redact(v)
                 for k, v in value.items()
             }
         elif is_sensitive(value):
