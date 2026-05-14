@@ -4,6 +4,7 @@ import time
 import unittest
 
 from click.testing import CliRunner
+from ruamel.yaml import YAML
 
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
@@ -13,6 +14,23 @@ from unfurl.util import sensitive_str
 from .utils import lifecycle, MotoTest
 
 
+def _inject_background_input(node):
+    """Walk a parsed TOSCA ensemble and add ``background: true`` to every
+    interface ``inputs:`` mapping so the TerraformConfigurator runs in
+    background mode. Concurrent tasks sharing the same workfolder are
+    serialized via the Job's workfolder-claim mechanism (see
+    Job.claim_workfolder / TaskView.claim_work_folder)."""
+    if isinstance(node, dict):
+        for k, v in list(node.items()):
+            if k == "inputs" and isinstance(v, dict):
+                v["background"] = True
+            else:
+                _inject_background_input(v)
+    elif isinstance(node, list):
+        for item in node:
+            _inject_background_input(item)
+
+
 @unittest.skipIf(
     "terraform" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
 )
@@ -20,15 +38,22 @@ class TerraformTest(unittest.TestCase):
     def setUp(self):
         self.maxDiff = None
 
-    def setup_filesystem(self):
+    def setup_filesystem(self, background=False):
         terraform_dir = os.environ["terraform_dir"] = os.path.join(
             os.path.dirname(__file__), "fixtures", "terraform"
         )
 
         path = os.path.join(os.path.dirname(__file__), "examples")
-        shutil.copy(
-            os.path.join(path, "terraform-simple-ensemble.yaml"), "ensemble.yaml"
-        )
+        src = os.path.join(path, "terraform-simple-ensemble.yaml")
+        if background:
+            yaml = YAML()
+            with open(src) as f:
+                data = yaml.load(f)
+            _inject_background_input(data)
+            with open("ensemble.yaml", "w") as f:
+                yaml.dump(data, f)
+        else:
+            shutil.copy(src, "ensemble.yaml")
 
         # copy the terraform lock file so the configurator avoids calling terraform init
         # if .tox/.terraform already has the providers
@@ -40,9 +65,15 @@ class TerraformTest(unittest.TestCase):
             shutil.copy(lock_file, "tasks/terraform-node-json/")
 
     def test_terraform(self):
+        self._run_test_terraform(background=False)
+
+    def test_terraform_background(self):
+        self._run_test_terraform(background=True)
+
+    def _run_test_terraform(self, background):
         cli_runner = CliRunner()
         with cli_runner.isolated_filesystem():
-            self.setup_filesystem()
+            self.setup_filesystem(background=background)
             manifest = LocalEnv().get_manifest()
             runner = Runner(manifest)
             job = runner.run(JobOptions(startTime=1, check=True))  # deploy
@@ -350,12 +381,17 @@ class TerraformTest(unittest.TestCase):
                 },
                 summary,
             )
+            plan_summary = job._json_plan_summary(include_rendered=False)
+            # Background mode runs extra suspend/resume cycles (each commits
+            # changes and advances the change counter), so the `managed`
+            # change IDs aren't stable across modes. Compare the rest.
+            for entry in plan_summary:
+                entry.pop("managed", None)
             self.assertEqual(
-                job._json_plan_summary(include_rendered=False),
+                plan_summary,
                 [
                     {
                         "instance": "result-template-test",
-                        "managed": "A01110000002",
                         "plan": [{"operation": "check", "reason": "check"}],
                         "state": "NodeState.deleted",
                         "status": "Status.absent",
@@ -364,21 +400,18 @@ class TerraformTest(unittest.TestCase):
                         "instance": "terraform-node",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
-                        "managed": "A01110000004",
                         "plan": [{"operation": "check", "reason": "check"}],
                     },
                     {
                         "instance": "terraform-node-json",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
-                        "managed": "A01110000006",
                         "plan": [{"operation": "check", "reason": "check"}],
                     },
                     {
                         "instance": "example",
                         "status": "Status.absent",
                         "state": "NodeState.deleted",
-                        "managed": "A01110000008",
                         "plan": [{"operation": "check", "reason": "check"}],
                     },
                 ],

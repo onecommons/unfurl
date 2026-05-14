@@ -186,7 +186,13 @@ class TerraformConfigurator(ShellConfigurator):
     def can_dry_run(self, task):
         return True
 
-    def _init_terraform(self, task, terraform, folder, env):
+    def _init_terraform(
+        self,
+        task: TaskView,
+        terraform: List[str],
+        folder: WorkFolder,
+        env: Dict[str, str],
+    ):
         # only retrieve the schema when we need to worry about sensitive data
         # in the terraform state file.
         # (though we still try to mark data as sensitive even without it)
@@ -458,23 +464,45 @@ class TerraformConfigurator(ShellConfigurator):
             providerSchema = {}
 
         echo_args = get_echo_args(task.verbose)
-        task.logger.trace("Running: %s %s", cmd, env)
-        result = self.run_process(
-            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, **echo_args
+        background = bool(
+            task.inputs.get("background")
+            or os.environ.get("UNFURL_TEST_SHELL_BACKGROUND")
         )
+        result = yield from self._dispatch_run(
+            task,
+            cmd,
+            background=background,
+            timeout=task.configSpec.timeout,
+            env=env,
+            cwd=cwd.cwd,
+            lock_cwd=True,
+            **echo_args,
+        )
+        if result.error or result.timeout:
+            # cancelled / timed out — don't try to apply a partial state file
+            self._handle_result(task, result, cwd.cwd, (0, 2), env)
+            yield self.done(task, success=False, result=result.__dict__)
+            return
         if result.returncode and _needs_init(clean_output(result.stderr)):
-            # modules or plugins out of date, re-run terraform init
+            # modules or plugins out of date, re-run terraform init (always sync)
             providerSchema = self._init_terraform(task, terraform, cwd, env)
             if providerSchema is not None:
                 save_to_file(providerSchemaPath, providerSchema)
                 # try again
-                result = self.run_process(
+                result = yield from self._dispatch_run(
+                    task,
                     cmd,
+                    background=background,
                     timeout=task.configSpec.timeout,
                     env=env,
                     cwd=cwd.cwd,
+                    lock_cwd=True,
                     **echo_args,
                 )
+                if result.error or result.timeout:
+                    self._handle_result(task, result, cwd.cwd, (0, 2), env)
+                    yield self.done(task, success=False, result=result.__dict__)
+                    return
             else:
                 raise UnfurlTaskError(
                     task,
