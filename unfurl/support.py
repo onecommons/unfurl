@@ -976,7 +976,11 @@ def to_env(args, ctx: RefContext):
     result = filter_env(rules, env, True, sub)
     if ctx.kw.get("update_os_environ"):
         log = ctx.task and ctx.task.logger or logger
-        log.debug("to_env is updating os.environ with %s using rules %s", result, rules)
+        log.debug(
+            "to_env is updating os.environ with %s using rules %s",
+            wrap_sensitive_value(result),
+            rules,
+        )
         # update all the copies of environ
         envs: MutableSequence[Dict[str, str]] = [ctx.environ, cast(dict, os.environ)]
         if hasattr(ctx.currentResource, "apex"):

@@ -575,6 +575,9 @@ types:
 """
 
 
+@pytest.mark.skipif(
+    GithubManager is None, reason="PyGithub not installed"
+)
 class TestGithubManager:
     """Unit tests for GithubManager using mock GitHub API objects."""
 
@@ -1820,6 +1823,9 @@ def test_release_schedule():
     assert recreated.release_schedule[0].url == "https://new-example.com/api"
 
 
+@pytest.mark.skipif(
+    GithubManager is None, reason="PyGithub not installed"
+)
 def test_analyze_url(tmp_path):
     """Test CloudMap.analyze_url() correctly identifies and creates Repository, Artifact, and Service records."""
 
