@@ -18,7 +18,6 @@ from ..spec import EntitySpec
 from ..support import Status
 from ..runtime import NodeInstance
 
-from ..util import change_cwd
 from ..eval import map_value
 from toscaparser.properties import Property
 
@@ -98,6 +97,16 @@ def _compare_records(name, expected, existing):
             return 0  # not found
     return 1  # found
 
+
+def _config_path(folder: WorkFolder) -> str:
+    """Absolute path to the octodns main-config.yaml in ``folder.cwd``.
+    Using an absolute path lets us call ``Manager(config_file=...)``
+    without first chdir'ing into the folder (which would be a process-
+    global side effect that breaks concurrent tasks).
+    """
+    return os.path.join(folder.cwd, "main-config.yaml")
+
+
 class DNSConfigurator(Configurator):
     """A configurator for managing a DNS zone using OctoDNS.
     Unless the ``exclusive`` attribute is set on the DNSZone instance, it will ignore records in the zone that are not specified in the ``records`` property.
@@ -158,10 +167,8 @@ class DNSConfigurator(Configurator):
         # create zone files
         self._write_zone_data(folder, properties.name, records)
 
-        path = folder.cwd
-        with change_cwd(path, task.logger):
-            # raises an error if validation fails
-            Manager(config_file="main-config.yaml").validate_configs()
+        # raises an error if validation fails
+        Manager(config_file=_config_path(folder)).validate_configs()
         return managed
 
     @staticmethod
@@ -185,7 +192,10 @@ class DNSConfigurator(Configurator):
             "providers": {
                 "source_config": {
                     "class": "octodns.provider.yaml.YamlProvider",
-                    "directory": "./",
+                    # absolute path so octodns.YamlProvider doesn't depend
+                    # on os.getcwd() (avoids a process-global chdir during
+                    # task execution)
+                    "directory": folder.cwd,
                     "enforce_order": True,
                     "default_ttl": properties.default_ttl,
                 },
@@ -206,36 +216,34 @@ class DNSConfigurator(Configurator):
         from octodns.zone import Zone
         from octodns.manager import Manager
 
-        path = folder.cwd
         zone_name = _get_zone(task.vars["SELF"]["name"])
-        with change_cwd(path, task.logger):
-            manager = Manager(config_file="main-config.yaml")
-            zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
-            exists = manager.providers["target_config"].populate(zone, lenient=True)
-            if not exists:
-                return {}
-            # now the zone.records has the latest records as a set
-            # copied from https://github.com/octodns/octodns/blob/f6629f1ce49919d523f7d26eb14e9125348a3059/octodns/provider/yaml.py#L160
-            # Order things alphabetically (records sort that way
-            records = list(zone.records)
-            records.sort()
-            data = defaultdict(list)
-            for record in records:
-                d = record.data
-                d["type"] = record._type
-                if record.ttl == manager.providers["source_config"].default_ttl:
-                    # ttl is the default, we don't need to store it
-                    del d["ttl"]
-                if record._octodns:
-                    d["octodns"] = record._octodns
-                data[record.name].append(sort_dict(d))
+        manager = Manager(config_file=_config_path(folder))
+        zone = Zone(zone_name, manager.configured_sub_zones(zone_name))
+        exists = manager.providers["target_config"].populate(zone, lenient=True)
+        if not exists:
+            return {}
+        # now the zone.records has the latest records as a set
+        # copied from https://github.com/octodns/octodns/blob/f6629f1ce49919d523f7d26eb14e9125348a3059/octodns/provider/yaml.py#L160
+        # Order things alphabetically (records sort that way
+        records = list(zone.records)
+        records.sort()
+        data = defaultdict(list)
+        for record in records:
+            d = record.data
+            d["type"] = record._type
+            if record.ttl == manager.providers["source_config"].default_ttl:
+                # ttl is the default, we don't need to store it
+                del d["ttl"]
+            if record._octodns:
+                d["octodns"] = record._octodns
+            data[record.name].append(sort_dict(d))
 
-            # Flatten single element lists
-            for k in data.keys():
-                if len(data[k]) == 1:
-                    data[k] = data[k][0]
+        # Flatten single element lists
+        for k in data.keys():
+            if len(data[k]) == 1:
+                data[k] = data[k][0]
 
-            return sort_dict(data)
+        return sort_dict(data)
 
     def run(self, task: TaskView):
         """Apply DNS configuration"""
@@ -275,20 +283,19 @@ class DNSConfigurator(Configurator):
             # nothing to do
             return task.done(success=True, modified=False)
 
-        with change_cwd(folder.cwd, task.logger):
-            from octodns.manager import Manager
+        from octodns.manager import Manager
 
-            manager = Manager(config_file="main-config.yaml")
-            changes = manager.sync(dry_run=task.dry_run)
-            if changes:
-                task.vars["SELF"]["zone"] = updated
-            assert task.target.attributes is task.vars["SELF"]
-            task.logger.debug(
-                "setting zone (%s changed) %s\n was %s", changes, updated, live
-            )
-            return task.done(
-                success=True, modified=bool(changes), result="OctoDNS synced"
-            )
+        manager = Manager(config_file=_config_path(folder))
+        changes = manager.sync(dry_run=task.dry_run)
+        if changes:
+            task.vars["SELF"]["zone"] = updated
+        assert task.target.attributes is task.vars["SELF"]
+        task.logger.debug(
+            "setting zone (%s changed) %s\n was %s", changes, updated, live
+        )
+        return task.done(
+            success=True, modified=bool(changes), result="OctoDNS synced"
+        )
 
     def _run_check(self, task: TaskView):
         """Retrieves current zone data and compares with expected"""
