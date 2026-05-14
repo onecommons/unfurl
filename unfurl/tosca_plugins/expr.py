@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Adam Souzis
+# SPDX-License-Identifier: MIT
 """
 Type-safe equivalents to Unfurl's Eval `Expression Functions`.
 
@@ -26,6 +28,7 @@ from typing import (
     Callable,
     Dict,
     List,
+    Literal,
     MutableMapping,
     Optional,
     Type,
@@ -57,6 +60,10 @@ tfoutput = tosca.AttributeOptions(dict(tfoutput=True))
 sensitive = tosca.Options(dict(sensitive=True))
 
 
+def set_inert(sub: Union[str, Literal[True]] = True):
+    return tosca.Options(dict(inert=sub))
+
+
 def validate(factory: Callable) -> tosca.Options:
     """
     Return a `tosca.Options` that adds custom validation to the property or attribute definition.
@@ -82,7 +89,7 @@ def validate(factory: Callable) -> tosca.Options:
 if TYPE_CHECKING or not safe_mode():
     # these imports aren't safe
     from .. import support
-    from ..result import ResultsMap
+    from ..result import InertValue, ExternalValue
     from ..dsl import InstanceProxyBase, proxy_instance
     from ..eval import Ref, RefContext, map_value
     from ..util import UnfurlError
@@ -163,6 +170,14 @@ if TYPE_CHECKING or not safe_mode():
             raise UnfurlError(msg)
         return instance
 
+    def inert(val, substitute=True):
+        if global_state_mode() == "runtime":
+            ctx = global_state_context().copy()
+            ctx.kw = dict(substitute=substitute)
+            return support.inert(val, ctx)
+        else:
+            return EvalData(cast(dict, InertValue(val, substitute).as_ref()))
+
 else:
     # if this module is loaded in safe_mode these will never by referenced:
     support = object()
@@ -179,6 +194,8 @@ __all__ = [
     "tfoutput",
     "tfvar",
     "sensitive",
+    "inert",
+    "set_inert",
     "has_env",
     "get_env",
     "get_input",
@@ -204,9 +221,10 @@ __all__ = [
     # XXX File.write()
     # XXX kubernetes_current_namespace
     # XXX kubectl,
-    # XXX get_artifact
     # XXX python
     "runtime_func",
+    "container_image",
+    "get_artifact",
     "find_connection",
     "get_instance",
     "get_instance_maybe",
@@ -309,6 +327,38 @@ def runtime_func(_func: Optional[F] = None) -> Union[F, Callable[[F], F]]:
         return _make_computed
     else:
         return _make_computed(_func)
+
+
+@runtime_func
+def container_image(image_name: str) -> Optional["support.ContainerImage"]:
+    return support.ContainerImage.make(image_name)
+
+
+def get_artifact(
+    entity: Union[None, str, "ToscaType"],
+    artifact_name: Union[str, Dict[str, str]],
+    location=None,
+    remove=None,
+) -> Optional["ExternalValue"]:
+    """
+    Type-safe wrapper around the :std:ref:`get_artifact` eval expression function.
+    """
+    if global_state_mode() == "runtime":
+        if isinstance(entity, ToscaType):
+            instance: Any = get_instance(entity)
+        else:
+            instance = entity
+        return support.get_artifact(
+            global_state_context(),
+            instance,
+            artifact_name,
+            location=location,
+            remove=remove,
+        )
+    else:
+        return EvalData(  # type: ignore
+            {"eval": {"get_artifact": [entity, artifact_name, location, remove]}}
+        )
 
 
 def get_nodes_of_type(cls: Type[ToscaType]) -> list:

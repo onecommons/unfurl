@@ -1,5 +1,5 @@
 docker[tls] # Apache 2.0
-kubernetes==24.2.0
+kubernetes==35.0.0
 octodns == 0.9.14 # MIT
 boto3 # Apache 2.0
 supervisor # BSD, see https://web.archive.org/web/20190406171444/http://repoze.org/LICENSE.txt
@@ -10,3 +10,4 @@ google-auth # Apache 2.0
 gunicorn==23.0.0
 redis==4.4.4
 apache-libcloud==3.8.0  # Apache 2.0
+PyGithub==2.5.0 # LGPL 3.0

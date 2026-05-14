@@ -1,0 +1,2942 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/schemas/tosca-service-template-1.3.schema.json",
+  "title": "TOSCA Simple Profile in YAML 1.3 Service Template",
+  "description": "JSON Schema for the top-level Service Template definition described in section 3.10 of the TOSCA Simple Profile in YAML Version 1.3 specification. This schema focuses on the service template structure and metadata keys, and keeps nested type-definition sections permissive until the rest of the spec is modeled.",
+  "type": "object",
+  "required": [
+    "tosca_definitions_version"
+  ],
+  "properties": {
+    "tosca_definitions_version": {
+      "type": "string",
+      "description": "Required TOSCA profile version indicator for the service template grammar.",
+      "enum": [
+        "tosca_simple_yaml_1_0",
+        "tosca_simple_yaml_1_3",
+        "tosca_simple_unfurl_1_0_0"
+      ]
+    },
+    "namespace": {
+      "type": "string",
+      "description": "Optional default target namespace for all unqualified types defined within the service template."
+    },
+    "metadata": {
+      "$ref": "#/$defs/metadata"
+    },
+    "description": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "Optional single-line or multi-line description for the service template and its contents."
+    },
+    "dsl_definitions": {
+      "$ref": "#/$defs/stringKeyedMap",
+      "description": "Optional DSL-specific definitions such as reusable YAML anchors or macros."
+    },
+    "repositories": {
+      "$ref": "#/$defs/repositories",
+      "description": "Optional map of repository definitions that host referenced artifacts."
+    },
+    "imports": {
+      "$ref": "#/$defs/imports",
+      "description": "Optional ordered list of import definitions pointing to external TOSCA definition documents."
+    },
+    "artifact_types": {
+      "$ref": "#/$defs/artifactTypeDefinitions",
+      "description": "Optional map of artifact type definitions."
+    },
+    "data_types": {
+      "$ref": "#/$defs/dataTypeDefinitions",
+      "description": "Optional map of data type definitions."
+    },
+    "capability_types": {
+      "$ref": "#/$defs/capabilityTypeDefinitions",
+      "description": "Optional map of capability type definitions."
+    },
+    "interface_types": {
+      "$ref": "#/$defs/interfaceTypeDefinitions",
+      "description": "Optional map of interface type definitions."
+    },
+    "relationship_types": {
+      "$ref": "#/$defs/relationshipTypeDefinitions",
+      "description": "Optional map of relationship type definitions."
+    },
+    "node_types": {
+      "$ref": "#/$defs/nodeTypeDefinitions",
+      "description": "Optional map of node type definitions."
+    },
+    "group_types": {
+      "$ref": "#/$defs/groupTypeDefinitions",
+      "description": "Optional map of group type definitions."
+    },
+    "policy_types": {
+      "$ref": "#/$defs/policyTypeDefinitions",
+      "description": "Optional map of policy type definitions."
+    },
+    "topology_template": {
+      "$ref": "#/$defs/topologyTemplate",
+      "description": "Optional topology template describing node templates and relationship templates for the application or service."
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "metadata": {
+      "type": "object",
+      "description": "Service template metadata. The TOSCA spec recognizes template_name, template_author, and template_version, and permits additional profile-specific metadata keys with string values.",
+      "properties": {
+        "template_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Descriptive name of the service template."
+        },
+        "template_author": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Author or owner of the service template."
+        },
+        "template_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Version string for the service template."
+        }
+      }
+    },
+    "genericMetadata": {
+      "type": "object"
+    },
+    "stringKeyedMap": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/definitionBody"
+      }
+    },
+    "repositories": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/repositoryDefinition"
+      }
+    },
+    "repositoryDefinition": {
+      "description": "Repository definition grammar from section 3.6.6.",
+      "anyOf": [
+        {
+          "type": "string",
+          "description": "Single-line repository form: repository address."
+        },
+        {
+          "type": "object",
+          "required": [
+            "url"
+          ],
+          "properties": {
+            "description": {
+              "type": "string",
+              "description": "Optional description for the repository."
+            },
+            "url": {
+              "type": "string",
+              "description": "Required URL or network address used to access the repository."
+            },
+            "credential": {
+              "$ref": "#/$defs/credentialDefinition",
+              "description": "Optional credential used to authorize access to the repository."
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata",
+              "description": "Optional metadata map for the repository."
+            },
+            "revision": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "description": "Unfurl extension: Optional revision or version identifier for the repository."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "entityTypeCommon": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string",
+          "description": "Optional version for the entity type definition."
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata",
+          "description": "Optional metadata map for the entity type."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description for the entity type."
+        }
+      }
+    },
+    "schemaDefinition": {
+      "type": "object",
+      "description": "Schema definition from section 3.6.9.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constraintClause"
+          }
+        },
+        "key_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "entry_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        }
+      },
+      "additionalProperties": false
+    },
+    "propertyDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/propertyDefinition"
+      }
+    },
+    "propertyDefinition": {
+      "type": "object",
+      "description": "Property definition shape used by type declarations.",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "status": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constraintClause"
+          }
+        },
+        "key_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "entry_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "!namespace": {
+          "type": "string",
+          "description": "Unfurl extension for explicitly specifying the property namespace."
+        }
+      },
+      "additionalProperties": false
+    },
+    "attributeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/attributeDefinition"
+      }
+    },
+    "constraintClause": {
+      "description": "Constraint clause grammar from section 3.6.3.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "equal"
+          ],
+          "properties": {
+            "equal": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "greater_than"
+          ],
+          "properties": {
+            "greater_than": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "greater_or_equal"
+          ],
+          "properties": {
+            "greater_or_equal": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "less_than"
+          ],
+          "properties": {
+            "less_than": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "less_or_equal"
+          ],
+          "properties": {
+            "less_or_equal": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "in_range"
+          ],
+          "properties": {
+            "in_range": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 2,
+              "items": {
+                "$ref": "#/$defs/definitionBody"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "valid_values"
+          ],
+          "properties": {
+            "valid_values": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/definitionBody"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "length"
+          ],
+          "properties": {
+            "length": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "min_length"
+          ],
+          "properties": {
+            "min_length": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "max_length"
+          ],
+          "properties": {
+            "max_length": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "pattern"
+          ],
+          "properties": {
+            "pattern": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "schema"
+          ],
+          "properties": {
+            "schema": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "attributeDefinition": {
+      "type": "object",
+      "description": "Attribute definition shape aligned with section 3.6.12.",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "status": {
+          "type": "string"
+        },
+        "entry_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "key_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "!namespace": {
+          "type": "string",
+          "description": "Unfurl extension for explicitly specifying the property namespace."
+        }
+      },
+      "additionalProperties": false
+    },
+    "attributeMappings": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/attributeMappingDefinition"
+      }
+    },
+    "attributeMappingDefinition": {
+      "type": "array",
+      "description": "Attribute mapping grammar from section 3.6.15.",
+      "minItems": 2,
+      "items": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      }
+    },
+    "credentialDefinition": {
+      "type": "object",
+      "description": "Credential shape based on tosca.datatypes.Credential in section 5.3.6.",
+      "required": [
+        "token"
+      ],
+      "properties": {
+        "protocol": {
+          "type": "string"
+        },
+        "token_type": {
+          "type": "string",
+          "default": "password"
+        },
+        "token": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ]
+        },
+        "keys": {
+          "type": "object"
+        },
+        "user": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/capabilityDefinition"
+      }
+    },
+    "capabilityDefinition": {
+      "description": "Capability definition grammar from section 3.7.2.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/definitionBody"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "properties": {
+              "$ref": "#/$defs/propertyDefinitions"
+            },
+            "attributes": {
+              "$ref": "#/$defs/attributeDefinitions"
+            },
+            "valid_source_types": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "occurrences": {
+              "$ref": "#/$defs/occurrencesRange"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "relationshipTypeRefOrDefinition": {
+      "description": "Requirement relationship section supports either a relationship type string or an expanded object.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "properties": {
+              "$ref": "#/$defs/assignmentMap"
+            },
+            "interfaces": {
+              "$ref": "#/$defs/typeInterfaceDefinitions"
+            },
+            "default_for": {
+              "type": "string",
+              "description": "Unfurl extension for specifying default relationship templates."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "requirementRelationshipAssignment": {
+      "description": "Requirement assignment relationship grammar from section 3.8.2.2.3, plus Unfurl extensions.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "properties": {
+              "$ref": "#/$defs/assignmentMap"
+            },
+            "interfaces": {
+              "$ref": "#/$defs/interfaceDefinitions"
+            },
+            "default_for": {
+              "type": "string",
+              "description": "Unfurl extension for specifying default relationship templates."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "requirementDefinitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirementDefinition"
+      }
+    },
+    "requirementDefinition": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/requirementDefinitionValue"
+      }
+    },
+    "requirementDefinitionValue": {
+      "description": "Requirement definition grammar from section 3.7.3.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "capability": {
+              "type": "string"
+            },
+            "node": {
+              "type": "string"
+            },
+            "relationship": {
+              "$ref": "#/$defs/relationshipTypeRefOrDefinition"
+            },
+            "occurrences": {
+              "$ref": "#/$defs/occurrencesRange"
+            },
+            "node_filter": {
+              "$ref": "#/$defs/nodeFilterDefinition"
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata"
+            },
+            "!namespace-node": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the node namespace."
+            },
+            "!namespace-relationship": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the relationship namespace."
+            },
+            "!namespace-capability": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the capability namespace."
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "typeInterfaceDefinitions": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "$ref": "#/$defs/typeOperationDefinition",
+          "description": "Unfurl extension: treat an interface named defaults as a direct operation definition."
+        }
+      },
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/typeInterfaceDefinition"
+      }
+    },
+    "typeInterfaceDefinition": {
+      "type": "object",
+      "description": "Interface definition grammar for type declarations from section 3.6.20.",
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "requirements": {
+          "$ref": "#/$defs/interfaceRequirements"
+        },
+        "inputs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/propertyDefinitions"
+            },
+            {
+              "$ref": "#/$defs/interfaceInputs"
+            },
+            {
+              "$ref": "#/$defs/assignmentMap"
+            }
+          ]
+        },
+        "operations": {
+          "$ref": "#/$defs/typeOperationDefinitions"
+        },
+        "defaults": {
+          "$ref": "#/$defs/typeOperationDefinition",
+          "description": "Unfurl extension: treat interface defaults as a direct operation definition."
+        },
+        "notifications": {
+          "$ref": "#/$defs/typeNotificationDefinitions"
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/typeOperationDefinition"
+      }
+    },
+    "interfaceRequirements": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "typeOperationDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/typeOperationDefinition"
+      }
+    },
+    "sharedOperationDefinition": {
+      "anyOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
+    "sharedOperationObjectFields": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "implementation": {
+          "$ref": "#/$defs/operationImplementation"
+        }
+      },
+      "additionalProperties": true
+    },
+    "typeOperationDefinition": {
+      "description": "Type-level operation definition from section 3.6.17.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sharedOperationDefinition"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata"
+            },
+            "implementation": {
+              "$ref": "#/$defs/operationImplementation"
+            },
+            "entry_state": {
+              "type": "string",
+              "description": "Unfurl extension."
+            },
+            "exit_state": {
+              "type": "string",
+              "description": "Unfurl extension."
+            },
+            "invoke": {
+              "type": "string",
+              "description": "Unfurl extension for specifying another operation to delegate to."
+            },
+            "inputs": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/propertyDefinitions"
+                },
+                {
+                  "$ref": "#/$defs/assignmentMap"
+                }
+              ]
+            },
+            "outputs": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/outputDefinitions"
+                },
+                {
+                  "$ref": "#/$defs/attributeMappings"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "typeNotificationDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/typeNotificationDefinition"
+      }
+    },
+    "typeNotificationDefinition": {
+      "type": "object",
+      "description": "Type-level notification definition from section 3.6.19.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "implementation": {
+          "$ref": "#/$defs/notificationImplementation"
+        },
+        "outputs": {
+          "$ref": "#/$defs/attributeMappings"
+        }
+      },
+      "additionalProperties": true
+    },
+    "artifactTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/artifactTypeDefinition"
+      }
+    },
+    "artifactTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "mime_type": {
+          "type": "string"
+        },
+        "file_ext": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeDefinitions"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/interfaceDefinitions",
+          "description": "Optional map of interface definitions."
+        }
+      },
+      "additionalProperties": false
+    },
+    "dataTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/dataTypeDefinition"
+      }
+    },
+    "dataTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/constraintClause"
+          }
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "key_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        },
+        "entry_schema": {
+          "$ref": "#/$defs/schemaDefinition"
+        }
+      },
+      "additionalProperties": false
+    },
+    "capabilityTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/capabilityTypeDefinition"
+      }
+    },
+    "capabilityTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeDefinitions"
+        },
+        "valid_source_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "occurrences": {
+          "$ref": "#/$defs/occurrencesRange"
+        }
+      },
+      "additionalProperties": false
+    },
+    "interfaceTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/interfaceTypeDefinition"
+      }
+    },
+    "interfaceTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "inputs": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "operations": {
+          "$ref": "#/$defs/typeOperationDefinitions"
+        },
+        "notifications": {
+          "$ref": "#/$defs/typeNotificationDefinitions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "relationshipTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/relationshipTypeDefinition"
+      }
+    },
+    "relationshipTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeDefinitions"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/typeInterfaceDefinitions"
+        },
+        "valid_target_types": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "nodeTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/nodeTypeDefinition"
+      }
+    },
+    "nodeTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeDefinitions"
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirementDefinitions"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilityDefinitions"
+        },
+        "interfaces": {
+          "$ref": "#/$defs/typeInterfaceDefinitions"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/artifactDefinitions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "groupTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/groupTypeDefinition"
+      }
+    },
+    "groupTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeDefinitions"
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "policyTypeDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/policyTypeDefinition"
+      }
+    },
+    "policyTypeDefinition": {
+      "type": "object",
+      "properties": {
+        "derived_from": {
+          "description": "Optional parent entity type name, or list of parent type names.",
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "version": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "description": {
+          "type": "string"
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "triggers": {
+          "$ref": "#/$defs/triggerDefinitions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "definitionBody": {
+      "description": "Placeholder for nested TOSCA definitions. Entries may be scalars, lists, or objects depending on the referenced grammar section.",
+      "anyOf": [
+        {
+          "type": "object"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "integer"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "imports": {
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "description": "Single-line import form from section 3.6.8.2.1: a file URI, URL, namespace URI, alias, or relative path."
+          },
+          {
+            "$ref": "#/$defs/importDefinition"
+          }
+        ]
+      }
+    },
+    "importDefinition": {
+      "type": "object",
+      "description": "Multi-line import definition from section 3.6.8.2.2.",
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "type": "string",
+          "description": "Required imported file URI, URL, alias, or relative path."
+        },
+        "repository": {
+          "type": "string",
+          "description": "Optional repository definition name where the imported file can be found."
+        },
+        "namespace_uri": {
+          "type": "string",
+          "description": "Deprecated namespace URI applied to type definitions found within the imported file."
+        },
+        "namespace_prefix": {
+          "type": "string",
+          "description": "Optional namespace prefix used when forming qualified names for imported definitions.",
+          "not": {
+            "const": "tosca"
+          }
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "object"
+            }
+          ],
+          "description": "Unfurl extension for conditional imports based on expression evaluation."
+        }
+      },
+      "additionalProperties": false
+    },
+    "topologyTemplate": {
+      "type": "object",
+      "description": "Topology template definition from section 3.9. This schema models the recognized top-level keys and their container shapes while keeping deeper referenced grammars permissive where they are defined elsewhere in the TOSCA specification.",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "Optional description for the topology template."
+        },
+        "inputs": {
+          "$ref": "#/$defs/parameterDefinitions",
+          "description": "Optional map of input parameter definitions for the topology template."
+        },
+        "outputs": {
+          "$ref": "#/$defs/outputDefinitions",
+          "description": "Optional map of output parameter definitions for the topology template."
+        },
+        "node_templates": {
+          "$ref": "#/$defs/nodeTemplates",
+          "description": "Optional map of node template definitions for the topology template."
+        },
+        "relationship_templates": {
+          "$ref": "#/$defs/relationshipTemplates",
+          "description": "Optional map of relationship template definitions for the topology template."
+        },
+        "groups": {
+          "$ref": "#/$defs/groupDefinitions",
+          "description": "Optional map of group definitions whose members are node templates from this topology template."
+        },
+        "policies": {
+          "$ref": "#/$defs/policyDefinitions",
+          "description": "Optional list of policy definitions for the topology template."
+        },
+        "workflows": {
+          "$ref": "#/$defs/workflows",
+          "description": "Optional map of workflow definitions for the topology template."
+        },
+        "substitution_mappings": {
+          "$ref": "#/$defs/substitutionMappings",
+          "description": "Optional declaration that exports the topology template as an implementation of a node type."
+        },
+        "root": {
+          "$ref": "#/$defs/substitutionMappings",
+          "description": "Alias for substitution_mappings."
+        }
+      },
+      "additionalProperties": false
+    },
+    "parameterDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/parameterDefinition"
+      }
+    },
+    "parameterDefinition": {
+      "description": "Parameter definition grammar from section 3.6.14. Supports both the extended notation and the single-line value notation.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/parameterDefinitionObject"
+        },
+        {
+          "$ref": "#/$defs/definitionBody"
+        }
+      ]
+    },
+    "parameterDefinitionObject": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Optional data type for the parameter. Required for property definitions, optional for parameter definitions."
+        },
+        "description": {
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "default": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "status": {
+          "type": "string"
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/definitionBody"
+          }
+        },
+        "key_schema": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "entry_schema": {
+          "$ref": "#/$defs/definitionBody"
+        }
+      },
+      "additionalProperties": false
+    },
+    "outputDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/outputDefinition"
+      }
+    },
+    "outputDefinition": {
+      "description": "Output parameters use the same parameter definition grammar as inputs.",
+      "$ref": "#/$defs/parameterDefinition"
+    },
+    "nodeTemplates": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/nodeTemplate"
+      }
+    },
+    "nodeTemplate": {
+      "type": "object",
+      "description": "Node template grammar from section 3.8.3, referenced by section 3.9.2.2.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Required name of the node type this node template is based upon."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description for the node template."
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata",
+          "description": "Optional metadata map for the node template."
+        },
+        "directives": {
+          "type": "array",
+          "description": "Optional processing directives for tooling and orchestrators.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "properties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/assignmentMap"
+            },
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          ],
+          "description": "Optional property assignments for the node template."
+        },
+        "attributes": {
+          "$ref": "#/$defs/assignmentMap",
+          "description": "Optional attribute assignments for the node template."
+        },
+        "requirements": {
+          "$ref": "#/$defs/requirementAssignments",
+          "description": "Optional list of requirement assignments."
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilityAssignments",
+          "description": "Optional map of capability assignments."
+        },
+        "interfaces": {
+          "$ref": "#/$defs/interfaceDefinitions",
+          "description": "Optional map of interface definitions."
+        },
+        "artifacts": {
+          "$ref": "#/$defs/artifactDefinitions",
+          "description": "Optional map of artifact definitions."
+        },
+        "node_filter": {
+          "$ref": "#/$defs/nodeFilterDefinition",
+          "description": "Optional node filter used by orchestrators to select a matching target node."
+        },
+        "copy": {
+          "type": "string",
+          "description": "Optional symbolic name of another node template to copy as a base."
+        }
+      },
+      "additionalProperties": true
+    },
+    "assignmentMap": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/definitionBody"
+      }
+    },
+    "requirementAssignments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirementAssignment"
+      }
+    },
+    "requirementAssignment": {
+      "type": "object",
+      "description": "A requirement assignment is typically a single-entry map from requirement name to either shorthand or expanded assignment syntax.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/requirementAssignmentValue"
+      }
+    },
+    "requirementAssignmentValue": {
+      "description": "Requirement assignment shorthand and expanded forms.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "node": {
+              "type": "string"
+            },
+            "relationship": {
+              "$ref": "#/$defs/requirementRelationshipAssignment"
+            },
+            "capability": {
+              "type": "string"
+            },
+            "occurrences": {
+              "$ref": "#/$defs/occurrencesRange"
+            },
+            "node_filter": {
+              "$ref": "#/$defs/nodeFilterDefinition"
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata"
+            },
+            "!namespace-node": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the node namespace."
+            },
+            "!namespace-relationship": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the relationship namespace."
+            },
+            "!namespace-capability": {
+              "type": "string",
+              "description": "Unfurl extension for explicitly specifying the capability namespace."
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "capabilityAssignments": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/capabilityAssignment"
+      }
+    },
+    "capabilityAssignment": {
+      "type": "object",
+      "description": "Capability assignment grammar from section 3.8.1.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Unfurl extension for explicitly specifying the capability type."
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata",
+          "description": "Unfurl extension for capability assignment metadata."
+        },
+        "properties": {
+          "$ref": "#/$defs/assignmentMap",
+          "description": "Optional property assignments for the capability."
+        },
+        "attributes": {
+          "$ref": "#/$defs/attributeAssignments",
+          "description": "Optional attribute assignments for the capability."
+        },
+        "occurrences": {
+          "$ref": "#/$defs/occurrencesRange",
+          "description": "Optional occurrence range that refines the capability definition."
+        }
+      },
+      "additionalProperties": false
+    },
+    "attributeAssignments": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/attributeAssignment"
+      }
+    },
+    "attributeAssignment": {
+      "description": "Attribute assignment grammar from section 3.6.13.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/definitionBody"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/definitionBody"
+            }
+          },
+          "required": [
+            "value"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "occurrencesRange": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "anyOf": [
+          {
+            "type": "integer"
+          },
+          {
+            "type": "string",
+            "const": "UNBOUNDED"
+          }
+        ]
+      }
+    },
+    "interfaceDefinitions": {
+      "type": "object",
+      "properties": {
+        "defaults": {
+          "$ref": "#/$defs/operationDefinition",
+          "description": "Unfurl extension: treat an interface named defaults as a direct operation definition."
+        }
+      },
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/interfaceDefinition"
+      }
+    },
+    "interfaceDefinition": {
+      "type": "object",
+      "description": "Interface definition grammar from section 3.6.20 for template definitions, plus deprecated direct operation shorthand allowed by the spec for backward compatibility.",
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Interface type name. Used in type definitions and permitted here for compatibility."
+        },
+        "requirements": {
+          "$ref": "#/$defs/interfaceRequirements"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "inputs": {
+          "$ref": "#/$defs/interfaceInputs",
+          "description": "Optional map of input assignments for template-level interfaces."
+        },
+        "operations": {
+          "$ref": "#/$defs/namedOperations",
+          "description": "Optional map of operation definitions."
+        },
+        "defaults": {
+          "$ref": "#/$defs/operationDefinition",
+          "description": "Unfurl extension: treat interface defaults as a direct operation definition."
+        },
+        "notifications": {
+          "$ref": "#/$defs/namedNotifications",
+          "description": "Optional map of notification definitions."
+        }
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/interfaceMember"
+      }
+    },
+    "interfaceInputs": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/definitionBody"
+      }
+    },
+    "namedOperations": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/operationDefinition"
+      }
+    },
+    "namedNotifications": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/notificationDefinition"
+      }
+    },
+    "interfaceMember": {
+      "description": "Deprecated direct operation shorthand supported when operations and notifications keys are omitted.",
+      "$ref": "#/$defs/operationDefinition"
+    },
+    "operationDefinition": {
+      "description": "Template-level operation definition from section 3.6.17.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/sharedOperationDefinition"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "description": {
+              "type": "string"
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata"
+            },
+            "implementation": {
+              "$ref": "#/$defs/operationImplementation"
+            },
+            "entry_state": {
+              "type": "string",
+              "description": "Unfurl extension."
+            },
+            "exit_state": {
+              "type": "string",
+              "description": "Unfurl extension."
+            },
+            "invoke": {
+              "type": "string",
+              "description": "Unfurl extension for specifying another operation to delegate to."
+            },
+            "inputs": {
+              "$ref": "#/$defs/interfaceInputs"
+            },
+            "outputs": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/outputDefinitions"
+                },
+                {
+                  "$ref": "#/$defs/attributeMappings"
+                }
+              ]
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "notificationDefinition": {
+      "type": "object",
+      "description": "Notification definition from section 3.6.19.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "implementation": {
+          "$ref": "#/$defs/notificationImplementation"
+        },
+        "outputs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/outputDefinitions"
+            },
+            {
+              "$ref": "#/$defs/attributeMappings"
+            }
+          ]
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        }
+      },
+      "additionalProperties": false
+    },
+    "notificationImplementation": {
+      "description": "Notification implementation definition from section 3.6.18.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "primary": {
+              "$ref": "#/$defs/artifactDefinition"
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/artifactDefinition"
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "operationImplementation": {
+      "description": "Operation implementation definition from section 3.6.16, with shorthand artifact support.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "primary": {
+              "$ref": "#/$defs/artifactDefinition"
+            },
+            "dependencies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/artifactDefinition"
+              }
+            },
+            "timeout": {
+              "type": "number"
+            },
+            "operation_host": {
+              "type": "string"
+            },
+            "className": {
+              "type": "string",
+              "description": "Unfurl extension for specifying a configurator class."
+            },
+            "environment": {
+              "type": "object",
+              "description": "Unfurl extension for specifying environment variables to set when executing the operation."
+            },
+            "preConditions": {
+              "type": "object",
+              "description": "Unfurl extension for specifying pre-conditions that must be satisfied before executing the operation."
+            },
+            "_source": {
+              "type": "string",
+              "description": "Unfurl internal extension (for tracking the source of an operation implementation when merged from multiple definitions."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "artifactDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/artifactDefinition"
+      }
+    },
+    "artifactDefinition": {
+      "description": "Artifact definitions may use shorthand paths or expanded artifact maps.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string"
+            },
+            "file": {
+              "type": "string"
+            },
+            "repository": {
+              "type": "string"
+            },
+            "deploy_path": {
+              "type": "string"
+            },
+            "version": {
+              "type": "string"
+            },
+            "checksum": {
+              "type": "string"
+            },
+            "checksum_algorithm": {
+              "type": "string"
+            },
+            "metadata": {
+              "$ref": "#/$defs/genericMetadata"
+            },
+            "description": {
+              "type": "string"
+            },
+            "properties": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/assignmentMap"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "attributes": {
+              "$ref": "#/$defs/attributeAssignments"
+            },
+            "interfaces": {
+              "$ref": "#/$defs/interfaceDefinitions",
+              "description": "Optional map of interface definitions."
+            }
+          },
+          "additionalProperties": true
+        }
+      ]
+    },
+    "nodeFilterDefinition": {
+      "type": "object",
+      "description": "Node filter definition from section 3.6.5.",
+      "properties": {
+        "match": {
+          "type": "array",
+          "description": "Unfurl extension for specifying an expression for matching candidate nodes."
+        },
+        "properties": {
+          "$ref": "#/$defs/propertyFilterDefinitions"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilityFilterDefinitions"
+        },
+        "artifacts": {
+          "$ref": "#/$defs/capabilityFilterDefinitions"
+        }
+      },
+      "additionalProperties": true
+    },
+    "propertyFilterDefinitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/propertyFilterDefinition"
+      }
+    },
+    "propertyFilterDefinition": {
+      "type": "object",
+      "description": "Property filter definition from section 3.6.4.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "capabilityFilterDefinitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/capabilityFilterDefinition"
+      }
+    },
+    "capabilityFilterDefinition": {
+      "type": "object",
+      "description": "Capability filter definition from section 3.6.5.2.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "properties": {
+            "$ref": "#/$defs/propertyFilterDefinitions"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "relationshipTemplates": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/relationshipTemplate"
+      }
+    },
+    "relationshipTemplate": {
+      "type": "object",
+      "description": "Relationship template grammar from section 3.8.4, referenced by section 3.9.2.3.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "description": "Required name of the relationship type this relationship template is based upon."
+        },
+        "description": {
+          "type": "string",
+          "description": "Optional description for the relationship template."
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata",
+          "description": "Optional metadata map for the relationship template."
+        },
+        "properties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/assignmentMap"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Optional property assignments for the relationship template."
+        },
+        "attributes": {
+          "$ref": "#/$defs/assignmentMap",
+          "description": "Optional attribute assignments for the relationship template."
+        },
+        "interfaces": {
+          "$ref": "#/$defs/interfaceDefinitions",
+          "description": "Optional interface definitions for the relationship template."
+        },
+        "copy": {
+          "type": "string",
+          "description": "Optional symbolic name of another relationship template to copy as a base."
+        },
+        "default_for": {
+          "type": "string",
+          "description": "Unfurl extension for specifying default relationship templates."
+        }
+      },
+      "additionalProperties": false
+    },
+    "groupDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/groupDefinition"
+      }
+    },
+    "groupDefinition": {
+      "type": "object",
+      "description": "Group definition grammar from section 3.8.5.",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "attributes": {
+          "$ref": "#/$defs/assignmentMap"
+        },
+        "properties": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/assignmentMap"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "members": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "policyDefinitions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/policyDefinition"
+      }
+    },
+    "policyDefinition": {
+      "type": "object",
+      "description": "Policy definition grammar from section 3.8.6. Each list item is a single-entry map from policy name to policy definition.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/policyDefinitionValue"
+      }
+    },
+    "workflows": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/workflowDefinition"
+      }
+    },
+    "workflowDefinition": {
+      "type": "object",
+      "description": "Imperative workflow definition from section 3.8.7.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "inputs": {
+          "$ref": "#/$defs/propertyDefinitions"
+        },
+        "preconditions": {
+          "$ref": "#/$defs/workflowPreconditions"
+        },
+        "steps": {
+          "$ref": "#/$defs/workflowSteps"
+        },
+        "implementation": {
+          "$ref": "#/$defs/operationImplementation"
+        },
+        "outputs": {
+          "$ref": "#/$defs/attributeMappings"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowPreconditions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workflowPrecondition"
+      }
+    },
+    "workflowPrecondition": {
+      "type": "object",
+      "description": "Workflow precondition definition from section 3.6.26.",
+      "required": [
+        "target"
+      ],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "target_relationship": {
+          "type": "string"
+        },
+        "condition": {
+          "$ref": "#/$defs/workflowConditionClauseList"
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowSteps": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/workflowStep"
+      }
+    },
+    "workflowStep": {
+      "type": "object",
+      "description": "Workflow step definition from section 3.6.27.",
+      "required": [
+        "target",
+        "activities"
+      ],
+      "properties": {
+        "target": {
+          "type": "string"
+        },
+        "target_relationship": {
+          "type": "string"
+        },
+        "operation_host": {
+          "type": "string"
+        },
+        "filter": {
+          "$ref": "#/$defs/workflowConditionClauseList"
+        },
+        "activities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/activityDefinition"
+          }
+        },
+        "on_success": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "on_failure": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "workflowAssertion": {
+      "type": "object",
+      "description": "Workflow assertion definition from section 3.6.24.",
+      "minProperties": 1,
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/constraintClause"
+        }
+      }
+    },
+    "workflowConditionClauseList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/workflowConditionClause"
+      }
+    },
+    "workflowConditionClause": {
+      "description": "Workflow condition clause definition from section 3.6.25.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "and"
+          ],
+          "properties": {
+            "and": {
+              "$ref": "#/$defs/workflowConditionClauseList"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "or"
+          ],
+          "properties": {
+            "or": {
+              "$ref": "#/$defs/workflowConditionClauseList"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "not"
+          ],
+          "properties": {
+            "not": {
+              "$ref": "#/$defs/workflowConditionClauseList"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "assert"
+          ],
+          "properties": {
+            "assert": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/workflowAssertion"
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "$ref": "#/$defs/workflowAssertion"
+        }
+      ]
+    },
+    "policyDefinitionValue": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "metadata": {
+          "$ref": "#/$defs/genericMetadata"
+        },
+        "properties": {
+          "$ref": "#/$defs/assignmentMap"
+        },
+        "targets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "triggers": {
+          "$ref": "#/$defs/triggerDefinitions"
+        }
+      },
+      "additionalProperties": false
+    },
+    "eventFilterDefinition": {
+      "type": "object",
+      "description": "Event filter definition from section 3.6.21.",
+      "required": [
+        "node"
+      ],
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "requirement": {
+          "type": "string"
+        },
+        "capability": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "triggerDefinitions": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/triggerDefinition"
+      }
+    },
+    "triggerDefinition": {
+      "type": "object",
+      "description": "Trigger definition from section 3.6.22.",
+      "required": [
+        "event",
+        "action"
+      ],
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "event": {
+          "type": "string"
+        },
+        "event_type": {
+          "type": "string",
+          "description": "Deprecated alias for event retained for compatibility."
+        },
+        "schedule": {
+          "$ref": "#/$defs/definitionBody"
+        },
+        "target_filter": {
+          "$ref": "#/$defs/eventFilterDefinition"
+        },
+        "condition": {
+          "$ref": "#/$defs/triggerConditionDefinition"
+        },
+        "action": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/activityDefinition"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "triggerConditionDefinition": {
+      "description": "Short and extended trigger condition notation from section 3.6.22.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/definitionBody"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "constraint": {
+              "$ref": "#/$defs/definitionBody"
+            },
+            "period": {
+              "type": "string"
+            },
+            "evaluations": {
+              "type": "integer"
+            },
+            "method": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "activityDefinition": {
+      "description": "Activity definition from section 3.6.23.",
+      "anyOf": [
+        {
+          "type": "object",
+          "required": [
+            "delegate"
+          ],
+          "properties": {
+            "delegate": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "workflow": {
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "$ref": "#/$defs/assignmentMap"
+                    }
+                  },
+                  "required": [
+                    "workflow"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "set_state"
+          ],
+          "properties": {
+            "set_state": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "call_operation"
+          ],
+          "properties": {
+            "call_operation": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "operation": {
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "$ref": "#/$defs/assignmentMap"
+                    }
+                  },
+                  "required": [
+                    "operation"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "required": [
+            "inline"
+          ],
+          "properties": {
+            "inline": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "workflow": {
+                      "type": "string"
+                    },
+                    "inputs": {
+                      "$ref": "#/$defs/assignmentMap"
+                    }
+                  },
+                  "required": [
+                    "workflow"
+                  ],
+                  "additionalProperties": false
+                }
+              ]
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "substitutionMappings": {
+      "type": "object",
+      "description": "Substitution mapping shape from section 3.8.13, used by section 3.9.2.7.",
+      "properties": {
+        "node_type": {
+          "type": "string",
+          "description": "Name of the node type that this topology template implements."
+        },
+        "node": {
+          "type": "string",
+          "description": "(Unfurl extension) Name of the node template that this topology template substitutes."
+        },
+        "substitution_filter": {
+          "$ref": "#/$defs/nodeFilterDefinition",
+          "description": "Optional filter that further constrains the abstract node templates this topology template can implement."
+        },
+        "properties": {
+          "type": "object",
+          "description": "Map of external property names to internal mappings or values.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/substitutionPropertyMapping"
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "description": "Map of exposed capability names to internal capability mappings.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/capabilityMapping"
+          }
+        },
+        "requirements": {
+          "type": "object",
+          "description": "Map of exposed requirement names to internal requirement mappings.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/requirementMapping"
+          }
+        },
+        "attributes": {
+          "type": "object",
+          "description": "Map of exposed attribute names to internal attribute mappings.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/attributeMapping"
+          }
+        },
+        "interfaces": {
+          "type": "object",
+          "description": "Map of exposed interface names to internal interface mappings.",
+          "propertyNames": {
+            "type": "string",
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/interfaceMapping"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "substitutionPropertyMapping": {
+      "description": "Property mapping grammar from section 3.8.8.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/definitionBody"
+        },
+        {
+          "type": "array",
+          "description": "Single-line input mapping form: [ input_name ].",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "oneOf": [
+            {
+              "properties": {
+                "mapping": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "value": {
+                  "$ref": "#/$defs/definitionBody"
+                }
+              },
+              "required": [
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        }
+      ]
+    },
+    "capabilityMapping": {
+      "description": "Capability mapping grammar from section 3.8.10.",
+      "anyOf": [
+        {
+          "type": "array",
+          "description": "Single-line form: [ node_template_name, node_template_capability_name ].",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "oneOf": [
+            {
+              "properties": {
+                "mapping": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "properties": {
+                  "$ref": "#/$defs/assignmentMap"
+                },
+                "attributes": {
+                  "$ref": "#/$defs/attributeAssignments"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      ]
+    },
+    "requirementMapping": {
+      "description": "Requirement mapping grammar from section 3.8.11.",
+      "anyOf": [
+        {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "object",
+          "oneOf": [
+            {
+              "properties": {
+                "mapping": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 2,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "mapping"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "properties": {
+                "properties": {
+                  "$ref": "#/$defs/assignmentMap"
+                },
+                "attributes": {
+                  "$ref": "#/$defs/attributeAssignments"
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      ]
+    },
+    "attributeMapping": {
+      "type": "array",
+      "description": "Attribute mapping grammar from section 3.8.9: [ output_name ].",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": {
+        "type": "string"
+      }
+    },
+    "interfaceMapping": {
+      "type": "object",
+      "description": "Interface mapping grammar from section 3.8.12: an interface maps operation names to workflow names.",
+      "propertyNames": {
+        "type": "string",
+        "minLength": 1
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "examples": [
+    {
+      "tosca_definitions_version": "tosca_simple_yaml_1_3",
+      "metadata": {
+        "template_name": "My service template",
+        "template_author": "Example Author",
+        "template_version": "1.0.0"
+      },
+      "description": "Example TOSCA service template."
+    }
+  ]
+}

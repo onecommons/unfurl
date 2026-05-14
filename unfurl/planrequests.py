@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 from .util import (
     check_class_registry,
+    load_class_from_file,
     lookup_class,
     load_module,
     find_schema_errors,
@@ -47,11 +48,37 @@ from .util import (
 )
 from .result import Result, ResultsList, serialize_value
 from .support import Defaults, NodeState, Priority, Status, DEBUG_EX
-from .runtime import EntityInstance, InstanceKey, HasInstancesInstance, TopologyInstance
+from .runtime import (
+    EntityInstance,
+    InstanceKey,
+    HasInstancesInstance,
+    TopologyInstance,
+    NodeInstance,
+)
 from .logs import getLogger
 import logging
 
 logger = getLogger("unfurl")
+
+
+def interface_requirements_ok(root: TopologyInstance, template: EntitySpec) -> bool:
+    reqs = template.get_interface_requirements()
+    if reqs:
+        assert isinstance(reqs, list)
+        for req in reqs:
+            if not any(
+                [
+                    rel.template.is_compatible_type(req)
+                    for rel in root.default_relationships
+                ]
+            ):
+                logger.debug(
+                    'Skipping template "%s": could not find a connection for interface requirements: %s',
+                    template.name,
+                    reqs,
+                )
+                return False
+    return True
 
 
 class ConfigurationSpecKeywords(TypedDict, total=False):
@@ -60,10 +87,10 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     preConditions: Optional[dict]
     primary: Optional["ArtifactSpec"]
     inputs: Optional[Dict[str, Any]]
-    input_defs: Optional[Dict[str, Property]]
-    output_defs: Optional[Dict[str, Property]]
+    input_defs: Dict[str, Property]
+    output_defs: Dict[str, Property]
     base_dir: Optional[str]
-    dependencies: Optional[List["ArtifactSpec"]]
+    dependencies: List["ArtifactSpec"]
     outputs: Optional[Dict[str, Any]]
     operation_host: Optional[str]
     entry_state: Optional[str]
@@ -72,6 +99,7 @@ class ConfigurationSpecKeywords(TypedDict, total=False):
     environment: Optional[Dict[str, str]]
     timeout: Optional[int]
     arguments: Optional[List[str]]
+    metadata: Optional[Dict[str, Any]]
 
 
 # we want ConfigurationSpec to be independent of our object model and easily serializable
@@ -84,7 +112,7 @@ class ConfigurationSpec:
         majorVersion=0,
         minorVersion="",
         workflow=Defaults.workflow,
-        timeout: Optional[int] = None,
+        timeout: Optional[float] = None,
         operation_host: Optional[str] = None,
         environment: Optional[Dict[str, str]] = None,
         inputs: Optional[Dict[str, Any]] = None,
@@ -100,6 +128,7 @@ class ConfigurationSpec:
         input_defs: Optional[Dict[str, Property]] = None,
         output_defs: Optional[Dict[str, Property]] = None,
         arguments: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ):
         assert name and className, "missing required arguments"
         self.name = name
@@ -124,16 +153,17 @@ class ConfigurationSpec:
         self.input_defs: Optional[Dict[str, Property]] = input_defs
         self.output_defs: Optional[Dict[str, Property]] = output_defs
         self.arguments: Optional[List[str]] = arguments
+        self.metadata = metadata
 
-    def find_invalidate_inputs(self, inputs):
+    def find_invalid_inputs(self, inputs) -> Optional[Tuple[str, List[object]]]:
         if not self.inputSchema:
-            return []
+            return None
         return find_schema_errors(serialize_value(inputs), self.inputSchema)
 
     # XXX same for postConditions
-    def find_invalid_preconditions(self, target):
+    def find_invalid_preconditions(self, target) -> Optional[Tuple[str, List[object]]]:
         if not self.preConditions:
-            return []
+            return None
         # XXX this should be like a Dependency object
         expanded = serialize_value(target.attributes)
         return find_schema_errors(expanded, self.preConditions)
@@ -141,7 +171,7 @@ class ConfigurationSpec:
     def create(self) -> "Configurator":
         className: str = self.className
         if ":" in className:
-            from .dsl import DslMethodConfigurator
+            from .dsl import DslMethodConfigurator, import_module
 
             module_name, qualname, action = className.split(":")
             if tosca.loader.import_resolver:
@@ -149,7 +179,7 @@ class ConfigurationSpec:
             else:
                 assert not tosca.safe_mode(), module_name
             if module_name not in sys.modules:
-                module = importlib.import_module(module_name)
+                module = import_module(module_name)
             else:
                 module = sys.modules[module_name]
             parts = qualname.split(".")
@@ -170,15 +200,15 @@ class ConfigurationSpec:
             assert callable(klass)
             return klass()
 
-    def should_run(self):
+    def should_run(self) -> Priority:
         return Defaults.shouldRun
 
-    def copy(self, **mods):
+    def copy(self, **mods) -> "ConfigurationSpec":
         args = self.__dict__.copy()
         args.update(mods)
         return ConfigurationSpec(**args)
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if not isinstance(other, ConfigurationSpec):
             return False
         return (
@@ -204,6 +234,7 @@ class PlanRequest:
     task: Optional["ConfigTask"] = None
     render_errors: Optional[List[UnfurlTaskError]] = None
     completed = False
+    suspended = False
     group: Optional["TaskRequestGroup"] = None
     required: Optional[bool] = None
     is_final_for_workflow: Optional[bool] = None
@@ -212,7 +243,7 @@ class PlanRequest:
         self.target = target
         self.dependencies: List["Dependency"] = []
 
-    def set_error(self, msg: str):
+    def set_error(self, msg: str) -> None:
         self.error = msg
         if self.task:
             self.task.finished(self.task.done(False, False, Status.error, result=msg))
@@ -228,7 +259,7 @@ class PlanRequest:
     def get_operation_artifacts(self) -> List["JobRequest"]:
         return []
 
-    def include_in_plan(self):
+    def include_in_plan(self) -> bool:
         if self.task and self.task.priority == Priority.critical:
             return True  # XXX hackish, just used for primary_provider
         # calls self.target.template.required if _priority is None
@@ -338,7 +369,7 @@ class PlanRequest:
         return bool(self.has_unfulfilled_refs())
 
     @property
-    def name(self):
+    def name(self) -> str:
         return type(self).__name__
 
     def get_notready_message(self) -> str:
@@ -423,7 +454,7 @@ class TaskRequest(PlanRequest):
         self.required = required
         self.error = configSpec.name == "#error"
         self.startState = startState
-        self.task = None
+        self.task: Optional["ConfigTask"] = None
         self._completed = False
 
     def __completed():  # type: ignore
@@ -436,6 +467,14 @@ class TaskRequest(PlanRequest):
         return locals()
 
     completed: bool = property(**__completed())  # type: ignore
+
+    def __suspended():  # type: ignore
+        def fget(self) -> bool:
+            return bool(self.task and self.task._suspended)
+
+        return locals()
+
+    suspended: bool = property(**__suspended())  # type: ignore
 
     def reassign_final_for_workflow(self) -> Optional["TaskRequest"]:
         req = self
@@ -466,7 +505,7 @@ class TaskRequest(PlanRequest):
         workflow = self.group and self.group.workflow
         if not workflow:  # not in a group or not in a mutable workflow
             return
-        explicit_status: Optional[Status] = task.result and task.result.status
+        explicit_status: Optional[Status] = task.result and task.result.status or None
         if explicit_status is None:
             # even though we didn't modify the target this is the last op and the task succeeded
             # so assume the target is that the workflow's final state
@@ -543,6 +582,7 @@ class TaskRequest(PlanRequest):
                     template = name  # type: ignore
 
                 # Artifacts can't be standalone so create an ArtifactInstaller node to "hold" the artifact
+                # ArtifactInstaller uses a DelegateConfigurator to delegate operations to the artifact.
                 # then Job.create_plan() will create this instance and its artifact via Job._update_joboption_instances()
                 return JobRequest(
                     [operation_host],
@@ -568,7 +608,7 @@ class TaskRequest(PlanRequest):
         return artifacts
 
     @property
-    def name(self):
+    def name(self) -> str:
         if self.configSpec.operation:
             name = self.configSpec.operation
         else:
@@ -577,7 +617,7 @@ class TaskRequest(PlanRequest):
             return name + " (reason: " + self.reason + ")"
         return name
 
-    def _summary_dict(self, include_rendered=True):
+    def _summary_dict(self, include_rendered=True) -> Dict[str, Any]:
         summary: Dict[str, Any] = dict(
             operation=self.configSpec.operation or self.configSpec.name,
             reason=self.reason,
@@ -590,7 +630,7 @@ class TaskRequest(PlanRequest):
             summary["rendered"] = rendered
         return summary
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         state = " " + (self.target.state and self.target.state.name or "")
         return (
             f"TaskRequest({self.target}({self.target.status.name}{state}):{self.name})"
@@ -603,10 +643,10 @@ class SetStateRequest(PlanRequest):
         self.set_state = state
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.set_state
 
-    def _summary_dict(self):
+    def _summary_dict(self) -> Dict[str, Any]:
         return dict(set_state=self.set_state)
 
     def set_final_for_workflow(self, is_final: bool):
@@ -645,18 +685,24 @@ class TaskRequestGroup(PlanRequest):
             return siblings[siblings.index(req) - 1]
         return None
 
-    def has_errors(self):
+    def has_errors(self) -> bool:
         for req in self.children:
             if req.error or req.task and req.task.local_status == Status.error:
                 return True
         return False
 
-    def set_final_for_workflow(self, is_final: bool):
+    def has_suspended(self) -> bool:
+        for req in self.children:
+            if req.suspended:
+                return True
+        return False
+
+    def set_final_for_workflow(self, is_final: bool) -> None:
         if self.children:
             self.children[-1].set_final_for_workflow(is_final)
 
     # XXX unused
-    def get_unfulfilled_refs(self, check_target=""):
+    def get_unfulfilled_refs(self, check_target="") -> Iterator["Dependency"]:
         for req in self.children:
             yield from req.get_unfulfilled_refs(check_target)
 
@@ -682,7 +728,7 @@ class JobRequest:
 
     def __init__(
         self,
-        resources: List[EntityInstance],
+        resources: Sequence[EntityInstance],
         errors: Optional[Sequence[UnfurlError]] = None,
         update=None,
     ):
@@ -690,17 +736,17 @@ class JobRequest:
         self.errors = errors or []
         self.update = update
 
-    def set_error(self, msg: str):
+    def set_error(self, msg: str) -> None:
         cast(list, self.errors).append(UnfurlError(msg))
 
-    def get_instance_specs(self):
+    def get_instance_specs(self) -> List[str]:
         if self.update:
             return [self.update]
         else:
             return [r.name for r in self.instances]
 
     @property
-    def name(self):
+    def name(self) -> str:
         if self.update:
             return self.update["name"]
         elif self.instances:
@@ -709,7 +755,7 @@ class JobRequest:
             return ""
 
     @property
-    def target(self):
+    def target(self) -> Optional[EntityInstance]:
         # XXX replace instances with target
         if self.instances:
             return self.instances[0]
@@ -717,7 +763,7 @@ class JobRequest:
             return None
 
     @property
-    def root(self):
+    def root(self) -> Optional[EntityInstance]:
         if self.instances:
             # all instances need the same root
             assert (
@@ -728,7 +774,7 @@ class JobRequest:
         else:
             return None
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"JobRequest({self.name})"
 
 
@@ -766,7 +812,7 @@ def get_render_requests(
 
 
 def set_fulfilled(
-    upcoming: List[PlanRequest], completed: List[PlanRequest]
+    upcoming: List[PlanRequest],
 ) -> Tuple[List[PlanRequest], List[PlanRequest]]:
     # find the requests that are ready to run
     # requests, completed are top level requests
@@ -779,9 +825,8 @@ def set_fulfilled(
 
     ready, notReady = [], []
     for req in upcoming:
-        if req.completed:
+        if req.completed or req.suspended:
             continue
-        assert req not in completed, f"{req} already completed"
         _not_ready = False
         previous = req.previous
         if previous and previous.not_ready:
@@ -1004,7 +1049,7 @@ def do_render_requests(
     notready_group: Any = None
     while render_requests:
         request = render_requests.popleft()
-        if request.completed:
+        if request.completed or request.suspended:
             continue
         # we dont require default templates that aren't referenced
         # (but skip this check if the job already specified specific instances)
@@ -1136,7 +1181,7 @@ def create_instance_from_spec(
     target: EntityInstance,
     rname: str,
     resourceSpec: MutableMapping[str, Any],
-):
+) -> Optional[NodeInstance]:
     pname = resourceSpec.get("parent")
     # get the actual parent if pname is a reserved name:
     if pname in [".self", "SELF"]:
@@ -1259,7 +1304,12 @@ def create_task_request(
     if iDef:
         assert inputs is not None
         kw = _get_config_spec_args_from_implementation(
-            iDef, inputs, resource.template, operation_host, jobOptions.dryrun
+            iDef,
+            inputs,
+            resource.template,
+            operation_host,
+            jobOptions.dryrun,
+            root=resource.root,
         )
     if kw:
         kw["interface"] = interface
@@ -1344,6 +1394,7 @@ def _set_config_spec_args(
     template: Optional[EntitySpec],
     base_dir: str,
     dry_run: bool,
+    root: Optional[TopologyInstance] = None,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if no artifact or className, an error
     artifact = kw.get("primary")
@@ -1365,9 +1416,10 @@ def _set_config_spec_args(
             if execute_op and isinstance(execute_op.implementation, dict):
                 execute_class = execute_op.implementation.get("className", "")
                 if ":" in execute_class:
-                    # the artifact has an execute operation that needs to run
-                    # set className so the DSLConfigurator can handle it
+                    # the artifact has an execute operation that needs to be run
+                    # so set this as the className so the DSLConfigurator runs it
                     if not execute_class.endswith(":run"):
+                        # note: this can happen when converting the artifact's execute operation from python to yaml
                         # change render-time actions to "execute"
                         execute_class = execute_class.rpartition(":")[0] + ":execute"
                     className = execute_class
@@ -1388,10 +1440,7 @@ def _set_config_spec_args(
     # load the configurator class
     try:
         if "#" in className and len(shlex.split(className)) == 1:
-            path, sep, fragment = className.partition("#")
-            fullpath = os.path.join(base_dir, path)
-            mod = load_module(fullpath)
-            klass = getattr(mod, fragment)  # raise if missing
+            klass = load_class_from_file(className, base_dir)
         elif ":" in className and len(shlex.split(className)) == 1:
             # its a dsl method, handle in ConfigurationSpec.create
             if dry_run and template:
@@ -1404,6 +1453,7 @@ def _set_config_spec_args(
                         mock_op.inputs or {},
                         template,
                         kw.get("operation_host"),
+                        root=root,
                     )
             kw["className"] = className
             return kw
@@ -1434,6 +1484,7 @@ def _set_config_spec_args(
                         mock_op.inputs or {},
                         template,
                         kw.get("operation_host"),
+                        root=root,
                     )
             return klass.set_config_spec_args(kw, template)  # type: ignore
         else:
@@ -1447,6 +1498,78 @@ def _set_config_spec_args(
         logger.warning("could not find configurator class: %s", className)
         return None
 
+def _is_abstract_artifact(artifact: ArtifactSpec) -> bool:
+    if not artifact.is_compatible_type("unfurl.artifacts.Executable"):
+        return False
+    execute_op = _find_implementation(
+        "unfurl.interfaces.Executable", "execute", artifact, True
+    )
+    return bool(not execute_op or not execute_op.implementation)
+
+
+def _resolve_implementation_artifact(
+    template: EntitySpec,
+    artifact_tpl: Union[str, Dict[str, str], Artifact],
+    base_dir: str,
+    predefined: bool,
+    root: Optional[TopologyInstance],
+) -> Optional[ArtifactSpec]:
+    """
+    Helper function that first checks if artifactTpl is a dict with "type" key.
+    If it is, use iter_all_artifacts() to find an artifact with compatible type.
+    If none are found, then call find_or_create_artifact() as before.
+    """
+    if isinstance(artifact_tpl, Artifact):
+        artifact = ArtifactSpec(artifact_tpl, template)
+        if artifact_tpl.stub:  # only an artifact type was declared
+            artifact_type = artifact.type
+            # Search through all artifacts for one with compatible type
+            candidate: Optional[ArtifactSpec] = None
+            for artifact in template.iter_all_artifacts():
+                if artifact.is_compatible_type(artifact_type):
+                    if root is None:
+                        return artifact
+
+                    if interface_requirements_ok(root, artifact):
+                        if artifact.get_interface_requirements():  # more specific
+                            if (
+                                not candidate
+                                or not candidate.get_interface_requirements()
+                            ):
+                                candidate = artifact
+                            elif candidate:
+                                break  # conflict
+                        elif candidate:
+                            if not candidate.get_interface_requirements():
+                                break  # conflict
+                            # else less specific than candidate
+                        else:
+                            candidate = artifact
+            else:  # no break
+                if not candidate:
+                    return None
+                artifact = candidate
+                if artifact.parentNode is not template:
+                    # found in a LocalRepository, create copy for this template
+                    tpl = artifact.toscaEntityTemplate.entity_tpl.copy()
+                    tpl["name"] = artifact.name
+                    artifact = ArtifactSpec(tpl, template)
+                    template.artifacts[artifact.name] = artifact
+                return artifact
+            logger.error(
+                "Found multiple compatible artifacts for type %s: %s and %s",
+                artifact_type,
+                candidate.name,
+                artifact.name,
+            )
+            return None
+    else:
+        artifact = template.find_or_create_artifact(artifact_tpl, base_dir, predefined)
+    if artifact:
+        if root is not None and not interface_requirements_ok(root, artifact):
+            return None
+    return artifact
+
 
 def _get_config_spec_args_from_implementation(
     iDef: OperationDef,
@@ -1456,6 +1579,7 @@ def _get_config_spec_args_from_implementation(
     dry_run: bool = False,
     safe_mode: bool = False,
     parse_dependencies: bool = True,
+    root: Optional[TopologyInstance] = None,
 ) -> Optional[ConfigurationSpecKeywords]:
     # if template is omitted artifacts aren't resolved
     implementation = iDef.implementation
@@ -1468,6 +1592,7 @@ def _get_config_spec_args_from_implementation(
         "entry_state": iDef.entry_state,
         "input_defs": iDef.get_declared_inputs(),
         "output_defs": iDef.get_declared_outputs(),
+        "metadata": iDef.metadata,
     }
     if iDef.metadata:
         kw["arguments"] = iDef.metadata.get("arguments")
@@ -1475,6 +1600,10 @@ def _get_config_spec_args_from_implementation(
     dependencies = None
     predefined = False
     guessing = ""
+    if implementation == "safe_mode" and not safe_mode:
+        # "safe_mode" is a special value that is used for implementation when generating TOSCA YAML in safe mode.
+        logger.error(f"Safe mode implementation no-op stub found for {iDef.name} -- are you accidentally running in safe_mode?")
+        return None
     if isinstance(implementation, dict):
         # operation_instance = find_operation_host(
         #     target, implementation.get("operation_host") or operation_host
@@ -1508,8 +1637,8 @@ def _get_config_spec_args_from_implementation(
     artifact: Optional[ArtifactSpec] = None
     if artifactTpl:
         if template:
-            artifact = template.find_or_create_artifact(
-                artifactTpl, base_dir, predefined
+            artifact = _resolve_implementation_artifact(
+                template, artifactTpl, base_dir, predefined, root
             )
             if artifact:
                 guessing = artifact.file
@@ -1528,7 +1657,9 @@ def _get_config_spec_args_from_implementation(
             kw["dependencies"] = [
                 dep
                 for dep in [
-                    template.find_or_create_artifact(artifactTpl, base_dir, True)
+                    _resolve_implementation_artifact(
+                        template, artifactTpl, base_dir, True, root
+                    )
                     for artifactTpl in dependencies
                 ]
                 if dep
@@ -1540,4 +1671,4 @@ def _get_config_spec_args_from_implementation(
 
     if safe_mode:
         return kw
-    return _set_config_spec_args(kw, guessing, template, base_dir, dry_run)
+    return _set_config_spec_args(kw, guessing, template, base_dir, dry_run, root)

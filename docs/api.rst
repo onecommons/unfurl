@@ -29,6 +29,7 @@ The classes in this section are used to define TOSCA types corresponding to a TO
     Policy
 
 .. autoclass:: tosca.ToscaType
+  :members: _metadata, _type_metadata, _version
 
   .. automethod:: _template_init
 
@@ -178,6 +179,8 @@ Property Constraints
 
 .. autoclass:: schema
 
+.. autoclass:: version
+
 Other Module Items
 ~~~~~~~~~~~~~~~~~~~~~
 
@@ -207,6 +210,10 @@ Other Module Items
 .. autofunction:: find_relationship
 
 .. autofunction:: jinja_template
+
+.. autoclass:: TagWriter
+   :members:
+   :member-order: bysource
 
 .. autofunction:: patch_template
 
@@ -249,7 +256,7 @@ Configurators
 ~~~~~~~~~~~~~
 
 .. automodule:: unfurl.configurator
-  :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult
+  :members: Configurator, TaskRequest, JobRequest, TaskView, ConfiguratorResult, Cancel
   :undoc-members:
 
 .. automodule:: unfurl.support

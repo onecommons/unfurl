@@ -8,6 +8,7 @@ from unfurl.localenv import LocalEnv
 from unfurl.projectpaths import rmtree
 from unfurl.repo import (
     split_git_url,
+    split_git_url_with_commit,
     is_url_or_git_path,
     RepoView,
     normalize_git_url,
@@ -352,14 +353,14 @@ unfurl.yaml
 
             # check that these are the only recorded changes
             expected = {
-                "::testNode": {
+                ":::testNode": {
                     "access_key": "mockAWS_ACCESS_KEY_ID",
                     "access_key2": "mockAWS_ACCESS_KEY_ID",
                     "access_key3": "mockAWS_ACCESS_KEY_ID",
                 }
             }
             changes = job.manifest.manifest.config["changes"][0]["changes"]
-            self.assertEqual(expected, changes, changes)
+            assert expected == changes
 
             # changeLogPath = (
             #     "ensemble/" + job.manifest.manifest.config["lastJob"]["changes"]
@@ -462,6 +463,17 @@ unfurl.yaml
                     assert rv.url.strip("#:") == rv.as_git_url().strip("#:"), url
             else:
                 self.assertRaises(URLException, RepoView, dict(name="", url=url), None)
+
+    def test_split_git_url_with_commit(self):
+        cases = {
+            "https://example.com/repo.git#v1.0.0": ("https://example.com/repo.git", "", "v1.0.0", ""),
+            "https://example.com/repo.git#~abc123": ("https://example.com/repo.git", "", "", "abc123"),
+            "https://example.com/repo.git#v1.0.0~abc123": ("https://example.com/repo.git", "", "v1.0.0", "abc123"),
+            "https://example.com/repo.git#v1.0.0~abc123:src/main.py": ("https://example.com/repo.git", "src/main.py", "v1.0.0", "abc123"),
+            "https://example.com/repo.git#~abc123:src/main.py": ("https://example.com/repo.git", "src/main.py", "", "abc123"),
+        }
+        for url, expected in cases.items():
+            self.assertEqual(split_git_url_with_commit(url), expected, url)
 
     def test_home_template(self):
         # test creating and deploying the home template
@@ -633,31 +645,48 @@ spec:
                 "get-url", "--push", repo.remote.name
             )
 
-    @unittest.skipIf(
-        "slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set"
-    )
     def test_submodules(self):
         runner = CliRunner()
-        with runner.isolated_filesystem(os.getenv("UNFURL_TEST_TMPDIR")) as tmp_dir:
-            print("saving to", tmp_dir)
-            # override home so to avoid interferring with other tests
-            result = runner.invoke(
-                cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
-            )
-            assert not result.exception, "\n".join(
-                traceback.format_exception(*result.exc_info)
-            )
-            self.assertEqual(result.exit_code, 0, result)
+        # Since CVE-2022-39253 (git 2.38.1), `git clone --recurse-submodules` refuses
+        # the file:// transport by default. Override via env so we don't touch the
+        # user's global git config: GIT_CONFIG_COUNT/KEY_N/VALUE_N layers config onto
+        # every git subprocess without modifying any config file.
+        git_env = {
+            "GIT_CONFIG_COUNT": "1",
+            "GIT_CONFIG_KEY_0": "protocol.file.allow",
+            "GIT_CONFIG_VALUE_0": "always",
+        }
+        prev_env = {k: os.environ.get(k) for k in git_env}
+        os.environ.update(git_env)
+        try:
+            with runner.isolated_filesystem(
+                os.getenv("UNFURL_TEST_TMPDIR")
+            ) as tmp_dir:
+                print("saving to", tmp_dir)
+                # override home so to avoid interferring with other tests
+                result = runner.invoke(
+                    cli, ["--home", "./unfurl_home", "init", "test", "--submodule"]
+                )
+                assert not result.exception, "\n".join(
+                    traceback.format_exception(*result.exc_info)
+                )
+                self.assertEqual(result.exit_code, 0, result)
 
-            result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
-            assert not result.exception, "\n".join(
-                traceback.format_exception(*result.exc_info)
-            )
-            self.assertEqual(result.exit_code, 0, result)
-            assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir(
-                "cloned/ensemble/.git"
-            )
-            assert not os.path.exists("cloned/ensemble1"), result.output
+                result = runner.invoke(cli, ["clone", "file:test#:", "cloned"])
+                assert not result.exception, "\n".join(
+                    traceback.format_exception(*result.exc_info)
+                )
+                self.assertEqual(result.exit_code, 0, result)
+                assert os.path.isfile("cloned/ensemble/.git") and not os.path.isdir(
+                    "cloned/ensemble/.git"
+                )
+                assert not os.path.exists("cloned/ensemble1"), result.output
+        finally:
+            for k, v in prev_env.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
 
 repoManifestContent = """\
@@ -753,44 +782,74 @@ def test_reified_repo(caplog):
 
 def test_clone_ensemble_repo():
     runner = CliRunner()
-    with runner.isolated_filesystem():
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("saving to", test_dir)
+
         run_cmd(runner, ["--home", "local_home", "--no-runtime", "home", "--init"])
+        skeletons_vars = "--var vaultid e1 --var VAULT_PASSWORD uvdAr58vO0ZHo7".split()
         run_cmd(
             runner,
-            ["--home", "local_home", "init", "--use-environment", "inner", "src"],
+            ["--home", "local_home", "init", "--use-environment", "inner", "src"]
+            + skeletons_vars,
         )
         # use a home project so git-local: url resolve across projects
         # we need this because we are doing a remote clone of an ensemble repo with a git-local spec url
         run_cmd(
             runner, ["--home", "local_home", "home", "--register", "src"]
         )
-        ensemble_repo_files = set([
-            "unfurl.yaml",
-            ".gitignore",
-            ".gitattributes",
-            ".git",
-            "ensemble.yaml",
-            ".secrets",
-            ".unfurl-local-template.yaml",
-        ])
+        ensemble_repo_files = set(
+            [
+                "unfurl.yaml",
+                ".gitignore",
+                ".gitattributes",
+                ".git",
+                "ensemble.yaml",
+                ".secrets",
+                ".unfurl-local-template.yaml",
+                "local",
+            ]
+        )
         assert set(os.listdir("src/ensemble")) == (
-            ensemble_repo_files | set(["local", "secrets"])
+            ensemble_repo_files | set(["secrets"])
         )
         run_cmd(
             runner,
             ["--home", "local_home", "init", "--use-environment", "outer", "dst"],
         )
         # use URL with fragment instead of file path to induce remote cloning semantics
-        run_cmd(runner, ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"])
+        run_cmd(
+            runner,
+            ["--home", "local_home", "clone", "file:src/ensemble#:", "dst"]
+            + skeletons_vars,
+        )
         assert "ensemble1" in os.listdir("dst")
         assert set(os.listdir("dst/ensemble1")) == ensemble_repo_files
         local_env = LocalEnv("dst/ensemble1")
-        assert local_env.manifest_context_name == "inner"
+        assert local_env.manifest_environment_name == "inner"
         assert local_env.project.projectRoot.endswith("dst")
         local_env2 = LocalEnv("dst")
-        assert local_env2.manifest_context_name == "outer"
+        assert local_env2.manifest_environment_name == "outer"
         # print_config("dst/ensemble1")
         run_cmd(runner, ["--home", "local_home", "deploy", "dst/ensemble1"])
+        # secrets folder should be decrypted now
+        assert "secrets" in os.listdir("dst/ensemble1")
+        # test that unfurl commit updates repository urls:
+        remote_url = "ssh://git@unfurl.cloud/remote/blueprint.git"
+        os.system("git -C src remote add origin git@unfurl.cloud:remote/blueprint.git")
+        run_cmd(
+            runner,
+            [
+                "--home",
+                "local_home",
+                "commit",
+                "--update-repositories-only",
+                "dst/ensemble1",
+            ],
+        )
+        with open("dst/ensemble1/ensemble.yaml") as f:
+            content = f.read()
+            assert remote_url in content, content
 
 
 skeletons_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "unfurl", "skeletons")

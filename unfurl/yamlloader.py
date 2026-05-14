@@ -14,6 +14,7 @@ from typing import (
     Any,
     Mapping,
     Optional,
+    Sequence,
     TextIO,
     Union,
     Tuple,
@@ -26,11 +27,10 @@ from typing import (
 from typing_extensions import Literal
 import urllib
 import urllib.request
-from urllib.parse import urljoin, urlparse, urlsplit
+from urllib.parse import unquote, urljoin, urlparse, urlsplit
 import ssl
 import certifi
 import git
-from jsonschema import RefResolver
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.representer import RepresenterError, SafeRepresenter
@@ -41,7 +41,7 @@ from .lock import Lock
 from .util import (
     UnfurlBadDocumentError,
     UnfurlSchemaError,
-    is_relative_to,
+    path_startswith,
     to_bytes,
     to_text,
     sensitive_str,
@@ -60,6 +60,7 @@ from .merge import (
     find_anchor,
     _cache_anchors,
     restore_includes,
+    Includes,
 )
 from .repo import (
     Repo,
@@ -71,10 +72,12 @@ from .repo import (
 )
 from .packages import (
     PackageSpec,
+    ProxiedRepo,
     UnfurlPackageUpdateNeeded,
     extract_package,
     find_canonical,
     get_package_from_url,
+    get_package_id_from_url,
     resolve_package,
     is_semver,
     normalize_url,
@@ -86,6 +89,7 @@ from toscaparser.common.exception import URLException, ExceptionCollector
 from toscaparser.utils.gettextutils import _
 import toscaparser.imports
 import tosca.loader
+from tosca import yaml_path_for
 from toscaparser.repositories import Repository
 from toscaparser.elements.interfaces import OperationDef
 
@@ -96,8 +100,11 @@ from ansible.utils.unsafe_proxy import AnsibleUnsafeText, AnsibleUnsafeBytes
 from time import perf_counter
 from jinja2.runtime import DebugUndefined
 
+from .util import validate_tosca_def
+
 if TYPE_CHECKING:
     from .manifest import Manifest
+    from .localenv import LocalEnv
 
 logger = getLogger("unfurl")
 
@@ -108,6 +115,7 @@ except ImportError:
     logger.warning(
         "Failed to import tosca_solver extension, topology inference is disabled."
     )
+    logger.debug("solver import error:", exc_info=True)
 
 yaml_perf = 0.0
 
@@ -294,7 +302,81 @@ def urlopen(url):
     )
 
 
-_refResolver = RefResolver("", None)
+def get_tags_from_proxy(
+    url: str, pattern: str = "*", proxy_url=None
+) -> Optional[List[str]]:
+    base_url = ProxiedRepo.get_proxy_url(url)
+    if not base_url:
+        return None
+
+    try:
+        logger.debug(
+            "Getting remote tags from proxy for: %s",
+            url,
+        )
+        proxy = f"{base_url}@v/list"
+        tags = urlopen(proxy).read().decode("utf8").splitlines()
+        if pattern != "*":
+            tags = [tag for tag in tags if fnmatch.fnmatch(tag, pattern)]
+
+        def version_sort(tag):
+            version = tag.partition("-")
+            # sort so tags with pre-release string go before those without
+            return (version[0], not version[1], version[2])
+
+        tags.sort(key=version_sort, reverse=True)
+        return tags
+    except Exception as err:
+        logger.warning(
+            "Couldn't get remote tags from proxy for package %s: %s",
+            url,
+            err,
+        )
+        return None
+
+
+def _resolve_fragment(document: Any, fragment: str) -> Any:
+    """Resolve a JSON pointer fragment within a document.
+
+    This replaces the deprecated RefResolver.resolve_fragment() method.
+    Navigates through nested dictionaries/lists using the fragment path.
+
+    Args:
+        document: The document to navigate (dict or list)
+        fragment: A path like "definitions/foo" or "items/0"
+
+    Returns:
+        The value at the fragment path
+
+    Raises:
+        KeyError: If the path doesn't exist
+    """
+    # based on deprecated jsonschema.RefResolver.resolve_fragment
+    # Split the fragment path and navigate through the document
+    fragment = fragment.lstrip("/")
+
+    if not fragment:
+        return document
+
+    # Resolve via path
+    parts = unquote(fragment).split("/")
+    for part in parts:
+        part = part.replace("~1", "/").replace("~0", "~")
+
+        if isinstance(document, Sequence):
+            try:
+                part = int(part)  # type: ignore
+            except ValueError:
+                pass
+        try:
+            document = document[part]
+        except (KeyError, IndexError, TypeError, LookupError):
+            raise KeyError(
+                f"Unresolvable JSON pointer: {fragment!r}",
+            )
+
+    return document
+
 
 # context for the resolved url or local path: is_file, repo_view, base url or path, file_name
 ImportResolver_Context = Tuple[bool, Optional[RepoView], str, str]
@@ -319,25 +401,36 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     Therefore, it is recommended that public blueprints give repositories unique names.
     """
 
-    safe_mode: bool = False
+    # actually clone of repositories happens in _resolve_repo_to_path()
+
+    _safe_mode: bool = False
 
     def __init__(
-        self, manifest: "Manifest", ignoreFileNotFound=False, expand=False, config=None
+        self,
+        manifest: "Manifest",
+        ignoreFileNotFound=False,
+        expand=False,
+        config: Optional[Dict[str, Any]] = None,
+        local_env: Optional["LocalEnv"] = None,
     ):
         self.manifest = manifest
-        self.readonly = bool(
-            manifest and manifest.localEnv and manifest.localEnv.readonly
-        )
         self.ignoreFileNotFound = ignoreFileNotFound
         self.yamlloader = manifest.loader if manifest else None
         self.expand = expand
         self.config = config or {}
+        self._local_env = local_env
         if manifest:
+            assert not local_env
             self.solve_topology = self._solve_topology
         else:
             self.solve_topology = solve_topology
+        self.readonly = bool(self.local_env and self.local_env.readonly)
+        self.importslist: Optional[List[Union[str, Dict]]] = None
+        # memo for _find_repoview_from_path; keyed by (id(manifest.repositories), base)
+        self._repoview_by_path_cache: Dict[Tuple[int, str], Optional[RepoView]] = {}
 
     def _solve_topology(self, topology_template):
+        assert self.manifest
         if solve_topology is not None:
             constrain_required = not is_semver(
                 self.manifest.apiVersion[len("unfurl/") :]
@@ -355,14 +448,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         "unfurl.cloud/onecommons/unfurl-types* gitlab.com/onecommons/unfurl-types*",
     )
 
+    @property
+    def local_env(self) -> Optional["LocalEnv"]:
+        return self.manifest.localEnv if self.manifest else self._local_env
+
     def __getstate__(self):
         state = self.__dict__.copy()
         state["yamlloader"] = None
+        state["_local_env"] = None
         return state
 
     def get_safe_mode(self) -> bool:
         return tosca.loader.get_safe_mode(
-            (self.manifest and self.manifest.safe_mode) or self.safe_mode
+            (self.manifest and self.manifest.safe_mode) or self._safe_mode
         )
 
     def load_imports(
@@ -370,11 +468,15 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         importsLoader: toscaparser.imports.ImportsLoader,
         importslist: List[Union[str, Dict]],
     ):
-        while True:
-            try:
-                return super().load_imports(importsLoader, importslist)
-            except UnfurlPackageUpdateNeeded:
-                pass  # reload
+        try:
+            self.importslist = importslist
+            while True:
+                try:
+                    return super().load_imports(importsLoader, importslist)
+                except UnfurlPackageUpdateNeeded:
+                    pass  # reload
+        finally:
+            self.importslist = None
 
     def find_matching_node(self, relTpl, req_name, req_def):
         if self.manifest and self.manifest.tosca:
@@ -409,7 +511,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return cast(
             Optional[Dict[str, Any]],
             _get_config_spec_args_from_implementation(
-                op, inputs, node, None, False, self.get_safe_mode(), False
+                op,
+                inputs,
+                node,
+                None,
+                False,
+                self.get_safe_mode(),
+                False,
+                root=self.manifest.rootResource if self.manifest else None,
             ),
         )
 
@@ -451,12 +560,29 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         tpl: Optional[Dict[str, Any]] = None,
         base_path: Optional[str] = None,
     ) -> Optional[str]:
-        "Called by tosca.loader to resolve tosca_repositories python packages"
+        "Called by tosca.loader to resolve the location of tosca_repositories python packages"
         repo_view = self._match_repoview(name, tpl)
         if not repo_view:
-            logger.debug("Could not find a repository for '%s' (%s)", name, tpl)
-            return None
+            return self._check_existing_tosca_repository_path(name, base_path, tpl)
+
         return self._get_link_to_repo(repo_view, base_path, name)
+
+    def _check_existing_tosca_repository_path(
+        self, name: str, base_path: Optional[str], tpl: Optional[Dict[str, Any]]
+    ) -> Optional[str]:
+        service_template_basedir = base_path or (self.manifest and self.manifest.project_base_path) or None
+        if not service_template_basedir:
+            return None
+        path = os.path.join(service_template_basedir, "tosca_repositories", name)
+        if os.path.isdir(path):
+            logger.debug(
+                "Could not find a repository for '%s', using existing path: %s",
+                name,
+                path,
+            )
+            return path
+        logger.warning("Could not find a repository for '%s' (%s)", name, tpl)
+        return None
 
     def patch_template(
         self,
@@ -519,7 +645,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 # don't create another Repository instance
                 return self.manifest.repositories[name].repository
             else:
-                name = unique_name(name, list(self.manifest.repositories))
+                name = unique_name(name, self.manifest.repositories)
 
         if tpl is None:
             return None
@@ -541,21 +667,19 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     url = "ssh://" + url.replace(":", "/", 1)
                 tpl["url"] = url
 
-            if tpl.get("credential") and self.manifest and not self.manifest.safe_mode:
+            if tpl.get("credential") and not self.get_safe_mode():
                 credential = tpl["credential"]
                 # support expressions to resolve credential secrets
-                if self.manifest.rootResource:
+                if self.manifest and self.manifest.rootResource:
                     from .eval import map_value
 
                     tpl["credential"] = map_value(
                         credential, self.manifest.rootResource
                     )
-                elif self.manifest.localEnv:
+                elif self.local_env:
                     # we're including or importing before we finished initializing
-                    context = self.manifest.localEnv.get_context(
-                        self.config.get("environment")
-                    )
-                    tpl["credential"] = self.manifest.localEnv.map_value(
+                    context = self.local_env.get_context(self.config.get("environment"))
+                    tpl["credential"] = self.local_env.map_value(
                         credential, cast(dict, context.get("variables"))
                     )
                 tpl["credential"] = wrap_sensitive_value(tpl["credential"])
@@ -605,8 +729,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         repository_name,
         source_info: Optional[toscaparser.imports.SourceInfo] = None,
     ) -> str:
+        # if source_info is provided, return a namespace id, otherwise return the url or file path for the repository or ensemble root
         if repository_name:
-            if repository_name not in importsLoader.repositories:
+            if self.manifest and repository_name not in importsLoader.repositories:
                 importsLoader.repositories[repository_name] = (
                     self.manifest.repositories[repository_name].repository.tpl
                 )
@@ -629,6 +754,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def _get_namespace_from_source_info(
         self, url, source_info: toscaparser.imports.SourceInfo
     ) -> str:
+        # url is ignored if source_info has a path that can be resolved to a repository, otherwise url is used as the namespace id
+        # may update source_info with "file" and "namespace_uri"
         from .graphql import get_namespace_id
 
         path = source_info["path"]
@@ -670,42 +797,45 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             return False
 
+    @staticmethod
+    def _is_inside(path: str, root: str) -> bool:
+        # Accept if either the un-resolved (abspath) form or the symlink-resolved
+        # (realpath) form of `path` is inside `root`. Comparing abspaths preserves
+        # the case where a symlink inside the project points outside it (user
+        # intent: still inside). Comparing realpaths handles cases like macOS
+        # /tmp vs /private/tmp where one side is a symlink to the other.
+        for resolver in (os.path.abspath, os.path.realpath):
+            if not os.path.relpath(resolver(path), resolver(root)).startswith(".."):
+                return True
+        return False
+
     def _has_path_escaped_base(self, path: str, base) -> bool:
         if not self.confine_user_paths:
             return False
         if not base:
             return self._has_path_escaped_project(path)
-
-        # relative to file
-        absbase = os.path.abspath(base)
-        if not absbase[-1] != "/":
-            absbase += "/"
-        if not os.path.abspath(path).startswith(absbase):
-            msg = f'Path not allowed outside of repository or document root "{absbase}": "{path}"'
-            ExceptionCollector.appendException(ImportError(msg))
-            return True
-        else:
+        if self._is_inside(path, base):
             return False
+        msg = f'Path not allowed outside of repository or document root "{os.path.abspath(base)}": "{path}"'
+        ExceptionCollector.appendException(ImportError(msg))
+        return True
 
     def _has_path_escaped_project(self, path) -> bool:
         if not self.confine_user_paths:
             return False
 
-        # user supplied path can't be outside of the project or the home project
-        if self.manifest.localEnv and self.manifest.localEnv.project:
-            if os.path.abspath(path).startswith(
-                os.path.abspath(os.path.dirname(__file__))
-            ):
+        # user supplied path can't be outside of the project or the home project.
+        if self.local_env and self.local_env.project:
+            if self._is_inside(path, os.path.dirname(__file__)):
                 # special case for built-in "unfurl" repository
                 return False
-            if self.manifest.localEnv.project.get_relative_path(path).startswith(".."):
-                if (
-                    not self.manifest.localEnv.homeProject
-                    or self.manifest.localEnv.homeProject.get_relative_path(
-                        path
-                    ).startswith("..")
+            if not self._is_inside(path, self.local_env.project.projectRoot):
+                if not self.local_env.homeProject or not self._is_inside(
+                    path, self.local_env.homeProject.projectRoot
                 ):
-                    msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.manifest.localEnv.project.projectRoot}"'
+                    msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
+                    if self.local_env.homeProject:
+                        msg += f' or home project: "{self.local_env.homeProject.projectRoot}"'
                     ExceptionCollector.appendException(ImportError(msg))
                     return True
         return False
@@ -713,8 +843,8 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def _find_repoview(self, url: str) -> RepoView:
         repo_view = None
         git_url, path, revision = split_git_url(url)  # we only support git urls
-        assert self.manifest.localEnv
-        repoview_or_url = self.manifest.localEnv._find_git_repo(git_url, revision)
+        assert self.local_env
+        repoview_or_url = self.local_env._find_git_repo(git_url, revision)
         if isinstance(repoview_or_url, RepoView):
             repo_view = repoview_or_url
         else:
@@ -737,7 +867,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if not repo_view.repo:
             # calls LocalEnv.find_or_create_working_dir()
             # XXX coalesce repoviews
-            repo, created = self.manifest.find_or_clone_repo(repo_view, base)
+            if self.manifest:
+                repo, created = self.manifest.find_or_clone_repo(repo_view, base)
+            else:
+                repo = None
             if repo:
                 repo_view.repo = repo
             else:
@@ -755,15 +888,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return path
 
     def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
-        skip_check = os.getenv("UNFURL_SKIP_UPSTREAM_CHECK")
-        if self.manifest and self.manifest.localEnv:
-            if (
-                skip_check
-                or (self.manifest.localEnv.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK"))
-                and self.manifest.localEnv.find_git_repo(url)
-            ):
+        if self.local_env:
+            if self.local_env.overrides.get(
+                "UNFURL_SKIP_UPSTREAM_CHECK"
+            ) and self.local_env.find_git_repo(url):
                 return None  # skip if repo exists and skip_check is set
-        elif skip_check:
+        elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             return None
         # apply credentials to url like find_repo_from_git_url() does
         if self.manifest and self.manifest.repo:
@@ -783,6 +913,10 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             ):
                 # rewrite url to add credentials
                 url = add_user_to_url(url, username, password)
+        else:
+            tags = get_tags_from_proxy(url, pattern)
+            if tags is not None:
+                return tags
         return memoized_remote_tags(url, pattern="*")
 
     def _find_repository_root(self, base: str):
@@ -795,20 +929,31 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def _find_repoview_from_path(self, base: str) -> Optional[RepoView]:
         assert base
+        if not self.manifest:
+            return None
+        # Memoize per-resolver: this function is called once per TOSCA import
+        # (~1000s of times for a large export), almost always with a few
+        # repeated base paths.  Include the repositories dict id so the cache
+        # auto-invalidates if the manifest swaps in a new dict (which does
+        # happen during some loads).
+        cache_key = (id(self.manifest.repositories), base)
+        if cache_key in self._repoview_by_path_cache:
+            return self._repoview_by_path_cache[cache_key]
+
         nearest = ""
         candidate = None
-        if self.manifest:
-            # if repository is nested in another choose the most nested
-            for repo_view in self.manifest.repositories.values():
-                if not repo_view.repo:
-                    if self.manifest.localEnv:
-                        repo_view.repo = self.manifest.localEnv.find_git_repo(
-                            repo_view.url
-                        )
-                if is_relative_to(base, repo_view.working_dir):
-                    if len(repo_view.working_dir) > len(nearest):
-                        nearest = repo_view.working_dir
-                        candidate = repo_view
+        for repo_view in self.manifest.repositories.values():
+            if not repo_view.repo:
+                if self.local_env:
+                    repo_view.repo = self.local_env.find_git_repo(repo_view.url)
+            wd = repo_view.working_dir
+            if not wd:
+                continue
+            if path_startswith(base, wd) and len(wd) > len(nearest):
+                nearest = wd
+                candidate = repo_view
+
+        self._repoview_by_path_cache[cache_key] = candidate
         return candidate
 
     def resolve_url(
@@ -839,11 +984,6 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 )
                 if new_url:
                     self.manifest.repositories[new_url] = repo_view
-                    logger.debug(
-                        "adding repository %s as %s to avoid replacing existing repository",
-                        repository_name,
-                        new_url,
-                    )
         else:
             # if file_name is relative, base will be set (to the importsLoader's path)
             if not toscaparser.imports.is_url(base):
@@ -879,7 +1019,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 path = os.path.join(base, path)
             path = os.path.join(path, file_name)
             # repositories can be outside of the project when not in safe mode
-            if not repository_name or self.safe_mode:
+            if not repository_name or self._safe_mode:
                 if self._has_path_escaped_project(path):
                     return None, None
         repo_view.add_file_ref(file_name)
@@ -891,9 +1031,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         base: str,
         file_name: str,
     ) -> Tuple[Optional[str], Optional[ImportResolver_Context]]:
-        assert base or os.path.isabs(file_name), (
-            f"{file_name} isn't absolute and base isn't set"
-        )
+        assert base or os.path.isabs(
+            file_name
+        ), f"{file_name} isn't absolute and base isn't set"
         url = os.path.join(base, file_name)
         repository_root = None  # default to checking if its in the project
         if importsLoader.repository_root:
@@ -997,9 +1137,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             # XXX we need both the commit and revision if we don't have the full git repo
             url, filePath, revision = split_git_url(path[len("git-ref:") :])
             repo_view = self._find_repoview(url)
-            if not repo_view.repo:
+            if not repo_view.gitrepo:
                 raise UnfurlError("Could not resolve " + path)
-            bdata = repo_view.repo.show(filePath, revision, stdout_as_string=False)
+            bdata = repo_view.gitrepo.show(filePath, revision, stdout_as_string=False)
             if self.yamlloader:
                 # ok_to_show if bdata was cleartext otherwise it was encrypted
                 bdata, ok_to_show = self.yamlloader._decrypt_if_vault_data(
@@ -1072,13 +1212,38 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         path: str,
         repo_view: Optional[RepoView],
         base_dir: str,
+        original_python_path="",
         yaml_dict=dict,
     ):
-        from .dsl import convert_to_yaml, maybe_reconvert
+        from .dsl import convert_to_yaml, maybe_reconvert, is_yaml_file_newer
+
+        yaml_path = ""
+        if original_python_path:
+            if is_yaml_file_newer(contents, path, original_python_path):
+                # yaml was autogenerated and newer, use that
+                logger.debug(
+                    "Using previously generated yaml instead of converting python: %s",
+                    path,
+                )
+                return load_yaml(yaml, contents, path, self.readonly)
+            else:
+                logger.trace("YAML location is older or not autogenerated, regenerating yaml from python: %s", path)
+                yaml_path = path
+                path = original_python_path
+                f, cacheable = self._open(path, True)
+                if f is None:
+                    return None
+                assert cacheable
+                with f:
+                    contents = f.read()
 
         if path.endswith(".py"):
-            return convert_to_yaml(self, contents, path, repo_view, base_dir, yaml_dict)
-        doc = maybe_reconvert(self, contents, path, repo_view, base_dir, yaml_dict)
+            if not yaml_path:
+                yaml_path = str(yaml_path_for(Path(path)))
+            return convert_to_yaml(self, contents, path, repo_view, base_dir, yaml_path, yaml_dict)
+
+        # contents and path is yaml but it might be old yaml that was generated from a python file, so check if we should reconvert it
+        doc = maybe_reconvert(self, contents, path, repo_view, base_dir)
         if doc is not None:
             return doc
         else:
@@ -1097,43 +1262,80 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             logger.trace(
                 "attempting to load YAML %s: %s", "file" if isFile else "url", path
             )
-            if isFile and path.endswith(".yaml") and not os.path.isfile(path):
-                py_path = path[: -len(".yaml")] + ".py"
-                if os.path.isfile(py_path):
-                    logger.verbose(
-                        "%s is missing but %s was found, attempting to convert to yaml.",
-                        path,
-                        py_path,
-                    )
-                    path = py_path  # try to convert dsl py to yaml
+            original_python_path = ""
+            yaml_path = ""
+            if isFile:
+                if path.endswith(".yaml") and not os.path.isfile(path):
+                    py_path = path[: -len(".yaml")] + ".py"
+                    if os.path.isfile(py_path):
+                        logger.verbose(
+                            "%s is missing but %s was found, attempting to convert to yaml.",
+                            path,
+                            py_path,
+                        )
+                        path = py_path  # try to convert dsl py to yaml
+                if path.endswith(".py"):
+                    yaml_path = path[: -len(".py")] + ".yaml"
+                    if os.path.isfile(yaml_path):
+                        cache_yaml_path = yaml_path
+                    else:
+                        # check pycache location
+                        cache_yaml_path = str(yaml_path_for(Path(path)))
+                    if os.path.isfile(cache_yaml_path):
+                        original_python_path = path
+                        path = cache_yaml_path  # try to use previously converted yaml
             f, cacheable = self._open(path, isFile)
             if f is None:
                 return None, cacheable
-
+            # use yaml_path for base dir because the real path might be in a cache location that isn't relative to the original source file
+            base_path = get_base_dir(yaml_path or path)
             with f:
                 contents = f.read()
                 yaml_dict = yaml_dict_type(self.readonly)
                 if toscaparser.imports.is_url(base_dir):
-                    base_dir = get_base_dir(path)
+                    base_dir = base_path
                 doc = self._convert_to_yaml(
-                    contents, path, repo_view, base_dir, yaml_dict
+                    contents, path, repo_view, base_dir, original_python_path, yaml_dict
                 )
                 if isinstance(doc, yaml_dict):
                     if self.expand:
                         # self.expand is true when doing a TOSCA import (see Manifest._load_spec())
                         doc = YamlConfig(
                             doc,
-                            get_base_dir(path),  # needs this as base_dir
+                            base_path,  # needs this as base_dir
                             loadHook=partial(
                                 self.manifest.load_yaml_include,
                                 repository_root=base_dir,
                             ),
                             readonly=self.readonly,
                         ).expanded
-                    doc.path = path
-                    doc.base_dir = get_base_dir(path)
+                    # set yaml_path instead of real path because the real path might be in a cache location that isn't relative to the original source file
+                    doc.path = yaml_path or path
+                    doc.base_dir = base_path
+                    check_schema = True
+                    if (
+                        self.manifest
+                        and self.manifest.tosca
+                        and "no_jsonschema_check" in self.manifest.tosca.validation_mode
+                    ):
+                        check_schema = False
+                    if check_schema and self.importslist:
+                        error = validate_tosca_def(doc, "import")
+                        if error:
+                            raise_error = True
+                            if self.manifest:
+                                raise_error = self.manifest.validate
+                            if raise_error:
+                                raise error
+                            else:
+                                logger.warning(
+                                    "TOSCA validation error in imported document %s: %s",
+                                    path,
+                                    error,
+                                )
+
             if fragment and doc:
-                return _refResolver.resolve_fragment(doc, fragment), cacheable
+                return _resolve_fragment(doc, fragment), cacheable
             else:
                 return doc, cacheable
         except Exception:
@@ -1174,6 +1376,9 @@ class SimpleCacheResolver(ImportResolver):
             )
             if cacheable:
                 self.set_cache((path, fragment), doc)
+            # Record mtime for cache invalidation (even if not cacheable)
+            if os.path.isfile(path):
+                self.manifest.cache_mtimes[path] = os.path.getmtime(path)
         else:
             cacheable = True
         return doc, cacheable
@@ -1200,6 +1405,7 @@ class YamlConfig:
         vault=None,
         readonly=False,
     ):
+        err_msg = "Unable to parse yaml configuration"
         try:
             self._yaml = None
             self.vault = vault
@@ -1221,7 +1427,6 @@ class YamlConfig:
                 # otherwise use default config
             else:
                 self.path = None
-                err_msg = "Unable to parse yaml config"
 
             if isinstance(config, str):
                 self.config: dict = load_yaml(
@@ -1248,16 +1453,23 @@ class YamlConfig:
                     pass  # reload
                 else:
                     break
-            errors = schema and self.validate(self.expanded)
-            if errors and validate:
-                (message, schemaErrors) = errors
-                raise UnfurlSchemaError(
-                    err_msg + ": JSON Schema validation failed: " + message,
-                    errors,
-                    self.config,
-                )
+            skip_validation = "no_jsonschema_check" in (
+                os.getenv("UNFURL_VALIDATION_MODE") or ""
+            )
+            if skip_validation:
+                errors = None
+                self.valid = True
             else:
-                self.valid = not not errors
+                errors = schema and self.validate(self.expanded)
+                if errors and validate:
+                    (message, schemaErrors) = errors
+                    raise UnfurlSchemaError(
+                        err_msg + ": JSON Schema validation failed: " + message,
+                        errors,
+                        self.config,
+                    )
+                else:
+                    self.valid = not not errors
         except UnfurlBadDocumentError:
             raise
         except Exception:
@@ -1275,7 +1487,7 @@ class YamlConfig:
             self.readonly,
         )
 
-    def _expand(self) -> Tuple[Mapping, Mapping]:
+    def _expand(self) -> Tuple[Includes, Mapping]:
         find_anchor(self.config, None)  # create _anchorCache
         self._cachedDocIncludes: Dict[str, Tuple[str, dict, str]] = {}
         yaml_dict = yaml_dict_type(self.readonly)
@@ -1310,7 +1522,7 @@ class YamlConfig:
         with f:
             config = load_yaml(self.yaml, f, path, self.readonly)
         if fragment and config:
-            return path, _refResolver.resolve_fragment(config, fragment)
+            return path, _resolve_fragment(config, fragment)
         return path, config
 
     def get_base_dir(self):
@@ -1328,24 +1540,26 @@ class YamlConfig:
         except Exception:
             raise UnfurlError(f"Error saving {self.path}", True)
 
+    def config_file_changed(self) -> bool:
+        if self.path:
+            # st_mtime is unreliable so use file_size as a good-enough proxy
+            # to detect the file changing out from under us
+            if self.file_size:
+                statinfo = os.stat(self.path)
+                if statinfo.st_size != self.file_size:
+                    return True
+        return False
+
     def save(self):
         if self.readonly:
             raise UnfurlError(f'Can not save "{self.path}", it is set to readonly')
         output = io.StringIO()
         self.dump(output)
         if self.path:
-            if self.file_size:
-                statinfo = os.stat(self.path)
-                if statinfo.st_size > self.file_size:
-                    logger.error(
-                        'Not saving "%s", it was unexpectedly modified after it was loaded, %d is after last modified time %d',
-                        self.path,
-                        statinfo.st_size,
-                        self.file_size,
-                    )
-                    raise UnfurlError(
-                        f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
-                    )
+            if self.config_file_changed():
+                raise UnfurlError(
+                    f'Not saving "{self.path}", it was unexpectedly modified after it was loaded'
+                )
             with open(self.path, "w") as f:
                 f.write(output.getvalue())
             statinfo = os.stat(self.path)
@@ -1361,9 +1575,9 @@ class YamlConfig:
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        # workarounds for 2.7:  Can't pickle <type 'instancemethod'>
         state["_yaml"] = None
         state["loadHook"] = None
+        state["vault"] = None  # VaultLib can't be pickled
         return state
 
     def validate(self, config):
@@ -1374,10 +1588,7 @@ class YamlConfig:
                 self.schema = json.load(fp)
         else:
             path = None
-        baseUri = None
-        if path:
-            baseUri = urljoin("file:", urllib.request.pathname2url(path))
-        return find_schema_errors(config, self.schema, baseUri)
+        return find_schema_errors(config, self.schema, path)
 
     def search_includes(
         self,

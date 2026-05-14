@@ -29,7 +29,9 @@ deployment_blueprints:
         properties:
           labels:
             kompose.volume.size:
-              get_input: disk_size
+              eval:
+                to_kubernetes_label:
+                  get_input: disk_size
         requirements:
         - dns: unfurl.nodes.DNSZone
       db:

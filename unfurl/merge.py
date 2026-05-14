@@ -177,7 +177,7 @@ def merge_dicts(
     return cp
 
 
-def _find_key_in_list(seq, key):
+def _find_key_in_list(seq: MutableSequence, key):
     for i, item in enumerate(seq):
         if isinstance(item, Mapping) and len(item) == 1 and key in item:
             return i
@@ -185,13 +185,13 @@ def _find_key_in_list(seq, key):
 
 
 def _merge_lists(
-    val,
-    bval,
+    val: MutableSequence,
+    bval: MutableSequence,
     cls,
-    childStrategy,
+    childStrategy: MappingMergeStrategy,
     replaceKeys,
-    listStrategy,
-    mergeStrategyKey
+    listStrategy: str,
+    mergeStrategyKey: str,
 ):
     if listStrategy == "append_unique":
         # XXX allow more strategies beyond append
@@ -291,8 +291,31 @@ def _json_pointer_validate(pointer):
     return None
 
 
+def _is_raw(includeValue):
+    return isinstance(includeValue, str) and "raw" in includeValue
+
+class _MissingInclude:
+    def __init__(self, key: "MergeKey", value):
+        self.key = key
+        self.value = value
+
+    # only include key so the doc will doc look like the original string (for round-trip parsing)
+    def __repr__(self):
+        return self.key.key
+
+
+Path = Tuple[Union[str, int], ...]
+MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
+Includes = Dict[Path, List[Union[_MissingInclude, Tuple[MergeKey, Any]]]]
+
 def get_template(
-    doc: MutableMapping, key: "MergeKey", value, path, cls, includes=None, mergeStrategyKey=mergeStrategyKey
+    doc: MutableMapping,
+    key: MergeKey,
+    value,
+    path: Path,
+    cls,
+    includes: Optional[Includes] = None,
+    mergeStrategyKey: str = mergeStrategyKey,
 ) -> Optional[Any]:
     template = doc
     templatePath = None
@@ -314,7 +337,7 @@ def get_template(
             templatePath = key.pointer
 
     try:
-        if value != "raw" and isinstance(
+        if not _is_raw(value) and isinstance(
             template, Mapping
         ):  # raw means no further processing
             # if the include path starts with the path to the template
@@ -339,7 +362,7 @@ def get_template(
 
 
 def _find_template(
-    doc: MutableMapping, key: "MergeKey", path, cls, fail: bool
+    doc: MutableMapping, key: MergeKey, path: Path, cls, fail: bool
 ) -> Optional[Tuple[Any, Optional[List[str]]]]:
     template: Optional[MutableMapping] = doc
     templatePath: Optional[list] = None
@@ -359,7 +382,7 @@ def _find_template(
             templatePath = list(path[:stop])
         else:
             templatePath = templatePath[:stop]
-        template = lookup_path(doc, templatePath, cls)
+        template = lookup_path(doc, tuple(templatePath), cls)
         if template is None:
             if not fail:
                 return None
@@ -388,7 +411,7 @@ def _find_template(
     return template, templatePath
 
 
-def has_template(doc: dict, key: "MergeKey", value, path, cls) -> bool:
+def has_template(doc: dict, key: MergeKey, value, path: Path, cls) -> bool:
     if key.include:
         if key.maybe:
             # treat missing includes as null template instead of an error
@@ -402,19 +425,7 @@ def has_template(doc: dict, key: "MergeKey", value, path, cls) -> bool:
     return _find_template(doc, key, path, cls, False) is not None
 
 
-class _MissingInclude:
-    def __init__(self, key: "MergeKey", value):
-        self.key = key
-        self.value = value
-
-    # only include key so the doc will doc look like the original string (for round-trip parsing)
-    def __repr__(self):
-        return self.key.key
-
-
 RE_FIRST = re.compile(r"([?]?)(include[\w-]*)?([*]\S+)?([.]+$)?")
-
-MergeKey = namedtuple("MergeKey", "key, maybe, include, anchor, relative, pointer")
 
 
 def parse_merge_key(key: str) -> Optional[MergeKey]:
@@ -471,7 +482,14 @@ def copy_dict(current: Mapping, cls=dict) -> MutableMapping:
     return cp
 
 
-def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeStrategyKey) -> Any:
+def expand_dict(
+    doc,
+    path: Path,
+    includes: Includes,
+    current,
+    cls=dict,
+    mergeStrategyKey: str = mergeStrategyKey,
+) -> Any:
     """
     Return a copy of `doc` that expands include directives.
     Include directives look like "+path/to/value"
@@ -484,6 +502,7 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
     cp = cls()
     # first merge any includes includes into cp
     templates: List[MutableMapping] = []
+    overlays: List[MutableMapping] = []
     assert isinstance(current, Mapping), current
     for key, value in current.items():
         if not isinstance(key, str):
@@ -509,7 +528,10 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
             includes.setdefault(path, []).append((mergeKey, value))
             template = get_template(doc, mergeKey, value, path, cls, includes, mergeStrategyKey)
             if isinstance(template, MutableMapping):
-                templates.append(template)
+                if isinstance(value, str) and "overlay" in value:
+                    overlays.append(template)
+                else:
+                    templates.append(template)
             elif mergeKey.include and template is None:
                 continue  # include path not found
             else:
@@ -528,15 +550,16 @@ def expand_dict(doc, path, includes, current, cls=dict, mergeStrategyKey=mergeSt
         else:
             cp[key] = value
 
-    if templates:
-        accum = templates.pop(0)
+    if templates or overlays:
         templates.append(cp)
+        templates.extend(overlays)
+        accum = templates.pop(0)
         while templates:
             cls = getattr(templates[0], "mapCtor", cls)
             accum = merge_dicts(accum, templates.pop(0), cls, mergeStrategyKey)
-        return accum
     else:
-        return cp
+        accum = cp
+    return accum
     # e,g, merge_dicts(merge_dicts(a, b), cp)
     # return includes, reduce(lambda accum, next: merge_dicts(accum, next, cls), templates, {}), cp
 
@@ -558,7 +581,9 @@ def _delete_deleted_keys(expanded, mergeStrategyKey):
                 _delete_deleted_keys(value, mergeStrategyKey)
 
 
-def expand_doc(doc, current=None, cls=dict, mergeStrategyKey=mergeStrategyKey) -> Tuple[MutableMapping, Any]:
+def expand_doc(
+    doc, current=None, cls=dict, mergeStrategyKey: str = mergeStrategyKey
+) -> Tuple[Includes, Any]:
     includes = cls()
     if current is None:
         current = doc
@@ -598,7 +623,14 @@ def expand_doc(doc, current=None, cls=dict, mergeStrategyKey=mergeStrategyKey) -
             setattr(expanded, "_anchorCache", doc._anchorCache)
 
 
-def expand_list(doc, path, includes, value, cls=dict, mergeStrategyKey=mergeStrategyKey):
+def expand_list(
+    doc,
+    path: Path,
+    includes: Includes,
+    value,
+    cls=dict,
+    mergeStrategyKey: str = mergeStrategyKey,
+):
     for i, item in enumerate(value):
         if isinstance(item, Mapping):
             if item.get(mergeStrategyKey) == "whiteout":
@@ -613,7 +645,9 @@ def expand_list(doc, path, includes, value, cls=dict, mergeStrategyKey=mergeStra
             yield item
 
 
-def diff_dicts(old, new, cls=dict, skipkeys=(), mergeStrategyKey=mergeStrategyKey):
+def diff_dicts(
+    old, new, cls=dict, skipkeys=(), mergeStrategyKey: str = mergeStrategyKey
+):
     """
     given old, new return diff where merge_dicts(old, diff) == new
     """
@@ -686,7 +720,7 @@ def patch_dict(old: MutableMapping, new: Mapping, preserve=False) -> MutableMapp
     return old
 
 
-def intersect_dict(old, new, cls=dict):
+def intersect_dict(old: MutableMapping, new: Mapping, cls=dict):
     """
     remove keys from old that don't match new
     """
@@ -695,7 +729,7 @@ def intersect_dict(old, new, cls=dict):
         if key in new:
             newval = new[key]
             if val != newval:
-                if isinstance(val, Mapping) and isinstance(newval, Mapping):
+                if isinstance(val, MutableMapping) and isinstance(newval, Mapping):
                     old[key] = intersect_dict(val, newval, cls)
                 else:
                     del old[key]
@@ -705,7 +739,7 @@ def intersect_dict(old, new, cls=dict):
     return old
 
 
-def lookup_path(doc, path, cls=dict):
+def lookup_path(doc, path: Path, cls=dict):
     template = doc
     for segment in path:
         if isinstance(template, Sequence):
@@ -720,28 +754,31 @@ def lookup_path(doc, path, cls=dict):
     return template
 
 
-def replace_path(doc, key, value, cls=dict):
+def replace_path(doc, key: Path, value, cls=dict):
     path = key[:-1]
     last = key[-1]
     ref = lookup_path(doc, path, cls)
-    ref[last] = value
+    if ref is not None:
+        ref[last] = value
 
 
-def delete_path(doc, key):
+def delete_path(doc, key: Path):
     if key:
         path = key[:-1]
         last = key[-1]
         ref = lookup_path(doc, path)
-        if ref:
+        if ref is not None:
             del ref[last]
 
 
-def add_template(changedDoc, path, mergeKey, template, cls):
+def add_template(changedDoc, path: Path, mergeKey: MergeKey, template, cls):
     # if includeKey.anchor: #???
     if mergeKey.relative:
         if mergeKey.relative > 1:
             path = path[: (mergeKey.relative - 1) * -1]
         current = lookup_path(changedDoc, path, cls)
+        if current is None:
+            return
     else:
         current = changedDoc
 
@@ -753,7 +790,13 @@ def add_template(changedDoc, path, mergeKey, template, cls):
     current[last] = template
 
 
-def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyKey=mergeStrategyKey):
+def restore_includes(
+    includes: Includes,
+    originalDoc,
+    changedDoc,
+    cls=dict,
+    mergeStrategyKey: str = mergeStrategyKey,
+):
     """
     Modifies changedDoc with to use the includes found in originalDoc
     """
@@ -769,7 +812,11 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyK
             continue
 
         mergedIncludes: Mapping = {}
-        for includeKey, includeValue in value:
+        for include in value:
+            if isinstance(include, _MissingInclude):
+                # skip _MissingIncludes because the include path is missing
+                continue
+            includeKey, includeValue = include
             if includeKey.include:
                 ref = None
                 continue
@@ -804,7 +851,7 @@ def restore_includes(includes, originalDoc, changedDoc, cls=dict, mergeStrategyK
                 ref[includeKey.key] = includeValue
 
             if not stillHasTemplate:
-                if includeValue != "raw":
+                if not _is_raw(includeValue):
                     if has_template(originalDoc, includeKey, includeValue, key, cls):
                         template = get_template(
                             originalDoc, includeKey, "raw", key, cls

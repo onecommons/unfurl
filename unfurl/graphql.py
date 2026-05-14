@@ -72,6 +72,7 @@ These objects are exported as JSON by the `export` command and by unfurl server 
         icon: String
         inputsSchema: Required[JSON]
         requirementsFilter: [RequirementConstraint!]
+        node_filter: JSON
     }
 
     type ResourceTemplate {
@@ -202,7 +203,9 @@ JsonType = Dict[str, Any]
 
 class GraphqlObject(TypedDict, total=False):
     name: Required[str]
-    __typename: Required[str]
+    __typename: Required[
+        str
+    ]  # mypy sees this as "__typename"; Python mangles it at runtime
     title: NotRequired[str]
     description: NotRequired[str]
     visibility: NotRequired[str]
@@ -252,6 +255,7 @@ class Deployment(GraphqlObject, total=False):
     summary: str
     workflow: str
     deployTime: str
+    # Dict[str, PackageInfo]:
     packages: JsonType
 
 
@@ -264,6 +268,7 @@ class RequirementConstraint(GraphqlObject):
     icon: str
     inputsSchema: JsonType
     requirementsFilter: NotRequired[List["RequirementConstraint"]]
+    # see nodeFilterDefinition in tosca-schema.json
     node_filter: NotRequired[Dict[str, Any]]
 
 
@@ -313,6 +318,7 @@ class DeploymentEnvironment(TypedDict, total=False):
     connections: ResourceTemplatesByName
     instances: Required[ResourceTemplatesByName]
     primary_provider: Optional[ResourceTemplate]
+    # see repositories definition in tosca-schema.json
     repositories: JsonType
 
 
@@ -483,16 +489,40 @@ class ResourceTypesByName(Dict[TypeName, ResourceType]):
         return typedef
 
 
+# "ensembles" in unfurl-schema config
 class DeploymentPath(GraphqlObject):
     environment: str
     project_id: NotRequired[str]
+    # id, flags {}, commit_id "", variables, upstream_commit_id, upstream_pipeline_id, upstream_project_id
     pipelines: List[JsonType]
     incremental_deploy: bool
+
+
+# Python name-mangles __typename → _GraphqlObject__typename in every TypedDict class body.
+# Fix the key in __annotations__ for GraphqlObject and all its subclasses so that pydantic
+# schema generation and other runtime tools see the correct "__typename" key.
+_MANGLED_TYPENAME = "_GraphqlObject__typename"
+for _cls in [
+    GraphqlObject,
+    ApplicationBlueprint,
+    DeploymentTemplate,
+    Deployment,
+    RequirementConstraint,
+    Requirement,
+    ResourceType,
+    ResourceTemplate,
+    DeploymentPath,
+]:
+    if _MANGLED_TYPENAME in _cls.__annotations__:
+        _cls.__annotations__["__typename"] = _cls.__annotations__.pop(_MANGLED_TYPENAME)
 
 
 class DeploymentPaths(TypedDict):
     DeploymentPath: Dict[str, DeploymentPath]
     deployments: NotRequired[List["GraphqlDB"]]
+
+class PackageInfo(TypedDict):
+    version: str
 
 
 class GraphqlDB(Dict[str, GraphqlObjectsByName]):
@@ -581,10 +611,12 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
             _add_lastjob(manifest.lastJob, deployment)
 
         primary_resource = self["Resource"].get(primary_name)
-        _set_deployment_url(manifest, deployment, primary_resource)
+        url = get_deployment_url(manifest, primary_resource)
+        if url:
+            deployment["url"] = url
         if primary_resource and primary_resource["title"] == primary_name:
             primary_resource["title"] = deployment["title"]
-        packages = {}
+        packages: Dict[str, PackageInfo] = {}
         for package_id, repo_dict in Lock(manifest).find_packages():
             # lock packages to the last deployed version
             # note: discovered_revision maybe "(MISSING)" if no remote tags were found at lock time
@@ -597,7 +629,9 @@ class GraphqlDB(Dict[str, GraphqlObjectsByName]):
                 # old version of lock section YAML, set missing to True
                 version = "(MISSING)"
             if version:
-                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = dict(version=version)
+                packages[project_id_from_urlresult(urlparse(repo_dict["url"]))] = (
+                    PackageInfo(version=version)
+                )
         if packages:
             deployment["packages"] = packages
 
@@ -638,27 +672,29 @@ def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
     )
 
 
-def _set_deployment_url(
-    manifest, deployment: Deployment, primary_resource: Optional[GraphqlObject]
-):
+def get_deployment_url(
+    manifest: "YamlManifest",
+    primary_resource: Optional[GraphqlObject],
+) -> Optional[str]:
     outputs = manifest.get_saved_outputs()
+    url = None
     if outputs and "url" in outputs:
         url = outputs["url"]
-    else:
+    elif manifest.rootResource:
         # computed outputs might not be saved, so try to evaluate it now
         try:
             url = manifest.rootResource.attributes["outputs"].get("url")
         except UnfurlError as e:
-            url = None  # this can be raised if the evaluation is unsafe
+            # this can be raised if the evaluation is unsafe
             logger.warning(f"export could not evaluate output 'url': {e}")
 
     if url:
-        deployment["url"] = url
+        return url
     elif primary_resource and primary_resource.get("attributes"):
         for prop in primary_resource["attributes"]:  # type: ignore
             if prop["name"] == "url":
-                deployment["url"] = prop["value"]
-                break
+                return prop["value"]
+    return None
 
 
 class Resource(GraphqlObject):

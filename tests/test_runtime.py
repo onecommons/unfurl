@@ -27,12 +27,14 @@ from unfurl.util import (
     UnfurlValidationError,
     lookup_class,
     API_VERSION,
+    path_startswith,
     sensitive_str,
     should_include_path
 )
 from unfurl.yamlloader import YamlConfig
 from unfurl.yamlmanifest import YamlManifest
 from unfurl import logs
+from unfurl.testing import run_job_cmd
 
 class SimpleConfigurator(Configurator):
     def run(self, task):
@@ -58,6 +60,7 @@ class ExpandDocTest(unittest.TestCase):
         "t2": {"a": {"b": 1}, "c": "c"},
         "t3": "val",
         "t4": ["a", "b"],
+        "t5": {"d": {"e": "val"}},
         "test1": CommentedMap(
             [("+/t2", None), ("a", {"+/t1": None}), ("d", {"+/t3": None}), ("e", "e")]
         ),
@@ -65,14 +68,19 @@ class ExpandDocTest(unittest.TestCase):
         "base": {"list": [1]},
         "test3": {"list": [2, 1, 3], "+/base": None},
         "test4": {"+/t2": None, "a": None},
+        "test5": {"+/t5": None, "d": {"e": None}},
+        "test6": {"d": {"e": None}, "+/t5": "overlay"},
     }
 
     expected = {
         "test1": {"a": {"b": 2}, "c": "c", "d": "val", "e": "e"},
         "test2": [1, "a", "b", "+t4", "a", "b"],
+        # items appended to base list if value wasn't present
         "test3": {"list": [1, 2, 3]},
         # "a" merged even though it was originally None
         "test4": {"a": {"b": 1}, "c": "c"},
+        "test5": {"d": {"e": None}},
+        "test6": {"d": {"e": "val"}},
     }
 
     def test_expandDoc(self):
@@ -87,12 +95,16 @@ class ExpandDocTest(unittest.TestCase):
                 ("test2", 3): [(parse_merge_key("+/t4"), None)],
                 ("test3",): [(parse_merge_key("+/base"), None)],
                 ("test4",): [(parse_merge_key("+/t2"), None)],
+                ("test5",): [(parse_merge_key("+/t5"), None)],
+                ("test6",): [(parse_merge_key("+/t5"), "overlay")],
             },
         )
         self.assertEqual(expanded["test1"], self.expected["test1"])
         self.assertEqual(expanded["test2"], self.expected["test2"])
         self.assertEqual(expanded["test3"], self.expected["test3"])
         self.assertEqual(expanded["test4"], self.expected["test4"])
+        self.assertEqual(expanded["test5"], self.expected["test5"])
+        self.assertEqual(expanded["test6"], self.expected["test6"])
         restore_includes(includes, self.doc, expanded, CommentedMap)
         # restoreInclude should make expanded look like self.doc
         self.assertEqual(expanded["test1"], self.doc["test1"])
@@ -152,7 +164,6 @@ class ExpandDocTest(unittest.TestCase):
         includes, expanded = expand_doc(doc3, cls=CommentedMap)
         # missing includes are removed
         assert expanded == {"b": {"c": {"d": 1}}}, expanded
-
 
     def test_recursion(self):
         doc = {"test3": {"a": {"recurse": {"+/test3": None}}}}
@@ -410,7 +421,7 @@ class InterfaceTest(unittest.TestCase):
         r.add_interface(TestInterface)
         className = __name__ + ".TestInterface"
         self.assertEqual(r.attributes[".interfaces"], {className: className})
-        i = r.get_interface(className)
+        i = r._get_interface(className)
         assert i, "interface not found"
         self.assertIs(r, i.resource)
         self.assertEqual(i.name, className)
@@ -556,16 +567,16 @@ a:
             assert config.expanded.base_dir == "."
             assert config.expanded["a"].base_dir == "."
 
-    # XXX
-    # def test_change(self):
-    #     """
-    # config parameter: file.path
-    # run...
-    # touch file...
-    # run again...
-    # assert it triggers update
-    # """
-    #
+# XXX
+# def test_change(self):
+#     """
+# config parameter: file.path
+# run...
+# touch file...
+# run again...
+# assert it triggers update
+# """
+#
 
 
 class ImportTestConfigurator(Configurator):
@@ -576,10 +587,9 @@ class ImportTestConfigurator(Configurator):
         yield task.done(True, Status.ok)
 
 
-class ImportTest(unittest.TestCase):
-    def test_import(self):
-        foreign = (
-            """
+def test_import(caplog):
+    foreign = (
+        """
     apiVersion: %s
     kind: Ensemble
     spec:
@@ -589,15 +599,15 @@ class ImportTest(unittest.TestCase):
           prop1: ok
           prop2: not-a-number
     """
-            % API_VERSION
-        )
-        runner = CliRunner()
-        with runner.isolated_filesystem():
-            with open("foreignmanifest.yaml", "w") as f:
-                f.write(foreign)
+        % API_VERSION
+    )
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        with open("foreignmanifest.yaml", "w") as f:
+            f.write(foreign)
 
-            importer = (
-                """
+        importer = (
+            """
 apiVersion: %s
 kind: Ensemble
 metadata:
@@ -619,6 +629,7 @@ spec:
   instances:
     importer:
       template: importer
+      readyState: pending
   service_template:
     topology_template:
       node_templates:
@@ -644,29 +655,44 @@ spec:
             Standard:
                 create: ImportTest
       """
-                % API_VERSION
-            )
-            with open("ensemble.yaml", "w") as f:
-                f.write(importer)
-            manifest = YamlManifest(path="ensemble.yaml")
-            root = manifest.get_root_resource()
-            importerResource = root.find_resource("importer")
-            assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", manifest.uri
-            assert root.uri == manifest.uri + "?::root"
-            assert importerResource.uri == manifest.uri + "?::importer"
-            # assert importing.attributes['test']
-            assert root.imports["test"]
-            self.assertEqual(importerResource.attributes["mapped1"], "ok")
-            with self.assertRaises(UnfurlValidationError) as err:
-                importerResource.attributes["mapped2"]
-            self.assertIn("schema validation failed", str(err.exception))
-            self.assertEqual(importerResource.attributes["mapped3"], "default")
-            job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
-            assert job.status == Status.ok, job.summary()
-            manifest.lock()
-            with self.assertRaises(UnfurlError) as err:
-                manifest.lock()  # can't lock twice
-            self.assertIn("already locked", str(err.exception))
+            % API_VERSION
+        )
+        with open("ensemble.yaml", "w") as f:
+            f.write(importer)
+        local_env = LocalEnv("ensemble.yaml")
+        manifest = local_env.get_manifest()
+        root = manifest.get_root_resource()
+        importerResource = root.find_resource("importer")
+        assert manifest.uri == "https://myrepos.com/foo.git#:ensemble/ensemble.yaml", (
+            manifest.uri
+        )
+        assert root.uri == manifest.uri + "?:::root"
+        assert importerResource.uri == manifest.uri + "?:::importer"
+        # assert importing.attributes['test']
+        assert root.imports["test"]
+        assert importerResource.attributes["mapped1"] == "ok"
+        with pytest.raises(UnfurlValidationError) as err:
+            importerResource.attributes["mapped2"]
+        assert "schema validation failed" in str(err)
+        assert importerResource.attributes["mapped3"] == "default"
+
+        result, job, summary = run_job_cmd(runner)
+        assert summary["job"]["changed"] == 1, summary
+        manifest.lock()
+        with pytest.raises(UnfurlError) as err:
+            manifest.lock()  # can't lock twice
+        assert "already locked" in str(err)
+
+        manifest.unlock()
+        run_job_cmd(runner)
+        assert "Loaded manifest from cache" in caplog.text
+
+        with open("foreignmanifest.yaml", "a") as f:
+            f.write("\n")
+        result, job, summary = run_job_cmd(runner)
+        assert summary["job"]["changed"] == 0, summary
+        assert "cache invalidated: imported manifest changed" in caplog.text
+
 
 @pytest.mark.parametrize("include_paths, exclude_paths, target_path, expected", [
     (["/path/to/include"], [], "/path/to/include/subdir", True),
@@ -681,3 +707,128 @@ spec:
 ])
 def test_should_include_path(include_paths, exclude_paths, target_path, expected):
     assert should_include_path(include_paths, exclude_paths, target_path) == expected
+
+
+ENSEMBLE_JOB_TIMEOUT = """\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        first_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                inputs:
+                  command: echo first
+        slow_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                  timeout: 1
+                inputs:
+                  command: sleep 0.3
+        fast_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              create:
+                implementation:
+                  className: unfurl.configurators.shell.ShellConfigurator
+                inputs:
+                  command: echo done
+"""
+
+
+def test_job_timeout():
+    """Job --timeout aborts before running tasks past the deadline."""
+    import time
+
+    runner = Runner(YamlManifest(ENSEMBLE_JOB_TIMEOUT))
+    start = time.time()
+
+    job = runner.run(JobOptions(timeout=0.2, startTime=1))
+
+    elapsed = time.time() - start
+    # Should abort around the timeout, not wait for the full sleep
+    assert elapsed < 0.5, f"Job took too long: {elapsed:.1f}s"
+
+    summary = job.json_summary()
+    assert summary == {
+        "job": {
+            "id": "A01110000000",
+            "status": "error",
+            "total": 3,
+            "ok": 1,
+            "error": 2,
+            "unknown": 0,
+            "skipped": 0,
+            "changed": 2,
+        },
+        "outputs": {},
+        "tasks": [
+            {
+                "status": "ok",
+                "target": "first_node",
+                "operation": "create",
+                "template": "first_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "ok",
+                "targetState": "created",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "error",
+                "target": "slow_node",
+                "operation": "create",
+                "template": "slow_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "unknown",
+                "targetState": "creating",
+                "changed": True,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+            {
+                "status": "error",
+                "target": "fast_node",
+                "operation": "create",
+                "template": "fast_node",
+                "type": "tosca.nodes.Root",
+                "targetStatus": "pending",
+                "targetState": "creating",
+                "changed": False,
+                "configurator": "unfurl.configurators.shell.ShellConfigurator",
+                "priority": "required",
+                "reason": "add",
+            },
+        ],
+    }
+
+
+def test_path_startswith():
+    sep = os.path.sep
+    # equal paths match
+    assert path_startswith(f"{sep}a{sep}b", f"{sep}a{sep}b")
+    # strict descendant matches
+    assert path_startswith(f"{sep}a{sep}b{sep}c", f"{sep}a{sep}b")
+    assert path_startswith(f"{sep}a{sep}b{sep}c{sep}d", f"{sep}a{sep}b")
+    # false-prefix neighbor does NOT match
+    assert not path_startswith(f"{sep}a{sep}bc", f"{sep}a{sep}b")
+    assert not path_startswith(f"{sep}a{sep}bb", f"{sep}a{sep}b")
+    # unrelated paths don't match
+    assert not path_startswith(f"{sep}x{sep}y", f"{sep}a{sep}b")
+    # trailing separator on parent is tolerated
+    assert path_startswith(f"{sep}a{sep}b{sep}c", f"{sep}a{sep}b{sep}")
+    assert path_startswith(f"{sep}a{sep}b", f"{sep}a{sep}b{sep}")

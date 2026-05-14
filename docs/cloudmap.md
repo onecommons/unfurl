@@ -12,7 +12,7 @@ Some of the ways Unfurl and Unfurl Cloud uses cloud maps:
 
 ## Key Concepts
 
-A "repository host" is a service that hosts git repositories. Three types of git hosting services are currently supported: "local", "gitlab", and "unfurl.cloud". Local is just a local directory containing git repositories.
+A "repository host" is a service that hosts git repositories. These types of git hosting services are currently supported: "local", "github", "gitlab", and "unfurl.cloud". Local is just a local directory containing git repositories.
 
 Cloud maps are stored in a separate git repository that Unfurl clones and manages. If one is not configured it defaults to <https://github.com/onecommons/cloudmap.git>.
 

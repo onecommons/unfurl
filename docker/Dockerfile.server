@@ -12,8 +12,11 @@ COPY . /unfurl
 
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     . "$HOME/.cargo/env" && \
+    cargo install oas3-gen && \
+    cargo build --release --manifest-path /unfurl/rust/Cargo.toml --package unfurl-server && \
+    cp /unfurl/rust/target/release/unfurl-server /usr/local/bin/unfurl-server && \
     pip install --no-cache-dir /unfurl[server] && \
-    rm -rf /unfurl
+    rm -rf /unfurl ~/.cargo ~/.rustup
 
 USER unfurl:unfurl
 

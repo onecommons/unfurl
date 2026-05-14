@@ -12,12 +12,14 @@ import uuid
 import zipfile
 from jinja2.loaders import FileSystemLoader
 from pathlib import Path
+import json
 
 from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
 from .localenv import LocalEnv, Project, LocalConfig
 from .repo import (
     GitRepo,
     Repo,
+    git_url_join,
     is_url_or_git_path,
     normalize_git_url,
     split_git_url,
@@ -120,15 +122,21 @@ def create_home(
     if exists and not replace:
         return None
 
-    skeleton = kw.pop("skeleton", "home")
+    skeleton: str = kw.pop("skeleton", "home")
     homedir, filename = os.path.split(homePath)
     if render:  # just render
         repo = Repo.find_containing_repo(homedir)
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
         ensembleRepo = Repo.find_containing_repo(ensembleDir)
+        skeleton_vars = dict(kw.get("var", []))
         configPath, password_vault = render_project(
-            homedir, repo, ensembleRepo, ensembleDir, skeleton
+            homedir,
+            repo,
+            ensembleRepo,
+            ensembleDir,
+            skeleton,
+            skeleton_vars=skeleton_vars,
         )
         # XXX if repo and update: git commit -m"updated"; git checkout master; git stash pop
         return configPath
@@ -182,7 +190,7 @@ def write_service_template(projectdir, templateDir, vars):
 def write_ensemble_manifest(
     destDir: str,
     manifestName: str,
-    specRepo: Optional[GitRepo],
+    specRepo: Optional[Repo],
     specDir=None,
     extraVars=None,
     templateDir=None,
@@ -228,10 +236,10 @@ def render_project(
     projectrepo: Optional[GitRepo],
     ensembleRepo: Optional[GitRepo],
     ensembleDir: str = "",
-    templateDir: Optional[str] = None,
+    skeleton_dir: Optional[str] = None,
     names: Any = DefaultNames,
     use_context: Optional[str] = None,
-    use_vault=True,
+    use_vault: Optional[bool] = None,
     skeleton_vars: Optional[Dict[str, Any]] = None,
     ensemble_template=True,
     defaultProject: Optional[str] = None,
@@ -261,6 +269,11 @@ def render_project(
     if "api_version" not in vars:
         vars["api_version"] = API_VERSION
     vars["defaultProject"] = defaultProject
+    if use_vault is None:
+        if "vaultid" in vars:
+            use_vault = bool(vars["vaultid"])  # disable if vaultid is set but ""
+        else:
+            use_vault = True
     if use_vault:
         if not vars.get("VAULT_PASSWORD"):
             vars["VAULT_PASSWORD"] = get_random_password()
@@ -276,19 +289,23 @@ def render_project(
         vaultpass = vars["VAULT_PASSWORD"] = ""
         vaultid = ""
 
+    merge = vars.get("merge_directive")
     localProjectConfig = write_project_config(
         os.path.join(projectdir, "local"),
         localConfigFilename,
         "unfurl.local.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
 
     if localProjectConfig:
         if use_vault and (not skeleton_vars or not skeleton_vars.get("VAULT_PASSWORD")):
             _warn_about_new_password(localProjectConfig)
 
-        localInclude = "+?include-local: " + os.path.join("local", localConfigFilename)
+        value = os.path.join("local", localConfigFilename)
+        if merge:
+            value = json.dumps(dict(file=value, merge=merge))
+        localInclude = f"+?include-local: {value}"
     else:
         # no local config
         use_vault = False
@@ -300,11 +317,12 @@ def render_project(
             names.SecretsConfig,
             "secrets.yaml.j2",
             vars,
-            templateDir,
+            skeleton_dir,
         )
-        secretsInclude = "+?include-secrets: " + os.path.join(
-            "secrets", names.SecretsConfig
-        )
+        value = os.path.join("secrets", names.SecretsConfig)
+        if merge:
+            value = json.dumps(dict(file=value, merge=merge))
+        secretsInclude = f"+?include-secrets: {value}"
     else:
         secretsInclude = ""
 
@@ -327,14 +345,14 @@ def render_project(
         names.LocalConfig,
         "unfurl.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
     write_project_config(
         projectdir,
         names.LocalConfigTemplate,
         "local-unfurl-template.yaml.j2",
         vars,
-        templateDir,
+        skeleton_dir,
     )
 
     if ensemble_template:
@@ -344,10 +362,10 @@ def render_project(
             names.EnsembleTemplate,
             "manifest-template.yaml.j2",
             vars,
-            templateDir,
+            skeleton_dir,
         )
         # write service_template.py
-        write_service_template(projectdir, templateDir, vars)
+        write_service_template(projectdir, skeleton_dir, vars)
 
     if ensembleRepo:
         extraVars = dict(
@@ -366,7 +384,7 @@ def render_project(
             projectrepo,
             projectdir,
             extraVars=extraVars,
-            templateDir=templateDir,
+            templateDir=skeleton_dir,
         )
     return projectConfigPath, make_vault_lib(vaultpass, vaultid)
 
@@ -379,7 +397,7 @@ def _find_external_project(
     externalProject = find_project(ensembleRepo.working_dir, homePath)
     if externalProject:
         dirname, ensembleDirName = os.path.split(projectdir)
-        if ensembleDirName == DefaultNames.ProjectDirectory:
+        if ensembleDirName in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
             ensembleDirName = os.path.basename(dirname)
         relPath = externalProject.get_relative_path(
             os.path.join(ensembleRepo.working_dir, ensembleDirName)
@@ -469,7 +487,7 @@ def create_project(
     skeleton = kw.get("skeleton")
     create_context = kw.get("as_shared_environment") or kw.get("create_environment")
     use_context = kw.get("use_environment")
-    skeleton_vars = dict((n, v) for n, v in kw.get("var", []))
+    skeleton_vars = dict(kw.get("var", []))
     if existing:
         repo = _find_project_repo(projectdir)
     else:
@@ -517,7 +535,10 @@ def create_project(
         ensembleRepo = _create_ensemble_project(ensembleDir, kw)
 
     logger.info(f"Creating Unfurl project at {projectdir}")
-    if "VAULT_PASSWORD" in skeleton_vars or "vaultid" in skeleton_vars:
+    if "vaultid" in skeleton_vars:
+        # disable if vaultid is set but empty
+        use_vault = bool(skeleton_vars["vaultid"])
+    elif "VAULT_PASSWORD" in skeleton_vars:
         use_vault = True
     elif empty:
         use_vault = False
@@ -625,7 +646,7 @@ def clone_local_repos(manifest, sourceProject: Project, targetProject: Project):
         if repoSpec.name == "self":
             continue
         # XXX should look in home project too
-        repo = sourceProject.find_git_repo_from_repository(repoSpec)
+        repo = sourceProject.find_repo_from_repository(repoSpec)
         if repo:
             targetProject.find_or_clone(repo)
 
@@ -711,8 +732,10 @@ def _from_localenv(
 
 def _find_templates(sourceProject: Project, sourcePath: str):
     # look for an ensemble-template or service_template in source path
-    if os.path.isdir(os.path.join(sourcePath, DefaultNames.ProjectDirectory)):
-        sourcePath = os.path.join(sourcePath, DefaultNames.ProjectDirectory)
+    for project_dir_name in (DefaultNames.ProjectDirectory, DefaultNames.HiddenProjectDirectory):
+        if os.path.isdir(os.path.join(sourcePath, project_dir_name)):
+            sourcePath = os.path.join(sourcePath, project_dir_name)
+            break
     template = _looks_like(sourcePath, DefaultNames.EnsembleTemplate)
     if template:
         sourceDir = sourceProject.get_relative_path(template[0])
@@ -728,7 +751,9 @@ def _find_templates(sourceProject: Project, sourcePath: str):
     return None
 
 
-def find_project(source: str, home_path: Optional[str], register: bool = False):
+def find_project(
+    source: str, home_path: Optional[str], register: bool = False
+) -> Optional[Project]:
     src_dir = get_base_dir(source)
     sourceRoot = Project.find_path(src_dir)
     if sourceRoot:
@@ -738,13 +763,13 @@ def find_project(source: str, home_path: Optional[str], register: bool = False):
     return None
 
 
-def _get_context_and_shared_repo(project: Project, options):
+def _get_environment_and_shared_repo(project: Project, options):
     # when creating ensemble, get the default project for the given context if set
     shared_repo = None
     shared = options.get("shared_repository")
     context = options.get("use_environment")
     if not context:
-        context = project.get_default_context()
+        context = project.get_default_environment()
     if not shared and context:
         shared = project.get_default_project_path(context)
     if shared:
@@ -905,7 +930,7 @@ class EnsembleBuilder:
         localEnv = LocalEnv(
             manifestPath,
             project=project,
-            override_context=use_environment,
+            override_environment=use_environment,
             parent=self.options.get("parent_localenv"),
         )
         manifest = yamlmanifest.ReadOnlyManifest(
@@ -982,7 +1007,7 @@ class EnsembleBuilder:
         dest_project = assert_not_none(self.dest_project)
         repo = (
             self.shared_repo
-            or (self.mono and dest_project.project_repoview.repo)
+            or (self.mono and dest_project.project_repoview.gitrepo)
             or None
         )
         assert manifest
@@ -998,7 +1023,7 @@ class EnsembleBuilder:
 
         if not self.options.get("render") and ensemble_project.localConfig.config.saved:
             msg = f"Add ensemble at {ensemble_project.get_relative_path(manifest_path)}"
-            assert_not_none(ensemble_project.project_repoview.repo).commit_files(
+            assert_not_none(ensemble_project.project_repoview.gitrepo).commit_files(
                 [assert_not_none(ensemble_project.localConfig.config.path)], msg
             )
         self.manifest = manifest
@@ -1018,7 +1043,7 @@ class EnsembleBuilder:
             )
         if currentProject:
             repoURL = sourceProject.project_repoview.repo.url
-            if currentProject.find_git_repo(repoURL):
+            if currentProject.find_repo(repoURL):
                 # if the repo has already been cloned into this project, just use that one
                 newrepo = currentProject.find_or_create_working_dir(repoURL)
                 search = os.path.join(newrepo.working_dir, self.source_path)
@@ -1041,23 +1066,23 @@ class EnsembleBuilder:
             )
         return self.source_project
 
-    def resolve_input_source(self, current_project) -> str:
+    def resolve_input_source(self, current_project: Optional[Project]) -> str:
         if self.input_source.startswith("cloudmap:"):
             from .cloudmap import CloudMap
 
+            # note: if not project file is found, the home project is used if there is one, otherwise an error is raised
             local_env = LocalEnv(
                 can_be_empty=True,
                 homePath=self.home_path,
                 project=current_project,
-                override_context=self.options.get("use_environment"),
+                override_environment=self.options.get("use_environment"),
             )
-            cloudmap = CloudMap.get_db(local_env)
-            repo_key = self.input_source[len("cloudmap:") :]
-            repo_record = cloudmap.repositories.get(repo_key)
-            if repo_record:
-                self.input_source = repo_record.git_url()
+            cloudmap = CloudMap.get_context(local_env)
+            repo_key = cloudmap.resolve_cloudmap_url(self.input_source)
+            if repo_key:
+                self.input_source = repo_key
             else:
-                raise UnfurlError(f"Could not find {repo_key} in the cloudmap.")
+                raise UnfurlError(f'Could not find "{repo_key}" in the cloud map.')
         return self.input_source
 
     def clone_remote_project(
@@ -1095,7 +1120,9 @@ class EnsembleBuilder:
         return self.source_project
 
     def _needs_local_config(self, clonedProject: Project) -> bool:
-        return bool(self.skeleton_vars) and not os.path.exists(
+        return os.path.exists(
+            os.path.join(clonedProject.projectRoot, DefaultNames.LocalConfig)
+        ) and not os.path.exists(
             os.path.join(clonedProject.projectRoot, "local", DefaultNames.LocalConfig)
         )
 
@@ -1139,16 +1166,17 @@ class EnsembleBuilder:
         ):
             relDestDir = self.ensemble_name
         self.dest_path = relDestDir
-        (self.environment, self.shared_repo) = _get_context_and_shared_repo(
+        (self.environment, self.shared_repo) = _get_environment_and_shared_repo(
             self.dest_project, self.options
         )
-        if (
-            existingDestProject
-            and not self.shared_repo
-            and (self.options.get("empty") or self.mono)
-        ):
-            # ensemble will be created in the same repo as existingDestProject, add environment too
-            self.add_missing_environment(existingDestProject)
+        if existingDestProject and not self.shared_repo:
+            shared_env = self.options.get("as_shared_environment")
+            if shared_env and not relDestDir:
+                # don't create ensemble if it wasn't specified (see create_project)
+                self.options["empty"] = True
+            if shared_env or self.options.get("empty") or self.mono:
+                # ensemble will be created in the same repo as existingDestProject, add environment too
+                self.add_missing_environment(existingDestProject)
 
     def has_existing_ensemble(self, sourceProject: Optional[Project]) -> bool:
         if self.source_project is not sourceProject and not self.shared_repo:
@@ -1170,12 +1198,17 @@ class EnsembleBuilder:
 
     def add_missing_environment(self, existing_project: Project) -> bool:
         kw = self.options
-        use_context = cast(Optional[str], kw.get("use_environment"))
-        if use_context and use_context not in existing_project.contexts:
+        env_name = cast(Optional[str], kw.get("use_environment"))
+        shared_env = kw.get("as_shared_environment")
+        if shared_env:
+            env_name = os.path.basename(existing_project.projectRoot)
+        if env_name and env_name not in existing_project.contexts:
             skeleton_vars = dict(kw.get("var", []))
             if "api_version" not in skeleton_vars:
                 skeleton_vars["api_version"] = API_VERSION
-            skeleton_vars["default_context"] = use_context
+            skeleton_vars["default_context"] = env_name
+            if shared_env:
+                skeleton_vars["defaultProject"] = env_name
             content = write_project_config(
                 None,
                 "",
@@ -1184,13 +1217,16 @@ class EnsembleBuilder:
                 kw.get("skeleton"),
             )
             existing_project.add_context(
-                use_context, yaml.load(content)["environments"][use_context]
+                env_name, yaml.load(content)["environments"][env_name]
             )
             logger.info(
-                f"Added new environment {use_context} to project {existing_project.projectRoot}"
+                f"Added new environment {env_name} to project {existing_project.projectRoot}"
             )
             if not self.mono:  # save now, not gonna be saved later
                 existing_project.localConfig.config.save()
+            if shared_env and existing_project.parentProject:
+                # make sure the home project knows about the new shared environment
+                existing_project.parentProject.register_project(existing_project, True)
             return True
         return False
 
@@ -1205,6 +1241,11 @@ class EnsembleBuilder:
         if not self.template_vars:
             if self.source_project.has_ensembles():
                 # XXX if not destIsNew and use_environment warn: that setting is ignored with existing deployments
+                if self._needs_local_config(self.source_project):
+                    # create local/unfurl.yaml in the new project
+                    _create_local_config(
+                        self.source_project, self.logger, self.skeleton_vars
+                    )
                 return (
                     "Cloned project with a pre-existing ensemble(s) to "
                     + self.dest_project.projectRoot
@@ -1283,7 +1324,7 @@ class EnsembleBuilder:
             # set overwrite so we create the ensemble in the same directory as the CSAR
             self.options["overwrite"] = True
             self.source_project = currentProject
-            repo = currentProject.project_repoview.repo
+            repo = currentProject.project_repoview.gitrepo
             if repo and (self.mono or self.options.get("empty")):
                 repo.add_all(csar.unzip_dir)
                 repo.repo.index.commit(

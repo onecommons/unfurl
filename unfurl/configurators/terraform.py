@@ -1,14 +1,16 @@
 # Copyright (c) 2020 Adam Souzis
 # SPDX-License-Identifier: MIT
-from typing import TYPE_CHECKING, List, Union, Dict, Any, cast
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, Dict, Any, cast
 from typing_extensions import Literal
 
+from ..planrequests import ConfigurationSpecKeywords
 from ..configurator import TaskView
+from ..spec import EntitySpec
 from ..util import save_to_file, UnfurlTaskError, which
 from .shell import ShellConfigurator, ShellInputs, clean_output, make_regex_filter
 from ..support import Status
 from ..result import Result, wrap_var
-from ..projectpaths import WorkFolder, get_path, FilePath, Folders
+from ..projectpaths import WorkFolder, get_path, _abspath, Folders
 import json
 import os
 import os.path
@@ -166,11 +168,14 @@ class TerraformConfigurator(ShellConfigurator):
     ]
 
     @classmethod
-    def set_config_spec_args(cls, kw: dict, template):
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
         if not which("terraform"):
             artifact = template.find_or_create_artifact("terraform", predefined=True)
             if artifact:
-                kw["dependencies"].append(artifact)
+                kw.setdefault("dependencies", []).append(artifact)
+        # add_path_transform(kw, "main", template)
         return kw
 
     @classmethod
@@ -181,7 +186,13 @@ class TerraformConfigurator(ShellConfigurator):
     def can_dry_run(self, task):
         return True
 
-    def _init_terraform(self, task, terraform, folder, env):
+    def _init_terraform(
+        self,
+        task: TaskView,
+        terraform: List[str],
+        folder: WorkFolder,
+        env: Dict[str, str],
+    ):
         # only retrieve the schema when we need to worry about sensitive data
         # in the terraform state file.
         # (though we still try to mark data as sensitive even without it)
@@ -201,7 +212,7 @@ class TerraformConfigurator(ShellConfigurator):
         timeout = task.configSpec.timeout
         cmd = terraform + ["init"]
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=echo)
-        if not self._handle_result(task, result, cwd):
+        if not self._handle_result(task, result, cwd, env=env):
             return None
 
         if os.path.exists(folder.get_current_path(".terraform.lock.hcl", False)):
@@ -212,7 +223,7 @@ class TerraformConfigurator(ShellConfigurator):
 
         cmd = terraform + "providers schema -json".split(" ")
         result = self.run_process(cmd, timeout=timeout, env=env, cwd=cwd, echo=False)
-        if not self._handle_result(task, result, cwd):
+        if not self._handle_result(task, result, cwd, env=env):
             task.logger.warning(
                 "terraform providers schema failed: %s %s",
                 result.returncode,
@@ -270,44 +281,24 @@ class TerraformConfigurator(ShellConfigurator):
         # generated tf.json get written to as main.unfurl.tmp.tf.json
         write_vars = True
         contents = None
-        main = task.inputs.get_copy("main")
-        if not main:
-            main = get_path(task.inputs.context, task.target.name, "src")
-            if not os.path.exists(main):
-                raise UnfurlTaskError(
-                    task,
-                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
-                )
+        main, main_path = self._get_main_path(task)
         if task._errors:
             main = None  # assume render failed
-        if isinstance(main, str):
-            if "\n" in main:
-                # assume its HCL and not a path
+        if main_path:
+            # it's a directory -- if difference from cwd, treat location as a module to call
+            relpath = cwd.relpath_to_current(main_path)
+            if relpath != ".":
+                write_vars = False
+                outputs = self._get_outputs(task)
+                tfvars = self._get_tfvars(task)
+                path, contents = generate_main(relpath, tfvars, outputs)
+        else:
+            if isinstance(main, str):  # assume its HCL
                 contents = main
                 path = "main.unfurl.tmp.tf"
-            else:
-                if not os.path.isabs(main):
-                    main = get_path(task.inputs.context, main, "src")
-                if os.path.exists(main):
-                    # it's a directory -- if difference from cwd, treat location as a module to call
-                    relpath = cwd.relpath_to_current(main)
-                    if relpath != ".":
-                        write_vars = False
-                        outputs = self._get_outputs(task)
-                        tfvars = self._get_tfvars(task)
-                        path, contents = generate_main(relpath, tfvars, outputs)
-
-                    # set this as FilePath so we can monitor changes to it
-                    result = task.inputs._attributes["main"]
-                    if not isinstance(result, Result) or not result.external:
-                        task.inputs["main"] = FilePath(main)
-                else:
-                    raise UnfurlTaskError(
-                        task, f'Terraform module directory "{main}" does not exist'
-                    )
-        else:  # assume it json
-            contents = main
-            path = "main.unfurl.tmp.tf.json"
+            else:  # assume it json
+                contents = main
+                path = "main.unfurl.tmp.tf.json"
 
         if write_vars:
             varpath = self._prepare_vars(task, cwd)
@@ -318,6 +309,35 @@ class TerraformConfigurator(ShellConfigurator):
         else:
             mainpath = None
         return mainpath, varpath
+
+    def _get_main_path(self, task: TaskView) -> Tuple[Any, Optional[str]]:
+        """Override to set main as FilePath before checking digest."""
+        main = task.inputs.get_copy("main")
+        if not main:
+            main = get_path(task.inputs.context, task.target.name, "src")
+            if not os.path.exists(main):
+                raise UnfurlTaskError(
+                    task,
+                    f'Input parameter "main" not specified and default terraform module directory does not exist at "{main}"',
+                )
+        if isinstance(main, str) and "\n" not in main:
+            # if one line, assume its a path string, not inline HCL
+            if not os.path.isabs(main):
+                main = get_path(task.inputs.context, main, "src")
+            if os.path.exists(main):
+                result = task.inputs._attributes["main"]
+                if not isinstance(result, Result) or not result.external:
+                    task.inputs["main"] = _abspath(task.inputs.context, main)
+                return None, main
+            else:
+                raise UnfurlTaskError(
+                    task, f'Terraform module directory "{main}" does not exist'
+                )
+        return main, None
+
+    def check_digest(self, task: TaskView, changeset) -> bool:
+        self._get_main_path(task)
+        return super().check_digest(task, changeset)
 
     def _prepare_vars(self, task: TaskView, cwd):
         # XXX .tfvars can be sensitive
@@ -422,84 +442,159 @@ class TerraformConfigurator(ShellConfigurator):
 
         return [cmd, terraformcmd, statePath]
 
-    def run(self, task: TaskView):
-        cwd = task.get_work_folder(Folders.tasks)
-        cmd, terraform, statePath = task.rendered
-        current_path = cwd.cwd
-        dataDir = os.getenv("TF_DATA_DIR", os.path.join(current_path, ".terraform"))
-        env = _get_env(task.environ, task.verbose, dataDir)
+    def _ensure_provider_schema(
+        self,
+        task: TaskView,
+        terraform: List[str],
+        cwd: WorkFolder,
+        env: Dict[str, str],
+        *,
+        dataDir: str,
+        schema_path: str,
+    ) -> Dict[str, Any]:
+        """Run ``terraform init`` and persist the resulting provider schema
+        to ``schema_path``. Raises :class:`UnfurlTaskError` if init fails."""
+        schema = self._init_terraform(task, terraform, cwd, env)
+        if schema is None:
+            raise UnfurlTaskError(
+                task,
+                f"terraform init failed in {cwd.cwd}; TF_DATA_DIR={dataDir}",
+            )
+        save_to_file(schema_path, schema)
+        return schema
 
-        ### Load the providers schemas and run terraform init if necessary
-        providerSchemaPath = os.path.join(dataDir, "providers-schema.json")
-        if os.path.exists(providerSchemaPath):
-            with open(providerSchemaPath) as psf:
-                providerSchema = json.load(psf)
-        elif not os.path.exists(os.path.join(dataDir, "providers")):  # first time
-            providerSchema = self._init_terraform(task, terraform, cwd, env)
-            if providerSchema is not None:
-                save_to_file(providerSchemaPath, providerSchema)
-            else:
-                raise UnfurlTaskError(task, f"terraform init failed in {current_path}")
-        else:
-            providerSchema = {}
-
-        echo_args = get_echo_args(task.verbose)
-        task.logger.trace("Running: %s %s", cmd, env)
-        result = self.run_process(
-            cmd, timeout=task.configSpec.timeout, env=env, cwd=cwd.cwd, **echo_args
+    def _run_terraform_cmd(
+        self,
+        task: TaskView,
+        cmd: List[str],
+        env: Dict[str, str],
+        cwd: WorkFolder,
+        *,
+        background: bool,
+        echo_args: Dict[str, Any],
+    ):
+        """Run a terraform command via :meth:`_dispatch_run`. On cancel /
+        timeout, log and yield ``done(success=False)`` then return ``None``
+        (caller should ``return`` immediately). Otherwise return the result."""
+        result = yield from self._dispatch_run(
+            task,
+            cmd,
+            background=background,
+            timeout=task.configSpec.timeout,
+            env=env,
+            cwd=cwd.cwd,
+            lock_cwd=True,
+            **echo_args,
         )
-        if result.returncode and _needs_init(clean_output(result.stderr)):
-            # modules or plugins out of date, re-run terraform init
-            providerSchema = self._init_terraform(task, terraform, cwd, env)
-            if providerSchema is not None:
-                save_to_file(providerSchemaPath, providerSchema)
-                # try again
-                result = self.run_process(
-                    cmd,
-                    timeout=task.configSpec.timeout,
-                    env=env,
-                    cwd=cwd.cwd,
-                    **echo_args,
-                )
-            else:
-                raise UnfurlTaskError(
-                    task,
-                    f"terrform init failed in {cwd.cwd}; TF_DATA_DIR={dataDir}",
-                )
+        if result.error or result.timeout:
+            # cancelled / timed out — don't try to apply a partial state file
+            self._handle_result(task, result, cwd.cwd, (0, 2), env)
+            yield self.done(task, success=False, result=result.__dict__)
+            return None
+        return result
 
-        # process the result
-        status = None
-        success = self._handle_result(task, result, cwd.cwd, (0, 2))
-        # plan -detailed-exitcode: 2 - Succeeded, but there is a diff
+    def _interpret_result(
+        self,
+        task: TaskView,
+        result,
+        env: Dict[str, str],
+        cwd: WorkFolder,
+    ) -> Tuple[bool, Optional[Status], bool]:
+        """Map a terraform plan/apply result to ``(success, status, modified)``.
+
+        ``terraform plan -detailed-exitcode`` returns 2 to mean "succeeded with
+        a diff", which we treat as success. Status is derived from the
+        operation kind plus what terraform reported in stdout.
+        """
+        success = self._handle_result(task, result, cwd.cwd, (0, 2), env)
+        status: Optional[Status] = None
         needs_changes = False
         if result.returncode == 2:
-            success = True  # command succeeded despite non-zero return code
-            # we check for "Plan:" in the output because sensitive outputs will always be marked as changed
-            # so to know if changes are really needed we also look for a message like: Plan: 1 to add, 0 to change, 0 to destroy.
+            success = True  # plan succeeded despite non-zero return code
+            # outputs marked sensitive always show as changed, so also look
+            # for an explicit "Plan: ..." line to know if real changes apply
             needs_changes = "Plan:" in result.stdout
             if task.configSpec.operation != "check":
-                # changes were applied so set to OK
                 status = Status.ok
-
         if success:
             if task.configSpec.operation == "check":
                 if needs_changes:
                     if "0 to change, 0 to destroy" in result.stdout:
-                        # terraform only would add resources, so treat current state as absent
+                        # terraform would only add resources → treat as absent
                         status = Status.absent
                     else:
                         status = Status.degraded
-                elif task.target.status in [Status.pending, Status.unknown]:
-                    # no changes needed so set to known state
+                elif task.target.status in (Status.pending, Status.unknown):
                     status = Status.ok
             elif task.configSpec.operation != "delete":
                 status = Status.ok
-
-        modified = (
-            "Modifying..." in result.stdout
-            or "Creating..." in result.stdout
-            or "Destroying..." in result.stdout
+        modified = any(
+            marker in result.stdout
+            for marker in ("Modifying...", "Creating...", "Destroying...")
         )
+        return success, status, modified
+
+    def run(self, task: TaskView):
+        cwd = task.get_work_folder(Folders.tasks)
+        cmd, terraform, statePath = task.rendered
+        dataDir = os.getenv("TF_DATA_DIR", os.path.join(cwd.cwd, ".terraform"))
+        env = _get_env(task.environ, task.verbose, dataDir)
+        echo_args = get_echo_args(task.verbose)
+        background = bool(
+            task.inputs.get("background")
+            or os.environ.get("UNFURL_TEST_SHELL_BACKGROUND")
+        )
+
+        # Concurrent `terraform init` invocations sharing TF_DATA_DIR race on
+        # .terraform.lock.hcl and the providers/ cache, so init paths run under
+        # an exclusive path lock. plan/apply only read from TF_DATA_DIR and run
+        # without the lock so tasks proceed in parallel once the cache is warm.
+        schema_path = os.path.join(dataDir, "providers-schema.json")
+        if os.path.exists(schema_path):
+            with open(schema_path) as f:
+                providerSchema = json.load(f)
+        else:
+            yield from task.acquire_path(dataDir)
+            try:
+                # re-check inside the lock — another task may have just inited
+                if os.path.exists(schema_path):
+                    with open(schema_path) as f:
+                        providerSchema = json.load(f)
+                elif not os.path.exists(os.path.join(dataDir, "providers")):
+                    providerSchema = self._ensure_provider_schema(
+                        task, terraform, cwd, env,
+                        dataDir=dataDir, schema_path=schema_path,
+                    )
+                else:
+                    providerSchema = {}
+            finally:
+                task.release_path(dataDir)
+
+        result = yield from self._run_terraform_cmd(
+            task, cmd, env, cwd,
+            background=background, echo_args=echo_args,
+        )
+        if result is None:
+            return
+
+        if result.returncode and _needs_init(clean_output(result.stderr)):
+            # modules / plugins out of date — re-init under the lock and retry
+            yield from task.acquire_path(dataDir)
+            try:
+                providerSchema = self._ensure_provider_schema(
+                    task, terraform, cwd, env,
+                    dataDir=dataDir, schema_path=schema_path,
+                )
+            finally:
+                task.release_path(dataDir)
+            result = yield from self._run_terraform_cmd(
+                task, cmd, env, cwd,
+                background=background, echo_args=echo_args,
+            )
+            if result is None:
+                return
+
+        success, status, modified = self._interpret_result(task, result, env, cwd)
 
         if task.dry_run:
             outputs = task.inputs.get("dryrun_outputs")

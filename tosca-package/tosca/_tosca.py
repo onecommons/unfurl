@@ -170,10 +170,6 @@ class ToscaObject:
     _type_section: ClassVar[str] = ""
     _docstrings: ClassVar[Optional[Dict[str, str]]] = None
 
-    @property
-    def tosca_name(self) -> str:
-        return self._tosca_name
-
     @classmethod
     def tosca_type_name(cls) -> str:
         # "_type_name" if set on the class or the Python class name
@@ -332,8 +328,10 @@ class max_length(DataConstraint[int]):
     def apply_constraint(self, val: Optional[typing.Sized]) -> bool:  # type: ignore[override]
         return super().apply_constraint(val)  # type: ignore[arg-type]
 
+
 class version(DataConstraint[T]):
     pass
+
 
 class pattern(DataConstraint[T]):
     pass
@@ -1212,7 +1210,16 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         if factory is dataclasses.MISSING:
             if self.has_explicit_default_value():
                 return self.default
-            factory = self.get_type_info().collection or self.get_type_info().type
+            type_info = self.get_type_info()
+            if self._tosca_field_type == ToscaFieldType.requirement:
+                for t in type_info.simple_types:
+                    if issubclass(t, Node):
+                        factory = t
+                        break
+                else:
+                    factory = type_info.types[0]
+            else:
+                factory = type_info.collection or type_info.type
         elif hasattr(factory, "_is_template_function"):
             return factory(_DataclassTypeProxy(self.owner, obj))  # type: ignore
         return factory()
@@ -1438,10 +1445,11 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             prop_def.setdefault("constraints", []).extend(
                 c.to_yaml() for c in self.constraints
             )
+        default_field = self.owner._default_key if self.owner else "default"
         default = self._get_default_value()
         if default is not None and default is not dataclasses.MISSING:
             # only set the default to null if required (not optional)
-            prop_def["default"] = to_tosca_value(default)
+            prop_def[default_field] = to_tosca_value(default)
         if self.title:
             prop_def["title"] = self.title
         if self.status:
@@ -1721,7 +1729,6 @@ _Ref = EvalData
 
 def Eval(value: Any) -> Any:
     "Use this function to specify that a value is or contains a TOSCA function or eval expressions. For example, for property default values."
-    # Field specifier for declaring a TOSCA {name}.
     if global_state.mode == "runtime":
         return value
     else:
@@ -1916,7 +1923,7 @@ def get_annotations(o):
         return annotationlib.get_annotations(o, format=annotationlib.Format.FORWARDREF)
     elif sys.version_info.minor > 9:
         # this calls eval
-        return inspect.get_annotations(o)
+        return inspect.get_annotations(o)  # type: ignore
     elif isinstance(o, type):
         return o.__dict__.get("__annotations__", {})
     else:
@@ -1993,6 +2000,7 @@ def _make_dataclass(cls):
     # we need _Tosca_Fields not dataclasses.Fields
     # so for any declarations of tosca fields (properties, requirements, etc)
     # missing a _Tosca_Fields, set one before calling _process_class()
+    previous_mode = global_state.mode
     global_state.mode = "parse"
     global_state._in_process_class = True
     try:
@@ -2089,9 +2097,9 @@ def _make_dataclass(cls):
             global_state._in_process_class = True
         if not getattr(cls, "__doc__"):
             cls.__doc__ = " "  # suppress dataclass doc string generation
-        assert cls.__module__ in sys.modules, (
-            cls.__module__
-        )  # _process_class checks this
+        assert (
+            cls.__module__ in sys.modules
+        ), cls.__module__  # _process_class checks this
         if cls._dataclass_args:
             kw.update(cls._dataclass_args)
         cls = dataclasses._process_class(cls, **kw)  # type: ignore
@@ -2104,6 +2112,7 @@ def _make_dataclass(cls):
                     setattr(cls, name, _FieldDescriptor(field))
     finally:
         global_state._in_process_class = False
+        global_state.mode = previous_mode
     return cls
 
 
@@ -2170,7 +2179,7 @@ class _DataclassType(type):
         try:
             if issubclass(sub, InstanceProxy):
                 sub = sub._cls
-        except:  # sub is not a class
+        except Exception:  # sub is not a class
             logging.error(f"subclasscheck {sub} for {cls} failed: {type(sub)}")
             return False
         return type.__subclasscheck__(cls, sub)
@@ -2244,11 +2253,11 @@ def field(
         # and this parameter probably will come after one without a default value
         kw["default"] = REQUIRED
     if builtin:
-        field = _Tosca_Field(
+        field: _Tosca_Field = _Tosca_Field(
             ToscaFieldType.builtin, default, default_factory, name, owner=owner
         )
-        if ClassVar:
-            field.kw_only = MISSING
+        if ClassVar and sys.version_info.minor > 9:
+            field.kw_only = MISSING  # type: ignore
         return field
     return dataclasses.field(**kw)
 
@@ -2285,9 +2294,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         default_factory=dict, init=False
     )
     _builtin_fields: ClassVar[Sequence[str]] = ("_version",)
-    _version: ClassVar[Optional[tosca_version]] = field(
-        default=None, kw_only=MISSING, name="version", ClassVar=True
-    )
+
     _initialized: bool = dataclasses.field(
         default=False, init=False, repr=False, compare=False
     )
@@ -2342,6 +2349,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
                 field = self.get_instance_field(name)
                 if not field and is_data_field(value):
                     field = _Tosca_Field.infer_field(self.__class__, name, value)
+                    field.init = False
                     self._instance_fields[name] = self._post_field_init(field)
                 elif not isinstance(field, _Tosca_Field):
                     field = None
@@ -2471,47 +2479,57 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         return patches
 
     def __post_init__(self) -> None:
-        self._defaults: Dict[str, Any] = {}
-        if self.is_patch:
-            return
-        patches = self._remove_patches()
-        if not self.is_patch:
-            self._template_init()  # user hook to initialize the template
+        with set_evaluation_mode("parse"):
+            self._defaults: Dict[str, Any] = {}
+            if self.is_patch:
+                return
+            patches = self._remove_patches()
+            if not self.is_patch:
+                self._template_init()  # user hook to initialize the template
 
-        # internal bookkeeping:
-        # add missing values, apply patches, and set ownership
-        fields = object.__getattribute__(self, "__dataclass_fields__")
-        if self._instance_fields:
-            fields = dict(fields, **self._instance_fields)
-        for field in fields.values():
-            if field.name[0] == "_":
-                continue
-            val = object.__getattribute__(self, field.name)
-            if not isinstance(field, _Tosca_Field):
-                self._set_value(None, val, field.name)
-                continue
-            patch = patches.get(field.name)
-            if (
-                (val is REQUIRED or val is MISSING)
-                and field._tosca_field_type != ToscaFieldType.attribute
-                and not field.declare_attribute
-                and not patch
-            ):
-                # a required field wasn't set
-                if self._enforce_required_fields():
-                    # on Python < 3.10 we set this to workaround the lack of keyword only fields
-                    raise ValueError(
-                        f'Keyword argument was missing: {field.name} on "{self}".'
-                    )
-            else:  # update if it wasn't initialize or set by _template_init()
-                self._set_value(field, val, field.name, patch)
-        self._initialized = True
+            # internal bookkeeping:
+            # add missing values, apply patches, and set ownership
+            fields = object.__getattribute__(self, "__dataclass_fields__")
+            if self._instance_fields:
+                fields = dict(fields, **self._instance_fields)
+            for field in fields.values():
+                if field.name[0] == "_":
+                    continue
+                val = object.__getattribute__(self, field.name)
+                if not isinstance(field, _Tosca_Field):
+                    self._set_value(None, val, field.name)
+                    continue
+                patch = patches.get(field.name)
+                if (
+                    (val is REQUIRED or val is MISSING)
+                    and field._tosca_field_type != ToscaFieldType.attribute
+                    and not field.declare_attribute
+                    and not patch
+                ):
+                    # a required field wasn't set
+                    if self._enforce_required_fields():
+                        # on Python < 3.10 we set this to workaround the lack of keyword only fields
+                        raise ValueError(
+                            f'Keyword argument was missing: {field.name} on "{self}".'
+                        )
+                else:  # update if it wasn't initialize or set by _template_init()
+                    self._set_value(field, val, field.name, patch)
+            self._initialized = True
 
     def _new_from_patch(self, patch: "ToscaType") -> "ToscaType":
-        name = PATCH if self.is_patch else ""  # preserve as PATCH
-        return patch.__class__(
-            name, **{name: v[1] for name, v in patch._get_instance_field_values()}
-        )
+        assert patch.is_patch, patch
+        # preserve PATCH-ness or use patch name
+        p_name = PATCH if self.is_patch else patch._name[len(PATCH) :]
+        ctor, extra = {}, {}
+        for name, (field, v) in patch._get_instance_field_values():
+            if field.init:
+                ctor[name] = v
+            else:
+                extra[name] = v
+        obj = patch.__class__(p_name, **ctor)
+        for name, v in extra.items():
+            setattr(obj, name, v)
+        return obj
 
     def _merge(
         self, val: "ToscaType", override: "_ToscaType", shared: bool
@@ -2519,8 +2537,9 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
         # apply explicitly set attribute on override to val
         if shared:
             val = copy.copy(val)
-            if val._name != PATCH:
-                val._name = ""
+            if not val.is_patch:
+                # set name to "" or patch name
+                val._name = getattr(override, "_name", PATCH)[len(PATCH) :]
         # note: get_instance_field_values() skips fields with the default value, even if it was explicitly assigned
         for field, override_val in object.__getattribute__(
             override, "get_instance_field_values"
@@ -2643,6 +2662,7 @@ class _ToscaType(ToscaObject, metaclass=_DataclassType):
             elif not field and name[0] != "_" and is_data_field(value):
                 # attribute is not part of class definition, try to deduce from the value's type
                 field = _Tosca_Field.infer_field(self.__class__, name, value)
+                field.init = False
                 self._instance_fields[name] = self._post_field_init(field)
                 yield name, (field, value)
             elif field:
@@ -2931,13 +2951,20 @@ class ToscaType(_ToscaType):
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
+    """Metadata to add to the type definition."""
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
+    """Metadata to add to the template."""
+    _version: ClassVar[Optional[tosca_version]] = field(
+        default=None, kw_only=MISSING, name="version", ClassVar=True
+    )
+    """version of this TOSCA type"""
 
     @classmethod
     def _handle_builtin_field(
         cls, name: str, default: Any, annotation: Optional[Any]
     ) -> Optional[dataclasses.Field]:
-        if name == "_version":
+        # if this is a derived class
+        if cls.__module__ != __name__ and name == "_version":
             assert name in cls.__dataclass_fields__, (
                 name,
                 cls,
@@ -2954,7 +2981,7 @@ class ToscaType(_ToscaType):
 
     @property
     def is_patch(self) -> bool:
-        return self._name == PATCH
+        return self._name.startswith(PATCH)
 
     @classmethod
     def _post_field_init(cls, field: _Tosca_Field) -> _Tosca_Field:
@@ -3021,7 +3048,8 @@ class ToscaType(_ToscaType):
                     or (
                         t_field.default is val
                         and val is not None
-                        and t_field.tosca_field_type != ToscaFieldType.property
+                        and t_field.tosca_field_type
+                        not in (ToscaFieldType.property, ToscaFieldType.builtin)
                         and t_field not in self._instance_fields
                     )
                 ):
@@ -3706,6 +3734,7 @@ OpenDataType = OpenDataEntity  # deprecated
 
 class CapabilityEntity(_OwnedToscaType):
     """A TOSCA capability template."""
+
     _type_section: ClassVar[str] = "capability_types"
 
     @classmethod
@@ -3728,6 +3757,7 @@ CapabilityType = CapabilityEntity
 
 class Relationship(_OwnedToscaType):
     """A TOSCA relationship template."""
+
     # the "owner" of the relationship is its source node
     _type_section: ClassVar[str] = "relationship_types"
     _template_section: ClassVar[str] = "relationship_templates"
@@ -3834,6 +3864,7 @@ InterfaceType = Interface  # deprecated
 
 class ArtifactEntity(_OwnedToscaType):
     """A TOSCA artifact template."""
+
     _type_section: ClassVar[str] = "artifact_types"
     _mime_type: ClassVar[Optional[str]] = None
     _file_ext: ClassVar[Optional[List[str]]] = None
@@ -3917,6 +3948,7 @@ class ArtifactEntity(_OwnedToscaType):
         return yaml
 
     def to_template_yaml(self, converter: "PythonToYaml") -> dict:
+        converter._global_artifacts.pop(id(self), None)
         tpl = super().to_template_yaml(converter)
         for field in self._builtin_fields:
             val = getattr(self, field, None)
@@ -3937,11 +3969,13 @@ class ArtifactEntity(_OwnedToscaType):
         # we can treat that as untyped, allowing any input to be set
         return None
 
+
 ArtifactType = ArtifactEntity  # deprecated
 
 
 class Policy(ToscaType):
     """A TOSCA policy template."""
+
     _type_section: ClassVar[str] = "policy_types"
     _template_section: ClassVar[str] = "policies"
     _targets: Sequence[Union[Node, "Group"]] = field(
@@ -3964,6 +3998,7 @@ PolicyType = Policy  # deprecated
 
 class Group(ToscaType):
     """A TOSCA group template."""
+
     _type_section: ClassVar[str] = "group_types"
     _template_section: ClassVar[str] = "groups"
     _members: Sequence[Union[Node, "Group"]] = field(

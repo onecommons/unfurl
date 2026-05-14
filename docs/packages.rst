@@ -49,6 +49,17 @@ that ship with Unfurl. This allow service templates to declare the unfurl versio
 
 Unfurl will still resolve imports in the unfurl package using the local installed version of unfurl but it will raise an error if it isn't compatible with the version declared here.
 
+Git URLs
+--------
+
+When repository is referencing a git repository, it can specify a specific path and revision in the repository by including an URL fragment that matches this syntax:
+
+``#[<ref>][~<commit>][:<path>]``
+
+where ``ref`` is a branch, tag, or remote reference (e.g. "origin/main"), ``commit`` is an optional full or abbreviated commit hash, and ``path`` is an optional path within the repository. For example: ``https://github.com/user/repo.git#a_branch~dae86e1950b1277e545cee180551750029cfe735:a/path``
+
+Note that if a commit is included, it must be reachable from the ref if specified. A commit without a ref requires the entire repository to be fetched to locate the commit, so it is recommended to always specify a ref when possible.
+
 Packages
 ========
 
@@ -72,7 +83,7 @@ Package identifiers
 
 Here are some examples of package ids:
 
-  ``unfurl.cloud/onecommons/unfurl-types``
+  ``unfurl.cloud/onecommons/std``
 
   ``example.org``
 
@@ -84,7 +95,7 @@ If the package references to a path in a git repository we follow Go's conventio
 
   ``gitlab.com/onecommons/unfurl-types.git/v2``
 
-Package identifiers resolve to a git repository following the algorthims for `Go modules <https://go.dev/ref/mod>`_ Repository declarations can include required version either by including a ``revision`` field or by including it as a URL fragment in the package identifier (e.g ``#v1.1.0``).
+Package identifiers resolve to a git repository following the algorthims for `Go modules <https://go.dev/ref/mod>`_ Repository declarations can specify a specific package version either by setting it in the ``revision`` field or by including it as a URL fragment in the package identifier (e.g ``#v1.1.0``).
 
 Version Requirements
 ====================

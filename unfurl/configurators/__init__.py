@@ -7,6 +7,7 @@ from tosca import ToscaInputs
 from ..eval import Ref, map_value
 from ..configurator import Configurator, TaskView
 from ..result import Results, wrap_var
+from ..spec import EntitySpec
 from ..util import UnfurlTaskError, register_short_names
 from ..support import Status, DEBUG_EX
 from ..planrequests import (
@@ -30,8 +31,10 @@ register_short_names(
 
 class CmdConfigurator(Configurator):
     @classmethod
-    def set_config_spec_args(cls, kw: dict, target):
-        return set_default_command(cast(ConfigurationSpecKeywords, kw), "")
+    def set_config_spec_args(
+        cls, kw: ConfigurationSpecKeywords, template: EntitySpec
+    ) -> ConfigurationSpecKeywords:
+        return set_default_command(kw, "")
 
 
 class PythonPackageCheckConfigurator(Configurator):
@@ -62,7 +65,8 @@ class TemplateInputs(ToscaInputs):
 
 
 class TemplateConfigurator(Configurator):
-    exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done")
+    # these inputs only apply to output or dryruns
+    exclude_from_digest: Tuple[str, ...] = ("resultTemplate", "done", "dryrun")
 
     def process_result_template(self, task: "TaskView", result: Dict[str, Any]):
         """
@@ -92,14 +96,14 @@ class TemplateConfigurator(Configurator):
                     trace = 2
                 else:
                     trace = 0
+                # to accommodate navigation through computed properties to reach the template
+                # (e.g from the artifact to node owning it) set the result vars to be deep vars.
+                ctx = task.inputs.context.copy(deep=result, trace=trace)
                 if Ref.is_ref(resultTemplate):
-                    results = task.query(resultTemplate, vars=result, throw=True)
+                    results = Ref(resultTemplate).resolve_one(ctx)
                 else:
                     # lazily evaluated by update_instances() below
-                    results = Results._map_value(
-                        resultTemplate,
-                        task.inputs.context.copy(vars=result, trace=trace),
-                    )
+                    results = Results._map_value(resultTemplate, ctx)
             except Exception as e:
                 results = None
                 errors = [e]
@@ -125,11 +129,11 @@ class TemplateConfigurator(Configurator):
 
     def render(self, task: "TaskView"):
         if task.dry_run:
-            runResult = task.inputs.get("dryrun")
+            runResult = task.inputs.get_copy("dryrun")
             if not isinstance(runResult, dict):
-                runResult = task.inputs.get("run")
+                runResult = task.inputs.get_copy("run")
         else:
-            runResult = task.inputs.get("run")
+            runResult = task.inputs.get_copy("run")
         if isinstance(runResult, Mapping):
             logResult: Any = list(runResult)
         else:

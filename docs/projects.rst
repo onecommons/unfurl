@@ -129,39 +129,41 @@ Environments
 **Environments** are used to create isolated contexts that deployment process runs in. For example, you might create different context for different projects or different deployment environments such as **production** or **staging**.
 
 Ensembles are meant to be self-contained and independent of their environment with any environment-dependent values and settings placed in the Ensemble's environment.
-Ensembles are reproducible and location-independent while Unfurl projects manage the environment and dependencies. 
+The goal is for ensembles to be reproducible and location-independent while Unfurl projects manage the local environment and dependencies.
 
-It can also associate ensembles with a named environment (using the ``environment`` field in the ``ensembles`` section of `unfurl.yaml`).
+Projects can also associate ensembles with a named environment (using the ``environment`` field in the ``ensembles`` section of `unfurl.yaml`).
 
 Default environments
 --------------------
 
-When creating a new project ``--use-environment`` will set the ``default_environment`` field in the project's `unfurl.yaml`, which is applied to any ensemble that doesn't have an environment set.
+When creating a new project, the ``--use-environment`` option will set the ``default_environment`` field in the project's `unfurl.yaml`. This environment is used when deploying if the ensemble doesn't have an environment specified in its configuration or on the command line.
 
-When creating a new ensemble ``--use-environment`` sets the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
+When creating a new ensemble, ``--use-environment`` will set the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
 
 Shared Environments
 -------------------
 
-Create an Unfurl project that will manage your deployment environments and record changes to your cloud accounts, for example:
+You can create a shared environment that is used by multiple projects. Ensembles associated with a shared environment can be inside one project but managed by another project. This enables scenarios where one project (and git repository) contains a history of all the resources created in a particular cloud account but separate projects can manage each application deployed into that account.
+
+To create shared environment create an project using the ``--shared-environment`` option, for example:
 
 .. code-block:: shell
 
     unfurl init --as-shared-environment aws-staging --skeleton aws
 
-Then any ensemble that uses that environment across projects will be added to the ```aws-staging`` project.
+Then any ensemble that uses that environment across projects will be added to this ```aws-staging`` project.
 
 For example:
 
 .. code-block:: shell
 
-    unfurl init --use-environment aws-staging my_app_project staging
+    unfurl init --use-environment --mono aws-staging my_app_project staging 
 
-This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option 
+This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option. 
 
-Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project".
+Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project". We used the ``--mono`` option so the ensemble add in the same git repository as the ``aws-staging`` project.
 
-The unfurl_home project coordinates between projects so both projects need to use the same unfurl_home.
+The `unfurl home` project coordinates between projects so both projects need to use the same unfurl home.
 
 Inheritance and precedence
 --------------------------
@@ -183,26 +185,26 @@ The following search order is applied when searching for settings and objects in
 Environment Sections
 --------------------
 
-Environments can contain the following `sections<environment_schema>`:
+Environments can contain the following `sections<environment_schema>` and keys:
 
-Variables
+variables
 +++++++++
 
 Specifies the runtime's environment variables to set or copy from the current environment. See `Environment Variables` for syntax.
 
 .. _environment_inputs:
 
-Inputs
+inputs
 ++++++
 
 Overrides the :std:ref:`inputs` declared in an ensemble's ``spec``. See `Topology Inputs` for more information.
 
-Locals
+locals
 ++++++
 
 Locals are properties specific to the local environment (e.g. proxy settings) and are accessed through the `local` expression function.
 
-Secrets
+secrets
 +++++++
 
 Secrets are like locals except they are marked :std:ref:`sensitive` and redacted or encrypted when necessary. They are accessed through the `secret` expression function. See :std:ref:`Secrets` for more info.
@@ -213,17 +215,17 @@ A map of names and values of locals or secrets with one reserved name:
 
 :``schema``: a JSON schema ``properties`` object describing the schema for the map. If missing, validation of the attributes will be skipped.
 
-Repositories
+repositories
 ++++++++++++
 
 You can specify repositories using TOSCA's `tosca_repositories` syntax in the environment so ensemble can reference a repository by name to specify its location.  Repositories can be aliased in the same manner as described in :std:ref:`connections`.
 
-Imports
+imports
 +++++++
 
 You can include TOSCA's `tosca_imports` statements in the environment and those TOSCA templates will be imported into the ensemble's service template.
 
-Connections
+connections
 +++++++++++
 
 A map of `connection templates<Connections>`. Connection templates are TOSCA relationship templates that represent connections to cloud providers and other online services.
@@ -233,21 +235,30 @@ The properties for each connection type match the environments variables commonl
 
 When environments are merged, you can delete the inherited connection by setting its key to null in the overriding environment.
 
-External
+external
 ++++++++
 
 This specifies instances and connections that will be imported from external ensembles. See `External ensembles`.
+
+deployment_blueprint
+++++++++++++++++++++
+
+Name of the deployment blueprint the ensemble should use. For example, see this `example<deployment_blueprint_example>`.
 
 cloudmaps
 +++++++++
 
 You can configure the cloud map location and repository hosts used for synchronize in the environments section of `unfurl.yaml`. See `Configuration`.
 
-
 lfs_lock
 ++++++++
 
 See `locking`.
+
+defaultProject
+++++++++++++++
+
+A key whose value is either a project name or "SELF". Sets this environment as a `shared environment <Shared Environments>`.
 
 External ensembles
 ==================
@@ -290,19 +301,17 @@ By adding it to environment defaults, any project using that `unfurl home` will 
 Creating projects
 ==================
 
-To create your first Unfurl project run :cli:`unfurl init<unfurl-init>`
+To create your first Unfurl project run :cli:`unfurl init<unfurl-init>`.
 
 This will create a new project and commit it to new git repository unless the
 ``--existing`` flag is used. If its specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found. (You can set the ``UNFURL_SEARCH_ROOT`` environment variable to set the directory where the search stops.)
 
 :cli:`unfurl init<unfurl-init>` will also create an ensemble in the project (unless the ``--empty`` flag used).
-By default, a separate, local git repository will be created for the ensemble. Use the ``--mono`` flag to add the ensemble to the project's git repository or use the ``--submodule`` flag to add the ensemble's git repository as a submodule of the project's git repository.
-
 Keeping the ensemble repository separate from the project repository is useful
-if the resources the ensemble creates are transitory or if you want to restrict access to them.
+if the resources the ensemble creates are transitory or if you want to restrict access to them. This polyrepo arrangement is the default for :cli:`unfurl init<unfurl-init>`. Use the ``--mono`` flag to add the ensemble to the project's git repository or use the ``--submodule`` flag to add the ensemble's git repository as a submodule of the project's git repository.
 Using the ``--submodule`` option allows those repositories to be easily packaged and shared with the project repository but still maintain separate access control and git history for each ensemble.
 
-Creating an ensemble in a new repository will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and add a ``secrets/secrets.yaml`` file to the repository.  Or in any new project by setting the `VAULT_PASSWORD skeleton variable <vault_password_var>` or the ``vaultid`` skeleton variable. (If either are omitted, the missing vault password or id will be autogenerated.)
+Creating an ensemble in a new repository will add a ``vault_secrets`` secret with a generated password to ``local/unfurl.yaml`` and add a ``secrets/secrets.yaml`` file to the repository.  Or in any new project by setting the `VAULT_PASSWORD <Project Skeletons>` skeleton variable or the `vaultid <Project Skeletons>` skeleton variable. (If either are omitted, the missing vault password or id will be autogenerated.) Setting an emtpy vault id (``--var vaultid ""``) always disables creation of a vault password.
 
 .. important::
 
@@ -331,6 +340,13 @@ The built-in project skeletons recognize the following skeleton variables:
     - Set up the project to use Ansible Vault encryption and use the given vault id.
   * - ``VAULT_PASSWORD``
     - Set up the project to use Ansible Vault encryption and use the given password.
+  * - ``serviceTemplate``
+    - The rendered ``ensemble.yaml`` will include the given TOSCA service template.
+  * - ``merge_directive``
+    - Sets a merge directive value for local and secrets includes (e.g. "overlay")
+  * - ``UNFURL_CLOUD_VARS_URL``
+    - | When cloning a project hosted on `Unfurl Cloud`_. this will instruct Unfurl to download the project's CI variables as environment variables when loading the project.
+      | The clone command generated by Unfurl Cloud project's clone instructions will include this skeleton variable.
 
 Cloning projects and ensembles
 ==============================
@@ -403,7 +419,7 @@ Notes
 
 .. _vault_password_var:
 
-* If a project has a file named ``.unfurl-local-template.yaml`` it will be used to create a new ``local/unfurl.yaml`` when it is cloned.  Projects that have vault-encrypted content store the vault password in that local file (if the default project skeleton was used), and the password can be set by including the VAULT_PASSWORD skeleton variable in the clone command, like:
+* If a project has a file named ``.unfurl-local-template.yaml`` it will be used to create a new ``local/unfurl.yaml`` when it is cloned.  Projects that have vault-encrypted content store the vault password in that local file (if the default project skeleton was used), and the password can be set by including the `VAULT_PASSWORD <Project Skeletons>` skeleton variable in the clone command, like:
 
     .. code-block:: shell
 
@@ -419,10 +435,11 @@ Publishing your project
 =======================
 
 You can publish and share your projects like any git repository.
-If you want to publish local git repositories on a git hosting service like github.com
-(e.g. ones created by ``unfurl init`` or ``unfurl clone``) follow these steps:
+If you want to publish local git repositories (e.g. ones created by ``unfurl init`` or ``unfurl clone``) on a git hosting service like `Unfurl Cloud`_ or GitHub.
+follow these steps:
 
-1. Create corresponding empty remote git repositories.
+1. Create the corresponding empty remote git projects or repositories. If you using `unfurl cloud`_, this step can be skipped and the project will be created automatically with the first git push.
+
 2. Set the new repositories as the remote origins for your local repositories
    with this command:
 
@@ -433,8 +450,14 @@ If you want to publish local git repositories on a git hosting service like gith
    ``git submodule set-url <submodule-path> <remote-url>``
 
 3. Commit any needed changes in the repositories with ``unfurl commit``.  (Use ``unfurl git-status`` to see the uncommitted files across the project's repositories.)
+   ``unfurl commit`` will update repository definitions in the ensemble to the new url remote. So if your project uses a `"polyrepo" <Creating projects>` arrangement, add the remote url to the `blueprint repository` before running ``unfurl commit`` on the `ensemble repository`.
 
 4. Running ``unfurl git push`` will push all the repositories in the project.
+
+5. If hosting on `Unfurl Cloud`_ and your project uses vault encryption, set the vault password as a CI/CD variable. To add it, go to Settings / CI/CD and add a new variable called ``UNFURL_VAULT_<VAULTID>_PASSWORD`` where ``<VAULTID>`` is the name of the vault id (the default project skeleton names this in a comment in ``local/unfurl.yaml``).
+When cloning this project, use the command line displayed in `<https://unfurl.cloud/home#clone-instructions>`_ to clone the project. This will set `UNFURL_CLOUD_VARS_URL <Project Skeletons>` so ``UNFURL_VAULT_<VAULTID>_PASSWORD`` is retrieved.
+
+
 
 Browser-based Admin User Interface
 ==================================
@@ -469,7 +492,7 @@ Alternatively, you can create the home project manually:
 
     unfurl home --init
 
-This will create an Unfurl project located at ``~/.unfurl_home``, unless you specify otherwise using the ``--home`` global option. It will contain local configuration settings that will shared with your other projects and also creates an isolated environment to run Unfurl in.
+This will create an Unfurl project located at ``~/.unfurl_home``, unless you specify another path using the ``--home`` global option. It will contain local configuration settings that will be shared with your other projects, including `execution runtimes <execution runtime>`.
 
 By default it will create one git repository for the project and the ensemble -- you can override this using the ``--poly`` option.
 
@@ -477,8 +500,7 @@ Or, if you have an existing home project, you can just clone it like any other p
 
 To create a new `execution runtime` for the home project, use the ``runtime`` command, for example: ``unfurl runtime --init ~/.unfurl_home``.
 
-As Unfurl Home is a standard Unfurl project, you can customize it and deploy it like any other project.
-Resource deployed in your Unfurl project can be access by other projects by declaring the home project as an `external ensemble<external ensembles>`. See the :unfurl_github_tree:`home project skeleton<unfurl/skeletons/home>` for an example of how to configure this.
+As Unfurl Home is a standard Unfurl project, you can customize it and deploy ensembles in it like any other project. The home project typically have a `localhost ensemble <The Localhost Ensemble>` that you can use to manage locally installed artifacts.
 
 .. tip::
 
@@ -488,6 +510,11 @@ Resource deployed in your Unfurl project can be access by other projects by decl
 
       connections:
         primary_provider: home:k8s
+
+Registering projects
+--------------------
+
+The `unfurl home --register` command let's you register a project with the home project. Projects created with the `--as-shared-environment <shared environments>` option are automatically registered. Registered projects and their repositories are added to the ``projects`` and ``localRepositories`` sections of `unfurl.yaml`. If registered project's git repository doesn't have a remote url (ie. missing a git remote with an remote url), ``local/unfurl.yaml`` will be updated instead. Once a project registered, if another project references its repository, it will use the first project's local repository instead of cloning it. For example, you can maintain only one local copy of a blueprint project even if multiple project use it.  This is particularly useful during development when you have local modifications to a blueprint.
 
 Execution Runtime
 =================

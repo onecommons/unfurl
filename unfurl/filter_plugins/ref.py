@@ -11,6 +11,7 @@ from unfurl.tosca_plugins.functions import (
     to_label,
 )
 from unfurl.util import which, wrap_sensitive_value, to_text, to_native
+from unfurl.result import InertValue
 from jinja2 import pass_context
 from unfurl.yamlloader import cleartext_yaml
 from ansible.errors import AnsibleFilterError
@@ -55,6 +56,14 @@ def get_dir(context, relativeTo, mkdir=False):
     return filepath.get()
 
 
+@pass_context
+def inert(context, val, substitute=True):
+    refContext = context["__unfurl"]
+    external = InertValue(val, substitute)
+    refContext.add_external_reference(external)
+    return external.get()
+
+
 def to_yaml(a, *args, **kw):
     """Override ansible's built-in filter so we use our own yaml object"""
     default_flow_style = kw.pop("default_flow_style", None)  # XXX
@@ -85,6 +94,7 @@ SAFE_FILTERS = {
     "mapValue": map_value_filter,
     "map_value": map_value_filter,
     "sensitive": wrap_sensitive_value,
+    "inert": inert,
     "to_label": to_label,
     "to_dns_label": to_dns_label,
     "to_kubernetes_label": to_kubernetes_label,

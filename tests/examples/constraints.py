@@ -43,7 +43,7 @@ class App(tosca.nodes.Root):
         # the proxy's backend_url is set to the container's url
         # by adding node_filter property constraint on the proxy requirement
         cls.proxy.backend_url = cls.container.url
-        # name is by adding a node_filter requirements constraint with a property constraint on the proxy requirement
+        # name is set by adding a node_filter requirements constraint with a property constraint on the proxy requirement
         cls.proxy.hosting.name = "app"
         tosca.in_range(1*gb*2, 20*gb).apply_constraint(cls.proxy.hosting.mem_size)
         # the following is equivalent, but has a static type error:

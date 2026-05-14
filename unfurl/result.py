@@ -34,6 +34,7 @@ if TYPE_CHECKING:
     from .spec import EntitySpec
     from .support import Templar
     from .runtime import EntityInstance
+    from .eval import RefContext
 
 from .merge import diff_dicts
 from .util import (
@@ -53,37 +54,42 @@ logger = getLogger("unfurl")
 T = TypeVar("T")
 
 
-def _get_digest(value, kw):
+def _get_digest(value, kw, parents=()):
     getter = getattr(value, "__digestable__", None)
     if getter:
         value = getter(kw)
-    isSensitive = isinstance(value, sensitive)
-    if isSensitive:
-        yield sensitive.redacted_str
+    inc = kw.get("inc")
+    if inc and not inc(value, parents):
+        return  # skip this value
+    if isinstance(value, sensitive):
+        yield sensitive.redacted_bytes
     else:
-        if isinstance(value, Results):
-            # since we don't have a way to record which keys were resolved or not
-            # resolve them all now, otherwise we can't compare reliable compare digests
-            value.resolve_all()
-            value = value._attributes
         if isinstance(value, Mapping):
             for k in sorted(value.keys()):
+                v = value[k]
                 yield k
-                for d in _get_digest(value[k], kw):
+                for d in _get_digest(v, kw, parents + (k,)):
                     yield d
         elif isinstance(value, (MutableSequence, tuple)):
             for v in value:
-                for d in _get_digest(v, kw):
+                for d in _get_digest(v, kw, parents):
                     yield d
+        elif value is None:
+            yield b"null"  # dump skips None
         else:
             out = io.BytesIO()
-            dump(serialize_value(value, redact=True), out)
+            dump(
+                serialize_value(
+                    value, redact=kw.get("redact", True), inert=kw.get("inert", True)
+                ),
+                out,
+            )
             yield out.getvalue()
 
 
-def get_digest(tpl, **kw):
+def get_digest(value: Any, **kw) -> str:
     m = hashlib.sha1()  # use same digest function as git
-    for contents in _get_digest(tpl, kw):
+    for contents in _get_digest(value, kw):
         if not isinstance(contents, bytes):
             contents = str(contents).encode("utf-8")
         m.update(contents)
@@ -97,7 +103,7 @@ yaml11_hell = re.compile(
 )
 
 
-def serialize_value(value, **kw):
+def serialize_value(value, parents=(), **kw):
     getter = getattr(value, "as_ref", None)
     if getter:
         return getter(kw)
@@ -106,7 +112,10 @@ def serialize_value(value, **kw):
         return sensitive.redacted_str
     if isinstance(value, Mapping):
         d_ctor = sensitive_dict if isSensitive else dict
-        return d_ctor((key, serialize_value(v, **kw)) for key, v in value.items())
+        return d_ctor(
+            (key, serialize_value(v, parents=parents + (key,), **kw))
+            for key, v in value.items()
+        )
     if isinstance(value, (MutableSequence, tuple)):
         l_ctor = sensitive_list if isSensitive else list
         return l_ctor(serialize_value(item, **kw) for item in value)
@@ -135,16 +144,18 @@ class ResourceRef(ABC):
     def base_dir(self) -> str:
         return ""
 
-    def _get_prop(self, name):
+    def _get_prop(self, name: str):
         if name == ".":
             return self
         elif name == "..":
             return self.parent
         name = name[1:]
+        if name.startswith("_"):  # disallow access to private attributes
+            raise AttributeError(name)
         # XXX3 use propmap
         return getattr(self, name)
 
-    def __reflookup__(self, key):
+    def __reflookup__(self, key) -> Union[Any, "Result"]:
         if not key:
             raise KeyError(key)
         if key[0] == ".":
@@ -254,6 +265,9 @@ class ChangeRecord:
     def set_task_id(self, taskId: int) -> None:
         self.taskId = taskId
         self.changeId = self.update_change_id(self.changeId, taskId)
+
+    def log_name(self) -> str:
+        return self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
 
     @staticmethod
     def get_job_id(changeId: str) -> str:
@@ -375,10 +389,10 @@ class ExternalValue(ChangeAware):
 
     def __eq__(self, other):
         if isinstance(other, ExternalValue):
-            return self.get() == other.get()
+            return self.type == other.type and self.get() == other.get()
         return self.get() == other
 
-    def resolve_key(self, key=None, currentResource=None):
+    def resolve_key(self, key=None, currentResource=None) -> Union[Any, "Result"]:
         if key:
             value = self.get()
             getter = getattr(value, "__reflookup__", None)
@@ -395,13 +409,40 @@ class ExternalValue(ChangeAware):
         serialized = {self.type: self.key}
         return {"eval": serialized}
 
+class InertValue(ExternalValue):
+    __slots__ = "substitute"
+
+    default_str = "<<REPLACED>>"
+
+    def __init__(self, value: Any, substitute):
+        self.type = "inert"
+        self.key = value
+        if not isinstance(substitute, str):
+            self.substitute = self.default_str
+        else:
+            self.substitute = substitute
+
+    def __digestable__(self, options):
+        return self.substitute
+
+    def as_ref(self, options=None):
+        if options:
+            if options.get("redact") or options.get("inert"):
+                return self.substitute
+            elif options.get("resolveExternal"):
+                return serialize_value(self.get(), **options)
+        ref = dict(inert=self.key)
+        if self.substitute != self.default_str:
+            ref["substitute"] = serialize_value(self.substitute)
+        return dict(eval=ref)
+
 
 class Result(ChangeAware):
     # Result optionally maintains a shadow "external" value
     __slots__ = ("resolved", "external", "select")
 
-    def __init__(self, resolved: Any):
-        self.select: Tuple = ()
+    def __init__(self, resolved: Any, select=()):
+        self.select: Tuple = select
         if isinstance(resolved, ExternalValue):
             self.resolved = resolved.get()
             assert not isinstance(self.resolved, Result), self.resolved
@@ -413,10 +454,13 @@ class Result(ChangeAware):
 
     def as_ref(self, options=None):
         options = options or {}
-        if self.external:
+        if self.external and not options.get("resolveExternal"):
             ref = self.external.as_ref(options)
-            if self.select and not options.get("resolveExternal"):
-                ref["select"] = "." + "::".join(self.select)
+            if self.select:
+                if len(self.select) > 1:
+                    ref["select"] = ".::" + "::".join(self.select)
+                else:
+                    ref["select"] = self.select[0]
             return ref
         else:
             val = serialize_value(self.resolved, **options)
@@ -425,13 +469,13 @@ class Result(ChangeAware):
     def __digestable__(self, options):
         if self.external:
             return self.external.__digestable__(options)
+        getter = getattr(self.resolved, "__digestable__", None)
+        if getter:
+            return getter(options)
         return self.resolved
 
     def __sensitive__(self):
-        if self.external:
-            return is_sensitive(self.external)
-        else:
-            return is_sensitive(self.resolved)
+        return is_sensitive(self.external or self.resolved)
 
     def _values(self):
         resolved = self.resolved
@@ -448,7 +492,7 @@ class Result(ChangeAware):
         else:
             return resolved
 
-    def _resolve_key(self, key, currentResource):
+    def _resolve_key(self, key, currentResource) -> Union[Any, "Result"]:
         # might return a Result
         if self.external:
             value = self.external.resolve_key(key, currentResource)
@@ -460,16 +504,36 @@ class Result(ChangeAware):
                 value = self.resolved[key]
         return value
 
-    def project(self, key: Any, ctx) -> "Result":
+    def project(self, key: Any, ctx: "RefContext") -> "Result":
         from .eval import Ref
 
         if key == ".super":
-            result = ctx._lastResource.get_attribute_manager().get_super(ctx)
-            if result is None:
+            results = (
+                cast("EntityInstance", ctx._lastResource)
+                .get_attribute_manager()
+                .get_super(ctx)
+            )
+            if results is None:
                 raise KeyError(key)
-            return Result(result)
+            return Result(results)
 
-        value = self._resolve_key(key, ctx._lastResource)
+        attribute_lookup = (
+            not self.external
+            and (
+                not isinstance(key, str) or not key.startswith(".")
+            )  # key can be an int
+            and hasattr(self.resolved, "attributes")
+            and isinstance(self.resolved.attributes, Results)
+        )
+        if attribute_lookup and ctx.deep:
+            # pass deep vars through to the current resource's attribute context
+            cpy = self.resolved.attributes.context.copy(deep=ctx.deep)
+            value: Any = self.resolved.attributes._getresult(key, ctx=cpy)
+        elif attribute_lookup and ctx.wantList == "instance":
+            value = self.resolved  # short circuit evaluation
+        else:
+            value = self._resolve_key(key, ctx._lastResource)
+
         if isinstance(value, Result):
             result = value
         elif Ref.is_ref(value):
@@ -485,28 +549,37 @@ class Result(ChangeAware):
             result.select = self.select + (key,)
         return result
 
-    def has_changed(self, changeset):
+    def has_changed(self, changeRecord) -> bool:
         if self.external:
-            return self.external.has_changed(changeset)
+            return self.external.has_changed(changeRecord)
         elif isinstance(self.resolved, ChangeAware):
-            return self.resolved.has_changed(changeset)
+            return self.resolved.has_changed(changeRecord)
         else:
             return False
 
     def __eq__(self, other):
+        if self is other:
+            return True
         if isinstance(other, Result):
+            if self.external:
+                return self.external == other.external
             return self.resolved == other.resolved
         else:
-            return self.resolved == other
+            return self == Result(other)
 
     def __repr__(self):
         return "Result(%r, %r, %r)" % (self.resolved, self.external, self.select)
 
 
+def metadata_from_schema(defs: Dict[str, Property], name: str, key: str) -> Any:
+    metadata = name in defs and defs[name].schema.metadata
+    if metadata:
+        return metadata.get(key)
+    return None
+
+
 def is_sensitive_schema(defs: Dict[str, Property], key: str) -> bool:
-    defSchema = (key in defs and defs[key].schema) or {}
-    defMeta = defSchema.get("metadata", {})  # Schema has __getitem__
-    return bool(defMeta.get("sensitive"))
+    return bool(metadata_from_schema(defs, key, "sensitive"))
 
 
 def _validation_error(src, context, prop_def, msg):
@@ -552,9 +625,8 @@ class ResultsItem(Result):
         self, resolved: Any, original: Any = _Missing, seen: int = MAX_CHANGE_COUNT
     ):
         if isinstance(resolved, Result):
-            self.select: Tuple = ()
+            self.select = resolved.select
             self.external = resolved.external
-            assert not isinstance(resolved.resolved, Result)
             resolved = self.resolved = resolved.resolved
             assert not isinstance(resolved, Result)
         else:
@@ -715,6 +787,16 @@ class Results(ABC, metaclass=ProxyableType):
 
         return map_value(self, self.context)
 
+    def as_ref(self, options=None):
+        self.resolve_all()
+        return serialize_value(self._attributes, **(options or {}))
+
+    def __digestable__(self, options):
+        # since we don't have a way to record which keys were resolved or not
+        # resolve them all now, otherwise we can't compare reliable compare digests
+        self.resolve_all()
+        return self._attributes
+
     @property
     def change_count(self) -> int:
         # change_count is at least shared across _map_values()
@@ -726,10 +808,14 @@ class Results(ABC, metaclass=ProxyableType):
 
     @staticmethod
     def _map_value(
-        val, context, applyTemplates=True, defs=None
+        val, context: "RefContext", applyTemplates=True, defs=None
     ) -> Union[Result, "Results", Any]:
-        "Recursively and lazily resolves any references in a value"
-        from .eval import map_value, Ref
+        "Recursively and lazily resolve any expressions in a value"
+        # lists and maps are returned as Results, expressions resolve to a Result, None or ResultsList[ResultsItem]
+        # otherwise the value returned as is, including ExternalValues (which maybe returned by apply_template)
+        # since ResultsMap and ResultsList resolve Result and ExternalValue objects,
+        # those embedded objects will never be observed when accessing them like regular dicts and lists.
+        from .eval import Ref
 
         if isinstance(val, Results):
             return val
@@ -757,9 +843,6 @@ class Results(ABC, metaclass=ProxyableType):
         elif isinstance(val, list):
             # already validated
             # always explicitly set defs
-            if len(val) == 1 and isinstance(val[0], Result):
-                # XXX! see test_localConfig in test_cli.py
-                return val[0]
             items = [ResultsItem(r) if isinstance(r, Result) else r for r in val]
             return ResultsList(items, context, False, defs or {})
         else:
@@ -785,7 +868,10 @@ class Results(ABC, metaclass=ProxyableType):
     def _get(self, key):
         return self._getresult(key).resolved
 
-    def _getresult(self, key, validate: Optional[bool] = None) -> ResultsItem:
+    def __reflookup__(self, key) -> Result:
+        return self._getresult(key)
+
+    def _getresult(self, key, validate: Optional[bool] = None, ctx=None) -> ResultsItem:
         val = self._attributes[key]
         if val is _RecursionGuard:
             self.context.trace("Recursion guard set in Results, returning None", key)
@@ -800,13 +886,13 @@ class Results(ABC, metaclass=ProxyableType):
                         and val.original is not _Missing
                     ):
                         # need to re-evaluate
-                        result = self.resolve(key, val.original, validate)
+                        result = self.resolve(key, val.original, validate, ctx)
                         val.set_resolved(result, self.change_count)
                     elif val.last_computed == MAX_CHANGE_COUNT_SET:
                         val.last_computed = MAX_CHANGE_COUNT
                 else:
                     assert not isinstance(val, Result), val
-                    result = self.resolve(key, val, validate)
+                    result = self.resolve(key, val, validate, ctx)
                     if is_computed(val):
                         computed = self.change_count
                     else:  # marks as not computed:
@@ -853,33 +939,36 @@ class Results(ABC, metaclass=ProxyableType):
     def _resolve_from_defs(defs: Dict[str, Property], key: str, val: Any) -> Any:
         if is_sensitive_schema(defs, key):
             return wrap_sensitive_value(val)
-        elif isinstance(val, str):
+        if isinstance(val, str):
             defSchema = (key in defs and defs[key].schema) or {}
             if defSchema and defSchema.get("type", "").startswith("scalar-unit."):
                 return scalar(val)
         return val
 
-    def resolve(self, key, val, validate: Optional[bool] = None) -> Result:
+    def resolve(self, key, val, validate: Optional[bool] = None, ctx=None) -> Result:
         # lazily evaluate lists and dicts
-        self.context.trace("Results._mapValue", key, val)
+        ctx = ctx or self.context
+        ctx.trace("Results._mapValue", key, val)
         defs = self.get_datatype_defs(key)
-        resolved = self._map_value(val, self.context, self.applyTemplates, defs)
+        resolved = self._map_value(val, ctx, self.applyTemplates, defs)
         # will return a Result if it was val was an expression that was evaluated
         if isinstance(resolved, Result):
             result = resolved
         else:
             result = Result(resolved)
         resolved = result.resolved = self._transform(key, result.resolved)
-        if isinstance(resolved, MutableSequence) and resolved:
-            # make sure we don't have a List[Result]
-            assert not isinstance(resolved[0], Result), resolved[0]
-
         if self.validate if validate is None else validate:
             self._validate(key, resolved, val)
         if self.defs:
-            result.resolved = self._resolve_from_defs(self.defs, key, resolved)
+            resolved = self._resolve_from_defs(self.defs, key, resolved)
+            transient = metadata_from_schema(self.defs, key, "inert")
+            if transient is not None:
+                result = Result(InertValue(resolved, transient))
+            else:
+                result.resolved = resolved
 
         assert not isinstance(result.resolved, Result)
+        ctx.referenced.add_result_reference(key, result)
         return result
 
     def get_datatype_defs(self, key: str) -> Optional[Dict[str, Property]]:

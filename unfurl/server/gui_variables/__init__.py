@@ -4,7 +4,7 @@ from typing import Any, Iterator, List, Literal, Union
 from typing_extensions import TypedDict, Required
 
 from ...localenv import LocalEnv
-from ..serve import app
+
 
 class EnvVar(TypedDict, total=False):
     # see https://docs.gitlab.com/ee/api/project_level_variables.html

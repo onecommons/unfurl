@@ -8,6 +8,7 @@ from typing import (
     Iterable,
     List,
     Sequence,
+    Set,
     Tuple,
     Union,
     Optional,
@@ -28,10 +29,22 @@ from .support import Status
 from .logs import SensitiveFilter, getLogger, getConsole
 from rich.console import Console
 from rich.table import Table
+from rich.tree import Tree
 from rich import box
 from rich.segment import Segment
 from rich.markup import escape
 import re
+
+from .tosca_plugins.cloudmap_defs import (
+    CloudMapView,
+    CloudMapRecord,
+    Repository,
+    CloudType,
+    Service,
+    Artifact,
+    Instantiation,
+    TypeRefs,
+)
 
 if TYPE_CHECKING:
     from .yamlmanifest import YamlManifest
@@ -115,7 +128,7 @@ class JobReporter:
             # XXX better reporting
             node = dict(instance=request.name)
             if manifest:
-                node["job_request"] = manifest.path
+                node["job_request"] = manifest.path or ""
             else:
                 node["job_request"] = "local"
             if request.target:
@@ -449,3 +462,755 @@ class JobReporter:
             )
         console.print(table)
         return console.export_text()
+
+
+class CloudMapGraphVisitor:
+    """Visitor interface for traversing a CloudMap graph.
+
+    Override methods to customize how records and edges are rendered or processed.
+    """
+
+    def start_graph(self, title: str) -> None:
+        """Called once at the beginning of a full graph traversal."""
+
+    def end_graph(self, empty: bool) -> None:
+        """Called once at the end of a full graph traversal."""
+
+    def start_section(self, name: str) -> None:
+        """Called at the start of each collection section (Repositories, Artifacts, etc.)."""
+
+    def visit_record(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        *,
+        seen: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+        walk_only: bool = False,
+    ) -> bool:
+        """Called for each record node.
+
+        Args:
+            type_refs: Type reference pairs ``(name, constraints)`` from a typed-URL
+                       entry whose key resolved to this record.
+            walk_only: When True the record is being walked only so its edges
+                       are discovered; a ``visit_type_ref`` has already been
+                       emitted for it and no additional ref should be added.
+        Returns:
+            True to stop walking further, False to continue.
+        """
+        return False
+
+    def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
+        """Called after all edges of a record have been visited."""
+
+    def visit_relationship(self, label: str) -> None:
+        """Called when entering an edge group (e.g. 'fork_of', 'notable')."""
+
+    def leave_relationship(self, label: str) -> None:
+        """Called when leaving an edge group."""
+
+    def visit_label(
+        self,
+        label: str,
+    ) -> None:
+        """Called for a URL reference that is not resolved as a child record."""
+
+    def visit_ref(
+        self,
+        url: str,
+        *,
+        missing: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+    ) -> None:
+        """Called for a URL reference that is not resolved as a child record."""
+
+    def visit_type_ref(
+        self,
+        name: str,
+        constraints: Optional[Dict[str, Any]] = None,
+        *,
+        label: str = "",
+    ) -> None:
+        """Called for a type reference."""
+
+    def leave_type_ref(self) -> None:
+        """Called after a visit_type_ref and its associated record walk."""
+
+    def not_found(self, url: str) -> None:
+        """Called when a start_url is not found in the db."""
+
+
+def _merge_typerefs(
+    record: "CloudMapRecord", type_refs: Optional[TypeRefs] = None
+) -> Optional[TypeRefs]:
+    record_type = getattr(record, "type", None)
+    if isinstance(record_type, TypeRefs):
+        if type_refs:
+            # Merge type_refs from typed-URL with record's own type refs, prioritising the former
+            merged_types = dict(record_type.types)
+            merged_types.update(type_refs.types)
+            type_refs = TypeRefs(types=merged_types)
+        else:
+            type_refs = record_type
+    return type_refs
+
+
+class CloudMapGraphWalker:
+    """Walk a CloudMap graph calling visitor methods for each record and edge."""
+
+    def __init__(
+        self,
+        view: "CloudMapView",
+        visitor: CloudMapGraphVisitor,
+    ) -> None:
+        self.view = view
+        self.visitor = visitor
+
+    @staticmethod
+    def _record_key(record: Any) -> str:
+        """Key used by visitors and `visited` tracking. CloudType uses ``name``,
+        every other record uses ``url``."""
+        return record.name if isinstance(record, CloudType) else record.url
+
+    def walk(self, start_url: str = "") -> None:
+        """Walk the graph, optionally starting from a specific URL."""
+        if start_url:
+            all_found = self._find_all_records(start_url)
+            if not all_found:
+                self.visitor.not_found(start_url)
+                return
+            visited: set = {start_url}
+            for kind, record in all_found:
+                if self.visitor.visit_record(
+                    kind, start_url, record, type_refs=_merge_typerefs(record)
+                ):
+                    break
+                self._walk_edges(record, kind, visited)
+                self.visitor.leave_record(kind, start_url, record)
+        else:
+            self.visitor.start_graph("CloudMap")
+            visited = set()
+            sections: List[Tuple[str, str, Iterable[Any]]] = [
+                ("Repositories", "Repository", self.view.find_repositories()),
+                ("Artifacts", "Artifact", self.view.find_artifacts()),
+                ("Instantiations", "Instantiation", self.view.find_instantiations()),
+                ("Services", "Service", self.view.find_services()),
+                ("Types", "Type", self.view.find_types()),
+            ]
+            for section_name, kind, records in sections:
+                started_section = False
+                for record in records:
+                    if not started_section:
+                        started_section = True
+                        self.visitor.start_section(section_name)
+                    key = self._record_key(record)
+                    if key in visited:
+                        if self.visitor.visit_record(
+                            kind,
+                            key,
+                            record,
+                            seen=True,
+                            type_refs=_merge_typerefs(record),
+                        ):
+                            break
+                        continue
+                    visited.add(key)
+                    if self.visitor.visit_record(
+                        kind, key, record, type_refs=_merge_typerefs(record)
+                    ):
+                        break
+                    self._walk_edges(record, kind, visited)
+                    self.visitor.leave_record(kind, key, record)
+            self.visitor.end_graph(empty=not visited)
+
+    def _find_all_records(
+        self, url: str, type_refs: Optional[TypeRefs] = None
+    ) -> List[Tuple[str, Any]]:
+        results: List[Tuple[str, Any]] = []
+        for kind, getter in (
+            ("Instantiation", self.view.get_instantiation),
+            ("Artifact", self.view.get_artifact),
+            ("Service", self.view.get_service),
+            ("Repository", self.view.get_repository),
+            ("Type", self.view.get_type),
+        ):
+            found = getter(url)
+            if found is not None and (kind != "Repository" or "#" not in url):
+                # get_repository() normalizes git artifact URLs with # fragments, so skip those
+                results.append((kind, found))
+        if not results and type_refs:
+            pairs = type_refs.aslist()
+            if pairs and pairs[0][0].startswith("cloudmap.artifacts."):
+                # add an artifact record even though its missing
+                results.append(("Artifact", Artifact(url=url, type=type_refs)))
+            # XXX if type in get_types() construct a record from type kind
+        return results
+
+    @staticmethod
+    def _is_url(key: str) -> bool:
+        return "://" in key or key.startswith("pkg:")
+
+    def _walk_typed_urls(
+        self, label: str, typed_urls: Dict[str, Any], visited: set
+    ) -> None:
+        if not typed_urls:
+            return
+        self.visitor.visit_relationship(label)
+        for key, tr in typed_urls.items():
+            if self._is_url(key):
+                # Key is a URL — walk as a record ref with type_refs metadata
+                self._walk_child(key, visited, type_refs=tr)
+            elif isinstance(tr, TypeRefs) and tr.types:
+                # Key is a label — each type name becomes a type ref
+                for name, constraint in tr.aslist():
+                    self.visitor.visit_type_ref(name, constraint, label=key)
+                    self._walk_child(name, visited, _walk_only=True)
+                    self.visitor.leave_type_ref()
+            else:
+                self.visitor.visit_label(key)
+        self.visitor.leave_relationship(label)
+
+    def _walk_edges(self, record: Any, kind: str, visited: set) -> None:
+        edges: List[Tuple[str, List[str]]] = []
+
+        if kind == "Repository":
+            assert isinstance(record, Repository)
+            if record.fork_of:
+                edges.append(("fork_of", [record.fork_of]))
+            if record.mirror_of:
+                edges.append(("mirror_of", [record.mirror_of]))
+            if record.service:
+                edges.append(("service", [record.service]))
+            if record.notable:
+                urls = [
+                    nd.get("artifact", "")
+                    for nd in record.notable.values()
+                    if isinstance(nd, dict) and nd.get("artifact")
+                ]
+                if urls:
+                    edges.append(("notable", urls))
+
+        elif kind == "Artifact":
+            assert isinstance(record, Artifact)
+            if record.notable:
+                self._walk_typed_urls("notable", record.notable, visited)
+            if record.references:
+                # if this artifact is part of a repository, reference the repository URL
+                repo_url = record.get_repository_url()
+                if repo_url and repo_url not in record.references:
+                    referenced = record.references.copy()
+                    referenced[repo_url] = None
+                else:
+                    referenced = record.references
+                self._walk_typed_urls("references", referenced, visited)
+            if record.dependencies:
+                self._walk_typed_urls("dependencies", record.dependencies, visited)
+            if record.instantiates and record.instantiates.types:
+                self.visitor.visit_relationship("instantiates")
+                for name, c in record.instantiates.types.items():
+                    self.visitor.visit_type_ref(name, dict(c) if c else None)
+                    self._walk_child(name, visited, _walk_only=True)
+                    self.visitor.leave_type_ref()
+                self.visitor.leave_relationship("instantiates")
+            if record.instantiated_by:
+                self._walk_typed_urls(
+                    "instantiated_by", record.instantiated_by, visited
+                )
+
+        elif kind == "Instantiation":
+            assert isinstance(record, Instantiation)
+            if record.source:
+                self.visitor.visit_relationship("source")
+                self._walk_child(record.source, visited)
+                self.visitor.leave_relationship("source")
+            if record.instantiated:
+                self._walk_typed_urls("instantiated", record.instantiated, visited)
+            if record.inputs:
+                self._walk_typed_urls("inputs", record.inputs, visited)
+
+        elif kind == "Service":
+            assert isinstance(record, Service)
+            if record.connections:
+                self._walk_typed_urls("connections", record.connections, visited)
+            if record.instantiated_by:
+                self._walk_typed_urls(
+                    "instantiated_by", record.instantiated_by, visited
+                )
+
+        elif kind == "Type":
+            assert isinstance(record, CloudType)
+            if record.extends:
+                filtered = [n for n in record.extends if n != record.name]
+                if filtered:
+                    self.visitor.visit_relationship("extends")
+                    for name in filtered[:1]:
+                        self.visitor.visit_label(name)
+                    self.visitor.leave_relationship("extends")
+            if record.source:
+                edges.append(("source", [record.source]))
+            if record.model:
+                edges.append(("model", [record.model]))
+            if record.implementations:
+                edges.append(("implementations", list(record.implementations)))
+
+        for label, urls in edges:
+            if not urls:
+                continue
+            self.visitor.visit_relationship(label)
+            for url in urls:
+                self._walk_child(url, visited)
+            self.visitor.leave_relationship(label)
+
+    def _walk_child(
+        self,
+        url: str,
+        visited: set,
+        type_refs: Optional[TypeRefs] = None,
+        _walk_only: bool = False,
+    ) -> None:
+        """Walk a child record.
+
+        When *_walk_only* is True the record's edges are walked (to populate
+        sections) but no ref is added to the current relationship list — a
+        ``visit_type_ref`` call should have already been made.
+        """
+        found = self._find_all_records(url, type_refs)
+        if not found:
+            if not _walk_only:
+                self.visitor.visit_ref(url, missing=True, type_refs=type_refs)
+            return
+        child_kind, child_record = found[0]
+        if url in visited:
+            if not _walk_only:
+                self.visitor.visit_record(
+                    child_kind,
+                    url,
+                    child_record,
+                    seen=True,
+                    type_refs=_merge_typerefs(child_record, type_refs),
+                )
+            return
+        visited.add(url)
+        if self.visitor.visit_record(
+            child_kind,
+            url,
+            child_record,
+            type_refs=_merge_typerefs(child_record),
+            walk_only=_walk_only,
+        ):
+            return
+        self._walk_edges(child_record, child_kind, visited)
+        self.visitor.leave_record(child_kind, url, child_record)
+
+
+def walk_cloudmap_graph(
+    view: "CloudMapView",
+    visitor: CloudMapGraphVisitor,
+    start_url: str = "",
+) -> None:
+    """Walk the CloudMap graph calling visitor methods for each record and edge."""
+    CloudMapGraphWalker(view, visitor).walk(start_url)
+
+
+class RichTreeVisitor(CloudMapGraphVisitor):
+    """Visitor that builds a rich.Tree for console output."""
+
+    _KIND_STYLES: Dict[str, str] = {
+        "Repository": "green",
+        "Artifact": "cyan",
+        "Instantiation": "yellow",
+        "Service": "magenta",
+        "Type": "blue",
+    }
+
+    def __init__(self, console: Optional[Console] = None) -> None:
+        self.console = console or getConsole()
+        self._stack: List[Tree] = []
+        self._root: Optional[Tree] = None
+        self._type_ref_depth: int = 0
+
+    def _current(self) -> Tree:
+        return self._stack[-1]
+
+    def _label(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        guide_style: str = "",
+        type_refs: Optional[TypeRefs] = None,
+    ) -> str:
+        title = ""
+        if hasattr(record, "metadata") and hasattr(record.metadata, "title"):
+            title = record.metadata.title or ""
+        elif hasattr(record, "name"):
+            title = record.name
+        prefix = f"{title} " if title and title != url else ""
+        type_str = ""
+        if type_refs:
+            names = [
+                f"{name}{(' v' + str(ref['version'])).lstrip('v') if ref and 'version' in ref else ''}"
+                for name, ref in type_refs.types.items()
+            ]
+            if names or prefix:
+                pad = " " * len(kind)
+                styled_pipe = f"[{guide_style}]\u2502[/]" if guide_style else "\u2502"
+                type_str = (
+                    f"\n{styled_pipe}{pad}{escape(prefix)}({escape(', '.join(names))})"
+                )
+        return f"[bold]{kind}[/] {escape(url)}{type_str}"
+
+    def start_graph(self, title: str) -> None:
+        self._root = Tree(f"[bold]{title}[/]")
+        self._stack = [self._root]
+
+    def end_graph(self, empty: bool) -> None:
+        if empty:
+            self.console.print("[dim]No records found in CloudMap.[/]")
+        elif self._root:
+            self.console.print(self._root)
+
+    def start_section(self, name: str) -> None:
+        section = self._stack[0].add(f"[bold]{name}[/]")
+        # Replace stack to: [root, section]
+        self._stack = [self._stack[0], section]
+
+    def visit_record(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        *,
+        seen: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+        walk_only: bool = False,
+    ) -> bool:
+        style = self._KIND_STYLES.get(kind, "")
+        label = self._label(kind, url, record, style, type_refs)
+        if seen:
+            parent = self._stack[-1] if self._stack else None
+            if parent:
+                parent.add(f"{label} [dim]\\[seen][/]")
+            return False
+        if walk_only:
+            # Record is being walked only for its edges — visit_type_ref
+            # already pushed a node, so just reuse it.
+            return False
+        if self._stack:
+            node = self._stack[-1].add(label, guide_style=style)
+        else:
+            node = Tree(label, guide_style=style)
+            self._root = node
+            # For start_url mode, print each root immediately
+            self._deferred_print = node
+        self._stack.append(node)
+        return False
+
+    def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
+        left = self._stack.pop()
+        if not self._stack and hasattr(self, "_deferred_print"):
+            self.console.print(self._deferred_print)
+            del self._deferred_print
+
+    def visit_relationship(self, label: str) -> None:
+        branch = self._current().add(f"[dim]{label}[/]")
+        self._stack.append(branch)
+
+    def leave_relationship(self, label: str) -> None:
+        self._stack.pop()
+
+    def visit_label(
+        self,
+        label: str,
+    ) -> None:
+        self._current().add(f"[dim italic]{escape(label)}[/]")
+
+    def visit_ref(
+        self,
+        url: str,
+        *,
+        missing: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+    ) -> None:
+        suffix = ""
+        if type_refs:
+            names = ", ".join(n for n, _ in type_refs.aslist())
+            suffix = f" ({escape(names)})"
+        if missing:
+            suffix += " \\[missing]"
+        self._current().add(f"[dim italic]{escape(url)}{suffix}[/]")
+
+    def visit_type_ref(
+        self,
+        name: str,
+        constraints: Optional[Dict[str, Any]] = None,
+        *,
+        label: str = "",
+    ) -> None:
+        prefix = f"{label}: " if label else ""
+        version = ""
+        if constraints and "version" in constraints:
+            version = f" v{constraints['version']}"
+        text = f"[dim italic]{escape(prefix)}{escape(name)}{escape(version)}[/]"
+        node = self._current().add(text)
+        # Push so that a subsequent walk_only record nests its edges here;
+        # _type_ref_depth tracks the stack depth so leave_type_ref knows
+        # whether leave_record already popped it.
+        self._stack.append(node)
+        self._type_ref_depth = len(self._stack)
+
+    def leave_type_ref(self) -> None:
+        # Only pop if leave_record hasn't already done so
+        if len(self._stack) >= self._type_ref_depth:
+            self._stack.pop()
+        self._type_ref_depth = 0
+
+    def not_found(self, url: str) -> None:
+        self.console.print(f"[red]Record not found:[/] {escape(url)}")
+
+
+from .server.schemas import (
+    GraphJson,
+    GraphNodeJson,
+    RecordRef,
+    RelEntry,
+    TypeRefJson,
+)
+
+_SECTION_FOR_KIND: Dict[str, str] = {
+    "Repository": "Repositories",
+    "Artifact": "Artifacts",
+    "Instantiation": "Instantiations",
+    "Service": "Services",
+    "Type": "Types",
+}
+
+
+class JsonGraphVisitor(CloudMapGraphVisitor):
+    """Visitor that builds a JSON-serializable graph representation.
+
+    Records are stored in ``sections`` (keyed by kind → url → node).
+    Relationship lists contain lightweight ``RecordRef`` or ``TypeRefJson`` entries.
+    """
+
+    def __init__(self) -> None:
+        # _stack holds (node, rel_label) pairs; rel_label is the key on node's
+        # rels dict where entries should be appended, or "" for the root level.
+        self._stack: List[Tuple[GraphNodeJson, str]] = []
+        self._current_section_name: str = ""
+        self.result: GraphJson = {}
+
+    def _sections(self) -> Dict[str, Dict[str, GraphNodeJson]]:
+        return self.result.setdefault("sections", {})
+
+    def _ensure_record(self, kind: str, url: str) -> GraphNodeJson:
+        """Return the node for *url*, creating it in the appropriate section if new."""
+        section_name = _SECTION_FOR_KIND.get(kind, kind)
+        section = self._sections().setdefault(section_name, {})
+        if url not in section:
+            section[url] = GraphNodeJson(kind=kind, url=url)
+        return section[url]
+
+    def _current_rel_list(self) -> Optional[List[RelEntry]]:
+        """Get the rels list where new entries should be appended, or None at section top-level."""
+        if not self._stack:
+            if "roots" in self.result:
+                return cast(List[RelEntry], self.result["roots"])
+            return None
+        node, rel_label = self._stack[-1]
+        if rel_label:
+            rels = node.setdefault("rels", {})
+            return rels.setdefault(rel_label, [])
+        return None
+
+    def start_graph(self, title: str) -> None:
+        self.result = {}
+
+    def end_graph(self, empty: bool) -> None:
+        pass
+
+    def start_section(self, name: str) -> None:
+        self._current_section_name = name
+        self._sections().setdefault(name, {})
+
+    def visit_record(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        *,
+        seen: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+        walk_only: bool = False,
+    ) -> bool:
+        node = self._ensure_record(kind, url)
+        if not walk_only:
+            # Add a ref to the current rels list (roots or parent rel); skip at section top-level
+            rel_list = self._current_rel_list()
+            if rel_list is not None:
+                ref = RecordRef(url=url, kind=kind)
+                if type_refs:
+                    ref["type_refs"] = [
+                        _make_type_ref_json(n, c) for n, c in type_refs.aslist()
+                    ]
+                rel_list.append(ref)
+
+        if not seen:
+            self._stack.append((node, ""))
+        return False
+
+    def leave_record(self, kind: str, url: str, record: "CloudMapRecord") -> None:
+        self._stack.pop()
+
+    def visit_relationship(self, label: str) -> None:
+        # Push the current record node again with this rel label,
+        # so entries are added under node.rels[label].
+        node = self._stack[-1][0]
+        self._stack.append((node, label))
+
+    def leave_relationship(self, label: str) -> None:
+        self._stack.pop()
+
+    def visit_label(
+        self,
+        label: str,
+    ) -> None:
+        rel_list = self._current_rel_list()
+        if rel_list is not None:
+            rel_list.append(label)
+
+    def visit_ref(
+        self,
+        url: str,
+        *,
+        missing: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+    ) -> None:
+        rel_list = self._current_rel_list()
+        if rel_list is not None:
+            ref = RecordRef(url=url)
+            if missing:
+                ref["missing"] = missing
+            if type_refs:
+                ref["type_refs"] = [
+                    _make_type_ref_json(n, c) for n, c in type_refs.aslist()
+                ]
+            rel_list.append(ref)
+
+    def visit_type_ref(
+        self,
+        name: str,
+        constraints: Optional[Dict[str, Any]] = None,
+        *,
+        label: str = "",
+    ) -> None:
+        rel_list = self._current_rel_list()
+        if rel_list is not None:
+            rel_list.append(_make_type_ref_json(name, constraints, label))
+
+    def not_found(self, url: str) -> None:
+        self.result = GraphJson(error=f"Record not found: {url}")
+
+
+def _make_type_ref_json(
+    name: str,
+    constraints: Optional[Dict[str, Any]] = None,
+    label: str = "",
+) -> TypeRefJson:
+    ref = TypeRefJson(type=name)
+    if constraints:
+        ref["constraints"] = constraints
+    if label:
+        ref["label"] = label
+    return ref
+
+
+def cloudmap_graph_json(view: "CloudMapView", start_url: str = "") -> GraphJson:
+    """Return a JSON-serializable graph of the CloudMap."""
+    visitor = JsonGraphVisitor()
+    if start_url:
+        visitor.result["roots"] = []
+    walk_cloudmap_graph(view, visitor, start_url)
+    return visitor.result
+
+
+_CLOUDMAP_KIND_TO_SECTION: Dict[str, str] = {
+    "Repository": "repositories",
+    "Artifact": "artifacts",
+    "Instantiation": "instantiations",
+    "Service": "services",
+    "Type": "types",
+}
+
+
+class CollectVisitor(CloudMapGraphVisitor):
+    """Visitor that collects walked records into a CloudMap-shaped dict.
+
+    Used by the ``/cloudmap`` endpoint to build the followed-records
+    portion of its response. Records are grouped by section
+    (``repositories``, ``artifacts``, ``services``, ``instantiations``,
+    ``types``) and stored as ``record.asdict()`` payloads keyed by URL.
+
+    Args:
+        start_key: URL of the starting record; never re-emitted.
+        limit: Maximum number of records to collect. Once reached,
+            subsequent ``visit_record`` calls become no-ops.
+        exclude: Optional set of record primary-key ids
+            (``unfurl.server.id`` values, stashed on hydrated records
+            as ``_unfurl_server_id``) to skip during the walk.
+            Records without that attribute fall through unchanged —
+            this matches the rust handler's ``id NOT IN (...)``
+            filter for clients with a warm cache.
+    """
+
+    def __init__(
+        self,
+        start_key: Optional[str],
+        limit: int,
+        exclude: Optional[Set[int]] = None,
+    ) -> None:
+        self.start_key = start_key
+        self.limit = limit
+        self.exclude = exclude or set()
+        self.result: Dict[str, Dict[str, Any]] = {}
+        self._seen: set = set()
+
+    def visit_record(
+        self,
+        kind: str,
+        url: str,
+        record: "CloudMapRecord",
+        *,
+        seen: bool = False,
+        type_refs: Optional[TypeRefs] = None,
+        walk_only: bool = False,
+    ) -> bool:
+        if len(self._seen) >= self.limit:
+            return True
+        if seen or url == self.start_key:
+            return False
+        # Skip records the caller already holds. The id attr is only
+        # set on records hydrated by `CloudMapCache._hydrate_one`
+        # (i.e. records that came back from the rust git-sync
+        # backend's annotate_record) — pure YAML-loaded records have
+        # no id and fall through.
+        rid = getattr(record, "_unfurl_server_id", None)
+        if isinstance(rid, int) and rid in self.exclude:
+            return False
+        section_name = _CLOUDMAP_KIND_TO_SECTION.get(kind, kind.lower() + "s")
+        pair = (section_name, url)
+        if pair in self._seen:
+            return False
+        self._seen.add(pair)
+        self.result.setdefault(section_name, {})[url] = record.asdict()
+        return False
+
+
+def cloudmap_graph_console(
+    view: "CloudMapView", start_url: str = "", console: Optional["Console"] = None
+) -> None:
+    """Print a rich.Tree showing how cloudmap records reference each other."""
+    visitor = RichTreeVisitor(console)
+    walk_cloudmap_graph(view, visitor, start_url)

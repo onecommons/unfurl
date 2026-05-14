@@ -14,7 +14,7 @@ from ..to_json import get_project_path
 
 from ..logs import getLogger
 
-from ..repo import GitRepo
+from ..repo import GitRepo, normalize_git_url, Repo
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
@@ -62,7 +62,7 @@ blueprint_template = _template_env.get_template("project.j2.html")
 dashboard_template = _template_env.get_template("dashboard.j2.html")
 
 
-def get_project_readme(repo: GitRepo) -> str:
+def get_project_readme(repo: Repo) -> str:
     for path in glob.glob(os.path.join(repo.working_dir, "[Rr][Ee][Aa][Dd][Mm][Ee].*")):
         with open(path, "r") as file:
             return file.read()
@@ -98,18 +98,20 @@ def serve_document(
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
 
-    localrepo_is_dashboard = bool(localenv.manifestPath and localenv.overrides.get("format") != "blueprint")
+    localrepo_is_dashboard = bool(
+        localenv.manifestPath and localenv.overrides.get("format") != "blueprint"
+    )
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
-    if localrepo_is_dashboard and localrepo.remote and localrepo.remote.url:
-        parsed = urlparse(localrepo.remote.url)
-        [user, _, *_] = re.split(r"[@:]", parsed.netloc)
-        origin = f"{parsed.scheme}://{parsed.hostname}"
-    else:
-        parsed = None
-        user = ""
-        origin = None
+    parsed = None
+    user = ""
+    origin = ""
+    if localrepo_is_dashboard and localrepo.url:
+        parsed = urlparse(normalize_git_url(localrepo.url))
+        if parsed.netloc:  # skip file: urls (no hostname => no usable origin)
+            user = parsed.username or ""
+            origin = f"{parsed.scheme}://{parsed.hostname}"
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
     projectPath = server_fragment[0].lstrip("/")
@@ -121,7 +123,7 @@ def serve_document(
     # assume serving dashboard unless an /-/overview url
     if (
         "-/overview" in path
-        or repo.repo != localrepo.repo
+        or repo.working_dir != localrepo.working_dir
         or not localrepo_is_dashboard
     ):
         format = "blueprint"
@@ -153,11 +155,12 @@ def serve_document(
     )
 
 
-def _get_project_path(repo: GitRepo):
+def _get_project_path(repo: Repo):
     return get_project_path(repo, urlparse(app.config["UNFURL_CLOUD_SERVER"]).hostname)
 
 
-def proxy_webpack(url):
+def proxy_request(url: str) -> Response:
+    logger.trace(f"Proxying request to webpack dev server: {url}")
     res = requests.request(  # ref. https://stackoverflow.com/a/36601467/248616
         method=request.method,
         url=url,
@@ -185,22 +188,25 @@ def proxy_webpack(url):
     return Response(res.content, res.status_code, headers)
 
 
-def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[GitRepo]:
+def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Repo]:
     if not project_path or project_path == "local:":
         return localenv.project.project_repoview.repo if localenv.project else None
 
     local_projects = app.config["UNFURL_LOCAL_PROJECTS"]
+    # try with and without trailing slash since project_path might have one but local_projects keys don't
+    lookup_keys = (project_path.rstrip("/"), project_path)
+    for key in lookup_keys:
+        if key in local_projects:
+            working_dir = local_projects[key]
+            return Repo.make_repo(working_dir)
     if project_path[-1] != "/":
         project_path += "/"
-    if project_path in local_projects:
-        working_dir = local_projects[project_path]
-        return GitRepo(git.Repo(working_dir))
 
     if project_path.startswith("local:"):
         # it's not a cloud server project
         repo_info = localenv.find_path_in_repos(project_path[len("local:") :])
-        if repo_info[0]:
-            return repo_info[0]
+        if repo_info.repo_view and repo_info.repo_view.repo:
+            return repo_info.repo_view.repo
         logger.error(f"Can't find project {project_path} in {list(local_projects)}")
         return None
 
@@ -213,13 +219,16 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Gi
     # not found, so clone repo using import loader machinery
     # (to apply package rules and deduce branch from lock section or remote tags)
     if project_path.startswith("remote:"):
+        # TBD: set in to_json.get_blueprint_from_topology()
         url = project_path[len("remote:") :]
     else:
         url = get_project_url(project_path, branch=branch)
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
     try:
-        repo_view = localenv.get_manifest().find_or_clone_from_url(url)
+        repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
+            url
+        )
     except UnfurlError:  # we probably want to treat clone errors as not found
         logger.warning("could not find or clone %s", url, exc_info=True)
         repo_view = None
@@ -274,6 +283,8 @@ def fetch_release(dist_dir, release_url, release_tag, exact_match):
 
 def create_routes(localenv: LocalEnv):
     app.config["UNFURL_GUI_MODE"] = localenv
+    # don't try to pull if stale
+    app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = -1
     localrepo = (
         localenv.project
         and localenv.project.project_repoview
@@ -285,11 +296,16 @@ def create_routes(localenv: LocalEnv):
         "UNFURL_GUI_WEBPACK_ORIGIN"
     )
     if development_mode:
-        ufgui_dir = os.getenv("UNFURL_GUI_DIR", ".")
-        logger.info(
-            "Development mode detected, not downloading compiled assets, using %s instead.",
-            ufgui_dir,
-        )
+        ufgui_dir = os.getenv("UNFURL_GUI_DIR")
+        if not ufgui_dir:
+            raise UnfurlError(
+                "UNFURL_GUI_DIR must be set if UNFURL_GUI_WEBPACK_ORIGIN is set."
+            )
+        else:
+            logger.info(
+                "Development mode detected, not downloading compiled assets, using %s instead.",
+                ufgui_dir,
+            )
         # (development only) webpack serve origin - `yarn serve` in unfurl_gui would use http://localhost:8080 by default
         webpack_origin = os.getenv("UNFURL_GUI_WEBPACK_ORIGIN", "")
         dist_dir = os.path.join(ufgui_dir, "dist")
@@ -323,7 +339,7 @@ def create_routes(localenv: LocalEnv):
             # XXX search for latest compatible release with https://api.github.com/repos/onecommons/unfurl-gui/releases tag_name assets[0][browser_download_url]
             fetch_release(download_dir, release_url, tag, exact)
 
-    def get_repo(project_path: str, branch=None):
+    def get_repo(project_path: str, branch=None) -> Optional[Repo]:
         return _get_repo(project_path, localenv, branch)
 
     @app.route("/.well-known/<path:path>")
@@ -334,14 +350,14 @@ def create_routes(localenv: LocalEnv):
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
         repo = get_repo(project_path)
-        if not repo or repo.repo != localrepo.repo:
+        if not repo or repo.working_dir != localrepo.working_dir:
             return notfound_response(project_path)
         return {"variables": list(yield_variables(localenv))}
 
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
     def patch_variables(project_path):
         repo = get_repo(project_path)
-        if not repo or repo.repo != localrepo.repo:
+        if not repo or repo.working_dir != localrepo.working_dir:
             return notfound_response(project_path)
 
         body = request.json
@@ -356,9 +372,13 @@ def create_routes(localenv: LocalEnv):
         repo = get_repo(project_path)
         if not repo:
             return notfound_response(project_path)
+        if isinstance(repo, GitRepo):
+            branch = repo.active_branch
+        else:
+            branch = "main"  # XXX
         return jsonify(
             # TODO
-            [{"name": repo.active_branch, "commit": {"id": repo.revision}}]
+            [{"name": branch, "commit": {"id": repo.revision}}]
         )
 
     @app.route("/api/v4/<api>")
@@ -388,15 +408,31 @@ def create_routes(localenv: LocalEnv):
             qs = request.query_string.decode("utf-8")
             if qs != "":
                 url += "?" + qs
-            return proxy_webpack(url)
+            return proxy_request(url)
         else:
             assert path and path[0] != "/"
             local_path = os.path.join(dist_dir, path)
             if os.path.isfile(local_path):
                 response = make_response(send_from_directory(dist_dir, path))
-                if not development_mode:
+                # Content-hashed webpack assets are immutable — safe to
+                # cache forever even in development mode. Otherwise a
+                # reload redownloads ~80 chunks.
+                #
+                # Webpack outputs hashes in two formats:
+                #   - `.<hex8+>.<ext>`: JS/CSS/sourcemap chunks, e.g.
+                #     `3124.39cada19.js`, `app.1f2e3d4c.css`
+                #   - `<hash>.<ext>`: font/image assets where the whole
+                #     basename is the hash, e.g.
+                #     `o-0NIpQlx3QUlC5A4PNjXhFVZNyB.woff2` (base64-ish,
+                #     20+ chars).
+                basename = os.path.basename(path)
+                has_content_hash = bool(
+                    re.search(r"\.[0-9a-f]{8,}\.[^.]+$", basename)
+                    or re.match(r"^[A-Za-z0-9_-]{20,}\.[^.]+$", basename)
+                )
+                if not development_mode or has_content_hash:
                     response.headers["Cache-Control"] = (
-                        "public, max-age=31536000"  # 1 year
+                        "public, max-age=31536000, immutable"  # 1 year
                     )
                 return response
             return serve_document(path, localenv, webpack_origin, public_files_dir)

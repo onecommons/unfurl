@@ -7,6 +7,7 @@ from tosca import List, Size, MB, EvalData, operation
 from unfurl.eval import Ref
 from unfurl.job import JobOptions
 from unfurl.logs import is_sensitive, getLogger
+from unfurl.result import serialize_value
 from unfurl.support import Status
 from unfurl.testing import runtime_test, create_runner
 from unfurl.tosca_plugins import expr, functions
@@ -21,6 +22,8 @@ from unfurl.tosca_plugins.k8s import (
     unfurl_relationships_ConnectsTo_K8sCluster,
 )
 from unfurl.dsl import is_python_file_newer
+from tosca import MB, GB, mb, gb, Size, kib, KB
+import math
 
 class Service(tosca.nodes.Root):
     host: str = tosca.Attribute()
@@ -97,6 +100,8 @@ def test_options():
     assert field.metadata == dict(tfvar=True, my_option="foo")
     field2 = tosca.Property(options=expr.tfvar)
     assert field2.metadata == dict(tfvar=True)
+    field3 = tosca.Property(options=expr.sensitive | expr.set_inert())
+    assert field3.metadata == dict(inert=True, sensitive=True)
 
 
 @pytest.mark.parametrize(
@@ -286,13 +291,17 @@ expressions_yaml = {
                     "type": "string",
                     "default": {
                         "eval": {
-                            "allowed": "[a-zA-Z0-9-]",
-                            "start": "[a-zA-Z]",
-                            "replace": "--",
-                            "case": "lower",
-                            "end": "[a-zA-Z0-9]",
-                            "max": 63,
-                            "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                            "inert": {
+                                "eval": {
+                                    "allowed": "[a-zA-Z0-9-]",
+                                    "start": "[a-zA-Z]",
+                                    "replace": "--",
+                                    "case": "lower",
+                                    "end": "[a-zA-Z0-9]",
+                                    "max": 63,
+                                    "to_dns_label": {"get_input": ["missing", "fo!o"]},
+                                }
+                            }
                         }
                     },
                 },
@@ -338,7 +347,9 @@ def test_expressions():
         path1: str = expr.get_dir(None, "src")
         default_expr: str = expr.fallback(None, "foo")
         or_expr: str = expr.or_expr(default_expr, "ignored")
-        label: str = functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        label: str = expr.inert(
+            functions.to_dns_label(expr.get_input("missing", "fo!o"))
+        )
         password: str = tosca.Property(
             options=expr.sensitive | expr.validate(validate_pw), default="default"
         )
@@ -354,11 +365,14 @@ def test_expressions():
 
     topology = runtime_test(test)
     assert topology._yaml == expressions_yaml
+    assert tosca.global_state.mode == "runtime"
+
     assert expr.get_instance(topology.test_node).status == Status.ok
     expr.get_instance(topology.test_node).local_status = Status.error
     assert expr.get_instance(topology.test_node).status == Status.error
     assert topology.service.url_scheme == "https"
     assert topology.myService.url_scheme == "web+https"
+
     assert expr.get_env("MISSING", "default") == "default"
     assert not expr.has_env("MISSING")
     assert expr.get_env("PATH")
@@ -367,14 +381,20 @@ def test_expressions():
     with pytest.raises(UnfurlError):
         input: str = expr.get_input("MISSING")
     assert topology.inputs.domain == "example.com"
-    assert expr.get_dir(topology.service, "src").get() == os.path.dirname(__file__)
+
+    dir_value = expr.get_dir(topology.service, "src")
+    assert dir_value.get() == os.path.dirname(__file__)
+    assert serialize_value(dir_value) == {"eval": {"abspath": ["tests", "self"]}}
     # XXX assert topology.test_node.path1 == os.path.dirname(__file__)
-    assert (
-        expr.abspath(topology.service, "test_dsl_integration.py", "src").get()
-        == __file__
-    )
+    fp = expr.abspath(topology.service, "test_dsl_integration.py", "src")
+    assert fp.get() == __file__
+    assert serialize_value(fp) == {
+        "eval": {"abspath": ["tests/test_dsl_integration.py", "self"]}
+    }
+
     assert expr.uri(None) != topology.test_node.url
     assert expr.uri(topology.test_node) == topology.test_node.url
+
     assert functions.to_label("fo!oo", replace="_") == "fo_oo"
     assert (
         expr.template(
@@ -382,7 +402,7 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a="{{ SELF.url }}"),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert (
         expr.template(
@@ -390,18 +410,46 @@ def test_expressions():
             contents="{%if 1 %}{{ a }}{%endif%}",
             vars=dict(a=topology.test_node.url),
         )
-        == "#::test.test_node"
+        == "#:::test.test_node"
     )
     assert topology.test_node.default_expr == "foo"
     assert topology.test_node.or_expr == "foo"
     assert topology.test_node.label == "fo--o"
     assert (
         "to_dns_label"
-        in topology.test_node._instance.attributes.defs["label"].default["eval"]
+        in topology.test_node._instance.attributes.defs["label"].default["eval"][
+            "inert"
+        ]["eval"]
     )
+
     assert is_sensitive(topology.test_node.password)
     with pytest.raises(UnfurlError, match=r"validation failed for"):
         topology.test_node.password = ""
+
+    resolved = "ghcr.io/onecommons/unfurl@sha256:acd6c243b16145778f8ed96b7b3b7d26b211664114b1e8dbc5537902cc456afc"
+    assert (
+        expr.get_artifact(None, "ghcr.io/onecommons/unfurl:v1.1.0").with_digest
+        == resolved
+    )
+    image = expr.container_image("ghcr.io/onecommons/unfurl:v1.1.0")
+    assert image
+    assert image.get() == "ghcr.io/onecommons/unfurl:v1.1.0"
+
+    with tosca.set_evaluation_mode("parse"):
+        evaldata = expr.get_artifact(
+            None, "ghcr.io/onecommons/unfurl:v1.1.0"
+        ).with_digest
+        assert evaldata == {
+            "eval": {
+                "get_artifact": [None, "ghcr.io/onecommons/unfurl:v1.1.0", None, None]
+            },
+            "select": "with_digest",
+        }
+        assert Ref(evaldata.expr).resolve_one(tosca.global_state_context()) == resolved
+        evaldata2 = expr.container_image("ghcr.io/onecommons/unfurl:v1.1.0")
+        # arg is a string so it is evaluated eagerly
+        assert evaldata2.get() == image.get()
+
     # XXX test:
     # "if_expr", and_expr
     # "lookup",
@@ -410,10 +458,6 @@ def test_expressions():
     # "not_",
     # "as_bool",
     # tempfile
-
-
-from tosca import MB, GB, mb, gb, Size
-import math
 
 
 @expr.runtime_func
@@ -440,11 +484,11 @@ def test_units(safe_mode):
     assert hash(one_mb)
     assert bool(0 * MB) == bool(0.0)
     assert one_mb.value == 1000000.0
-    assert str(one_mb) == "1 MB"
+    assert str(one_mb) == "1MB"
     assert repr(one_mb) == "1.0*MB"
     assert one_mb.as_unit == 1.0
-    assert one_mb.to_yaml() == "1 MB"
-    assert str(one_mb * GB) == "0.001 GB"
+    assert one_mb.to_yaml() == "1MB"
+    assert str(one_mb * GB) == "0.001GB"
     with pytest.raises(TypeError, match="Hz"):
         str(one_mb * tosca.HZ)
 
@@ -528,6 +572,9 @@ def test_units(safe_mode):
         tosca.global_state.context.copy(trace=0)
     )
     assert result == 32 * GB
+    assert functions.to_kubernetes_label(result) == "32G"
+    assert functions.to_kubernetes_label(1 * KB) == "1k"
+    assert functions.to_kubernetes_label(1 * kib) == "1Ki"
 
 
 def test_find_connection():
@@ -638,15 +685,15 @@ def test_artifact():
         "                  host:\n"
         "                  \n"
         "                      \n"
-        "                          - 0 100 GB\n"
-        "                          - 10.00001 GB\n"
-        "                          - nested: 10 GB, 20 GB, \n"
-        "                          - again: 10 GB, 20 GB, \n"
+        "                          - 0 100GB\n"
+        "                          - 10.00001GB\n"
+        "                          - nested: 10GB, 20GB, \n"
+        "                          - again: 10GB, 20GB, \n"
         "                              \n"
-        "                          - 1 100 GB\n"
-        "                          - 20.00001 GB\n"
-        "                          - nested: 10 GB, 20 GB, \n"
-        "                          - again: 10 GB, 20 GB, \n"
+        "                          - 1 100GB\n"
+        "                          - 20.00001GB\n"
+        "                          - nested: 10GB, 20GB, \n"
+        "                          - again: 10GB, 20GB, \n"
         "                              \n"
         "                  "
     )
@@ -668,7 +715,7 @@ def test_artifact():
                                         ]
                                     }
                                 },
-                                "volumes": ["10 GB", "20 GB"],
+                                "volumes": ["10GB", "20GB"],
                             },
                             "file": "",
                             "contents": {

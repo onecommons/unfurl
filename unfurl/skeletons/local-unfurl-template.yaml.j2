@@ -21,7 +21,13 @@ environments:
     #   -*:       # will remove all environment variables
     #   +HOME:    # will add HOME back
     #   FOO: bar  # set FOO
-    variables: {}
+    variables:
+      +?include-env:
+        # this will download any CI variables you defined in this project on Unfurl Cloud
+        # it will be skipped if "file" is empty (e.g. if \${UNFURL_CLOUD_VARS_URL} isn't set)
+        file: ${UNFURL_CLOUD_VARS_URL}
+        merge: maplist
+
     {%- if vaultid %}
     # The vault password will be set using the --var VAULT_PASSWORD option when cloning, e.g.
     # `unfurl clone --var VAULT_PASSWORD "<the passphrase>" ...

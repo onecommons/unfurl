@@ -80,13 +80,15 @@
           "$ref": "#/definitions/attributes"
         },
         "defaultProject": {
-          "type": "string"
+          "type": "string",
+          "description": "The name of the project to place ensembles using this environment in, or SELF to indicate this project"
         },
         "name": {
           "type": "string"
         },
         "deployment_blueprint": {
-          "type": "string"
+          "type": "string",
+          "description": "Name of the deployment blueprint the ensemble should use."
         },
         "variables": {
           "anyOf": [
@@ -129,6 +131,21 @@
             },
             "hosts": {
               "type": "object"
+            },
+            "servers": {
+              "type": "object"
+            },
+            "analyzers": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": ["path"]
+              }
             }
           }
         },

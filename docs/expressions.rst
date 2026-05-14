@@ -15,7 +15,7 @@ Stand-alone functions don't need to be wrapped in an "eval".
   Key                           Value
   ============================  ========================================================
   :std:ref:`concat`             ``[ string* ]``
-  `get_artifact`                ``[ template_name, artifact_name]``
+  :std:ref:`get_artifact`       ``[ template_name, artifact_name]``
   `get_attribute`               ``[ template_name, req_or_cap_name?, property_name, index_or_key* ]``
   :std:ref:`get_env`            :regexp:`name | [ name, default? ]`
   :std:ref:`get_input`          :regexp:`name | [ name, default? ]`
@@ -54,6 +54,20 @@ get_artifact
   If the instance is an artifact this argument should be omitted or null, otherwise if the artifact is not found return ``null``.
 
   See also the :tosca_spec:`TOSCA get_artifact spec <_Toc50125538>` (but note that ``location`` and ``remove`` arguments are not currently supported).
+
+  Container images can use ``with_digest`` in a `select<eval keys>` clause to resolve to the image reference an immutable digest. For example:
+
+  .. code-block:: YAML
+
+      eval:
+        get_artifact: [null, ghcr.io/onecommons/unfurl:v1.1.0]
+      select: with_digest
+
+  Evaluates to ``ghcr.io/onecommons/unfurl@sha256:acd6c243b16145778f8ed96b7b3b7d26b211664114b1e8dbc5537902cc456afc``
+
+  If image registry requires credentials to retrieve the digest, the registry has to be declared as a TOSCA `repository` with credentials and the artifact's ``repository`` key set to its name.
+  Alternatively, if the node template referenced in the first argument is of type ``unfurl.nodes.Repository``, those credentials will be used.
+  In both cases, the resolved image name will include the hostname of the referenced registry, the hostname of the registry does not need to be in the declared name.
 
 get_attribute
 ^^^^^^^^^^^^^
@@ -137,11 +151,12 @@ Expression Functions
   `external <external_func>`       name
   `file`                           (see below)
   :std:ref:`find_connection`       expr
-  foreach                          {key?, value?}
+  `foreach`                        (see below)
   `ge`                             [a, b]
   :std:ref:`get_ensemble_metadata` key?
   :std:ref:`get_dir`               location | [location, mkdir?]
   `gt`                             [a, b]
+  :std:ref:`inert`                 (see below)
   `is_function_defined`            function name
   `if`                             (see below)
   `le`                             [a, b]
@@ -280,7 +295,7 @@ file
   ========= ===============================
   file      path
   dir?      directory path
-  encoding? "binary" | "vault" | "json" | "yaml" | "env" | python_text_encoding
+  encoding? "binary" | "vault" | "json" | "yaml" | `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ | python_text_encoding
   contents? any
   ========= ===============================
 
@@ -288,11 +303,11 @@ file
 
   ``dir`` Base dir for ``file``
 
-  ``encoding`` can be "binary", "vault", "json", "yaml", "env" or an encoding registered with the Python codec registry
+  ``encoding`` can be "binary", "vault", "json", "yaml", `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ or an encoding registered with the Python codec registry
 
   ``contents`` If present, the contents will be written to the file, if missing the file will be read.
 
-  The `select<expression function syntax>` clause can evaluate the following keys:
+  The `select<eval keys>` clause can evaluate the following keys:
 
   =============  ========================================
   Key            Returns
@@ -346,6 +361,80 @@ Find a relationship that can be used to connect to the given instance. See `Task
 
 foreach
 ^^^^^^^
+
+Iterate over a collection and apply the expression to each item, returning a list or dictionary of results.
+
+To return a list use this form:
+
+.. code-block:: YAML
+
+  eval:
+    foreach: [<collection>, <expression>]
+
+To return a dictionary, use this form:
+
+.. code-block:: YAML
+
+  eval: [<collection_expression>, {key: <key_expression>, value: <value_expression>}]
+
+``foreach`` can also be used as a top level `eval key <eval keys>` with this form:
+
+.. code-block:: YAML
+
+  eval: <collection_expression>
+  foreach: <list_expression or dictionary_expression>
+
+In this case, the foreach expression evaluates each item returned by the primary expression.
+
+During iteration, the following expression variables are available:
+
+============ ===================================================================
+Variable     Description
+============ ===================================================================
+collection   The entire collection being iterated over
+index        Zero-based numeric index of the current iteration
+key          The key of the current item (for dictionaries) or index (for lists)
+item         The value of the current item
+break        Special value that when returned will stop iteration
+continue     Special value that when returned will skip to the next iteration
+============ ===================================================================
+
+**Examples:**
+
+Multiply each item in a list:
+
+.. code-block:: YAML
+
+  eval:
+    foreach:
+      - [1, 2, 3]
+      - "{{ item * 2 }}"
+
+  # Result: [2, 4, 6]
+
+Same example with ``foreach`` as a top-level eval key:
+
+.. code-block:: YAML
+
+  eval: $numbers 
+  foreach: "{{ item * 2 }}"
+  vars: 
+    numbers: [1, 2, 3]
+
+  # Result: [2, 4, 6]
+
+Reverse the keys and values of a dictionary:
+
+.. code-block:: YAML
+
+  eval:
+    foreach:
+    - {"a": 1, "b": 2}
+    - key: $item
+      value: $key
+
+  # Result: {1: "a", 2: "b"}
+
 
 get_dir
 ^^^^^^^
@@ -401,6 +490,32 @@ if
       else: unexpected
     vars:
       a: true
+
+inert
+^^^^^
+
+  ============   ====================================
+  Key            Value
+  ============   ====================================
+  inert          any
+  substitute?    string or boolean
+  ============   ====================================
+
+  Mark the given value as "inert", meaning it is treated as insignificant when Unfurl compares configuration to determine if it has changed or when calculating a digest of a configuration.
+  This function is transparent except for these internal operations.
+  You can use this to avoid false positives -- for example, a configuration script might add a unique timestamp every run so we need to exclude it during comparison.
+
+  The optional ``substitute`` keyword can be used to specify a substitute value to used instead of just ignoring the value. If ``substitute`` key is set to an eval expression it will applied to using the   (exposed as an expression variable named ``value``).
+
+  For example, this strips comments from the value of "my_property" for comparison:
+
+  .. code-block:: YAML
+
+    eval:
+      inert:
+        eval: my_property
+      substitute: "{{ value | regex_replace('(#.*)$', '', multiline=True) }}"
+
 
 is_function_defined
 ^^^^^^^^^^^^^^^^^^^
@@ -494,10 +609,8 @@ python
 scalar
 ^^^^^^
 
-Parse the given string into a scalar, e.g. "5 mb".
-
-TOSCA properties with scalar-unit types represented as as strings so use this function to treat them as scalars.
-For example, in the example below, even though ``mem_size`` property is declared with type ``scalar-unit.size`` you still need to use the ``scalar`` expression function.
+Parse the given string into a scalar, e.g. "5 mb". The string should match the syntax expected for TOSCA scalar-unit types.
+For example:
 
   .. code-block:: YAML
 
@@ -506,7 +619,7 @@ For example, in the example below, even though ``mem_size`` property is declared
       - eval:
           scalar: "5 mb"
       - eval:
-          scalar: mem_size
+          scalar: "1GB"
 
 
 scalar_value
@@ -564,7 +677,7 @@ tempfile
   Key       Value
   ========= ===============================
   tempfile  contents
-  encoding? "binary" | "vault" | "json" | "yaml" | python_text_encoding
+  encoding? "binary" | "vault" | "json" | "yaml" | `"env" <https://hexdocs.pm/dotenvy/dotenv-file-format.html>`_ | python_text_encoding
   suffix?
   ========= ===============================
 
@@ -626,8 +739,7 @@ If ``update_os_environ`` is true update the environment variables for the curren
 to_googlecloud_label
 ^^^^^^^^^^^^^^^^^^^^
 
-Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
-following the rules found here https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements
+Convert the given argument (see :std:ref:`to_label` for full description) to a string following Google Cloud's `label requirements <https://cloud.google.com/resource-manager/docs/creating-managing-labels#requirements>`_.
 
 Invalid characters are replaced with "__".
 
@@ -635,9 +747,12 @@ to_kubernetes_label
 ^^^^^^^^^^^^^^^^^^^
 
 Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
-following the rules found here https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set
+following the rules found `here <https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set>`_.
+
+If the argument is a size scalar-unit, it is converted to a string following the `Kubernetes quantity syntax <https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity>`_.
 
 Invalid characters are replaced with "__".
+
 
 to_label
 ^^^^^^^^
@@ -720,32 +835,32 @@ Built-in keys start with a leading **.**:
 ============== =============================================================
 **.**          self
 **..**         parent
+.all           Dictionary of all the resources in the current topology,
+.ancestors     self and parents
+.apex          Root ancestor of the outermost topology
+.artifacts     map with artifact names as keys and artifact instances as values
+.capabilities  list of capabilities
+.configured_by Follow .sources, filtering by the ``Configures`` relationship
+.deployment    Name of the ensemble
+.descendants   (including self)
+.hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
+.instances     child instances (via the ``HostedOn`` relationship)
 .name          name of this instance
-.type          name of instance's TOSCA type
+.owner         parent or source if embedded instance otherwise self
+.parents       list of parents starting from root
+.relationships list of relationships that target this capability
+.repository    repository associated with this artifact or resource
+.requirements  list of requirements
+.root          root ancestor of the current topology.
+.source        SOURCE node if instance is a relationship
+.sources       map with requirement names as keys and source instances as values
+.state         the instance's :class:`unfurl.support.NodeState`
+.status        the instance's :class:`unfurl.support.Status`
+.super         map of properties defined on the template's type or base type
+.target        TARGET node if instance is a relationship
+.targets       map with requirement names as keys and target instances as values
 .tosca_id      unique id of this instance
 .tosca_name    name of the instance's TOSCA template
-.status        the instance's :class:`unfurl.support.Status`
-.state         the instance's :class:`unfurl.support.NodeState`
-.parents       list of parents starting from root
-.ancestors     self and parents
-.owner         parent or source if embedded instance otherwise self
-.source        SOURCE node if instance is a relationship
-.target        TARGET node if instance is a relationship
-.root          root ancestor
-.instances     child instances (via the ``HostedOn`` relationship)
-.capabilities  list of capabilities
-.requirements  list of requirements
-.relationships list of relationships that target this capability
-.targets       map with requirement names as keys and target instances as values
-.sources       map with requirement names as keys and source instances as values
-.artifacts     map with artifact names as keys and artifact instances as values
-.repository    repository associated with this artifact or resource
-.hosted_on     Follow .targets, filtering by the ``HostedOn`` relationship
-.configured_by Follow .sources, filtering by the ``Configures`` relationship
-.descendants   (including self)
-.all           Dictionary of child resources with their names as keys
+.type          name of instance's TOSCA type
 .uri           Unique URI for this instance (`URI<uris>` plus the tosca_id)
-.deployment    Name of the ensemble
-.apex          Root ancestor of the outermost topology
-.super         map of properties defined on the template's type or base type
 ============== =============================================================

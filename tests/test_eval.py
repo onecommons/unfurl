@@ -43,6 +43,7 @@ class EvalTest(unittest.TestCase):
             "name": "test",
             "a": {"ref": "name"},
             "b": [1, 2, 3],
+            "c": {"prop": ["a", "b"]},
             "d": {"a": "va", "b": "vb"},
             "n": {"n": {"n": "n"}},
             "s": {"ref": "."},
@@ -133,11 +134,15 @@ class EvalTest(unittest.TestCase):
             ["::*::.template::type", ["tosca.nodes.Root"]],
             ["$missing::a", []],
             [{"q": "{{ 'a' }}"}, ["{{ 'a' }}"]],
+            ["c[prop=a]", []],
+            ["c[prop~=a]", [{"prop": ["a", "b"]}]],
+            ["b[~=2]", [[1, 2, 3]]],
+            ["b[~=4]", []],
             # XXX test nested ['.[k[d=3]=4]']
         ]:
             ref = Ref(exp)
             # print ('eval', ref.source, ref)
-            result = ref.resolve(RefContext(resource, trace=0))
+            result = ref.resolve(RefContext(resource, trace=2))
             assert all(not isinstance(i, Result) for i in result)
             if isinstance(expected, set):
                 # for results where order isn't guaranteed in python2.7
@@ -155,14 +160,22 @@ class EvalTest(unittest.TestCase):
 
     def test_last_resource(self):
         parent = NodeInstance("parent")
-        self._getTestResource(parent=parent)
-        NodeInstance("another_child", parent=parent)
+        test_instance = self._getTestResource(parent=parent)
+        child = NodeInstance("another_child", parent=parent)
         ref = Ref(".::.instances::x::c")
         ctx = RefContext(parent, trace=0)
-        # index = ctx.referenced.start()
         result = ref.resolve(ctx)
-        assert (ctx._lastResource.name) == "parent"
+        last = ctx._lastResource
+        assert last.name == "parent"
         assert result == [5, 6]
+
+        assert [test_instance, child] == ref.resolve(
+            RefContext(parent), wantList="instance"
+        )
+        assert parent.root is parent
+        assert [test_instance] == Ref(":::test::s::s::b::1").resolve(
+            SafeRefContext(parent, trace=2), wantList="instance"
+        )
 
     def test_funcs(self):
         resource = self._getTestResource()
@@ -244,9 +257,19 @@ class EvalTest(unittest.TestCase):
         result3 = Ref(test2).resolve_one(RefContext(resource, trace=0))
         assert result3 == [2, 4, 6]
 
+        test2b = {
+            "eval": {"foreach": [{"eval": ".::b"}, "{{ item * 2 }}"]},
+        }
+        result3b = Ref(test2b).resolve_one(RefContext(resource, trace=0))
+        assert result3b == [2, 4, 6]
+
         test3 = {"eval": "a", "foreach": "$item"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
         assert result4 == ["test"]
+
+        test = {"eval": "a", "foreach": "$collection"}
+        result = Ref(test).resolve_one(RefContext(resource, trace=0))
+        assert result == [["test"]]
 
         test3 = {"eval": "a", "foreach": "$true"}
         result4 = Ref(test3).resolve_one(RefContext(resource, trace=0))
@@ -282,11 +305,17 @@ class EvalTest(unittest.TestCase):
         mapped = ResultsMap._map_value(dict(test8=test8), RefContext(resource))
         assert mapped["test8"] == [PortSpec.make("80:81")]
 
+        test9 = {
+            "eval": {"foreach": [dict(a=1, b=2), dict(key="$item", value="$key")]},
+        }
+        result9 = Ref(test9).resolve_one(RefContext(resource, trace=0))
+        assert result9 == {1: "a", 2: "b"}
+
     def test_serializeValues(self):
         resource = self._getTestResource()
         src = {"a": ["b", resource]}
         serialized = serialize_value(src)
-        self.assertEqual(serialized, {"a": ["b", {"ref": "::test"}]})
+        self.assertEqual(serialized, {"a": ["b", {"eval": "::test"}]})
         self.assertEqual(src, map_value(serialized, resource))
         serialized = serialize_value(
             dict(foo=sensitive_str("sensitive"), yes="yes"), redact=True
@@ -432,10 +461,12 @@ class EvalTest(unittest.TestCase):
                 "success": dict(eval={"if": "$true", "then": ".name"}),
             },
         }
-        resource = self._getTestResource({
-            "aTemplate": query,
-            "q": dict(q="{{ SELF }}"),
-        })
+        resource = self._getTestResource(
+            {
+                "aTemplate": query,
+                "q": dict(q="{{ SELF }}"),
+            }
+        )
         self.assertEqual(map_value(query, resource), "test")
         self.assertEqual(resource.attributes["aTemplate"], "test")
         self.assertEqual(resource.attributes["q"], "{{ SELF }}")
@@ -735,10 +766,16 @@ foo
 
         ctx2 = ctx.copy(wantList="result")
         result = map_value(asTemplate, ctx2)
-        self.assertIs(result.external, singleton)
+        self.assertIs(result[0].external, singleton)
 
         result = map_value("transformed " + asTemplate, ctx2)
-        self.assertEqual(result, "transformed test")
+        self.assertEqual(result[0], "transformed test")
+
+        result = map_value(dict(eval=expr.source), ctx2)
+        self.assertIs(result[0].external, singleton)
+
+        mapped = ResultsMap._map_value(dict(eval=".::b"), ctx)
+        assert mapped == [1, 2, 3]
 
     def test_to_env(self):
         from unfurl.yamlloader import make_yaml
@@ -995,6 +1032,16 @@ def test_analyze_expr():
         ".capabilities",
         "cap_name",
         "foo",
+    ]
+
+    result = analyze_expr(
+        {"eval": ".capabilities::[.name=cap_name][confers~=item]", "trace": 1}
+    )
+    assert result and result.get_keys() == [
+        "$start",
+        ".capabilities",
+        "cap_name",
+        "confers",
     ]
 
     result = analyze_expr({"eval": "::node::foo", "trace": 0})

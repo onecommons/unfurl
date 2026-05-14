@@ -1,0 +1,4104 @@
+{
+  "components": {
+    "schemas": {
+      "BatchPatchBody": {
+        "additionalProperties": true,
+        "description": "JSON body for /batch_patch -- used by the Rust proxy to forward\na batch of write requests that share the same branch and latest_commit.\n\nThe ``requests`` list preserves the original submission order so the\nPython backend can apply each operation sequentially before pushing once.",
+        "properties": {
+          "branch": {
+            "default": "main",
+            "description": "Target branch",
+            "title": "Branch",
+            "type": "string"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest known commit hash for optimistic concurrency checks",
+            "title": "Latest Commit"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Current queueid from the Rust proxy; Python updates the Redis queue key with '{new_commit},{queueid}' after committing",
+            "title": "Queueid"
+          },
+          "requests": {
+            "description": "Ordered list of original requests, each with 'endpoint' and the original body fields",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests"
+        ],
+        "title": "BatchPatchBody",
+        "type": "object"
+      },
+      "CloudMapDocument": {
+        "properties": {
+          "apiVersion": {
+            "enum": [
+              "unfurl/v1alpha1",
+              "unfurl/v1.0.0"
+            ],
+            "type": "string"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_artifact"
+            },
+            "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.",
+            "propertyNames": {
+              "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "instantiations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_instantiation"
+            },
+            "description": "Build and deployment information for artifacts and services. Keys are URLs.",
+            "propertyNames": {
+              "description": "URL of the instantiation.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "kind": {
+            "const": "CloudMap"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/cloudmap_metadata",
+            "description": "Human-readable metadata about this CloudMap."
+          },
+          "repositories": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_repository"
+            },
+            "description": "Git repositories. Keys are URLs that start with git://",
+            "propertyNames": {
+              "description": "URL of the repository using the git:// URL scheme.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "services": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_service"
+            },
+            "description": "Instances of services.",
+            "propertyNames": {
+              "description": "URL of the service.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_type"
+            },
+            "description": "Type definitions for artifacts, services, software, and capabilities.",
+            "propertyNames": {
+              "description": "Fully-qualified type name with namespace (e.g., Compute@unfurl.cloud/onecommons/std).",
+              "pattern": "^[^\\s]+$"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "apiVersion",
+          "kind"
+        ],
+        "title": "CloudMap Schema",
+        "type": "object"
+      },
+      "CloudMapDocumentPair": {
+        "description": "Two-element array: the queried (and optionally filtered) CloudMap document followed by a CloudMap document of records discovered by following the graph from the filter key (empty dict when ``follow`` is 0 or no key was supplied).",
+        "items": {
+          "$ref": "#/components/schemas/CloudMapDocument"
+        },
+        "maxItems": 2,
+        "minItems": 2,
+        "title": "CloudMap document pair",
+        "type": "array"
+      },
+      "CloudMapResponse": {
+        "additionalProperties": true,
+        "description": "Pydantic wrapper for :class:`GraphJson`, used by ``@app.output``.",
+        "properties": {
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Error message when the record is not found",
+            "title": "Error"
+          },
+          "roots": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/CloudMapResponse.RecordRef"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "List of root record references (single-record mode)",
+            "title": "Roots"
+          },
+          "sections": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/CloudMapResponse.GraphNodeJson"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of section name \u2192 {url \u2192 GraphNodeJson}",
+            "title": "Sections"
+          }
+        },
+        "title": "CloudMapResponse",
+        "type": "object"
+      },
+      "CloudMapResponse.GraphNodeJson": {
+        "additionalProperties": true,
+        "description": "A node in the JSON graph representation.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "rels": {
+            "additionalProperties": {
+              "items": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CloudMapResponse.RecordRef"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CloudMapResponse.TypeRefJson"
+                  },
+                  {
+                    "type": "string"
+                  }
+                ]
+              },
+              "type": "array"
+            },
+            "title": "Rels",
+            "type": "object"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "GraphNodeJson",
+        "type": "object"
+      },
+      "CloudMapResponse.RecordRef": {
+        "additionalProperties": true,
+        "description": "A reference to a record in the graph, used in relationship lists.",
+        "properties": {
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "missing": {
+            "title": "Missing",
+            "type": "boolean"
+          },
+          "type_refs": {
+            "items": {
+              "$ref": "#/components/schemas/CloudMapResponse.TypeRefJson"
+            },
+            "title": "Type Refs",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "title": "RecordRef",
+        "type": "object"
+      },
+      "CloudMapResponse.TypeRefJson": {
+        "additionalProperties": true,
+        "description": "A type reference in the graph, used in relationship lists.",
+        "properties": {
+          "constraints": {
+            "additionalProperties": true,
+            "title": "Constraints",
+            "type": "object"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "title": "TypeRefJson",
+        "type": "object"
+      },
+      "ExportResponse": {
+        "additionalProperties": true,
+        "description": "GraphQL-style JSON database returned by /export and /types.\n\nEach top-level key maps to a dict of named GraphQL objects of that type,\nreflecting the GraphQL schema defined in unfurl/graphql.py.",
+        "properties": {
+          "ApplicationBlueprint": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ApplicationBlueprint"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of blueprint name \u2192 ApplicationBlueprint object",
+            "title": "Applicationblueprint"
+          },
+          "Deployment": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.Deployment"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of deployment name \u2192 Deployment object (deployment format only)",
+            "title": "Deployment"
+          },
+          "DeploymentEnvironment": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.DeploymentEnvironment"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "DeploymentEnvironment object (deployment and environments formats)"
+          },
+          "DeploymentPath": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.DeploymentPath"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of path \u2192 DeploymentPath object (registered ensemble paths)",
+            "title": "Deploymentpath"
+          },
+          "DeploymentTemplate": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.DeploymentTemplate"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of blueprint name \u2192 DeploymentTemplate object",
+            "title": "Deploymenttemplate"
+          },
+          "ResourceTemplate": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of template name \u2192 ResourceTemplate object (TOSCA node template)",
+            "title": "Resourcetemplate"
+          },
+          "ResourceType": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ExportResponse.ResourceType"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Map of type name \u2192 ResourceType object (TOSCA node type)",
+            "title": "Resourcetype"
+          },
+          "deployments": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ExportResponse.Deployment"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Embedded deployment exports (present when include_all_deployments=true)",
+            "title": "Deployments"
+          }
+        },
+        "title": "ExportResponse",
+        "type": "object"
+      },
+      "ExportResponse.ApplicationBlueprint": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "blueprintPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Blueprintpath"
+          },
+          "deploymentTemplates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Deploymenttemplates",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image"
+          },
+          "livePreview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Livepreview"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "primaryDeploymentBlueprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primarydeploymentblueprint"
+          },
+          "projectIcon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projecticon"
+          },
+          "projectPath": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Projectpath"
+          },
+          "sourceCodeUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sourcecodeurl"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "ApplicationBlueprint",
+        "type": "object"
+      },
+      "ExportResponse.Deployment": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "deployTime": {
+            "title": "Deploytime",
+            "type": "string"
+          },
+          "deploymentTemplate": {
+            "title": "Deploymenttemplate",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "packages": {
+            "additionalProperties": true,
+            "title": "Packages",
+            "type": "object"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ExportResponse.Status"
+          },
+          "summary": {
+            "title": "Summary",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          },
+          "workflow": {
+            "title": "Workflow",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "Deployment",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentEnvironment": {
+        "additionalProperties": true,
+        "properties": {
+          "connections": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Connections",
+            "type": "object"
+          },
+          "instances": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Instances",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary_provider": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "repositories": {
+            "additionalProperties": true,
+            "title": "Repositories",
+            "type": "object"
+          }
+        },
+        "required": [
+          "instances"
+        ],
+        "title": "DeploymentEnvironment",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentPath": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "incremental_deploy": {
+            "title": "Incremental Deploy",
+            "type": "boolean"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pipelines": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Pipelines",
+            "type": "array"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "environment",
+          "pipelines",
+          "incremental_deploy",
+          "__typename"
+        ],
+        "title": "DeploymentPath",
+        "type": "object"
+      },
+      "ExportResponse.DeploymentTemplate": {
+        "additionalProperties": true,
+        "properties": {
+          "ResourceTemplate": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ExportResponse.ResourceTemplate"
+            },
+            "title": "Resourcetemplate",
+            "type": "object"
+          },
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "blueprint": {
+            "title": "Blueprint",
+            "type": "string"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Branch"
+          },
+          "cloud": {
+            "title": "Cloud",
+            "type": "string"
+          },
+          "commitTime": {
+            "title": "Committime",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "environmentVariableNames": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Environmentvariablenames",
+            "type": "array"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "primary": {
+            "title": "Primary",
+            "type": "string"
+          },
+          "resourceTemplates": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Resourcetemplates",
+            "type": "array"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "DeploymentTemplate",
+        "type": "object"
+      },
+      "ExportResponse.ImportDef": {
+        "additionalProperties": true,
+        "properties": {
+          "file": {
+            "title": "File",
+            "type": "string"
+          },
+          "incomplete": {
+            "title": "Incomplete",
+            "type": "boolean"
+          },
+          "prefix": {
+            "title": "Prefix",
+            "type": "string"
+          },
+          "repository": {
+            "title": "Repository",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "ImportDef",
+        "type": "object"
+      },
+      "ExportResponse.Requirement": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "constraint": {
+            "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "constraint",
+          "match",
+          "__typename"
+        ],
+        "title": "Requirement",
+        "type": "object"
+      },
+      "ExportResponse.RequirementConstraint": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "badge": {
+            "title": "Badge",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "inputsSchema": {
+            "additionalProperties": true,
+            "title": "Inputsschema",
+            "type": "object"
+          },
+          "match": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Match"
+          },
+          "max": {
+            "title": "Max",
+            "type": "integer"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "min": {
+            "title": "Min",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "node_filter": {
+            "additionalProperties": true,
+            "title": "Node Filter",
+            "type": "object"
+          },
+          "requirementsFilter": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+            },
+            "title": "Requirementsfilter",
+            "type": "array"
+          },
+          "resourceType": {
+            "title": "Resourcetype",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "resourceType",
+          "match",
+          "min",
+          "max",
+          "badge",
+          "icon",
+          "inputsSchema",
+          "__typename"
+        ],
+        "title": "RequirementConstraint",
+        "type": "object"
+      },
+      "ExportResponse.ResourceTemplate": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "dependencies": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.Requirement"
+            },
+            "title": "Dependencies",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "directives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directives",
+            "type": "array"
+          },
+          "imported": {
+            "title": "Imported",
+            "type": "string"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "properties": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Properties",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "__typename"
+        ],
+        "title": "ResourceTemplate",
+        "type": "object"
+      },
+      "ExportResponse.ResourceType": {
+        "additionalProperties": true,
+        "properties": {
+          "__typename": {
+            "title": "Typename",
+            "type": "string"
+          },
+          "_sourceinfo": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExportResponse.ImportDef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "badge": {
+            "title": "Badge",
+            "type": "string"
+          },
+          "computedPropertiesSchema": {
+            "additionalProperties": true,
+            "title": "Computedpropertiesschema",
+            "type": "object"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "details_url": {
+            "title": "Details Url",
+            "type": "string"
+          },
+          "directives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Directives",
+            "type": "array"
+          },
+          "extends": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Extends",
+            "type": "array"
+          },
+          "icon": {
+            "title": "Icon",
+            "type": "string"
+          },
+          "implementation_requirements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementation Requirements",
+            "type": "array"
+          },
+          "implementations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Implementations",
+            "type": "array"
+          },
+          "inputsSchema": {
+            "additionalProperties": true,
+            "title": "Inputsschema",
+            "type": "object"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "title": "Metadata",
+            "type": "object"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "outputsSchema": {
+            "additionalProperties": true,
+            "title": "Outputsschema",
+            "type": "object"
+          },
+          "requirements": {
+            "items": {
+              "$ref": "#/components/schemas/ExportResponse.RequirementConstraint"
+            },
+            "title": "Requirements",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "visibility": {
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "extends",
+          "inputsSchema",
+          "requirements",
+          "__typename"
+        ],
+        "title": "ResourceType",
+        "type": "object"
+      },
+      "ExportResponse.Status": {
+        "enum": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "title": "Status",
+        "type": "integer"
+      },
+      "HTTPError": {
+        "properties": {
+          "detail": {
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PatchEnsembleBody": {
+        "additionalProperties": true,
+        "description": "JSON body for /create_ensemble, /update_ensemble, and /create_provider.\n\nExtends PatchEnvironmentBody with ensemble-specific fields.",
+        "properties": {
+          "blueprint_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Remote blueprint URL to clone when creating an ensemble",
+            "title": "Blueprint Url"
+          },
+          "branch": {
+            "default": "main",
+            "description": "Target branch",
+            "title": "Branch",
+            "type": "string"
+          },
+          "cloud_vars_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "URL for cloud variables used for vault secret encryption",
+            "title": "Cloud Vars Url"
+          },
+          "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git commit message",
+            "title": "Commit Msg"
+          },
+          "deployment_blueprint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Name of the deployment blueprint to use when creating an ensemble",
+            "title": "Deployment Blueprint"
+          },
+          "deployment_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Path for the deployment within the project",
+            "title": "Deployment Path"
+          },
+          "environment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Deployment environment name",
+            "title": "Environment"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest known commit hash for optimistic concurrency checks",
+            "title": "Latest Commit"
+          },
+          "patch": {
+            "description": "List of patch operations describing the changes to apply",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Patch",
+            "type": "array"
+          },
+          "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git personal access token or password",
+            "title": "Private Token"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "title": "Queueid"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git username for pushing the commit",
+            "title": "Username"
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "title": "PatchEnsembleBody",
+        "type": "object"
+      },
+      "PatchEnvironmentBody": {
+        "additionalProperties": true,
+        "description": "JSON body for /delete_deployment, /update_environment, and /delete_environment.",
+        "properties": {
+          "branch": {
+            "default": "main",
+            "description": "Target branch",
+            "title": "Branch",
+            "type": "string"
+          },
+          "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git commit message",
+            "title": "Commit Msg"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest known commit hash for optimistic concurrency checks",
+            "title": "Latest Commit"
+          },
+          "patch": {
+            "description": "List of patch operations describing the changes to apply",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Patch",
+            "type": "array"
+          },
+          "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git personal access token or password",
+            "title": "Private Token"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "title": "Queueid"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git username for pushing the commit",
+            "title": "Username"
+          }
+        },
+        "required": [
+          "patch"
+        ],
+        "title": "PatchEnvironmentBody",
+        "type": "object"
+      },
+      "PatchResponse": {
+        "description": "Response from write endpoints.\n\nEither ``commit`` (a git commit hash) or ``queueid`` (a monotonic\nversion counter) used as a optimistic-concurrency\ntoken the client should echo back on its next write.",
+        "properties": {
+          "applied": {
+            "description": "Per-record results for batch CloudMap writes. Empty for single-record endpoints. In non-atomic mode, contains the records that committed even though the batch reported a conflict.",
+            "items": {
+              "$ref": "#/components/schemas/PatchResponse.AppliedRecord"
+            },
+            "title": "Applied",
+            "type": "array"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Commit hash after applying the patch, or null if no changes were committed",
+            "title": "Commit"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Monotonic version assigned to this uncommitted write operation.",
+            "title": "Queueid"
+          }
+        },
+        "title": "PatchResponse",
+        "type": "object"
+      },
+      "PatchResponse.AppliedRecord": {
+        "description": "One record successfully applied during a CloudMap batch write.\n\nReturned in :attr:`PatchResponse.applied`.",
+        "properties": {
+          "key": {
+            "description": "Record key within the section.",
+            "title": "Key",
+            "type": "string"
+          },
+          "section": {
+            "description": "CloudMap section, e.g. ``artifacts``.",
+            "title": "Section",
+            "type": "string"
+          },
+          "version": {
+            "description": "``unfurl.server.version`` stamped on the row by this write.",
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "section",
+          "key",
+          "version"
+        ],
+        "title": "AppliedRecord",
+        "type": "object"
+      },
+      "PostCloudmapRequest": {
+        "additionalProperties": true,
+        "description": "Request body for ``POST /cloudmap``.\n\nA CloudMap document portion (``apiVersion`` / ``kind`` / the five\nsection maps) plus request-only envelope/control fields\n(``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``\n/ ``private_token`` / ``commit_msg``).\n\nDeclared as a flat object \u2014 the cloudmap section maps and the\nenvelope keys live side-by-side at the top level. The endpoint\nsplits them apart by name; the JSON-Schema validation only runs on\nthe cloudmap-document subset.\n\nThis is the *typed request body* that ``oas3-gen`` propagates into\nthe rust ``unfurl_types`` types so the rust handler can use a\nsingle typed extractor instead of hand-rolling a wrapper struct.",
+        "properties": {
+          "apiVersion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Apiversion"
+          },
+          "artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_artifact"
+            },
+            "description": "Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.",
+            "propertyNames": {
+              "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "atomic": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only \u2014 the Python YAML fallback is implicitly atomic.",
+            "title": "Atomic"
+          },
+          "cloudmap_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+            "title": "Cloudmap Path"
+          },
+          "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Commit message for the local commit; falls back to a generated default.",
+            "title": "Commit Msg"
+          },
+          "instantiations": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_instantiation"
+            },
+            "description": "Build and deployment information for artifacts and services. Keys are URLs.",
+            "propertyNames": {
+              "description": "URL of the instantiation.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Kind"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Last commit oid the client observed. Forwarded to git-level OCC checks.",
+            "title": "Latest Commit"
+          },
+          "metadata": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Metadata"
+          },
+          "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential token; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Private Token"
+          },
+          "repositories": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_repository"
+            },
+            "description": "Git repositories. Keys are URLs that start with git://",
+            "propertyNames": {
+              "description": "URL of the repository using the git:// URL scheme.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "services": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_service"
+            },
+            "description": "Instances of services.",
+            "propertyNames": {
+              "description": "URL of the service.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
+          "types": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_type"
+            },
+            "description": "Type definitions for artifacts, services, software, and capabilities.",
+            "propertyNames": {
+              "description": "Fully-qualified type name with namespace (e.g., Compute@unfurl.cloud/onecommons/std).",
+              "pattern": "^[^\\s]+$"
+            },
+            "type": "object"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential username; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Username"
+          }
+        },
+        "title": "PostCloudmapRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "detail": {
+            "properties": {
+              "<location>": {
+                "properties": {
+                  "<field_name>": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "cloudmap_artifact": {
+        "$$target": "#/definitions/artifact",
+        "additionalProperties": true,
+        "properties": {
+          "dependencies": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+          },
+          "digest": {
+            "description": "Cryptographic digest of the artifact.",
+            "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/cloudmap_discovery"
+          },
+          "immutable": {
+            "description": "Indicates whether the artifact identifier refers to an artifact that will not change.",
+            "type": "boolean"
+          },
+          "instantiated_by": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "URLs referencing entries in instantiations with optional type constraints."
+          },
+          "instantiates": {
+            "$ref": "#/components/schemas/cloudmap_typeRef",
+            "description": "Types that this artifact instantiates (e.g., software package, service image or template, capabilities pipeline, build tools) with optional version constraints."
+          },
+          "metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/cloudmap_metadata"
+              },
+              {
+                "properties": {
+                  "platforms": {
+                    "description": "List of platforms this artifact supports.",
+                    "items": {
+                      "properties": {
+                        "architecture": {
+                          "description": "CPU architecture (e.g., amd64, arm64).",
+                          "type": "string"
+                        },
+                        "os": {
+                          "description": "Operating system (e.g., linux, windows).",
+                          "type": "string"
+                        }
+                      },
+                      "type": "object"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Human-readable metadata about the artifact."
+          },
+          "notable": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
+            "type": "object"
+          },
+          "references": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
+            "type": "object"
+          },
+          "release_schedule": {
+            "$ref": "#/components/schemas/cloudmap_release_schedule"
+          },
+          "status": {
+            "$ref": "#/components/schemas/cloudmap_lifecycle_status"
+          },
+          "tags": {
+            "description": "List of available tags for this artifact (e.g., container image tags).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "$ref": "#/components/schemas/cloudmap_typeRef",
+            "description": "Type identifier from types/artifacts with optional version constraints."
+          },
+          "versions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_artifact"
+            },
+            "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
+            "propertyNames": {
+              "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          }
+        },
+        "title": "Artifact",
+        "type": "object"
+      },
+      "cloudmap_discovery": {
+        "$$target": "#/definitions/discovery",
+        "description": "Metadata discovery information.",
+        "properties": {
+          "last_checked": {
+            "description": "Date and time of the last metadata check, conforming to RFC 3339.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "sources": {
+            "description": "List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "title": "Discovery",
+        "type": "object"
+      },
+      "cloudmap_inlineArtifact": {
+        "$$target": "#/definitions/inlineArtifact",
+        "additionalProperties": {
+          "properties": {
+            "artifact_type": {
+              "type": "string"
+            },
+            "artifacts": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "dependencies": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": {
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "schema": {
+              "type": "string"
+            },
+            "type": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "properties": {
+                    "extends": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                }
+              ]
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            }
+          },
+          "required": [
+            "artifact_type"
+          ],
+          "type": "object"
+        },
+        "deprecated": true,
+        "description": "**(Deprecated)** Inline artifact",
+        "type": "object"
+      },
+      "cloudmap_instantiation": {
+        "$$target": "#/definitions/instantiation",
+        "additionalProperties": true,
+        "properties": {
+          "digest": {
+            "description": "Cryptographic digest of the document referenced by the instantiation URL.",
+            "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/cloudmap_discovery"
+          },
+          "inputs": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
+            "type": "object"
+          },
+          "instantiated": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "The artifacts or services created or updated by this instantiation with optional capability.",
+            "type": "object"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/cloudmap_metadata",
+            "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
+            "type": "object"
+          },
+          "revision": {
+            "description": "If instantiation URL references a repository, source control revision of that repository.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Repository or artifact URL.",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "If source URL references a repository, the branch or tag name.",
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "If source URL references a repository, the source control revision of that repository.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Status of the instantiation.",
+            "enum": [
+              "draft",
+              "model",
+              "planned",
+              "WIP",
+              "observed",
+              "verifiable",
+              "verified",
+              "reproducible",
+              "reproduced"
+            ],
+            "type": "string"
+          },
+          "type": {
+            "$ref": "#/components/schemas/cloudmap_typeRef",
+            "description": "Type of the instantiation."
+          },
+          "versions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_instantiation"
+            },
+            "description": "Instantiations that are variants of this instantiation (for example, different deployments or environments). Each instantiation inherits the metadata of this one unless overridden in its declaration.",
+            "propertyNames": {
+              "description": "URL of the instantiation variant.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          }
+        },
+        "title": "Instantiation",
+        "type": "object"
+      },
+      "cloudmap_lifecycle_status": {
+        "$$target": "#/definitions/lifecycle_status",
+        "enum": [
+          "wishlist",
+          "model",
+          "planned",
+          "development",
+          "alpha",
+          "beta",
+          "production",
+          "maintenance",
+          "unmaintained",
+          "deprecated",
+          "removed"
+        ],
+        "title": "Lifecycle status",
+        "type": "string"
+      },
+      "cloudmap_metadata": {
+        "$$target": "#/definitions/metadata",
+        "description": "Common metadata fields shared across artifacts, services, instantiations, and repositories.",
+        "properties": {
+          "created": {
+            "description": "Date and time on which the resource was created, conforming to RFC 3339.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "description": "Human-readable description.",
+            "type": "string"
+          },
+          "discussion_url": {
+            "description": "Link to issue, PR/MR, or discussion about this definition.",
+            "type": "string"
+          },
+          "documentation_url": {
+            "description": "URL to get documentation.",
+            "type": "string"
+          },
+          "fork_of": {
+            "description": "URL to the entity this is a fork of.",
+            "type": "string"
+          },
+          "homepage_url": {
+            "description": "URL to find more information.",
+            "type": "string"
+          },
+          "source_ref": {
+            "description": "Informal pointer to source ref (branch or tag name).",
+            "type": "string"
+          },
+          "source_revision": {
+            "description": "Informal pointer to source code revision. Use when deployment information is not available.",
+            "type": "string"
+          },
+          "source_url": {
+            "description": "Informal pointer to source code. Use when deployment information is not available.",
+            "type": "string"
+          },
+          "spdx_licenses": {
+            "description": "License(s) as an SPDX License Expression.",
+            "type": "string"
+          },
+          "thumbnail_url": {
+            "description": "Icon or thumbnail URL.",
+            "type": "string"
+          },
+          "title": {
+            "description": "Human-readable title.",
+            "type": "string"
+          },
+          "topics": {
+            "description": "List of topic or categories associated with the resource.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "vendor": {
+            "description": "Name of the distributing entity, organization, or individual.",
+            "type": "string"
+          },
+          "version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "description": "Version. The version may match a label or tag in the source code repository or may be Semantic Versioning-compatible."
+          }
+        },
+        "title": "Common Metadata",
+        "type": "object"
+      },
+      "cloudmap_release_schedule": {
+        "$$target": "#/definitions/release_schedule",
+        "description": "Scheduled Release for an artifact or service.",
+        "items": {
+          "properties": {
+            "effective_date": {
+              "description": "The date and time the release will happen (RFC 3339 format).",
+              "format": "date-time",
+              "type": "string"
+            },
+            "status": {
+              "$ref": "#/components/schemas/cloudmap_lifecycle_status",
+              "description": "The upcoming lifecycle status.",
+              "type": "string"
+            },
+            "url": {
+              "description": "The updated resource URL for this upcoming release.",
+              "type": "string"
+            },
+            "version": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ],
+              "description": "Version of the upcoming release."
+            }
+          },
+          "type": "object"
+        },
+        "title": "Release Schedule",
+        "type": "array"
+      },
+      "cloudmap_repository": {
+        "$$target": "#/definitions/repository",
+        "additionalProperties": true,
+        "properties": {
+          "branches": {
+            "additionalProperties": {
+              "description": "Commit SHA hash for the branch.",
+              "type": "string"
+            },
+            "description": "Map of branch names to their commit SHA hashes.",
+            "type": "object"
+          },
+          "default_branch": {
+            "description": "Default branch name (e.g., main, master).",
+            "type": "string"
+          },
+          "fork_of": {
+            "description": "URL of the repository that this repository was forked from.",
+            "type": "string"
+          },
+          "initial_revision": {
+            "description": "Initial commit of the default branch.",
+            "type": "string"
+          },
+          "internal_id": {
+            "description": "Internal identifier from the repository host (e.g., GitHub repository ID).",
+            "type": "string"
+          },
+          "metadata": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/cloudmap_metadata"
+              },
+              {
+                "properties": {
+                  "issues_url": {
+                    "description": "URL to the issue tracker for the repository.",
+                    "type": "string"
+                  },
+                  "lastupdate_digest": {
+                    "description": "Digest hash of the metadata at the time of the last update.",
+                    "type": "string"
+                  },
+                  "lastupdate_time": {
+                    "description": "Timestamp of the last metadata update.",
+                    "type": "string"
+                  },
+                  "license_url": {
+                    "description": "URL to the license file or license information.",
+                    "type": "string"
+                  },
+                  "project_status": {
+                    "description": "Project status as defined by https://www.repostatus.org",
+                    "enum": [
+                      "concept",
+                      "WIP",
+                      "suspended",
+                      "abandoned",
+                      "active",
+                      "inactive",
+                      "unsupported",
+                      "moved"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "type": "object"
+              }
+            ],
+            "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page)."
+          },
+          "mirror_of": {
+            "description": "URL of the repository that this repository is a mirror of.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Repository name.",
+            "type": "string"
+          },
+          "notable": {
+            "oneOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "artifact": {
+                      "description": "URL of an artifact that represents this notable file or directory.",
+                      "type": "string"
+                    },
+                    "type": {
+                      "$ref": "#/components/schemas/cloudmap_typeRef"
+                    }
+                  },
+                  "type": "object"
+                },
+                "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
+                "type": "object"
+              },
+              {
+                "$ref": "#/components/schemas/cloudmap_inlineArtifact"
+              }
+            ]
+          },
+          "path": {
+            "description": "Project path relative to base location of git repositories on the host.",
+            "type": "string"
+          },
+          "private": {
+            "description": "True if the repository is not publicly accessible.",
+            "type": "boolean"
+          },
+          "project_url": {
+            "description": "URL to the repository's project page on the host (e.g., <https://github.com/user/repo>).",
+            "type": "string"
+          },
+          "protocols": {
+            "description": "List of protocols available to clone the repository (e.g., https, ssh).",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "service": {
+            "description": "URL of the service hosting this repository.",
+            "type": "string"
+          },
+          "tags": {
+            "additionalProperties": {
+              "description": "Commit SHA hash for the tag.",
+              "type": "string"
+            },
+            "description": "Map of tag names to their commit SHA hashes.",
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "cloudmap_service": {
+        "$$target": "#/definitions/service",
+        "additionalProperties": true,
+        "properties": {
+          "access": {
+            "description": "Access to the service (who can resolve the URL).",
+            "enum": [
+              "public",
+              "private",
+              "none"
+            ],
+            "type": "string"
+          },
+          "connections": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Services this service connects to during operation."
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/cloudmap_discovery"
+          },
+          "endpoints": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Service endpoints."
+          },
+          "instantiated_by": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "URLs referencing entries in instantiations with optional type constraints."
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/cloudmap_metadata",
+            "description": "Human-readable metadata about the service."
+          },
+          "policies": {
+            "description": "Service policies and legal information.",
+            "properties": {
+              "privacy_policy": {
+                "description": "URL to the privacy policy.",
+                "type": "string"
+              },
+              "spdx_licenses": {
+                "description": "License(s) under which the service is distributed as an SPDX License Expression.",
+                "type": "string"
+              },
+              "terms_of_service": {
+                "description": "URL to the terms of service.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "release_schedule": {
+            "$ref": "#/components/schemas/cloudmap_release_schedule"
+          },
+          "status": {
+            "$ref": "#/components/schemas/cloudmap_lifecycle_status",
+            "description": "Operational status of the service."
+          },
+          "type": {
+            "$ref": "#/components/schemas/cloudmap_typeRef",
+            "description": "Type identifier from types/services with optional version constraints."
+          },
+          "versions": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_service"
+            },
+            "description": "Services that are variants of this service (for example, different versions or environments). Each service inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base URL as this service.",
+            "propertyNames": {
+              "description": "URL of the service variant.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          }
+        },
+        "title": "Service",
+        "type": "object"
+      },
+      "cloudmap_type": {
+        "$$target": "#/definitions/type",
+        "additionalProperties": true,
+        "properties": {
+          "extends": {
+            "description": "List of fully-qualified type names that this type extends.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "implementations": {
+            "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "description": "The kind of the type. One of: Component, Artifact, or Capability.",
+            "enum": [
+              "Component",
+              "Artifact",
+              "Capability"
+            ],
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/cloudmap_metadata",
+            "description": "Additional metadata about the type.",
+            "type": "object"
+          },
+          "model": {
+            "description": "URL of artifact or service to use a model for instances of this type.",
+            "type": "string"
+          },
+          "source": {
+            "description": "Artifact containing type definition. Include if it cannot be derived from the type name.",
+            "type": "string"
+          },
+          "status": {
+            "description": "Maturity level of the type definition.",
+            "enum": [
+              "draft",
+              "experimental",
+              "stable",
+              "deprecated",
+              "removed"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "cloudmap_typeRef": {
+        "$$target": "#/definitions/typeRef",
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "description": "No constraints on the type.",
+              "type": "null"
+            },
+            {
+              "description": "Constraints on the type.",
+              "properties": {
+                "metadata": {
+                  "description": "Additional metadata about the type reference.",
+                  "type": "object"
+                },
+                "model": {
+                  "description": "URL of artifact or service model that constrains this type reference.",
+                  "type": "string"
+                },
+                "properties": {
+                  "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition.",
+                  "type": "object"
+                },
+                "status": {
+                  "description": "Status of the instance or capability.",
+                  "enum": [
+                    "unknown",
+                    "absent",
+                    "present",
+                    "failed",
+                    "validated"
+                  ],
+                  "type": "string"
+                },
+                "version": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    }
+                  ],
+                  "description": "Version constraint for the type."
+                }
+              },
+              "type": "object"
+            }
+          ]
+        },
+        "description": "Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.",
+        "propertyNames": {
+          "description": "Type name (e.g., software.Nginx, capabilities.GitOps).",
+          "pattern": "^[^\\s]+$"
+        },
+        "title": "Type Ref",
+        "type": "object"
+      },
+      "cloudmap_typedURLs": {
+        "$$target": "#/definitions/typedURLs",
+        "additionalProperties": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/components/schemas/cloudmap_typeRef",
+              "type": "object"
+            }
+          ]
+        },
+        "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.",
+        "propertyNames": {
+          "description": "",
+          "pattern": "^[^\\s]+$"
+        },
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Unfurl Server API",
+    "version": "1.2.1"
+  },
+  "openapi": "3.0.3",
+  "paths": {
+    "/batch_patch": {
+      "post": {
+        "description": "Used by the Rust proxy to forward a batch of write requests that share the same branch and latest_commit.  Each request in the ``requests`` list is applied in order; a single push is performed at the end.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchPatchBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Apply a batch of write requests",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/clear_project_file_cache": {
+      "post": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Clear cache and cloned files for a project",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/cloudmap": {
+      "get": {
+        "description": "Return a pair ``[document, follow]`` of CloudMap documents. ``document`` is the raw CloudMap (or a subset filtered by ``kind`` / ``key``). ``follow`` contains records reachable from ``key`` when ``follow`` > 0, otherwise it is ``{}``.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "repositories",
+                    "artifacts",
+                    "services",
+                    "instantiations",
+                    "types"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Top-level CloudMap section to return; if omitted the full document is returned.",
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.",
+              "title": "Key"
+            }
+          },
+          {
+            "in": "query",
+            "name": "follow",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "description": "If > 0 and ``key`` is supplied, walk the CloudMap graph starting at ``key`` and return the discovered records in the second element of the response pair. Otherwise the second element is an empty dict.",
+              "title": "Follow",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since_version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "When set, return only records whose ``unfurl.server.version`` is greater than this value. Requires the rust git-sync backend; ignored by the Python YAML fallback.",
+              "title": "Since Version"
+            }
+          },
+          {
+            "in": "query",
+            "name": "exclude",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.",
+              "title": "Exclude"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudMapDocumentPair"
+                }
+              }
+            },
+            "description": "Pair: [filtered CloudMap document, followed records]"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "CloudMap document",
+        "tags": [
+          "Export"
+        ]
+      },
+      "post": {
+        "description": "Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``types``).\n\nEach section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.\n\nThe body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PostCloudmapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "commit oid produced by the local commit, or null when nothing changed"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Modify the CloudMap document",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/create_ensemble": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Create a new ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/create_provider": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Create a cloud provider and its associated ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/delete_deployment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Delete a deployment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/delete_environment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Delete a deployment environment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/empty_cache": {
+      "post": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": true,
+            "schema": {
+              "description": "Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable",
+              "title": "Auth Project",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cache_prefix",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Cache key prefix to clear; defaults to the server-configured prefix",
+              "title": "Cache Prefix"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Clear all cache entries (admin only)",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/export": {
+      "get": {
+        "description": "Export an ensemble or service template in a JSON format suitable for the frontend. Supports 'deployment', 'blueprint', and 'environments' formats.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pretty",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Pretty-print the JSON response",
+              "title": "Pretty",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "username",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git username (alternative to X-Git-Credentials header)",
+              "title": "Username"
+            }
+          },
+          {
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Repository visibility",
+              "title": "Visibility"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "deployment",
+              "description": "Export format",
+              "enum": [
+                "deployment",
+                "blueprint",
+                "environments"
+              ],
+              "title": "Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "deployment_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Path to the deployment within the project",
+              "title": "Deployment Path"
+            }
+          },
+          {
+            "in": "query",
+            "name": "environment",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Environment name (used with 'environments' format)",
+              "title": "Environment"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_all_deployments",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Include all deployment exports embedded in the response",
+              "title": "Include All Deployments",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "ok",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Return any cache hit without checking if it's out of date.",
+              "title": "Stale"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "GraphQL-style JSON database of TOSCA objects"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Not Modified (ETag matched)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Export ensemble as JSON",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/graph": {
+      "get": {
+        "description": "Return the CloudMap dependency graph as JSON, optionally filtered to a single URL.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "url",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Optional artifact or instantiation URL to filter the graph to",
+              "title": "Url"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudMapResponse"
+                }
+              }
+            },
+            "description": "CloudMap dependency graph as JSON"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "CloudMap graph",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "summary": "Health check",
+        "tags": [
+          "Status"
+        ]
+      }
+    },
+    "/populate_cache": {
+      "post": {
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "path",
+            "required": true,
+            "schema": {
+              "description": "File path relative to the project root",
+              "title": "Path",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "removed",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
+              "title": "Removed"
+            }
+          },
+          {
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Repository visibility; private repositories are not cloned automatically",
+              "title": "Visibility"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Populate export cache for a project file",
+        "tags": [
+          "Cache"
+        ]
+      }
+    },
+    "/types": {
+      "get": {
+        "description": "Export all available TOSCA resource types, optionally augmented from a CloudMap project.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "pretty",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Pretty-print the JSON response",
+              "title": "Pretty",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "username",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git username (alternative to X-Git-Credentials header)",
+              "title": "Username"
+            }
+          },
+          {
+            "in": "query",
+            "name": "visibility",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "public",
+                    "private"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Repository visibility",
+              "title": "Visibility"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "",
+              "description": "Filename used as template context",
+              "title": "File"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cloudmap",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "CloudMap project ID to merge types from, e.g. 'onecommons/cloudmap'",
+              "title": "Cloudmap"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExportResponse"
+                }
+              }
+            },
+            "description": "GraphQL-style JSON database of TOSCA types"
+          },
+          "304": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Not Modified (ETag matched)"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Export TOSCA types",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/update_ensemble": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnsembleBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Update an existing ensemble",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/update_environment": {
+      "post": {
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchEnvironmentBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatchResponse"
+                }
+              }
+            },
+            "description": "Successful response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Conflict (repository at wrong revision)"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPError"
+                }
+              }
+            },
+            "description": "Internal error"
+          }
+        },
+        "summary": "Update a deployment environment",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
+    "/version": {
+      "get": {
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful response"
+          }
+        },
+        "summary": "Server version",
+        "tags": [
+          "Status"
+        ]
+      }
+    }
+  },
+  "tags": []
+}

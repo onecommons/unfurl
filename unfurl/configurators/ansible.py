@@ -23,7 +23,7 @@ from ..runtime import (
     NodeInstance,
     RelationshipInstance,
 )
-from ..projectpaths import FilePath, WorkFolder, get_path
+from ..projectpaths import FilePath, WorkFolder, get_path, _abspath
 from . import TemplateConfigurator, TemplateInputs
 from ..configurator import ConfiguratorResult, Status, TaskView
 from ..result import Result, serialize_value
@@ -35,6 +35,23 @@ from ..yamlloader import yaml
 logger = getLogger("unfurl")
 
 display = Display()
+
+
+def _set_input_as_filepath(
+    task: TaskView, input_name: str, path_value: str
+) -> Optional[str]:
+    """
+    Convert a relative path to absolute, check if it exists, and set as FilePath for change tracking.
+    Returns the absolute path if successful, None otherwise.
+    """
+    if not os.path.isabs(path_value):
+        path_value = get_path(task.inputs.context, path_value, "src")
+    if os.path.exists(path_value):
+        result = task.inputs._attributes.get(input_name)
+        if not isinstance(result, Result) or not result.external:
+            task.inputs[input_name] = _abspath(task.inputs.context, path_value)
+        return path_value
+    return None
 
 
 class AnsibleInputs(TemplateInputs):
@@ -105,13 +122,9 @@ def get_yaml_property(task: TaskView, prop_name: str, load_file: bool):
         if "\n" in prop_value:
             return yaml.load(prop_value)
         else:
-            if not os.path.isabs(prop_value):
-                prop_value = get_path(task.inputs.context, prop_value, "src")
-            if os.path.exists(prop_value):
-                # set this as FilePath so we can monitor changes to it
-                result = task.inputs._attributes[prop_name]
-                if not isinstance(result, Result) or not result.external:
-                    task.inputs[prop_name] = FilePath(prop_value)
+            # set this as FilePath so we can monitor changes to it
+            prop_value = _set_input_as_filepath(task, prop_name, prop_value)
+            if prop_value:
                 if load_file:
                     with open(prop_value) as f:
                         playbook_contents = f.read()
@@ -120,7 +133,8 @@ def get_yaml_property(task: TaskView, prop_name: str, load_file: bool):
                     return prop_value
             else:
                 raise UnfurlTaskError(
-                    task, f'Ansible {prop_name} "{prop_value}" does not exist'
+                    task,
+                    f'Ansible {prop_name} "{task.inputs.get(prop_name)}" does not exist',
                 )
     return prop_value
 
@@ -149,6 +163,21 @@ class AnsibleConfigurator(TemplateConfigurator):
 
     def can_dry_run(self, task):
         return True
+
+    def check_digest(self, task: TaskView, changeset) -> bool:
+        """Override to set playbook and inventory as FilePath before checking digest."""
+        # Set playbook as FilePath if it's a file path
+        playbook = task.inputs.get("playbook")
+        if playbook and isinstance(playbook, str) and "\n" not in playbook:
+            # Check if it's a file path (not inline content with newlines)
+            _set_input_as_filepath(task, "playbook", playbook)
+
+        # Set inventory as FilePath if it's a file path
+        inventory = task.inputs.get("inventory")
+        if inventory and isinstance(inventory, str):
+            _set_input_as_filepath(task, "inventory", inventory)
+
+        return super().check_digest(task, changeset)
 
     def _make_inventory_from_group(self, group, includeInstances):
         vars = {}
@@ -294,7 +323,9 @@ class AnsibleConfigurator(TemplateConfigurator):
                 host, endpoint, inventory or {}, task
             )
         # XXX cache and reuse
-        return cwd.write_file(serialize_value(inventory), "inventory.yml"), hostname
+        return cwd.write_file(
+            serialize_value(inventory, resolveExternal=True), "inventory.yml"
+        ), hostname
         # don't worry about the warnings in log, see:
         # https://github.com/ansible/ansible/issues/33132#issuecomment-346575458
         # https://github.com/ansible/ansible/issues/33132#issuecomment-363908285
@@ -354,7 +385,9 @@ class AnsibleConfigurator(TemplateConfigurator):
         envvars = task.get_environment(True)
         for play in playbook:
             play["environment"] = envvars
-        return cwd.write_file(serialize_value(playbook), "playbook.yml")
+        return cwd.write_file(
+            serialize_value(playbook, resolveExternal=True), "playbook.yml"
+        )
 
     def get_playbook_args(self, task: TaskView):
         args = task.inputs.get("playbookArgs", [])

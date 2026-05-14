@@ -22,6 +22,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Any, Optional, List, Union, TYPE_CHECKING
+from typing_extensions import Literal
 from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
 from typing_extensions import Protocol
@@ -56,7 +57,7 @@ from .projectpaths import Folders
 from .localenv import LocalEnv, Project
 from .logs import Levels
 from .support import Status
-from .util import UnfurlBadDocumentError, filter_env, get_package_digest
+from .util import UnfurlBadDocumentError, filter_env, get_package_digest, is_relative_to
 
 import rich_click as click
 
@@ -96,7 +97,7 @@ if TYPE_CHECKING:
     from .repo import RepoView
     from .yamlmanifest import YamlManifest
 
-_latestJobs = []  # for testing
+_latestJobs: List[Optional[Job]] = []  # for testing
 _args: List[str] = []  # for testing
 
 
@@ -206,7 +207,7 @@ globalOptions = option_group(
         is_flag=True,
         show_envvar=True,
         help="Skip pulling latest upstream changes from existing repositories.",
-        hidden=True
+        hidden=True,
     ),
     click.option(
         "--check-upstream",
@@ -372,6 +373,12 @@ readonlyJobControlOptions = option_group(
         default="never",
         help="Set exit code to 64 if job ends at given status. (Default: never)",
     ),
+    click.option(
+        "--timeout",
+        type=float,
+        default=0,
+        help="Abort the job after this many seconds. 0 means no timeout. (Default: 0)",
+    ),
     rich_group=job_control_group_label,
 )
 jobControlOptions = option_group(
@@ -428,7 +435,13 @@ allJobOptions = option_group(
         type=click.Tuple([str, str]),
         multiple=True,
         metavar="NAME VALUE",
-        help="name/value pair to pass to job (multiple times ok).",
+        help="Name/value pair to pass to job (multiple times ok).",
+    ),
+    click.option(
+        "--skip-local-install",
+        default=False,
+        is_flag=True,
+        help="Don't install local artifacts.",
     ),
     rich_group="Generic Job Options",
 )
@@ -442,14 +455,19 @@ destroyUnmanagedOption = click.option(
     "--destroyunmanaged",
     default=False,
     is_flag=True,
-    help="include unmanaged instances for consideration when destroying",
+    help="Include unmanaged instances for consideration when destroying",
 )
 
 
 @deploy_cli.command(short_help="Run and record an ad-hoc command")
 @click.pass_context
 # @click.argument("action", default="*:upgrade")
-@click.option("--ensemble", default="", type=click.Path(exists=False))
+@click.option(
+    "--ensemble",
+    default="",
+    type=click.Path(exists=False),
+    help="The ensemble to use. (Default: The current project's default ensemble.)",
+)
 # XXX:
 # @click.option(
 #     "--append", default=False, is_flag=True, help="add this command to the previous"
@@ -462,7 +480,7 @@ destroyUnmanagedOption = click.option(
 @allJobOptions
 @click.option("--host", help="Name of instance to run the command on.")
 @click.option("--operation", help="TOSCA operation to run.")
-@click.option("--module", help="Ansible module to run. (default: command)")
+@click.option("--module", help="Ansible module to run. (Default: command)")
 @click.argument("cmdline", nargs=-1, type=click.UNPROCESSED)
 def run(ctx, instance="root", save=False, cmdline=None, **options):
     """
@@ -816,7 +834,7 @@ deployFilterOptions = option_group(
         "--check",
         default=False,
         is_flag=True,
-        help="check if new instances exist before deploying",
+        help="Check if new instances exist before deploying",
     ),
     rich_group=job_filter_group_label,
 )
@@ -910,7 +928,7 @@ def stop(ctx: Context, ensemble=None, **options):
 @click.argument("ensemble", default="", type=click.Path(exists=False))
 @commonJobOptions
 @deployFilterOptions
-@click.option("--workflow", default="deploy", help="plan workflow (default: deploy)")
+@click.option("--workflow", default="deploy", help="Plan workflow (default: deploy)")
 @click.option(
     "--dryrun",
     default=False,
@@ -1028,7 +1046,7 @@ def init(ctx, projectdir, ensemble_name=None, **options):
         return
 
     if not projectdir:
-        # if creating a new project in an existing repository use '.unfurl' as the default name
+        # if creating a new project in an existing repository use '_unfurl' as the default name
         if options.get("existing"):
             projectdir = DefaultNames.ProjectDirectory
         else:  # otherwise use the current directory
@@ -1281,14 +1299,18 @@ def clone(ctx, source, dest, **options):
     message = initmod.clone(source, dest, **options)
     click.echo(message)
 
+
 def _validate_var_option(vars):
     names = []
     if vars:
-        for (name, val) in vars:
+        for name, val in vars:
             if name in names:
-                raise ValueError(f'--var option used multiple times with the same name: "{name}"')
+                raise ValueError(
+                    f'--var option used multiple times with the same name: "{name}"'
+                )
             names.append(name)
     return names
+
 
 @project_cli.command(
     short_help="Run a git command across all repositories",
@@ -1301,20 +1323,22 @@ def _validate_var_option(vars):
     type=click.Path(exists=True),
     help='Path to project or ensemble (default: ".")',
 )
-@click.argument("gitargs", nargs=-1)
-def git(ctx, gitargs, dir="."):
+@click.argument("git_command", nargs=-1)
+def git(ctx, git_command, dir="."):
     """
-    unfurl git [git command] [git command arguments]: Run the given git command on each project repository.
+    Run the given git command line on each project repository.
     """
     localEnv = LocalEnv(dir, ctx.obj.get("home"), can_be_empty=True)
     if localEnv.manifestPath:
         repos = {
-            os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.repo
-            for repo in localEnv.get_manifest().repositories.values()
-            if repo.repo
+            os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo.gitrepo
+            for repo in localEnv.get_manifest(
+                skip_validation=True
+            ).repositories.values()
+            if repo.gitrepo
         }
-    elif localEnv.project and localEnv.project.project_repoview.repo:
-        repo = localEnv.project.project_repoview.repo
+    elif localEnv.project and localEnv.project.project_repoview.gitrepo:
+        repo = localEnv.project.project_repoview.gitrepo
         repos = {os.path.relpath(repo.working_dir, os.path.abspath(dir)): repo}
     else:
         repos = {}
@@ -1327,8 +1351,8 @@ def git(ctx, gitargs, dir="."):
         repo = repos[working_dir]
         if working_dir != ".":
             working_dir = "./" + working_dir
-        click.echo(f"*** Running 'git {' '.join(gitargs)}' in '{working_dir}'")
-        _status, stdout, stderr = repo.run_cmd(gitargs)
+        click.echo(f"*** Running 'git {' '.join(git_command)}' in '{working_dir}'")
+        _status, stdout, stderr = repo.run_cmd(git_command)
         click.echo(stdout + "\n")
         if stderr.strip():
             click.secho(stderr + "\n", fg="red")
@@ -1367,8 +1391,8 @@ def get_commit_message(committer, default_message):
 
 @project_cli.command()
 @click.pass_context
-@click.argument("project_or_ensemble_path", default=".", type=click.Path(exists=True))
-@click.option("-m", "--message", help="commit message to use")
+@click.argument("path", default=".", type=click.Path(exists=True))
+@click.option("-m", "--message", help="Commit message to use")
 @click.option(
     "--no-edit",
     default=False,
@@ -1397,50 +1421,88 @@ def get_commit_message(committer, default_message):
     "--save-secrets-only",
     default=False,
     is_flag=True,
-    help='Encrypt secret files to ".secrets" directories instead of committing.',
+    help='Only encrypt secret files to ".secrets" directories (skip commit).',
+)
+@click.option(
+    "--update-repositories-only",
+    default=False,
+    is_flag=True,
+    help="Only check git remotes and update repository YAML (skip commit).",
 )
 def commit(
     ctx,
-    project_or_ensemble_path,
+    path,
     message,
     skip_add,
     no_edit,
     all_repositories,
     save_secrets_only,
+    update_repositories_only,
     **options,
 ):
-    """Commit any changes to the given project or ensemble."""
+    """Commit any changes to the given project, ensemble or repository."""
     options.update(ctx.obj)
     localEnv = LocalEnv(
-        project_or_ensemble_path,
+        path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
-    if localEnv.manifestPath and len(os.path.abspath(project_or_ensemble_path)) >= len(
-        localEnv.manifestPath
+    logger = logging.getLogger("unfurl")
+    if localEnv.manifestPath and (
+        all_repositories
+        or not localEnv.project
+        or is_relative_to(
+            os.path.abspath(path),
+            os.path.dirname(localEnv.manifestPath),
+        )
     ):
-        ensemble = localEnv.get_manifest()
+        ensemble = localEnv.get_manifest(skip_validation=True)
         default_commit_message = ensemble.get_default_commit_message()
         if all_repositories:
             committer: Committer = ensemble
         else:
             committer = ensemble.repositories["self"]
     else:
+        ensemble = None
         default_commit_message = "Commit by Unfurl"
-        # otherwise commit the whole project
         if all_repositories:
             click.echo("aborting: --all-repositories requires an ensemble path")
             return
         else:
-            assert localEnv.project
-            committer = localEnv.project.project_repoview
+            repo_view, _, _, _ = localEnv.find_path_in_repos(path)
+            if repo_view:
+                committer = repo_view
+            else:
+                # otherwise commit the project repository
+                assert localEnv.project
+                committer = localEnv.project.project_repoview
+            if (
+                localEnv.manifestPath
+                and committer.repo
+                and committer.repo.find_repo_path(localEnv.manifestPath)
+            ):
+                # ensemble is in the repository
+                ensemble = localEnv.get_manifest(skip_validation=True)
 
     # stage changes before invoking the commit editor
     saved = committer.save_secrets()  # saves but doesn't stage
-    if save_secrets_only:
+    if save_secrets_only and not update_repositories_only:
         click.echo(f"Updated {len(saved)} secret files.")
         return
+
+    if ensemble:
+        # update local repositories if a git remote url was added
+        changed = ensemble.update_repositories()
+        # should update lock too
+        if changed:
+            if "lock" in ensemble.manifest.config:
+                ensemble.save_lock()  # update the lock too
+            logger.info("Updated repositories with new git remote url")
+            ensemble.manifest.save()
+    if update_repositories_only:
+        return
+
     if not skip_add:
         committer.add_all()
 
@@ -1456,16 +1518,17 @@ def commit(
     click.echo(f"Committed to {committed} repositories.")
 
 
-def _stub_resolver(doc):
+def _stub_resolver(doc, local_env=None):
     from .manifest import Manifest
     from .yamlloader import ImportResolver
 
-    dummy_manifest = Manifest(None)
+    dummy_manifest = Manifest(None, local_env)
     # create package rules for importing built-in unfurl packages:
     dummy_manifest._set_builtin_repositories()
     repositories = dummy_manifest.repositories_as_tpl()
     doc.setdefault("repositories", {}).update(repositories)
     import_resolver = ImportResolver(dummy_manifest)
+    import_resolver.confine_user_paths = False
     return import_resolver
 
 
@@ -1591,10 +1654,12 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
         return
 
     try:
+        overrides = dict(ENVIRONMENT=options.get("use_environment", ""),
+                    skip_secret_files=True)
         local_env = LocalEnv(
             path,
             options.get("home"),
-            override_context=options.get("use_environment") or "",
+            overrides=overrides,
             readonly=True,
         )
     except Exception:
@@ -1637,23 +1702,35 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     help="Use this environment.",
     metavar="NAME",
 )
-def status(ctx, ensemble, **options):
+@click.option(
+    "--output",
+    type=click.Choice(["text", "json", "none"]),
+    default="text",
+    help="Format of status output (default: text)",
+)
+def status(ctx, ensemble, output="text", **options):
     """Show the status of deployed resources in the given ensemble.\n
     (Use global -v for verbose display.)"""
     options.update(ctx.obj)
     localEnv = LocalEnv(
         ensemble,
         options.get("home"),
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
         readonly=True,
     )
     logger = logging.getLogger("unfurl")
     # report validation errors instead of aborting
     manifest = localEnv.get_manifest(skip_validation=True)
     verbose = ctx.obj["verbose"] > 0
-    summary = manifest.status_summary(verbose)
-    vstr = " (verbose) " if verbose else ""
-    logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+    if output != "none":
+        as_json = output == "json"
+        summary, summary_json = manifest.status_summary(verbose or as_json)
+        vstr = " (verbose) " if verbose else ""
+        if output == "text":
+            logger.info("Status summary:%s\n%s", vstr, summary, extra=dict(truncate=0))
+        if as_json:
+            text = json.dumps(summary_json, indent=2)
+            click.echo(text)
     query = options.get("query")
     if query:
         trace = options.get("trace")
@@ -1684,10 +1761,12 @@ def git_status(ctx, project_or_ensemble_path, dirty, **options):
         project_or_ensemble_path,
         options.get("home"),
         can_be_empty=True,
-        override_context=options.get("use_environment") or "",
+        override_environment=options.get("use_environment") or "",
     )
     if localEnv.manifestPath:
-        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest()
+        committer: Union["YamlManifest", "RepoView"] = localEnv.get_manifest(
+            skip_validation=True
+        )
     else:
         assert localEnv.project
         committer = localEnv.project.project_repoview
@@ -1717,6 +1796,8 @@ def validate(ctx, path, **options):
     """Validate the syntax of the given Unfurl project, ensemble, cloud map, or TOSCA file."""
     options.update(ctx.obj)
     localEnv = None
+    doc_type = None
+    doc = None
     try:
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
         if options.get("as_template") or "template" in path:  # hack!
@@ -1743,31 +1824,43 @@ def validate(ctx, path, **options):
                 localEnv.get_manifest(skip_validation=True)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
-            from tosca.python2yaml import python_src_to_yaml_obj
-
-            with open(path) as f:
-                python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
-        elif e.doc and "tosca_definitions_version" in e.doc:
-            from .manifest import Manifest
-            from .spec import ToscaSpec
-
-            if localEnv and localEnv.project:
-                m = Manifest(path, localEnv=localEnv)
-                # report validation errors instead of aborting
-                m._set_spec(dict(service_template=e.doc), skip_validation=True)
-            else:
-                ToscaSpec(
-                    e.doc,
-                    path=path,
-                    skip_validation=True,
-                    resolver=_stub_resolver(e.doc),
-                )
+            doc_type = "Python"
+        elif e.doc and ("tosca_definitions_version" in e.doc or "node_types" in e.doc):
+            doc = e.doc
+            doc_type = "TOSCA"
         elif e.doc and e.doc.get("kind") == "CloudMap":
-            from .cloudmap import CloudMapDB
-
-            CloudMapDB(path)
+            doc = e.doc
+            doc_type = "CloudMap"
         else:
             raise
+
+    if doc_type == "Python":
+        from tosca.python2yaml import python_src_to_yaml_obj
+        from tosca.loader import install
+
+        install(_stub_resolver({}, localEnv), os.path.dirname(path))
+        with open(path) as f:
+            python_src_to_yaml_obj(f.read(), dict(__file__=os.path.abspath(path)))
+    elif doc_type == "TOSCA":
+        assert doc
+        from .manifest import Manifest
+        from .spec import ToscaSpec
+
+        if localEnv and localEnv.project:
+            m = Manifest(path, localEnv=localEnv)
+            # report validation errors instead of aborting
+            m._set_spec(dict(service_template=doc), skip_validation=True)
+        else:
+            ToscaSpec(
+                doc,
+                path=path,
+                skip_validation=True,
+                resolver=_stub_resolver(doc),
+            )
+    elif doc_type == "CloudMap":
+        from .cloudmap import CloudMapDB
+
+        CloudMapDB(path)
 
 
 @info_cli.command()
@@ -1900,7 +1993,7 @@ def serve(
 @click.option(
     "--sync",
     default=None,
-    help='Sync the given repository host ("local", name, or url).',
+    help='Sync (import then export) the given repository host ("local", name, or url).',
     metavar="HOST",
 )
 @click.option(
@@ -1918,17 +2011,17 @@ def serve(
 @click.option(
     "--namespace",
     default=None,
-    help="Limit sync to repositories in this folder or group.",
+    help="Apply command only to repositories in this folder or group.",
 )
 @click.option(
     "--repository",
     default="",
-    help="Limit sync to this one repository (matches key).",
+    help="Apply command only to this one repository (matches key).",
 )
 @click.option(
     "--clone-root",
-    type=click.Path(exists=True),
-    help="Directory to clone repositories to.",
+    type=click.Path(exists=False),
+    help='Directory to clone repositories to (use "" to override config and disable cloning).',
 )
 @click.option(
     "--visibility",
@@ -1945,6 +2038,13 @@ def serve(
     default=False,
     is_flag=True,
     help="Don't analyze files in repositories",
+    hidden=True,
+)
+@click.option(
+    "--analyze",
+    default="default",
+    type=click.Choice(["default", "yes", "no", "save-only"]),
+    help='Analyze files. "save-only" means save locally but don\'t analyze; default is "yes" with --import, "no" with --add',
 )
 @click.option(
     "--force",
@@ -1958,6 +2058,32 @@ def serve(
     is_flag=True,
     help="Do not modify the repository host, just do a dry run.",
 )
+@click.option(
+    "--commit",
+    default=False,
+    is_flag=True,
+    help="Commit changes to the cloud map repository.",
+)
+@click.option(
+    "--add",
+    default=None,
+    metavar="URL",
+    help="Add a single record for the given URL to the cloudmap.",
+)
+@click.option(
+    "--graph",
+    default=None,
+    metavar="URL",
+    is_flag=False,
+    flag_value="",
+    help="Print a graph of cloudmap records starting from URL (or all if empty).",
+)
+@click.option(
+    "--graph-format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format for --graph (default: text).",
+)
 def cloudmap(
     ctx,
     cloudmap: str,
@@ -1970,6 +2096,11 @@ def cloudmap(
     force: bool = False,
     dryrun: bool = False,
     repository: str = "",
+    commit: bool = False,
+    add: Optional[str] = None,
+    analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    graph: Optional[str] = None,
+    graph_format: str = "text",
     **options,
 ):
     """Manage a cloud map.
@@ -1980,25 +2111,63 @@ def cloudmap(
     from .cloudmap import CloudMap
 
     options.update(ctx.obj)
-    localEnv = LocalEnv(project, options.get("home"), can_be_empty=True, readonly=True)
+    local_env = LocalEnv(
+        project,
+        options.get("home"),
+        can_be_empty=True,
+        readonly=True,
+        create_if_missing=True,
+    )
+    if graph is not None:
+        cloud_map = CloudMap.from_name(local_env, cloudmap, clone_root, "", True, False)
+        from .reporting import cloudmap_graph_json, cloudmap_graph_console
+
+        if graph_format == "json":
+            result = cloudmap_graph_json(cloud_map.directory.db, graph)
+            click.echo(json.dumps(result, indent=2))
+        else:
+            cloudmap_graph_console(cloud_map.directory.db, graph)
+        return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
-    if not host_name:
-        print("nothing to do for (use one of --export, --import, or --sync)", cloudmap)
+    if not add and not host_name:
+        click.echo("nothing to do (use one of --export, --import, --add, --graph, or --sync)")
         return
-    host = CloudMap.get_host(
-        localEnv, host_name, namespace or "", clone_root or "", visibility, repository
-    )
+    # get the host first so we know branch to use in the cloud map repository
+    if add:
+        host = None
+    else:
+        host = CloudMap.get_host(
+            local_env,
+            host_name,
+            namespace or "",
+            clone_root or "",
+            visibility,
+            repository,
+        )
     cloud_map = CloudMap.from_name(
-        localEnv, cloudmap, clone_root or "", host.name, namespace or "", skip_analysis
+        local_env,
+        cloudmap,
+        clone_root,
+        host.host_branch if host else "",
+        skip_analysis or analyze == "no",
+        commit,
     )
+    if add:
+        r = cloud_map.analyze_url(add, analyze)
+        if r:
+            cloud_map.save(f"Added {r.__class__.__name__} record for " + r.url)
+        else:
+            click.echo("Failed to add record for " + add)
+        return
+    assert host
     host.dryrun = dryrun
     if options.get("import") or sync:
         changed = cloud_map.from_host(host)
     else:
         changed = False
     if options.get("export") or sync:
-        cloud_map.to_host(host, changed, force)
+        cloud_map.to_host(host, changed, force, bool(sync))
 
     # elif clone_root:
     #     cloud_map = CloudMap.from_name(localEnv, cloudmap, "local")

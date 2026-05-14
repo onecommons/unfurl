@@ -33,7 +33,7 @@ from toscaparser.relationship_template import RelationshipTemplate
 from .projectpaths import File
 
 from .util import UnfurlError, load_class, to_enum, make_temp_dir, ChainMap
-from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap
+from .result import ChangeRecord, ResourceRef, ChangeAware, ResultsMap, serialize_value
 
 from .support import (
     AttributeManager,
@@ -49,6 +49,7 @@ from .spec import (
     CapabilitySpec,
     RelationshipSpec,
     NodeSpec,
+    TopologyInputsSpec,
     TopologySpec,
     ArtifactSpec,
 )
@@ -264,7 +265,8 @@ class Operational(ChangeAware):
                 continue
             if id(status) in seen:
                 logger.trace(
-                    f"Circular operational dependency when checking status: {status} already in {seen}"
+                    f"Circular operational dependency when checking status: {status} already in {seen}",
+                    extra=dict(log_once=True),
                 )
                 continue
             seen[id(status)] = status
@@ -386,11 +388,11 @@ class OperationalInstance(Operational):
 
 
 class _ChildResources(Mapping):
-    def __init__(self, resource):
+    def __init__(self, resource: "HasInstancesInstance"):
         self.resource = resource
 
     def __getitem__(self, key):
-        return self.resource.find_resource(key)
+        return self.resource.find_instance(key)
 
     def __iter__(self):
         return iter(r.name for r in self.resource.get_self_and_descendants())
@@ -541,7 +543,7 @@ class EntityInstance(OperationalInstance, ResourceRef):
         )
 
     def as_ref(self, options=None):
-        return {"ref": self.key}
+        return {"eval": self.key}
 
     @property
     def tosca_id(self):
@@ -593,10 +595,12 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return {}
 
     def get_attribute_manager(self) -> AttributeManager:
-        if not self.apex.attributeManager and not self.attributeManager:
-            # inefficient but create a local one for now
-            self.attributeManager = AttributeManager()
-        return self.apex.attributeManager or self.attributeManager  # type: ignore
+        if not self.apex.attributeManager:
+            if not self.attributeManager:
+                # inefficient but create a local one for now
+                self.attributeManager = AttributeManager()
+            return self.attributeManager
+        return self.apex.attributeManager
 
     @property
     def attributes(self) -> ResultsMap:
@@ -625,6 +629,10 @@ class EntityInstance(OperationalInstance, ResourceRef):
                 )
         return None
 
+    def is_external_shadow(self) -> bool:
+        # if it starts with ":" its from a nested topology (see `Imports`)
+        return bool(self.imported and not self.imported.startswith(":"))
+
     @property
     def nested_name(self) -> str:
         if self.template.topology.substitute_of:
@@ -632,21 +640,26 @@ class EntityInstance(OperationalInstance, ResourceRef):
         return self.name
 
     @property
-    def nested_key(self) -> str:
+    def nested_key(self) -> InstanceKey:
+        # key() is relative to a topology (starts with ::)
+        # nested_key() relative to the apex (starts with :::)
         if self.template.topology.substitute_of:
-            return self.template.topology.substitute_of.nested_name + ":" + self.key
-        return self.key
+            return cast(
+                InstanceKey,
+                f":::{self.template.topology.substitute_of.nested_name}:{self.key.lstrip(':')}",
+            )
+        return cast(InstanceKey, ":" + self.key)
 
     @property
     def readonly(self) -> bool:
         return bool(self.imported)  # imported instances are readonly
 
     @property
-    def apex(self):
+    def apex(self) -> "TopologyInstance":
         if isinstance(self.root, TopologyInstance):
-            if self.root.parent_topology:  # type: ignore
-                return cast(TopologyInstance, self.root.parent_topology).apex  # type: ignore
-        return self.root
+            if self.root.parent_topology:
+                return self.root.parent_topology.apex
+        return cast(TopologyInstance, self.root)
 
     def validate(self) -> None:
         """
@@ -683,6 +696,8 @@ class EntityInstance(OperationalInstance, ResourceRef):
             state["_interfaces"] = {}
         if "attributeManager" in state:
             del state["attributeManager"]
+        if "proxy" in state:
+            del state["proxy"]
         return state
 
     def __repr__(self):
@@ -731,6 +746,10 @@ class HasInstancesInstance(EntityInstance):
 
     # XXX use find_instance instead and remove find_resource
     def find_resource(self, qualified_name) -> Optional["HasInstancesInstance"]:
+        if qualified_name[:1] == ":":
+            return cast(HasInstancesInstance, self.apex).find_resource(
+                qualified_name[1:]
+            )
         resourceid, sep, inner = qualified_name.partition(":")
         if self.name == resourceid:
             if inner:
@@ -768,7 +787,7 @@ class HasInstancesInstance(EntityInstance):
     def get_requirements(
         self,
         match: Union[
-            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance"
+            None, str, "NodeInstance", "ArtifactInstance", "CapabilityInstance", "RelationshipInstance"
         ],
     ) -> List["RelationshipInstance"]:
         if match is None:
@@ -779,6 +798,8 @@ class HasInstancesInstance(EntityInstance):
             return [r for r in self.requirements if r.target == match]
         elif isinstance(match, CapabilityInstance):
             return [r for r in self.requirements if r.parent == match]
+        elif isinstance(match, RelationshipInstance):
+            return [r for r in self.requirements if r == match]
         elif isinstance(match, ArtifactInstance):
             return []
         else:
@@ -926,29 +947,31 @@ class RelationshipInstance(EntityInstance):
             assert self.source
             default_for = self.source.name
 
+        check_name = True
         if self.root != capability.root:
             # This connection was either imported or the capability is in a nested topology.
             # Check if the default_for target node is visible, either because it was imported or because it was mapped to the nested topology
-            # If it isn't visible, treat as a generic default connection (ANY), this way a manifest or root topology can expose connections while maintaining encapsulation.
             # if the default_for target was a top-level import don't switch to ANY
             if not self.root.imports or default_for not in self.root.imports:
                 nested = cast(
                     TopologySpec, capability.root.template
                 ).get_inner_node_replaced_by_outer_node(default_for)
-                default_for = nested.name if nested else RelationshipSpec.ANY
+                if nested:
+                    default_for = nested.name
+                else:
+                    check_name = False
 
-        if default_for == RelationshipSpec.ANY and capability.name == "feature":
-            # XXX get_matching_capabilities() buggy in this case
-            return True  # optimization
         # XXX defaultFor might be type, resolve to global
         if (
             default_for == RelationshipSpec.ANY
-            or default_for == nodeTemplate.name
             or nodeTemplate.is_derived_from(default_for)
-            or default_for == capability.name
             or capability.template.toscaEntityTemplate.is_derived_from(default_for)
         ):
             return True
+
+        if check_name:
+            if default_for == nodeTemplate.name or default_for == capability.name:
+                return True
 
         return False
 
@@ -1062,9 +1085,6 @@ class NodeInstance(HasInstancesInstance):
         HasInstancesInstance.__init__(self, name, attributes, parent, template, status)
 
         self._interfaces = {}
-        # preload
-        self.get_interface("inherit")
-        self.get_interface("default")
 
     def _find_relationship(
         self, relationship: RelationshipSpec
@@ -1087,7 +1107,8 @@ class NodeInstance(HasInstancesInstance):
         ).find_resource(relationship.target.name)
         if not targetNodeInstance:
             logger.warning(
-                f'target instance "{relationship.target.nested_name}" should have already been created -- is "{self.name}" out of sync with latest templates?'
+                f'target instance "{relationship.target.nested_name}" should have already been created -- is "{self.name}" out of sync with latest templates?',
+                extra=dict(log_once=True),
             )
             return None
         assert isinstance(targetNodeInstance, NodeInstance)
@@ -1101,7 +1122,7 @@ class NodeInstance(HasInstancesInstance):
     @property
     def requirements(self) -> List[RelationshipInstance]:
         assert isinstance(self.template, NodeSpec)
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             if self.template.tpl.get("requirements"):
                 logger.warning(
                     f'Ignoring requirements defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s requirements are used instead.'
@@ -1126,7 +1147,8 @@ class NodeInstance(HasInstancesInstance):
                     relInstance = self._find_relationship(template.relationship)
                     if not relInstance:
                         logger.warning(
-                            f'can not find relation instance for requirement "{template.name}" on node "{self.name}"'
+                            f'can not find relation instance for requirement "{template.name}" on node "{self.name}"',
+                            extra=dict(log_once=True),
                         )
                         continue
                     assert template.relationship is relInstance.template, (
@@ -1151,7 +1173,7 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def capabilities(self) -> List[CapabilityInstance]:
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             return cast(NodeInstance, self.shadow).capabilities
         if len(self._capabilities) != len(self.template.capabilities):
             # instantiate missing capabilities (they are only added, never deleted)
@@ -1178,12 +1200,13 @@ class NodeInstance(HasInstancesInstance):
 
     @property
     def artifacts(self) -> dict:
-        if self.shadow and not cast(str, self.imported).startswith(":"):
+        if self.is_external_shadow():
             if self.template.tpl.get("artifacts"):
                 logger.warning(
                     f'Ignoring artifacts defined on imported node template "{self.template.name}" with "select" directive, the imported node\'s artifacts are used instead.'
                 )
-            return self.shadow.artifacts  # XXX create shadow artifacts
+            # XXX create shadow artifacts
+            return cast(NodeInstance, self.shadow).artifacts
         if self._named_artifacts is None:
             self._named_artifacts = {}
             instantiated = {a.name: a for a in self._artifacts if a.name}
@@ -1240,9 +1263,6 @@ class NodeInstance(HasInstancesInstance):
             for rel in cap.relationships:
                 if rel.source:
                     if id(rel.source) in seen:
-                        logger.debug(
-                            f"Circular operational dependency during configured_by in {seen}"
-                        )
                         continue
                     seen[id(rel.source)] = rel.source
 
@@ -1260,9 +1280,6 @@ class NodeInstance(HasInstancesInstance):
         for rel in self.requirements:
             if rel.target:
                 if id(rel.target) in seen:
-                    logger.debug(
-                        f"Circular operational dependency during hosting_on in {seen}"
-                    )
                     continue
                 seen[id(rel.target)] = rel.target
 
@@ -1346,8 +1363,8 @@ class NodeInstance(HasInstancesInstance):
         current[name or klass] = klass
         return current
 
-    def get_interface(self, name):
-        # XXX uses TOSCA interfaces instead
+    def _get_interface(self, name):
+        # note: jinja2 sandbox environment disallows attribute access starting with "_"
         if ".interfaces" not in self._attributes:
             return None  # no interfaces
 
@@ -1368,6 +1385,17 @@ class NodeInstance(HasInstancesInstance):
         return f"NodeInstance('{self.nested_name}')"
 
 
+class TopologyInputsInstance(EntityInstance):
+    @property
+    def key(self) -> InstanceKey:
+        assert self.parent
+        return cast(InstanceKey, f"{self.parent.key}::inputs")
+
+    def as_ref(self, options=None):
+        # serialize the attributes directly instead of creating an eval expression
+        return serialize_value(self._attributes, **(options or {}))
+
+
 class TopologyInstance(HasInstancesInstance):
     templateType = TopologySpec  # type: ignore
 
@@ -1377,13 +1405,55 @@ class TopologyInstance(HasInstancesInstance):
         status=None,
         parent_topology: Optional["TopologyInstance"] = None,
     ):
-        attributes = dict(inputs=template.inputs, outputs=template.outputs)
+        # create a pseudo instance so we can track accesses to individual inputs.
+        self.inputs = TopologyInputsInstance(
+            "inputs", template.inputs, self, TopologyInputsSpec(template)
+        )
+        attributes = dict(outputs=template.outputs)
         HasInstancesInstance.__init__(self, "root", attributes, None, template, status)
 
         self._relationships: List["RelationshipInstance"] = []
         self._rel_counter = 0
         self._tmpDir: Optional[str] = None
         self.parent_topology = parent_topology
+        self._start_environ: Optional[Dict[str, str]] = None
+
+    @property
+    def environ(self):
+        if self.parent_topology:
+            return self.parent_topology.environ
+        return self._environ
+
+    def set_envvars(self, env: Dict[str, str]) -> None:
+        """
+        Update os.environ with the given env save the current one so it can be restored by `restore_envvars`.
+        """
+        self._start_environ = os.environ.copy()
+        for key in os.environ:
+            current = env.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in env.items():
+            if value is not None:
+                os.environ[key] = str(value)
+
+    def restore_envvars(self) -> None:
+        """Restore the os.environ to the environment's state before this task ran."""
+        assert self._start_environ is not None, (
+            "start_environ should have been set by set_envvars()"
+        )
+        for key in os.environ:
+            current = self._start_environ.get(key)
+            if current is None:
+                del os.environ[key]
+        for key, value in self._start_environ.items():
+            if value is not None:
+                os.environ[key] = str(value)
+
+    def _resolve(self, key):
+        if key == "inputs":  # special case inputs
+            return self.inputs
+        return self.attributes._getresult(key)
 
     def set_base_dir(self, baseDir: str) -> None:
         self._baseDir = baseDir
@@ -1480,7 +1550,6 @@ class TopologyInstance(HasInstancesInstance):
         nested_root.set_attribute_manager(self.attributeManager)
         nested_root.set_base_dir(self._baseDir)
         nested_root.imports = self.imports
-        nested_root._environ = self._environ
         if self.imports:
             self.imports.add_import(":" + topology.nested_name, nested_root)
         return nested_root

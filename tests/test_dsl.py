@@ -108,11 +108,11 @@ def _generate_builtin(generate, builtin_path=None):
         print("*** writing source to", path)
         with open(path, "w") as po:
             print(python_src, file=po)
-    return _to_yaml(python_src, False)
+    return _to_yaml(python_src, False), python_src
 
 
 def test_builtin_generation():
-    yaml_src = _generate_builtin(yaml2python.generate_builtins)
+    yaml_src, python_src = _generate_builtin(yaml2python.generate_builtins)
     src_yaml = EntityType.TOSCA_DEF_LOAD_AS_IS
     for section in EntityType.TOSCA_DEF_SECTIONS:
         if section == "types":
@@ -141,7 +141,9 @@ def test_builtin_generation():
 
 
 def test_builtin_ext_generation():
-    assert _generate_builtin(yaml2python.generate_builtin_extensions)
+    yaml_src, python_src = _generate_builtin(yaml2python.generate_builtin_extensions)
+    assert yaml_src
+    assert "install: Union[tosca.artifacts.Root, None] = None" in python_src
 
 
 type_reference_python = '''
@@ -382,8 +384,8 @@ topology_template:
         host:
          properties:
            num_cpus: 1
-           disk_size: 10 GB
-           mem_size: 4096 MB
+           disk_size: 10GB
+           mem_size: 4096MB
         # Guest Operating System properties
         os:
           properties:
@@ -640,6 +642,83 @@ topology_template:
     assert yaml_dict == tosca_yaml
 
 
+def test_interface_inputs():
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    task:
+      type: tosca.nodes.Root
+      metadata:
+        module: service_template
+      interfaces:
+        Install:
+          operations:
+            discover:
+              inputs:
+                arg: 1
+"""
+    src, src_tpl = _to_python(yaml_src)
+    # print(src)
+    yaml_dict = _to_yaml(src, False)
+    # yaml.dump(yaml_dict, sys.stdout)
+    # XXX fix missing inputs in conversion:
+    src_tpl["topology_template"]["node_templates"]["task"]["interfaces"]["Install"][
+        "operations"
+    ]["discover"] = None
+    assert yaml_dict == src_tpl, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
+
+
+def test_outputs():
+    python_src = """
+import unfurl
+import tosca
+
+class Outputs(tosca.ToscaOutputs):
+    token: str = tosca.Attribute()
+
+class Node(tosca.nodes.Root, Outputs):
+    def create(self) -> Outputs:
+        return unfurl.artifacts.ShellExecutable(
+            file="", command=""
+        ).execute()
+    """
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template: {}
+node_types:
+  Node:
+    derived_from: tosca.nodes.Root
+    attributes:
+      token:
+        type: string
+        metadata:
+          output_match: Outputs
+    interfaces:
+      Standard:
+        operations:
+          create:
+            metadata:
+              output_match:
+              - Outputs
+            outputs:
+              token:
+                type: string
+            implementation:
+              primary:
+                type: unfurl.artifacts.ShellExecutable
+                properties:
+                  command: ''
+                file: ''
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    yaml.dump(yaml_dict, sys.stdout)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml
+
+
 def test_node_filter():
     python_src = """
 import unfurl
@@ -860,7 +939,7 @@ def test_class_init() -> None:
             cls.prop1 = cls.host.os.distribution
             # same as cls.host = cls.prop1 but avoids the static type mismatch error
             cls.set_to_property_source(cls.host, cls.prop1)
-            cls.prop2 = cls.host._name  # XXX tosca_name is shadowed
+            cls.prop2 = cls.host._name
             cls.prop3 = cls._name
 
         def create(self, **kw) -> tosca.artifacts.Root:
@@ -1208,6 +1287,7 @@ def test_template_init() -> None:
         def _template_init(self) -> None:
             if self.has_default("shellScript"):
                 if self.host:
+                    assert tosca.global_state.mode == "parse"
                     intent = self.prop1["key"][0]
                 else:
                     intent = None  # self.host is None on template e3
@@ -1976,16 +2056,13 @@ def test_convert_import_with_repo(test_input, exp_import, exp_path):
         assert output[1] == exp_path
 
 
-def test_sandbox(capsys):
-    _to_yaml("print('hello', 'world')", True)
-    captured = capsys.readouterr()
-    assert captured.out == "hello world"
-
+def test_sandbox_denied():
     # disallowed imports parse but raise ImportError when accessed
     imports = [
         "import sys",
         "import tosca.python2yaml",
         "from tosca.python2yaml import ALLOWED_MODULE, missing",
+        "from unfurl.repo import normalize_git_url",
     ]
     for src in imports:
         assert _to_yaml(src, True)
@@ -2039,12 +2116,22 @@ tosca.nodes.Root._type_name = 'pown'""",
         "import unfurl; unfurl._ImmutableModule__set_sub_module('foo', 'bar')",
         "import tosca; del tosca.nodes.Root().__class__._name"
         "import tosca; tosca.nodes.Root().__class__.trick = 'tricky'",
+        '''
+        def t():
+            from unfurl.repo import normalize_git_url
+            normalize_git_url('http://example.com')
+        '''
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
         with pytest.raises(Exception):
             assert _to_yaml(src, True)
 
+def test_sandbox_allowed(capsys):
+    _to_yaml("print('hello', 'world')", True)
+    captured = capsys.readouterr()
+    assert captured.out == "hello world"
+    
     allowed = [
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
@@ -2068,6 +2155,7 @@ node.__class__.feature
         "a, b = 1, 2; assert a == 1 and b == 2",
         "(foo := 1)",
         "try: a='ok'\nexcept: a='fail'",
+        "from unfurl.tosca_plugins.cloudmap_defs import get_repository_url; get_repository_url('https://example.com')",
     ]
     for src in allowed:
         # print("\nallowed?\n", src)
@@ -2178,6 +2266,57 @@ def test_typeinfo():
     assert t.simple_types == (dict,)
     assert t.instance_check({"D": {"a": {}}})
     assert not t.instance_check({"D": []})
+
+def test_typeddict():
+    python_src = """
+import unfurl
+import tosca
+import typing
+
+class TypedDictTest(typing.TypedDict):
+    test: str
+
+class Test(tosca.nodes.Root):
+    prop: TypedDictTest
+
+    def configure(self):
+        # ** desugars to self.prop.keys() and raises FieldProjection error
+        return unfurl.configurators.shell.ShellConfigurator(**self.prop)
+
+
+test = Test(prop=TypedDictTest(test="test"))
+    """
+    # XXX convert typeddicts to tosca datatypes?
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+topology_template:
+  node_templates:
+    test:
+      type: Test
+      properties:
+        prop:
+          test: test
+      metadata:
+        module: service_template
+node_types:
+  Test:
+    derived_from: tosca.nodes.Root
+    properties:
+      prop:
+        type: map
+    interfaces:
+      Standard:
+        operations:
+          configure:
+            implementation:
+              # this needs to be done at runtime because we don't convert TypedDict keys to TOSCA inputs
+              className: service_template:Test.configure:parse
+"""
+    yaml_dict = _to_yaml(python_src, False)
+    tosca_yaml = load_yaml(yaml, yaml_src)
+    assert yaml_dict == tosca_yaml, (
+        yaml.dump(yaml_dict, sys.stdout) or "unexpected yaml, see stdout"
+    )
 
 
 if __name__ == "__main__":

@@ -11,6 +11,6 @@ docker_hub = Repository(
 )
 myApp = tosca.nodes.Root()
 myApp.image = tosca.artifacts.DeploymentImageContainerDocker(
-        file="myapp:latest",
-        repository=docker_hub.tosca_name,
-    )
+    file="myapp:latest",
+    repository=docker_hub.name,
+)

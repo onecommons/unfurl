@@ -25,6 +25,7 @@ from .__main__ import cli, _latestJobs
 from .job import Runner, JobOptions, Job
 from .manifest import Manifest
 from .yamlmanifest import YamlManifest
+from .localenv import LocalEnv
 from .support import Status, Priority
 from .yamlloader import yaml
 import tosca
@@ -32,6 +33,7 @@ from tosca.python2yaml import PythonToYaml
 from .dsl import proxy_instance
 from .util import API_VERSION
 import pprint
+import pytest
 
 try:
     from mypy import api
@@ -51,6 +53,7 @@ try:
 except ImportError:
     assert_no_mypy_errors = None  # type: ignore
 
+SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 @dataclass
 class Step:
@@ -156,6 +159,7 @@ def init_project(
     path: Optional[str] = None,
     env: Optional[Dict[str, str]] = None,
     args: Optional[Sequence[str]] = None,
+    path_dest="ensemble/ensemble.yaml",
 ):
     args = args or [
         "init",
@@ -172,7 +176,7 @@ def init_project(
     assert result.exit_code == 0, result
 
     if path and os.path.isfile(path):
-        return shutil.copy(path, "ensemble/ensemble.yaml")
+        return shutil.copy(path, path_dest)
     return path
 
 
@@ -260,14 +264,14 @@ def run_job_cmd(
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
-def runtime_test(namespace: Type[_N]) -> _N:
-    return create_runner(namespace)[0]
+def runtime_test(namespace: Type[_N], project_root=None) -> _N:
+    return create_runner(namespace, project_root)[0]
 
 
-def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
+def create_runner(namespace: Type[_N], project_root=None) -> Tuple[_N, "Runner"]:
     from .job import Runner
 
-    manifest, doc = namespace2manifest(namespace)
+    manifest, doc = namespace2manifest(namespace, project_root)
     assert manifest.rootResource
     # a plan is needed to create the instances
     runner = Runner(manifest)
@@ -297,7 +301,7 @@ def create_runner(namespace: Type[_N]) -> Tuple[_N, "Runner"]:
 
 
 def namespace2manifest(
-    namespace: Type[tosca.Namespace],
+    namespace: Type[tosca.Namespace], project_root=None
 ) -> Tuple[YamlManifest, Dict[str, Any]]:
     converter = PythonToYaml(namespace.get_defs())
     doc = converter.module2yaml(True)
@@ -307,5 +311,22 @@ def namespace2manifest(
     config = dict(
         apiVersion=API_VERSION, kind="Ensemble", spec=dict(service_template=doc)
     )
-    manifest = YamlManifest(config)
+    if project_root is not None:
+        localEnv = LocalEnv(
+            project_root,
+            can_be_empty=True,
+            overrides=dict(skip_default_ensemble=True, UNFURL_SKIP_UPSTREAM_CHECK=True),
+        )
+    else:
+        localEnv = None
+    manifest = YamlManifest(config, localEnv=localEnv)
     return manifest, doc
+
+@pytest.fixture()
+def fs_runner():
+    runner = CliRunner()
+    with runner.isolated_filesystem(SAVE_TMP) as test_dir:
+        if SAVE_TMP:
+            print("running in", test_dir)
+        runner.test_dir = test_dir  # type: ignore
+        yield runner

@@ -79,7 +79,8 @@ class DefaultNames:
     SecretsConfig = "secrets.yaml"
     HomeDirectory = ".unfurl_home"
     JobsLog = "jobs.tsv"
-    ProjectDirectory = ".unfurl"
+    ProjectDirectory = "_unfurl"
+    HiddenProjectDirectory = ".unfurl"
     LocalConfigTemplate = ".unfurl-local-template.yaml"
     InputsTemplate = "inputs-template.yaml"
 

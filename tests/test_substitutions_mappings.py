@@ -67,7 +67,7 @@ spec:
             - defaultconnection:
                 relationship:
                   type: unfurl.relationships.ConnectsTo.Ansible
-                  default_for: SELF
+                  default_for: tosca.nodes.Root
 
 """
 
@@ -383,6 +383,9 @@ def test_substitution_with_node():
         nested_root_node = job.rootResource.find_instance("nested1:inner")
         assert nested_root_node
         assert nested_root_node.root is not job.rootResource
+        assert nested_root_node.query(".apex::.all::cluster")
+        assert not nested_root_node.query("::cluster")
+        assert nested_root_node.query(":::cluster")
         assert (
             len(
                 nested_root_node.get_default_relationships(
@@ -395,12 +398,22 @@ def test_substitution_with_node():
         # test serialization and loading:
         manifest2 = YamlManifest(localEnv=LocalEnv(".", homePath="./unfurl_home"))
 
-        inner = manifest2.rootResource.find_instance("nested1:inner")
+        inner = manifest2.rootResource.find_instance(":nested1:inner")
         assert inner
         assert inner.attributes["from_outer2"] == "outer"
         assert inner.attributes["from_outer"] == "outer"
+        assert inner.nested_key == ":::nested1:inner"
+        assert inner == manifest2.rootResource.query(inner.nested_key)
+        assert inner == inner.query(inner.nested_key)
 
-        assert manifest2.rootResource.find_instance("nested2:nested")
+        inner2 = manifest2.rootResource.find_instance("nested2:nested")
+        assert inner2
+        assert inner2.nested_key == ":::nested2:nested"
+        assert inner2 == manifest2.rootResource.query(inner2.nested_key)
+        assert inner2 == inner2.query(inner2.nested_key)
+        assert inner2.parent.nested_key == ":::nested2:root"
+        assert inner2.parent == manifest2.rootResource.query(":::nested2:root")
+
         expected = ["root", "external", "nested1", "nested2", "cluster"]
         assert expected == [
             i.name for i in manifest2.rootResource.get_self_and_descendants()

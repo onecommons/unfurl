@@ -5,14 +5,68 @@
 #![allow(clippy::clone_on_copy)] // ignore for ascent!
 #![allow(clippy::unused_enumerate_index)] // ignore for ascent!
 #![allow(clippy::type_complexity)] // ignore for ascent!
+#![allow(clippy::mutable_key_type)] // ignore for ascent! (ok because Regex in constraint is ignored by hash and eq)
 
 use ascent::{ascent, lattice::set::Set};
+use regex::Regex;
 use semver::{Version, VersionReq};
 use std::convert::From;
-use std::{cmp::Ordering, collections::BTreeMap, fmt::Debug, hash::Hash};
+use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
+    fmt::Debug,
+    hash::{Hash, Hasher},
+};
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+/// Wrapper around Regex that can be used with PyO3
+/// The Regex field is not exposed to Python - only the pattern string is accessible
+#[cfg_attr(feature = "python", pyclass)]
+#[derive(Clone, Debug)]
+pub struct CompiledPattern {
+    pattern: String,
+    compiled: Regex,
+}
+
+impl CompiledPattern {
+    pub fn new(pattern: String) -> Result<Self, regex::Error> {
+        let compiled = Regex::new(&pattern)?;
+        Ok(CompiledPattern { pattern, compiled })
+    }
+
+    pub fn regex(&self) -> &Regex {
+        &self.compiled
+    }
+
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+}
+
+#[cfg(feature = "python")]
+#[pymethods]
+impl CompiledPattern {
+    #[getter]
+    fn get_pattern(&self) -> &str {
+        &self.pattern
+    }
+}
+
+impl PartialEq for CompiledPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.pattern == other.pattern
+    }
+}
+
+impl Eq for CompiledPattern {}
+
+impl Hash for CompiledPattern {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.pattern.hash(state);
+    }
+}
 
 pub type Symbol<'a> = &'a str;
 
@@ -30,7 +84,7 @@ type Query = Vec<(QueryType, String, String)>;
 ///
 /// Corresponds to "node", "capability", and "node_filter"
 /// fields on a TOSCA requirement and "valid_target_types" on relationship types.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq))]
 #[derive(Clone, PartialOrd, Ord, PartialEq, Eq, Hash, Debug)]
 
 pub enum CriteriaTerm {
@@ -100,21 +154,94 @@ pub enum QueryType {
 /// Constraints used in node filters
 #[allow(non_camel_case_types)]
 #[cfg_attr(feature = "python", pyclass)]
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Debug)]
 pub enum Constraint {
-    equal { v: ToscaValue },
-    greater_than { v: ToscaValue },
-    greater_or_equal { v: ToscaValue },
-    less_than { v: ToscaValue },
-    less_or_equal { v: ToscaValue },
-    in_range { v: ToscaValue },
-    valid_values { v: ToscaValue },
-    length { v: ToscaValue },
-    min_length { v: ToscaValue },
-    max_length { v: ToscaValue },
-    version { v: ToscaValue },
-    // pattern, // XXX
+    equal {
+        v: ToscaValue,
+    },
+    greater_than {
+        v: ToscaValue,
+    },
+    greater_or_equal {
+        v: ToscaValue,
+    },
+    less_than {
+        v: ToscaValue,
+    },
+    less_or_equal {
+        v: ToscaValue,
+    },
+    in_range {
+        v: ToscaValue,
+    },
+    valid_values {
+        v: ToscaValue,
+    },
+    length {
+        v: ToscaValue,
+    },
+    min_length {
+        v: ToscaValue,
+    },
+    max_length {
+        v: ToscaValue,
+    },
+    version {
+        v: ToscaValue,
+    },
+    pattern {
+        v: ToscaValue,
+        compiled: CompiledPattern,
+    },
     // schema,  // XXX
+}
+
+impl PartialEq for Constraint {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Constraint::equal { v: v1 }, Constraint::equal { v: v2 }) => v1 == v2,
+            (Constraint::greater_than { v: v1 }, Constraint::greater_than { v: v2 }) => v1 == v2,
+            (Constraint::greater_or_equal { v: v1 }, Constraint::greater_or_equal { v: v2 }) => {
+                v1 == v2
+            }
+            (Constraint::less_than { v: v1 }, Constraint::less_than { v: v2 }) => v1 == v2,
+            (Constraint::less_or_equal { v: v1 }, Constraint::less_or_equal { v: v2 }) => v1 == v2,
+            (Constraint::in_range { v: v1 }, Constraint::in_range { v: v2 }) => v1 == v2,
+            (Constraint::valid_values { v: v1 }, Constraint::valid_values { v: v2 }) => v1 == v2,
+            (Constraint::length { v: v1 }, Constraint::length { v: v2 }) => v1 == v2,
+            (Constraint::min_length { v: v1 }, Constraint::min_length { v: v2 }) => v1 == v2,
+            (Constraint::max_length { v: v1 }, Constraint::max_length { v: v2 }) => v1 == v2,
+            (Constraint::version { v: v1 }, Constraint::version { v: v2 }) => v1 == v2,
+            // For pattern, only compare the ToscaValue, ignore the compiled Regex
+            (Constraint::pattern { v: v1, .. }, Constraint::pattern { v: v2, .. }) => v1 == v2,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for Constraint {}
+
+impl Hash for Constraint {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Hash the discriminant first to distinguish between variants
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Constraint::equal { v } => v.hash(state),
+            Constraint::greater_than { v } => v.hash(state),
+            Constraint::greater_or_equal { v } => v.hash(state),
+            Constraint::less_than { v } => v.hash(state),
+            Constraint::less_or_equal { v } => v.hash(state),
+            Constraint::in_range { v } => v.hash(state),
+            Constraint::valid_values { v } => v.hash(state),
+            Constraint::length { v } => v.hash(state),
+            Constraint::min_length { v } => v.hash(state),
+            Constraint::max_length { v } => v.hash(state),
+            Constraint::version { v } => v.hash(state),
+            // For pattern, only hash the ToscaValue, ignore the compiled Regex
+            Constraint::pattern { v, .. } => v.hash(state),
+        }
+    }
 }
 
 impl Constraint {
@@ -131,10 +258,11 @@ impl Constraint {
             Constraint::min_length { v } => v,
             Constraint::max_length { v } => v,
             Constraint::version { v } => v,
+            Constraint::pattern { v, .. } => v,
         }
     }
 
-    fn matches(&self, t: &ToscaValue) -> Option<bool> {
+    pub fn matches(&self, t: &ToscaValue) -> Option<bool> {
         // XXX validate self.v is compatibility with v
         // let v = self.get_value();
         // let t = tc.v;
@@ -203,7 +331,7 @@ impl Constraint {
                 let version_str = match &t.v {
                     SimpleValue::string { v } => v.clone(),
                     SimpleValue::integer { v } => v.to_string(),
-                    SimpleValue::float { v } => v.to_string(),
+                    SimpleValue::float { v } => v.0.to_string(),
                     _ => return Some(false), // other types can't be semver compatible
                 };
 
@@ -222,6 +350,19 @@ impl Constraint {
                 match (VersionReq::parse(req_str), Version::parse(&full_version)) {
                     (Ok(version_req), Ok(version)) => Some(version_req.matches(&version)),
                     _ => Some(req_str == version_str), // non-semver version strings must match exactly
+                }
+            }
+            Constraint::pattern { compiled, .. } => {
+                // Only match against string values, use compiled regex for exact matching
+                match &t.v {
+                    SimpleValue::string { v: text } => {
+                        // Use the compiled Regex to perform exact match
+                        match compiled.regex().find(text) {
+                            Some(m) => Some(m.start() == 0 && m.end() == text.len()),
+                            None => Some(false),
+                        }
+                    }
+                    _ => Some(false), // Non-string values don't match patterns
                 }
             }
             _ => None, // type mismatch
@@ -258,16 +399,88 @@ fn match_criteria(full: &Criteria, current: &Criteria) -> bool {
     full == current
 }
 
+/// `f64` wrapper that defines a total equality, ordering, and hash so it can
+/// be used inside types that need `Eq`/`Hash`. NaN is treated as equal to
+/// NaN (consistent with hashing the bit pattern), and `total_cmp` provides a
+/// total order over all `f64` values including NaN.
+#[derive(Copy, Clone, Debug, Default)]
+pub struct OrderedF64(pub f64);
+
+impl PartialEq for OrderedF64 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.to_bits() == other.0.to_bits()
+    }
+}
+
+impl Eq for OrderedF64 {}
+
+impl Hash for OrderedF64 {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.to_bits().hash(state);
+    }
+}
+
+impl PartialOrd for OrderedF64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedF64 {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.0.total_cmp(&other.0)
+    }
+}
+
+impl From<f64> for OrderedF64 {
+    fn from(v: f64) -> Self {
+        OrderedF64(v)
+    }
+}
+
+impl From<OrderedF64> for f64 {
+    fn from(v: OrderedF64) -> Self {
+        v.0
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> IntoPyObject<'py> for OrderedF64 {
+    type Target = pyo3::types::PyFloat;
+    type Output = Bound<'py, pyo3::types::PyFloat>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> IntoPyObject<'py> for &OrderedF64 {
+    type Target = pyo3::types::PyFloat;
+    type Output = Bound<'py, pyo3::types::PyFloat>;
+    type Error = std::convert::Infallible;
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        self.0.into_pyobject(py)
+    }
+}
+
+#[cfg(feature = "python")]
+impl<'py> FromPyObject<'py> for OrderedF64 {
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        Ok(OrderedF64(ob.extract::<f64>()?))
+    }
+}
+
 /// Simple TOSCA value
 #[allow(non_camel_case_types)]
-#[cfg_attr(feature = "python", pyclass)]
-#[derive(Clone, PartialEq, Debug)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SimpleValue {
     // tosca simple values
     integer { v: i128 },
     string { v: String },
     boolean { v: bool },
-    float { v: f64 },
+    float { v: OrderedF64 },
     list { v: Vec<ToscaValue> },
     range { v: (i128, i128) },
     map { v: BTreeMap<String, ToscaValue> },
@@ -312,26 +525,19 @@ impl PartialOrd for SimpleValue {
     }
 }
 
-impl Eq for SimpleValue {
-    fn assert_receiver_is_total_eq(&self) {
-        // skip this check so we can pretend f64 are Eq
-        // XXX fix this (use float_eq::FloatEq? or ordered-float
-    }
-}
-
 impl Hash for SimpleValue {
     #[inline]
-    fn hash<__H: ::core::hash::Hasher>(&self, state: &mut __H) {
-        let __self_tag = std::mem::discriminant(self);
-        Hash::hash(&__self_tag, state);
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let tag = std::mem::discriminant(self);
+        Hash::hash(&tag, state);
         match self {
-            SimpleValue::integer { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::string { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::boolean { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::float { v: __self_0 } => Hash::hash(&__self_0.to_bits(), state),
-            SimpleValue::list { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::range { v: __self_0 } => Hash::hash(__self_0, state),
-            SimpleValue::map { v: __self_0 } => Hash::hash(__self_0, state),
+            SimpleValue::integer { v } => Hash::hash(v, state),
+            SimpleValue::string { v } => Hash::hash(v, state),
+            SimpleValue::boolean { v } => Hash::hash(v, state),
+            SimpleValue::float { v } => Hash::hash(v, state),
+            SimpleValue::list { v } => Hash::hash(v, state),
+            SimpleValue::range { v } => Hash::hash(v, state),
+            SimpleValue::map { v } => Hash::hash(v, state),
         }
     }
 }
@@ -347,7 +553,14 @@ macro_rules! sv_from {
 }
 
 sv_from!(i128, integer);
-sv_from!(f64, float);
+sv_from!(OrderedF64, float);
+impl From<f64> for SimpleValue {
+    fn from(item: f64) -> Self {
+        SimpleValue::float {
+            v: OrderedF64(item),
+        }
+    }
+}
 sv_from!(bool, boolean);
 sv_from!(String, string);
 sv_from!((i128, i128), range);
@@ -355,22 +568,24 @@ sv_from!(Vec<ToscaValue>, list);
 sv_from!(BTreeMap<String, ToscaValue>, map);
 
 /// A TOSCA value. If a complex value or typed scalar, type_name will be set.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct ToscaValue {
-    #[cfg(feature = "python")]
-    #[pyo3(get, set)]
-    pub type_name: Option<String>,
-
-    #[cfg(not(feature = "python"))]
-    pub type_name: Option<String>,
-
+    // `v` comes before `type_name` so the derived ordering compares the
+    // underlying value first; `type_name` is a tie-breaker.
     #[cfg(feature = "python")]
     #[pyo3(get)]
     pub v: SimpleValue,
 
     #[cfg(not(feature = "python"))]
     pub v: SimpleValue,
+
+    #[cfg(feature = "python")]
+    #[pyo3(get, set)]
+    pub type_name: Option<String>,
+
+    #[cfg(not(feature = "python"))]
+    pub type_name: Option<String>,
 }
 
 #[cfg(feature = "python")]
@@ -414,7 +629,7 @@ tv_from!(Vec<ToscaValue>);
 tv_from!(BTreeMap<String, ToscaValue>);
 
 /// Value of a [Node](crate::Node) field.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub enum FieldValue {
     Property {
@@ -433,7 +648,7 @@ pub enum FieldValue {
 }
 
 /// [Node](crate::Node) field.
-#[cfg_attr(feature = "python", pyclass)]
+#[cfg_attr(feature = "python", pyclass(eq, ord))]
 #[derive(Clone, PartialOrd, PartialEq, Eq, Hash, Debug)]
 pub struct Field {
     #[cfg(feature = "python")]
@@ -533,6 +748,7 @@ ascent! {
 
     relation entity(EntityRef<'a>, TypeName<'a>);
     relation node(NodeName<'a>, TypeName<'a>);
+    relation live(NodeName<'a>, CapabilityName<'a>, bool);
 
     // reqname is set if property is on a relationship template
     // final bool is true when set by property_expr match
@@ -556,30 +772,39 @@ ascent! {
     relation term_match(NodeName<'a>, ReqName<'a>, Criteria, CriteriaTerm, NodeName<'a>, Option<CapabilityName<'a>>);
     lattice filtered(NodeName<'a>, ReqName<'a>, NodeName<'a>, Option<CapabilityName<'a>>, Criteria, Criteria);
     relation requirement_match(NodeName<'a>, ReqName<'a>, NodeName<'a>, CapabilityName<'a>);
+    // for conditional nodes:
+    lattice live_filter(NodeName<'a>, Set<ReqName<'a>>, Set<ReqName<'a>>);
+    relation missing_requirements(NodeName<'a>, Set<ReqName<'a>>);
 
     term_match(source, req, criteria, ct, target, None) <--
         node(target, typename), requirement(source, req, criteria),
+        live(target, "", true),
         req_term_node_name(source, req, ct, target) if source != target;
 
     term_match(source, req, criteria, ct, target, None) <--
         node(target, typename), requirement(source, req, criteria),
+        live(target, "", true),
         req_term_node_type(source, req, ct, typename) if source != target;
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, cap_id), entity(cap_id, typename),
         requirement(source, req, criteria),
+        live(target, "", true),
+        // live(target, cap_name, true)
         req_term_cap_type(source, req, ct, typename) if source != target;
-        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, Some(cap_name.clone())) <--
         capability(target, cap_name, _), requirement(source, req, criteria),
         term_match(source, req, criteria, _, target, _),  // only match req_term_capname after we found candidate target nodes
+        live(target, "", true),
+        // live(target, cap_name, true)
         req_term_cap_name(source, req, ct, cap_name);
-        // live(target, capname, true)
 
     term_match(source, req, criteria, ct, target, None) <--
         property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
+        live(target, "", true),
+        // live(target, capname, true)
         req_term_prop_filter(source, req, ct, capname, propname) if source != target && ct.match_property(value);
 
     // for node filters with capability typename instead of capability name:
@@ -587,12 +812,14 @@ ascent! {
         property_value(target, capname, "", propname, value, ?computed),
         requirement(source, req, criteria),
         capability(target, capname, cap_id), entity(cap_id, typename),
-        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
+        live(target, "", true),
         // live(target, capname, true)
+        req_term_prop_filter(source, req, ct, typename, propname) if source != target && ct.match_property(value);
 
     term_match(source, req, criteria, ct, target, None) <--
         result(entity_ref, q_id, target, true),
         req_term_query(source, req, ct, q_id) if entity_ref.is_relationship(source, req),
+        live(target, "", true),
         requirement(source, req, criteria);
 
     filtered(name, req_name, target, cn, criteria, Criteria::singleton(term.clone())) <--
@@ -608,6 +835,18 @@ ascent! {
         filtered(name, req_name, target, fcn, criteria, filter) if match_criteria(filter, criteria);
 
     // live(extract_node(source), extract_cap(source), true)) <-- requirement_match(source, sym("~DYNCAP"), target, target_cap);
+
+    // update set of found requirements
+    live_filter(node_name, requirements, Set::<ReqName<'a>>::singleton(req_name)) <--
+        requirement_match(node_name, req_name, _, _),
+        missing_requirements(node_name, requirements) if requirements.contains(req_name);
+
+    live_filter(node_name, requirements, Set({let mut fc = f.0.clone(); fc.insert(req_name); fc})) <--
+        requirement_match(node_name, req_name, _, _),
+        missing_requirements(node_name, requirements) if requirements.contains(req_name),
+        live_filter(node_name, ?f, requirements);
+
+    live(node_name, "", true) <-- live_filter(node_name, filter, requirements) if filter == requirements;
 
     // graph navigation
     relation required_by(NodeName<'a>, ReqName<'a>, NodeName<'a>);
@@ -688,7 +927,7 @@ mod tests {
     #[allow(clippy::field_reassign_with_default)]
     pub fn make_topology() -> Topology<'static> {
         let mut prog = Topology::default();
-        prog.node = vec![("n1".into(), "Root".into())];
+        prog.node = vec![("n1", "Root")];
         prog.requirement_match = vec![
             ("n1", "host", "n2", "feature"),
             ("n2", "host", "n3", "feature"),
@@ -718,6 +957,53 @@ mod tests {
         };
         assert!(range.matches(&ToscaValue::from(1)).unwrap());
         assert!(!range.matches(&ToscaValue::from(6)).unwrap());
+    }
+
+    #[test]
+    fn test_tvalue_float_eq() {
+        use std::collections::hash_map::DefaultHasher;
+
+        fn assert_eq_bound<T: Eq>(_: &T) {}
+
+        let a = SimpleValue::float { v: OrderedF64(1.5) };
+        let b = SimpleValue::float { v: OrderedF64(1.5) };
+        let c = SimpleValue::float { v: OrderedF64(2.5) };
+        let nan1 = SimpleValue::float {
+            v: OrderedF64(f64::NAN),
+        };
+        let nan2 = SimpleValue::float {
+            v: OrderedF64(f64::NAN),
+        };
+
+        // Eq holds (compiler check) and PartialEq agrees on equal/unequal pairs.
+        assert_eq_bound(&a);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+
+        // NaN is treated as equal to NaN — consistent with the Hash impl.
+        assert_eq!(nan1, nan2);
+
+        // Equal values hash the same.
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        a.hash(&mut h1);
+        b.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish());
+
+        // From<f64> still produces an equivalent SimpleValue::float.
+        assert_eq!(SimpleValue::from(1.5_f64), a);
+
+        // Total ordering on floats; NaN sorts after finite values.
+        assert!(a < c);
+        assert!(c < nan1);
+
+        // SimpleValue can now live in a HashSet (requires Eq + Hash).
+        let mut set = std::collections::HashSet::new();
+        set.insert(a.clone());
+        set.insert(b.clone());
+        assert_eq!(set.len(), 1);
+        set.insert(c);
+        assert_eq!(set.len(), 2);
     }
 
     #[test]
@@ -831,6 +1117,41 @@ mod tests {
         assert!(!unsemver_constraint
             .matches(&ToscaValue::from("1.2.9".to_string()))
             .unwrap());
+    }
+
+    #[test]
+    fn test_pattern_constraint() {
+        // Test pattern matching with valid patterns
+        let email_pattern_str = r"^[a-z]+@[a-z]+\.[a-z]+$";
+        let email_pattern = Constraint::pattern {
+            v: ToscaValue::from(email_pattern_str.to_string()),
+            compiled: CompiledPattern::new(email_pattern_str.to_string()).unwrap(),
+        };
+
+        assert!(email_pattern
+            .matches(&ToscaValue::from("user@example.com".to_string()))
+            .unwrap());
+        assert!(!email_pattern
+            .matches(&ToscaValue::from("invalid-email".to_string()))
+            .unwrap());
+
+        // Test digit pattern
+        let digit_pattern_str = r"^\d{3}-\d{3}-\d{4}$";
+        let digit_pattern = Constraint::pattern {
+            v: ToscaValue::from(digit_pattern_str.to_string()),
+            compiled: CompiledPattern::new(digit_pattern_str.to_string()).unwrap(),
+        };
+
+        assert!(digit_pattern
+            .matches(&ToscaValue::from("123-456-7890".to_string()))
+            .unwrap());
+        assert!(!digit_pattern
+            .matches(&ToscaValue::from("123-45-6789".to_string()))
+            .unwrap());
+
+        // Test pattern with non-string value (should return false)
+        assert!(!email_pattern.matches(&ToscaValue::from(123)).unwrap());
+        assert!(!email_pattern.matches(&ToscaValue::from(true)).unwrap());
     }
 
     #[test]

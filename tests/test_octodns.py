@@ -83,7 +83,7 @@ class TestOctoDnsConfigurator:
         steps[2] = Step("check", Status.ok, changed=1)
         jobs = lifecycle(manifest, steps)
         for job in jobs:
-            assert job.status == Status.ok, job.workflow
+            assert job.status == Status.ok, job.jobOptions.workflow
 
     @mock_aws
     def test_delete(self):
@@ -120,9 +120,9 @@ class TestOctoDnsConfigurator:
         steps[-1] = Step("check", Status.absent, changed=1)
         jobs = lifecycle(manifest, steps)
         for job in jobs:
-            assert job.status == Status.ok, job.workflow
+            assert job.status == Status.ok, job.jobOptions.workflow
 
-    @patch("unfurl.configurators.dns.Manager.sync")
+    @patch("octodns.manager.Manager.sync")
     def test_exclusive(self, manager_sync):
         runner = Runner(YamlManifest(ENSEMBLE_EXCLUSIVE))
 
@@ -144,7 +144,7 @@ class TestOctoDnsConfigurator:
         jobs = lifecycle(manifest)
         for job in jobs:
             assert job.rootResource.find_resource("test_node").attributes["exclusive"]
-            assert job.status == Status.ok, job.workflow
+            assert job.status == Status.ok, job.jobOptions.workflow
 
 
 DNS_FIXTURE = Path(__file__).parent / "fixtures" / "dns"

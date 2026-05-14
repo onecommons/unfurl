@@ -57,15 +57,26 @@ You can also set these rules in ``UNFURL_PACKAGE_RULES`` environment variable wh
 The first rule sets the revision of matching packages to the branch "main", the second replaces one package with another package.
 """
 
+import json
 import os.path
 import re
+import shutil
+import zlib
+import zipfile
+import datetime
+from io import BytesIO
 from typing import Dict, List, NamedTuple, Optional, Tuple, Union, cast
 from git import GitCommandError
-from typing_extensions import Literal
+from typing_extensions import Literal, Self
 from urllib.parse import urlparse
-
+import pathspec
 from .repo import (
+    RepoLockDict,
     RepoView,
+    Repo,
+    GitRepo,
+    git,
+    Commit,
     split_git_url,
     get_remote_tags,
     sanitize_url,
@@ -374,13 +385,40 @@ def normalize_url(url: str) -> str:
 
 
 def package_id_to_url(package_id: str, minimum_version: Optional[str] = ""):
-    # XXX assumes .git and https
-    package_id, sep, revision = package_id.partition(".git/")
+    # XXX assumes host url look like https://.*.git
+    # if /v? strip that
+    match = re.match(r".*(/v\d+)$", package_id)
+    version = ""
+    if match:
+        version = match.group(1)[1:]  # strip leading "/"
+        package_id = package_id[: -len(match.group(1))]  # strip "/vN"
+
+    # github.com, bitbucket.org, git.openstack.org (org/repo) git.apache.org (repo)
     repoloc, sep, repopath = package_id.partition(".git/")
-    if repopath or revision or minimum_version:
-        return f"https://{repoloc}.git#{minimum_version or revision or ''}:{repopath}"
+    if repopath and version:
+        version = repopath + "/" + version
+    revision = minimum_version or version or ""
+    if repopath:
+        return f"https://{repoloc}.git#{revision}:{repopath}"
     else:
-        return f"https://{repoloc}.git"
+        parts = package_id.split("/")
+        if len(parts) > 2:
+            # see vcsPaths in https://go.dev/src/cmd/go/internal/vcs/vcs.go for special cases:
+            # XXX "git.apache.org" (repo),
+            for host in (
+                "github.com",
+                "bitbucket.org",
+                "git.openstack.org",
+            ):
+                if package_id.startswith(host + "/"):
+                    subpath = "/".join(parts[3:])
+                    fragment = (
+                        f"#{revision}:{subpath}"
+                        if subpath
+                        else (f"#{revision}" if revision else "")
+                    )
+                    return f"https://{'/'.join(parts[:3])}.git{fragment}"
+        return f"https://{repoloc}.git{'#' + revision if revision else ''}"
 
 
 def get_package_from_url(url_: str):
@@ -431,28 +469,32 @@ class Package:
     def __str__(self):
         return f"Package({self.package_id} {self.revision} {self.safe_url})"
 
-    def version_tag_prefix(self) -> str:
+    def version_tag_prefix(self, major_version: str = "") -> str:
         # see https://go.dev/ref/mod#vcs-version
         if self.url:
             url, repopath, urlrevision = split_git_url(self.url)
             # return tag prefix to match version tags with
             if repopath:
-                # strip out major version suffix:
-                # if repopath looks "foo" or "foo/v2", return "foo/v"
-                return re.sub(r"(/v\d+)?$", "", repopath) + "/v"
-        return "v"
+                # if repopath has a major version suffix use that to only match tags with that major version
+                # otherwise return "foo/v" to find version tags for this package only
+                if re.match(r".*/v\d+$", repopath):
+                    return repopath
+                return repopath + "/v" + major_version
+        return "v" + major_version
 
-    def find_latest_semver_from_repo(self, get_remote_tags) -> Optional[str]:
-        prefix = self.version_tag_prefix()
+    def find_latest_semver_from_repo(
+        self, get_remote_tags, major_version: str = ""
+    ) -> Optional[str]:
+        prefix = self.version_tag_prefix(major_version)
         order = "earliest" if self.missing else "latest"
-        logger.debug(
-            f"Package {self.package_id} is looking for {order} remote tags {prefix}* on {self.safe_url}"
-        )
         # get an sorted list of tags and strip the prefix from them
         url, repopath, urlrevision = split_git_url(self.url)
         remote_tags = get_remote_tags(url, prefix + "*")
         if remote_tags is None:  # didn't check
             return None
+        logger.debug(
+            f"Package {self.package_id} searched for {order} remote tags {prefix}* on {self.safe_url}"
+        )
         vtags = [tag[len(prefix) :] for tag in remote_tags]
         # only include tags look like a semver with major version of 1 or higher
         # (We exclude unreleased versions because we want to treat the repository
@@ -469,7 +511,10 @@ class Package:
                 return tags[0]
         return ""  # none found
 
-    def set_version_from_repo(self, get_remote_tags) -> bool:
+    def set_version_from_repo(
+        self, get_remote_tags, default_tag=None
+    ) -> Optional[bool]:
+        """Returns True if version found, False if checked but not found, None if not checked."""
         try:
             revision = self.find_latest_semver_from_repo(get_remote_tags)
         except GitCommandError as e:
@@ -479,8 +524,14 @@ class Package:
                 e.stderr,
             )
             return False
-        if revision is None:  # get_remote_tags didn't check
-            return False
+        if revision is None:
+            # get_remote_tags didn't check
+            if default_tag:
+                prefix = self.version_tag_prefix()
+                if default_tag.startswith(prefix):
+                    revision = default_tag[len(prefix) :]
+            if revision is None:
+                return None
         # remember the result of the search even if we don't set the revision
         if revision:
             self.discovered = True
@@ -501,6 +552,10 @@ class Package:
         if not self.has_semver(True):
             return self.revision
         else:
+            prefix = self.version_tag_prefix()
+            while prefix[-1:].isdigit():
+                # remove trailing digit from prefix
+                prefix = prefix[:-1]
             # since "^v" is in the semver regex, make sure don't end up with "vv"
             return self.version_tag_prefix() + self.revision.lstrip("v")
 
@@ -590,7 +645,7 @@ def resolve_package(
     packages: PackagesType,
     package_specs: List[PackageSpec],
     get_remote_tags=get_remote_tags,
-    lock_dict: Optional[dict] = None,
+    lock_dict: Optional["RepoLockDict"] = None,
 ) -> Optional["Package"]:
     """
     If repository references a package, register it with existing package or create a new one.
@@ -610,10 +665,14 @@ def resolve_package(
                 f'Could not find a repository that matched package "{package.package_id}"'
             )
         if not package.locked and not package.revision:
+            skipped = True
             if get_remote_tags:
-                # no version specified, use the latest version tagged in the repository
-                package.set_version_from_repo(get_remote_tags)
-            if not changed and not package.revision:
+                # no version specified, use the latest version tagged in the remote repository
+                # if upstream check is disabled use the local current tag
+                tag = repoview.repo.current_tag if repoview.repo else None
+                result = package.set_version_from_repo(get_remote_tags, tag)
+                skipped = result is None  # upstream check was skipped
+            if not skipped and not changed and not package.revision:
                 # don't treat repository as a package
                 repoview.package = False
                 packages[package.package_id] = False
@@ -675,3 +734,329 @@ def apply_lock(lock_dict, package: Package) -> bool:
     # and so if the package doesn't have an explicit revision set
     # resolve_package will search for tags and reset missing and discovered
     return False
+
+
+def _file_crc32(filepath: str) -> int:
+    """Compute CRC-32 of a file, matching the format used by zipfile."""
+    crc = 0
+    with open(filepath, "rb") as f:
+        while chunk := f.read(65536):
+            crc = zlib.crc32(chunk, crc)
+    return crc & 0xFFFFFFFF
+
+
+def _load_gitignore_spec(root: str) -> Optional["pathspec.PathSpec"]:
+    """Load all .gitignore files under *root* into a single PathSpec matcher.
+
+    Returns None if no .gitignore files are found.
+    """
+    patterns: List[str] = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        if ".gitignore" in filenames:
+            gi_path = os.path.join(dirpath, ".gitignore")
+            rel_dir = os.path.relpath(dirpath, root)
+            with open(gi_path) as f:
+                for line in f:
+                    line = line.rstrip("\n\r")
+                    if not line or line.startswith("#"):
+                        continue
+                    # Prefix pattern with its directory so it matches correctly.
+                    if rel_dir != ".":
+                        line = os.path.join(rel_dir, line)
+                    patterns.append(line)
+    if not patterns:
+        return None
+    return pathspec.PathSpec.from_lines("gitignore", patterns)
+
+
+class ProxiedRepo(Repo):
+    """
+    A package downloaded via a Go module proxy.
+
+    .proxied/info.json contains metadata about the package and its origin, for example:
+
+    {"Version":"v1.0.0","Time":"2024-01-12T16:15:59Z",
+    "Origin":{
+      "VCS":"git",
+      "URL":"https://unfurl.cloud/onecommons/blueprints/baserow.git",
+      "Hash":"f3d902ae0ec52d4f869f8dbeb0c6438eeeb83030",
+      "Ref":"refs/tags/v1.0.0"}
+    }
+
+    (where Hash is the commit for the Ref)
+    """
+
+    _git_repo: Optional["GitRepo"] = None
+    _files: Optional[Dict[str, int]] = None
+
+    def __init__(self, working_dir: str):
+        self._working_dir = working_dir
+        info_path = os.path.join(working_dir, ".proxied", "info.json")
+        with open(info_path) as f:
+            self._info: dict = json.load(f)
+        self.url: str = self._info.get("Origin", {}).get("URL", "")
+
+    @property
+    def working_dir(self) -> str:
+        return self._working_dir
+
+    @property
+    def revision(self) -> str:
+        return self._info.get("Origin", {}).get("Hash", "")
+
+    @property
+    def current_tag(self) -> str:
+        ref = self._info.get("Origin", {}).get("Ref", "")
+        if ref.startswith("refs/tags/"):
+            return ref[len("refs/tags/") :]
+        return ref
+
+    @property
+    def files(self) -> Optional[Dict[str, int]]:
+        if self._files is None:
+            files_path = os.path.join(self._working_dir, ".proxied", "files.json")
+            if not os.path.exists(files_path):
+                self._files = None
+            else:
+                with open(files_path) as f:
+                    self._files = json.load(f)
+        return self._files
+
+    @property
+    def revision_time(self) -> float:
+        timestamp = self._info.get("Time")
+        if not timestamp:
+            return 0
+        return datetime.datetime.fromisoformat(timestamp).timestamp()
+
+    def resolve_rev_spec(self, revision: str) -> Optional[str]:
+        hash = self.revision
+        tag = self.current_tag
+        version = self._info.get("Version", "")
+        if revision in (hash, tag, version):
+            return hash
+        if hash.startswith(revision) and len(revision) >= 7:
+            return hash
+        return None
+
+    def find_remote_url(
+        self, *, url: Optional[str] = None, host: Optional[str] = None
+    ) -> Optional[str]:
+        if url:
+            url = normalize_git_url_hard(url)
+        else:
+            assert host, "Must specify url or host"
+        origin_url = self.url
+        if host:
+            parsed = urlparse(origin_url)
+            if parsed.hostname == host:
+                return origin_url
+        elif normalize_git_url_hard(origin_url) == url:
+            return origin_url
+        return None
+
+    def clone(self, newPath: str) -> "Repo":
+        if self._git_repo:
+            return self._git_repo.clone(newPath)
+        shutil.copytree(self._working_dir, newPath)
+        Repo.ignore_dir(newPath)
+        return ProxiedRepo(newPath)
+
+    def is_dirty(
+        self, untracked_files: bool = False, path: Optional[str] = None
+    ) -> bool:
+        """Check if the working directory has been modified.
+
+        If the repo has been converted to git, delegates to GitRepo.
+        Otherwise compares CRC-32 checksums against ``.proxied/files.json``.
+
+        Args:
+            untracked_files: If True, files not listed in ``files.json``
+                (and not matched by any ``.gitignore``) are considered dirty.
+            path: Optional absolute path to restrict the check to.
+
+        Returns:
+            True if any tracked file has been modified or deleted, or (when
+            *untracked_files* is True) if untracked files exist.
+        """
+        if self._git_repo:
+            return self._git_repo.is_dirty(untracked_files=untracked_files, path=path)
+
+        files = self.files
+        if files is None:
+            return True
+
+        if path:
+            path = os.path.relpath(path, self._working_dir)
+            if path.startswith(".."):
+                return False # path is outside the working dir, so ignore it
+            elif path == ".":
+                path = None
+
+        # Check tracked files for modifications or deletions.
+        for rel, expected_crc in files.items():
+            if path and not rel.startswith(path):
+                continue
+            abs_path = os.path.join(self._working_dir, rel)
+            if not os.path.exists(abs_path):
+                return True  # deleted
+            crc = _file_crc32(abs_path)
+            if crc != expected_crc:
+                return True  # modified
+
+        if not untracked_files:
+            return False
+
+        # Walk the tree looking for files not in files.json.
+        for dirpath, dirnames, filenames in os.walk(self._working_dir):
+            # Skip .proxied metadata directory.
+            if ".proxied" in dirnames:
+                dirnames.remove(".proxied")
+            rel_dir = os.path.relpath(dirpath, self._working_dir)
+            if rel_dir == ".":
+                rel_dir = ""
+            for fname in filenames:
+                rel = os.path.join(rel_dir, fname) if rel_dir else fname
+                if path and not rel.startswith(path):
+                    continue
+                if rel in files:
+                    continue
+                if self.is_path_excluded(rel):
+                    continue
+                return True  # untracked file found
+        return False
+
+    def is_path_excluded(self, localPath: str) -> bool:
+        """Check whether *localPath* is excluded by ``.gitignore`` rules.
+
+        Args:
+            localPath: A path relative to the working directory.
+
+        Returns:
+            True if the path matches any ``.gitignore`` pattern found in the
+            working tree.
+        """
+        spec = _load_gitignore_spec(self._working_dir)
+        return spec is not None and spec.match_file(localPath)
+
+    def _ensure_git(self) -> "GitRepo":
+        """Return the underlying GitRepo, converting on first call."""
+        if not self._git_repo:
+            self._git_repo = self.convert_to_git()
+        return self._git_repo
+
+    def convert_to_git(self) -> "GitRepo":
+        """Convert this proxied working directory into a real git repo.
+
+        Clones the origin as a bare repo into .git, converts it to non-bare,
+        resets the index to match the working tree, and removes the .proxied
+        metadata directory.
+        """
+        git_dir = os.path.join(self._working_dir, ".git")
+        git.Repo.clone_from(self.url, git_dir, bare=True)
+
+        # Use raw git commands — the Repo object from clone_from still
+        # sees core.bare=true, so we drive everything through git directly.
+        g = git.cmd.Git(self._working_dir)  # type: ignore
+        g.execute(["git", "config", "--local", "--bool", "core.bare", "false"])
+        # Point HEAD at the pinned revision and rebuild the index.
+        # The working tree files were extracted from the proxy zip and should
+        # match this commit, so we use read-tree to populate the index without
+        # touching the working tree.
+        g.execute(["git", "reset", "HEAD", "--", "."])
+
+        # Clean up proxied metadata
+        proxied_dir = os.path.join(self._working_dir, ".proxied")
+        if os.path.isdir(proxied_dir):
+            shutil.rmtree(proxied_dir)
+
+        return GitRepo(git.Repo(self._working_dir))
+
+    def add_all(self, path: str) -> None:
+        assert os.path.isabs(path), "Path %s must be absolute" % path
+        if self.is_dirty(untracked_files=True, path=path):
+            # only convert to git if there are changes to add
+            self._ensure_git().add_all(path)
+
+    def add_relative_path(self, path: str) -> None:
+        # always converts to git
+        self._ensure_git().add_relative_path(path)
+
+    def commit(self, msg: str) -> Optional[Commit]:
+        # commit always converts to git if there are no changes to commit
+        return self._ensure_git().commit(msg)
+
+    @staticmethod
+    def get_proxy_url(git_url: str, proxy_url: Optional[str] = None) -> Optional[str]:
+        if GOPROXY := os.getenv("GOPROXY"):
+            if "direct" == GOPROXY:
+                return None
+            else:
+                proxy_url = GOPROXY.split(",")[0]
+        else:
+            proxy_url = "https://proxy.golang.org/"
+
+        package_info = get_package_id_from_url(git_url)
+        if not package_info.package_id:
+            return None
+        return f"{proxy_url}{package_info.package_id}/"
+
+    @classmethod
+    def create_repo(
+        cls, url: str, revision: str, working_dir: str
+    ) -> Optional["ProxiedRepo"]:
+        from .yamlloader import urlopen
+
+        base_url = cls.get_proxy_url(url)
+        if not base_url:
+            return None
+
+        # Download metadata
+        info_url = f"{base_url}@v/{revision}.info"
+        try:
+            info_data = urlopen(info_url).read()
+        except Exception:
+            logger.debug("Failed to download proxy metadata from %s", info_url)
+            return None
+
+        # Download and extract zip
+        zip_url = f"{base_url}@v/{revision}.zip"
+        try:
+            zip_data = urlopen(zip_url).read()
+        except Exception:
+            logger.debug("Failed to download proxy zip from %s", zip_url)
+            return None
+
+        os.makedirs(os.path.join(working_dir, ".proxied"), exist_ok=True)
+        info_path = os.path.join(working_dir, ".proxied", "info.json")
+        with open(info_path, "wb") as f:
+            f.write(info_data)
+
+        package_info = get_package_id_from_url(url)
+        prefix = f"{package_info.package_id}@{revision}/"
+        file_checksums: Dict[str, int] = {}
+        with zipfile.ZipFile(BytesIO(zip_data)) as zf:
+            for member in zf.infolist():
+                if member.is_dir():
+                    continue
+                # Strip the package_id@version/ prefix
+                if member.filename.startswith(prefix):
+                    rel_path = member.filename[len(prefix) :]
+                else:
+                    rel_path = member.filename
+                if not rel_path:
+                    continue
+                dest = os.path.join(working_dir, rel_path)
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with zf.open(member) as src, open(dest, "wb") as dst:
+                    dst.write(src.read())
+                file_checksums[rel_path] = member.CRC
+
+        # Save CRC-32 checksums for dirty-checking without git.
+        files_path = os.path.join(working_dir, ".proxied", "files.json")
+        with open(files_path, "w") as f:
+            json.dump(file_checksums, f, indent=2)
+
+        Repo.ignore_dir(working_dir)
+        logger.debug("Created proxied repo from %s in %s", zip_url, working_dir)
+        return cls(working_dir)

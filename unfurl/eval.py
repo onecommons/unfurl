@@ -42,10 +42,10 @@ from .result import (
     ResultsMap,
     wrap_var,
     quoted_dict,
-    AnsibleUnsafeText,
 )
 
 import logging
+import traceback
 
 if TYPE_CHECKING:
     from .configurator import TaskView
@@ -94,10 +94,11 @@ def map_value(
 def _map_value(
     value: Any,
     ctx: "RefContext",
-    wantList: Union[bool, Literal["result"]] = False,
+    wantList: Union[bool, Literal["result"], Literal["instance"]] = False,
     applyTemplates: bool = True,
     flatten=False,
-) -> Any:
+) -> Union[Any, List[Result]]:
+    # embedded expressions are evaluated using wantList (not ctx.wantList)
     from .support import is_template, apply_template
 
     if isinstance(value, quoted_dict):
@@ -121,7 +122,7 @@ def _map_value(
             ctx.base_dir = oldBaseDir
     elif isinstance(value, (MutableSequence, tuple)):
         if flatten:
-            result = []
+            result: List[Any] = []
             for item in value:
                 item_val = _map_value(item, ctx, wantList, applyTemplates)
                 if isinstance(item_val, list):
@@ -132,7 +133,9 @@ def _map_value(
         else:
             return [_map_value(item, ctx, wantList, applyTemplates) for item in value]
     elif applyTemplates and is_template(value, ctx):
-        return apply_template(value, ctx.copy(wantList=wantList))
+        value = apply_template(value, ctx.copy(wantList=wantList))
+        if wantList == "result":
+            return [Result(value)]
     return value
 
 
@@ -181,13 +184,13 @@ class RefContext:
     DefaultTraceLevel = 0
     _Funcs: Dict = {}
     currentFunc: Optional[str] = None
+    deep: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
         currentResource: "ResourceRef",
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = False,
-        resolveExternal: bool = False,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = False,
         trace: Optional[int] = None,
         strict: Optional[bool] = None,
         task: Optional["TaskView"] = None,
@@ -201,7 +204,6 @@ class RefContext:
         # current segment is the final segment:
         self._rest: Optional[List[Segment]] = None
         self.wantList = wantList
-        self.resolveExternal = resolveExternal
         self._trace = self.DefaultTraceLevel if trace is None else trace
         self._strict = strict
         self.base_dir = currentResource.base_dir
@@ -231,10 +233,11 @@ class RefContext:
         self,
         resource: Optional["ResourceRef"] = None,
         vars: Optional[dict] = None,
-        wantList: Optional[Union[bool, Literal["result"]]] = None,
+        wantList: Optional[Union[bool, Literal["result"], Literal["instance"]]] = None,
         trace: int = 0,
         strict: Optional[bool] = None,
         tosca_type: Optional[StatefulEntityType] = None,
+        deep: Optional[dict] = None,
     ) -> "RefContext":
         """
         Create a copy of the current RefContext with optional modifications.
@@ -258,13 +261,13 @@ class RefContext:
             resource or self.currentResource,
             self.vars,
             self.wantList,
-            self.resolveExternal,
             max(self._trace, trace),
             self._strict if strict is None else strict,
         )
-        if vars:
+        if vars or deep:
             copy.vars = copy.vars.copy()
-            copy.vars.update(vars)
+            assert not (vars and deep)  # can't have both
+            copy.vars.update(vars or deep)  # type: ignore
         if wantList is not None:
             copy.wantList = wantList
         base_dir = getattr(self.kw, "base_dir", None)
@@ -275,6 +278,13 @@ class RefContext:
         copy.templar = self.templar
         copy.referenced = self.referenced
         copy.task = self.task
+        if deep:
+            if self.deep:
+                copy.deep = dict(self.deep, **deep)
+            else:
+                copy.deep = deep.copy()
+        else:
+            copy.deep = self.deep
 
         if tosca_type:
             copy.tosca_type = tosca_type
@@ -455,7 +465,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Literal[True] = True,
+        wantList: Union[Literal[True], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> List[Any]: ...
 
@@ -486,7 +496,7 @@ class Ref:
     def resolve(
         self,
         ctx: RefContext,
-        wantList: Union[bool, Literal["result"]] = True,
+        wantList: Union[bool, Literal["result"], Literal["instance"]] = True,
         strict: Optional[bool] = None,
     ) -> Union[List[Result], List[Any], ResolveOneUnion]:
         """
@@ -684,7 +694,7 @@ MaybePairOrResultOrResultList = Union[PairResultOrResultList, ResultOrResultList
 
 def _for_each(
     foreach: Union[MappingType[str, Any], str],
-    results: Iterable[Tuple[Any, Any]],
+    results: Iterable[Any],
     ctx: RefContext,
 ) -> List[Result]:
     if isinstance(foreach, str):
@@ -702,15 +712,24 @@ def _for_each(
     Break = object()
     Continue = object()
 
+    kv = False
+    if isinstance(results, Mapping):
+        results = results.items()
+        kv = True
+
     def make_items() -> Iterable[MaybePairOrResultOrResultList]:
-        for i, (k, v) in enumerate(results):
+        for i, v in enumerate(results):
             # XXX stop setting any kind of value to currentResource
             # assert isinstance(v, ResourceRef)
             ictx.currentResource = v
             ictx.vars["collection"] = results
             ictx.vars["index"] = i
-            ictx.vars["key"] = k
-            ictx.vars["item"] = v
+            if kv:
+                ictx.vars["key"] = v[0]
+                ictx.vars["item"] = v[1]
+            else:
+                ictx.vars["key"] = i
+                ictx.vars["item"] = v
             ictx.vars["break"] = Break
             ictx.vars["continue"] = Continue
             if keyExp:
@@ -753,22 +772,19 @@ def for_each(
     if foreach == "$true":
         return results
     if len(results) == 1 and isinstance(results[0].resolved, MutableSequence):
-        result = _for_each(foreach, enumerate(results[0].resolved), ctx)  # hack!
+        result = _for_each(foreach, results[0].resolved, ctx)  # hack!
     else:
-        result = _for_each(
-            foreach, enumerate(r.external or r.resolved for r in results), ctx
-        )
+        result = _for_each(foreach, [r.external or r.resolved for r in results], ctx)
     return result
 
 
-def for_each_func(foreach: Union[Mapping, str], ctx: RefContext) -> List[Result]:
-    results = ctx.currentResource
-    if isinstance(results, Mapping):
-        return _for_each(foreach, results.items(), ctx)
-    elif isinstance(results, MutableSequence):
-        return _for_each(foreach, enumerate(results), ctx)
+def for_each_func(args, ctx: RefContext) -> List[Result]:
+    results, foreach = args
+    results = map_value(results, ctx)
+    if isinstance(results, MutableSequence):
+        return _for_each(foreach, results, ctx)
     else:
-        return _for_each(foreach, [(0, results)], ctx)
+        return _for_each(foreach, results, ctx)
 
 
 _CoreFuncs = {
@@ -873,6 +889,10 @@ class AnyRef(ResourceRef):
         # assumes this is called from an expression's filter test and we want to proceed for analysis
         return True
 
+    def __contains__(self, other):
+        # assumes this is called from an expression's filter test and we want to proceed for analysis
+        return True
+
 
 def analyze_expr(expr, var_list=(), ctx_cls=SafeRefContext) -> Optional["AnyRef"]:
     start = AnyRef("$start")
@@ -917,7 +937,10 @@ def eval_ref(
     if top:
         vars = ctx.vars.copy()
         vars["start"] = ctx.currentResource
-        ctx = ctx.copy(ctx.currentResource, vars, wantList=False)
+        wantList = ctx.wantList
+        if wantList != "instance":
+            wantList = False
+        ctx = ctx.copy(ctx.currentResource, vars, wantList=wantList)
 
     if isinstance(val, Mapping):
         for key in val:
@@ -960,7 +983,10 @@ def eval_ref(
                 raise UnfurlEvalError(msg)
     elif isinstance(val, str):
         if is_template(val, ctx):
-            return [Result(apply_template(val, ctx))]
+            resolved = apply_template(val, ctx)
+            if not isinstance(resolved, Result):
+                return [Result(resolved)]
+            return [resolved]
         else:
             expr = Expr(val, ctx.vars)
             results = expr.resolve(ctx)  # returns a list of Result
@@ -972,7 +998,9 @@ def eval_ref(
 def _eval_ref_results(val, ctx) -> List[Result]:
     mappedVal = Results._map_value(val, ctx)
     if isinstance(mappedVal, ResultsList):
-        return [r if isinstance(r, Result) else Result(r) for r in mappedVal]
+        return [
+            r if isinstance(r, Result) else Result(r) for r in mappedVal._attributes
+        ]
     if isinstance(mappedVal, Result):
         return [mappedVal]
     elif mappedVal is None:
@@ -1012,13 +1040,26 @@ def eval_test(value, test, context: RefContext) -> bool:
         if context and isinstance(key, str) and key.startswith("$"):
             compare = context.resolve_var(key)
         else:
-            # try to coerce string to value type
-            compare = type(value)(key)
-        context.trace("compare", value, compare, comparor(value, compare))
+            if value and isinstance(value, MutableSequence):
+                compare = type(value[0])(key)
+            elif not isinstance(value, Results):
+                # try to coerce string to value type
+                compare = type(value)(key)
+            else:
+                compare = key
+        context.trace(
+            "compare", value, comparor.__name__, compare, "is", comparor(value, compare)
+        )
         if comparor(value, compare):
             return True
     except:
-        context.trace("compare exception, ne:", comparor is operator.ne)
+        context.trace(
+            "compare exception:",
+            comparor,
+            value,
+            "\n",
+            traceback.format_exc(),
+        )
         if comparor is operator.ne:
             return True
     return False
@@ -1044,14 +1085,16 @@ def lookup(result: Result, key_: str, context: RefContext) -> Optional[Result]:
 
         if not context._rest:
             assert not Ref.is_ref(value)
-            result.resolved = Results._map_value(value, ctx)
-            assert not isinstance(result.resolved, (ExternalValue, Result))
+            results = Results._map_value(value, ctx)
+            if isinstance(results, ExternalValue):
+                return Result(results)
+            else:
+                assert not isinstance(results, Result)
+                result.resolved = results
 
         return result
     except (KeyError, IndexError, TypeError, ValueError):
         if context._trace:
-            import traceback
-
             context.trace(
                 f"lookup of '{key}' returned None due to exception:\n",
                 traceback.format_exc(),
@@ -1098,6 +1141,7 @@ def _treat_as_singular(result: Result, seg: Segment) -> bool:
         result.external
         or not isinstance(result.resolved, MutableSequence)
         or isinstance(_make_key(seg.key), int)
+        or (seg.test and seg.test[0] == operator.contains)
     )
 
 
@@ -1183,10 +1227,17 @@ def parse_path_key(segment: str) -> Segment:
         segment = segment[:-1]
         modifier = "?"
 
-    parts = re.split(r"(=|!=)", segment, maxsplit=1)
+    parts = re.split(r"(=|!=|~=)", segment, maxsplit=1)
     if len(parts) == 3:
         key = parts[0]
-        op = operator.eq if parts[1] == "=" else operator.ne
+        if parts[1] == "~=":
+            op = operator.contains
+        elif parts[1] == "=":
+            op = operator.eq
+        else:
+            assert parts[1] == "!=", parts[1]
+            op = operator.ne
+
         return Segment(key, [op, parts[2]], modifier, [])
     else:
         return Segment(segment, [], modifier, [])

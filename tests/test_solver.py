@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 from unfurl.util import UnfurlValidationError
 from unfurl.yamlloader import load_yaml, yaml, ImportResolver
 from unfurl.solver import (
@@ -16,10 +17,14 @@ from toscaparser.tosca_template import ToscaTemplate
 from toscaparser.properties import Property
 from toscaparser.elements.portspectype import PortSpec
 from toscaparser.common import exception
+from toscaparser.elements.constraints import Constraint
+from unfurl.solver import Constraint as RustConstraint
+from toscaparser.elements.constraints import Schema
 from ruamel.yaml.comments import CommentedMap
 import pytest
 import tosca
 from unfurl.testing import create_runner, runtime_test
+from unfurl import support
 
 if os.getenv("UNFURL_TEST_SKIP_BUILD_RUST"):
     pytest.skip("UNFURL_TEST_SKIP_BUILD_RUST set", allow_module_level=True)
@@ -32,7 +37,7 @@ def make_tpl(yaml_str: str):
         tosca_yaml["topology_template"] = dict(
             node_templates={}, relationship_templates={}
         )
-    return ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml)
+    return ToscaTemplate(path=__file__, yaml_dict_tpl=tosca_yaml, verify=False)
 
 
 example_helloworld_yaml = """
@@ -112,6 +117,33 @@ def test_convert():
         assert tosca_to_rust(prop)
 
 
+def test_simple_value_float():
+    """SimpleValue.float round-trips through Python and supports value equality + ordering."""
+    a = ToscaValue(SimpleValue.float(v=1.5))
+    b = ToscaValue(SimpleValue.float(v=1.5))
+    c = ToscaValue(SimpleValue.float(v=2.5))
+    assert a == b
+    assert a != c
+    # underlying f64 reads back as a Python float
+    assert isinstance(a.v.v, float)
+    assert a.v.v == 1.5
+    # SimpleValue equality bridges to Python too
+    assert SimpleValue.float(v=1.5) == SimpleValue.float(v=1.5)
+    assert SimpleValue.float(v=1.5) != SimpleValue.float(v=2.5)
+    # NaN is accepted (the case OrderedF64 was introduced to handle); two NaN
+    # SimpleValues compare equal (matching the Hash impl).
+    nan_a = SimpleValue.float(v=float("nan"))
+    nan_b = SimpleValue.float(v=float("nan"))
+    assert nan_a == nan_b
+    # Ordering bridges to Python (pyclass(ord)).
+    assert a < c
+    assert SimpleValue.float(v=1.5) < SimpleValue.float(v=2.5)
+    # ToscaValue ordering compares `v` before `type_name`.
+    typed_low = ToscaValue(SimpleValue.float(v=1.5), name="zzz")
+    untyped_high = ToscaValue(SimpleValue.float(v=2.5))
+    assert typed_low < untyped_high
+
+
 def test_solve():
     f = Field("f", FieldValue.Property(ToscaValue(SimpleValue.integer(0)), None))
     na = Node("a", "Foo", fields=[f])
@@ -182,11 +214,11 @@ def test_node_filter():
     del t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node"
     ]
-    # add an unsupported pattern, match should be skipped
+    # add an unsupported constraint, match should be skipped
     t.tpl["topology_template"]["node_templates"]["test"]["requirements"][0]["host"][
         "node_filter"
     ]["capabilities"][0]["host"]["properties"].append(
-        {"distribution": {"pattern": "u*"}}
+        {"distribution": {"schema": "{}"}}
     )
 
     t2 = ToscaTemplate(yaml_dict_tpl=t.tpl, import_resolver=ImportResolver(None))
@@ -509,3 +541,127 @@ topology_template:
     assert "in_range" in matched_targets
     assert "too_high" not in matched_targets
     assert "too_low" not in matched_targets
+
+
+def test_pattern_validate():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": "[0-9]*"}
+    constraint = Constraint("prop", Schema.STRING, schema)
+    assert isinstance(constraint.constraint_value, RustConstraint)
+    assert constraint.validate("123") is None  # no exception, so valid
+
+
+def test_pattern_validate_fail():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": "[0-9]*"}
+    constraint = Constraint("prop", Schema.STRING, schema)
+    try:
+        constraint.validate("abc")
+    except exception.ValidationError as e:
+        assert (
+            str(e)
+            == 'The value "abc" of property "prop" does not match the pattern constraint "[0-9]*".'
+        )
+    else:
+        assert False
+
+def test_pattern_fallback():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": r"^(?=.*\d).{4,}$"}  # lookahead unsupported in rust
+    constraint = Constraint("prop", Schema.STRING, schema)
+    assert isinstance(
+        constraint.constraint_value, re.Pattern
+    )  # fallback to python regex
+    assert constraint.validate("12!34") is None  # no exception, so valid
+
+
+def test_pattern_fallback_fail():
+    assert support.pattern_constraint_class
+
+    schema = {"pattern": r"^(?=.*\d).{4,}$"}  # lookahead unsupported in rust
+    constraint = Constraint("prop", Schema.STRING, schema)
+    assert isinstance(
+        constraint.constraint_value, re.Pattern
+    )  # fallback to python regex
+    try:
+        constraint.validate("123")
+    except exception.ValidationError as e:
+        assert (
+            str(e)
+            == r'The value "123" of property "prop" does not match the pattern constraint "^(?=.*\d).{4,}$".'
+        )
+    else:
+        assert False
+
+# maybe_match_conditional.test matches only when conditional node is satisfied
+conditional_manifest = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  MyNodeType:
+    derived_from: tosca:Root
+    requirements:
+      - test:
+          node: MyNodeType
+
+topology_template:
+  node_templates:
+    a_host:
+      type: tosca.nodes.Root
+      requirements:
+        - host:
+            node: conditional
+
+    maybe_match_conditional:
+      type: MyNodeType
+      requirements:
+        - test:  # use type to trigger inference
+            node: MyNodeType
+
+    conditional:
+      type: MyNodeType
+      directives:
+      - conditional
+      requirements:
+        - test:
+            node: another_host
+
+    another_host:
+      type: MyNodeType
+      directives:
+      - conditional
+"""
+
+# this should cause maybe_match_conditional to match both conditional templates
+conditional_manifest_solved = (
+    conditional_manifest
+    + """
+      requirements:
+        - test:
+            node: maybe_match_conditional
+"""
+)
+
+
+def test_conditional():
+    tosca = make_tpl(conditional_manifest)
+    solved = solve_topology(tosca.topology_template)
+    # print("conditional_manifest", solved)
+
+    # # maybe_match_conditional should match conditional and another_host because they satisfy each other's conditional requirements
+    assert ("maybe_match_conditional", "test") not in solved
+    assert ("conditional", "test") not in solved
+    assert ("another_host", "test") not in solved
+    assert ("a_host", "host") not in solved
+
+    # if we add a requirement to maybe_match_conditional that doesn't match the others, it should no longer match
+    tosca2 = make_tpl(conditional_manifest_solved)
+    solved2 = solve_topology(tosca2.topology_template)
+    # print("conditional_manifest_solved", solved2)
+
+    assert ("maybe_match_conditional", "test") in solved2
+    assert ("conditional", "test") in solved2
+    assert ("another_host", "test") in solved2
+    assert ("a_host", "host") in solved2

@@ -15,7 +15,7 @@ This section includes the brief description for the following:
 Artifact Types
 +++++++++++++++
 
-``artifact_types`` is a reusable entity in a servcie template that defines the type of one or more files that are used to define implementation or deployment artifacts. These are referenced by nodes or relationships on their operation. 
+``artifact_types`` is a reusable entity in a service template that defines a type representing binary data such as a files, container images, or packages. They can be used to define operation implementations or referenced during deployment.
 
 Example
 --------
@@ -41,7 +41,7 @@ Example
 Capability Types
 +++++++++++++++++
 
-``capability_types`` is a reusable entity that describes a kind of capability that a node type can declare to expose.  Implicit or explicit requirements that are declared as part of one node can be matched or fulfilled by  the capabilities declared by another node.
+``capability_types`` is a reusable entity that describes a kind of capability that a node can expose. A capability can be used to represent abstract functionality of a node or a material component such an API endpoint. Node `requirements` can specify the capability that a target node needs to match the requirement.
 
 Example
 --------
@@ -61,7 +61,7 @@ Example
 Relationship Types
 +++++++++++++++++++
 
-``relationship_types`` is a reusable entity that defines the type of one or more relationships between Node Types or Node Templates.
+``relationship_types`` is a reusable entity that defines relationships between `Node Templates`.
 
 Example
 --------

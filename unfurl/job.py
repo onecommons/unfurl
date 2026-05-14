@@ -8,6 +8,7 @@ Each task tracks and records its modifications to the system's state
 
 import collections
 from datetime import datetime, timedelta
+from io import StringIO
 import itertools
 import os
 import json
@@ -39,7 +40,7 @@ from .support import (
     _Dependencies,
 )
 from .result import ResourceRef, ResultsItem, serialize_value, ChangeRecord
-from .util import UnfurlError, UnfurlTaskError, to_enum, change_cwd
+from .util import UnfurlError, UnfurlTaskError, assert_not_none, to_enum, change_cwd
 from .merge import merge_dicts
 from .runtime import (
     EntityInstance,
@@ -50,6 +51,7 @@ from .runtime import (
 )
 from .logs import SensitiveFilter, end_collapsible, start_collapsible, getLogger
 from .configurator import (
+    Cancel,
     Dependency,
     TaskView,
     ConfiguratorResult,
@@ -85,6 +87,8 @@ if TYPE_CHECKING:
 
 
 logger = getLogger("unfurl")
+
+RESUME_POLL_INTERVAL = 0.2  # seconds between resume task polling cycles
 
 
 class JobAborted(UnfurlError):
@@ -127,6 +131,8 @@ class ConfigChange(OperationalInstance, ChangeRecord):
             return self._time_elapsed
         else:
             return time.time() - self.startTime.timestamp()
+
+
 class JobOptions:
     """
     Options available to select which tasks are run, e.g. read-only
@@ -146,6 +152,7 @@ class JobOptions:
         commit=False,
         dirty="auto",  # run the job even if the repository has uncommitted changrs
         message=None,
+        skip_local_install=False,
     )
 
     parentJob: Optional["Job"] = None
@@ -156,6 +163,8 @@ class JobOptions:
     verbose = 0
     message: Optional[str] = None
     commit: bool = False
+    skip_local_install: bool = False
+    timeout: float = 0  # seconds; 0 means no timeout
     push = False
     template: Optional[str] = None
     add: bool = True
@@ -173,6 +182,7 @@ class JobOptions:
     readonly: bool = False
     instances: Optional[List[Union[str, Dict[str, Any]]]] = None
     vars: Optional[Dict[str, str]] = None
+    out: Optional[StringIO] = None
 
     defaults = dict(
         global_defaults,
@@ -194,6 +204,7 @@ class JobOptions:
         destroyunmanaged=False,
         append=None,
         replace=None,
+        timeout=0,
         workflow=workflow,
         vars=None,
         use_environment=None,
@@ -265,13 +276,15 @@ class ConfigTask(TaskView, ConfigChange):
         self.generator: Optional[Generator] = None
         self.job = job
         self.change_list: List[AttributesChanges] = []
-        self.result: Any = None
+        self.result: Optional[ConfiguratorResult] = None
         self.outputs: Optional[dict] = None
         # for summary:
         self.modified_target: bool = False
         self.target_status: Optional[Status] = target.local_status
         self.target_state: Optional[NodeState] = target.state
         self.blocked: bool = False
+        self._suspended: bool = False
+        self._suspended_subtask_reqs: List[PlanRequest] = []
 
         # set the attribute manager on the root resource
         self._attributeManager = AttributeManager(self._manifest.yaml, self)
@@ -343,6 +356,15 @@ class ConfigTask(TaskView, ConfigChange):
         self.set_start_time()
         self.set_envvars()
 
+    def _suspend(self, result: "ConfiguratorResult") -> "ConfigTask":
+        """Suspend a task for later resume without closing the generator."""
+        assert result.resume, "result.resume must be True to suspend task"
+        self.result = result
+        self._suspended = True
+        self.commit_changes()
+        self.restore_envvars()
+        return self
+
     def _update_status(self, result: ConfiguratorResult) -> bool:
         """
         Update the instances status with the result of the operation.
@@ -400,7 +422,7 @@ class ConfigTask(TaskView, ConfigChange):
             self.target._lastConfigChange = self.changeId
             return True
         if result.modified or self._resourceChanges.get_attribute_changes(
-            self.target.key
+            self.target.nested_key
         ):
             if self.target.last_change != self.changeId:
                 # save to create a linked list of tasks that modified the target
@@ -482,8 +504,17 @@ class ConfigTask(TaskView, ConfigChange):
             and self.configSpec.operation != "check"
             and self.target.customized is None
         ):
+            if (
+                self.configSpec.operation == "discover"
+                and "discover" not in self.target.template.directives
+            ):
+                # instantiated with discovery workflow instead of creating the resource as the template specified,
+                # so mark it as customized (otherwise the next plan will try to create this instance)
+                self.target.customized = self.changeId
+                self.logger.debug("customized by explicit discover workflow")
+                return True
             changeset = cast("YamlManifest", self._manifest).find_last_operation(
-                self.target.key, "configure"
+                self.target, "configure"
             )
             if changeset:
                 for expr in self._resourceChanges.get_changes_as_expr():
@@ -562,10 +593,10 @@ class ConfigTask(TaskView, ConfigChange):
         Evaluate configuration spec's inputs and compare with the current inputs' values
         """
         changeset = cast("YamlManifest", self._manifest).find_last_operation(
-            self.target.key, self.configSpec.operation
+            self.target, self.configSpec.operation
         )
         if not changeset:
-            # don't log exception if target was discovered, discovered resources without a job request won't have a digest
+            # don't log message if target was discovered, discovered resources without a job request won't have a digest
             if isinstance(self.target.created, str):
                 self.logger.debug(
                     'Can\'t check for changes: could not find previous "%s" operation for "%s" with last config change "%s"',
@@ -750,6 +781,7 @@ class Job(ConfigChange):
         previousId: Optional[str] = None,
     ) -> None:
         assert isinstance(jobOptions, JobOptions)
+        self.out: Optional[StringIO] = None
         self.__dict__.update(jobOptions.__dict__)
         super().__init__(jobOptions.parentJob, self.startTime, Status.ok, previousId)
         self.jobOptions = jobOptions
@@ -763,6 +795,12 @@ class Job(ConfigChange):
         self.task_count = 0
         self.external_requests: Optional[List[Tuple[Any, List[JobRequest]]]] = None
         self.external_jobs: Optional[List["Job"]] = None
+        self._deadline: float = 0.0  # monotonic timestamp; 0 means no deadline
+        # Exclusive path-lock map: keyed on an absolute path string.
+        # Configurators that need sole access to a directory or file (e.g.
+        # a subprocess's cwd) call `lock_path` / `unlock_path` via the
+        # TaskView helpers.
+        self._path_owners: Dict[str, "ConfigTask"] = {}
 
     def get_operational_dependencies(self) -> Iterable[ConfigTask]:
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -808,6 +846,10 @@ class Job(ConfigChange):
                 'selected instance not found: "%s"', self.jobOptions.instance
             )
 
+    def save_as_dry_run(self):
+        # if skip_save is "never", save as a regular job
+        return self.dry_run and self.jobOptions.skip_save != "never"
+
     def render(self) -> RenderRequests:
         if self.plan_requests is None:
             ready: Sequence[PlanRequest] = self.create_plan()
@@ -837,6 +879,10 @@ class Job(ConfigChange):
                 if req.render_errors:
                     yield from req.render_errors
 
+    def get_poll_interval(self) -> float:
+        # XXX exponential backoff?
+        return RESUME_POLL_INTERVAL
+
     def _run_requests(
         self,
         rendered_requests: Optional[RenderRequests] = None,
@@ -856,7 +902,17 @@ class Job(ConfigChange):
             self.local_status = Status.error
             return self.rootResource
 
+        timeout = self.jobOptions.timeout
+        if timeout > 0:
+            self._deadline = time.time() + timeout
+
         while ready or notReady or self.jobRequestQueue:
+            if self._deadline and time.time() >= self._deadline:
+                self._cancel_resume_tasks([r.task for r in ready if r.task])
+                logger.error("Aborting job: timeout of %g seconds exceeded", timeout)
+                self.local_status = Status.error
+                return self.rootResource
+
             # XXX need to call self.run_external() here if update_plan() adds external job
             # create and run tasks for requests that have their dependencies fulfilled
             self.apply(ready, notReady)
@@ -870,9 +926,7 @@ class Job(ConfigChange):
             # remove requests from notReady if they've had all their dependencies fulfilled
             completed = ready
             if completed:
-                ready, notReady = self._reorder_requests(
-                    *set_fulfilled(notReady, completed)
-                )
+                ready, notReady = self._reorder_requests(*set_fulfilled(notReady))
                 check_target = ""
             else:
                 if self.jobOptions.workflow == "deploy":
@@ -883,6 +937,7 @@ class Job(ConfigChange):
                 # we ran all the ready tasks we could so now we can run left-over tasks that depend on
                 # live attributes that we no longer have to worry about being modified by another task
                 ready, notReady = set_fulfilled_stragglers(notReady, check_target)
+
             logger.trace(
                 "ready %s; not ready %s; completed: %s", ready, notReady, completed
             )
@@ -892,8 +947,52 @@ class Job(ConfigChange):
             ready, unfulfilled, errored = do_render_requests(
                 self, ready, notReady, check_target
             )
+            # Append suspended and blocked tasks at end of ready queue AFTER rendering
+            # (they're already rendered and should not be re-rendered)
+            only_suspended_left = not ready
+            now = time.monotonic()
+            next_resume = float("inf")
+            paused = []
+            blocked = []
+            for req in completed:
+                if not req.completed and req.task:
+                    resume = req.task.result and req.task.result.resume_after or 0
+                    if resume > now:
+                        next_resume = min(next_resume, resume)
+                        paused.append(req)
+                        continue  # paused, skip this cycle
+                    if req.task.blocked:
+                        # tasks dependent on a suspended task are blocked
+                        blocked.append(req)
+                    elif req.suspended:
+                        # note: if not only_suspended_left, don't worry about the poll interval,
+                        # just run these after the non-suspended tasks
+                        ready.append(req)
+            ready.extend(blocked)  # run blocked after suspended
+            if only_suspended_left:
+                wait = 0.0
+                if ready:
+                    wait = self.get_poll_interval()
+                elif next_resume < float("inf"):
+                    # Sleep until the earliest paused task is ready
+                    wait = next_resume - now
+                if wait > 0 and self._deadline:
+                    wait = min(wait, max(0, self._deadline - time.time()))
+                if wait > 0:
+                    logger.trace("sleeping for %g seconds", wait)
+                    time.sleep(wait)
+                    # Re-check paused tasks now that we've slept
+                    now = time.monotonic()
+                    for req in paused:
+                        if (
+                            req.task
+                            and req.task.result
+                            and req.task.result.resume_after <= now
+                        ):
+                            ready.append(req)
+
             failed.extend(errored)
-            if not ready and not completed:
+            if not ready and not completed and next_resume == float("inf"):
                 break  # none of the stragglers are ready, give up
             if unfulfilled:
                 logger.trace("marking unfulfilled as not ready %s", unfulfilled)
@@ -926,6 +1025,26 @@ class Job(ConfigChange):
         if self.rootResource.attributeManager:
             self.rootResource.attributeManager.commit_changes()
         return self.rootResource
+
+    def lock_path(self, task: "ConfigTask", path: str) -> bool:
+        """Try to acquire an exclusive lock on ``path`` for ``task``.
+        Returns True if ``task`` now owns it, False if another task holds
+        it (caller should suspend and retry).
+
+        Use to serialize configurators that need sole access to a
+        directory or file.
+        """
+        owner = self._path_owners.get(path)
+        if owner is None or owner is task:
+            self._path_owners[path] = task
+            return True
+        return False
+
+    def unlock_path(self, task: "ConfigTask", path: str) -> None:
+        """Drop ``task``'s exclusive lock on ``path``. No-op if ``task``
+        is not the current owner."""
+        if self._path_owners.get(path) is task:
+            del self._path_owners[path]
 
     def _add_unrendered_task(self, req: PlanRequest, message: str):
         if req.task:
@@ -960,7 +1079,7 @@ class Job(ConfigChange):
         with change_cwd(manifest.get_base_dir()):
             try:
                 ready, notReady, errors = rendered
-                if not jobOptions.out:  # type: ignore
+                if not jobOptions.out:
                     # out is used by unit tests to avoid writing to disk
                     manifest.lock()
                 if jobOptions.dirty == "auto":  # default to false if committing
@@ -1002,8 +1121,10 @@ class Job(ConfigChange):
         self.jobOptions.instances = [
             resourceSpec
             if isinstance(resourceSpec, str)
-            else create_instance_from_spec(
-                self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
+            else assert_not_none(
+                create_instance_from_spec(
+                    self.manifest, self.rootResource, resourceSpec["name"], resourceSpec
+                )
             ).name
             for resourceSpec in self.jobOptions.instances
         ]
@@ -1028,11 +1149,12 @@ class Job(ConfigChange):
         plan_requests = list(plan.execute_plan())
 
         request_artifacts: List[JobRequest] = []
-        for r in plan_requests:
-            if r:
-                artifacts = r.get_operation_artifacts()
-                if artifacts:
-                    request_artifacts.extend(artifacts)
+        if not self.jobOptions.skip_local_install:
+            for r in plan_requests:
+                if r:
+                    artifacts = r.get_operation_artifacts()
+                    if artifacts:
+                        request_artifacts.extend(artifacts)
 
         # remove duplicates
         artifact_jobs = list({ajr.name: ajr for ajr in request_artifacts}.values())
@@ -1045,7 +1167,7 @@ class Job(ConfigChange):
             reqs_list = list(reqs)
             externalManifest = self.manifest._importedManifests.get(key)
             if externalManifest:
-                external_requests.append((externalManifest, reqs_list))
+                external_requests.append((externalManifest[0], reqs_list))
             else:
                 # run artifact jobs as a separate external job since we need to run them
                 # before the render stage of this job
@@ -1088,6 +1210,31 @@ class Job(ConfigChange):
             not_ready.extend(new_not_ready)
         return ready, not_ready
 
+    def _depends_on_suspended(
+        self, req: PlanRequest, suspended_tasks: List[PlanRequest]
+    ) -> bool:
+        """Return ids of all resumed targets this task depends on."""
+        for suspended in suspended_tasks:
+            if req.target is suspended.target and (
+                not req.task or req.task is not suspended.task
+            ):
+                logger.debug(
+                    "Deferring task %s: sibling task on same target %s is still running",
+                    req,
+                    suspended.target.name,
+                )
+                return True
+            # static dependencies like node template requirements are maintained by the plan ordering
+            # so check the ancestors of the template to make sure they aren't suspended
+            if req.target.template in suspended.target.template._isReferencedBy:
+                logger.debug(
+                    "Deferring task %s: depends on resumed target %s",
+                    req,
+                    suspended.target.name,
+                )
+                return True
+        return False
+
     def apply(
         self,
         reqs: Sequence[Union[JobRequest, PlanRequest]],
@@ -1095,12 +1242,31 @@ class Job(ConfigChange):
         depth: int = 0,
     ) -> Optional[ConfigTask]:
         task = None
+        # Initialize from active resume tasks so returning deferred tasks stay blocked
+        suspended_tasks: List[PlanRequest] = []
         for req in reqs:
-            # if parent is set, stop processing requests once one fails
             if isinstance(req, JobRequest):
                 self.jobRequestQueue.append(req)
                 self.run_job_request(req)
                 continue
+            if req.group and not req.suspended and req.group.has_suspended():
+                if req.task:
+                    req.task.blocked = True
+                    self.add_work(req.task)
+                logger.debug(
+                    "Skipping task %s because previous operation is still running", req
+                )
+                continue
+            if req.task:
+                # Defer tasks on other targets that depend on a target with an active resume task
+                req.task.blocked = self._depends_on_suspended(req, suspended_tasks)
+                if req.task.blocked:
+                    self.add_work(req.task)
+                    logger.debug(
+                        "Skipping task %s because it depends on another task that is still running",
+                        req,
+                    )
+                    continue
             if req.group and req.group.has_errors():
                 req.set_error("previous operation failed")
                 if req.task:
@@ -1108,10 +1274,7 @@ class Job(ConfigChange):
                     self.add_work(req.task)
                 logger.debug("Skipping task %s because previous operation failed", req)
                 continue
-            if isinstance(req, TaskRequestGroup):
-                # XXX this shouldn't happen now
-                task = self.apply(req.children, not_ready, depth)
-            elif isinstance(req, SetStateRequest):
+            if isinstance(req, SetStateRequest):
                 logger.debug("Setting state with %s", req)
                 self._set_state(req)
             else:
@@ -1125,6 +1288,12 @@ class Job(ConfigChange):
                     _task, success = self._run_operation(
                         req, workflow, not_ready, depth
                     )
+                # Check if this task yielded resume
+                if _task and _task._suspended:
+                    suspended_tasks.append(req)
+                    task = _task
+                    continue  # skip finish_workflow and remaining group processing
+
                 _final_req: Optional[TaskRequest] = req
                 if not _task:
                     if req.is_final_for_workflow:
@@ -1161,6 +1330,8 @@ class Job(ConfigChange):
         childJob = create_job(self.manifest, jobOptions)
         childJob.set_task_id(self.increment_task_count())
         assert childJob.parentJob is self
+        if self._deadline:
+            childJob._deadline = self._deadline
         childJob._run_requests()
         return childJob
 
@@ -1172,9 +1343,9 @@ class Job(ConfigChange):
             manifest, requests = external_requests.pop(0)
             instance_specs = []
             for request in requests:
-                assert isinstance(request, JobRequest), (
-                    "only JobRequest currently supported"
-                )
+                assert isinstance(
+                    request, JobRequest
+                ), "only JobRequest currently supported"
                 instance_specs.extend(request.get_instance_specs())
             jobOptions = self.jobOptions.copy(
                 instances=instance_specs,
@@ -1257,19 +1428,21 @@ class Job(ConfigChange):
                     task.blocked = True
                 else:
                     task.blocked = False
-                    errors = task.configSpec.find_invalidate_inputs(task.inputs)
+                    errors = task.configSpec.find_invalid_inputs(task.inputs)
                     if errors:
                         reason = f"invalid inputs: {str(errors)}"
                     else:
-                        preErrors = task.configSpec.find_invalid_preconditions(
+                        pre_errors = task.configSpec.find_invalid_preconditions(
                             task.target
                         )
-                        if preErrors:
-                            reason = f"invalid preconditions: {str(preErrors)}"
+                        if pre_errors:
+                            reason = f"invalid preconditions: {str(pre_errors)}"
                         else:
-                            errors = task.configurator.can_run(task)
-                            if not errors or not isinstance(errors, bool):
-                                reason = f"configurator declined: {str(errors)}"
+                            can_run_errors = task.configurator.can_run(task)
+                            if not can_run_errors or not isinstance(
+                                can_run_errors, bool
+                            ):
+                                reason = f"configurator declined: {str(can_run_errors)}"
                             else:
                                 can_run = True
         except Exception:
@@ -1372,50 +1545,70 @@ class Job(ConfigChange):
         if req.error:
             return None, False
 
-        test, msg = self._entry_test(req, workflow)
-        if not test:
-            req.completed = True
-            logger.info(
-                'Skipping operation "%s" on instance "%s" with state "%s" and status "%s": %s',
-                req.configSpec.operation,
-                req.target.name,
-                req.target.state,
-                req.target.status,
-                msg,
+        if req.suspended:
+            # Already started, skip entry test and task creation
+            task = req.task
+            assert task is not None
+            if task.result and task.result.resume_after:
+                assert (
+                    time.monotonic() >= task.result.resume_after
+                ), f"task {task} resumed before resume_after elapsed"
+            start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
+            task.logger.info(
+                "resuming task.", extra=dict(json=task.summary(asJson=True))
             )
-            return None, True
+        else:
+            test, msg = self._entry_test(req, workflow)
+            if not test:
+                req.completed = True
+                logger.info(
+                    'Skipping operation "%s" on instance "%s" with state "%s" and status "%s": %s',
+                    req.configSpec.operation,
+                    req.target.name,
+                    req.target.state,
+                    req.target.status,
+                    msg,
+                )
+                return None, True
 
-        task = req.task or self.create_task(
-            req.configSpec, req.target, reason=req.reason
-        )
-        if task:
+            task = req.task or self.create_task(
+                req.configSpec, req.target, reason=req.reason
+            )
+            if not task:
+                return None, False
             start_collapsible(f"Task {req.target.name} ({req}", hash(req), True)
             task.logger.info(
                 "started task.", extra=dict(json=task.summary(asJson=True))
             )
 
-            resource = req.target
-            startingStatus = resource._localStatus
-            if req.startState is not None:
-                resource.state = req.startState
-            startingState = resource.state
-            self.add_work(task)
-            self.run_task(task, not_ready, depth)
+        resource = req.target
+        startingStatus = resource._localStatus
+        if req.startState is not None:
+            resource.state = req.startState
+        startingState = resource.state
+        self.add_work(task)
+        self.run_task(task, not_ready, depth)
 
-            if task.result and task.result.success and resource.state == startingState:
-                # task succeeded but didn't update nodestate
-                if req.startState is not None:
-                    # advance the state if a startState was set in the TaskRequest
-                    resource.state = NodeState(req.startState + 1)
-                elif (
-                    req.configSpec.operation == "check"
-                    and startingStatus != resource._localStatus
-                ):
-                    # if check operation explicitly set status, set a default state
-                    state = self._nodestate_from_status(resource)
-                    if state is not None:
-                        resource.state = state
-                task.target_state = resource.state
+        # If the task yielded resume, don't advance state yet
+        if task._suspended:
+            end_collapsible(hash(req))
+            return task, True
+
+        task_success = task.result and task.result.success or False
+        if task_success and resource.state == startingState:
+            # task succeeded but didn't update nodestate
+            if req.startState is not None:
+                # advance the state if a startState was set in the TaskRequest
+                resource.state = NodeState(req.startState + 1)
+            elif (
+                req.configSpec.operation == "check"
+                and startingStatus != resource._localStatus
+            ):
+                # if check operation explicitly set status, set a default state
+                state = self._nodestate_from_status(resource)
+                if state is not None:
+                    resource.state = state
+            task.target_state = resource.state
 
             # logger.debug(
             #     "changed %s to %s, wanted %s",
@@ -1424,42 +1617,37 @@ class Job(ConfigChange):
             #     req.startState,
             # )
             end_collapsible(hash(req))
-            task_success = task.result and task.result.success
-            status = task.target.status.name.upper()
-            state_status = (
-                f" State: {task.target.state.name}" if task.target.state else ""
+
+        status = task.target.status.name.upper()
+        state_status = f" State: {task.target.state.name}" if task.target.state else ""
+        extra = dict(
+            rich=dict(style=task.target.status.color),
+            json=task.summary(asJson=True),
+        )
+        if (
+            task.target.local_status is not None
+            and task.target.local_status != task.target.status
+        ):
+            local_status = f" Resource Local Status: {task.target.local_status.name}"
+        else:
+            local_status = ""
+        if task_success:
+            task.logger.info(
+                "Task succeeded, Resource Status: %s%s%s",
+                status,
+                local_status,
+                state_status,
+                extra=extra,
             )
-            extra = dict(
-                rich=dict(style=task.target.status.color),
-                json=task.summary(asJson=True),
+        else:
+            task.logger.error(
+                "Task failed, Resource Status: %s%s%s",
+                status,
+                local_status,
+                state_status,
+                extra=extra,
             )
-            if (
-                task.target.local_status is not None
-                and task.target.local_status != task.target.status
-            ):
-                local_status = (
-                    f" Resource Local Status: {task.target.local_status.name}"
-                )
-            else:
-                local_status = ""
-            if task_success:
-                task.logger.info(
-                    "Task succeeded, Resource Status: %s%s%s",
-                    status,
-                    local_status,
-                    state_status,
-                    extra=extra,
-                )
-            else:
-                task.logger.error(
-                    "Task failed, Resource Status: %s%s%s",
-                    status,
-                    local_status,
-                    state_status,
-                    extra=extra,
-                )
-            return task, task_success
-        return None, False
+        return task, task_success
 
     @staticmethod
     def _nodestate_from_status(resource: EntityInstance) -> Optional[NodeState]:
@@ -1478,6 +1666,78 @@ class Job(ConfigChange):
             state_map[Status.absent] = NodeState.deleted
         return state_map.get(resource._localStatus)
 
+    def _cancel_resume_tasks(self, suspended_reqs: List[ConfigTask]) -> None:
+        """Cancel all active resume tasks and clean up deferred tasks."""
+        for task in suspended_reqs:
+            if task._suspended_subtask_reqs:
+                self._cancel_resume_tasks(
+                    [r.task for r in task._suspended_subtask_reqs if r.task]
+                )
+            if task.generator:
+                task.target.root.set_attribute_manager(task._attributeManager)
+                cancel_result = None
+                elapsed = self._deadline - task.startTime.timestamp()
+                try:
+                    cancel_result = task.send(Cancel("job timeout", timeout=elapsed))
+                except (StopIteration, GeneratorExit):
+                    pass
+                if not isinstance(cancel_result, ConfiguratorResult):
+                    cancel_result = ConfiguratorResult(
+                        False, None, result="job timeout"
+                    )
+                task.finished(cancel_result)
+                self.add_work(task)
+
+    def _run_suspended_subtasks(
+        self,
+        task: ConfigTask,
+        not_ready: Sequence[PlanRequest],
+        depth: int,
+    ) -> Union[ConfigTask, List[PlanRequest]]:
+        """Re-entry for a resumed task. Returns a ConfigTask to exit run_task immediately
+        (suspended or finished), or a list of completed subtask reqs (may be None) to
+        continue into the generator send loop."""
+        task._suspended = task.result.resume if task.result else False
+
+        if self._deadline:
+            time_remaining = self._deadline - time.time()
+            if time_remaining <= 0:
+                self._cancel_resume_tasks([task])
+                return task
+
+        # Check if any subtasks are paused
+        now = time.monotonic()
+        ready_reqs = []
+        paused_reqs = []
+        for rr in task._suspended_subtask_reqs:
+            if rr.task and rr.task.result and rr.task.result.resume_after > now:
+                paused_reqs.append(rr)
+            else:
+                ready_reqs.append(rr)
+        if not ready_reqs:
+            # All subtasks still paused — propagate earliest resume_after
+            earliest = min(
+                rr.task.result.resume_after
+                for rr in paused_reqs
+                if rr.task and rr.task.result
+            )
+            result = ConfiguratorResult(True, None, resume=True)
+            result.resume_after = earliest
+            task._suspended = True
+            task.result = result
+            return task
+        # Re-run subtasks that are ready
+        self.apply(ready_reqs, not_ready, depth + 1)
+        still_resuming = paused_reqs + [rr for rr in ready_reqs if rr.suspended]
+        if still_resuming:
+            task._suspended_subtask_reqs = still_resuming
+            task._suspended = True
+            return task
+        # All subtasks completed
+        completed_reqs = task._suspended_subtask_reqs
+        task._suspended_subtask_reqs = []
+        return completed_reqs
+
     def run_task(
         self, task: ConfigTask, not_ready: Sequence[PlanRequest], depth: int = 0
     ) -> ConfigTask:
@@ -1492,13 +1752,37 @@ class Job(ConfigChange):
         Returns a task.
         """
         task.target.root.set_attribute_manager(task._attributeManager)
-        errors: Optional[str] = None
-        ok, errors = self.can_run_task(task, not_ready)
-        if not ok:
-            return task.finished(ConfiguratorResult(False, False, result=errors))
+        completed_reqs = None
+        if task._suspended:
+            if task._suspended_subtask_reqs:
+                result_or_change = self._run_suspended_subtasks(task, not_ready, depth)
+                if isinstance(result_or_change, ConfigTask):
+                    return result_or_change  # suspend() or finished()
+                completed_reqs = result_or_change
+            task._suspended = False
+        else:
+            errors: Optional[str] = None
+            ok, errors = self.can_run_task(task, not_ready)
+            if not ok:
+                return task.finished(ConfiguratorResult(False, False, result=errors))
 
-        task.start()
+            if self._deadline:
+                time_remaining = self._deadline - time.time()
+                if time_remaining <= 0:
+                    return task.finished(
+                        ConfiguratorResult(False, False, result="job timeout exceeded")
+                    )
+                task_timeout = task.configSpec.timeout
+                capped = time_remaining
+                if task_timeout is None or capped < task_timeout:
+                    task.configSpec.timeout = capped
+
+            task.start()
+
         change: Union[ConfigTask, Job, None] = None
+        if completed_reqs:
+            change = completed_reqs[-1].task
+            logger.trace("sending completed subtask %s to parent generator", change)
         while True:
             try:
                 result = task.send(change)
@@ -1524,12 +1808,20 @@ class Job(ConfigChange):
                             )
                     if ready:
                         change = self.apply(ready, not_ready, depth + 1)
+                        # If this apply() added new resume tasks, propagate resume to parent
+                        if ready[0].suspended:
+                            task._suspended_subtask_reqs.extend(ready)
+                            task._suspended = True
+                            return task
                     else:
                         change = result.task
             elif isinstance(result, JobRequest):
                 job = self.run_job_request(result)
                 change = job
             elif isinstance(result, ConfiguratorResult):
+                if result.resume:
+                    logger.trace("task %s yielded suspend", task)
+                    return task._suspend(result)
                 retVal = task.finished(result)
                 logger.debug(
                     "completed task %s: %s; %s", task, task.target.status, result
@@ -1553,10 +1845,7 @@ class Job(ConfigChange):
         return self.task_count
 
     def log_path(self, folder="jobs", ext=".log") -> str:
-        log_name = (
-            self.startTime.strftime("%Y-%m-%d-%H-%M-%S") + "-" + self.changeId[:-4]
-        )
-        return self.manifest.get_job_log_path(log_name, folder, ext)
+        return self.manifest.get_job_log_path(self.log_name(), folder, ext)
 
     ###########################################################################
     # Job Reporting methods
@@ -1706,18 +1995,18 @@ def start_job(
     localEnv = LocalEnv(
         manifestPath,
         _opts.get("home"),
-        override_context=_opts.get("use_environment") or "",
+        override_environment=_opts.get("use_environment") or "",
         overrides=dict(opts.vars or {}),
         # XXX readonly=_opts.get("planOnly")
     )
     path = localEnv.manifestPath
     if not opts.planOnly:
-        logger.info("creating %s job for %s", opts.workflow, path)
+        logger.info("Creating %s job for %s", opts.workflow, path)
     try:
         manifest = localEnv.get_manifest()
     except Exception as e:
         logger.error(
-            "failed to load manifest at %s: %s",
+            "Failed to load manifest at %s: %s",
             path,
             str(e),
             exc_info=opts.verbose >= 2,
@@ -1730,7 +2019,7 @@ def start_job(
         errors = list(job._yield_serious_errors(rendered[2]))
     except Exception as e:
         logger.error(
-            "could not create job: %s",
+            "Could not create job: %s",
             str(e),
             exc_info=opts.verbose >= 2,
         )
@@ -1772,6 +2061,7 @@ class Runner:
         self.manifest = manifest
         assert self.manifest.tosca
         self.job = None
+        self.rendered = None
 
     def static_plan(self, jobOptions=None):
         if jobOptions is None:
@@ -1782,12 +2072,14 @@ class Runner:
     def run(self, jobOptions=None):
         if jobOptions is None:
             jobOptions = JobOptions()
+        else:
+            self.job = None
         if not self.job:
             self.job = _plan(self.manifest, jobOptions)
         assert self.job
-        rendered, count = _render(self.job)
+        self.rendered, count = _render(self.job)
         if not jobOptions.planOnly:
-            self.job.run(rendered)
+            self.job.run(self.rendered)
         job = self.job
         # only use job once
         self.job = None

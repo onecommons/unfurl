@@ -35,6 +35,8 @@ artifact_types:
           A Jinja2 template or runtime expression that is processed after the operation completes.
           Note: This evaluate in the context of the task executing this artifact, so "SELF" will be the current task's target, not the artifact.
           The artifact can be accessed through the "implementation" variable.
+        metadata:
+          inert: true  # see TemplateConfigurator.exclude_from_digest
 
   unfurl.artifacts.ShellExecutable:
     derived_from: unfurl.artifacts.TemplateOperation
@@ -53,6 +55,8 @@ artifact_types:
         type: string
         required: false
         description: Set the current working directory to execute the command in.
+        metadata:
+          inert: true  # see ShellConfigurator.exclude_from_digest
       keeplines:
         type: boolean
         default: false
@@ -72,6 +76,8 @@ artifact_types:
           should be echoed to Unfurl's stdout while the command is being run.
           If omitted, true unless running with ``--quiet``.
           (Doesn't affect the capture of stdout and stderr.)
+        metadata:
+          inert: true  # see ShellConfigurator.exclude_from_digest
       input:
         type: string
         required: false
@@ -82,6 +88,8 @@ artifact_types:
         description: >
           A `Jinja2 template or runtime expression that is processed after shell command completes, with same variables as `resultTemplate`.
           The template should evaluate to a map to be used as the operation's outputs or null to skip.
+        metadata:
+          inert: true  # see ShellConfigurator.exclude_from_digest
       dryrun:
         type: string
         required: false
@@ -89,6 +97,8 @@ artifact_types:
           During a during a dryrun job this will be either appended to the command line
           or replace the string ``%dryrun%`` if it appears in the command. (``%dryrun%`` is stripped out when running regular jobs.)
           If not set, the task will not be executed at all during a dry run job.
+        metadata:
+          inert: true  # see TemplateConfigurator.exclude_from_digest
 
   unfurl.artifacts.AnsiblePlaybook:
     derived_from: unfurl.artifacts.TemplateOperation
@@ -178,7 +188,7 @@ node_types:
   unfurl.nodes.ArtifactInstaller:
     derived_from: tosca.nodes.Root
     description: >
-      Reification of an artifact that needs to be installed.
+      Manages an artifact by delegating lifecycle operations to the artifact.
       Node templates of this type are "discovered" when artifacts need to be installed on an operation_host.
     artifacts:
       install:
@@ -290,6 +300,9 @@ node_types:
           occurrences: [0, 1] # make optional so we aren't forced to always explicitly declare this
           metadata:
             visibility: hidden
+
+  unfurl.nodes.DigitalOceanAccount:
+    derived_from: unfurl.nodes.CloudAccount
 
 data_types:
   unfurl.datatypes.EnvVar:
@@ -404,6 +417,7 @@ relationship_types:
           sensitive: true
       region:
         type: string
+        required: false
         default: us-east-1
       endpoint_hostname:
         type: string

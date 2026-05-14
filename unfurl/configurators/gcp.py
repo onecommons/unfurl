@@ -1,4 +1,5 @@
 import os
+from typing import Dict, Optional
 from ..configurator import Configurator
 from ..support import Status, Priority
 
@@ -24,7 +25,7 @@ class CheckGoogleCloudConnectionConfigurator(Configurator):
         # check environment vars instead of connection attributes
         # because we want to make sure they were set by the connection
         status = Status.ok
-        update_env = {}
+        update_env: Dict[str, Optional[str]] = {}
         if not os.getenv("GOOGLE_OAUTH_ACCESS_TOKEN"):
             try:
                 credentials, project_id = google.auth.default()

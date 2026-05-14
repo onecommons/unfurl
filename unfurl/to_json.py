@@ -123,7 +123,8 @@ def map_constraint(jsonType, constraint, schema):
     if key == "schema":
         return value
     elif key == "pattern":
-        return dict(pattern=value)
+        # value isn't a json type when using rust regex
+        return dict(pattern=constraint.constraint_value_msg)
     elif key == "equal" or (key == "valid_values" and len(value) == 1):
         return dict(const=value)
     elif key == "valid_values":
@@ -233,7 +234,7 @@ def get_simple_valuetype(tosca_type, custom_defs):
         return dt.value_type
 
 
-def get_scalar_unit(value_type, metadata):
+def get_scalar_unit(value_type, metadata) -> Dict[str, str]:
     default_unit = metadata and metadata.get("default_unit")
     if default_unit:
         return {"type": "number", "default_unit": default_unit}
@@ -243,7 +244,7 @@ def get_scalar_unit(value_type, metadata):
     # regex: "|".join(get_scalarunit_class(value_type).SCALAR_UNIT_DICT)
 
 
-def _update_property_metadata(p: PropertyDef, metadata):
+def _update_property_metadata(p: PropertyDef, metadata) -> PropertyDef:
     property_metadata = metadata.get(p.name)
     if property_metadata:
         # don't modify original
@@ -335,7 +336,9 @@ def tosca_schema_to_jsonschema(p: PropertyDef, custom_defs: Namespace):
     return schema
 
 
-def _template_visibility(topology: TopologySpec, node_name: str, req_metadata: dict):
+def _template_visibility(
+    topology: TopologySpec, node_name: str, req_metadata: dict
+) -> str:
     entity_tpl = topology.get_node_src(node_name)
     if entity_tpl:
         node_metadata = entity_tpl.get("metadata") or {}
@@ -1083,6 +1086,9 @@ def _generate_primary(
         roots = None
     nodetype_tpl["requirements"] = requirements
     topology.custom_defs[primary_name] = nodetype_tpl
+    if topology.tosca_template:
+        # update directly to avoid InvalidTypeDefinition errors in entity_template.py
+        topology.tosca_template.tpl.setdefault("node_types", {})[primary_name] = nodetype_tpl
     tpl = node_tpl or {}
     tpl["type"] = primary_name
     tpl.setdefault("properties", {}).update({
@@ -1407,21 +1413,22 @@ def generate_deployment_template(
     return dt
 
 
-def get_project_path(repo: GitRepo, server_host: str):
+def get_project_path(repo: Repo, server_host: str) -> str:
     if server_host:
         # only use the project path if remote matches the cloud server
-        cloud_remote = repo.find_remote(host=server_host)
-    if cloud_remote:
-        project_path = Repo.get_path_for_git_repo(cloud_remote.url, False)
-    else:
-        # no remote (or remote is not for the cloud server), return local project path
-        project_path = get_local_project_path(repo)
-    return project_path
+        cloud_remote = repo.find_remote_url(host=server_host)
+        if cloud_remote:
+            return Repo.get_path_for_git_repo(cloud_remote, False)
+    # no remote (or remote is not for the cloud server), return local project path
+    return get_local_project_path(repo)
 
 
-def get_local_project_path(repo: GitRepo):
+def get_local_project_path(repo: Repo):
     # XXX use different scheme if repo has a remote?
-    return "local:" + repo.working_dir
+    # gitpython's working_dir can include a trailing slash; strip it so the
+    # project_id form matches what callers (frontend, /clear_project_file_cache)
+    # send for the same project.
+    return "local:" + repo.working_dir.rstrip("/")
 
 
 def _add_repositories(db: dict, tpl: dict):
@@ -1444,7 +1451,6 @@ def _add_repositories(db: dict, tpl: dict):
                     and repository not in repositories
                 ):
                     repositories[repository] = repositories_tpl[repository]
-                    repositories[repository]["file"] = imp_def["file"].partition("#")[0]
     if repositories:
         db["repositories"] = repositories
 
@@ -1802,7 +1808,7 @@ def to_environments(
             continue
         try:
             # reuse the localEnv and use the default manifest so environment instances don't clash with a real deployment
-            localEnv.manifest_context_name = name
+            localEnv.manifest_environment_name = name
             # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
             localEnv._manifests.pop(default_manifest_path, None)
             localEnv.manifestPath = default_manifest_path
@@ -1822,9 +1828,9 @@ def to_environments(
             details = "".join(traceback.TracebackException.from_exception(err).format())
             environments[name] = dict(error="Internal Error", details=details)  # type: ignore
 
-    db["DeploymentEnvironment"] = environments  # type: ignore
+    db["DeploymentEnvironment"] = environments
     db["ResourceType"] = all_connection_types
-    db["DeploymentPath"] = deployment_paths  # type: ignore
+    db["DeploymentPath"] = deployment_paths
     return db
 
 
@@ -1843,8 +1849,9 @@ def to_deployments(
             localEnv.manifestPath = os.path.join(
                 localEnv.project.projectRoot, manifest_path, "ensemble.yaml"
             )
+            localEnv.instance_repoview = localEnv._get_instance_repoview()
             environment = dp.get("environment") or "defaults"
-            localEnv.manifest_context_name = environment
+            localEnv.manifest_environment_name = environment
             deployments.append(to_deployment(localEnv))
         except Exception:
             logger.error("error exporting deployment %s", manifest_path, exc_info=True)

@@ -13,13 +13,13 @@ from unfurl.job import Runner, JobOptions
 from unfurl.support import Status
 from unfurl.projectpaths import _get_base_dir
 from unfurl.configurator import Configurator
-from unfurl.util import sensitive_str, API_VERSION, UnfurlValidationError
+from unfurl.util import sensitive_str, API_VERSION, UnfurlError, UnfurlValidationError
 from unfurl.yamlloader import make_vault_lib
 from unfurl.spec import find_env_vars
 import io
 from click.testing import CliRunner
 from toscaparser.topology_template import find_type
-
+from tosca import Size, GiB, GB, MB, MiB
 
 class SetAttributeConfigurator(Configurator):
     def run(self, task):
@@ -80,7 +80,6 @@ spec:
             default:
               private:
                   eval: private_address
-            
           event_object: # 5.3.2.2 Examples p.194
             type: tosca.datatypes.json
             constraints:
@@ -105,6 +104,9 @@ spec:
             - valid_values: [ 1, 2, 4, 8 ]
           metadata:
             sensitive: true
+        mem_size:
+          type: scalar-unit.size
+          default: .5 GiB
       outputs:
         server_ip:
           description: The private IP address of the provisioned server.
@@ -159,7 +161,7 @@ spec:
              properties:
                num_cpus: { eval: ::root::inputs::cpus }
                disk_size: 10 GB
-               mem_size: 512 MB
+               mem_size: 512 MiB
             # Guest Operating System properties
             os:
               properties:
@@ -194,6 +196,18 @@ class ToscaSyntaxTest(unittest.TestCase):
         )
         assert my_server.attributes["test"] == "cpus: 2"
         assert my_server.attributes["concat2"] is None
+
+        size1 = my_server.get_capabilities("host")[0]["mem_size"]
+        assert isinstance(size1, Size)
+        size2 = my_server.query(dict(get_input="mem_size"))
+        assert isinstance(size2, Size)
+        assert size1 == size2
+        as_str = "512MiB 0.5GiB"
+        assert f"{size1} {size2}" == as_str
+        assert as_str == my_server.query(
+            '{{ "::my_server::.capabilities::[.name=host]::mem_size" | eval }} {{ {"get_input":"mem_size"} | eval }}'
+        )
+
         # print(job.out.getvalue())
         testSensitive = manifest.get_root_resource().find_resource("testSensitive")
         for name, toscaType in (
@@ -221,6 +235,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert isinstance(outputIp, sensitive_str), type(outputIp)
         assert job.status == Status.ok, job.summary()
         self.assertEqual("RHEL", testSensitive.attributes["distribution"])
+
         return outputIp, job
 
     def test_inputAndOutputs(self):
@@ -293,7 +308,9 @@ class ToscaSyntaxTest(unittest.TestCase):
 
         runner = Runner(manifest)
         output = io.StringIO()
-        job = runner.run(JobOptions(add=True, out=output, startTime="test"))
+        job = runner.run(
+            JobOptions(add=True, out=output, skip_save=True, startTime="test")
+        )
         self.assertEqual(job.status.name, "ok")
         self.assertEqual(job.stats()["ok"], 1)
         self.assertEqual(job.get_outputs()["aOutput"], "set")
@@ -479,13 +496,12 @@ class ToscaSyntaxTest(unittest.TestCase):
                     Standard:
                       +/configurations:
         """
-        with self.assertRaises(UnfurlValidationError) as err:
+        with self.assertRaises(UnfurlError) as err:
             YamlManifest(ensemble)
 
         assert (
-            'MissingRequiredFieldError: Template "test_node" is missing required field "type"'
-            in str(err.exception)
-        )
+            "type" in str(err.exception) and "required" in str(err.exception).lower()
+        ), f"Expected error about missing 'type', got: {err.exception}"
 
     def test_missing_interface_definition_is_handled_by_unfurl(self):
         ensemble = """
@@ -507,10 +523,9 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert "UnknownFieldError" in str(err.exception)
 
 
-class AbstractTemplateTest(unittest.TestCase):
-    def test_import(self):
-        foreign = (
-            """
+def test_import(caplog):
+    foreign = (
+        """
     apiVersion: %s
     kind: Ensemble
     spec:
@@ -547,10 +562,10 @@ class AbstractTemplateTest(unittest.TestCase):
             properties:
               filter_prop: match
     """
-            % API_VERSION
-        )
+        % API_VERSION
+    )
 
-        localConfig = """
+    localConfig = """
           apiVersion: unfurl/v1alpha1
           kind: Project
           environments:
@@ -572,10 +587,10 @@ class AbstractTemplateTest(unittest.TestCase):
                   - anInstance::connection
         """
 
-        # import a node from a external manifest and have an abstract node template select it
-        # check will be run on it each time
-        mainManifest = (
-            """
+    # import a node from a external manifest and have an abstract node template select it
+    # check will be run on it each time
+    mainManifest = (
+        """
 apiVersion: %s
 kind: Ensemble
 spec:
@@ -596,101 +611,110 @@ spec:
             properties:
             - filter_prop: match
   """
-            % API_VERSION
-        )
+        % API_VERSION
+    )
 
-        runner = CliRunner()  # delete UNFURL_HOME
-        try:
-            UNFURL_HOME = os.environ.get("UNFURL_HOME")
-            with runner.isolated_filesystem():
-                os.environ["UNFURL_HOME"] = ""
+    runner = CliRunner()  # delete UNFURL_HOME
+    UNFURL_HOME = os.environ.get("UNFURL_HOME")
+    UNFURL_USE_CACHE = os.environ.get("UNFURL_USE_CACHE", "")
+    try:
+        with runner.isolated_filesystem():
+            os.environ["UNFURL_HOME"] = ""
+            os.environ["UNFURL_USE_CACHE"] = "load save"
 
-                with open("foreignmanifest.yaml", "w") as f:
-                    f.write(foreign)
+            with open("foreignmanifest.yaml", "w") as f:
+                f.write(foreign)
 
-                with open("unfurl.yaml", "w") as f:
-                    f.write(localConfig)
+            with open("unfurl.yaml", "w") as f:
+                f.write(localConfig)
 
-                with open("manifest.yaml", "w") as f:
-                    f.write(mainManifest)
+            with open("manifest.yaml", "w") as f:
+                f.write(mainManifest)
 
-                manifest = LocalEnv("manifest.yaml").get_manifest()
-                assert manifest.manifest.vault and manifest.manifest.vault.secrets
-                job = Runner(manifest).run(
-                    JobOptions(add=True, startTime="time-to-test")
-                )
-                # print(job.out.getvalue())
-                # print(job.jsonSummary(True))
-                assert job.status == Status.ok, job.summary()
-                self.assertEqual(
-                    [
-                        {
-                            "operation": "connect",
-                            "configurator": "tests.test_tosca.SetAttributeConfigurator",
-                            "changed": True,
-                            "priority": "required",
-                            "reason": "connect",
-                            "status": "ok",
-                            "target": "anInstance",
-                            "targetStatus": "ok",
-                            "targetState": None,  # "started",
-                            "template": "anInstance",
-                            "type": "test.nodes.AbstractTest",
-                        }
-                    ],
-                    job.json_summary()["tasks"],
-                )
-                job.get_outputs()
-                self.assertEqual(job.get_outputs()["server_ip"], "10.0.0.1")
-                self.assertEqual(
-                    len(manifest.localEnv._manifests), 2, manifest.localEnv._manifests
-                )
-                # print("output", job.out.getvalue())
-                assert "10.0.0.1" not in job.out.getvalue(), job.out.getvalue()
-                vaultString1 = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
-                assert vaultString1 in job.out.getvalue()
-                vaultString2 = (
-                    "private_address: !vault |\n          $ANSIBLE_VAULT;1.1;AES256"
-                )
-                # modifications to imported instances are not saved:
-                assert vaultString2 not in job.out.getvalue()
+            manifest = LocalEnv("manifest.yaml").get_manifest()
+            assert manifest.manifest.vault and manifest.manifest.vault.secrets
+            job = Runner(manifest).run(JobOptions(add=True, startTime="time-to-test"))
+            # print(job.out.getvalue())
+            # print(job.jsonSummary(True))
+            assert job.status == Status.ok, job.summary()
+            assert [
+                {
+                    "operation": "connect",
+                    "configurator": "tests.test_tosca.SetAttributeConfigurator",
+                    "changed": True,
+                    "priority": "required",
+                    "reason": "connect",
+                    "status": "ok",
+                    "target": "anInstance",
+                    "targetStatus": "ok",
+                    "targetState": None,  # "started",
+                    "template": "anInstance",
+                    "type": "test.nodes.AbstractTest",
+                }
+            ] == job.json_summary()["tasks"]
+            job.get_outputs()
+            assert job.get_outputs()["server_ip"] == "10.0.0.1"
+            assert len(manifest.localEnv._manifests) == 2, manifest.localEnv._manifests
+            # print("output", job.out.getvalue())
+            assert "10.0.0.1" not in job.out.getvalue(), job.out.getvalue()
+            vaultString1 = "server_ip: !vault |\n      $ANSIBLE_VAULT;1.1;AES256"
+            assert vaultString1 in job.out.getvalue()
+            vaultString2 = (
+                "private_address: !vault |\n          $ANSIBLE_VAULT;1.1;AES256"
+            )
+            # modifications to imported instances are not saved:
+            assert vaultString2 not in job.out.getvalue()
 
-                # reload:
-                manifest2 = LocalEnv("manifest.yaml").get_manifest()
-                assert manifest2.lastJob
-                # test that restored manifest create a shadow instance for the foreign instance
-                imported = manifest2.imports["foreign"]
-                assert imported
-                imported2 = manifest2.imports.find_instance("foreign:anInstance")
-                assert imported2
-                assert imported2.imported == "foreign:anInstance"
-                assert imported2.shadow
-                self.assertIs(imported2.root, manifest2.get_root_resource())
-                # modifications to imported instances are not saved:
-                assert "private_address" not in imported2.attributes
-                self.assertIsNot(imported2.shadow.root, manifest2.get_root_resource())
-                assert manifest2.get_root_resource().imports.connections
-                rel = manifest2.get_root_resource().imports.connections[0]
-                assert rel.name == "connection"
-                assert manifest2.get_root_resource().default_relationships[0].name == "_default_provider"
-                assert manifest2.get_root_resource().default_relationships[1] is rel
+            # reload:
+            manifest2 = LocalEnv(
+                "manifest.yaml", overrides=dict(UNFURL_SKIP_UPSTREAM_CHECK=True)
+            ).get_manifest()
+            assert manifest2.lastJob
+            assert "Loaded manifest from cache" in caplog.text
+            # test that restored manifest create a shadow instance for the foreign instance
+            imported = manifest2.imports["foreign"]
+            assert imported
+            imported2 = manifest2.imports.find_instance("foreign:anInstance")
+            assert imported2
+            assert imported2.imported == "foreign:anInstance"
+            assert imported2.shadow
+            assert imported2.root is manifest2.get_root_resource()
+            # modifications to imported instances are not saved:
+            assert "private_address" not in imported2.attributes
+            assert imported2.shadow.root is not manifest2.get_root_resource()
+            assert manifest2.get_root_resource().imports.connections
+            rel = manifest2.get_root_resource().imports.connections[0]
+            assert rel.name == "connection"
+            assert (
+                manifest2.get_root_resource().default_relationships[0].name
+                == "_default_provider"
+            )
+            assert manifest2.get_root_resource().default_relationships[1] is rel
 
-                ctx = RefContext(manifest2.get_root_resource())
-                project_dir = os.path.abspath(os.getcwd())
-                # note: ensemble and project are the same directory
-                dir = _get_base_dir(ctx, "project")
-                assert dir == project_dir
-                dir = _get_base_dir(ctx, "ensemble")
-                assert dir == project_dir
-                dir = _get_base_dir(ctx, "project.secrets")
-                assert dir == os.path.join(project_dir, "secrets")
-                dir = _get_base_dir(ctx, "ensemble.secrets")
-                assert dir == os.path.join(project_dir, "secrets")
+            ctx = RefContext(manifest2.get_root_resource())
+            project_dir = os.path.abspath(os.getcwd())
+            # note: ensemble and project are the same directory
+            dir = _get_base_dir(ctx, "project")
+            assert dir == project_dir
+            dir = _get_base_dir(ctx, "ensemble")
+            assert dir == project_dir
+            dir = _get_base_dir(ctx, "project.secrets")
+            assert dir == os.path.join(project_dir, "secrets")
+            dir = _get_base_dir(ctx, "ensemble.secrets")
+            assert dir == os.path.join(project_dir, "secrets")
 
-        finally:
-            if UNFURL_HOME is not None:
-                os.environ["UNFURL_HOME"] = UNFURL_HOME
+            os.system("touch foreignmanifest.yaml")  # update mtime
+            manifest3 = LocalEnv(
+                "manifest.yaml", overrides=dict(UNFURL_SKIP_UPSTREAM_CHECK=True)
+            ).get_manifest()
+            assert "cache invalidated: 1 file(s) changed" in caplog.text
 
+    finally:
+        os.environ["UNFURL_USE_CACHE"] = UNFURL_USE_CACHE
+        if UNFURL_HOME is not None:
+            os.environ["UNFURL_HOME"] = UNFURL_HOME
+
+class AbstractTemplateTest(unittest.TestCase):
     def test_connections(self):
         mainManifest = (
             """

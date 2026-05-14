@@ -57,6 +57,7 @@ from tosca import (
     DataEntity,
     ToscaFieldType,
     TypeInfo,
+    is_newer_than,
 )
 import tosca.loader
 from tosca._tosca import (
@@ -92,27 +93,39 @@ from .configurator import Configurator, ConfiguratorResult, TaskView
 import sys
 
 if TYPE_CHECKING:
-    from .yamlloader import ImportResolver
+    from .yamlloader import ImportResolver, ImportResolver_Context
 
 logger = getLogger("unfurl")
+
+
+def import_module(module_name: str) -> types.ModuleType:
+    """Make sure tosca mode is 'parse' when importimg a module."""
+    with tosca.set_evaluation_mode("parse"):
+        return importlib.import_module(module_name)
+
 
 _N = TypeVar("_N", bound=tosca.Namespace)
 
 
-def is_python_file_newer(yaml_contents, path) -> Optional[str]:
+def is_python_file_newer(yaml_contents: str, path: str) -> Optional[str]:
     yaml_path = Path(path)
     python_path = yaml_path.parent / (yaml_path.stem + ".py")
     if not WritePolicy.is_auto_generated(yaml_contents):  # or don't overwrite
         return None
     if not python_path.exists():
         return None
-    # only overwrite if yaml file is older than the python file
-    if not WritePolicy["older"].can_overwrite(str(python_path), path):
-        return ""
+    if is_newer_than(path, python_path):
+        return ""  # skip if yaml file is newer
     # only overwrite if the yaml file wasn't modified by another process
     if not WritePolicy.ok_to_modify_auto_generated(yaml_contents, path):
         return None
     return str(python_path)
+
+
+def is_yaml_file_newer(yaml_contents: str, yaml_path, python_path) -> bool:
+    if not WritePolicy.is_auto_generated(yaml_contents):
+        return False  # don't use yaml
+    return is_newer_than(yaml_path, python_path)
 
 
 def maybe_reconvert(
@@ -121,34 +134,36 @@ def maybe_reconvert(
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
-    yaml_dict=dict,
 ) -> Optional[dict]:
     "If the YAML was generated from a Python file, regenerate if Python file is newer."
     # path is a yaml file
     python_path = is_python_file_newer(yaml_contents, path)
     if not python_path:
         return None
-    with open(python_path) as f:
-        contents = f.read()
-    tosca_tpl = convert_to_yaml(
-        import_resolver, contents, python_path, repo_view, base_dir, yaml_dict
+    # reconstruct context
+    # file_name is not used if is_file is True
+    ctx: ImportResolver_Context = (
+        True,
+        repo_view,
+        base_dir,
+        "",
     )
-    write_policy = WritePolicy[os.getenv("UNFURL_OVERWRITE_POLICY") or "auto"]
-    try:
-        _write_yaml(write_policy, tosca_tpl, python_path, path)
-    except Exception:
-        logger.error("error saving generated yaml file %s", path, exc_info=True)
+    # use import resolver to load the python file so we go through its cache
+    # it will call convert_to_yaml() if it wasn't cached
+    tosca_tpl, cacheable = import_resolver.load_yaml(python_path, None, ctx)
     return tosca_tpl
 
 
 def get_allowed_modules():
     # import packages that can be referenced in safe mode
     import unfurl.tosca_plugins
+    import unfurl.tosca_plugins.cloudmap_defs
     import unfurl.configurators
     import unfurl.configurators.templates
 
     packages = (
         "unfurl.tosca_plugins",
+        "unfurl.tosca_plugins.cloudmap_defs",
         "unfurl.configurators",
         "unfurl.configurators.templates",
     )
@@ -161,6 +176,7 @@ def convert_to_yaml(
     path: str,
     repo_view: Optional[RepoView],
     base_dir: str,
+    yaml_path: str,
     yaml_dict=dict,
 ) -> dict:
     from .yamlloader import yaml_dict_type, yaml
@@ -209,6 +225,9 @@ def convert_to_yaml(
         write_policy,
         import_resolver,
     )
+    if write_policy.can_overwrite(path, yaml_path):
+        _write_yaml(write_policy, yaml_src, path, yaml_path)
+    logger.verbose("Saving imported python module as YAML at %s", yaml_path)
     if os.getenv("UNFURL_TEST_PRINT_YAML_SRC"):
         output = io.StringIO()
         yaml.dump(yaml_src, output)
@@ -232,11 +251,22 @@ def find_template(template: EntitySpec) -> Optional[ToscaType]:
         section = "groups"
     else:
         return None
-    metadata = template.toscaEntityTemplate.entity_tpl.get("metadata")
-    module_name = metadata and metadata.get("module")
-    if module_name and global_state._all_templates:
-        return global_state._all_templates[section].get((module_name, template.name))  # type: ignore
-    return None
+    module_name = template.metadata.get("module")
+    obj = None
+    if module_name:
+        obj = global_state._all_templates.get(section, {}).get(
+            (module_name, template.name)
+        )  # type: ignore
+        if not obj:
+            try:
+                import_module(module_name)
+                # try again, hopefully template was loaded
+                obj = global_state._all_templates.get(section, {}).get(
+                    (module_name, template.name)
+                )  # type: ignore
+            except ImportError:
+                pass
+    return cast(Optional[ToscaType], obj)
 
 
 def proxy_instance(
@@ -311,6 +341,7 @@ class DslMethodConfigurator(Configurator):
         self.action = action
         self.configurator: Optional[Configurator] = None
         self._generator: Optional[Generator] = None
+        self._executed = False  # the operation was invoked
 
     def _execute_artifact(self, task: TaskView):
         assert task._artifact
@@ -351,11 +382,13 @@ class DslMethodConfigurator(Configurator):
         artifact._invoke(self.cls.execute, *args, **kwargs)
         self._set_artifact(task, getattr(artifact, "_inputs", None), task._artifact)
         assert self.configurator
-        return self.configurator.render(task)
 
-    def render(self, task: TaskView) -> Any:
+    def _execute_operation(self, task: TaskView) -> None:
+        if self._executed:
+            return
+        self._executed = True
         if self.action == "execute":  # execute the implementation artifact
-            return self._execute_artifact(task)
+            self._execute_artifact(task)
         if self.action == "render" or self.action == "parse":
             # the operation couldn't be evaluated at yaml generation time, run it now
             obj = proxy_instance(task.target, self.cls, task.inputs.context)
@@ -369,12 +402,7 @@ class DslMethodConfigurator(Configurator):
 
             if isinstance(result, Generator):
                 self._generator = result
-                # render the yielded configurator
-                result = result.send(None)
-                assert isinstance(result, Configurator), (
-                    "Only yielding configurators is currently support"
-                )
-            if isinstance(result, Configurator):
+            elif isinstance(result, Configurator):
                 self.configurator = result
                 # task.inputs get reset after render phase
                 # so we need to set configSpec.inputs in order to preserve them for run()
@@ -382,8 +410,6 @@ class DslMethodConfigurator(Configurator):
                 # regenerate task.inputs:
                 task._inputs = None
                 task.inputs
-                if not self._generator:
-                    return self.configurator.render(task)
             elif callable(result):
                 self.func = result  # invoke during run()
             elif execute_proxy._artifact_executed:
@@ -396,7 +422,6 @@ class DslMethodConfigurator(Configurator):
                     )
                 self._set_artifact(task, execute_proxy._inputs, artifact)
                 assert self.configurator
-                return self.configurator.render(task)
             elif result is not None:
                 raise UnfurlError(
                     f"unsupported configurator type: {type(result)} {result and result._obj} {result and result._cls}"
@@ -406,6 +431,25 @@ class DslMethodConfigurator(Configurator):
                 # regenerate task.inputs:
                 task._inputs = None
                 task.inputs
+
+    def check_digest(self, task: "TaskView", changeset) -> bool:
+        self._execute_operation(task)
+        if self.configurator:
+            return self.configurator.check_digest(task, changeset)
+        else:
+            return super().check_digest(task, changeset)
+
+    def render(self, task: TaskView) -> Any:
+        self._execute_operation(task)
+        if self._generator:
+            # render the yielded configurator
+            result = self._generator.send(None)
+            assert isinstance(
+                result, Configurator
+            ), "Only yielding configurators is currently support"
+            return result
+        elif self.configurator:
+            return self.configurator.render(task)
         return super().render(task)
 
     def _set_artifact(self, task: TaskView, _inputs, artifact):
@@ -484,7 +528,7 @@ def eval_computed(arg, ctx: RefContext):
         module_name, qualname, method = parts
     else:
         module_name, qualname = parts
-    module = importlib.import_module(module_name)
+    module = import_module(module_name)
     names = qualname.split(".")
     attr_name = names.pop(0)
     cls = getattr(module, attr_name)
@@ -516,7 +560,7 @@ def eval_validate(arg, ctx: RefContext):
        computed: mod:func
     """
     module_name, sep, qualname = arg.partition(":")
-    module = importlib.import_module(module_name)
+    module = import_module(module_name)
     cls_name, sep, func_name = qualname.rpartition(".")
     if cls_name:
         cls = getattr(module, cls_name)
@@ -976,7 +1020,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
         raise AttributeError(name)
 
 
-_proxies = {}
+_proxies: Dict[type, type] = {}
 
 
 def get_proxy_class(cls, base: type = InstanceProxyBase):

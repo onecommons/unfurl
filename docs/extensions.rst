@@ -42,11 +42,12 @@ Extensions
 * add ``removed`` property status value
 * artifacts can be declared on node types.
 * add ``target``, ``contents``, ``order``, ``permissions``, and ``intent`` keywords to artifacts (see `Artifact enhancements`)
-* support ``ANON`` keyword in `get_artifact`
-* add ``dependencies`` keyword to artifacts and allow interfaces and attributes to be defined on artifact templates.
+* support ``ANON`` keyword in :std:ref:`get_artifact`
+* add ``dependencies`` keyword to artifacts
+* allow interfaces and attributes to be defined on artifact templates.
 * add ``artifacts`` keyword to node_filters to match on artifact properties (syntax matches "capabilities" keyword)
 * add ``input_values`` section to service templates (see `Topology Inputs`).
-* 'implementation' section on interface can declare a full artifact definition
+* ``implementation`` section on interface can declare a full artifact definition or an artifact type.
 * interface output definitions can now include a full parameter definitions and an optional ``mapping`` field to define the mapping.
 * add a ``version`` property constraint for matching `version requirements`
 
@@ -58,7 +59,7 @@ conform with the TOSCA 1.3 specification:
 
 * The ``get_operation_output`` function (use :ref:`resultTemplate<resulttemplate>` instead)
 * "copy" keyword (use the ``dsl`` section or :ref:`merge directives<yaml_merge_directives>` instead)
-* the ``location`` and ``remove`` arguments to the `get_artifact` function
+* the ``location`` and ``remove`` arguments to the :std:ref:`get_artifact` function
 * substitution mappings: only input mappings are supported (set ``node`` to a node template instead)
 * triggers
 * notifications

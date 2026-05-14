@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 import os.path
 import sys
+from pathlib import Path
 import datetime
 import re
 from types import ModuleType
@@ -196,13 +197,16 @@ class Repository(ToscaObject):
         if import_resolver and self._tosca_name:
             import_resolver.add_repository(self._tosca_name, self._tpl)
 
+    @property
+    def name(self) -> str:
+        return self._tosca_name or self._name
+
     def to_yaml(self, dict_cls=dict) -> Optional[Dict]:
         tpl = dict_cls(**self._tpl)
         if self.credential is not None:
             tpl["credential"] = self.credential.to_yaml(dict_cls)
-        name = self._tosca_name or self._name
-        assert name
-        return dict_cls({name: tpl})
+        assert self.name
+        return dict_cls({self.name: tpl})
 
 
 class WritePolicy(Enum):
@@ -291,6 +295,30 @@ class WritePolicy(Enum):
         if len(new_lines) == len(old_lines):
             return new_lines == old_lines
         return False
+
+
+def yaml_path_for(python_path: Path) -> Path:
+    """Return the YAML output path for a given Python source path.
+
+    Placement priority:
+    1. ``sys.pycache_prefix`` directory (if set), mirroring the source tree.
+    2. The ``__pycache__`` subdirectory next to the source file (if it exists).
+    3. Same directory as the source file (original behaviour).
+    """
+    stem_yaml = python_path.stem + ".yaml"
+    if not sys.dont_write_bytecode:
+        if sys.pycache_prefix:
+            # Mirror the source tree under pycache_prefix, same convention as .pyc files.
+            try:
+                rel = python_path.parent.relative_to(Path(sys.pycache_prefix).anchor)
+            except ValueError:
+                rel = python_path.parent
+            pycache = Path(sys.pycache_prefix) / rel
+        else:
+            pycache = python_path.parent / "__pycache__"
+        pycache.mkdir(exist_ok=True)
+        return pycache / stem_yaml
+    return python_path.parent / stem_yaml
 
 
 def is_newer_than(output_path, input_path):

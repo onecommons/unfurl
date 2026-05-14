@@ -7,6 +7,7 @@ import hashlib
 import json
 import logging
 from pathlib import Path
+from types import SimpleNamespace
 from typing import (
     Dict,
     List,
@@ -52,9 +53,9 @@ from .util import (
     to_enum,
     sensitive_str,
     get_base_dir,
-    taketwo,
 )
 from .repo import Repo, normalize_git_url, split_git_url, RepoView, GitRepo
+from .localenv import RepoViewPath
 from .packages import (
     Package,
     PackageSpec,
@@ -64,7 +65,7 @@ from .packages import (
     is_semver,
 )
 from .merge import merge_dicts
-from .result import ChangeRecord, ResourceRef
+from .result import ChangeRecord, ResourceRef, _Missing
 from .yamlloader import (
     LoadIncludeAction,
     YamlConfig,
@@ -92,13 +93,15 @@ _basepath = os.path.abspath(os.path.dirname(__file__))
 _TI = TypeVar("_TI", bound=EntityInstance)
 
 
-def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str, Any]:
+def relabel_dict(
+    environment: Dict[str, Dict[str, Any]], localEnv: "LocalEnv", key: str
+) -> Dict[str, Any]:
     """Retrieve environment dictionary and remap any values that are strings in the dictionary by treating them as keys into an environment."""
     connections = environment.get(key)
     if not connections:
         return {}
     assert isinstance(connections, dict)
-    environments: Dict[str, Dict] = {}
+    environments: Dict[str, Dict[str, Any]] = {}
     if localEnv:
         project = localEnv.project or localEnv.homeProject
         if project:
@@ -111,7 +114,7 @@ def relabel_dict(environment: Dict, localEnv: "LocalEnv", key: str) -> Dict[str,
             if sep:  # found a ":"
                 v = environments[env][key][name]
             else:  # look in current dict
-                v = connections[env]  # type: ignore
+                v = connections[env]
             return follow_alias(v)  # follow
         else:
             return v
@@ -125,6 +128,15 @@ class ChangeRecordRecord(ChangeRecord, OperationalInstance):
     digestValue: str = ""
     digestKeys: str = ""
     digestPut: str = ""
+    digest_extras: Optional[Dict[str, str]] = None
+    inputs: Optional[Dict[str, Any]] = None
+    changes: Optional[ResourceChanges] = None
+    changed: Optional[bool] = None
+    summary: Optional[str] = None
+
+    @staticmethod
+    def is_digest_key(key: str) -> bool:
+        return key.startswith("digest") and key != "digest"
 
 
 class Manifest(AttributeManager):
@@ -138,28 +150,41 @@ class Manifest(AttributeManager):
     def __init__(self, path: Optional[str], localEnv: Optional["LocalEnv"] = None):
         super().__init__(yaml)
         self.localEnv = localEnv
+        # save separate reference for pickling cache
+        self.overrides: Dict[str, Any] = localEnv.overrides if localEnv else {}
         self.path: Optional[str] = path
-        self.repo = self._find_repo()
-        self.currentCommitId = self.repo and self.repo.revision
+        self.repo: Optional["GitRepo"] = self._find_repo()
+        self.currentCommitId: Optional[str] = self.repo and self.repo.revision or None
         # self.revisions = RevisionManager(self)
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
         self.tosca: Optional[ToscaSpec] = None
-        self.specDigest = None
+        self.specDigest: Optional[str] = None
         self.repositories: Dict[str, RepoView] = {}
         self.package_specs: List[PackageSpec] = []
         self.packages: PackagesType = {}
+        self.cache_mtimes: Dict[str, float]
         if self.localEnv:
             # before we start parsing the manifest, add the repositories in the environment
             self._add_repositories_from_environment()
             self.cache = self.localEnv.loader_cache
+            self.cache_mtimes = self.localEnv.loader_cache_mtimes
         else:
             self.cache = {}
+            self.cache_mtimes = {}
         self.imports = Imports()
         self.imports.manifest = self
         self.modules: Optional[Dict] = None
         self._patched_templates: Dict[Tuple[str, str], tosca.ToscaType] = {}
         self.apiVersion = API_VERSION
         self._load_errors = False
+
+    def __getstate__(self):
+        state = super().__getstate__()
+        state["modules"] = None
+        state["localEnv"] = None
+        # only used during yaml generation so ok to drop from pickle
+        state["_patched_templates"] = {}
+        return state
 
     @property
     def project_base_path(self):
@@ -171,24 +196,8 @@ class Manifest(AttributeManager):
 
     def _add_repositories_from_environment(self) -> None:
         assert self.localEnv
-        context = self.localEnv.get_context()
-        repositories = {}
-        for key, value in relabel_dict(context, self.localEnv, "repositories").items():
-            if "." in key:  # assume it's a package not a repository name
-                assert isinstance(value, dict)
-                self.package_specs.append(
-                    PackageSpec(key, value.get("url"), value.get("revision"))
-                )
-            else:
-                repositories[key] = value
-        env_package_spec: Optional[str] = cast(dict, context.get("variables", {})).get(
-            "UNFURL_PACKAGE_RULES", os.getenv("UNFURL_PACKAGE_RULES")
-        )
-        if not env_package_spec and os.getenv("UNFURL_CLOUD_SERVER"):
-            env_package_spec = "unfurl.cloud " + os.environ["UNFURL_CLOUD_SERVER"]
-        if env_package_spec:
-            for key, value in taketwo(env_package_spec.split()):
-                self.package_specs.append(PackageSpec(key, value, None))
+        repositories, package_specs = self.localEnv.get_repositories_and_package_specs()
+        self.package_specs.extend(package_specs)
         resolver = self.get_import_resolver()
         for name, tpl in repositories.items():
             toscaRepository = resolver.get_repository(name, tpl)
@@ -213,7 +222,7 @@ class Manifest(AttributeManager):
         repo = self.localEnv and self.localEnv.instance_repoview
         if repo:
             # this check is expensive and not that important so skip
-            return repo.repo
+            return repo.gitrepo
             # path = repo.find_path(self.path)[0]
             # if path and (path, 0) in repo.repo.index.entries:
             #     return repo
@@ -237,14 +246,14 @@ class Manifest(AttributeManager):
             if name not in repositoriesTpl:
                 repositoriesTpl[name] = value
 
-        validation_mode = os.getenv("UNFURL_VALIDATION_MODE")
+        validation_mode = os.getenv("UNFURL_VALIDATION_MODE") or ""
         # make sure this is present
         if "tosca_definitions_version" not in toscaDef:
             toscaDef["tosca_definitions_version"] = TOSCA_VERSION
         api_version = self.apiVersion[len("unfurl/") :]
         if is_semver(api_version):  # old version with non-semver syntax is less strict
-            if validation_mode is None:
-                validation_mode = "types"
+            if "notypecheck" not in validation_mode:
+                validation_mode += " types"
 
             # if overriding a template, make sure it is compatible with the old one by adding "should_implement" hint
             def replaceStrategy(key, old, new):
@@ -252,9 +261,11 @@ class Manifest(AttributeManager):
                 if old_type:
                     new.setdefault("metadata", {})["should_implement"] = old_type
                 return new
-
         else:
             replaceStrategy = "replace"  # type: ignore
+            # don't do schema validation for old versions
+            validation_mode += " no_jsonschema_check"
+
         if more_spec:
             # don't merge individual templates
             toscaDef = merge_dicts(
@@ -289,6 +300,34 @@ class Manifest(AttributeManager):
             m.update(json.dumps(tpl, sort_keys=True).encode("utf-8"))
         return m.hexdigest()
 
+    def remove_invalidated_cache(self) -> int:
+        """Check each cached path's mtime and remove from cache if changed.
+
+        Returns:
+            Number of cache entries that were invalidated.
+        """
+        invalidated = 0
+        paths_to_remove = []
+        for path, cached_mtime in self.cache_mtimes.items():
+            try:
+                current_mtime = os.path.getmtime(path)
+                if current_mtime != cached_mtime:
+                    paths_to_remove.append(path)
+                    invalidated += 1
+            except OSError:
+                # File no longer exists
+                paths_to_remove.append(path)
+                invalidated += 1
+
+        for path in paths_to_remove:
+            self.cache_mtimes.pop(path, None)
+            # Remove all cache entries for this path (with any fragment)
+            keys_to_remove = [k for k in self.cache if k[0] == path]
+            for key in keys_to_remove:
+                self.cache.pop(key, None)
+
+        return invalidated
+
     def _ready(self, rootResource):
         """
         Set the instance model.
@@ -318,9 +357,9 @@ class Manifest(AttributeManager):
     def save_job(self, job) -> Any:
         pass
 
-    def load_error(self, msg: str) -> None:
-        self._load_error = True
-        logger.error(msg, stack_info=get_console_log_level() < logging.INFO)
+    def load_error(self, msg: str, exc_info=None) -> None:
+        self._load_errors = True
+        logger.error(msg, exc_info=exc_info)
 
     def load_template(
         self, name: str, parent: Optional[EntityInstance], lastChange=None
@@ -368,6 +407,7 @@ class Manifest(AttributeManager):
         resourceChanges = ResourceChanges()
         if changes:
             for k, change in changes.items():
+                change = change.copy()
                 status = change.pop(".status", None)
                 if isinstance(status, dict):
                     status = Manifest.load_status(status).local_status
@@ -397,30 +437,35 @@ class Manifest(AttributeManager):
         )
         assert isinstance(configChange.operation, str)
 
-        configChange.inputs = changeSet.get("inputs")  # type: ignore
-        # 'digestKeys', 'digestValue' but configurator can set more:
+        configChange.inputs = changeSet.get("inputs")
+        configChange.digest_extras = changeSet.get("digest")
         for key in changeSet.keys():
-            if key.startswith("digest"):
+            # 'digestKeys', 'digestValue', 'digestPut' but configurator can set more:
+            if configChange.is_digest_key(key):
                 setattr(configChange, key, changeSet[key])
+
+        configChange.changed = changeSet.get("changed")
+        configChange.summary = changeSet.get("summary")
 
         configChange.dependencies = []
         for val in changeSet.get("dependencies", []):
+            if "expected" in val:
+                value = val["expected"]
+            else:
+                value = _Missing
             configChange.dependencies.append(
                 Dependency(
                     val["ref"],
-                    val.get("expected"),
                     val.get("schema"),
                     val.get("name"),
                     val.get("required"),
-                    val.get("wantList", False),
                     val.get("writeOnly"),
+                    expected_expr=value,
                 )
             )
 
         if "changes" in changeSet:
-            configChange.resourceChanges = self.load_resource_changes(  # type: ignore
-                changeSet["changes"]
-            )
+            configChange.changes = self.load_resource_changes(changeSet["changes"])
 
         configChange.result = changeSet.get("result")  # type: ignore
         configChange.messages = changeSet.get("messages", [])  # type: ignore
@@ -553,14 +598,18 @@ class Manifest(AttributeManager):
 
         if resourceSpec.get("artifacts"):
             for key, val in resourceSpec["artifacts"].items():
-                self._create_entity_instance(ArtifactInstance, key, val, resource)
+                artifact = self._create_entity_instance(
+                    ArtifactInstance, key, val, resource
+                )
+                if artifact:
+                    cast(ArtifactSpec, artifact.template)._inline = False
 
         for key, val in resourceSpec.get("instances", {}).items():
             self.create_node_instance(key, val, resource)
 
         return resource
 
-    def _get_last_config_changeset(self, operational):
+    def _get_last_config_job_record(self, operational) -> Optional[ChangeRecordRecord]:
         if not operational.last_config_change:
             return None
         if not self.changeSets:  # XXX load changesets if None
@@ -592,19 +641,30 @@ class Manifest(AttributeManager):
             operational = self.load_status(status)
         if isinstance(templateName, str):
             template = self.load_template(templateName, parent)
-        else:
+        elif templateName:
             # special case inline artifact template
             assert isinstance(templateName, dict)
             assert ctor is ArtifactInstance
-            template = ArtifactSpec(templateName, parent.template)
+            if not templateName.get("name"):
+                templateName["name"] = name
+            try:
+                template = ArtifactSpec(templateName, parent.template)
+            except Exception:
+                self.load_error(
+                    f"Error instantiating inline artifact template {name}",
+                    exc_info=True,
+                )
+                return None
+        else:
+            template = None
 
         if template is None:
             # not defined in the current model any more, try to retrieve the old version
             if operational.last_config_change:
-                changerecord = self._get_last_config_changeset(operational)
+                changerecord = self._get_last_config_job_record(operational)
                 # XXX not implemented yet
                 template = self.load_template(templateName, parent, changerecord)
-        if template is None:
+        if not template:
             self.load_error(
                 f"missing template definition for '{templateName}' while instantiating instance '{name}'"
             )
@@ -627,6 +687,7 @@ class Manifest(AttributeManager):
         if imported:
             assert isinstance(importName, str)
             instance.imported = importName
+            assert isinstance(instance, NodeInstance)
             self.imports.set_shadow(importName, instance, imported)
         properties = status.get("properties")
         if isinstance(properties, dict):
@@ -634,9 +695,11 @@ class Manifest(AttributeManager):
         return instance
 
     @staticmethod
-    def is_instantiated(resource, checkstatus=True) -> bool:
+    def is_instantiated(resource, checkstatus=True, check_referenced=False) -> bool:
         if "virtual" in resource.template.directives:
             return False
+        if check_referenced and resource.template._isReferencedBy:
+            return True
         if not resource.last_change and (
             not resource.local_status
             or (
@@ -655,24 +718,36 @@ class Manifest(AttributeManager):
 
     def status_summary(self, verbose=False):
         def summary(instance, indent, show_all=True):
-            computed = instance.is_computed()
-            virtual = "virtual" in instance.template.directives
-            concrete = not virtual and not computed
-            status = "" if instance.status is None else instance.status.name
+            obj = SimpleNamespace()
+            obj.computed = instance.is_computed()
+            obj.virtual = "virtual" in instance.template.directives
+            concrete = not obj.virtual and not obj.computed
+            obj.status = "" if instance.status is None else instance.status.name
+            obj.local_status = (
+                "" if instance.local_status is None else instance.local_status.name
+            )
             state = instance.state and instance.state.name or ""
+            obj.created_on = None
+            obj.created_by = None
             if instance.created:
                 if isinstance(instance.created, bool):
                     created = "managed"
                 else:
                     prep = "by" if instance.created.startswith("::") else "on"
                     created = f"created {prep} {instance.created}"
+                    setattr(obj, "created_" + prep, instance.created)
             else:
                 created = ""
             instance_label = f"{instance.__class__.__name__}('{instance.nested_name}')"
+            setattr(obj, "class", instance.__class__.__name__)
+            obj.name = instance.nested_name
+            obj.key = instance.nested_key
             if verbose:
                 instance_label += f"({instance.template.global_type})"
-            computed_label = " computed " if computed else ""
-            vlabel = " virtual" if virtual else ""
+            obj.type = instance.template.global_type
+            obj.template = instance.template.uri
+            computed_label = " computed " if obj.computed else ""
+            vlabel = " virtual" if obj.virtual else ""
             status = self._show_task_status(instance)
             if concrete or verbose:
                 output.append(
@@ -685,19 +760,21 @@ class Manifest(AttributeManager):
                 )
                 indent += 4
             if isinstance(instance, HasInstancesInstance):
+                obj.children = []
                 for rel in instance.requirements:
-                    summary(rel, indent, False)
+                    obj.children.append(summary(rel, indent, False).__dict__)
                 if getattr(instance.template, "substitution", None) and instance.shadow:
-                    summary(instance.shadow.root, indent)
+                    obj.children.append(summary(instance.shadow.root, indent).__dict__)
                 for child in instance.instances:
-                    summary(child, indent)
+                    obj.children.append(summary(child, indent).__dict__)
                 if verbose:
                     for child in instance.artifacts.values():
-                        summary(child, indent)
+                        obj.children.append(summary(child, indent).__dict__)
+            return obj
 
         output: List[str] = []
-        summary(self.rootResource, 0)
-        return "\n".join(output)
+        obj = summary(self.rootResource, 0)
+        return "\n".join(output), obj.__dict__
 
     def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)
@@ -732,7 +809,9 @@ class Manifest(AttributeManager):
                 return find_canonical(self.package_specs, canonical, namespace_id)
         return url or ""
 
-    def find_path_in_repos(self, path, importLoader=None):
+    def find_path_in_repos(
+        self, path, importLoader=None
+    ) -> RepoViewPath:
         """
         Check if the file path is inside a folder that is managed by a repository.
         If the revision is pinned and doesn't match the repo, it might be bare
@@ -743,21 +822,21 @@ class Manifest(AttributeManager):
             repo = self.repo
             filePath = repo.find_repo_path(path)
             if filePath is not None:
-                return repo, filePath, repo.revision, False
-        return None, None, None, None
+                return RepoViewPath(repo.as_repo_view(), filePath, repo.revision, False)
+        return RepoViewPath(None, None, None, None)
 
     # NOTE: all the methods below may be called during config parse time via loadYamlInclude()
 
     def find_or_clone_repo(
         self, repo_view: RepoView, base: str
-    ) -> Tuple[Optional[GitRepo], Optional[bool]]:
+    ) -> Tuple[Optional[Repo], Optional[bool]]:
         url, _, _ = split_git_url(repo_view.url)
         if not url:
             raise UnfurlError(f"invalid git URL {repo_view.url}")
         if not self.localEnv:  # can happen in unit tests
-            repo = Repo.find_containing_repo(base)
+            repo: Optional[Repo] = Repo.find_containing_repo(base)
             if repo and (
-                repo.find_remote(url=url)
+                repo.find_remote_url(url=url)
                 or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
                 == repo.working_dir.rstrip("/")
             ):
@@ -845,11 +924,9 @@ class Manifest(AttributeManager):
                 )
         self._set_builtin_repositories()
 
-    def _set_repository_links(self):
+    def _set_repository_links(self) -> None:
         if self.localEnv and not self.localEnv.readonly:
-            repos = {
-                normalize_git_url(r.url): r for r in self.localEnv._get_git_repos()
-            }
+            repos = {normalize_git_url(r.url): r for r in self.localEnv._get_repos()}
             for name, repo_view in self.repositories.items():
                 if not repo_view.repo and repo_view.url in repos:
                     repo_view.repo = repos[repo_view.url]
@@ -914,6 +991,7 @@ class Manifest(AttributeManager):
             repositories["self"] = repository
 
         inProject = False
+        repo = None
         if self.localEnv and self.localEnv.project:
             if self.localEnv.project is self.localEnv.homeProject:
                 inProject = bool(
@@ -921,14 +999,15 @@ class Manifest(AttributeManager):
                 )
             else:
                 inProject = True
-        if inProject and "project" not in repositories:
-            repositories["project"] = self.localEnv.project.project_repoview  # type: ignore
+            repo = inProject and self.localEnv.project.project_repoview or None
+        if repo and "project" not in repositories:
+            repositories["project"] = repo
             repositories["project"].package = False
 
         if "spec" not in repositories:
             # if not found assume it points the project root or self if not in a project
-            if inProject:
-                repositories["spec"] = self.localEnv.project.project_repoview  # type: ignore
+            if repo:
+                repositories["spec"] = repo
             else:
                 repositories["spec"] = repositories["self"]
             repositories["spec"].package = False
@@ -1036,7 +1115,7 @@ class Manifest(AttributeManager):
             return self.localEnv.make_resolver(self, ignoreFileNotFound, expand, config)
         return SimpleCacheResolver(self, ignoreFileNotFound, expand, config)
 
-    def find_or_clone_from_url(self, url) -> Optional[RepoView]:
+    def find_or_clone_from_url(self, url: str) -> Optional[RepoView]:
         if self.localEnv and self.localEnv.project:
             base = self.localEnv.project.projectRoot
         else:
@@ -1045,7 +1124,7 @@ class Manifest(AttributeManager):
             None, base, repositories={}, resolver=self
         )
         resolver = self.get_import_resolver()
-        url, ctx = resolver.resolve_url(loader, url, "", None)
+        _, ctx = resolver.resolve_url(loader, url, "", None)
         if ctx:
             (is_file, repo_view, base, file_name) = ctx
             if repo_view:
@@ -1101,7 +1180,7 @@ class Manifest(AttributeManager):
         assert "select" in template.directives
         imported = template.entity_tpl.get("imported")
         assert self.imports is not None
-        logger.warning(f"searching for {imported} / {template.name}")
+        logger.debug(f"searching for {imported} / {template.name}")
         if imported:
             _import = self.imports.find_import(imported)
             if not _import:
@@ -1109,8 +1188,14 @@ class Manifest(AttributeManager):
             return cast(NodeInstance, _import.external_instance)
 
         searchAll = []
-        for name, record in self.imports.items():
+        for name, record in self.imports.copy().items():
             external = record.external_instance
+            if not external:
+                assert record.spec
+                # assume this is a YamlManifest
+                self.load_external_ensemble(name, record.spec)  # type: ignore
+                external = self.imports[name].external_instance
+            assert external
             if match(name, external.template, template):
                 template.entity_tpl["imported"] = name
                 self.imports.add_import(name, external)
@@ -1132,7 +1217,7 @@ class Manifest(AttributeManager):
 
 def is_external_template_compatible(
     import_name: str, external: EntitySpec, template: NodeTemplate
-):
+) -> bool:
     # match by template name unless a node_filter is set
     imported = external.tpl.get("imported")
     if imported:

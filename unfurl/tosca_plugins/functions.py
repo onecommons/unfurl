@@ -1,3 +1,5 @@
+# Copyright (c) 2025 Adam Souzis
+# SPDX-License-Identifier: MIT
 """
 This module contains utility functions that can be executed in `"parse" mode <global_state_mode>` (e.g. as part of a class definition or in ``_class_init_``)
 and in the safe mode Python sandbox.
@@ -17,6 +19,7 @@ from typing import (
     List,
     Mapping,
     MutableMapping,
+    NamedTuple,
     Tuple,
     TypeVar,
     Union,
@@ -27,14 +30,15 @@ from typing import (
     NewType,
     overload,
 )
-from typing_extensions import TypedDict, Unpack
+from typing_extensions import TypedDict, Unpack, Required, Literal
 from urllib.parse import quote, quote_plus
 from tosca import (
     EvalData,
     safe_mode,
     global_state_mode,
     global_state_context,
-    has_function
+    has_function,
+    Size,
 )
 import tosca
 
@@ -121,7 +125,7 @@ def _mid_truncate(label: str, replace: str, trunc: int) -> str:
     return label
 
 
-LabelArg = Union[str, Mapping, list]
+LabelArg = Union[str, Mapping, list, Size]
 
 
 class DNSLabelKwArgs(TypedDict, total=False):
@@ -195,8 +199,10 @@ def to_label(
         digestlen (int, optional): If a label is truncated, the length of the digest to include in the label. 0 to disable.
                                 Default: 3 or 2 if max < 32
     """
-    if global_state_mode() == "runtime" or (not isinstance(arg, EvalData) and not has_function(arg)):
-        return _to_label(arg, **kw)
+    if global_state_mode() == "runtime" or (
+        not isinstance(arg, EvalData) and not has_function(arg)
+    ):
+        return _to_label(arg, _wrapper=_wrapper, **kw)  # type: ignore
     else:
         kw[_wrapper] = arg  # type: ignore
         return EvalData({"eval": kw})  # type: ignore
@@ -238,7 +244,19 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
         seg_max = max(trunc_chars // len(arg), 1)
         segments = [str(n) for n in arg]
         # don't do beginning/end conversion until we have the whole string
-        labels = [to_label(n, replace=replace, start=allowed, start_prepend="", end=None, allowed=allowed, digestlen=0, max=9999) for n in segments]  # type: ignore
+        labels = [
+            to_label(
+                n,
+                replace=replace,
+                start=allowed,
+                start_prepend="",
+                end=None,
+                allowed=allowed,
+                digestlen=0,
+                max=9999,
+            )
+            for n in segments
+        ]  # type: ignore
         length = sum(map(len, labels))
         joined_label = sep.join(labels)[:trunc]
         if length > trunc_chars or digest is not None:
@@ -287,8 +305,10 @@ def _to_label(arg: LabelArg, **kw: Unpack[LabelKwArgs]):
             )
         else:
             return _mid_truncate(val, elide_chars, trunc)
-    else:
-        return arg
+    elif isinstance(arg, Size) and kw.get("_wrapper") == "to_kubernetes_label":
+        # see https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity
+        return str(round(arg.as_unit)) + arg.unit.unit.rstrip("Bb")
+    return arg
 
 
 @overload
@@ -557,6 +577,63 @@ def urljoin(
     return prefix + netloc + (path or "") + query + frag
 
 
+class ContainerImageParts(NamedTuple):
+    full_name: str
+    tag: str
+    digest: str
+    registry: str
+
+    @property
+    def reference(self) -> str:
+        return self.digest or self.tag
+
+    @property
+    def name(self) -> str:
+        return self.full_name.rpartition("/")[2]
+
+    @property
+    def namespace(self) -> str:
+        return self.full_name.rpartition("/")[0]
+
+    @property
+    def host(self) -> str:
+        return (
+            "registry-1.docker.io"
+            if not self.registry or self.registry == "docker.io"
+            else self.registry
+        )
+
+    @property
+    def repository(self) -> str:
+        if not self.namespace and self.host == "registry-1.docker.io":
+            return "library/" + self.full_name
+        return self.full_name
+
+    @staticmethod
+    def split(
+        artifact_name: str,
+    ) -> "ContainerImageParts":
+        if not artifact_name:
+            return ContainerImageParts("", "", "", "")
+        hostname = ""
+        namespace, sep, name = artifact_name.partition("/")
+        if sep and (":" in namespace or artifact_name.count("/") > 1):
+            # heuristic because name can look like a hostname
+            hostname = namespace
+        else:
+            name = artifact_name
+
+        tag = ""
+        digest: Optional[str]
+        name, sep, digest = name.partition("@")
+        if not sep:
+            digest = ""
+            name, sep, qualifier = name.partition(":")
+            if sep:
+                tag = qualifier
+        return ContainerImageParts(name.lower(), tag, digest, hostname)
+
+
 __all__ = [
     "urljoin",
     "to_label",
@@ -566,4 +643,5 @@ __all__ = [
     "generate_string",
     "scalar",
     "scalar_value",
+    "ContainerImageParts",
 ]

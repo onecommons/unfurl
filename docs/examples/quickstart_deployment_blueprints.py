@@ -3,6 +3,7 @@ from tosca_repositories.std.aws.compute import EC2Compute
 from tosca_repositories.std.aws.db import AwsRdsPostgres
 from tosca_repositories.std import k8s
 from tosca_repositories.std.dns_services import Route53DNSZone
+from unfurl.tosca_plugins.functions import to_kubernetes_label
 
 
 class production(tosca.DeploymentBlueprint):
@@ -23,7 +24,7 @@ class dev(tosca.DeploymentBlueprint):
     _cloud = "unfurl.relationships.ConnectsTo.K8sCluster"
 
     host = k8s.PublicK8sContainerHost(
-        labels={"kompose.volume.size": Inputs.disk_size},
+        labels={"kompose.volume.size": to_kubernetes_label(Inputs.disk_size)},
         # match any unfurl.nodes.DNSZone template:
         dns=tosca.Requirement(node="unfurl.nodes.DNSZone"),
     )

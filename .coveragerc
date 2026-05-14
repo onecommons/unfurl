@@ -1,0 +1,29 @@
+[run]
+# Enable coverage tracking in subprocess children spawned by tests
+# (unfurl.server.serve is launched via multiprocessing.Process in test_server.py).
+# The `coverage.pth` shim installed by the `coverage` package calls
+# coverage.process_startup() when COVERAGE_PROCESS_START points at this file.
+parallel = True
+concurrency = multiprocessing,thread
+# Flush coverage data when the test kills the child server via SIGTERM.
+# Without this, subprocess .coverage data is lost on terminate().
+sigterm = True
+source =
+    unfurl
+    tosca-package/tosca
+# Data files: one per process, combined by pytest-cov at the end of the run.
+data_file = .coverage
+
+[report]
+# Don't fail if a file listed in `source` was never executed.
+show_missing = False
+
+[paths]
+# Map the editable install path back to the source tree so combined data
+# aggregates correctly across subprocess invocations.
+source =
+    unfurl
+    */unfurl
+tosca =
+    tosca-package/tosca
+    */tosca-package/tosca

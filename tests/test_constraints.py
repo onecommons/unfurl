@@ -22,9 +22,13 @@ SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
 
 def test_constraints(caplog):
     basepath = os.path.join(os.path.dirname(__file__), "examples/")
-    # loads yaml with with a json include
+    # includes examples/constraints.py
     local = LocalEnv(basepath + "constraints-ensemble.yaml")
-    manifest = local.get_manifest(skip_validation=False, safe_mode=True)
+    # skip validation so we can load the ensemble (but assert that the validation error was logged)
+    manifest = local.get_manifest(skip_validation=True, safe_mode=True)
+    assert os.path.isfile(
+        os.path.join(basepath, "__pycache__", "constraints.yaml")
+    )
     service_template = manifest.manifest.expanded["spec"]["service_template"]
     node_templates = {
         "myapp": {
@@ -41,7 +45,7 @@ def test_constraints(caplog):
                 "image": "myimage:latest",
                 "url": "http://localhost:8000",
                 "name": "app",  # applied by the app's node_filter
-                "mem_size": "1 GB",  # XXX node_filter constraints aren't being applied
+                "mem_size": "1GB",
             },
             "metadata": {"module": "service_template.constraints"},
         },
@@ -145,7 +149,7 @@ def test_constraints(caplog):
                                                 {"name": {"q": "app"}},
                                                 {
                                                     "mem_size": {
-                                                        "in_range": ["2 GB", "20 GB"]
+                                                        "in_range": ["2GB", "20GB"]
                                                     }
                                                 },
                                             ]
@@ -175,17 +179,18 @@ def test_constraints(caplog):
     assert hosting == container, (hosting, container)
 
     Runner(manifest).static_plan()  # generate instances
-    with pytest.raises(
-        UnfurlError, match='The value "1 GB" of property "mem_size" is out of range'
-    ):
-        assert (
-            manifest.get_root_resource()
-            .find_instance("container_service")
-            .attributes["mem_size"]
-            == "1 GB"
-        )
+    assert (
+        manifest.get_root_resource()
+        .find_instance("container_service")
+        .attributes["mem_size"]
+        == 1 * tosca.GB
+    )
 
     assert "Solver set myapp_proxy.hosting to container" in caplog.text
+    assert (
+        '''Found TOSCA validation failures:\nValidationError: The value "1 GB" of property "mem_size" is out of range "(min:2GB, max:20GB)". in node template "container_service"'''
+        in caplog.text
+    )
     # XXX support for deducing inverse and test
     # assert container.get_relationship("host") == proxy
 
@@ -241,8 +246,8 @@ node_types:
               properties:
               - mem_size:
                   in_range:
-                  - 2 GB
-                  - 20 GB
+                  - 2GB
+                  - 20GB
 topology_template: {}
 """
 
@@ -380,7 +385,7 @@ relationships_yaml = {
             "derived_from": "tosca.nodes.Root",
             "properties": {
                 "disk_label": {"type": "string"},
-                "disk_size": {"type": "scalar-unit.size", "default": "100 GB"},
+                "disk_size": {"type": "scalar-unit.size", "default": "100GB"},
             },
         },
         "TestTarget": {
@@ -437,10 +442,10 @@ apiVersion: unfurl/v1.0.0
 kind: Ensemble
 spec:
   service_template:
-    +?include: ensemble.py
-# include blueprint after ensemble.py so it can patch templates before the include converts them to yaml
+    +?include: ensemble.py  # imports mytypes
+# include ensemble.py before the blueprint so it can patch the mytypes module before the blueprint imports it
 +include-blueprint:
-  file: ensemble-template.yaml
+  file: ensemble-template.yaml  # imports mytypes
   repository: spec
 """
 
