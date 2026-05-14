@@ -19,8 +19,8 @@ inputs:
 
 
 # see also 13.4.1 Shell scripts p 360
-# XXX add support for a stdin parameter
 
+import selectors
 import time
 
 from ..eval import map_value
@@ -128,6 +128,82 @@ class _PrintOnAppendList(list):
         except Exception:
             if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
                 raise
+
+
+class _BackgroundReader:
+    """Live-echo + accumulator for a background subprocess's stdout/stderr.
+
+    Call ``pump()`` from the poll loop to drain whatever is currently
+    available (non-blocking), echo it to sys.stdout/sys.stderr, and
+    accumulate it. ``drain()`` after the process exits flushes any
+    remaining bytes. POSIX-only.
+
+    Optional ``stdout_filter``/``stderr_filter`` callables are the same
+    ``(data, skip) -> bool`` shape used by ``_PrintOnAppendList``: each
+    chunk is passed through the filter, which returns the new ``skip``
+    state; chunks while skipping are accumulated but not echoed.
+    """
+
+    def __init__(
+        self,
+        proc: subprocess.Popen,
+        *,
+        stdout_filter: Optional[Callable[[str, bool], bool]] = None,
+        stderr_filter: Optional[Callable[[str, bool], bool]] = None,
+    ) -> None:
+        self.stdout_chunks: List[bytes] = []
+        self.stderr_chunks: List[bytes] = []
+        self._sel = selectors.DefaultSelector()
+        # per-fileobj filter state: (sink, buf, filter, skip_flag_list)
+        for stream, buf, sink, filt in (
+            (proc.stdout, self.stdout_chunks, sys.stdout, stdout_filter),
+            (proc.stderr, self.stderr_chunks, sys.stderr, stderr_filter),
+        ):
+            if stream is None:
+                continue
+            os.set_blocking(stream.fileno(), False)
+            # skip flag wrapped in a list so we can mutate it from pump()
+            self._sel.register(stream, selectors.EVENT_READ, (buf, sink, filt, [False]))
+
+    def pump(self, timeout: float = 0.0) -> None:
+        for key, _ in self._sel.select(timeout):
+            buf, sink, filt, skip_box = key.data
+            try:
+                chunk = key.fileobj.read()  # type: ignore[union-attr]
+            except (BlockingIOError, OSError):
+                continue
+            if not chunk:  # EOF — pipe closed
+                self._sel.unregister(key.fileobj)
+                continue
+            buf.append(chunk)
+            try:
+                text = chunk.decode(errors="replace")
+                if filt is not None:
+                    skip_box[0] = filt(text, skip_box[0])
+                    if skip_box[0]:
+                        continue
+                sink.write(text)
+                sink.flush()
+            except Exception:
+                if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
+                    raise
+
+    def drain(self) -> None:
+        # process has exited; keep pumping until both pipes hit EOF.
+        while self._sel.get_map():
+            ready = self._sel.select(timeout=0.1)
+            if not ready:
+                break  # nothing more arriving; bail
+            self.pump()
+
+    def close(self) -> None:
+        self._sel.close()
+
+    def stdout(self) -> bytes:
+        return b"".join(self.stdout_chunks)
+
+    def stderr(self) -> bytes:
+        return b"".join(self.stderr_chunks)
 
 
 def _run(
@@ -257,6 +333,77 @@ class ShellConfigurator(TemplateConfigurator):
         if path:
             log("shell env PATH=%s", path)
         log("shell env: %s", wrap_sensitive_value(env))
+
+    def _dispatch_run(
+        self,
+        task: TaskView,
+        cmd,
+        *,
+        background: bool,
+        timeout=None,
+        env=None,
+        cwd=None,
+        shell: Union[None, str, bool] = False,
+        keeplines: bool = False,
+        echo: bool = True,
+        stdout_filter: Optional[Callable[[str, bool], bool]] = None,
+        stderr_filter: Optional[Callable[[str, bool], bool]] = None,
+        input=None,
+        lock_cwd: bool = False,
+    ):
+        """Run a subprocess synchronously or in background mode, returning
+        the collected result. Always use via ``yield from``::
+
+            result = yield from self._dispatch_run(task, cmd, background=...,
+                                                    env=env, cwd=cwd, ...)
+
+        The foreground branch never yields — ``yield from`` on a generator
+        that returns without yielding gives the return value immediately, so
+        the same caller pattern works for both modes.
+
+        Always returns a result. Cancel/timeout in background mode populate
+        ``result.error`` / ``result.timeout`` on the returned result;
+        callers should check those (typically via :meth:`_handle_result`
+        or :meth:`_process_result`) to decide success/failure.
+
+        Pass ``lock_cwd=True`` to acquire exclusive use of ``cwd`` for the
+        duration of the subprocess. If the lock can't be acquired immediately,
+        this helper will yield until it can.
+        """
+        task.logger.trace("executing %s", cmd)
+        self._log_env(task, env, "trace")
+        if lock_cwd and cwd is not None:
+            yield from task.acquire_path(cwd)
+        try:
+            if background:
+                result = yield from self._run_subprocess_background(
+                    task,
+                    cmd,
+                    env=env,
+                    cwd=cwd,
+                    shell=shell,
+                    keeplines=keeplines,
+                    echo=echo,
+                    stdout_filter=stdout_filter,
+                    stderr_filter=stderr_filter,
+                    input=input,
+                )
+                return result
+            return self.run_process(
+                cmd,
+                shell=shell,
+                timeout=timeout,
+                env=env,
+                cwd=cwd,
+                keeplines=keeplines,
+                echo=echo,
+                stdout_filter=stdout_filter,
+                stderr_filter=stderr_filter,
+                input=input,
+            )
+        finally:
+            if lock_cwd and cwd is not None:
+                task.release_path(cwd)
 
     def run_process(
         self,
@@ -431,7 +578,6 @@ class ShellConfigurator(TemplateConfigurator):
         shell = params.get("shell", isinstance(cmd, str))
         keeplines = params.get("keeplines", False)
         env = task.environ
-        self._log_env(task, env, "trace")
         return cmd, cwd, shell, keeplines, params.get("input"), env
 
     def run(self, task: TaskView):
@@ -442,6 +588,7 @@ class ShellConfigurator(TemplateConfigurator):
             return
         cmd, cwd, shell, keeplines, input, env = self._resolve_run_inputs(task)
         task.logger.trace("executing %s", cmd)
+        self._log_env(task, env, "trace")
         echo = task.inputs.get("echo", cast("ConfigTask", task).verbose > -1)
         result = self.run_process(
             cmd,
@@ -464,12 +611,60 @@ class ShellConfigurator(TemplateConfigurator):
 
     def _run_background(self, task: TaskView):
         cmd, cwd, shell, keeplines, input, env = self._resolve_run_inputs(task)
-        poll_interval = task.inputs.get("poll", 0)
+        result = yield from self._run_subprocess_background(
+            task,
+            cmd,
+            env=env,
+            cwd=cwd,
+            shell=shell,
+            keeplines=keeplines,
+            input=input,
+        )
+        success, status, outputs = self._process_result(task, result, cwd)
+        yield self.done(
+            task,
+            success=success,
+            status=status,
+            result=result.__dict__,
+            outputs=outputs,
+        )
 
+    def _run_subprocess_background(
+        self,
+        task: TaskView,
+        cmd,
+        *,
+        env: Optional[Dict[str, str]] = None,
+        cwd: Optional[str] = None,
+        shell: Union[None, str, bool] = None,
+        keeplines: bool = False,
+        echo: Optional[bool] = None,
+        stdout_filter: Optional[Callable[[str, bool], bool]] = None,
+        stderr_filter: Optional[Callable[[str, bool], bool]] = None,
+        input=None,
+    ):
+        """Background analog of ``run_process``. Yields ``task.suspend`` while
+        polling the subprocess. Use via::
+
+            result = yield from self._run_subprocess_background(task, cmd, ...)
+
+        ``echo`` / ``stdout_filter`` / ``stderr_filter`` mirror ``run_process``.
+        When ``echo`` is ``None`` (the default) the helper falls back to
+        ``task.inputs["echo"]`` or ``verbose > -1``.
+
+        Always returns a result. On task timeout, ``result.timeout`` is set
+        to the configured timeout and the subprocess is terminated. On
+        :class:`Cancel`, ``result.error`` (and possibly ``result.timeout``)
+        are set. Callers should inspect those fields to decide success/
+        failure — typically by funneling the result through
+        :meth:`_handle_result` / :meth:`_process_result`.
+        """
         cmd_str, popen_arg, popen_kwargs, input_bytes = self._popen_args(
             cmd, shell, env, cwd, input, keeplines
         )
-
+        if echo is None:
+            echo = task.inputs.get("echo", cast("ConfigTask", task).verbose > -1)
+        poll_interval = task.inputs.get("poll", 0)
         task_timeout = task.configSpec.timeout
         deadline = (time.monotonic() + task_timeout) if task_timeout else 0.0
 
@@ -481,69 +676,74 @@ class ShellConfigurator(TemplateConfigurator):
             proc.stdin.write(input_bytes)
             proc.stdin.close()
 
-        initial_sleep = task.inputs.get("initial_sleep", 0)
-        if initial_sleep:
-            if task_timeout:
-                initial_sleep = min(initial_sleep, task_timeout)
-            try:
-                proc.wait(timeout=initial_sleep)
-            except subprocess.TimeoutExpired:
-                pass
-
-        if proc.poll() is not None:
-            result = self._collect_background_result(proc, cmd_str)
-            success, status, outputs = self._process_result(task, result, cwd)
-            yield self.done(
-                task,
-                success=success,
-                status=status,
-                result=result.__dict__,
-                outputs=outputs,
+        reader = (
+            _BackgroundReader(
+                proc,
+                stdout_filter=stdout_filter,
+                stderr_filter=stderr_filter,
             )
-            return
-
-        while True:
-            if deadline and time.monotonic() >= deadline:
-                _terminate_process(proc)
-                task.logger.debug(
-                    "Background shell timed out after %s seconds: %s",
-                    task_timeout,
-                    cmd_str,
-                )
-                result = self._collect_background_result(proc, cmd_str)
-                result.timeout = task_timeout
-                self._handle_result(task, result, cwd)
-                yield self.done(task, success=False, result=result.__dict__)
-                return
-
-            signal = yield task.suspend(pause=poll_interval)
-            if isinstance(signal, Cancel):
-                _terminate_process(proc)
-                task.logger.debug("Background shell cancelled: %s", signal.reason)
-                result = self._collect_background_result(proc, cmd_str)
-                result.error = signal
-                if signal.timeout:
-                    result.timeout = signal.timeout
-                self._handle_result(task, result, cwd)
-                yield self.done(task, success=False, result=result.__dict__)
-                return
+            if echo
+            else None
+        )
+        try:
+            initial_sleep = task.inputs.get("initial_sleep", 0)
+            if initial_sleep:
+                if task_timeout:
+                    initial_sleep = min(initial_sleep, task_timeout)
+                try:
+                    proc.wait(timeout=initial_sleep)
+                except subprocess.TimeoutExpired:
+                    pass
+                if reader is not None:
+                    reader.pump()
 
             if proc.poll() is not None:
-                result = self._collect_background_result(proc, cmd_str)
-                success, status, outputs = self._process_result(task, result, cwd)
-                yield self.done(
-                    task,
-                    success=success,
-                    status=status,
-                    result=result.__dict__,
-                    outputs=outputs,
-                )
-                return
-            task.logger.trace("Background shell still running: %s", cmd_str)
+                return self._collect_background_result(proc, cmd_str, reader)
+
+            while True:
+                if reader is not None:
+                    reader.pump()
+
+                if deadline and time.monotonic() >= deadline:
+                    _terminate_process(proc)
+                    task.logger.debug(
+                        "Background shell timed out after %s seconds: %s",
+                        task_timeout,
+                        cmd_str,
+                    )
+                    result = self._collect_background_result(proc, cmd_str, reader)
+                    result.timeout = task_timeout
+                    return result
+
+                signal = yield task.suspend(pause=poll_interval)
+                if isinstance(signal, Cancel):
+                    _terminate_process(proc)
+                    task.logger.debug("Background shell cancelled: %s", signal.reason)
+                    result = self._collect_background_result(proc, cmd_str, reader)
+                    result.error = signal
+                    if signal.timeout:
+                        result.timeout = signal.timeout
+                    return result
+
+                if proc.poll() is not None:
+                    return self._collect_background_result(proc, cmd_str, reader)
+                task.logger.trace("Background shell still running: %s", cmd_str)
+        finally:
+            if reader is not None:
+                reader.close()
 
     @classmethod
-    def _collect_background_result(cls, proc: subprocess.Popen, cmd_str: str):
-        stdout, stderr = proc.communicate()
+    def _collect_background_result(
+        cls,
+        proc: subprocess.Popen,
+        cmd_str: str,
+        reader: Optional["_BackgroundReader"] = None,
+    ):
+        if reader is None:
+            stdout, stderr = proc.communicate()
+        else:
+            reader.drain()
+            stdout, stderr = reader.stdout(), reader.stderr()
         return cls._finalize_result(
             types.SimpleNamespace(
                 stdout=stdout, stderr=stderr, returncode=proc.returncode

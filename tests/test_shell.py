@@ -504,3 +504,77 @@ def test_background_result_variables(initial_sleep):
     assert "a_output" in result["stdout"]
     assert result["error"] is None
     assert result["timeout"] is None
+
+
+ENSEMBLE_BACKGROUND_ECHO = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+configurations:
+  create:
+    implementation:
+      className: unfurl.configurators.shell.ShellConfigurator
+    inputs:
+      command: 'echo background-stdout-mark; echo background-stderr-mark 1>&2'
+      background: true
+      initial_sleep: 0.2
+      {extra_inputs}
+spec:
+  service_template:
+    topology_template:
+      node_templates:
+        test_node:
+          type: tosca.nodes.Root
+          interfaces:
+            Standard:
+              +/configurations:
+"""
+
+
+def test_background_echo_streams_to_stdout(capsys):
+    """With echo=true (the default for verbose>=0), background stdout/stderr
+    is streamed live to sys.stdout/sys.stderr via _BackgroundReader.pump()."""
+    ensemble = ENSEMBLE_BACKGROUND_ECHO.format(extra_inputs="")
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary()["job"]["ok"] == 1
+    captured = capsys.readouterr()
+    assert "background-stdout-mark" in captured.out
+    assert "background-stderr-mark" in captured.err
+    # And the result should still contain the full output
+    result = list(job.workDone.values())[0].result.result
+    assert "background-stdout-mark" in result["stdout"]
+    assert "background-stderr-mark" in result["stderr"]
+
+
+def test_background_echo_disabled(capsys):
+    """echo=false suppresses live streaming; output reaches the final result
+    only (via proc.communicate())."""
+    ensemble = ENSEMBLE_BACKGROUND_ECHO.format(extra_inputs="echo: false")
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary()["job"]["ok"] == 1
+    captured = capsys.readouterr()
+    assert "background-stdout-mark" not in captured.out
+    assert "background-stderr-mark" not in captured.err
+    result = list(job.workDone.values())[0].result.result
+    assert "background-stdout-mark" in result["stdout"]
+    assert "background-stderr-mark" in result["stderr"]
+
+
+def test_background_echo_progressive(capsys):
+    """Output that arrives during the poll loop (not just at exit) is still
+    streamed live — verifies pump() runs across multiple poll iterations."""
+    # Three echos separated by sleeps so output trickles across poll cycles.
+    ensemble = ENSEMBLE_BACKGROUND_ECHO.replace(
+        "echo background-stdout-mark; echo background-stderr-mark 1>&2",
+        "echo line1; sleep 0.3; echo line2; sleep 0.3; echo line3",
+    ).format(extra_inputs="")
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary()["job"]["ok"] == 1
+    captured = capsys.readouterr()
+    for marker in ("line1", "line2", "line3"):
+        assert marker in captured.out, f"{marker!r} missing from streamed stdout"
+    result = list(job.workDone.values())[0].result.result
+    assert "line1" in result["stdout"]
+    assert "line3" in result["stdout"]
