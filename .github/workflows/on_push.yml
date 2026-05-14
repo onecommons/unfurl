@@ -337,17 +337,27 @@ jobs:
           cache-to: type=gha,mode=max
 
   build:
-    name: build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }} 
+    name: build on ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04-arm, ubuntu-latest, macos-14]
-        python-version: ['9']
         include:
-          - os: ubuntu-latest
-          - os: ubuntu-24.04-arm
-          - os: macos-14
+          - name: ubuntu-manylinux-x86_64
+            os: ubuntu-latest
+            cibw_build: 'cp39-manylinux_x86_64'
+          - name: ubuntu-musllinux-x86_64
+            os: ubuntu-latest
+            cibw_build: 'cp39-musllinux_x86_64'
+          - name: ubuntu-manylinux-aarch64
+            os: ubuntu-24.04-arm
+            cibw_build: 'cp39-manylinux_aarch64'
+          - name: ubuntu-musllinux-aarch64
+            os: ubuntu-24.04-arm
+            cibw_build: 'cp39-musllinux_aarch64'
+          - name: macos-universal2
+            os: macos-14
+            cibw_build: 'cp39-macosx_*'
             alt_arch_name: arm64
     timeout-minutes: 60
     steps:
@@ -373,22 +383,21 @@ jobs:
       run: pip install -U setuptools wheel twine pbr
 
     - name: build sdist
-      if: matrix.os == 'ubuntu-24.04-arm' && matrix.python-version == '9'
+      if: matrix.name == 'ubuntu-manylinux-aarch64'
       run: |
         pip install -U setuptools-rust
         python setup.py sdist
 
     - uses: pypa/cibuildwheel@42728e866bbc80d544a70825bd9990b9a26f1a50 # v2.23.1
-      name: build ${{  matrix.os }} binaries
+      name: build ${{ matrix.name }} binaries
       with:
         output-dir: dist
       env:
         CIBW_BUILD_FRONTEND: "build"
-        CIBW_BUILD: 'cp3${{ matrix.python-version }}-*'
-        # rust doesn't seem to be available for musl linux on i686
-        # and skip rare archs to speed up builds
-        CIBW_SKIP: '*-musllinux_i686 *ppc* *s390x'
-        # we build for "alt_arch_name" if it exists, else 'auto
+        CIBW_BUILD: '${{ matrix.cibw_build }}'
+        # skip rare/unsupported archs to speed up builds
+        CIBW_SKIP: '*ppc* *s390x'
+        # we build for "alt_arch_name" if it exists, else 'auto'
         CIBW_ARCHS: ${{ matrix.alt_arch_name || 'auto' }}
         # see https://cibuildwheel.readthedocs.io/en/stable/faq/#universal2, tests can run on cross-compiled binaries
         # CIBW_TEST_REQUIRES: pytest
@@ -412,7 +421,7 @@ jobs:
 
     - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
-        name: pypi_files-${{ matrix.os }}
+        name: pypi_files-${{ matrix.name }}
         path: dist
 
   inspect-pypi-assets:
