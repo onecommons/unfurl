@@ -25,6 +25,7 @@ import time
 
 from ..eval import map_value
 from ..logs import truncate, DEFAULT_TRUNCATE_LENGTH
+from ..util import wrap_sensitive_value
 from ..configurator import Cancel, ConfiguratorResult, Status, TaskView
 from ..util import which, clean_output
 from . import TemplateConfigurator, TemplateInputs
@@ -190,6 +191,73 @@ class ShellConfigurator(TemplateConfigurator):
             cmd = shlex.split(cmd)
         return cmdStr, cmd
 
+    @staticmethod
+    def _popen_args(
+        cmd,
+        shell: Union[None, str, bool],
+        env: Optional[Dict[str, str]],
+        cwd: Optional[str],
+        input,
+        keeplines: bool,
+    ) -> Tuple[str, Any, Dict[str, Any], Optional[bytes]]:
+        """Normalize cmd + shell + input into the form needed to spawn a
+        subprocess. Returns (cmd_str, popen_arg, popen_kwargs, input_bytes)
+        where popen_arg is the first positional arg for Popen/run (string for
+        shell mode, list otherwise) and input_bytes is the encoded stdin.
+        """
+        cmd_str, cmd_list = ShellConfigurator._cmd(cmd, keeplines)
+        if shell and isinstance(shell, str):
+            use_shell = True
+            executable: Optional[str] = shell
+        else:
+            use_shell = bool(shell)
+            executable = None
+        kwargs: Dict[str, Any] = dict(
+            shell=use_shell,
+            executable=executable,
+            env=env,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        input_bytes: Optional[bytes]
+        if input is None:
+            input_bytes = None
+        else:
+            kwargs["stdin"] = subprocess.PIPE
+            input_bytes = input.encode() if isinstance(input, str) else input
+        # follow recommendation to use string with shell, list without
+        return cmd_str, (cmd_str if use_shell else cmd_list), kwargs, input_bytes
+
+    @staticmethod
+    def _finalize_result(result, cmd_str: str, *, timeout=None, error=None):
+        """Decode stdout/stderr from bytes (leave as-is on failure) and set
+        the cmd/timeout/error attributes the rest of the configurator expects.
+        Returns the same object for chaining.
+        """
+        try:
+            result.stdout = result.stdout.decode()
+        except Exception:
+            pass
+        try:
+            result.stderr = result.stderr.decode()
+        except Exception:
+            pass
+        result.cmd = cmd_str
+        result.timeout = timeout
+        result.error = error
+        return result
+
+    @staticmethod
+    def _log_env(task: TaskView, env, level: str = "trace") -> None:
+        if env is None:
+            return
+        log = getattr(task.logger, level)
+        path = env.get("PATH")
+        if path:
+            log("shell env PATH=%s", path)
+        log("shell env: %s", wrap_sensitive_value(env))
+
     def run_process(
         self,
         cmd,
@@ -213,61 +281,36 @@ class ShellConfigurator(TemplateConfigurator):
         returncode (None if the process didn't complete)
         error if an exception was raised
         """
-        cmdStr, cmd = self._cmd(cmd, keeplines)
+        cmd_str, popen_arg, popen_kwargs, input_bytes = self._popen_args(
+            cmd, shell, env, cwd, input, keeplines
+        )
         try:
             # hack to echo results
             if echo and hasattr(subprocess.Popen, "_save_input"):
                 run = _run
-                kwargs = dict(stdout_filter=stdout_filter, stderr_filter=stderr_filter)
+                extra_kwargs: Dict[str, Any] = dict(
+                    stdout_filter=stdout_filter, stderr_filter=stderr_filter
+                )
             else:
                 # Windows and 2.7 don't have _save_input
                 run = subprocess.run  # type: ignore
-                kwargs = {}
-            if shell and isinstance(shell, str):
-                executable = shell
-                use_shell = True
-            else:
-                use_shell = bool(shell)
-                executable = None
-            if input is not None:
-                kwargs["stdin"] = subprocess.PIPE
-                if isinstance(input, str):
-                    input = input.encode()
+                extra_kwargs = {}
             completed = run(
-                # follow recommendation to use string with shell, list without
-                cmdStr if use_shell else cmd,
-                shell=use_shell,
-                executable=executable,
-                env=env,
-                cwd=cwd,
+                popen_arg,
                 timeout=timeout,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                input=input,
-                **kwargs,
+                input=input_bytes,
+                **popen_kwargs,
+                **extra_kwargs,
             )
-
-            # try to convert stdout and stderr to strings but leave as binary if that fails
-            try:
-                completed.stdout = completed.stdout.decode()
-            except:
-                pass
-            try:
-                completed.stderr = completed.stderr.decode()
-            except:
-                pass
-            completed.cmd = cmdStr
-            completed.timeout = None
-            completed.error = None
-            return completed
+            return self._finalize_result(completed, cmd_str)
         except subprocess.TimeoutExpired as err:
-            err.cmd = cmdStr
+            err.cmd = cmd_str
             err.timeout = timeout
             err.returncode = None  # type: ignore
             err.error = None  # type: ignore
             return err
         except Exception as err:
-            err.cmd = cmdStr  # type: ignore
+            err.cmd = cmd_str  # type: ignore
             err.timeout = None  # type: ignore
             err.stderr = None  # type: ignore
             err.stdout = None  # type: ignore
@@ -288,8 +331,7 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.info("task timed out in %s", result.timeout)
             else:
                 task.logger.info("shell task return code: %s", result.returncode)
-            if env is not None:
-                task.logger.debug("shell task env: %s", env)
+            self._log_env(task, env, "debug")
         else:
             task.logger.info("shell task run success: %s", result.cmd)
         if result.stderr:
@@ -380,23 +422,27 @@ class ShellConfigurator(TemplateConfigurator):
         task.set_work_folder().write_file(script, "rendered.sh")
         return [cmd, cwd]
 
+    def _resolve_run_inputs(self, task: TaskView):
+        """Pull common run-time params off the task. Returns
+        (cmd, cwd, shell, keeplines, input, env). Single chokepoint so
+        env-related logging happens in one place."""
+        cmd, cwd = task.rendered
+        params = task.inputs
+        shell = params.get("shell", isinstance(cmd, str))
+        keeplines = params.get("keeplines", False)
+        env = task.environ
+        self._log_env(task, env, "trace")
+        return cmd, cwd, shell, keeplines, params.get("input"), env
+
     def run(self, task: TaskView):
         if task.inputs.get("background") or os.environ.get(
             "UNFURL_TEST_SHELL_BACKGROUND"
         ):
             yield from self._run_background(task)
             return
-        cmd, cwd = task.rendered
+        cmd, cwd, shell, keeplines, input, env = self._resolve_run_inputs(task)
         task.logger.trace("executing %s", cmd)
-        params = task.inputs
-        isString = isinstance(cmd, str)
-        # default for shell: True if command is a string otherwise False
-        shell = params.get("shell", isString)
-        env = task.environ
-        task.logger.trace("shell using env %s", env)
-        keeplines = params.get("keeplines", False)
-        echo = params.get("echo", cast("ConfigTask", task).verbose > -1)
-        input = params.get("input")
+        echo = task.inputs.get("echo", cast("ConfigTask", task).verbose > -1)
         result = self.run_process(
             cmd,
             shell=shell,
@@ -417,46 +463,25 @@ class ShellConfigurator(TemplateConfigurator):
         )
 
     def _run_background(self, task: TaskView):
-        cmd, cwd = task.rendered
-        params = task.inputs
-        isString = isinstance(cmd, str)
-        shell = params.get("shell", isString)
-        env = task.environ
-        keeplines = params.get("keeplines", False)
-        input_data = params.get("input")
-        poll_interval = params.get("poll", 0)
+        cmd, cwd, shell, keeplines, input, env = self._resolve_run_inputs(task)
+        poll_interval = task.inputs.get("poll", 0)
 
-        cmdStr, cmd_list = self._cmd(cmd, keeplines)
-        use_shell = bool(shell)
-        executable = shell if isinstance(shell, str) else None
-
-        kwargs: dict = {}
-        if input_data is not None:
-            kwargs["stdin"] = subprocess.PIPE
-            if isinstance(input_data, str):
-                input_data = input_data.encode()
+        cmd_str, popen_arg, popen_kwargs, input_bytes = self._popen_args(
+            cmd, shell, env, cwd, input, keeplines
+        )
 
         task_timeout = task.configSpec.timeout
         deadline = (time.monotonic() + task_timeout) if task_timeout else 0.0
 
-        task.logger.verbose("starting background shell: %s", cmdStr)
-        proc = subprocess.Popen(
-            cmdStr if use_shell else cmd_list,
-            shell=use_shell,
-            executable=executable,
-            env=env,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **kwargs,
-        )
+        task.logger.verbose("starting background shell: %s", cmd_str)
+        proc = subprocess.Popen(popen_arg, **popen_kwargs)
 
-        if input_data is not None:
+        if input_bytes is not None:
             assert proc.stdin is not None
-            proc.stdin.write(input_data)
+            proc.stdin.write(input_bytes)
             proc.stdin.close()
 
-        initial_sleep = params.get("initial_sleep", 0)
+        initial_sleep = task.inputs.get("initial_sleep", 0)
         if initial_sleep:
             if task_timeout:
                 initial_sleep = min(initial_sleep, task_timeout)
@@ -466,7 +491,7 @@ class ShellConfigurator(TemplateConfigurator):
                 pass
 
         if proc.poll() is not None:
-            result = self._collect_background_result(proc, cmdStr)
+            result = self._collect_background_result(proc, cmd_str)
             success, status, outputs = self._process_result(task, result, cwd)
             yield self.done(
                 task,
@@ -483,9 +508,9 @@ class ShellConfigurator(TemplateConfigurator):
                 task.logger.debug(
                     "Background shell timed out after %s seconds: %s",
                     task_timeout,
-                    cmdStr,
+                    cmd_str,
                 )
-                result = self._collect_background_result(proc, cmdStr)
+                result = self._collect_background_result(proc, cmd_str)
                 result.timeout = task_timeout
                 self._handle_result(task, result, cwd)
                 yield self.done(task, success=False, result=result.__dict__)
@@ -495,7 +520,7 @@ class ShellConfigurator(TemplateConfigurator):
             if isinstance(signal, Cancel):
                 _terminate_process(proc)
                 task.logger.debug("Background shell cancelled: %s", signal.reason)
-                result = self._collect_background_result(proc, cmdStr)
+                result = self._collect_background_result(proc, cmd_str)
                 result.error = signal
                 if signal.timeout:
                     result.timeout = signal.timeout
@@ -504,7 +529,7 @@ class ShellConfigurator(TemplateConfigurator):
                 return
 
             if proc.poll() is not None:
-                result = self._collect_background_result(proc, cmdStr)
+                result = self._collect_background_result(proc, cmd_str)
                 success, status, outputs = self._process_result(task, result, cwd)
                 yield self.done(
                     task,
@@ -514,26 +539,16 @@ class ShellConfigurator(TemplateConfigurator):
                     outputs=outputs,
                 )
                 return
-            task.logger.trace("Background shell still running: %s", cmdStr)
+            task.logger.trace("Background shell still running: %s", cmd_str)
 
-    @staticmethod
-    def _collect_background_result(proc: subprocess.Popen, cmdStr: str):
+    @classmethod
+    def _collect_background_result(cls, proc: subprocess.Popen, cmd_str: str):
         stdout, stderr = proc.communicate()
-        try:
-            stdout = stdout.decode()
-        except Exception:
-            pass
-        try:
-            stderr = stderr.decode()
-        except Exception:
-            pass
-        return types.SimpleNamespace(
-            cmd=cmdStr,
-            stdout=stdout,
-            stderr=stderr,
-            returncode=proc.returncode,
-            timeout=None,
-            error=None,
+        return cls._finalize_result(
+            types.SimpleNamespace(
+                stdout=stdout, stderr=stderr, returncode=proc.returncode
+            ),
+            cmd_str,
         )
 
     def resolve_dry_run(self, cmd, task):
