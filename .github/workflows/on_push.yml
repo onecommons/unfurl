@@ -349,9 +349,12 @@ jobs:
           - name: ubuntu-musllinux-x86_64
             os: ubuntu-latest
             cibw_build: 'cp39-musllinux_x86_64'
-          - name: ubuntu-aarch64
+          - name: ubuntu-manylinux-aarch64
             os: ubuntu-24.04-arm
-            cibw_build: 'cp39-manylinux_aarch64 cp39-musllinux_aarch64'
+            cibw_build: 'cp39-manylinux_aarch64'
+          - name: ubuntu-musllinux-aarch64
+            os: ubuntu-24.04-arm
+            cibw_build: 'cp39-musllinux_aarch64'
           - name: macos-universal2
             os: macos-14
             cibw_build: 'cp39-macosx_*'
@@ -380,7 +383,7 @@ jobs:
       run: pip install -U setuptools wheel twine pbr
 
     - name: build sdist
-      if: matrix.os == 'ubuntu-24.04-arm'
+      if: matrix.name == 'ubuntu-manylinux-aarch64'
       run: |
         pip install -U setuptools-rust
         python setup.py sdist
