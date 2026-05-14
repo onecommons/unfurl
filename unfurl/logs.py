@@ -79,12 +79,12 @@ LOGGING = {
         "console": {
             "class": "unfurl.logs.ColorHandler",
             "level": logging.INFO,
-            "filters": ["sensitive", "log_once"],
+            "filters": ["log_once"],
         },
         "HiddenOutputLogHandler": {
             "class": "unfurl.logs.HiddenOutputLogHandler",
             "level": logging.INFO,
-            "filters": ["sensitive", "log_once"],
+            "filters": ["log_once"],
         },
     },
     "loggers": {
@@ -115,12 +115,6 @@ def getLogger(name: str) -> UnfurlLogger:
     return cast(UnfurlLogger, logging.getLogger(name))
 
 
-class HiddenOutputLogHandler(logging.StreamHandler):
-    def emit(self, record: logging.LogRecord) -> None:
-        # hide output in terminals
-        rich.print(record.msg, end="\x1b[2K\r", flush=True)
-
-
 PY_COLORS = os.environ.get("PY_COLORS") != "0"
 
 
@@ -131,57 +125,6 @@ def getConsole(**kwargs) -> Console:
     # - Soft wrap prevents rich from breaking lines automatically
     # - force_terminal to display colors
     return Console(soft_wrap=True, force_terminal=PY_COLORS, **kwargs)
-
-
-class ColorHandler(logging.StreamHandler):
-    # https://rich.readthedocs.io/en/stable/appendix/colors.html
-    RICH_STYLE_LEVEL = {
-        Levels.CRITICAL: "white on bright_red",
-        Levels.ERROR: "white on red",
-        Levels.WARNING: "white on dark_orange",  # #ff8700
-        Levels.INFO: "white on blue",
-        Levels.VERBOSE: "white on bright_blue",
-        Levels.DEBUG: "white on black",
-        Levels.TRACE: "white on bright_black",
-    }
-
-    def emit(self, record: logging.LogRecord) -> None:
-        message = self.format(record)
-        truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
-        # don't truncate stack traces
-        if truncate_length and not record.exc_info and record.stack_info:
-            if record.exc_text:
-                truncate_length = max(len(record.exc_text) * 2, truncate_length)
-            if record.stack_info:
-                truncate_length = max(len(record.stack_info) * 2, truncate_length)
-            message = truncate(message, truncate_length)
-        # Hide meta job output because it seems to also be logged captured by
-        # the root logger.
-        if record.name.startswith(HIDDEN_MSG_LOGGER):
-            return
-
-        level = Levels[record.levelname]
-        try:
-            console = getConsole(file=self.stream)
-            data = getattr(record, "json", None)
-            if data and os.environ.get("CI", False):
-                # Running in a CI environment (eg GitLab CI)
-                console.out(
-                    json.dumps(data), end="\x1b[2K\r", highlight=False, style=None
-                )
-
-            console.print(
-                f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
-            )
-            kw = dict(markup=False)
-            if hasattr(record, "rich"):
-                kw.update(record.rich)  # type: ignore
-            console.print(f" {record.name.upper()}", end="")
-            console.print(f" {message}", **kw)  # type: ignore
-        except Exception:
-            if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
-                raise
-            self.stream.write(f"Log error: exception while logging {message}")
 
 
 class sensitive:
@@ -291,7 +234,9 @@ class LogOnceFilter(logging.Filter):
 
 
 class SensitiveFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord):
+    # If supporting Python <3.12, consider using SensitiveStreamHandler instead to avoid redaction bleeding across handlers
+    @staticmethod
+    def filter(record: logging.LogRecord):  # type: ignore[override]
         if sys.version_info >= (3, 12, 0):
             # starting in 3.12, we can return a record instead of modifying it in-place,
             # allowing other handlers to receive the original record
@@ -300,17 +245,17 @@ class SensitiveFilter(logging.Filter):
         # Sanitize the message and collect indices of format specifiers that need redaction
         indices_to_redact: List[int] = []
         if isinstance(record.msg, str):
-            record.msg = self.sanitize_urls(record.msg, indices_to_redact)
+            record.msg = SensitiveFilter.sanitize_urls(record.msg, indices_to_redact)
 
         # Redact arguments based on collected indices or apply normal redaction
         if record.args is not None:
             if isinstance(record.args, tuple):
                 record.args = tuple(
-                    "XXXXX" if idx in indices_to_redact else self.redact(a)
+                    "XXXXX" if idx in indices_to_redact else SensitiveFilter.redact(a)
                     for idx, a in enumerate(record.args)
                 )
             else:
-                record.args = self.redact(record.args)  # type: ignore
+                record.args = SensitiveFilter.redact(record.args)  # type: ignore
 
         return record
 
@@ -371,6 +316,9 @@ class SensitiveFilter(logging.Filter):
     @staticmethod
     def redact(value: Union[sensitive, str, object]) -> Union[str, object]:
         if isinstance(value, collections.abc.Mapping):
+            if isinstance(value, sensitive):
+                # e.g. sensitive_dict — show keys but redact values
+                return f"<<REDACTED keys: {', '.join(map(str, value))}>>"
             return {
                 SensitiveFilter.redact(k): sensitive.redacted_str
                 if sensitive_keyname(k)
@@ -384,6 +332,92 @@ class SensitiveFilter(logging.Filter):
             return SensitiveFilter.sanitize_str(value)
         else:
             return value
+
+
+class SensitiveStreamHandler(logging.StreamHandler):
+    """
+    A StreamHandler that runs SensitiveFilter on a per-handler clone of the
+    LogRecord so its redactions don't bleed into other handlers sharing
+    the same record. Required on Python <3.12 where Filterer.filter()
+    ignores any LogRecord returned by a filter, so SensitiveFilter's
+    in-place mutation of the shared record would leak to downstream
+    handlers.
+
+    Pass ``sensitive=False`` (e.g. via the LOGGING dict) to disable
+    redaction for a specific handler.
+    """
+
+    def __init__(self, *args, sensitive: bool = True, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.sensitive = sensitive
+
+    def handle(self, record: logging.LogRecord):
+        if not self.sensitive:
+            return super().handle(record)
+        if sys.version_info < (3, 12, 0):
+            # pre-3.12 filters mutate in-place; clone so we don't leak to
+            # other handlers sharing the record. On 3.12+ SensitiveFilter.filter
+            # does its own clone internally and returns it.
+            record = logging.makeLogRecord(record.__dict__)
+        record = SensitiveFilter.filter(record)
+        return super().handle(record)
+
+
+class HiddenOutputLogHandler(SensitiveStreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        # hide output in terminals
+        rich.print(record.msg, end="\x1b[2K\r", flush=True)
+
+
+class ColorHandler(SensitiveStreamHandler):
+    # https://rich.readthedocs.io/en/stable/appendix/colors.html
+    RICH_STYLE_LEVEL = {
+        Levels.CRITICAL: "white on bright_red",
+        Levels.ERROR: "white on red",
+        Levels.WARNING: "white on dark_orange",  # #ff8700
+        Levels.INFO: "white on blue",
+        Levels.VERBOSE: "white on bright_blue",
+        Levels.DEBUG: "white on black",
+        Levels.TRACE: "white on bright_black",
+    }
+
+    def emit(self, record: logging.LogRecord) -> None:
+        message = self.format(record)
+        truncate_length = getattr(record, "truncate", DEFAULT_TRUNCATE_LENGTH)
+        # don't truncate stack traces
+        if truncate_length and not record.exc_info and record.stack_info:
+            if record.exc_text:
+                truncate_length = max(len(record.exc_text) * 2, truncate_length)
+            if record.stack_info:
+                truncate_length = max(len(record.stack_info) * 2, truncate_length)
+            message = truncate(message, truncate_length)
+        # Hide meta job output because it seems to also be logged captured by
+        # the root logger.
+        if record.name.startswith(HIDDEN_MSG_LOGGER):
+            return
+
+        level = Levels[record.levelname]
+        try:
+            console = getConsole(file=self.stream)
+            data = getattr(record, "json", None)
+            if data and os.environ.get("CI", False):
+                # Running in a CI environment (eg GitLab CI)
+                console.out(
+                    json.dumps(data), end="\x1b[2K\r", highlight=False, style=None
+                )
+
+            console.print(
+                f"[{self.RICH_STYLE_LEVEL[level]}] {level.name.center(8)}[/]", end=""
+            )
+            kw = dict(markup=False)
+            if hasattr(record, "rich"):
+                kw.update(record.rich)  # type: ignore
+            console.print(f" {record.name.upper()}", end="")
+            console.print(f" {message}", **kw)  # type: ignore
+        except Exception:
+            if os.environ.get("UNFURL_RAISE_LOGGING_EXCEPTIONS"):
+                raise
+            self.stream.write(f"Log error: exception while logging {message}")
 
 
 def start_collapsible(name: str, section_id: Union[str, int], autoclose) -> bool:
@@ -432,8 +466,13 @@ def initialize_logging() -> None:
 
 def set_console_log_level(log_level: int) -> None:
     LOGGING["handlers"]["console"]["level"] = log_level  # type: ignore
-    LOGGING["incremental"] = True
-    logging.config.dictConfig(LOGGING)
+    # Apply incremental mode via a shallow copy — don't mutate the module-
+    # level LOGGING dict, since a permanent `incremental: True` there would
+    # break any later non-incremental dictConfig(LOGGING) call (it would
+    # fail to (re-)create handlers).
+    cfg = dict(LOGGING)
+    cfg["incremental"] = True
+    logging.config.dictConfig(cfg)
 
 
 def get_console_log_level() -> Levels:

@@ -20,7 +20,14 @@ def caplog_with_filters(caplog):
 from unfurl.__main__ import detect_log_level, detect_verbose_level
 from unfurl.job import JobOptions, Runner
 from unfurl.localenv import LocalEnv
-from unfurl.logs import Levels, SensitiveFilter, LogOnceFilter, getConsole, getLogger
+from unfurl.logs import (
+    Levels,
+    SensitiveFilter,
+    LogOnceFilter,
+    getConsole,
+    getLogger,
+)
+from unfurl.util import sensitive_dict
 from unfurl.util import sensitive_str
 from unfurl import logs
 from ruamel.yaml.comments import CommentedMap
@@ -174,6 +181,21 @@ class TestSensitiveFilter:
             "'note': 'ok'}"
         )
 
+    def test_sensitive_dict_shows_keys(self):
+        # A sensitive_dict collapses to a single redacted sentinel that
+        # preserves the key list — regardless of whether key names match
+        # sensitive_keyname.
+        record = logging.LogRecord(
+            msg="env: %s",
+            args=(sensitive_dict({"PATH": "/usr/bin", "AWS_REGION": "us-east-1"}),),
+            **self.not_important_args,
+        )
+        record = self.sensitive_filter.filter(record)
+        # dict ordering is insertion-stable in CPython 3.7+
+        assert record.getMessage() == (
+            "env: <<REDACTED keys: PATH, AWS_REGION>>"
+        )
+
     def test_url_redaction(self):
         record = logging.LogRecord(
             msg="Bad https://user:uc-4aefafdase8@unfurl.cloud/onecommons/?private_token=uc-4aefafdase8 %s %s",
@@ -267,6 +289,84 @@ class TestColorHandler:
             log.error("I caught an error: %s", e, exc_info=True)
 
         assert "Traceback (most recent call last):" in caplog.text
+
+    def test_filter_mutation_does_not_leak(self):
+        # Unfurl's handlers clone the record before running their filters
+        # so a filter that mutates record.args (e.g. SensitiveFilter on
+        # Python <3.12) does not leak the mutation into the shared record
+        # that downstream handlers see.
+        import io
+        from unfurl.logs import ColorHandler
+
+        handler = ColorHandler(stream=io.StringIO())
+        handler.addFilter(SensitiveFilter())
+
+        original_args = {"token": "secret-value"}
+        record = logging.LogRecord(
+            name="x",
+            level=logging.INFO,
+            pathname="y",
+            lineno=1,
+            msg="hi %(token)s",
+            args=(original_args,),
+            exc_info=None,
+        )
+        # LogRecord unwraps a single-dict args tuple to the dict itself.
+        assert record.args is original_args
+
+        handler.handle(record)
+
+        # The shared record (and the original dict) should be untouched.
+        assert record.args is original_args
+        assert original_args == {"token": "secret-value"}
+
+    def test_handler_sensitive_off(self):
+        # sensitive=False disables the baked-in SensitiveFilter; secrets
+        # reach emit() unredacted. Configure via dictConfig() — the standard
+        # way unfurl wires up its handlers.
+        import io
+        import logging.config
+        from unfurl import logs as unfurl_logs
+
+        try:
+            logging.config.dictConfig({
+                "version": 1,
+                "disable_existing_loggers": False,
+                "handlers": {
+                    "h": {
+                        "class": "unfurl.logs.ColorHandler",
+                        "level": logging.INFO,
+                        "stream": io.StringIO(),
+                        "sensitive": False,
+                    },
+                },
+                "loggers": {
+                    "test_sensitive_off": {
+                        "level": logging.INFO,
+                        "handlers": ["h"],
+                        "propagate": False,
+                    },
+                },
+            })
+            logger = logging.getLogger("test_sensitive_off")
+            handler = logger.handlers[0]
+            assert handler.sensitive is False  # type: ignore[attr-defined]
+
+            captured: list = []
+            handler.emit = lambda record: captured.append(record.args)  # type: ignore[method-assign]
+
+            logger.info("hi %(token)s", {"token": "secret-value"})
+            assert captured == [{"token": "secret-value"}]
+        finally:
+            # Non-incremental dictConfig wipes _handlers globally; restore
+            # unfurl's standard config so subsequent tests can find the
+            # `console` handler by name. Drop `incremental` (some earlier
+            # caller may have set it on LOGGING) so the restore re-creates
+            # handlers rather than trying to patch nonexistent ones.
+            restore = dict(unfurl_logs.LOGGING)
+            restore.pop("incremental", None)
+            logging.config.dictConfig(restore)
+
 
 def test_log_once_basic(caplog_with_filters):
     """Test that messages with log_once=True are only logged once."""
