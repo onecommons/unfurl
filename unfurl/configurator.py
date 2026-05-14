@@ -1653,10 +1653,25 @@ class TaskView:
             self._workFolders[location] = wf
         wf.always_apply = always_apply
         return wf
-        # XXX multiple tasks can be accessing the same workfolder, so:
-        # return self.job.setFolder(
-        #     self, location, preserve
-        # )
+
+    def acquire_path(self, path: str) -> Generator[ConfiguratorResult, Any, None]:
+        """Generator that yields :meth:`suspend` until ``path`` is exclusively
+        held by this task. Use via ``yield from task.acquire_path(path)``
+        before doing work that needs sole access to a directory or file.
+
+        Pair with :meth:`release_path` in a ``finally`` block.
+        """
+        assert self.job is not None
+        while not self.job.lock_path(cast("ConfigTask", self), path):
+            # Another task currently owns this path; yield to let the
+            # scheduler run something else.
+            yield self.suspend()
+
+    def release_path(self, path: str) -> None:
+        """Drop this task's exclusive lock on ``path``. Safe to call even
+        if the lock was never acquired (no-op in that case)."""
+        if self.job is not None:
+            self.job.unlock_path(cast("ConfigTask", self), path)
 
     def get_work_folder(self, location: Optional[str] = None) -> WorkFolder:
         # return self.job.getFolder(self, location)

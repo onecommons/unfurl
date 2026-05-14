@@ -796,6 +796,11 @@ class Job(ConfigChange):
         self.external_requests: Optional[List[Tuple[Any, List[JobRequest]]]] = None
         self.external_jobs: Optional[List["Job"]] = None
         self._deadline: float = 0.0  # monotonic timestamp; 0 means no deadline
+        # Exclusive path-lock map: keyed on an absolute path string.
+        # Configurators that need sole access to a directory or file (e.g.
+        # a subprocess's cwd) call `lock_path` / `unlock_path` via the
+        # TaskView helpers.
+        self._path_owners: Dict[str, "ConfigTask"] = {}
 
     def get_operational_dependencies(self) -> Iterable[ConfigTask]:
         # XXX3 this isn't right, root job might have too many and child job might not have enough
@@ -1021,6 +1026,26 @@ class Job(ConfigChange):
             self.rootResource.attributeManager.commit_changes()
         return self.rootResource
 
+    def lock_path(self, task: "ConfigTask", path: str) -> bool:
+        """Try to acquire an exclusive lock on ``path`` for ``task``.
+        Returns True if ``task`` now owns it, False if another task holds
+        it (caller should suspend and retry).
+
+        Use to serialize configurators that need sole access to a
+        directory or file.
+        """
+        owner = self._path_owners.get(path)
+        if owner is None or owner is task:
+            self._path_owners[path] = task
+            return True
+        return False
+
+    def unlock_path(self, task: "ConfigTask", path: str) -> None:
+        """Drop ``task``'s exclusive lock on ``path``. No-op if ``task``
+        is not the current owner."""
+        if self._path_owners.get(path) is task:
+            del self._path_owners[path]
+
     def _add_unrendered_task(self, req: PlanRequest, message: str):
         if req.task:
             req.task.logger.info(message)
@@ -1190,6 +1215,15 @@ class Job(ConfigChange):
     ) -> bool:
         """Return ids of all resumed targets this task depends on."""
         for suspended in suspended_tasks:
+            if req.target is suspended.target and (
+                not req.task or req.task is not suspended.task
+            ):
+                logger.debug(
+                    "Deferring task %s: sibling task on same target %s is still running",
+                    req,
+                    suspended.target.name,
+                )
+                return True
             # static dependencies like node template requirements are maintained by the plan ordering
             # so check the ancestors of the template to make sure they aren't suspended
             if req.target.template in suspended.target.template._isReferencedBy:
