@@ -1647,6 +1647,12 @@ def test_rust_server_proxy():
         **_rust_extra_env("rust-proxy"),
         "UNFURL_LOGGING": "debug",
         "UNFURL_LOGFILE": rust_log_file,
+        # Force-enable hyper debug logging.  `_start_proxy_server`'s
+        # default RUST_LOG for debug-level UNFURL_LOGGING suppresses
+        # hyper/reqwest/tower_http to keep ordinary logs readable, but
+        # this test asserts on a hyper_util pool message to verify the
+        # proxy actually round-tripped the request.
+        "RUST_LOG": "debug",
     }
     p = ctx.Process(
         target=serve_server,

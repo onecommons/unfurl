@@ -47,7 +47,6 @@ def _get_context(localenv: LocalEnv):
 
     gl = gitlab.Gitlab(origin, private_token=private_token)
     gl.auth()
-    gl.enable_debug()
     project = gl.projects.get(project_id)
 
     return project

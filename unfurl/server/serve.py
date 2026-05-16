@@ -155,8 +155,14 @@ def configure_app(app: APIFlask = app) -> Cache:
     """
     # note: export FLASK_ENV=development to see error stacks
     # see https://flask-caching.readthedocs.io/en/latest/#built-in-cache-backends for more options
+    if "CACHE_TYPE" in os.environ:
+        cache_type = os.environ["CACHE_TYPE"]
+    elif "CACHE_REDIS_URL" in os.environ or os.environ.get("CACHE_REDIS_HOST"):
+        cache_type = "RedisCache"
+    else:
+        cache_type = "simple"
     flask_config: Dict[str, Any] = {
-        "CACHE_TYPE": os.environ.get("CACHE_TYPE", "simple"),
+        "CACHE_TYPE": cache_type,
         "CACHE_KEY_PREFIX": os.environ.get("CACHE_KEY_PREFIX", "ufsv::"),
     }
     # default: never cache entries never expire
@@ -164,12 +170,11 @@ def configure_app(app: APIFlask = app) -> Cache:
         os.environ.get("CACHE_DEFAULT_TIMEOUT") or 0
     )
     if flask_config["CACHE_TYPE"] == "RedisCache":
+        if "CACHE_REDIS_PASSWORD" in os.environ:
+            flask_config["CACHE_REDIS_PASSWORD"] = os.environ["CACHE_REDIS_PASSWORD"]
         if "CACHE_REDIS_URL" in os.environ:
             flask_config["CACHE_REDIS_URL"] = os.environ["CACHE_REDIS_URL"]
         elif "CACHE_REDIS_HOST" in os.environ:
-            flask_config["CACHE_REDIS_PASSWORD"] = os.environ.get(
-                "CACHE_REDIS_PASSWORD"
-            )
             flask_config["CACHE_REDIS_HOST"] = os.environ["CACHE_REDIS_HOST"]
             flask_config["CACHE_REDIS_PORT"] = int(
                 os.environ.get("CACHE_REDIS_PORT") or 6379
@@ -2094,12 +2099,19 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     env["UNFURL_BACKEND_URL"] = f"http://{host}:{backend_port}"
     env.setdefault("UNFURL_PACKAGE_DIGEST", get_package_digest())
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
+    # At debug/trace, scope the verbose level to our crate and keep the
+    # chatty dependencies (reqwest, hyper, tower_http, h2, want, mio) at
+    # info/warn so the log isn't dominated by per-request connection +
+    # framing chatter.
     if "RUST_LOG" not in env:
         level = get_console_log_level()
+        noisy_quiet = (
+            "reqwest=info,tower_http=info,hyper=warn,h2=warn,want=warn,mio=warn"
+        )
         if level == Levels.TRACE:
-            env["RUST_LOG"] = "trace"
+            env["RUST_LOG"] = f"trace"
         elif level < Levels.INFO:
-            env["RUST_LOG"] = "debug"
+            env["RUST_LOG"] = f"info,unfurl_server=debug,{noisy_quiet}"
         elif level >= Levels.ERROR:
             env["RUST_LOG"] = "error"
         elif level == Levels.WARNING:
@@ -2107,7 +2119,7 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
         else:
             env["RUST_LOG"] = "info"
     logger.info(
-        "Starting unfurl-server on %s:%d (backend port: %d) with %s RUST_LOG=%s",
+        "Starting unfurl-server on http://%s:%d (backend port: %d) with %s RUST_LOG=%s",
         host,
         port,
         backend_port,
