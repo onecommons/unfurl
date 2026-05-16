@@ -200,10 +200,43 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
+    // Resolve `host:port` to every address the OS hands back via
+    // getaddrinfo and bind a listener on each one we can.  This is what
+    // makes `UNFURL_HOST=localhost` listen on both 127.0.0.1 *and*
+    // [::1]: `TcpListener::bind(hostname)` otherwise tries each address
+    // in order and stops after the first success — on macOS that's
+    // typically the IPv6 entry, leaving IPv4 clients unreachable.
     let addr = format!("{}:{}", config.host, config.port);
-    let listener = TcpListener::bind(&addr)
-        .await
-        .expect("failed to bind address");
-    tracing::info!("listening on {}", addr);
-    axum::serve(listener, app).await.expect("server error");
+    let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
+        Ok(iter) => iter.collect(),
+        Err(e) => panic!("failed to resolve {addr}: {e}"),
+    };
+    if resolved.is_empty() {
+        panic!("no addresses resolved for {addr}");
+    }
+
+    let mut tasks = Vec::with_capacity(resolved.len());
+    for sock_addr in resolved {
+        let listener = match TcpListener::bind(sock_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                // Tolerate a single-family failure (e.g. another process
+                // already owns the v4 socket) as long as some other
+                // address binds successfully.
+                tracing::warn!("failed to bind {}: {}", sock_addr, e);
+                continue;
+            }
+        };
+        tracing::info!("listening on {}", sock_addr);
+        let app_clone = app.clone();
+        tasks.push(tokio::spawn(async move {
+            axum::serve(listener, app_clone).await.expect("server error");
+        }));
+    }
+    if tasks.is_empty() {
+        panic!("failed to bind any resolved address for {addr}");
+    }
+    for task in tasks {
+        task.await.expect("server task panicked");
+    }
 }
