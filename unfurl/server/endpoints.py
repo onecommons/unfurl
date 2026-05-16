@@ -420,8 +420,38 @@ def delete_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue
 def create_provider(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     body = _get_body(request)
     project_id = get_project_id(request)
-    _patch_environment(body, project_id)
-    return _patch_ensemble(body, True, project_id, False)
+    latest_commit = body.get("latest_commit") or ""
+    branch = body.get("branch", DEFAULT_BRANCH)
+    err, readonly_localEnv = localenv_from_cache_checked(
+        assert_not_none(get_cache()),
+        project_id,
+        branch,
+        "",
+        latest_commit,
+        body,
+    )
+    if err:
+        return err
+    # Reuse the readonly localenv across both helpers by passing it as
+    # `batched=`.  That also suppresses each helper's per-commit push;
+    # we issue a single push at the end so the client's resulting
+    # commit is visible upstream.
+    env_result = _patch_environment(body, project_id, readonly_localEnv)
+    if isinstance(env_result, tuple):
+        return env_result  # error response
+    ensemble_result = _patch_ensemble(body, True, project_id, readonly_localEnv)
+    if isinstance(ensemble_result, tuple):
+        return ensemble_result  # error response
+    assert readonly_localEnv and readonly_localEnv.project
+    repo = readonly_localEnv.project.project_repoview.gitrepo
+    assert repo
+    if not app.config.get("UNFURL_GUI_MODE"):
+        username = cast(str, body.get("username"))
+        password = cast(str, body.get("private_token", body.get("password")))
+        push_err = _push_changes(repo, username, password, latest_commit)
+        if push_err:
+            return push_err
+    return ensemble_result
 
 
 def _update_imports(current: List[ImportDef], new: List[ImportDef]) -> List[ImportDef]:
