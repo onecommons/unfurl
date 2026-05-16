@@ -34,11 +34,11 @@
               }
             ],
             "default": null,
-            "description": "Current queueid from the Rust proxy; Python updates the Redis queue key with '{new_commit},{queueid}' after committing",
+            "description": "Internal version counter, external clients should omit this field",
             "title": "Queueid"
           },
           "requests": {
-            "description": "Ordered list of original requests, each with 'endpoint' and the original body fields",
+            "description": "Ordered list of original requests, each with 'endpoint' key and the original body fields",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -417,6 +417,32 @@
             "default": null,
             "description": "Embedded deployment exports (present when include_all_deployments=true)",
             "title": "Deployments"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Latest commit hash observed by the export; clients can use this for cache validation",
+            "title": "Latest Commit"
+          },
+          "queueid": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Monotonic version assigned to this uncommitted write operation.",
+            "title": "Queueid"
           }
         },
         "title": "ExportResponse",
@@ -1325,14 +1351,14 @@
           "queueid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "description": "Setting this enables asynchronous writes",
             "title": "Queueid"
           },
           "username": {
@@ -1416,14 +1442,14 @@
           "queueid": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "integer"
               },
               {
                 "type": "null"
               }
             ],
             "default": null,
-            "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+            "description": "Setting this enables asynchronous writes",
             "title": "Queueid"
           },
           "username": {
@@ -2472,7 +2498,26 @@
     "/batch_patch": {
       "post": {
         "description": "Used by the Rust proxy to forward a batch of write requests that share the same branch and latest_commit.  Each request in the ``requests`` list is applied in order; a single push is performed at the end.",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2653,14 +2698,14 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
                 }
               ],
               "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
             }
           },
@@ -2784,7 +2829,26 @@
       },
       "post": {
         "description": "Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``types``).\n\nEach section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.\n\nThe body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2803,7 +2867,7 @@
                 }
               }
             },
-            "description": "commit oid produced by the local commit, or null when nothing changed"
+            "description": "commit and list of applied changes (mirrors the rust handler's per-record response)"
           },
           "422": {
             "content": {
@@ -2824,7 +2888,26 @@
     },
     "/create_ensemble": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2894,7 +2977,26 @@
     },
     "/create_provider": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -2964,7 +3066,26 @@
     },
     "/delete_deployment": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3034,7 +3155,26 @@
     },
     "/delete_environment": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -3225,14 +3365,14 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
                 }
               ],
               "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
             }
           },
@@ -3344,10 +3484,22 @@
             "name": "include_all_deployments",
             "required": false,
             "schema": {
-              "default": false,
+              "anyOf": [
+                {
+                  "enum": [
+                    "true",
+                    "1",
+                    ""
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": "",
               "description": "Include all deployment exports embedded in the response",
-              "title": "Include All Deployments",
-              "type": "boolean"
+              "title": "Include All Deployments"
             }
           },
           {
@@ -3491,14 +3643,14 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
                 }
               ],
               "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
             }
           },
@@ -3632,14 +3784,14 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
                 }
               ],
               "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
             }
           },
@@ -3785,14 +3937,14 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "type": "integer"
                 },
                 {
                   "type": "null"
                 }
               ],
               "default": null,
-              "description": "If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+              "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
             }
           },
@@ -3942,7 +4094,26 @@
     },
     "/update_ensemble": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4012,7 +4183,26 @@
     },
     "/update_environment": {
       "post": {
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

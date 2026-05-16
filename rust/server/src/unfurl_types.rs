@@ -22,9 +22,9 @@ pub struct BatchPatchBody {
     pub branch: Option<String>,
     /// Latest known commit hash for optimistic concurrency checks
     pub latest_commit: Option<String>,
-    /// Current queueid from the Rust proxy; Python updates the Redis queue key with '{new_commit},{queueid}' after committing
+    /// Internal version counter, external clients should omit this field
     pub queueid: Option<i64>,
-    /// Ordered list of original requests, each with 'endpoint' and the original body fields
+    /// Ordered list of original requests, each with 'endpoint' key and the original body fields
     pub requests: Vec<std::collections::HashMap<String, serde_json::Value>>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
@@ -768,6 +768,10 @@ pub struct ExportResponse {
     >,
     /// Embedded deployment exports (present when include_all_deployments=true)
     pub deployments: Option<ExportResponseDeployments>,
+    /// Latest commit hash observed by the export; clients can use this for cache validation
+    pub latest_commit: Option<String>,
+    /// Monotonic version assigned to this uncommitted write operation.
+    pub queueid: Option<i64>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
@@ -1134,8 +1138,8 @@ pub struct GetCloudmapRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Top-level CloudMap section to return; if omitted the full document is returned.
     pub kind: Option<String>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
@@ -1184,8 +1188,8 @@ pub struct GetExportRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Pretty-print the JSON response
     #[default(Some(false))]
     pub pretty: Option<bool>,
@@ -1201,8 +1205,8 @@ pub struct GetExportRequestQuery {
     /// Environment name (used with 'environments' format)
     pub environment: Option<String>,
     /// Include all deployment exports embedded in the response
-    #[default(Some(false))]
-    pub include_all_deployments: Option<bool>,
+    #[default(Some(String::new()))]
+    pub include_all_deployments: Option<String>,
     /// Return any cache hit without checking if it's out of date.
     pub stale: Option<String>,
 }
@@ -1258,8 +1262,8 @@ pub struct GetGraphRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Optional artifact or instantiation URL to filter the graph to
     pub url: Option<String>,
 }
@@ -1319,8 +1323,8 @@ pub struct GetTypesRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Pretty-print the JSON response
     #[default(Some(false))]
     pub pretty: Option<bool>,
@@ -1407,8 +1411,8 @@ pub struct PatchEnsembleBody {
     pub patch: Vec<std::collections::HashMap<String, serde_json::Value>>,
     /// Git personal access token or password
     pub private_token: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Git username for pushing the commit
     pub username: Option<String>,
     /// Additional properties not defined in the schema.
@@ -1430,8 +1434,8 @@ pub struct PatchEnvironmentBody {
     pub patch: Vec<std::collections::HashMap<String, serde_json::Value>>,
     /// Git personal access token or password
     pub private_token: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// Git username for pushing the commit
     pub username: Option<String>,
     /// Additional properties not defined in the schema.
@@ -1468,9 +1472,15 @@ pub struct PatchResponseAppliedRecord {
 /// Used by the Rust proxy to forward a batch of write requests that share the same branch and latest_commit.  Each request in the ``requests`` list is applied in order; a single push is performed at the end.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostBatchPatchRequest {
+    pub query: PostBatchPatchRequestQuery,
     pub body: Option<BatchPatchBody>,
 }
 impl PostBatchPatchRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostBatchPatchRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Response types for PostBatchPatchResponse
 #[derive(Debug, Clone)]
 pub enum PostBatchPatchResponse {
@@ -1576,13 +1586,19 @@ pub struct PostCloudmapRequest {
 /// The body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCloudmapRequestParams {
+    pub query: PostCloudmapRequestParamsQuery,
     pub body: Option<PostCloudmapRequest>,
 }
 impl PostCloudmapRequestParams {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostCloudmapRequestParamsQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Response types for PostCloudmapResponse
 #[derive(Debug, Clone)]
 pub enum PostCloudmapResponse {
-    ///200: commit oid produced by the local commit, or null when nothing changed
+    ///200: commit and list of applied changes (mirrors the rust handler's per-record response)
     Ok(PatchResponse),
     ///422: Validation error
     UnprocessableEntity(ValidationError),
@@ -1604,27 +1620,51 @@ impl IntoResponse for PostCloudmapResponse {
 /// Create a new ensemble
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCreateEnsembleRequest {
+    pub query: PostCreateEnsembleRequestQuery,
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostCreateEnsembleRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostCreateEnsembleRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Create a cloud provider and its associated ensemble
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCreateProviderRequest {
+    pub query: PostCreateProviderRequestQuery,
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostCreateProviderRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostCreateProviderRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Delete a deployment
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostDeleteDeploymentRequest {
+    pub query: PostDeleteDeploymentRequestQuery,
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostDeleteDeploymentRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostDeleteDeploymentRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Delete a deployment environment
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostDeleteEnvironmentRequest {
+    pub query: PostDeleteEnvironmentRequestQuery,
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostDeleteEnvironmentRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostDeleteEnvironmentRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Clear all cache entries (admin only)
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostEmptyCacheRequest {
@@ -1691,8 +1731,8 @@ pub struct PostPopulateCacheRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously
-    pub queueid: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
     /// File path relative to the project root
     #[validate(length(min = 1u64))]
     pub path: String,
@@ -1704,15 +1744,27 @@ pub struct PostPopulateCacheRequestQuery {
 /// Update an existing ensemble
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostUpdateEnsembleRequest {
+    pub query: PostUpdateEnsembleRequestQuery,
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostUpdateEnsembleRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostUpdateEnsembleRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 /// Update a deployment environment
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostUpdateEnvironmentRequest {
+    pub query: PostUpdateEnvironmentRequestQuery,
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostUpdateEnvironmentRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostUpdateEnvironmentRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct ValidationError {

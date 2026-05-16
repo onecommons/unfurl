@@ -109,15 +109,17 @@ class ProjectAuthQuery(BaseModel):
         default=None, description="Project ID for authorization and cache key scoping"
     )
 
+
 class ProjectQuery(ProjectAuthQuery):
     latest_commit: Optional[str] = Field(
         default=None, description="Commit hash used to validate the cache entry"
     )
     branch: Optional[str] = Field(default=None, description="Git branch name")
-    queueid: Optional[str] = Field(
+    queueid: Optional[int] = Field(
         default=None,
-        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+        description="Setting this enables asynchronous writes",
     )
+
 
 class ExportBaseQuery(ProjectQuery):
     """Shared query parameters for /export and /types."""
@@ -144,8 +146,8 @@ class ExportQuery(ExportBaseQuery):
     environment: Optional[str] = Field(
         default=None, description="Environment name (used with 'environments' format)"
     )
-    include_all_deployments: bool = Field(
-        default=False,
+    include_all_deployments: Optional[Literal["true", "1", ""]] = Field(
+        default="",
         description="Include all deployment exports embedded in the response",
     )
     stale: Optional[Literal["ok"]] = Field(
@@ -279,7 +281,6 @@ class CloudMapDocument(BaseModel):
     # stripping known envelope keys like ``latest_commit`` /
     # ``cloudmap_path``). Violations surface as a Pydantic
     # ``ValidationError``, which APIFlask returns as a 422.
-
 
     model_config = ConfigDict(extra="allow")
 
@@ -558,9 +559,9 @@ class PatchEnvironmentBody(BaseModel):
         default=None, description="Git personal access token or password"
     )
     commit_msg: Optional[str] = Field(default=None, description="Git commit message")
-    queueid: Optional[str] = Field(
+    queueid: Optional[int] = Field(
         default=None,
-        description="If set, the Rust proxy will enqueue the request for async processing via Redis instead of proxying synchronously",
+        description="Setting this enables asynchronous writes",
     )
 
 
@@ -606,11 +607,11 @@ class BatchPatchBody(BaseModel):
     )
     branch: str = Field(default="main", description="Target branch")
     requests: List[Dict[str, Any]] = Field(
-        description="Ordered list of original requests, each with 'endpoint' and the original body fields"
+        description="Ordered list of original requests, each with 'endpoint' key and the original body fields"
     )
     queueid: Optional[int] = Field(
         default=None,
-        description="Current queueid from the Rust proxy; Python updates the Redis queue key with '{new_commit},{queueid}' after committing",
+        description="Internal version counter, external clients should omit this field",
     )
 
 
@@ -693,9 +694,7 @@ class PatchResponse(BaseModel):
     )
     queueid: Optional[int] = Field(
         default=None,
-        description=(
-            "Monotonic version assigned to this uncommitted write operation."
-        ),
+        description=("Monotonic version assigned to this uncommitted write operation."),
     )
     applied: List[AppliedRecord] = Field(
         default_factory=list,
@@ -748,6 +747,14 @@ class ExportResponse(BaseModel):
     deployments: Optional[List[Union[DeploymentType, Dict[str, Any]]]] = Field(
         default=None,
         description="Embedded deployment exports (present when include_all_deployments=true)",
+    )
+    latest_commit: Optional[str] = Field(
+        default=None,
+        description="Latest commit hash observed by the export; clients can use this for cache validation",
+    )
+    queueid: Optional[int] = Field(
+        default=None,
+        description=("Monotonic version assigned to this uncommitted write operation."),
     )
 
 
