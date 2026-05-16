@@ -263,25 +263,6 @@ def clear_all(cache, prefix) -> None:
         clear_cache(cache, "")
 
 
-def _update_queue_key(
-    project_id: str, latest_commit: str, new_commit: str, queueid: int
-) -> None:
-    """Update the Redis queue key after batch_patch commits.
-
-    Sets ``queue:{project_id}:{latest_commit}`` to ``"{new_commit},{queueid}"``
-    so subsequent ``inc_queueid`` calls redirect clients to the new commit.
-    """
-    cache = get_cache()
-    assert cache
-    queue_key = f"queue:{project_id}:{latest_commit}"
-    value = f"{new_commit},{queueid}"
-    try:
-        cache.set(queue_key, value)
-        logger.debug("updated queue key %s = %s", queue_key, value)
-    except Exception as exc:
-        logger.error("failed to update queue key %s: %s", queue_key, exc)
-
-
 def _set_local_projects(
     repo_views: Iterable[RepoView], local_projects: Dict[str, str], clone_root, gui
 ):
@@ -1859,7 +1840,7 @@ def _localenv_from_cache(
     return err, value, cache_entry
 
 
-def _localenv_from_cache_checked(
+def localenv_from_cache_checked(
     cache,
     project_id: str,
     branch: str,
@@ -1867,11 +1848,18 @@ def _localenv_from_cache_checked(
     latest_commit: str,
     args: dict,
     check_lastcommit: bool = True,
-) -> Tuple[Any, Optional[LocalEnv]]:
+) -> Tuple[Optional[Response], Optional[LocalEnv]]:
+    """Like `_localenv_from_cache` but coerces any cache-layer exception
+    into an `INTERNAL_ERROR` `Response` so the caller can `return err`
+    directly into Flask without further type wrangling."""
     err, readonly_localEnv, _ = _localenv_from_cache(
         cache, project_id, branch, deployment_path, latest_commit, args
     )
     if err:
+        if isinstance(err, Exception):
+            err = create_error_response(
+                "INTERNAL_ERROR", "An internal error occurred", err
+            )
         return err, readonly_localEnv
     assert readonly_localEnv
     assert readonly_localEnv.project
@@ -2040,7 +2028,7 @@ if os.getenv("SERVER_SOFTWARE"):
 # Register the /cloudmap and patch endpoints (decorators on `app` run
 # at import time). Must come after every name `endpoints` imports
 # from this module is defined — `app`, `CacheEntry`,
-# `create_error_response`, `_localenv_from_cache_checked`, etc.
+# `create_error_response`, `localenv_from_cache_checked`, etc.
 from . import endpoints  # noqa: E402, F401
 
 

@@ -66,8 +66,7 @@ from .serve import (
     UNFURL_SERVER_DEBUG_PATCH,
     _get_filepath,
     _get_project_repo,
-    _localenv_from_cache_checked,
-    _update_queue_key,
+    localenv_from_cache_checked,
     app,
     create_error_response,
     ensure_local_config,
@@ -597,13 +596,13 @@ def _patch_node_template(
         elif key == "properties":
             props = tpl.setdefault("properties", {})
             assert isinstance(props, dict), f"bad props {props} in {tpl}"
-            assert isinstance(
-                value, list
-            ), f"bad patch value {value} for {key} in {patch}"
+            assert isinstance(value, list), (
+                f"bad patch value {value} for {key} in {patch}"
+            )
             for prop in value:
-                assert isinstance(
-                    prop, dict
-                ), f"bad {prop} in {value} for {key} in {patch}"
+                assert isinstance(prop, dict), (
+                    f"bad {prop} in {value} for {key} in {patch}"
+                )
                 if prop["value"] == {"__deleted": True}:
                     props.pop(prop["name"], None)
                 else:
@@ -661,6 +660,25 @@ def create_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     return _patch_ensemble(body, True, get_project_id(request))
 
 
+def _update_queue_key(
+    project_id: str, latest_commit: str, new_commit: str, queueid: int
+) -> None:
+    """Update the Redis queue key after batch_patch commits.
+
+    Sets ``queue:{project_id}:{latest_commit}`` to ``"{new_commit},{queueid}"``
+    so subsequent ``inc_queueid`` calls redirect clients to the new commit.
+    """
+    cache = get_cache()
+    assert cache
+    queue_key = f"queue:{project_id}:{latest_commit}"
+    value = f"{new_commit},{queueid}"
+    try:
+        cache.set(queue_key, value)
+        logger.debug("updated queue key %s = %s", queue_key, value)
+    except Exception as exc:
+        logger.error("failed to update queue key %s: %s", queue_key, exc)
+
+
 @app.post("/batch_patch")
 @app.doc(
     summary="Apply a batch of write requests",
@@ -687,7 +705,7 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
         branch,
         len(batch_requests),
     )
-    err, readonly_localEnv = _localenv_from_cache_checked(
+    err, readonly_localEnv = localenv_from_cache_checked(
         assert_not_none(get_cache()),
         project_id,
         branch,
@@ -836,7 +854,7 @@ def _patch_environment(
     if batched:
         readonly_localEnv: Optional[LocalEnv] = batched
     else:
-        err, readonly_localEnv = _localenv_from_cache_checked(
+        err, readonly_localEnv = localenv_from_cache_checked(
             assert_not_none(get_cache()),
             project_id,
             branch,
@@ -1015,7 +1033,7 @@ def _patch_ensemble(
     if batched:
         parent_localenv: Optional[LocalEnv] = batched
     else:
-        err, parent_localenv = _localenv_from_cache_checked(
+        err, parent_localenv = localenv_from_cache_checked(
             assert_not_none(get_cache()),
             project_id,
             branch,
