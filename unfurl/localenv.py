@@ -845,6 +845,9 @@ class LocalConfig:
     def __init__(
         self, path=None, validate=True, yaml_include_hook=None, readonly=False
     ):
+        self._load(path, yaml_include_hook, validate, readonly)
+
+    def _load(self, path, yaml_include_hook, validate: bool, readonly: bool) -> None:
         defaultConfig = {"apiVersion": API_VERSION, "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
@@ -857,6 +860,25 @@ class LocalConfig:
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
         self.localRepositories = self.config.expanded.get("localRepositories") or {}
+
+    def reload_if_changed(self, validate=False, readonly=False) -> bool:
+        """Re-read the config file from disk if its size differs from when
+        we loaded it (likely an earlier request in this process committed
+        a newer version). Returns True if a reload happened.
+
+        Any uncommitted in-memory edits to ``self.config.config`` are
+        discarded — callers should reload *before* applying their patch,
+        so the patch lands on top of the latest disk content.
+        """
+        if not self.config.config_file_changed() and self.config.readonly == readonly:
+            return False
+        self._load(
+            self.config.path,
+            self.config.loadHook,
+            validate,
+            readonly,
+        )
+        return True
 
     def adjust_path(self, path):
         """

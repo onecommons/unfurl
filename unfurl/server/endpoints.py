@@ -922,7 +922,16 @@ def _patch_environment(
     was_dirty = repo.is_dirty()
     starting_revision = repo.revision
     localConfig = localEnv.project.localConfig
+    localConfig.reload_if_changed()
     err = _apply_environment_patch(patch, localEnv)
+    # XXX if batched is None: else batch invalidations
+    invalidate_cache(body, "environments", project_id)
+    # localenv will have state unfurl.yaml
+    invalidate_cache(
+        {"branch": body.get("branch"), "deployment_path": "unfurl.yaml"},
+        "localenv",
+        project_id,
+    )
     if err:
         return err
     localConfig.config.save()
@@ -1090,21 +1099,21 @@ def _patch_ensemble(
         parent_localenv.project.project_repoview.repo.working_dir, deployment_path
     )
 
-    if batched is None:  # XXX
-        invalidate_cache(body, "deployment", project_id)
-        if create:
-            # Creating a deployment also changes the project's
-            # DeploymentPath list (in unfurl.yaml's environments view), so the
-            # cached `environments` export — which the dashboard relies on to
-            # discover deployments — is also stale.
-            invalidate_cache({"branch": body.get("branch")}, "environments", project_id)
-            # The cached LocalEnv holds a Project whose localConfig.ensembles list is now stale too, so
-            # invalidate the cached localenv too
-            invalidate_cache(
-                {"branch": body.get("branch"), "deployment_path": "unfurl.yaml"},
-                "localenv",
-                project_id,
-            )
+    # XXX if batched is None: else batch invalidations
+    invalidate_cache(body, "deployment", project_id)
+    if create:
+        # Creating a deployment also changes the project's
+        # DeploymentPath list (in unfurl.yaml's environments view), so the
+        # cached `environments` export — which the dashboard relies on to
+        # discover deployments — is also stale.
+        invalidate_cache({"branch": body.get("branch")}, "environments", project_id)
+        # The cached LocalEnv holds a Project whose localConfig.ensembles list is now stale too, so
+        # invalidate the cached localenv too
+        invalidate_cache(
+            {"branch": body.get("branch"), "deployment_path": "unfurl.yaml"},
+            "localenv",
+            project_id,
+        )
     if existing_repo:
         was_dirty = existing_repo.is_dirty()
         if isinstance(existing_repo, GitRepo):

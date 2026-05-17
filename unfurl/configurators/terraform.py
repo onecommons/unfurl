@@ -47,7 +47,7 @@ def _default_plugin_cache_dir() -> Optional[str]:
     return os.path.expanduser("~/.terraform.d/plugin-cache")
 
 
-def _get_env(env, verbose, dataDir):
+def _get_env(env: Dict[str, str], verbose: int, dataDir: str) -> Dict[str, str]:
     env["TF_IN_AUTOMATION"] = "1"
     env["TF_INPUT"] = "0"
     # see https://www.terraform.io/plugin/log/managing
