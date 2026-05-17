@@ -314,9 +314,16 @@ def yaml_path_for(python_path: Path) -> Path:
             except ValueError:
                 rel = python_path.parent
             pycache = Path(sys.pycache_prefix) / rel
+            # `pycache_prefix` mirrors arbitrarily-deep source paths
+            # (e.g. /private/var/folders/.../tmpXXX/...), so the
+            # intermediate directories rarely already exist — same
+            # reason CPython's .pyc writer uses `os.makedirs` here.
+            # Apple's macOS-shipped Python 3.9 hits this because it
+            # ships with `sys.pycache_prefix = ~/Library/Caches/com.apple.python`.
+            pycache.mkdir(parents=True, exist_ok=True)
         else:
             pycache = python_path.parent / "__pycache__"
-        pycache.mkdir(exist_ok=True)
+            pycache.mkdir(exist_ok=True)
         return pycache / stem_yaml
     return python_path.parent / stem_yaml
 
