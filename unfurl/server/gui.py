@@ -7,6 +7,7 @@ import shutil
 import tarfile
 import urllib.request
 import urllib.parse
+import datetime
 
 from ..packages import is_semver_compatible_with
 
@@ -199,6 +200,8 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
         if key in local_projects:
             working_dir = local_projects[key]
             return Repo.make_repo(working_dir)
+    if "/" not in project_path and ":" not in project_path:
+        return None
     if project_path[-1] != "/":
         project_path += "/"
 
@@ -225,6 +228,7 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
         url = get_project_url(project_path, branch=branch)
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
+    # XXX why do we need to clone here?
     try:
         repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
             url
@@ -376,9 +380,21 @@ def create_routes(localenv: LocalEnv):
             branch = repo.active_branch
         else:
             branch = "main"  # XXX
+        # ISO 8601 e.g. "2012-06-28T03:44:20-07:00"
+        committed_date = datetime.datetime.fromtimestamp(
+            repo.revision_time, tz=datetime.timezone.utc
+        ).isoformat()
         return jsonify(
-            # TODO
-            [{"name": branch, "commit": {"id": repo.revision}}]
+            [
+                {
+                    "name": branch,
+                    "commit": {
+                        "id": repo.revision,
+                        "committed_date": committed_date,
+                        "created_at": committed_date,
+                    },
+                }
+            ]
         )
 
     @app.route("/api/v4/<api>")

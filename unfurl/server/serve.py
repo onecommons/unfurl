@@ -1870,12 +1870,7 @@ def localenv_from_cache_checked(
     assert readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.repo
     assert repo
-    if (
-        not _get_local_project_dir(project_id)
-        and check_lastcommit
-        and latest_commit
-        and repo.revision != latest_commit
-    ):
+    if check_lastcommit and latest_commit and repo.revision != latest_commit:
         logger.warning(
             f"Conflict in {project_id}: {latest_commit} != {repo.revision} ({repo.url})"
         )

@@ -344,6 +344,10 @@ class Repo(abc.ABC):
 
     @property
     @abc.abstractmethod
+    def revision_time(self) -> float: ...
+
+    @property
+    @abc.abstractmethod
     def current_tag(self) -> str: ...
 
     @abc.abstractmethod
@@ -978,6 +982,12 @@ class GitRepo(Repo):
         if not self.repo.head.is_valid():
             return ""
         return self.repo.head.commit.hexsha
+
+    @property
+    def revision_time(self) -> float:
+        if not self.repo.head.is_valid():
+            return 0
+        return self.repo.head.commit.committed_date
 
     @property
     def remote(self) -> Optional[git.Remote]:

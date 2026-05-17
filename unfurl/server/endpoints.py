@@ -901,8 +901,12 @@ def _patch_environment(
     home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
         "UNFURL_OPTIONS"
     ].get("home")
+    # we need to set the parent here or else projects with separate ensemble repos select the ensemble project
     localEnv = LocalEnv(
-        readonly_localEnv.project.projectRoot, home_dir, can_be_empty=True
+        readonly_localEnv.project.projectRoot,
+        home_dir,
+        parent=readonly_localEnv,
+        can_be_empty=True,
     )
     assert localEnv.project
     repo = localEnv.project.project_repoview.gitrepo
@@ -1151,7 +1155,9 @@ def _patch_ensemble(
         overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
         overrides["use_local_cache"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
-    local_env = LocalEnv(clone_location, current_working_dir, overrides=overrides)
+    local_env = LocalEnv(
+        clone_location, current_working_dir, parent=parent_localenv, overrides=overrides
+    )
     local_env.make_resolver = make_resolver
     # don't validate in case we are still an incomplete draft
     manifest = local_env.get_manifest(skip_validation=True, safe_mode=True)
@@ -1188,7 +1194,12 @@ def _patch_ensemble(
                     return err
         else:
             logger.info("no changes where made, nothing committed")
-    return _patch_response(manifest.repo)
+    # XXX we don't support separate ensemble repositories on the client so we cheat and return the project repo's latest commit
+    # instead of this correct response: return _patch_response(manifest.repo)
+    assert local_env.project
+    repo = local_env.project.project_repoview.gitrepo
+    assert repo
+    return _patch_response(repo)
 
 
 def _create_ensemble(
