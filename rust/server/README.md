@@ -10,14 +10,41 @@ the output, and writes the result directly to `src/unfurl_types.rs`,
 which is committed to git. **Builds without `oas3-gen` installed use
 the committed file and succeed without it.**
 
-To regenerate after OpenAPI spec changes, install `oas3-gen` and rebuild:
+To regenerate after OpenAPI spec changes, install `oas3-gen` at the
+pinned version and rebuild:
 
 ```bash
-cargo install oas3-gen
+cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
 cargo build -p unfurl-server
 ```
 
-The binary lands in `~/.cargo/bin`, which must be on `PATH`.
+The binary lands in `~/.cargo/bin`, which must be on `PATH`. The
+pinned version lives in `rust/server/.oas3-gen-version` and is also
+the single source of truth used by `.github/workflows/on_push.yml`
+and `docker/Dockerfile.server`. `build.rs` enforces the pin at compile
+time: a mismatched generator fails the build with the exact reinstall
+command. (Builds without `oas3-gen` installed at all skip the check
+and use the committed `src/unfurl_types.rs` as-is.)
+
+### Bumping `oas3-gen`
+
+1. Edit `rust/server/.oas3-gen-version` and replace the version with the
+   new `X.Y.Z`.
+2. Reinstall the pinned binary:
+   ```bash
+   cargo install oas3-gen --version X.Y.Z --locked --force
+   ```
+3. Rebuild — `build.rs` regenerates `src/unfurl_types.rs` against the
+   new generator:
+   ```bash
+   cargo build -p unfurl-server
+   ```
+4. Inspect the diff in `src/unfurl_types.rs`. If a generator release
+   introduces new external crate references (e.g. 0.26+ switched maps
+   to `indexmap::IndexMap`), add the corresponding dependency to
+   `rust/server/Cargo.toml`. Adjust any handler that names a renamed
+   type.
+5. Commit `.oas3-gen-version` and `src/unfurl_types.rs` together.
 
 ## Generated types
 
