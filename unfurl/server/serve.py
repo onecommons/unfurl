@@ -2043,15 +2043,19 @@ def _find_rust_server_bin() -> Optional[str]:
 
     Search order:
 
-    2. ``PATH`` via ``shutil.which``
-    3. Alongside the installed unfurl package (distribution installs)
-    4. Cargo target directories relative to the repo root (development installs),
-       preferring release over debug
+    1. ``UNFURL_RUST_SERVER_BIN`` env var (explicit override).
+    2. Cargo build output (development: ``rust/target/{debug,release}/unfurl-server``).
+       Only resolves in editable installs whose `parent_dir` is the
+       repo root; intentionally checked before PATH so a freshly-built
+       binary always wins over a stale copy that `setuptools-rust`
+       previously dropped into the venv's ``bin/``.
+    3. ``PATH`` via ``shutil.which``.
+    4. Alongside the installed unfurl package (distribution installs).
     """
-    # 2. PATH
-    found = shutil.which("unfurl-server")
-    if found:
-        return found
+    # 1. Explicit override (used by tests and bespoke deployments).
+    override = os.environ.get("UNFURL_RUST_SERVER_BIN")
+    if override and os.path.isfile(override) and os.access(override, os.X_OK):
+        return override
 
     # serve.py lives at {root}/unfurl/server/serve.py
     # two dirnames up → repo root (editable install) or site-packages parent
@@ -2059,20 +2063,27 @@ def _find_rust_server_bin() -> Optional[str]:
     pkg_dir = os.path.dirname(server_dir)  # .../unfurl (the package)
     parent_dir = os.path.dirname(pkg_dir)  # repo root or site-packages
 
-    # 3. Alongside the package (distribution installs place the binary next to the package dir)
-    candidate = os.path.join(parent_dir, "unfurl-server")
-    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-        return candidate
-
-    # 4. Cargo build output (development: rust/target/{release,debug}/unfurl-server)
-    # Prefer debug over release so that `cargo build` (without --release) is picked up
-    # during development; CI/production builds use release via PATH or explicit env var.
+    # 2. Cargo build output (development: rust/target/{debug,release}/unfurl-server).
+    # Prefer debug over release so that `cargo build` (without --release) is picked
+    # up during development.  This is checked *before* PATH so a recent `cargo build`
+    # supersedes whatever `setuptools-rust` last copied into the venv's `bin/`, which
+    # is otherwise a frequent source of stale-binary surprises in dev.
     for build_type in ("debug", "release"):
         candidate = os.path.join(
             parent_dir, "rust", "target", build_type, "unfurl-server"
         )
         if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
             return candidate
+
+    # 3. PATH
+    found = shutil.which("unfurl-server")
+    if found:
+        return found
+
+    # 4. Alongside the package (wheel installs place the binary next to the package dir)
+    candidate = os.path.join(parent_dir, "unfurl-server")
+    if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+        return candidate
 
     return None
 
