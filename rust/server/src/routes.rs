@@ -467,13 +467,9 @@ async fn handle_write(
     }
 
     // Use the Redis queue only when Redis is available AND the request body
-    // contains a non-null, non-empty "queueid" field.  When queueid is absent
-    // the write request is proxied synchronously to the Python backend.
-    let client_queueid = body
-        .get("queueid")
-        .and_then(|v| v.as_str())
-        .filter(|s| !s.is_empty())
-        .and_then(|s| s.parse::<i64>().ok());
+    // contains a non-null "queueid" field.  When queueid is absent the
+    // write request is proxied synchronously to the Python backend.
+    let client_queueid = body.get("queueid").and_then(|v| v.as_i64());
     if let Some(queueid) = client_queueid {
         if let Some(ref redis) = state.redis {
             // Atomically validate and increment the queueid.
@@ -503,7 +499,7 @@ async fn handle_write(
                 }
                 QueueIdResult::Ok { new_queueid } => {
                     let mut updated_body = body;
-                    updated_body["queueid"] = serde_json::Value::String(new_queueid.to_string());
+                    updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
                         endpoint: endpoint.clone(),
                         body: updated_body,
@@ -525,7 +521,7 @@ async fn handle_write(
                     // so the worker sends the correct values to batch_patch.
                     let mut updated_body = body;
                     updated_body["latest_commit"] = serde_json::Value::String(new_commit.clone());
-                    updated_body["queueid"] = serde_json::Value::String(new_queueid.to_string());
+                    updated_body["queueid"] = serde_json::json!(new_queueid);
                     let item = QueueItem {
                         endpoint: endpoint.clone(),
                         body: updated_body,

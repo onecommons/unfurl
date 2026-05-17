@@ -497,9 +497,13 @@ def _dump_server_logs(p, label=""):
 
 
 def _post_write(url, json_body, server_env, queueid=0):
-    """POST a write request, adding queueid for queue-rust variant."""
+    """POST a write request, adding queueid for queue-rust variant.
+
+    `queueid` is sent as an integer to match the `i64` declared in the
+    OpenAPI schema (PatchEnsembleBody / PatchEnvironmentBody).
+    """
     if server_env == "queue-rust":
-        json_body = {**json_body, "queueid": str(queueid)}
+        json_body = {**json_body, "queueid": int(queueid)}
     return requests.post(url, json=json_body)
 
 
@@ -1406,6 +1410,12 @@ def test_update_environment(server_env):
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
+            # For queue-rust the synchronous response carries only a
+            # queueid, not the eventual commit hash, so look it up from
+            # the local checkout after the queue has drained.  Other
+            # variants already get a real commit from the response.
+            if not new_commit:
+                new_commit = GitRepo(Repo(".")).revision
             with open("unfurl.yaml") as f:
                 data = yaml.load(f.read())
             envs = data.get("environments", {})

@@ -357,12 +357,9 @@ fn endpoint_name(endpoint: &str) -> &str {
     path.strip_prefix('/').unwrap_or(path)
 }
 
-/// Parse a `queueid` field from a request body. The field is stored as
-/// a string by `handle_write` after `inc_queueid` runs.
+/// Parse a `queueid` field from a request body.
 fn extract_queueid(body: &JsonValue) -> Option<i64> {
-    body.get("queueid")
-        .and_then(|v| v.as_str())
-        .and_then(|s| s.parse::<i64>().ok())
+    body.get("queueid").and_then(|v| v.as_i64())
 }
 
 /// Partition a list of queue items by `(project_id, branch)`. Items
@@ -627,7 +624,7 @@ mod tests {
                 "commit_msg": "add provider",
                 "branch": "main",
                 "latest_commit": "abc123",
-                "queueid": "1",
+                "queueid": 1,
                 "deployment_path": "deploy1",
                 "environment": "prod",
             }),
@@ -654,7 +651,7 @@ mod tests {
                     "commit_msg": "msg1",
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "1",
+                    "queueid": 1,
                     "deployment_path": "d1",
                 }),
                 headers: HashMap::new(),
@@ -666,7 +663,7 @@ mod tests {
                     "commit_msg": "msg2",
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "2",
+                    "queueid": 2,
                 }),
                 headers: HashMap::new(),
             },
@@ -695,7 +692,7 @@ mod tests {
                     "patch": [{"a": 1}],
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "1",
+                    "queueid": 1,
                 }),
                 headers: HashMap::new(),
             },
@@ -705,7 +702,7 @@ mod tests {
                     "patch": [{"b": 2}],
                     "branch": "main",
                     "latest_commit": "def",
-                    "queueid": "1",
+                    "queueid": 1,
                 }),
                 headers: HashMap::new(),
             },
@@ -728,7 +725,7 @@ mod tests {
                     "patch": [{"a": 1}],
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "1",
+                    "queueid": 1,
                 }),
                 headers: HashMap::new(),
             },
@@ -738,7 +735,7 @@ mod tests {
                     "patch": [{"b": 2}],
                     "branch": "dev",
                     "latest_commit": "abc",
-                    "queueid": "1",
+                    "queueid": 1,
                 }),
                 headers: HashMap::new(),
             },
@@ -757,7 +754,7 @@ mod tests {
                     "patch": [{"__typename": "A"}],
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "1",
+                    "queueid": 1,
                     "deployment_path": "environments/gcp/primary_provider",
                 }),
                 headers: HashMap::new(),
@@ -768,7 +765,7 @@ mod tests {
                     "patch": [{"__typename": "B"}],
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "2",
+                    "queueid": 2,
                 }),
                 headers: HashMap::new(),
             },
@@ -778,7 +775,7 @@ mod tests {
                     "patch": [{"__typename": "C"}],
                     "branch": "main",
                     "latest_commit": "abc",
-                    "queueid": "3",
+                    "queueid": 3,
                 }),
                 headers: HashMap::new(),
             },
