@@ -755,7 +755,12 @@ def test_server_export_local(server_env):
                     env={"UNFURL_LOGGING": "critical"},
                 )
                 assert exported
-                assert res.json() == json.loads(exported.output)
+                # The server response carries an extra `latest_commit` echo
+                # field (serve.py:1585) that the CLI export doesn't emit;
+                # drop it before comparing structurally.
+                server_payload = res.json()
+                server_payload.pop("latest_commit", None)
+                assert server_payload == json.loads(exported.output)
 
             # Error: invalid format (rejected by schema validation)
             res = requests.get(

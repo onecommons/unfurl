@@ -614,8 +614,8 @@ class CacheValue(NamedTuple):
     latest_commit: str
     deps: CacheItemDependencies
     last_commit_date: int
+    # set if front end patches a cached value in-place:
     queueid: int = 0  # > 1 when the value hasn't been committed yet
-    queued_commit: str = ""  # set after a queued value is committed
 
     def make_etag(self) -> str:
         etag = int(self.last_commit or "0", 16) ^ int(get_package_digest() or "0", 16)
@@ -976,7 +976,6 @@ class CacheEntry:
             self._deps,
             cached_last_commit_date,
             queueid,
-            queueid_commit,
         ) = value
         if latest_commit == cached_latest_commit:
             # this is the latest
@@ -987,7 +986,7 @@ class CacheEntry:
             if self.stale_pull_age == -1:
                 # if stale_pull_age is -1, we never want to pull, so just treat as stale cache hit
                 logger.info(
-                    "cache hist for %s (stale_pull_age is -1)",
+                    "cache hit for %s (stale_pull_age is -1)",
                     prefixed_key,
                 )
                 return value, True
@@ -1582,6 +1581,8 @@ def _export(
             elif post_work:
                 post_work(cache_entry, json_summary)
 
+            if cache_entry.value and cache_entry.value.latest_commit:
+                json_summary["latest_commit"] = cache_entry.value.latest_commit
             response = json_response(
                 json_summary, request.args.get("pretty"), sort_keys=False
             )

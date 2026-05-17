@@ -176,7 +176,10 @@ async fn handle_cached_get(
                 etag
             );
             return match serde_json::from_value::<unfurl_types::ExportResponse>(json_val.clone()) {
-                Ok(typed) => CacheOutcome::Typed(Box::new(typed), etag),
+                Ok(mut typed) => {
+                    typed.latest_commit = latest_commit;
+                    CacheOutcome::Typed(Box::new(typed), etag)
+                }
                 Err(e) => {
                     tracing::debug!(
                         "cache hit {key}: typed ExportResponse deserialize failed \
