@@ -55,6 +55,7 @@ from .schemas import (
     PatchResponse,
     PATCH_RESPONSES,
     PostCloudmapRequest,
+    ProjectAuthQuery,
 )
 
 # Imported from .serve at the bottom of this file; serve.py imports
@@ -193,12 +194,15 @@ _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
     ),
     tags=["Export"],
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PostCloudmapRequest, location="json", arg_name="body")
 @app.output(
     PatchResponse,
     description="commit and list of applied changes (mirrors the rust handler's per-record response)",
 )
-def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
+def post_cloudmap(
+    query: ProjectAuthQuery, body: PostCloudmapRequest
+) -> ResponseReturnValue:
     """
     Unlike the Rust server, the atomic flag is ignored, posts are always atomic.
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
@@ -218,9 +222,7 @@ def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
         if section in _CLOUDMAP_ENVELOPE_KEYS:
             continue
         if section not in _CLOUDMAP_SECTIONS:
-            return make_response(
-                jsonify(error=f"unknown section {section!r}"), 400
-            )
+            return make_response(jsonify(error=f"unknown section {section!r}"), 400)
         if not isinstance(entries, dict):
             return make_response(
                 jsonify(error=f"section {section!r} must be a JSON object"),
@@ -252,9 +254,7 @@ def post_cloudmap(body: PostCloudmapRequest) -> ResponseReturnValue:
     cache_entry._set_project_repo()
     repo = cache_entry.checked_repo
     if not isinstance(repo, GitRepo):
-        return make_response(
-            jsonify(error="cloudmap repository not available"), 500
-        )
+        return make_response(jsonify(error="cloudmap repository not available"), 500)
     full_path = os.path.join(repo.working_dir, cloudmap_path)
     starting_revision = repo.revision
     if starting_revision and latest_commit and starting_revision != latest_commit:
@@ -376,11 +376,14 @@ def _get_body(request) -> dict:
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def delete_deployment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
+def delete_deployment(
+    query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
+) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_environment(body, get_project_id(request))
+    return _patch_environment(body, get_project_id(request), delete_deployment=True)
 
 
 @app.post("/update_environment")
@@ -389,9 +392,12 @@ def delete_deployment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def update_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
+def update_environment(
+    query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
+) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
@@ -402,9 +408,12 @@ def update_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnvironmentBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def delete_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue:
+def delete_environment(
+    query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
+) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_environment(body, get_project_id(request))
 
@@ -415,9 +424,12 @@ def delete_environment(body_schema: PatchEnvironmentBody) -> ResponseReturnValue
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def create_provider(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
+def create_provider(
+    query: ProjectAuthQuery, body_schema: PatchEnsembleBody
+) -> ResponseReturnValue:
     body = _get_body(request)
     project_id = get_project_id(request)
     latest_commit = body.get("latest_commit") or ""
@@ -670,9 +682,12 @@ def _patch_node_template(
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def update_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
+def update_ensemble(
+    query: ProjectAuthQuery, body_schema: PatchEnsembleBody
+) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_ensemble(body, False, get_project_id(request))
 
@@ -683,9 +698,12 @@ def update_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(PatchEnsembleBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def create_ensemble(body_schema: PatchEnsembleBody) -> ResponseReturnValue:
+def create_ensemble(
+    query: ProjectAuthQuery, body_schema: PatchEnsembleBody
+) -> ResponseReturnValue:
     body = _get_body(request)
     return _patch_ensemble(body, True, get_project_id(request))
 
@@ -721,9 +739,12 @@ def _update_queue_key(
     tags=["Project"],
     responses=PATCH_RESPONSES,
 )
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
 @app.input(BatchPatchBody, location="json", arg_name="body_schema")
 @app.output(PatchResponse)
-def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
+def batch_patch(
+    query: ProjectAuthQuery, body_schema: "BatchPatchBody"
+) -> ResponseReturnValue:
     body = _get_body(request)
     project_id = get_project_id(request)
     batch_requests = body.get("requests", [])
@@ -742,14 +763,15 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
         "",
         latest_commit,
         body,
-        False,
     )
     if err:
         return err
     assert readonly_localEnv and readonly_localEnv.project
     last_body = body  # track last body for credentials
+    latest_commits = set()
     for req in batch_requests:
         endpoint = req.get("endpoint", "")
+        latest_commits.add(req.get("latest_commit", ""))
         # The request body is the req dict itself (endpoint + original body fields).
         req_body = req
         last_body = req_body
@@ -768,7 +790,6 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
                 req_body,
                 create,
                 project_id,
-                check_lastcommit=False,
                 batched=readonly_localEnv,
             )
             if isinstance(result, tuple):
@@ -778,6 +799,7 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
     username = last_body.get("username")
     password = last_body.get("private_token", last_body.get("password"))
     if not app.config.get("UNFURL_GUI_MODE"):
+        # note: if push fails this commit is discarded locally too
         err = _push_changes(repo, username, password, latest_commit)
         if err:
             return err
@@ -786,7 +808,9 @@ def batch_patch(body_schema: "BatchPatchBody") -> ResponseReturnValue:
     batch_queueid = body.get("queueid")
     if batch_queueid is not None and repo:
         new_commit = repo.revision
-        _update_queue_key(project_id, latest_commit, new_commit, batch_queueid)
+        for lc in latest_commits:
+            if lc:  # skip empty latest_commit values
+                _update_queue_key(project_id, lc, new_commit, batch_queueid)
     return _patch_response(repo)
 
 
@@ -875,7 +899,10 @@ def _apply_environment_patch(patch: list, local_env: LocalEnv) -> Optional[Respo
 
 
 def _patch_environment(
-    body: dict, project_id: str, batched: Optional[LocalEnv] = None
+    body: dict,
+    project_id: str,
+    batched: Optional[LocalEnv] = None,
+    delete_deployment=False,
 ) -> ResponseReturnValue:
     patch = body.get("patch")
     assert isinstance(patch, list)
@@ -895,8 +922,6 @@ def _patch_environment(
         if err:
             return err
     assert readonly_localEnv and readonly_localEnv.project
-    if batched is None:  # XXX
-        invalidate_cache(body, "environments", project_id)
     # if UNFURL_CURRENT_WORKING_DIR is set, use it as the home project so we don't clone remote projects that are local
     home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
         "UNFURL_OPTIONS"
@@ -1040,7 +1065,6 @@ def _patch_ensemble(
     body: dict,
     create: bool,
     project_id: str,
-    check_lastcommit: bool = True,
     batched: Optional[LocalEnv] = None,
 ) -> ResponseReturnValue:
     from .cache import ServerCacheResolver
@@ -1083,7 +1107,6 @@ def _patch_ensemble(
             "",
             latest_commit,
             body,
-            check_lastcommit,
         )
         if err:
             if isinstance(existing_repo, GitRepo):

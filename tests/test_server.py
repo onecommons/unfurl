@@ -1143,6 +1143,28 @@ def test_server_update_deployment(server_env):
                 == "container"
             )
 
+            # An update_ensemble with a stale/wrong latest_commit must be rejected
+            # synchronously with 409 CONFLICT:
+            #   * no-redis / redis / redis-rust → Python's localenv check fails
+            #     (repo.revision != latest_commit).
+            #   * queue-rust → inc_queueid sees a missing queue key for the bogus
+            #     commit with queueid > 0 and returns "error" from the Rust proxy.
+            stale_commit = "0" * 40
+            stale_res = _post_write(
+                f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
+                {
+                    "patch": json.loads(target_patch),
+                    "latest_commit": stale_commit,
+                },
+                server_env,
+                queueid=queueid,
+            )
+            assert stale_res.status_code == 409, (
+                f"expected 409 CONFLICT for stale latest_commit "
+                f"(server_env={server_env}, queueid={queueid}); "
+                f"got {stale_res.status_code}: {stale_res.text}"
+            )
+
             os.chdir("remote")
             # server pushes to remote.git which needs to be a bare repository
             # so pull from there to verify the push
@@ -1246,8 +1268,13 @@ def test_server_update_deployment(server_env):
                 os.system("git pull --commit --no-edit origin main")
             )
             with open("unfurl.yaml", "r") as f:
-                data = yaml.load(f.read())
+                contents = f.read()
+                data = yaml.load(contents)
                 # check that the environment was added and an ensemble was created
+                assert data.get("environments") is not None, (
+                    f"missing 'environments' in unfurl.yaml ({server_env}); "
+                    f"file contents:\n{contents}"
+                )
                 assert (
                     data["environments"]["gcp"]["connections"]["primary_provider"][
                         "type"

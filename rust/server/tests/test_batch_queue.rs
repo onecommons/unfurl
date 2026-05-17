@@ -13,7 +13,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
 use unfurl_server::config::Config;
-use unfurl_server::queue::{self, QueueIdResult, QueueItem};
+use unfurl_server::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem};
 
 /// Return the Redis URL from the environment, or `None` to skip.
 fn redis_url() -> Option<String> {
@@ -723,4 +723,237 @@ async fn test_inc_queueid_new_commit_redirect() {
     assert_eq!(val, "1");
 
     cleanup_queue_keys(&mut conn, project).await;
+}
+
+// ---------------------------------------------------------------------------
+// check_export_queue tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_check_export_queue_redirects_to_new_commit() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "exp_q_redirect";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // Simulate batch_patch having committed: queue key stores "{new_commit},{last_queueid}".
+    let queue_key = format!("queue:{}:commit_a", project);
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("commit_b,5")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // Request with queueid <= last_queueid (5) should redirect to commit_b.
+    let r = queue::check_export_queue(&mut conn, project, "commit_a", 5)
+        .await
+        .unwrap();
+    assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
+
+    // Earlier queueid (e.g. 3) also redirects: those patches were
+    // bundled into the same batch and committed.
+    let r = queue::check_export_queue(&mut conn, project, "commit_a", 3)
+        .await
+        .unwrap();
+    assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_check_export_queue_retry_when_no_commit() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "exp_q_pending";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // Queue key exists but no commit produced yet (plain integer).
+    let queue_key = format!("queue:{}:commit_a", project);
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("3")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let r = queue::check_export_queue(&mut conn, project, "commit_a", 3)
+        .await
+        .unwrap();
+    assert_eq!(r, ExportQueueCheck::Retry);
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_check_export_queue_retry_when_queueid_stale() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "exp_q_stale";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // New commit recorded with last_queueid=5; client at queueid=7 is
+    // ahead — their patch is still queued past the committed batch.
+    let queue_key = format!("queue:{}:commit_a", project);
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("commit_b,5")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let r = queue::check_export_queue(&mut conn, project, "commit_a", 7)
+        .await
+        .unwrap();
+    assert_eq!(r, ExportQueueCheck::Retry);
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_check_export_queue_retry_when_key_missing() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "exp_q_missing";
+    cleanup_queue_keys(&mut conn, project).await;
+
+    // No queue key at all → caller should retry; we have no evidence
+    // the client's queued write has been processed.
+    let r = queue::check_export_queue(&mut conn, project, "commit_a", 1)
+        .await
+        .unwrap();
+    assert_eq!(r, ExportQueueCheck::Retry);
+
+    cleanup_queue_keys(&mut conn, project).await;
+}
+
+// ---------------------------------------------------------------------------
+// has_pending_writes tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_has_pending_writes_empty() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "pending_empty";
+    let config = test_config(project, 60);
+    cleanup_keys(&mut conn, project).await;
+
+    assert!(!queue::has_pending_writes(&mut conn, &config, project, "main")
+        .await
+        .unwrap());
+
+    cleanup_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_has_pending_writes_matches_branch() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "pending_match";
+    let config = test_config(project, 60);
+    cleanup_keys(&mut conn, project).await;
+
+    // Enqueue an item targeting branch "main".
+    let item = make_item("/update_ensemble", "main", "abc", json!([{"a": 1}]), "msg");
+    queue::enqueue(&mut conn, &config, project, &item).await.unwrap();
+
+    // Matching branch → busy.
+    assert!(queue::has_pending_writes(&mut conn, &config, project, "main")
+        .await
+        .unwrap());
+    // Different branch → not busy.
+    assert!(!queue::has_pending_writes(&mut conn, &config, project, "dev")
+        .await
+        .unwrap());
+
+    cleanup_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_has_pending_writes_when_worker_lock_held() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "pending_lock";
+    let config = test_config(project, 60);
+    cleanup_keys(&mut conn, project).await;
+
+    // Simulate `run_worker` holding the per-project batch lock while
+    // forwarding to Python (items already drained, list is empty).
+    let lock_key = format!(
+        "{}{}",
+        config.batch_lock_prefix(),
+        config.batch_list_key(project)
+    );
+    let _: () = redis::cmd("SET")
+        .arg(&lock_key)
+        .arg("1")
+        .arg("EX")
+        .arg(60)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // List is empty but the lock is held → busy regardless of branch.
+    assert!(queue::has_pending_writes(&mut conn, &config, project, "main")
+        .await
+        .unwrap());
+    assert!(queue::has_pending_writes(&mut conn, &config, project, "dev")
+        .await
+        .unwrap());
+
+    cleanup_keys(&mut conn, project).await;
 }

@@ -24,7 +24,7 @@ use std::collections::HashMap;
 
 use crate::cache;
 use crate::proxy;
-use crate::queue::{self, QueueIdResult, QueueItem};
+use crate::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem};
 use crate::unfurl_types;
 use crate::AppState;
 
@@ -230,7 +230,39 @@ pub async fn handle_export(
     ValidatedQuery(params): ValidatedQuery<unfurl_types::GetExportRequestQuery>,
     req: Request,
 ) -> Result<Json<unfurl_types::ExportResponse>, Response> {
-    let latest_commit = params.latest_commit.clone();
+    let resolved = match resolve_queue_latest_commit(&state, &params).await {
+        Ok(r) => r,
+        Err(resp) => return Err(resp),
+    };
+    // If the queue check produced a new commit, rewrite the request URI
+    // so the proxied backend call uses the new commit and no longer
+    // carries the consumed `queueid`. Otherwise pass the request
+    // through with its original `latest_commit` (or `None`).
+    let (latest_commit, req) = if let Some(new_commit) = resolved {
+        let new_uri = rewrite_uri_for_resolved_commit(req.uri(), &new_commit);
+        let (mut parts, body) = req.into_parts();
+        parts.uri = new_uri;
+        (Some(new_commit), Request::from_parts(parts, body))
+    } else {
+        (params.latest_commit.clone(), req)
+    };
+    // `include_all_deployments=1` (or `=true`) requires composing the
+    // primary environments summary with one cache entry per deployment
+    // (see `_export` in serve.py) so bypass the cache and let Python handle this.
+    // Match Python's truthiness check on `request.args.get("include_all_deployments")`
+    if params
+        .include_all_deployments
+        .as_deref()
+        .is_some_and(|s| !s.is_empty())
+    {
+        return Err(proxy::forward(
+            &state.client,
+            &state.config.backend_url(),
+            req,
+            state.config.max_body_bytes,
+        )
+        .await);
+    }
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
     match handle_cached_get(state, req, key, latest_commit).await {
         CacheOutcome::Typed(typed, etag) => Err(with_etag(Json(*typed).into_response(), &etag)),
@@ -238,6 +270,105 @@ pub async fn handle_export(
         CacheOutcome::RawJson(val, etag) => Err(with_etag(Json(val).into_response(), &etag)),
         CacheOutcome::Proxied(resp) => Err(resp),
     }
+}
+
+/// If the `/export` request carries a `queueid > 0` and Redis is
+/// available, consult the queue key
+/// `queue:{project}:{latest_commit}` and either:
+///   * return the new commit hash to use (so the caller can rewrite the
+///     request's `latest_commit` and drop the consumed `queueid`), or
+///   * short-circuit with **503 Service Unavailable** when the client's
+///     queued write hasn't been committed yet.
+///
+/// On a Redis error, returns **500**. Returns `Ok(None)` when no
+/// queueid is present (or `queueid == 0`, or Redis isn't configured) —
+/// the caller passes the original request through unchanged.
+async fn resolve_queue_latest_commit(
+    state: &AppState,
+    params: &unfurl_types::GetExportRequestQuery,
+) -> Result<Option<String>, Response> {
+    let request_queueid = params.queueid.filter(|q| *q > 0);
+    let Some(request_queueid) = request_queueid else {
+        return Ok(None);
+    };
+    let Some(ref redis) = state.redis else {
+        return Ok(None);
+    };
+    let project_id = params.auth_project.as_deref().unwrap_or("");
+    let lc = params.latest_commit.as_deref().unwrap_or("");
+
+    let mut conn = redis.clone();
+    match queue::check_export_queue(&mut conn, project_id, lc, request_queueid).await {
+        Ok(ExportQueueCheck::UseNewCommit(new_commit)) => Ok(Some(new_commit)),
+        Ok(ExportQueueCheck::Retry) => Err(queue_retry_response()),
+        Err(e) => {
+            tracing::error!("check_export_queue Redis error: {}", e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response())
+        }
+    }
+}
+
+/// Rewrite a request URI's query string to substitute `latest_commit`
+/// with `new_commit` (inserting it if it wasn't present) and drop the
+/// `queueid` param entirely.  Called after the queue check resolves a
+/// queued export request to a committed commit so the proxied backend
+/// request reflects the new revision and no longer carries the
+/// consumed `queueid`.
+fn rewrite_uri_for_resolved_commit(uri: &axum::http::Uri, new_commit: &str) -> axum::http::Uri {
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut latest_commit_seen = false;
+    if let Some(q) = uri.query() {
+        for (k, v) in url::form_urlencoded::parse(q.as_bytes()) {
+            match k.as_ref() {
+                "queueid" => continue,
+                "latest_commit" => {
+                    latest_commit_seen = true;
+                    pairs.push((k.into_owned(), new_commit.to_string()));
+                }
+                _ => pairs.push((k.into_owned(), v.into_owned())),
+            }
+        }
+    }
+    if !latest_commit_seen {
+        pairs.push(("latest_commit".into(), new_commit.to_string()));
+    }
+    let new_query = url::form_urlencoded::Serializer::new(String::new())
+        .extend_pairs(&pairs)
+        .finish();
+    let path = uri.path();
+    let path_and_query = if new_query.is_empty() {
+        path.to_string()
+    } else {
+        format!("{}?{}", path, new_query)
+    };
+    let mut builder = axum::http::Uri::builder();
+    if let Some(scheme) = uri.scheme() {
+        builder = builder.scheme(scheme.clone());
+    }
+    if let Some(auth) = uri.authority() {
+        builder = builder.authority(auth.clone());
+    }
+    builder
+        .path_and_query(path_and_query)
+        .build()
+        .unwrap_or_else(|_| uri.clone())
+}
+
+/// Build the 503 response returned when an `/export` request's queued
+/// write hasn't been committed yet. Includes a `Retry-After: 1` header
+/// so clients with a generic retry policy back off briefly instead of
+/// hammering the proxy.
+fn queue_retry_response() -> Response {
+    let body = Json(json!({
+        "error": "RETRY",
+        "message": "queued update not yet committed",
+    }));
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(header::RETRY_AFTER, "1")],
+        body,
+    )
+        .into_response()
 }
 
 /// GET /types -- try Redis cache first, fall back to proxying.
@@ -319,6 +450,22 @@ async fn handle_write(
 
     let body: JsonValue = serde_json::from_slice(&body_bytes).unwrap_or(JsonValue::Null);
 
+    // Every write request must declare the commit it is patching against.
+    let latest_commit = body
+        .get("latest_commit")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    if latest_commit.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "BAD_REQUEST",
+                "message": "missing or empty latest_commit",
+            })),
+        )
+            .into_response();
+    }
+
     // Use the Redis queue only when Redis is available AND the request body
     // contains a non-null, non-empty "queueid" field.  When queueid is absent
     // the write request is proxied synchronously to the Python backend.
@@ -329,11 +476,6 @@ async fn handle_write(
         .and_then(|s| s.parse::<i64>().ok());
     if let Some(queueid) = client_queueid {
         if let Some(ref redis) = state.redis {
-            let latest_commit = body
-                .get("latest_commit")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-
             // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
             let qid_result =
@@ -398,6 +540,42 @@ async fn handle_write(
                     return Json(json!({"queueid": new_queueid, "commit": new_commit}))
                         .into_response();
                 }
+            }
+        }
+    }
+
+    // No queueid → the client wants a synchronous write.  If Redis is
+    // available, refuse to proxy when there are still pending writes for
+    // `(project_id, branch)` (either queued or being applied by
+    // `run_worker`): letting a sync request race with an in-flight batch
+    // would let the two writes commit against the same parent commit
+    // and clobber each other.
+    if let Some(ref redis) = state.redis {
+        let branch = body
+            .get("branch")
+            .and_then(|v| v.as_str())
+            .unwrap_or("main");
+        let mut conn = redis.clone();
+        match queue::has_pending_writes(&mut conn, &state.config, &project_id, branch).await {
+            Ok(true) => {
+                tracing::info!(
+                    "rejecting sync write: pending batch for project={} branch={}",
+                    project_id,
+                    branch
+                );
+                return (
+                    StatusCode::CONFLICT,
+                    Json(json!({
+                        "error": "CONFLICT",
+                        "message": "pending batched writes for this project/branch",
+                    })),
+                )
+                    .into_response();
+            }
+            Ok(false) => {}
+            Err(e) => {
+                tracing::error!("has_pending_writes Redis error: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
             }
         }
     }
@@ -556,5 +734,82 @@ fn ensure_leading_slash(path: &str) -> String {
         path.to_string()
     } else {
         format!("/{}", path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse_query_pairs(uri: &axum::http::Uri) -> Vec<(String, String)> {
+        uri.query()
+            .map(|q| {
+                url::form_urlencoded::parse(q.as_bytes())
+                    .into_owned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    #[test]
+    fn rewrite_uri_replaces_latest_commit_and_drops_queueid() {
+        let uri: axum::http::Uri =
+            "/export?auth_project=foo&latest_commit=old&queueid=3&format=blueprint"
+                .parse()
+                .unwrap();
+        let new = rewrite_uri_for_resolved_commit(&uri, "new_commit_sha");
+        assert_eq!(new.path(), "/export");
+
+        let pairs = parse_query_pairs(&new);
+        assert!(!pairs.iter().any(|(k, _)| k == "queueid"));
+        let lc: Vec<_> = pairs.iter().filter(|(k, _)| k == "latest_commit").collect();
+        assert_eq!(lc.len(), 1);
+        assert_eq!(lc[0].1, "new_commit_sha");
+
+        // Other params are preserved.
+        assert!(pairs.iter().any(|(k, v)| k == "auth_project" && v == "foo"));
+        assert!(pairs.iter().any(|(k, v)| k == "format" && v == "blueprint"));
+    }
+
+    #[test]
+    fn rewrite_uri_inserts_latest_commit_when_absent() {
+        let uri: axum::http::Uri = "/export?auth_project=foo&queueid=3".parse().unwrap();
+        let new = rewrite_uri_for_resolved_commit(&uri, "new_commit");
+
+        let pairs = parse_query_pairs(&new);
+        assert!(!pairs.iter().any(|(k, _)| k == "queueid"));
+        assert!(pairs
+            .iter()
+            .any(|(k, v)| k == "latest_commit" && v == "new_commit"));
+    }
+
+    #[test]
+    fn rewrite_uri_handles_empty_query() {
+        let uri: axum::http::Uri = "/export".parse().unwrap();
+        let new = rewrite_uri_for_resolved_commit(&uri, "new_commit");
+        assert_eq!(new.path(), "/export");
+
+        let pairs = parse_query_pairs(&new);
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0], ("latest_commit".into(), "new_commit".into()));
+    }
+
+    #[test]
+    fn rewrite_uri_drops_multiple_queueid_occurrences() {
+        // Defensive: someone (or a buggy client) sends queueid twice —
+        // both should be removed.
+        let uri: axum::http::Uri = "/export?queueid=1&latest_commit=a&queueid=2"
+            .parse()
+            .unwrap();
+        let new = rewrite_uri_for_resolved_commit(&uri, "b");
+        let pairs = parse_query_pairs(&new);
+        assert!(!pairs.iter().any(|(k, _)| k == "queueid"));
+        assert_eq!(
+            pairs
+                .iter()
+                .filter(|(k, _)| k == "latest_commit")
+                .collect::<Vec<_>>(),
+            vec![&("latest_commit".to_string(), "b".to_string())]
+        );
     }
 }

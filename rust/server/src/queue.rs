@@ -4,9 +4,10 @@
 //!
 //! POST write operations (create_*, update_*, delete_*) are enqueued
 //! to per-project Redis lists.  A background worker drains items whose
-//! batch window has expired, consolidates compatible requests (same
-//! `latest_commit`, `branch`, and `deployment_path`), and forwards
-//! merged batches to the Python backend's `/batch_patch` endpoint.
+//! batch window has expired, partitions them by `(project_id, branch)`,
+//! and forwards each partition to the Python backend's `/batch_patch`
+//! endpoint.  The batch's top-level `latest_commit` and `queueid` come
+//! from the last queued request in the partition.
 
 use once_cell::sync::Lazy;
 use redis::AsyncCommands;
@@ -157,6 +158,7 @@ pub enum QueueIdResult {
 /// The queue key `queue:{project_id}:{latest_commit}` tracks the sequence
 /// of patches against a given commit.  When `batch_patch` commits, the
 /// Python server replaces the value with `"{new_commit},{queueid}"`.
+/// (see _update_queue_key() in unfurl/server/endpoints.py)
 pub async fn inc_queueid(
     conn: &mut redis::aio::MultiplexedConnection,
     project_id: &str,
@@ -189,6 +191,101 @@ pub async fn inc_queueid(
     }
 }
 
+/// Result of [`check_export_queue`]: either redirect the client to a
+/// committed new commit, or tell them to retry because their queued
+/// write hasn't been committed yet.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExportQueueCheck {
+    /// The queue key records a new commit produced by `batch_patch`,
+    /// and the recorded `last_queueid` is at least as high as the
+    /// client's `queueid`. The caller should treat this commit as the
+    /// effective `latest_commit`.
+    UseNewCommit(String),
+    /// The client's queued write hasn't been committed yet (either no
+    /// commit recorded against `latest_commit`, or the recorded
+    /// `last_queueid` is below the client's `queueid`). Caller should
+    /// reply 503 with a Retry-After hint.
+    Retry,
+}
+
+/// Resolve whether an `/export` (or similar) request with a `queueid`
+/// can proceed.
+///
+/// Reads the queue key `queue:{project_id}:{latest_commit}` and
+/// interprets its value the same way `INC_QUEUEID_SCRIPT` does:
+///   * Missing key → [`ExportQueueCheck::Retry`]
+///   * `"N"` (no commit produced yet) → [`ExportQueueCheck::Retry`]
+///   * `"{new_commit},{N}"` where `N >= request_queueid` →
+///     [`ExportQueueCheck::UseNewCommit`]
+///   * `"{new_commit},{N}"` where `N < request_queueid` →
+///     [`ExportQueueCheck::Retry`] (more queued writes still pending)
+pub async fn check_export_queue(
+    conn: &mut redis::aio::MultiplexedConnection,
+    project_id: &str,
+    latest_commit: &str,
+    request_queueid: i64,
+) -> Result<ExportQueueCheck, redis::RedisError> {
+    let queue_key = format!("queue:{}:{}", project_id, latest_commit);
+    let val: Option<String> = conn.get(&queue_key).await?;
+    let Some(val) = val else {
+        return Ok(ExportQueueCheck::Retry);
+    };
+    let Some((new_commit, qid_str)) = val.split_once(',') else {
+        return Ok(ExportQueueCheck::Retry);
+    };
+    let last_queueid: i64 = qid_str.parse().unwrap_or(0);
+    if last_queueid < request_queueid {
+        return Ok(ExportQueueCheck::Retry);
+    }
+    Ok(ExportQueueCheck::UseNewCommit(new_commit.to_string()))
+}
+
+/// Report whether the queue for `(project_id, branch)` is busy: either
+/// the per-project batch list contains an item targeting this branch,
+/// or `run_worker` currently holds the project's batch lock (which it
+/// keeps from before its `LPOP` drain through the last `/batch_patch`
+/// forward to Python — so this catches the window where items have
+/// been popped from the list but Python hasn't yet committed them).
+///
+/// Caveat: the lock has a TTL of `proxy_timeout_secs`; a Python commit
+/// that exceeds that window can let this check fall through to
+/// "not busy" while a batch is still being applied. That's a
+/// pre-existing assumption of the batch lock, not introduced here.
+pub async fn has_pending_writes(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    branch: &str,
+) -> Result<bool, redis::RedisError> {
+    let list_key = config.batch_list_key(project_id);
+    let lock_key = format!("{}{}", config.batch_lock_prefix(), list_key);
+
+    let locked: Option<String> = conn.get(&lock_key).await?;
+    if locked.is_some() {
+        return Ok(true);
+    }
+
+    let items: Vec<String> = redis::cmd("LRANGE")
+        .arg(&list_key)
+        .arg(0)
+        .arg(-1)
+        .query_async(conn)
+        .await?;
+    for raw in items {
+        if let Ok(item) = serde_json::from_str::<QueueItem>(&raw) {
+            let item_branch = item
+                .body
+                .get("branch")
+                .and_then(|v| v.as_str())
+                .unwrap_or("main");
+            if item_branch == branch {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
 /// Push a write request onto the per-project batch list and register the
 /// batch deadline in the ready set (atomically via Lua).
 pub async fn enqueue(
@@ -215,12 +312,15 @@ pub async fn enqueue(
 // Partitioning
 // ---------------------------------------------------------------------------
 
-/// Grouping key: requests sharing the same `latest_commit` and `branch`
-/// are sent together in one `/batch_patch` call so the Python backend can
-/// apply them in order and push once.
+/// Grouping key: requests sharing the same `(project_id, branch)` are
+/// sent together in one `/batch_patch` call so the Python backend can
+/// apply them in order and push once.  Requests against different
+/// `latest_commit` values for the same branch are merged into a single
+/// batch; the last queued request's `latest_commit` and `queueid` are
+/// used as the batch's top-level values.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct PartitionKey {
-    latest_commit: String,
+    project_id: String,
     branch: String,
 }
 
@@ -238,12 +338,14 @@ struct BatchRequest {
 /// A partitioned batch ready to be posted to `/batch_patch`.
 #[derive(Debug, Serialize)]
 struct PartitionedBatch {
+    /// The last queued request's `latest_commit` — Python applies the
+    /// batch against this revision and updates the queue key from it.
     latest_commit: String,
     branch: String,
     /// The individual requests in submission order.
     requests: Vec<BatchRequest>,
-    /// Current queueid for this partition (read from Redis before sending).
-    /// Python uses this to update the queue key after committing.
+    /// The last queued request's `queueid` — Python uses this to
+    /// update the queue key after committing.
     #[serde(skip_serializing_if = "Option::is_none")]
     queueid: Option<i64>,
 }
@@ -255,20 +357,29 @@ fn endpoint_name(endpoint: &str) -> &str {
     path.strip_prefix('/').unwrap_or(path)
 }
 
-/// Partition a list of queue items by `(latest_commit, branch)`.
-/// Items within each partition preserve their original order.
-fn consolidate(items: Vec<QueueItem>) -> Vec<(PartitionedBatch, HashMap<String, String>)> {
+/// Parse a `queueid` field from a request body. The field is stored as
+/// a string by `handle_write` after `inc_queueid` runs.
+fn extract_queueid(body: &JsonValue) -> Option<i64> {
+    body.get("queueid")
+        .and_then(|v| v.as_str())
+        .and_then(|s| s.parse::<i64>().ok())
+}
+
+/// Partition a list of queue items by `(project_id, branch)`. Items
+/// within each partition preserve their original order. The batch's
+/// `latest_commit` and `queueid` are taken from the last queued request
+/// in the partition.
+fn consolidate(
+    project_id: &str,
+    items: Vec<QueueItem>,
+) -> Vec<(PartitionedBatch, HashMap<String, String>)> {
     // Preserve insertion order with a Vec of (key, batch, headers).
     let mut groups: Vec<(PartitionKey, PartitionedBatch, HashMap<String, String>)> = Vec::new();
 
     for item in items {
         let body = &item.body;
         let key = PartitionKey {
-            latest_commit: body
-                .get("latest_commit")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string(),
+            project_id: project_id.to_string(),
             branch: body
                 .get("branch")
                 .and_then(|v| v.as_str())
@@ -276,19 +387,29 @@ fn consolidate(items: Vec<QueueItem>) -> Vec<(PartitionedBatch, HashMap<String, 
                 .to_string(),
         };
 
+        let latest_commit = body
+            .get("latest_commit")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let queueid = extract_queueid(body);
+
         let req = BatchRequest {
             endpoint: endpoint_name(&item.endpoint).to_string(),
             body: body.clone(),
         };
 
         if let Some(idx) = groups.iter().position(|(k, _, _)| k == &key) {
-            groups[idx].1.requests.push(req);
+            let batch = &mut groups[idx].1;
+            batch.requests.push(req);
+            batch.latest_commit = latest_commit;
+            batch.queueid = queueid;
         } else {
             let batch = PartitionedBatch {
-                latest_commit: key.latest_commit.clone(),
+                latest_commit,
                 branch: key.branch.clone(),
                 requests: vec![req],
-                queueid: None,
+                queueid,
             };
             groups.push((key, batch, item.headers));
         }
@@ -413,24 +534,15 @@ pub async fn run_worker(
                 })
                 .collect();
 
-            let batches = consolidate(items);
-
             // Extract project_id from the list_key (format: prefix + "batch:" + project_id).
             let project_id = list_key
                 .rsplit_once("batch:")
                 .map(|(_, pid)| pid)
                 .unwrap_or("");
 
-            for (mut batch, headers) in batches {
-                // Read the current queueid from Redis so Python can update
-                // the queue key after committing.
-                let queue_key = format!("queue:{}:{}", project_id, batch.latest_commit);
-                if let Ok(Some(val)) = conn.get::<&str, Option<String>>(&queue_key).await {
-                    // Value is either "N" or "commit,N" — we want the integer part.
-                    let qid_str = val.rsplit(',').next().unwrap_or(&val);
-                    batch.queueid = qid_str.parse::<i64>().ok();
-                }
+            let batches = consolidate(project_id, items);
 
+            for (batch, headers) in batches {
                 let url = format!(
                     "{}/batch_patch?auth_project={}",
                     backend_url,
@@ -515,19 +627,21 @@ mod tests {
                 "commit_msg": "add provider",
                 "branch": "main",
                 "latest_commit": "abc123",
+                "queueid": "1",
                 "deployment_path": "deploy1",
                 "environment": "prod",
             }),
             headers: HashMap::new(),
         }];
 
-        let batches = consolidate(items);
+        let batches = consolidate("proj1", items);
         assert_eq!(batches.len(), 1);
         let (batch, _) = &batches[0];
         assert_eq!(batch.requests.len(), 1);
         assert_eq!(batch.requests[0].endpoint, "create_provider");
         assert_eq!(batch.branch, "main");
         assert_eq!(batch.latest_commit, "abc123");
+        assert_eq!(batch.queueid, Some(1));
     }
 
     #[test]
@@ -540,6 +654,7 @@ mod tests {
                     "commit_msg": "msg1",
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "1",
                     "deployment_path": "d1",
                 }),
                 headers: HashMap::new(),
@@ -551,18 +666,57 @@ mod tests {
                     "commit_msg": "msg2",
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "2",
                 }),
                 headers: HashMap::new(),
             },
         ];
 
-        let batches = consolidate(items);
+        let batches = consolidate("proj1", items);
         assert_eq!(batches.len(), 1);
         let (batch, _) = &batches[0];
         assert_eq!(batch.requests.len(), 2);
         // Order preserved.
         assert_eq!(batch.requests[0].endpoint, "create_provider");
         assert_eq!(batch.requests[1].endpoint, "delete_deployment");
+        // Last request's latest_commit and queueid surface at the top level.
+        assert_eq!(batch.latest_commit, "abc");
+        assert_eq!(batch.queueid, Some(2));
+    }
+
+    #[test]
+    fn test_consolidate_groups_different_commits_same_branch() {
+        // Same branch, different latest_commit values now end up in the
+        // same partition; the last queued request's commit/queueid wins.
+        let items = vec![
+            QueueItem {
+                endpoint: "/update_ensemble?auth_project=proj1".into(),
+                body: json!({
+                    "patch": [{"a": 1}],
+                    "branch": "main",
+                    "latest_commit": "abc",
+                    "queueid": "1",
+                }),
+                headers: HashMap::new(),
+            },
+            QueueItem {
+                endpoint: "/update_ensemble?auth_project=proj1".into(),
+                body: json!({
+                    "patch": [{"b": 2}],
+                    "branch": "main",
+                    "latest_commit": "def",
+                    "queueid": "1",
+                }),
+                headers: HashMap::new(),
+            },
+        ];
+
+        let batches = consolidate("proj1", items);
+        assert_eq!(batches.len(), 1);
+        let (batch, _) = &batches[0];
+        assert_eq!(batch.requests.len(), 2);
+        assert_eq!(batch.latest_commit, "def");
+        assert_eq!(batch.queueid, Some(1));
     }
 
     #[test]
@@ -574,6 +728,7 @@ mod tests {
                     "patch": [{"a": 1}],
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "1",
                 }),
                 headers: HashMap::new(),
             },
@@ -583,12 +738,13 @@ mod tests {
                     "patch": [{"b": 2}],
                     "branch": "dev",
                     "latest_commit": "abc",
+                    "queueid": "1",
                 }),
                 headers: HashMap::new(),
             },
         ];
 
-        let batches = consolidate(items);
+        let batches = consolidate("proj1", items);
         assert_eq!(batches.len(), 2);
     }
 
@@ -601,6 +757,7 @@ mod tests {
                     "patch": [{"__typename": "A"}],
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "1",
                     "deployment_path": "environments/gcp/primary_provider",
                 }),
                 headers: HashMap::new(),
@@ -611,6 +768,7 @@ mod tests {
                     "patch": [{"__typename": "B"}],
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "2",
                 }),
                 headers: HashMap::new(),
             },
@@ -620,18 +778,20 @@ mod tests {
                     "patch": [{"__typename": "C"}],
                     "branch": "main",
                     "latest_commit": "abc",
+                    "queueid": "3",
                 }),
                 headers: HashMap::new(),
             },
         ];
 
-        let batches = consolidate(items);
+        let batches = consolidate("proj1", items);
         assert_eq!(batches.len(), 1);
         let (batch, _) = &batches[0];
         assert_eq!(batch.requests.len(), 3);
         assert_eq!(batch.requests[0].endpoint, "create_provider");
         assert_eq!(batch.requests[1].endpoint, "update_environment");
         assert_eq!(batch.requests[2].endpoint, "delete_deployment");
+        assert_eq!(batch.queueid, Some(3));
     }
 
     #[test]
