@@ -2212,18 +2212,6 @@ def serve(
     if local_env:
         set_local_projects(local_env, clone_root, gui)
 
-    current_project_id = get_current_project_id()
-    if current_project_id:
-        set_local_server_url = f"{urljoin(app.config['UNFURL_CLOUD_SERVER'], current_project_id)}?unfurl-server=http://{host}:{port}"
-        logger.info(
-            f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
-            extra=dict(rich=dict(markup=True)),
-        )
-    elif app.config.get("UNFURL_CURRENT_GIT_URL"):
-        logger.warning(
-            f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
-        )
-
     if gui:
         if not local_env:
             logger.error("Unable to run local ui, could not find a valid project.")
@@ -2231,6 +2219,18 @@ def serve(
         from . import gui as unfurl_gui
 
         unfurl_gui.create_routes(local_env)
+    else:
+        current_project_id = get_current_project_id()
+        if current_project_id:
+            set_local_server_url = f"{urljoin(app.config['UNFURL_CLOUD_SERVER'], current_project_id)}?unfurl-server=http://{host}:{port}"
+            logger.info(
+                f"***Visit [bold]{set_local_server_url}[/bold] to view this local project. ***",
+                extra=dict(rich=dict(markup=True)),
+            )
+        elif app.config.get("UNFURL_CURRENT_GIT_URL"):
+            logger.warning(
+                f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
+            )
 
     enter_safe_mode()
     if gui:
