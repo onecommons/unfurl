@@ -1870,11 +1870,19 @@ def localenv_from_cache_checked(
         return err, readonly_localEnv
     assert readonly_localEnv
     assert readonly_localEnv.project
-    repo = readonly_localEnv.project.project_repoview.repo
-    assert repo
-    if check_lastcommit and latest_commit and repo.revision != latest_commit:
+    cached_repo = readonly_localEnv.project.project_repoview.repo
+    assert cached_repo
+    # Read HEAD from a fresh gitpython Repo so the optimistic-lock check
+    # always reflects the on-disk state. The cached `project_repoview.repo`
+    # (shared via `parent=gui_local_env` in gui mode — see line 1780
+    # below) holds an in-memory view of HEAD that doesn't catch up after
+    # another request's worker advanced the ref on disk. Precedent at
+    # ~line 1790 evicts cached YamlManifest for the same staleness reason.
+    fresh_repo = Repo.make_repo(cached_repo.working_dir) or cached_repo
+    fresh_revision = fresh_repo.revision
+    if check_lastcommit and latest_commit and fresh_revision != latest_commit:
         logger.warning(
-            f"Conflict in {project_id}: {latest_commit} != {repo.revision} ({repo.url})"
+            f"Conflict in {project_id}: {latest_commit} != {fresh_revision} ({cached_repo.url})"
         )
         err = create_error_response("CONFLICT", "Repository at wrong revision")
         return err, readonly_localEnv
