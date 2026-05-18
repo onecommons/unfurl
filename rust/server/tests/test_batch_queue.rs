@@ -949,12 +949,116 @@ async fn test_has_pending_writes_when_worker_lock_held() {
         .unwrap();
 
     // List is empty but the lock is held → busy regardless of branch.
-    assert!(queue::has_pending_writes(&mut conn, &config, project, "main")
+    assert!(
+        queue::has_pending_writes(&mut conn, &config, project, "main")
+            .await
+            .unwrap()
+    );
+    assert!(
+        queue::has_pending_writes(&mut conn, &config, project, "dev")
+            .await
+            .unwrap()
+    );
+
+    cleanup_keys(&mut conn, project).await;
+}
+
+// ---------------------------------------------------------------------------
+// kick_worker tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_kick_worker_is_noop_when_no_work_queued() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "kick_noop";
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
+
+    // No prior enqueue → ready set is empty for this project.
+    queue::kick_worker(&mut conn, &config, project)
         .await
-        .unwrap());
-    assert!(queue::has_pending_writes(&mut conn, &config, project, "dev")
+        .unwrap();
+
+    // ZADD XX must not insert the list_key because it didn't exist.
+    let score: Option<f64> = redis::cmd("ZSCORE")
+        .arg(config.batch_ready_set_key())
+        .arg(config.batch_list_key(project))
+        .query_async(&mut conn)
         .await
-        .unwrap());
+        .unwrap();
+    assert_eq!(
+        score, None,
+        "kick_worker must not create a phantom ready-set entry"
+    );
+
+    cleanup_keys(&mut conn, project).await;
+}
+
+#[tokio::test]
+async fn test_kick_worker_lowers_deadline() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    let project = "kick_lowers";
+    // Long window so the deadline set by `enqueue` is comfortably in the future.
+    let config = test_config(project, 600.0);
+    cleanup_keys(&mut conn, project).await;
+
+    // Enqueue an item to populate the ready set with a future deadline.
+    let item = make_item("/update_ensemble", "main", "abc", json!([{"a": 1}]), "msg");
+    queue::enqueue(&mut conn, &config, project, &item)
+        .await
+        .unwrap();
+    let initial_score: f64 = redis::cmd("ZSCORE")
+        .arg(config.batch_ready_set_key())
+        .arg(config.batch_list_key(project))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // Read the Redis "now" timestamp to compare against.
+    let (now_secs, now_micros): (i64, i64) =
+        redis::cmd("TIME").query_async(&mut conn).await.unwrap();
+    let now = now_secs as f64 + now_micros as f64 / 1_000_000.0;
+    assert!(
+        initial_score > now + 1.0,
+        "enqueue should set a future deadline ({initial_score} vs now {now})"
+    );
+
+    queue::kick_worker(&mut conn, &config, project)
+        .await
+        .unwrap();
+
+    let kicked_score: f64 = redis::cmd("ZSCORE")
+        .arg(config.batch_ready_set_key())
+        .arg(config.batch_list_key(project))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    // After kick, the deadline is "now" — i.e. no later than the
+    // current Redis time (allowing a small slack for clock drift).
+    let (now_secs, now_micros): (i64, i64) =
+        redis::cmd("TIME").query_async(&mut conn).await.unwrap();
+    let now_after = now_secs as f64 + now_micros as f64 / 1_000_000.0;
+    assert!(
+        kicked_score <= now_after + 0.5 && kicked_score < initial_score,
+        "kick_worker should lower the deadline to ~now; \
+         initial={initial_score}, kicked={kicked_score}, now={now_after}"
+    );
 
     cleanup_keys(&mut conn, project).await;
 }

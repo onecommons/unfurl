@@ -285,6 +285,39 @@ pub async fn has_pending_writes(
     Ok(false)
 }
 
+/// Force the batch worker to drain a project's pending queue on its
+/// next poll, by lowering its `batch_ready` deadline to "now".
+///
+/// Uses `ZADD <ready_key> XX <now> <list_key>`: the `XX` flag means
+/// "only update if the member already exists", so this is a no-op
+/// when no work is queued (avoids creating a phantom entry that the
+/// worker would otherwise pick up and try to drain).
+///
+/// Used by the `/export` and `/types` wait-and-proxy path: when a
+/// client's request can only be satisfied after the in-flight batch
+/// commits, we'd rather collapse the remainder of the batch window
+/// than make the client poll on a 503.  The worker still owns the
+/// commit itself; this just expedites when it runs.
+pub async fn kick_worker(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+) -> Result<(), redis::RedisError> {
+    let list_key = config.batch_list_key(project_id);
+    let ready_key = config.batch_ready_set_key();
+    let now = get_redis_time(conn).await.ok_or_else(|| {
+        redis::RedisError::from((redis::ErrorKind::ResponseError, "Redis TIME failed"))
+    })?;
+    let _: redis::Value = redis::cmd("ZADD")
+        .arg(&ready_key)
+        .arg("XX")
+        .arg(now)
+        .arg(&list_key)
+        .query_async(conn)
+        .await?;
+    Ok(())
+}
+
 /// Push a write request onto the per-project batch list and register the
 /// batch deadline in the ready set (atomically via Lua).
 pub async fn enqueue(
@@ -596,7 +629,7 @@ pub async fn run_worker(
 }
 
 /// Get the current time from Redis (consistent across instances).
-async fn get_redis_time(conn: &mut redis::aio::MultiplexedConnection) -> Option<f64> {
+pub(crate) async fn get_redis_time(conn: &mut redis::aio::MultiplexedConnection) -> Option<f64> {
     let result: Result<(i64, i64), _> = redis::cmd("TIME").query_async(conn).await;
     match result {
         Ok((secs, micros)) => Some(secs as f64 + micros as f64 / 1_000_000.0),

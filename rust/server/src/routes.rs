@@ -230,7 +230,14 @@ pub async fn handle_export(
     ValidatedQuery(params): ValidatedQuery<unfurl_types::GetExportRequestQuery>,
     req: Request,
 ) -> Result<Json<unfurl_types::ExportResponse>, Response> {
-    let resolved = match resolve_queue_latest_commit(&state, &params).await {
+    let resolved = match resolve_queued_request(
+        &state,
+        params.queueid,
+        params.latest_commit.as_deref(),
+        params.auth_project.as_deref(),
+    )
+    .await
+    {
         Ok(r) => r,
         Err(resp) => return Err(resp),
     };
@@ -272,38 +279,84 @@ pub async fn handle_export(
     }
 }
 
-/// If the `/export` request carries a `queueid > 0` and Redis is
-/// available, consult the queue key
-/// `queue:{project}:{latest_commit}` and either:
-///   * return the new commit hash to use (so the caller can rewrite the
-///     request's `latest_commit` and drop the consumed `queueid`), or
-///   * short-circuit with **503 Service Unavailable** when the client's
-///     queued write hasn't been committed yet.
+/// How often to re-check the queue while waiting for an in-flight
+/// batch to commit on the `/export` / `/types` wait-and-proxy path.
+const QUEUE_WAIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// If a read request (`/export` or `/types`) carries a `queueid > 0`
+/// and Redis is available, consult `queue:{project}:{latest_commit}`
+/// and either:
+///   * return `Ok(Some(new_commit))` — the queue key already records a
+///     commit that covers the client's queueid, so the caller should
+///     rewrite the URI to use it and proxy with fresh data;
+///   * kick the batch worker (so it drains the project's pending list
+///     immediately instead of waiting out the rest of its window) and
+///     poll the queue key until it advances, then return the new commit;
+///   * give up with **503 RETRY** after `proxy_timeout_secs` (matches
+///     the worker's `batch_lock` TTL, so anything longer is
+///     stuck-worker territory anyway).
 ///
-/// On a Redis error, returns **500**. Returns `Ok(None)` when no
-/// queueid is present (or `queueid == 0`, or Redis isn't configured) —
-/// the caller passes the original request through unchanged.
-async fn resolve_queue_latest_commit(
+/// Returns `Ok(None)` when there's nothing to wait on: no queueid (or
+/// `queueid == 0`), or no Redis configured. The caller passes the
+/// original request through unchanged.  Redis errors surface as
+/// **500**.
+async fn resolve_queued_request(
     state: &AppState,
-    params: &unfurl_types::GetExportRequestQuery,
+    queueid: Option<i64>,
+    latest_commit: Option<&str>,
+    auth_project: Option<&str>,
 ) -> Result<Option<String>, Response> {
-    let request_queueid = params.queueid.filter(|q| *q > 0);
-    let Some(request_queueid) = request_queueid else {
+    let Some(request_queueid) = queueid.filter(|q| *q > 0) else {
         return Ok(None);
     };
     let Some(ref redis) = state.redis else {
         return Ok(None);
     };
-    let project_id = params.auth_project.as_deref().unwrap_or("");
-    let lc = params.latest_commit.as_deref().unwrap_or("");
-
+    let project_id = auth_project.unwrap_or("");
+    let lc = latest_commit.unwrap_or("");
     let mut conn = redis.clone();
-    match queue::check_export_queue(&mut conn, project_id, lc, request_queueid).await {
-        Ok(ExportQueueCheck::UseNewCommit(new_commit)) => Ok(Some(new_commit)),
-        Ok(ExportQueueCheck::Retry) => Err(queue_retry_response()),
+
+    // Fast path: queue key already records a commit covering the client.
+    match queue::check_export_queue(&mut conn, &state.config, project_id, lc, request_queueid).await
+    {
+        Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
+        Ok(ExportQueueCheck::Retry) => {} // fall through to kick + wait
         Err(e) => {
             tracing::error!("check_export_queue Redis error: {}", e);
-            Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response())
+            return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
+        }
+    }
+
+    // Tell the batch worker to drain this project's queue on its next
+    // poll instead of running out the remainder of the batch window.
+    if let Err(e) = queue::kick_worker(&mut conn, &state.config, project_id).await {
+        tracing::error!("kick_worker Redis error: {}", e);
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
+    }
+
+    // Poll until the queue key advances or we hit the wait budget.
+    let deadline =
+        std::time::Instant::now() + std::time::Duration::from_secs(state.config.proxy_timeout_secs);
+    loop {
+        tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
+        match queue::check_export_queue(&mut conn, &state.config, project_id, lc, request_queueid)
+            .await
+        {
+            Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
+            Ok(ExportQueueCheck::Retry) => {
+                if std::time::Instant::now() >= deadline {
+                    tracing::warn!(
+                        "queue wait timed out: project={} queueid={}",
+                        project_id,
+                        request_queueid
+                    );
+                    return Err(queue_retry_response());
+                }
+            }
+            Err(e) => {
+                tracing::error!("check_export_queue Redis error during wait: {}", e);
+                return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
+            }
         }
     }
 }
@@ -384,7 +437,25 @@ pub async fn handle_types(
     ValidatedQuery(params): ValidatedQuery<unfurl_types::GetTypesRequestQuery>,
     req: Request,
 ) -> Result<unfurl_types::GetTypesResponse, Response> {
-    let latest_commit = params.latest_commit.clone();
+    let resolved = match resolve_queued_request(
+        &state,
+        params.queueid,
+        params.latest_commit.as_deref(),
+        params.auth_project.as_deref(),
+    )
+    .await
+    {
+        Ok(r) => r,
+        Err(resp) => return Err(resp),
+    };
+    let (latest_commit, req) = if let Some(new_commit) = resolved {
+        let new_uri = rewrite_uri_for_resolved_commit(req.uri(), &new_commit);
+        let (mut parts, body) = req.into_parts();
+        parts.uri = new_uri;
+        (Some(new_commit), Request::from_parts(parts, body))
+    } else {
+        (params.latest_commit.clone(), req)
+    };
     let key = types_cache_key(&state.config.cache_key_prefix, &params);
     match handle_cached_get(state, req, key, latest_commit).await {
         CacheOutcome::Typed(typed, etag) => {
