@@ -948,9 +948,23 @@ class ProxiedRepo(Repo):
     def convert_to_git(self) -> "GitRepo":
         """Convert this proxied working directory into a real git repo.
 
-        Clones the origin as a bare repo into .git, converts it to non-bare,
-        resets the index to match the working tree, and removes the .proxied
-        metadata directory.
+        Clones origin as a bare repo into ``.git/``, flips to
+        non-bare, and overwrites the working tree with HEAD (origin's
+        default branch) so index and working tree both match HEAD.
+
+        We deliberately *don't* park HEAD on the proxied snapshot's
+        pinned commit, even though that's where the working tree
+        files came from.  The only caller of this method
+        (``LocalEnv.find_or_create_working_dir``) is converting
+        precisely because it's about to switch the checkout to a
+        different ref via ``repo.pull(revision=…)``.  If the pinned
+        commit isn't an ancestor of the target ref (e.g. v1.1.1 was
+        tagged on a release branch that diverged from main), a
+        subsequent ``pull --ff-only`` would fail and HEAD would be
+        stranded on a ref nobody asked for.  Landing on origin's
+        default avoids that — pull can then advance to any branch
+        reachable from there, and the proxied snapshot's contents
+        are discarded along with ``.proxied/``.
         """
         git_dir = os.path.join(self._working_dir, ".git")
         git.Repo.clone_from(self.url, git_dir, bare=True)
@@ -959,13 +973,15 @@ class ProxiedRepo(Repo):
         # sees core.bare=true, so we drive everything through git directly.
         g = git.cmd.Git(self._working_dir)  # type: ignore
         g.execute(["git", "config", "--local", "--bool", "core.bare", "false"])
-        # Point HEAD at the pinned revision and rebuild the index.
-        # The working tree files were extracted from the proxy zip and should
-        # match this commit, so we use read-tree to populate the index without
-        # touching the working tree.
-        g.execute(["git", "reset", "HEAD", "--", "."])
 
-        # Clean up proxied metadata
+        # Populate the index from HEAD (origin's default branch) and
+        # overwrite the proxied snapshot in the working tree.  `-f`
+        # forces overwrite of the existing files.  After this, index
+        # and working tree both match HEAD → `is_dirty()` returns
+        # False and `pull(revision=…)` runs cleanly.
+        g.execute(["git", "checkout", "-f", "HEAD", "--", "."])
+
+        # Clean up proxied metadata.
         proxied_dir = os.path.join(self._working_dir, ".proxied")
         if os.path.isdir(proxied_dir):
             shutil.rmtree(proxied_dir)
@@ -1048,16 +1064,38 @@ class ProxiedRepo(Repo):
                     continue
                 dest = os.path.join(working_dir, rel_path)
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
-                with zf.open(member) as src, open(dest, "wb") as dst:
-                    dst.write(src.read())
-                # Preserve Unix file mode from the zip entry.  Python's
-                # `zipfile` writes everything as 0o644 by default, but
-                # Go module proxy zips carry the source tree's mode
-                # bits in `external_attr` (high 16 bits, when the
-                # version-made-by indicates Unix).
+                with zf.open(member) as src:
+                    content = src.read()
+                with open(dest, "wb") as dst:
+                    dst.write(content)
+                # Restore the executable bit.  Two layers:
+                #
+                # 1. If the zip entry carries Unix mode bits in
+                #    `external_attr` (high 16), use them.  Python's
+                #    `zipfile` writes 0o644 by default and ignores
+                #    these bits, so we apply them ourselves.
+                # 2. Go's module proxy normalises file permissions
+                #    when building zips (see the module zip spec at
+                #    https://pkg.go.dev/golang.org/x/mod/zip):
+                #    `external_attr` is always 0 on proxy-served
+                #    zips, so (1) is a no-op for the common case.
+                #    Fall back to content sniffing — files that
+                #    start with `#!` are scripts that need `+x`
+                #    (e.g. asdf's `bin/asdf`, which gets `exec`'d
+                #    out of the package install shell), and the
+                #    ELF / Mach-O magic numbers catch compiled
+                #    binaries.
                 unix_mode = (member.external_attr >> 16) & 0o7777
                 if unix_mode:
                     os.chmod(dest, unix_mode)
+                elif content[:2] == b"#!" or content[:4] in (
+                    b"\x7fELF",          # Linux ELF
+                    b"\xfe\xed\xfa\xce",  # Mach-O 32-bit big-endian
+                    b"\xce\xfa\xed\xfe",  # Mach-O 32-bit little-endian
+                    b"\xfe\xed\xfa\xcf",  # Mach-O 64-bit big-endian
+                    b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit little-endian
+                ):
+                    os.chmod(dest, 0o755)
                 file_checksums[rel_path] = member.CRC
 
         # Save CRC-32 checksums for dirty-checking without git.
