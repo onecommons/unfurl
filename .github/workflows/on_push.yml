@@ -5,7 +5,7 @@ env:
   TERRAFORM_VERSION: 1.1.4 # sync with tosca_plugins/artifacts.yaml
   HELM_VERSION: 3.7.1 # sync with configurators/helm-template.yaml
   GCLOUD_VERSION: 499.0.0 # sync with tosca_plugins/artifacts.yaml and Dockerfile
-  KOMPOSE_VERSION: v1.27.0 # sync with Dockerfile (first version with linux-arm64 binary)
+  KOMPOSE_VERSION: v1.26.1 # sync with Dockerfile
   KUBECTL_VERSION: v1.24.2
   K3D_VERSION: v5.8.3
 

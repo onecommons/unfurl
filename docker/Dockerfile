@@ -7,44 +7,33 @@ RUN apt-get -qq update && \
 ARG TERRAFORM_VERSION=1.1.4
 ARG HELM_VERSION=3.7.1
 ARG GCLOUD_VERSION=499.0.0
-ARG KOMPOSE_VERSION=v1.27.0
-# `TARGETARCH` and `TARGETOS` are supplied automatically by Docker
-# Buildx for multi-platform builds (e.g. `--platform linux/amd64,linux/arm64`).
-# A plain `docker build` without buildx leaves them empty, so we
-# default to amd64 below so single-arch builds still work locally.
-ARG TARGETARCH=amd64
-ARG TARGETOS=linux
+ARG KOMPOSE_VERSION=v1.26.1
 ENV PATH="${PATH}:/google-cloud-sdk/bin:$HOME/.cargo/bin" \
     PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1
 
-# Map TARGETARCH to the per-tool naming each upstream uses.  GCloud
-# publishes its arm64 archive as `linux-arm` (no `64` suffix); the
-# others all use `linux-arm64` / `linux-amd64` directly.
-RUN GCLOUD_ARCH="$(case "$TARGETARCH" in amd64) echo x86 ;; arm64) echo arm ;; *) echo "unsupported TARGETARCH=$TARGETARCH" >&2; exit 1 ;; esac)" && \
-    \
-    echo "Installing Terraform (${TARGETOS}/${TARGETARCH})" && \
+RUN echo "Installing Terraform" && \
     wget -qO /terraform.zip \
-    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_${TARGETOS}_${TARGETARCH}.zip" && \
+    "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip" && \
     unzip /terraform.zip -d /usr/local/bin && \
     rm -f /terraform.zip && \
     \
-    echo "Installing Helm (${TARGETOS}/${TARGETARCH})" && \
+    echo "Installing Helm" && \
     wget -qO /helm.tar.gz \
-    "https://get.helm.sh/helm-v${HELM_VERSION}-${TARGETOS}-${TARGETARCH}.tar.gz" && \
+    "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz" && \
     tar -zxf /helm.tar.gz && \
-    mv "/${TARGETOS}-${TARGETARCH}/helm" /usr/local/bin/helm && \
-    rm -rf /helm.tar.gz "/${TARGETOS}-${TARGETARCH}" \
+    mv /linux-amd64/helm /usr/local/bin/helm && \
+    rm -rf /helm.tar.gz /linux-amd64 \
     \
-    echo "Installing GCloud SDK (${TARGETOS}/${GCLOUD_ARCH})" && \
+    echo "Installing GCloud SDK" && \
     wget -qO /google-cloud-sdk.tar.gz \
-    "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-${GCLOUD_VERSION}-${TARGETOS}-${GCLOUD_ARCH}.tar.gz" && \
+    "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-${GCLOUD_VERSION}-linux-x86.tar.gz" && \
     tar -zxf /google-cloud-sdk.tar.gz && \
     rm -f /google-cloud-sdk.tar.gz && \
     \
-    echo "Installing Kompose (${TARGETOS}/${TARGETARCH})" && \
+    echo "Installing Kompose" && \
     wget -qO /usr/local/bin/kompose \
-    "https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-${TARGETOS}-${TARGETARCH}" && \
+    "https://github.com/kubernetes/kompose/releases/download/${KOMPOSE_VERSION}/kompose-linux-amd64" && \
     chmod +x /usr/local/bin/kompose && \
     \
     echo "Installing Kubectl and GKE auth plugin" && \
