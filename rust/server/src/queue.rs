@@ -130,9 +130,6 @@ return tostring(new_queueid)
 /// This is a safety cap; in practice batch lists are much shorter.
 const DRAIN_BATCH_SIZE: usize = 1000;
 
-/// How often the worker polls the ready set for matured batches.
-const WORKER_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
-
 // ---------------------------------------------------------------------------
 // Enqueue
 // ---------------------------------------------------------------------------
@@ -432,10 +429,12 @@ pub async fn run_worker(
 ) {
     let ready_key = config.batch_ready_set_key();
     let lock_prefix = config.batch_lock_prefix();
+    let poll_interval = std::time::Duration::from_secs_f64(config.worker_poll_interval_secs);
 
     tracing::debug!(
-        "batch worker started (window={}s, ready_set={})",
+        "batch worker started (window={}s, poll={}ms, ready_set={})",
         config.batch_window_secs,
+        poll_interval.as_millis(),
         ready_key,
     );
 
@@ -445,7 +444,7 @@ pub async fn run_worker(
         let now: f64 = match get_redis_time(&mut conn).await {
             Some(t) => t,
             None => {
-                tokio::time::sleep(WORKER_POLL_INTERVAL).await;
+                tokio::time::sleep(poll_interval).await;
                 continue;
             }
         };
@@ -463,16 +462,16 @@ pub async fn run_worker(
                 tracing::error!(
                     "ZRANGE BYSCORE error: {}, retrying in {}ms",
                     e,
-                    WORKER_POLL_INTERVAL.as_millis()
+                    poll_interval.as_millis()
                 );
-                tokio::time::sleep(WORKER_POLL_INTERVAL).await;
+                tokio::time::sleep(poll_interval).await;
                 continue;
             }
         };
 
         if ready_keys.is_empty() {
             // Nothing ready yet; sleep briefly and poll again.
-            tokio::time::sleep(WORKER_POLL_INTERVAL).await;
+            tokio::time::sleep(poll_interval).await;
             continue;
         }
 

@@ -78,7 +78,7 @@ Pass `--help` for the canonical list. The most-used knobs:
 | Bind host | `--host` | `UNFURL_HOST` | `127.0.0.1` |
 | Bind port | `--port` | `UNFURL_PORT` | `8080` |
 | Python backend URL | `--backend-url` | `UNFURL_BACKEND_URL` | `http://{host}:{port+1}` |
-| Proxy timeout (seconds, `0` = none) | `--proxy-timeout-secs` | `UNFURL_PROXY_TIMEOUT_SECS` | `120` |
+| Proxy timeout (integer seconds, `0` = none) | `--proxy-timeout-secs` | `UNFURL_PROXY_TIMEOUT_SECS` | `120` |
 | Max request body bytes | `--max-body-bytes` | `UNFURL_MAX_BODY_BYTES` | `10485760` (10 MiB) |
 | Shared internal-auth secret | `--secret` | `UNFURL_SECRET` | (empty) |
 | Package digest for ETags | `--package-digest` | `UNFURL_PACKAGE_DIGEST` | (empty) |
@@ -96,12 +96,18 @@ and for the write-queue fast path on the patch endpoints):
 | Password | `--redis-password` | `CACHE_REDIS_PASSWORD` | (unset) |
 | DB number | `--redis-db` | `CACHE_REDIS_DB` | `0` |
 | Cache key prefix | `--cache-key-prefix` | `CACHE_KEY_PREFIX` | `ufsv::` |
-| Op timeout (seconds, `0` = none) | `--redis-timeout-secs` | `UNFURL_REDIS_TIMEOUT_SECS` | `5` |
-| Patch batch window (seconds, `0` = no batching) | `--batch-window-secs` | `UNFURL_BATCH_WINDOW_SECS` | `5` |
+| Op timeout (integer seconds, `0` = none) | `--redis-timeout-secs` | `UNFURL_REDIS_TIMEOUT_SECS` | `5` |
+| Patch batch window (fractional seconds, `0` = no batching) | `--batch-window-secs` | `UNFURL_BATCH_WINDOW_SECS` | `3.0` |
+| Worker poll interval (fractional seconds) | `--worker-poll-interval-secs` | `UNFURL_WORKER_POLL_INTERVAL_SECS` | `0.1` |
 
 If both `--redis-url` and `--redis-host` are unset, caching and the
 write queue are disabled and every request is proxied synchronously
 to Python.
+
+> **Note on `*_secs` settings:** `--batch-window-secs` and
+> `--worker-poll-interval-secs` accept fractional values (e.g.
+> `0.5`).  `--proxy-timeout-secs` and `--redis-timeout-secs` are
+> whole-second integers only.
 
 **Cloudmap fast path** (optional — when both are set, `GET / POST
 /cloudmap` are served locally via the `unfurl-git-sync` crate;

@@ -45,7 +45,8 @@ fn default_config() -> Config {
         redis_timeout_secs: 1,
         package_digest: String::new(),
         max_body_bytes: 10 * 1024 * 1024,
-        batch_window_secs: 0,
+        batch_window_secs: 0.0,
+        worker_poll_interval_secs: 0.05,
         cloudmap_repo: None,
         cloudmap_db_url: None,
     }

@@ -75,9 +75,18 @@ pub struct Config {
     /// Batch window in seconds for consolidating PATCH requests to the same
     /// project.  Items enqueued within this window are merged before being
     /// forwarded to the backend.  0 disables batching (each item is forwarded
-    /// individually).  Default: 5 seconds.
-    #[arg(long, env = "UNFURL_BATCH_WINDOW_SECS", default_value_t = 5)]
-    pub batch_window_secs: u64,
+    /// individually).  Default: 3 seconds.
+    #[arg(long, env = "UNFURL_BATCH_WINDOW_SECS", default_value_t = 3.0)]
+    pub batch_window_secs: f64,
+
+    /// Interval in seconds at which the batch worker polls the Redis
+    /// ready set for projects whose batch window has expired.  Sets
+    /// the floor on how soon a kicked drain runs and how often
+    /// `/export` and `/types` wait-and-proxy paths re-check the queue.
+    /// Default: 0.1 (100 ms).  Lower values reduce queued-write
+    /// latency at the cost of Redis chatter.
+    #[arg(long, env = "UNFURL_WORKER_POLL_INTERVAL_SECS", default_value_t = 0.1)]
+    pub worker_poll_interval_secs: f64,
 
     /// Path to a working directory of a cloudmap git repo.
     /// When set together with `cloudmap_db_url`, GET /cloudmap is served
@@ -199,7 +208,8 @@ mod tests {
             redis_timeout_secs: 5,
             package_digest: String::new(),
             max_body_bytes: 10 * 1024 * 1024,
-            batch_window_secs: 5,
+            batch_window_secs: 3.0,
+            worker_poll_interval_secs: 0.1,
             cloudmap_repo: None,
             cloudmap_db_url: None,
         }

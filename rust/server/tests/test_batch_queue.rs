@@ -21,7 +21,7 @@ fn redis_url() -> Option<String> {
 }
 
 /// Build a test Config with a unique key prefix to avoid collisions.
-fn test_config(prefix: &str, batch_window_secs: u64) -> Config {
+fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
     Config {
         host: "127.0.0.1".into(),
         port: 0,
@@ -38,6 +38,7 @@ fn test_config(prefix: &str, batch_window_secs: u64) -> Config {
         package_digest: String::new(),
         max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs,
+        worker_poll_interval_secs: 0.05,
         cloudmap_repo: None,
         cloudmap_db_url: None,
     }
@@ -124,7 +125,7 @@ async fn test_enqueue_and_drain_single_project() {
     };
 
     let prefix = "batch_single";
-    let config = test_config(prefix, 1); // 1-second window for fast tests
+    let config = test_config(prefix, 1.0); // 1-second window for fast tests
 
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -214,7 +215,7 @@ async fn test_different_branches_produce_separate_batches() {
     };
 
     let prefix = "batch_branches";
-    let config = test_config(prefix, 1);
+    let config = test_config(prefix, 1.0);
 
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -288,7 +289,7 @@ async fn test_mixed_endpoints_in_single_batch() {
     };
 
     let prefix = "batch_mixed";
-    let config = test_config(prefix, 1);
+    let config = test_config(prefix, 1.0);
 
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -371,7 +372,7 @@ async fn test_multiple_projects_batched_independently() {
     };
 
     let prefix = "batch_multiproj";
-    let config = test_config(prefix, 1);
+    let config = test_config(prefix, 1.0);
 
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -447,7 +448,7 @@ async fn test_new_items_after_drain_start_fresh_window() {
     };
 
     let prefix = "batch_fresh";
-    let config = test_config(prefix, 1);
+    let config = test_config(prefix, 1.0);
 
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
@@ -928,7 +929,7 @@ async fn test_has_pending_writes_when_worker_lock_held() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "pending_lock";
-    let config = test_config(project, 60);
+    let config = test_config(project, 60.0);
     cleanup_keys(&mut conn, project).await;
 
     // Simulate `run_worker` holding the per-project batch lock while
