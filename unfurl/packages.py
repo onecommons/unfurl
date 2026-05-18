@@ -1050,6 +1050,14 @@ class ProxiedRepo(Repo):
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with zf.open(member) as src, open(dest, "wb") as dst:
                     dst.write(src.read())
+                # Preserve Unix file mode from the zip entry.  Python's
+                # `zipfile` writes everything as 0o644 by default, but
+                # Go module proxy zips carry the source tree's mode
+                # bits in `external_attr` (high 16 bits, when the
+                # version-made-by indicates Unix).
+                unix_mode = (member.external_attr >> 16) & 0o7777
+                if unix_mode:
+                    os.chmod(dest, unix_mode)
                 file_checksums[rel_path] = member.CRC
 
         # Save CRC-32 checksums for dirty-checking without git.
