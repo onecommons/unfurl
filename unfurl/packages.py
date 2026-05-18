@@ -1003,7 +1003,7 @@ class ProxiedRepo(Repo):
 
     @classmethod
     def create_repo(
-        cls, url: str, revision: str, working_dir: str
+        cls, url: str, working_dir: str, revision: str
     ) -> Optional["ProxiedRepo"]:
         from .yamlloader import urlopen
 

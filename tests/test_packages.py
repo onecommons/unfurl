@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import traceback
 from click.testing import CliRunner
 from unfurl.__main__ import cli
@@ -16,7 +17,7 @@ from unfurl.packages import (
     find_canonical,
     package_id_to_url,
 )
-from unfurl.repo import get_remote_tags
+from unfurl.repo import Repo, get_remote_tags
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import get_tags_from_proxy
@@ -259,18 +260,49 @@ def test_remote_tags():
             )
             assert result.exit_code == 0, result
 
-            clonedtypes = git.cmd.Git("application-blueprint/std")
-            origin = clonedtypes.remote(["get-url", "origin"])
-            # should be on unfurl.cloud:
-            assert origin == types_url, origin
-            assert clonedtypes.describe() == "v" + latest_version_tag
+            # `application-blueprint/std` may have landed via either
+            # `ProxiedRepo` (Go-module-proxy zip, no .git, `.proxied/`
+            # marker) or a real `git clone` (when the proxy is
+            # unavailable).  `Repo.make_repo()` returns the right
+            # concrete type either way; both expose `find_remote_url`
+            # and `current_tag` with identical contracts, so we can
+            # assert without caring which path was taken.
+            #
+            # We avoid `git.cmd.Git(...).remote("get-url origin")`
+            # because `--mono` makes `application-blueprint/` itself a
+            # git working tree — a ProxiedRepo's std/ subdir would
+            # inherit the parent's remote when queried that way.
+            std_repo = Repo.make_repo("application-blueprint/std")
+            assert std_repo is not None, "expected std clone or proxied package"
+            assert std_repo.find_remote_url(url=types_url) is not None, (
+                f"std repo origin doesn't match {types_url}: "
+                f"{std_repo!r} url={getattr(std_repo, 'url', None)!r}"
+            )
+            assert std_repo.current_tag == "v" + latest_version_tag, (
+                std_repo.current_tag
+            )
 
             # add a rule to set the version to the "main" branch
             os.environ["UNFURL_PACKAGE_RULES"] = (
                 package_rules_envvar + " unfurl.cloud/onecommons/* #main"
             )
+            # The CLI defaults to `--skip-upstream-check`, but the
+            # whole point of this assertion is that the rule change
+            # propagates — which requires an upstream check on the
+            # existing std checkout (re-resolving to `main` for a
+            # GitRepo, or convert+pull for a ProxiedRepo).
+            # `--check-upstream` is a *global* flag and must come
+            # before the `plan` subcommand.
             result = runner.invoke(
-                cli, ["--home", "", "plan", "--starttime=1", "application-blueprint"]
+                cli,
+                [
+                    "--home",
+                    "",
+                    "--check-upstream",
+                    "plan",
+                    "--starttime=1",
+                    "application-blueprint",
+                ],
             )
 
             # print("result.output", result.exit_code, result.output)
@@ -278,9 +310,17 @@ def test_remote_tags():
                 traceback.format_exception(*result.exc_info)
             )
             assert result.exit_code == 0, result
-            tip = clonedtypes.describe(always=True)
-            # this revision is more recent than the released version
-            assert latest_version_tag != tip, tip
+            # Branch-ref case: this rule pins to `#main`, which isn't
+            # semver, so the std checkout goes through `Repo.create_working_dir`
+            # (real `git clone`) rather than the proxy.  `current_tag`
+            # returns "" when HEAD is past the latest tag — that's what
+            # we want to verify here: the checkout moved beyond the
+            # released version we asserted on above.
+            std_repo = Repo.make_repo("application-blueprint/std")
+            assert std_repo is not None
+            assert std_repo.current_tag != "v" + latest_version_tag, (
+                std_repo.current_tag
+            )
 
     finally:
         if UNFURL_PACKAGE_RULES:
@@ -498,8 +538,8 @@ def test_proxied_repo_create_repo(tmp_path):
     working_dir = str(tmp_path / "baserow")
     repo = ProxiedRepo.create_repo(
         "https://unfurl.cloud/onecommons/blueprints/baserow.git",
-        "v1.0.0",
         working_dir,
+        "v1.0.0",
     )
     assert repo is not None
     assert isinstance(repo, ProxiedRepo)
@@ -546,8 +586,8 @@ def test_proxied_repo_convert_to_git(tmp_path):
     working_dir = str(tmp_path / "baserow")
     proxied = ProxiedRepo.create_repo(
         "https://unfurl.cloud/onecommons/blueprints/baserow.git",
-        "v1.0.0",
         working_dir,
+        "v1.0.0",
     )
     assert proxied is not None
     original_revision = proxied.revision

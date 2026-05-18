@@ -1743,10 +1743,21 @@ class LocalEnv:
                 and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
                 and not (repoview_or_url.package and repoview_or_url.package.locked)
             ):
+                # A ProxiedRepo pinned to one tag from the Go-module
+                # proxy can't switch refs by itself; convert it to a
+                # regular git working tree first, then fall through to
+                # the same `pull(revision=…)` path that updates a
+                # GitRepo.  Keeping convert+pull together in the same
+                # block as the existing GitRepo pull means both
+                # respect `UNFURL_SKIP_UPSTREAM_CHECK` identically —
+                # the user opting out of upstream chatter opts out of
+                # both.
+                if isinstance(repo, ProxiedRepo):
+                    repo = repo.convert_to_git()
+                    repoview_or_url.repo = repo
                 if isinstance(repo, GitRepo):
                     if not repo.is_dirty():
                         repo.pull(revision=revision)
-                # else: XXX handle other repo types when supported
         else:
             # it's the repoUrl (possibly rewritten) at this point
             assert isinstance(repoview_or_url, str), repoview_or_url
