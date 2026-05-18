@@ -479,7 +479,11 @@ def _env_for(variant: str, name: str = "") -> dict:
     }
 
 
-QUEUE_SLEEP = 3.5  # seconds to wait for batch queue drain + backend processing (window=1s + poll + processing)
+QUEUE_SLEEP = 2.0  # seconds to wait for batch queue drain + backend processing.
+# Budget: 1s batch window + ~100ms worker pickup (WORKER_POLL_INTERVAL)
+# + ~500ms batch_patch processing + ~50ms file:// push ≈ 1.65s; 350ms slack.
+# Many call sites would be more precise as `_wait_for_new_commit` (active
+# polling on the bare repo HEAD) — see comments at each call site.
 
 
 def _dump_server_logs(p, label=""):
@@ -1266,7 +1270,12 @@ def test_server_update_deployment(server_env):
             if new_commit:
                 last_commit = new_commit
 
-            _wait_for_queue(server_env)
+            # We're in the local "remote" clone here; the bare repo we want
+            # to poll is at "../remote.git" relative to cwd.
+            if server_env == "queue-rust":
+                last_commit = _wait_for_new_commit("../remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             assert not os.waitstatus_to_exitcode(
                 os.system("git pull --commit --no-edit origin main")
@@ -1406,7 +1415,11 @@ def test_update_environment(server_env):
                 server_env,
             )
             new_commit, _ = _assert_commit(res, last_commit, server_env)
-            _wait_for_queue(server_env)
+            # cwd is still the test sandbox root → bare repo is "remote.git".
+            if server_env == "queue-rust":
+                last_commit = _wait_for_new_commit("remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
@@ -1479,7 +1492,13 @@ def test_delete_environment(server_env):
                 queueid=queueid,
             )
             _assert_commit(res, last_commit, server_env)
-            _wait_for_queue(server_env)
+            # The rust-log assertion below needs the batch to have been
+            # forwarded to Python.  Active-poll on the bare repo so this
+            # finishes as soon as `_push_changes` commits.
+            if server_env == "queue-rust":
+                last_commit = _wait_for_new_commit("remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             # Verify both patches were batched together in a single batch_patch call.
             if server_env == "queue-rust":
@@ -1551,7 +1570,11 @@ def test_delete_deployment(server_env):
                 queueid=queueid,
             )
             _assert_commit(res, last_commit, server_env)
-            _wait_for_queue(server_env)
+            # Active-poll for the new commit instead of a flat sleep.
+            if server_env == "queue-rust":
+                last_commit = _wait_for_new_commit("remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             # Verify both patches were batched together in a single batch_patch call.
             if server_env == "queue-rust":
@@ -1603,8 +1626,11 @@ def test_create_ensemble(server_env):
                 queueid=0,
             )
             _assert_commit(res, last_commit, server_env)
-            # result unused; single write doesn't need chaining
-            _wait_for_queue(server_env)
+            # cwd is the sandbox root → bare repo is "remote.git".
+            if server_env == "queue-rust":
+                last_commit = _wait_for_new_commit("remote.git", last_commit)
+            else:
+                _wait_for_queue(server_env)
 
             os.chdir("remote")
             os.system("git pull ../remote.git")
