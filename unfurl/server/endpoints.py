@@ -806,7 +806,22 @@ def batch_patch(
             )
             if isinstance(result, tuple):
                 return result  # error response
-    repo = readonly_localEnv.project.project_repoview.gitrepo
+    # Get the repo via the same parent-aware fresh LocalEnv that
+    # `_patch_environment` uses internally, so projects with a separate
+    # ensemble subrepo report the *parent* project's HEAD here (which is
+    # where individual patches actually committed) rather than the
+    # cached LocalEnv's ensemble-subrepo HEAD.
+    home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
+        "UNFURL_OPTIONS"
+    ].get("home")
+    parent_localEnv = LocalEnv(
+        readonly_localEnv.project.projectRoot,
+        home_dir,
+        parent=readonly_localEnv,
+        can_be_empty=True,
+    )
+    assert parent_localEnv.project
+    repo = parent_localEnv.project.project_repoview.gitrepo
     assert repo
     username = last_body.get("username")
     password = last_body.get("private_token", last_body.get("password"))
@@ -1048,6 +1063,50 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                 _update_imports(
                     imports, _patch_node_template(patch_inner, doc, namespace)
                 )
+    if not (manifest.manifest and manifest.manifest.config and manifest.repo):
+        logger.error(
+            "_apply_ensemble_patch precondition failed: "
+            "manifest=%r manifest.manifest=%r config=%r repo=%r "
+            "localEnv.manifestPath=%r localEnv.instance_repoview=%r "
+            "localEnv.project=%r "
+            "project.projectRoot=%r project.project_repoview=%r "
+            "project_repoview.repo=%r project_repoview.working_dir=%r",
+            manifest,
+            getattr(manifest, "manifest", None),
+            getattr(getattr(manifest, "manifest", None), "config", None),
+            getattr(manifest, "repo", None),
+            getattr(getattr(manifest, "localEnv", None), "manifestPath", None),
+            getattr(getattr(manifest, "localEnv", None), "instance_repoview", None),
+            getattr(getattr(manifest, "localEnv", None), "project", None),
+            getattr(
+                getattr(getattr(manifest, "localEnv", None), "project", None),
+                "projectRoot",
+                None,
+            ),
+            getattr(
+                getattr(getattr(manifest, "localEnv", None), "project", None),
+                "project_repoview",
+                None,
+            ),
+            getattr(
+                getattr(
+                    getattr(getattr(manifest, "localEnv", None), "project", None),
+                    "project_repoview",
+                    None,
+                ),
+                "repo",
+                None,
+            ),
+            getattr(
+                getattr(
+                    getattr(getattr(manifest, "localEnv", None), "project", None),
+                    "project_repoview",
+                    None,
+                ),
+                "working_dir",
+                None,
+            ),
+        )
     assert manifest.manifest and manifest.manifest.config and manifest.repo
     skip_prefixes = ["defaults"]
     if manifest.localEnv and manifest.localEnv.manifest_environment_name:
