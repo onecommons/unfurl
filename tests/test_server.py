@@ -21,7 +21,7 @@ from unfurl.packages import is_semver_compatible_with
 
 import pytest
 from tests.utils import init_project, run_cmd
-from unfurl.repo import GitRepo
+from unfurl.repo import GitRepo, Repo as UnfurlRepo
 from unfurl.yamlloader import yaml
 from unfurl.util import change_cwd, get_package_digest, clean_output
 from base64 import b64encode
@@ -1042,7 +1042,13 @@ def test_server_export_remote(server_env):
                 f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
             )
 
-            dep_commit = GitRepo(Repo("application-blueprint/std")).revision
+            # `application-blueprint/std` is a ProxiedRepo (no .git/)
+            # when the proxy serves a semver tag, and a real git
+            # checkout otherwise.  `UnfurlRepo.make_repo` returns the
+            # right type either way; both expose `.revision`.
+            std_repo = UnfurlRepo.make_repo("application-blueprint/std")
+            assert std_repo is not None
+            dep_commit = std_repo.revision
             etag = server._make_etag(
                 hex(
                     int(last_commit, 16)
