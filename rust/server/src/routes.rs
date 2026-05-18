@@ -474,14 +474,21 @@ async fn handle_write(
         if let Some(ref redis) = state.redis {
             // Atomically validate and increment the queueid.
             let mut conn = redis.clone();
-            let qid_result =
-                match queue::inc_queueid(&mut conn, &project_id, latest_commit, queueid).await {
-                    Ok(r) => r,
-                    Err(e) => {
-                        tracing::error!("inc_queueid Redis error: {}", e);
-                        return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
-                    }
-                };
+            let qid_result = match queue::inc_queueid(
+                &mut conn,
+                &state.config,
+                &project_id,
+                latest_commit,
+                queueid,
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::error!("inc_queueid Redis error: {}", e);
+                    return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+                }
+            };
 
             match qid_result {
                 QueueIdResult::Conflict => {

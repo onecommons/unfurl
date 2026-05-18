@@ -1737,6 +1737,7 @@ def _clear_project(project_id: str) -> ResponseReturnValue:
     if cleared is None:
         return create_error_response("INTERNAL_ERROR", "An internal error occurred")
     clear_cache(cache, "_inflight::" + project_id + ":")
+    clear_cache(cache, "queue:" + project_id + ":")
     if app.config.get("UNFURL_GUI_MODE"):
         # In standalone gui mode /export uses the LocalEnv held in
         # app.config["UNFURL_GUI_MODE"] directly; reload it from disk so the

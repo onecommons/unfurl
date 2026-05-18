@@ -527,23 +527,6 @@ async fn test_new_items_after_drain_start_fresh_window() {
 // inc_queueid tests
 // ---------------------------------------------------------------------------
 
-/// Helper to clean up queue keys.
-async fn cleanup_queue_keys(conn: &mut redis::aio::MultiplexedConnection, project_id: &str) {
-    let pattern = format!("queue:{}:*", project_id);
-    let keys: Vec<String> = redis::cmd("KEYS")
-        .arg(&pattern)
-        .query_async(conn)
-        .await
-        .unwrap_or_default();
-    if !keys.is_empty() {
-        let mut cmd = redis::cmd("DEL");
-        for k in &keys {
-            cmd.arg(k);
-        }
-        let _: Result<i64, _> = cmd.query_async(conn).await;
-    }
-}
-
 #[tokio::test]
 async fn test_inc_queueid_first_patch() {
     let url = match redis_url() {
@@ -557,15 +540,16 @@ async fn test_inc_queueid_first_patch() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "qid_first";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // First patch with queueid=0 should succeed and return 1.
-    let result = queue::inc_queueid(&mut conn, project, "abc123", 0)
+    let result = queue::inc_queueid(&mut conn, &config, project, "abc123", 0)
         .await
         .unwrap();
     assert_eq!(result, QueueIdResult::Ok { new_queueid: 1 });
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -581,27 +565,28 @@ async fn test_inc_queueid_sequential_increments() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "qid_seq";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // First patch.
-    let r1 = queue::inc_queueid(&mut conn, project, "abc", 0)
+    let r1 = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
         .await
         .unwrap();
     assert_eq!(r1, QueueIdResult::Ok { new_queueid: 1 });
 
     // Second patch with queueid=1 should return 2.
-    let r2 = queue::inc_queueid(&mut conn, project, "abc", 1)
+    let r2 = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
         .await
         .unwrap();
     assert_eq!(r2, QueueIdResult::Ok { new_queueid: 2 });
 
     // Third patch with queueid=2 should return 3.
-    let r3 = queue::inc_queueid(&mut conn, project, "abc", 2)
+    let r3 = queue::inc_queueid(&mut conn, &config, project, "abc", 2)
         .await
         .unwrap();
     assert_eq!(r3, QueueIdResult::Ok { new_queueid: 3 });
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -617,35 +602,36 @@ async fn test_inc_queueid_stale_conflict() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "qid_stale";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // Create initial queue.
-    let _ = queue::inc_queueid(&mut conn, project, "abc", 0)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
         .await
         .unwrap();
-    let _ = queue::inc_queueid(&mut conn, project, "abc", 1)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
         .await
         .unwrap();
 
     // Stale queueid=0 should conflict (current is 2, not 0).
-    let r = queue::inc_queueid(&mut conn, project, "abc", 0)
+    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
 
     // Stale queueid=1 should also conflict (current is 2, not 1).
-    let r = queue::inc_queueid(&mut conn, project, "abc", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
 
     // Correct queueid=2 should succeed and return 3.
-    let r = queue::inc_queueid(&mut conn, project, "abc", 2)
+    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 2)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Ok { new_queueid: 3 });
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -661,15 +647,16 @@ async fn test_inc_queueid_missing_key_with_nonzero() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "qid_missing";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // queueid > 0 but no key exists → conflict.
-    let r = queue::inc_queueid(&mut conn, project, "abc", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -685,15 +672,16 @@ async fn test_inc_queueid_new_commit_redirect() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "qid_newcommit";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // Simulate: first patch queued.
-    let _ = queue::inc_queueid(&mut conn, project, "commit_a", 0)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "commit_a", 0)
         .await
         .unwrap();
 
     // Simulate: batch_patch committed and stored "commit_b,1" in the key.
-    let queue_key = format!("queue:{}:commit_a", project);
+    let queue_key = config.queue_entry_key(project, "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,1")
@@ -702,7 +690,7 @@ async fn test_inc_queueid_new_commit_redirect() {
         .unwrap();
 
     // Next patch with queueid=1 should get redirected to commit_b.
-    let r = queue::inc_queueid(&mut conn, project, "commit_a", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "commit_a", 1)
         .await
         .unwrap();
     assert_eq!(
@@ -714,7 +702,7 @@ async fn test_inc_queueid_new_commit_redirect() {
     );
 
     // Verify the new key was created.
-    let new_key = format!("queue:{}:commit_b", project);
+    let new_key = config.queue_entry_key(project, "commit_b");
     let val: String = redis::cmd("GET")
         .arg(&new_key)
         .query_async(&mut conn)
@@ -722,7 +710,7 @@ async fn test_inc_queueid_new_commit_redirect() {
         .unwrap();
     assert_eq!(val, "1");
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -742,10 +730,11 @@ async fn test_check_export_queue_redirects_to_new_commit() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "exp_q_redirect";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // Simulate batch_patch having committed: queue key stores "{new_commit},{last_queueid}".
-    let queue_key = format!("queue:{}:commit_a", project);
+    let queue_key = config.queue_entry_key(project, "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,5")
@@ -754,19 +743,19 @@ async fn test_check_export_queue_redirects_to_new_commit() {
         .unwrap();
 
     // Request with queueid <= last_queueid (5) should redirect to commit_b.
-    let r = queue::check_export_queue(&mut conn, project, "commit_a", 5)
+    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 5)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
 
     // Earlier queueid (e.g. 3) also redirects: those patches were
     // bundled into the same batch and committed.
-    let r = queue::check_export_queue(&mut conn, project, "commit_a", 3)
+    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 3)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -782,10 +771,11 @@ async fn test_check_export_queue_retry_when_no_commit() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "exp_q_pending";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // Queue key exists but no commit produced yet (plain integer).
-    let queue_key = format!("queue:{}:commit_a", project);
+    let queue_key = config.queue_entry_key(project, "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("3")
@@ -793,12 +783,12 @@ async fn test_check_export_queue_retry_when_no_commit() {
         .await
         .unwrap();
 
-    let r = queue::check_export_queue(&mut conn, project, "commit_a", 3)
+    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 3)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -814,11 +804,12 @@ async fn test_check_export_queue_retry_when_queueid_stale() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "exp_q_stale";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // New commit recorded with last_queueid=5; client at queueid=7 is
     // ahead — their patch is still queued past the committed batch.
-    let queue_key = format!("queue:{}:commit_a", project);
+    let queue_key = config.queue_entry_key(project, "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,5")
@@ -826,12 +817,12 @@ async fn test_check_export_queue_retry_when_queueid_stale() {
         .await
         .unwrap();
 
-    let r = queue::check_export_queue(&mut conn, project, "commit_a", 7)
+    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 7)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 #[tokio::test]
@@ -847,16 +838,17 @@ async fn test_check_export_queue_retry_when_key_missing() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "exp_q_missing";
-    cleanup_queue_keys(&mut conn, project).await;
+    let config = test_config(project, 60.0);
+    cleanup_keys(&mut conn, project).await;
 
     // No queue key at all → caller should retry; we have no evidence
     // the client's queued write has been processed.
-    let r = queue::check_export_queue(&mut conn, project, "commit_a", 1)
+    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 1)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
 
-    cleanup_queue_keys(&mut conn, project).await;
+    cleanup_keys(&mut conn, project).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -875,12 +867,14 @@ async fn test_has_pending_writes_empty() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "pending_empty";
-    let config = test_config(project, 60);
+    let config = test_config(project, 60.0);
     cleanup_keys(&mut conn, project).await;
 
-    assert!(!queue::has_pending_writes(&mut conn, &config, project, "main")
-        .await
-        .unwrap());
+    assert!(
+        !queue::has_pending_writes(&mut conn, &config, project, "main")
+            .await
+            .unwrap()
+    );
 
     cleanup_keys(&mut conn, project).await;
 }
@@ -897,21 +891,27 @@ async fn test_has_pending_writes_matches_branch() {
     let client = redis::Client::open(url.as_str()).unwrap();
     let mut conn = client.get_multiplexed_async_connection().await.unwrap();
     let project = "pending_match";
-    let config = test_config(project, 60);
+    let config = test_config(project, 60.0);
     cleanup_keys(&mut conn, project).await;
 
     // Enqueue an item targeting branch "main".
     let item = make_item("/update_ensemble", "main", "abc", json!([{"a": 1}]), "msg");
-    queue::enqueue(&mut conn, &config, project, &item).await.unwrap();
+    queue::enqueue(&mut conn, &config, project, &item)
+        .await
+        .unwrap();
 
     // Matching branch → busy.
-    assert!(queue::has_pending_writes(&mut conn, &config, project, "main")
-        .await
-        .unwrap());
+    assert!(
+        queue::has_pending_writes(&mut conn, &config, project, "main")
+            .await
+            .unwrap()
+    );
     // Different branch → not busy.
-    assert!(!queue::has_pending_writes(&mut conn, &config, project, "dev")
-        .await
-        .unwrap());
+    assert!(
+        !queue::has_pending_writes(&mut conn, &config, project, "dev")
+            .await
+            .unwrap()
+    );
 
     cleanup_keys(&mut conn, project).await;
 }

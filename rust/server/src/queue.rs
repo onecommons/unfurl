@@ -161,12 +161,13 @@ pub enum QueueIdResult {
 /// (see _update_queue_key() in unfurl/server/endpoints.py)
 pub async fn inc_queueid(
     conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
     project_id: &str,
     latest_commit: &str,
     queueid: i64,
 ) -> Result<QueueIdResult, redis::RedisError> {
-    let queue_key = format!("queue:{}:{}", project_id, latest_commit);
-    let prefix = format!("queue:{}:", project_id);
+    let queue_key = config.queue_entry_key(project_id, latest_commit);
+    let prefix = config.queue_entry_prefix(project_id);
 
     let result: String = INC_QUEUEID
         .key(&queue_key)
@@ -221,11 +222,12 @@ pub enum ExportQueueCheck {
 ///     [`ExportQueueCheck::Retry`] (more queued writes still pending)
 pub async fn check_export_queue(
     conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
     project_id: &str,
     latest_commit: &str,
     request_queueid: i64,
 ) -> Result<ExportQueueCheck, redis::RedisError> {
-    let queue_key = format!("queue:{}:{}", project_id, latest_commit);
+    let queue_key = config.queue_entry_key(project_id, latest_commit);
     let val: Option<String> = conn.get(&queue_key).await?;
     let Some(val) = val else {
         return Ok(ExportQueueCheck::Retry);

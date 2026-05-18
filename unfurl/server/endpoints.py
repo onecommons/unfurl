@@ -713,15 +713,27 @@ def _update_queue_key(
 ) -> None:
     """Update the Redis queue key after batch_patch commits.
 
-    Sets ``queue:{project_id}:{latest_commit}`` to ``"{new_commit},{queueid}"``
-    so subsequent ``inc_queueid`` calls redirect clients to the new commit.
+    Sets ``{CACHE_KEY_PREFIX}queue:{project_id}:{latest_commit}`` to
+    ``"{new_commit},{queueid}"`` so subsequent ``inc_queueid`` calls
+    (in the rust proxy) redirect clients to the new commit.
+
+    Writes via the raw redis client rather than ``cache.set`` so the
+    value lands as a plain UTF-8 string. Flask-Caching would pickle it,
+    which the rust proxy's ``check_export_queue`` / ``inc_queueid`` Lua
+    can't decode as a string.
     """
     cache = get_cache()
     assert cache
-    queue_key = f"queue:{project_id}:{latest_commit}"
+    prefix = app.config.get("CACHE_KEY_PREFIX", "")
+    queue_key = f"{prefix}queue:{project_id}:{latest_commit}"
     value = f"{new_commit},{queueid}"
-    try:
+    backend = getattr(cache, "cache", None)
+    redis_client = backend and getattr(backend, "_write_client", None)
+    if redis_client is None:
         cache.set(queue_key, value)
+        return
+    try:
+        redis_client.set(queue_key, value)
         logger.debug("updated queue key %s = %s", queue_key, value)
     except Exception as exc:
         logger.error("failed to update queue key %s: %s", queue_key, exc)

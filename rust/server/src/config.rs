@@ -139,6 +139,20 @@ impl Config {
         format!("{}batch_lock:", self.cache_key_prefix)
     }
 
+    /// Redis key for the inc_queueid / check_export_queue queue entry
+    /// (per `(project_id, latest_commit)`). Must match the prefix
+    /// Flask-Caching applies on the Python side so both ends read/write
+    /// the same key (see `_update_queue_key` in
+    /// `unfurl/server/endpoints.py`).
+    pub fn queue_entry_key(&self, project_id: &str, latest_commit: &str) -> String {
+        format!("{}queue:{}:{}", self.cache_key_prefix, project_id, latest_commit)
+    }
+
+    /// Redis key prefix for newer-queue lookups in the inc_queueid Lua script.
+    pub fn queue_entry_prefix(&self, project_id: &str) -> String {
+        format!("{}queue:{}:", self.cache_key_prefix, project_id)
+    }
+
     /// Return the effective Redis URL with any password redacted for logging.
     pub fn redacted_redis_url(&self) -> Option<String> {
         self.effective_redis_url().map(|url| redact_url(&url))
