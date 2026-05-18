@@ -1155,7 +1155,14 @@ class LocalEnv:
             self.overrides["UNFURL_SKIP_VAULT_DECRYPT"] = True
         if os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             self.overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
-        if os.getenv("UNFURL_SEARCH_ROOT"):
+        # Don't stomp a per-call UNFURL_SEARCH_ROOT (e.g. the
+        # `clone_root` the server passes into `_make_readonly_localenv`
+        # for an export of a cloned repo) with the process-wide env var,
+        # otherwise the wider env cap re-discovers the *parent* project
+        # of the clone (e.g. tmp/ufsv) and adopts it as
+        # `localenv.project`, even though `localenv.manifestPath` is set
+        # correctly to the cloned repo's ensemble-template.yaml.
+        if "UNFURL_SEARCH_ROOT" not in self.overrides and os.getenv("UNFURL_SEARCH_ROOT"):
             self.overrides["UNFURL_SEARCH_ROOT"] = os.getenv("UNFURL_SEARCH_ROOT")
         if self.overrides.get("UNFURL_SKIP_VAULT_DECRYPT"):
             self.overrides["skip_secret_files"] = True

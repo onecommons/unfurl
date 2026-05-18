@@ -1031,7 +1031,11 @@ def init(ctx, projectdir, ensemble_name=None, **options):
     options.update(ctx.obj)
     _validate_var_option(options.get("var"))
     options["want_init"] = True
-    projectPath = Project.find_path(projectdir or ".")
+    # Honor UNFURL_SEARCH_ROOT so the parent walk doesn't adopt an
+    # unrelated `_unfurl/` (e.g. one in an ancestor workspace) as the
+    # current project — which would cause clone(source=that_unfurl,
+    # dest=projectdir) to bulk-clone the wrong repo.
+    projectPath = Project.find_path(projectdir or ".", os.getenv("UNFURL_SEARCH_ROOT"))
     if projectPath:
         # dest is already in a project, so create a new ensemble in it instead of a new project
         if not projectdir:

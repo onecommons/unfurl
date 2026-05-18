@@ -755,7 +755,11 @@ def find_project(
     source: str, home_path: Optional[str], register: bool = False
 ) -> Optional[Project]:
     src_dir = get_base_dir(source)
-    sourceRoot = Project.find_path(src_dir)
+    # Honor UNFURL_SEARCH_ROOT so `unfurl init <dest>` doesn't walk past
+    # the cap and adopt an unrelated `_unfurl/` (e.g. one in the parent
+    # workspace) as the existing dest project, which would then trip the
+    # `assert not relDestDir.startswith("..")` in set_dest_project_and_path.
+    sourceRoot = Project.find_path(src_dir, os.getenv("UNFURL_SEARCH_ROOT"))
     if sourceRoot:
         if home_path:
             return Project(sourceRoot, Project(home_path), register=register)
