@@ -150,7 +150,7 @@ class ExportQuery(ExportBaseQuery):
         default="",
         description="Include all deployment exports embedded in the response",
     )
-    stale: Optional[Literal["ok"]] = Field(
+    stale: Optional[Literal["ok", "never"]] = Field(
         default=None,
         description="Return any cache hit without checking if it's out of date.",
     )

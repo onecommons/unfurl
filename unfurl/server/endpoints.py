@@ -974,7 +974,7 @@ def _patch_environment(
     was_dirty = repo.is_dirty()
     starting_revision = repo.revision
     localConfig = localEnv.project.localConfig
-    localConfig.reload_if_changed()
+    localConfig.reload_if_changed(readonly=False)
     err = _apply_environment_patch(patch, localEnv)
     # XXX if batched is None: else batch invalidations
     invalidate_cache(body, "environments", project_id)
@@ -1063,50 +1063,6 @@ def _apply_ensemble_patch(patch: list, manifest: YamlManifest):
                 _update_imports(
                     imports, _patch_node_template(patch_inner, doc, namespace)
                 )
-    if not (manifest.manifest and manifest.manifest.config and manifest.repo):
-        logger.error(
-            "_apply_ensemble_patch precondition failed: "
-            "manifest=%r manifest.manifest=%r config=%r repo=%r "
-            "localEnv.manifestPath=%r localEnv.instance_repoview=%r "
-            "localEnv.project=%r "
-            "project.projectRoot=%r project.project_repoview=%r "
-            "project_repoview.repo=%r project_repoview.working_dir=%r",
-            manifest,
-            getattr(manifest, "manifest", None),
-            getattr(getattr(manifest, "manifest", None), "config", None),
-            getattr(manifest, "repo", None),
-            getattr(getattr(manifest, "localEnv", None), "manifestPath", None),
-            getattr(getattr(manifest, "localEnv", None), "instance_repoview", None),
-            getattr(getattr(manifest, "localEnv", None), "project", None),
-            getattr(
-                getattr(getattr(manifest, "localEnv", None), "project", None),
-                "projectRoot",
-                None,
-            ),
-            getattr(
-                getattr(getattr(manifest, "localEnv", None), "project", None),
-                "project_repoview",
-                None,
-            ),
-            getattr(
-                getattr(
-                    getattr(getattr(manifest, "localEnv", None), "project", None),
-                    "project_repoview",
-                    None,
-                ),
-                "repo",
-                None,
-            ),
-            getattr(
-                getattr(
-                    getattr(getattr(manifest, "localEnv", None), "project", None),
-                    "project_repoview",
-                    None,
-                ),
-                "working_dir",
-                None,
-            ),
-        )
     assert manifest.manifest and manifest.manifest.config and manifest.repo
     skip_prefixes = ["defaults"]
     if manifest.localEnv and manifest.localEnv.manifest_environment_name:
@@ -1318,7 +1274,15 @@ def _create_ensemble(
 ):
     assert parent_localenv.project
     # if current_working_dir is set, use it as the home project so clone uses the local repository if available
-    mono = parent_localenv.instance_repoview is parent_localenv.project.project_repoview
+    mono = (
+        parent_localenv.instance_repoview
+        and parent_localenv.instance_repoview.repo
+        and parent_localenv.instance_repoview.repo.working_dir
+        == (
+            parent_localenv.project.project_repoview.repo
+            and parent_localenv.project.project_repoview.repo.working_dir
+        )
+    )
     skeleton = None if gui_mode else "dashboard"
     if blueprint_url:
         logger.info(

@@ -3509,7 +3509,10 @@
             "schema": {
               "anyOf": [
                 {
-                  "const": "ok",
+                  "enum": [
+                    "ok",
+                    "never"
+                  ],
                   "type": "string"
                 },
                 {

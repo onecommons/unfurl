@@ -30,6 +30,10 @@ pub async fn try_cache(
         // TODO check pull cache if stale pulls are ok (CACHE_DEFAULT_PULL_TIMEOUT is set)
         return None;
     }
+    if latest_commit.is_some_and(|s| s.ends_with("-dirty")) {
+        tracing::info!("cache bypassed - dirty commit: {:?}", latest_commit);
+        return None;
+    }
     // Use Option<Vec<u8>> so that a missing key (nil reply) decodes to None
     // instead of an Err, avoiding a silent cache-miss when the key is absent.
     let get_fut = conn.get::<_, Option<Vec<u8>>>(key);

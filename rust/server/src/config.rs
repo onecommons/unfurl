@@ -154,7 +154,10 @@ impl Config {
     /// the same key (see `_update_queue_key` in
     /// `unfurl/server/endpoints.py`).
     pub fn queue_entry_key(&self, project_id: &str, latest_commit: &str) -> String {
-        format!("{}queue:{}:{}", self.cache_key_prefix, project_id, latest_commit)
+        format!(
+            "{}queue:{}:{}",
+            self.cache_key_prefix, project_id, latest_commit
+        )
     }
 
     /// Redis key prefix for newer-queue lookups in the inc_queueid Lua script.

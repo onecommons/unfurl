@@ -861,7 +861,7 @@ class LocalConfig:
         self.projects = self.config.expanded.get("projects") or {}
         self.localRepositories = self.config.expanded.get("localRepositories") or {}
 
-    def reload_if_changed(self, validate=False, readonly=False) -> bool:
+    def reload_if_changed(self, validate=False, readonly=None) -> bool:
         """Re-read the config file from disk if its size differs from when
         we loaded it (likely an earlier request in this process committed
         a newer version). Returns True if a reload happened.
@@ -870,8 +870,14 @@ class LocalConfig:
         discarded — callers should reload *before* applying their patch,
         so the patch lands on top of the latest disk content.
         """
-        if not self.config.config_file_changed() and self.config.readonly == readonly:
+        # XXX save m_size in self.config._cachedDocIncludes and check if those files changed too
+        # reload if we're changing readonly-ness
+        if not self.config.config_file_changed() and (
+            readonly is None or self.config.readonly == readonly
+        ):
             return False
+        if readonly is None:
+            readonly = self.config.readonly
         self._load(
             self.config.path,
             self.config.loadHook,

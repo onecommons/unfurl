@@ -230,7 +230,9 @@ async fn main() {
         tracing::info!("listening on {}", sock_addr);
         let app_clone = app.clone();
         tasks.push(tokio::spawn(async move {
-            axum::serve(listener, app_clone).await.expect("server error");
+            axum::serve(listener, app_clone)
+                .await
+                .expect("server error");
         }));
     }
     if tasks.is_empty() {

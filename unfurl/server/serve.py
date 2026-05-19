@@ -681,6 +681,13 @@ def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
 
 @dataclass
 class CacheEntry:
+    """
+    get_cache() and get_or_set() depends on latest_commit:
+
+    latest_commit ends in "-dirty": always recompute
+    latest_commit is None: value may be stale, depending stale_pull_age
+    latest_commit is git sha: value guarenteed fresh as of latest_commit
+    """
     project_id: str
     branch: Optional[str]
     file_path: str  # relative to project root
@@ -702,6 +709,7 @@ class CacheEntry:
     pull_state: Optional[str] = None
     owns_repo: bool = False
     cache: Optional[Cache] = None
+    dirty: bool = False
 
     def __getstate__(self) -> dict:
         state = self.__dict__.copy()
@@ -743,6 +751,7 @@ class CacheEntry:
                 try:
                     if self.repo.is_dirty():
                         # don't pull if working dir is dirty
+                        self.dirty = True
                         return self.repo
                 except Exception:
                     logger.error(
@@ -1128,11 +1137,11 @@ class CacheEntry:
 
     def _validate(
         self,
-        value: Any,
+        cache_value: CacheValue,
         cache: Cache,
-        latest_commit: Optional[str],
         validate: Optional[Callable],
     ) -> bool:
+        value = cache_value.value
         if value == "not_stored":
             return False
 
@@ -1143,6 +1152,7 @@ class CacheEntry:
                 if self.repo.is_dirty(
                     False, os.path.join(self.repo.working_dir, self.file_path)
                 ):
+                    self.dirty = True
                     return False
             else:
                 return False
@@ -1154,7 +1164,7 @@ class CacheEntry:
                 # need to regenerate the value
                 return False
 
-        return not validate or validate(value, self, cache, latest_commit)
+        return not validate or validate(value, self, cache, cache_value.latest_commit)
 
     def get_or_set(
         self,
@@ -1166,16 +1176,18 @@ class CacheEntry:
     ) -> Tuple[CacheError, Any]:
         try:
             if latest_commit is None and not self.stale_pull_age:
-                # don't use the cache
-                return self._do_work(work, latest_commit)[0:2]
-
-            cache_value, stale = self.get_cache(cache, latest_commit)
+                # pull and redo work
+                cache_value: Optional[CacheValue] = None
+                stale: Optional[bool] = True
+            elif latest_commit and latest_commit.endswith("-dirty"):
+                return self._do_work(work, None)[0:2]
+            else:
+                cache_value, stale = self.get_cache(cache, latest_commit)
             if cache_value:  # cache hit
                 if not stale:
                     if self._validate(
-                        cache_value.value,
+                        cache_value,
                         cache,
-                        cache_value.latest_commit,
                         validate,
                     ):
                         if self.root_entry and cache_dependency:
@@ -1516,11 +1528,13 @@ def _export(
         else:
             extra = ""
     repo = _get_project_repo(project_id, branch, args)
-    stale_pull_age = (
-        -1
-        if request.args.get("stale") == "ok"
-        else app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
-    )
+    stale = request.args.get("stale")
+    if stale == "ok":
+        stale_pull_age = -1
+    elif stale == "never":
+        stale_pull_age = 0
+    else:
+        stale_pull_age = app.config["CACHE_DEFAULT_PULL_TIMEOUT"]
     cache_entry = CacheEntry(
         project_id,
         branch,
@@ -1582,7 +1596,11 @@ def _export(
                 post_work(cache_entry, json_summary)
 
             if cache_entry.value and cache_entry.value.latest_commit:
-                json_summary["latest_commit"] = cache_entry.value.latest_commit
+                latest_commit = cache_entry.value.latest_commit
+            if latest_commit:
+                if cache_entry.dirty and not latest_commit.endswith("-dirty"):
+                    latest_commit += "-dirty"
+                json_summary["latest_commit"] = latest_commit
             response = json_response(
                 json_summary, request.args.get("pretty"), sort_keys=False
             )
@@ -1812,8 +1830,16 @@ def _localenv_from_cache(
     latest_commit: Optional[str],
     args: dict,
 ) -> Tuple[CacheError, Optional[LocalEnv], Optional[CacheEntry]]:
-    if not project_id and (gui_local_env := app.config.get("UNFURL_GUI_MODE")):
-        return None, gui_local_env, None
+    if gui_local_env := app.config.get("UNFURL_GUI_MODE"):
+        if not project_id:
+            return None, gui_local_env, None
+        # Also reuse the closure's LocalEnv when project_id names the project
+        # the gui server was launched against, so in-process mutations (e.g.
+        # update_deployment appending to localConfig.ensembles) are visible to
+        # readers that consult the closure directly (gui.py:/branches).
+        project = gui_local_env.project
+        if project and project_id.rstrip("/") == "local:" + project.projectRoot.rstrip("/"):
+            return None, gui_local_env, None
 
     # we want to make cloning a repo cache work to prevent concurrent cloning
     def _cache_localenv_work(
@@ -1880,7 +1906,15 @@ def localenv_from_cache_checked(
     # ~line 1790 evicts cached YamlManifest for the same staleness reason.
     fresh_repo = Repo.make_repo(cached_repo.working_dir) or cached_repo
     fresh_revision = fresh_repo.revision
-    if check_lastcommit and latest_commit and fresh_revision != latest_commit:
+    # Clients echo whatever latest_commit the server last reported, including
+    # the `-dirty` suffix added when the working tree had uncommitted changes
+    # (see gui.py:/branches and serve.py:_do_work). The optimistic-lock check
+    # compares against the on-disk SHA which never carries the suffix, so
+    # strip it here to keep `<sha>-dirty` POSTs from spuriously 409ing.
+    client_commit = (
+        latest_commit.removesuffix("-dirty") if latest_commit else latest_commit
+    )
+    if check_lastcommit and client_commit and fresh_revision != client_commit:
         logger.warning(
             f"Conflict in {project_id}: {latest_commit} != {fresh_revision} ({cached_repo.url})"
         )

@@ -199,6 +199,10 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
     for key in lookup_keys:
         if key in local_projects:
             working_dir = local_projects[key]
+            if localenv.project:
+                repo_view = localenv.project.workingDirs.get(working_dir)
+                if repo_view and repo_view.repo:
+                    return repo_view.repo
             return Repo.make_repo(working_dir)
     if "/" not in project_path and ":" not in project_path:
         return None
@@ -384,12 +388,43 @@ def create_routes(localenv: LocalEnv):
         committed_date = datetime.datetime.fromtimestamp(
             repo.revision_time, tz=datetime.timezone.utc
         ).isoformat()
+        commit_id = repo.revision
+        if commit_id:
+            if repo.is_dirty():
+                commit_id += "-dirty"
+            elif (
+                project := localenv.project
+            ) and repo is project.project_repoview.repo:
+                # Pick up ensemble entries create after startup, e.g. added by /create_ensemble
+                project.localConfig.reload_if_changed()
+                for tpl in project.localConfig.ensembles:
+                    if not tpl.get("file"):
+                        continue
+                    working_dir = os.path.join(
+                        project.projectRoot, os.path.dirname(tpl["file"])
+                    )
+                    repo_view = project.workingDirs.get(working_dir)
+                    if repo_view:
+                        if (
+                            repo_view is not project.project_repoview
+                            and repo_view.is_dirty()
+                        ):
+                            commit_id += "-dirty"
+                            break
+                    elif os.path.isdir(os.path.join(working_dir, ".git")):
+                        # workingDirs is the startup snapshot, so deployments
+                        # created since don't have a RepoView. Check the
+                        # filesystem directly.
+                        if git.Repo(working_dir).is_dirty():
+                            commit_id += "-dirty"
+                            break
+        logger.debug("/branches %s -> %s", project_path, commit_id)
         return jsonify(
             [
                 {
                     "name": branch,
                     "commit": {
-                        "id": repo.revision,
+                        "id": commit_id,
                         "committed_date": committed_date,
                         "created_at": committed_date,
                     },

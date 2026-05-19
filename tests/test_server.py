@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 from pprint import pformat
@@ -1643,6 +1644,168 @@ def test_create_ensemble(server_env):
             assert os.path.exists("deployments/new-app/ensemble.yaml"), os.listdir(".")
         finally:
             _dump_server_logs(p, "create-ensemble")
+            if p:
+                _terminate_process(p)
+
+
+def _start_gui_server(project_dir, name=""):
+    """Start a server in --gui mode against a local project at `project_dir`.
+
+    Returns (process, port). The caller is responsible for terminating.
+    """
+    port = _next_port()
+    py_log_fd, py_log_file = tempfile.mkstemp(
+        prefix=f"py-gui-{name or 'server'}-", suffix=".log"
+    )
+    os.close(py_log_fd)
+    ctx = get_context()
+    error_queue = ctx.Queue()
+    p = ctx.Process(
+        target=serve_server,
+        args=(HOST, port, None, ".", project_dir, {"home": ""}, None),
+        kwargs={
+            "error_queue": error_queue,
+            # Skip the rust proxy: /branches is a Python-only endpoint and
+            # rust adds complexity (extra port, image dependency) without
+            # exercising the code we want to test.
+            "extra_env": {"UNFURL_RUST_SERVER": "0", "UNFURL_LOGGING": "debug"},
+            "py_log_file": py_log_file,
+            "gui": True,
+        },
+    )
+    p._error_queue = error_queue
+    p._py_log_file = py_log_file
+    p._rust_log_file = None
+    try:
+        start_server_process(p, port)
+        return p, port
+    except Exception:
+        _terminate_process(p)
+        raise
+
+
+def _branches_commit(port: int, project_root: str) -> dict:
+    """Fetch the /branches commit dict for `project_root` (an absolute path).
+
+    Asserts the response carries `id`, `committed_date` and `created_at`
+    (gui.py:branches sets all three; both date fields derive from the same
+    `repo.revision_time`, so they must match). Returns the commit dict.
+    """
+    # The Flask route uses <path:project_path> so the colon in `local:` must
+    # be URL-encoded; the absolute path's slashes can pass through as-is.
+    url = (
+        f"http://{HOST}:{port}/api/v4/projects/local%3A{project_root}"
+        f"/repository/branches"
+    )
+    res = requests.get(url)
+    assert res.status_code == 200, res.text
+    branches = res.json()
+    assert branches, f"empty /branches response: {res.text}"
+    commit = branches[0]["commit"]
+    assert commit.get("id"), f"missing commit.id: {commit}"
+    assert commit.get("committed_date"), f"missing committed_date: {commit}"
+    assert commit.get("created_at"), f"missing created_at: {commit}"
+    assert commit["committed_date"] == commit["created_at"], (
+        f"committed_date {commit['committed_date']!r} != created_at "
+        f"{commit['created_at']!r}"
+    )
+    # ISO 8601: parseable by datetime.fromisoformat (3.7+).
+    datetime.datetime.fromisoformat(commit["committed_date"])
+    return commit
+
+
+@pytest.mark.parametrize("create_endpoint", ["create_ensemble", "create_provider"])
+def test_gui_branches_dirty_subrepo(create_endpoint):
+    """/branches reports `<sha>-dirty` when a sub-ensemble repo is dirty.
+
+    When /create_ensemble (or /create_provider) can create a new ensemble
+    in a separate repository, so /branches on the outer project must reflect any uncommitted
+    state in that repo because the client only sends commits from the outer project repository.
+    """
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            init_project(
+                runner,
+                # --use-environment seeds the `environments:` section so
+                # /create_provider can register a deployment under it without
+                # crashing on a None environments dict.
+                args=["init", "--empty", "--use-environment", "test-env", "ufsv"],
+                env=dict(UNFURL_HOME=""),
+            )
+            project_root = os.path.abspath("ufsv")
+            outer_repo = GitRepo(Repo(project_root))
+            last_commit = outer_repo.revision
+            assert last_commit
+
+            p, port = _start_gui_server(project_root, name=create_endpoint)
+
+            # Sanity: initial /branches returns the clean SHA.
+            initial = _branches_commit(port, project_root)
+            assert initial["id"] == last_commit, (
+                f"expected {last_commit}, got {initial['id']}"
+            )
+
+            # POST to the create endpoint to spawn a new sub-ensemble subrepo.
+            deployment_path = (
+                "deployments/new-app"
+                if create_endpoint == "create_ensemble"
+                else "environments/test-env/primary_provider"
+            )
+            body = {
+                "patch": [],
+                "deployment_path": deployment_path,
+                "latest_commit": last_commit,
+            }
+            if create_endpoint == "create_provider":
+                body["environment"] = "test-env"
+            res = requests.post(
+                f"http://{HOST}:{port}/{create_endpoint}"
+                f"?auth_project=local:{project_root}",
+                json=body,
+            )
+            assert res.status_code == 200, res.text
+
+            # New subrepo was just committed by the endpoint, so /branches
+            # should still report a clean SHA — and a different one than
+            # before, since /create_ensemble registered the new ensemble in
+            # unfurl.yaml (an outer-repo change that produced a new commit).
+            after_create = _branches_commit(port, project_root)
+            assert not after_create["id"].endswith("-dirty"), (
+                f"unexpected dirty after clean create: {after_create['id']}"
+            )
+            assert after_create["id"] != initial["id"], (
+                f"expected /{create_endpoint} to advance HEAD, "
+                f"but /branches still reports {after_create['id']}"
+            )
+            assert after_create["committed_date"] != initial["committed_date"], (
+                f"expected /{create_endpoint} to advance committed_date, "
+                f"both still {after_create['committed_date']}"
+            )
+
+            # Modify the new ensemble's ensemble.yaml without committing.
+            sub_ensemble = os.path.join(project_root, deployment_path, "ensemble.yaml")
+            assert os.path.exists(sub_ensemble), (
+                f"missing sub-ensemble file: {sub_ensemble}"
+            )
+            with open(sub_ensemble, "a") as f:
+                f.write("\n# dirty marker added by test_gui_branches_dirty_subrepo\n")
+
+            # /branches must now advertise the dirty state. The -dirty suffix
+            # is appended to the same SHA we saw post-create — the outer repo
+            # didn't get a new commit; only the subrepo's working tree changed.
+            after_dirty = _branches_commit(port, project_root)
+            assert after_dirty["id"] == after_create["id"] + "-dirty", (
+                f"expected {after_create['id']}-dirty, got: {after_dirty['id']}"
+            )
+            assert after_dirty["committed_date"] == after_create["committed_date"], (
+                f"committed_date shouldn't change when only the working "
+                f"tree changed: {after_dirty['committed_date']} vs "
+                f"{after_create['committed_date']}"
+            )
+        finally:
+            _dump_server_logs(p, f"gui-branches-{create_endpoint}")
             if p:
                 _terminate_process(p)
 
