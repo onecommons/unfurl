@@ -155,7 +155,7 @@ class Project:
             return
 
         # project maybe part of a containing repo (if created with --existing option)
-        repo = Repo.find_containing_repo(path)
+        repo = Repo.find_containing_git_repo(path)
         # make sure projectroot isn't excluded from the containing repo
         if not repo or repo.is_path_excluded(path):
             repo = None
@@ -174,11 +174,12 @@ class Project:
 
     def _set_repos(self) -> None:
         # abspath => RepoView:
-        self.workingDirs = Repo.find_git_working_dirs(
+        # includes ProxiedRepos
+        self.workingDirs = Repo.find_working_dirs(
             self.projectRoot, True, "tosca_repositories"
         )
         self._set_project_repoview()
-        Repo.find_git_repos_in_directory(
+        Repo.find_repos_in_directory(
             self.workingDirs, os.path.join(self.projectRoot, "tosca_repositories")
         )
 
@@ -193,7 +194,7 @@ class Project:
                     and "/tosca_repositories" not in dir
                     and os.path.isdir(dir)
                 ):
-                    Repo.update_git_working_dirs(self.workingDirs, dir, os.listdir(dir))
+                    Repo.update_working_dirs(self.workingDirs, dir, os.listdir(dir))
 
         # add referenced local repositories outside of the project
         for path, tpl in self.localConfig.localRepositories.items():
@@ -1536,7 +1537,7 @@ class LocalEnv:
         instanceDir = os.path.dirname(self.manifestPath)
         if self.project:
             return self.project.find_path_in_repos(instanceDir)[0]
-        repo = Repo.find_containing_repo(instanceDir)
+        repo = Repo.find_containing_git_repo(instanceDir)
         if repo:
             return repo.as_repo_view()
         else:

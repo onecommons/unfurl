@@ -1496,7 +1496,9 @@ class YamlConfig:
             cls=make_map_with_base(self.config, self.baseDirs[0], yaml_dict),
         )
 
-    def load_yaml(self, path, baseDir=None, warnWhenNotFound=False):
+    def load_yaml(
+        self, path: str, baseDir=None, warnWhenNotFound=False
+    ) -> Tuple[str, Optional[dict]]:
         url = urlsplit(path)
         if url.scheme.startswith("http") and url.netloc:  # looks like an absolute url
             fragment = url.fragment
@@ -1525,16 +1527,16 @@ class YamlConfig:
             return path, _resolve_fragment(config, fragment)
         return path, config
 
-    def get_base_dir(self):
+    def get_base_dir(self) -> str:
         if self.path:
             return get_base_dir(self.path)
         else:
             return "."
 
-    def restore_includes(self, changed):
+    def restore_includes(self, changed) -> None:
         restore_includes(self.includes, self.config, changed, cls=CommentedMap)
 
-    def dump(self, out=sys.stdout):
+    def dump(self, out=sys.stdout) -> None:
         try:
             self.yaml.dump(self.config, out)
         except Exception:
@@ -1550,7 +1552,7 @@ class YamlConfig:
                     return True
         return False
 
-    def save(self):
+    def save(self) -> io.StringIO:
         if self.readonly:
             raise UnfurlError(f'Can not save "{self.path}", it is set to readonly')
         output = io.StringIO()
@@ -1568,7 +1570,7 @@ class YamlConfig:
         return output
 
     @property
-    def yaml(self):
+    def yaml(self) -> YAML:
         if not self._yaml:
             self._yaml = make_yaml(self.vault)
         return self._yaml
@@ -1609,7 +1611,7 @@ class YamlConfig:
                 return k, template
         return None, None
 
-    def save_include(self, key):
+    def save_include(self, key: str) -> None:
         path, template, directive = self._cachedDocIncludes[key]
         if self.readonly:
             raise UnfurlError(

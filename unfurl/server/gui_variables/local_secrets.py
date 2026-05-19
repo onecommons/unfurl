@@ -85,7 +85,7 @@ def set_variables(localenv: LocalEnv, env_vars: List[EnvVar]) -> None:
                     del secret_env_vars[key]
                 _set_env_var(envs, env_name, key, value)
                 modified_config = True
-    if modified_secrets:
+    if modified_secrets and secret_config_key:
         project.localConfig.config.save_include(secret_config_key)
     if modified_config:
         project.localConfig.config.save()

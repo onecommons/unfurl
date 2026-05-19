@@ -2769,7 +2769,7 @@ class CloudMap:
 
         if not parts.scheme:
             # No scheme - see if it's a local path inside a git repository
-            repo = Repo.find_containing_repo(url)
+            repo = Repo.find_containing_git_repo(url)
             if repo:
                 # don't include "." as a path to examine
                 self.directory._add_repo(repo)

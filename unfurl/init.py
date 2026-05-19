@@ -125,10 +125,10 @@ def create_home(
     skeleton: str = kw.pop("skeleton", "home")
     homedir, filename = os.path.split(homePath)
     if render:  # just render
-        repo = Repo.find_containing_repo(homedir)
+        repo = Repo.find_containing_git_repo(homedir)
         # XXX if repo and update: git stash; git checkout rendered
         ensembleDir = os.path.join(homedir, DefaultNames.EnsembleDirectory)
-        ensembleRepo = Repo.find_containing_repo(ensembleDir)
+        ensembleRepo = Repo.find_containing_git_repo(ensembleDir)
         skeleton_vars = dict(kw.get("var", []))
         configPath, password_vault = render_project(
             homedir,
@@ -406,8 +406,8 @@ def _find_external_project(
     return externalProject, ensembleDir
 
 
-def _find_project_repo(projectdir):
-    repo = Repo.find_containing_repo(projectdir)
+def _find_project_repo(projectdir: str) -> GitRepo:
+    repo = Repo.find_containing_git_repo(projectdir)
     if not repo:
         raise UnfurlError("Could not find an existing repository")
     if not repo.repo.head.is_valid():
@@ -524,7 +524,7 @@ def create_project(
     ensembleDir = os.path.join(projectdir, ensemble_name)
     shared = _get_shared(kw, homePath)
     if shared:
-        ensembleRepo = Repo.find_containing_repo(shared)
+        ensembleRepo = Repo.find_containing_git_repo(shared)
         if not ensembleRepo:
             raise UnfurlError("can not find shared repository " + shared)
     elif mono:
@@ -777,7 +777,7 @@ def _get_environment_and_shared_repo(project: Project, options):
     if not shared and context:
         shared = project.get_default_project_path(context)
     if shared:
-        shared_repo = Repo.find_containing_repo(shared)
+        shared_repo = Repo.find_containing_git_repo(shared)
         if not shared_repo:
             raise UnfurlError("can not find shared repository " + shared)
 

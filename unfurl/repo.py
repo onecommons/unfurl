@@ -224,7 +224,7 @@ class Repo(abc.ABC):
     url: str = ""
 
     @staticmethod
-    def find_containing_repo(
+    def find_containing_git_repo(
         rootDir, gitDir=".git", stop_at: str = ""
     ) -> Optional["GitRepo"]:
         """
@@ -244,27 +244,49 @@ class Repo(abc.ABC):
         return None
 
     @staticmethod
-    def find_git_working_dirs(
+    def find_containing_repo(
+        rootDir, gitDir=".git", stop_at: str = ""
+    ) -> Optional["Repo"]:
+        """
+        Walk parents looking for a git or proxied repository.
+
+        Args:
+            stop_at: If set, stop searching before reaching this directory.
+        """
+        current = os.path.abspath(rootDir)
+        stop = os.path.abspath(stop_at) if stop_at else ""
+        while current and current != os.sep:
+            if stop and current == stop:
+                return None
+            repo = Repo.make_repo(current, gitDir)
+            if repo:
+                return repo
+            current = os.path.dirname(current)
+        return None
+
+    @staticmethod
+    def find_working_dirs(
         rootDir,
         include_root,
         skip_dir=None,
         gitDir=".git",
     ) -> Dict[str, "RepoView"]:
+        # includes ProxiedRepos
         working_dirs: Dict[str, "RepoView"] = {}
         for root, dirs, files in os.walk(rootDir):
             if skip_dir and root == os.path.join(rootDir, skip_dir):
                 del dirs[:]  # don't visit sub directories
                 continue
-            if Repo.update_git_working_dirs(working_dirs, root, dirs, gitDir):
+            if Repo.update_working_dirs(working_dirs, root, dirs, gitDir):
                 if not include_root or rootDir != root:
                     del dirs[:]  # don't visit sub directories
         return working_dirs
 
     @staticmethod
-    def find_git_repos_in_directory(
+    def find_repos_in_directory(
         working_dirs: Dict[str, "RepoView"], parent_dir: str, gitDir: str = ".git"
     ) -> None:
-        """Find git repos among the immediate children of parent_dir, following symlinks.
+        """Find repos among the immediate children of parent_dir, following symlinks.
 
         For each child directory:
         - Resolve symlinks and use the real path as the working dir key.
@@ -272,6 +294,7 @@ class Repo(abc.ABC):
         - Otherwise, find the containing git repo and add a RepoView
           with a path relative to the git root.
         """
+        # includes ProxiedRepos
         if not os.path.isdir(parent_dir):
             return
         for entry in os.listdir(parent_dir):
@@ -280,10 +303,11 @@ class Repo(abc.ABC):
                 continue
             real_child = os.path.realpath(child)
             child_contents = os.listdir(real_child)
-            if gitDir in child_contents and is_git_worktree(real_child, gitDir):
-                repo = GitRepo(git.Repo(real_child))
+            if gitDir in child_contents or ".proxied" in child_contents:
                 if real_child not in working_dirs:
-                    working_dirs[real_child] = repo.as_repo_view()
+                    repo = Repo.make_repo(real_child, gitDir)
+                    if repo:
+                        working_dirs[real_child] = repo.as_repo_view()
             elif os.path.islink(child):
                 # Symlink pointing into a subdirectory of a git repo (not a repo root);
                 # stop before reaching parent_dir to avoid finding the project repo itself
@@ -298,9 +322,8 @@ class Repo(abc.ABC):
                         )
 
     @staticmethod
-    def update_git_working_dirs(
-        working_dirs, root, dirs, gitDir=".git"
-    ) -> Optional[str]:
+    def update_working_dirs(working_dirs, root, dirs, gitDir=".git") -> Optional[str]:
+        # includes ProxiedRepos
         key = os.path.abspath(root)
         repo = Repo.make_repo(root, gitDir)
         if repo:
@@ -326,7 +349,7 @@ class Repo(abc.ABC):
 
     @staticmethod
     def ignore_dir(dir):
-        parent = Repo.find_containing_repo(os.path.dirname(dir))
+        parent = Repo.find_containing_git_repo(os.path.dirname(dir))
         if parent:
             path = parent.find_repo_path(dir)
             if path:  # can be None if dir is already ignored
