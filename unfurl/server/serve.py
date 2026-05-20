@@ -409,7 +409,7 @@ def get_current_project_id() -> str:
     return project_id_from_urlresult(parts)
 
 
-def local_developer_mode() -> bool:
+def local_mode() -> bool:
     return bool(app.config.get("UNFURL_CURRENT_GIT_URL"))
 
 
@@ -685,8 +685,8 @@ class CacheEntry:
     get_cache() and get_or_set() depends on latest_commit:
 
     latest_commit ends in "-dirty": always recompute
-    latest_commit is None: value may be stale, depending stale_pull_age
-    latest_commit is git sha: value guarenteed fresh as of latest_commit
+    latest_commit is None: value may be stale, pull and recompute or return depending stale_pull_age
+    latest_commit is git sha: value guarenteed fresh as of latest_commit or recompute, pulls if latest_commit is missing from repo
     """
     project_id: str
     branch: Optional[str]
@@ -744,10 +744,13 @@ class CacheEntry:
         return self.repo
 
     def pull(self, cache: Cache, stale_ok_age: int = 0, shallow_since=None) -> Repo:
-        if local_developer_mode():
+        if local_mode():
             if not self.repo:
                 self._set_project_repo()
             if self.repo:
+                if shallow_since is None:
+                    # in local mode, don't try to pull in existing repos unless we explictly need a new commit
+                    return self.repo
                 try:
                     if self.repo.is_dirty():
                         # don't pull if working dir is dirty
@@ -759,10 +762,7 @@ class CacheEntry:
                         self.repo.working_dir,
                         exc_info=True,
                     )
-                    if isinstance(self.repo, GitRepo):
-                        self.repo.repo.__del__()
-                        self.repo = None
-                        gc.collect()
+                    self._cleanup()
 
         branch = self.branch or DEFAULT_BRANCH
         repo_key = (
@@ -818,11 +818,11 @@ class CacheEntry:
                         action = pull(repo, branch, shallow_since)
                     except Exception:
                         logger.info(
-                            f"pull failed for {repo_key}, clearing project",
+                            f"pull failed for {repo_key}, clearing keys for project",
                             exc_info=True,
                         )
                         _clear_project(self.project_id)
-                        if not local_developer_mode():
+                        if not local_mode():
                             # we don't delete the repo in local developer mode
                             repo = None
                         else:
@@ -1145,11 +1145,11 @@ class CacheEntry:
         if value == "not_stored":
             return False
 
-        if local_developer_mode():
+        if local_mode():
             if not self.repo:
                 self._set_project_repo()
             if self.repo:
-                if self.repo.is_dirty(
+                if self.dirty or self.repo.is_dirty(
                     False, os.path.join(self.repo.working_dir, self.file_path)
                 ):
                     self.dirty = True
@@ -1180,11 +1180,14 @@ class CacheEntry:
                 cache_value: Optional[CacheValue] = None
                 stale: Optional[bool] = True
             elif latest_commit and latest_commit.endswith("-dirty"):
+                # always redo work if latest_commit ends in "-dirty"
+                logger.debug(f"regenerating {self.cache_key()} for {latest_commit}")
                 return self._do_work(work, None)[0:2]
             else:
                 cache_value, stale = self.get_cache(cache, latest_commit)
             if cache_value:  # cache hit
-                if not stale:
+                if not stale or self.stale_pull_age == -1:
+                    # if stale_pull_age is -1, we never want to pull, so just return the stale value
                     if self._validate(
                         cache_value,
                         cache,
@@ -1197,10 +1200,11 @@ class CacheEntry:
                                 cache_value.last_commit,
                             )
                         return None, cache_value.value
-                    logger.debug(f"validation failed for {self.cache_key()}")
-                elif self.stale_pull_age == -1:
-                    # if stale_pull_age is -1, we never want to pull, so just return the stale value
-                    return None, cache_value.value
+                    logger.debug(
+                        f"regenerating {self.cache_key()}: " + "repo dirty"
+                        if self.dirty  # detected dirty repo in local mode
+                        else "cache failed validation"
+                    )
                 # otherwise in cache but stale or invalid, fall thru to redo work
                 # XXX? check date to see if its recent enough to serve anyway
                 # if _get_committed_date(stale) - time.time() < stale_ok_age:
@@ -1559,6 +1563,7 @@ def _export(
             if request.args.get("include_all_deployments"):
                 deployments = []
                 for manifest_path in json_summary["DeploymentPath"]:
+                    # XXX if manifest_path in in separate repo, change project_id and branch to match, omit latest_commit
                     dcache_entry = CacheEntry(
                         project_id,
                         branch,
@@ -1601,6 +1606,11 @@ def _export(
                 if cache_entry.dirty and not latest_commit.endswith("-dirty"):
                     latest_commit += "-dirty"
                 json_summary["latest_commit"] = latest_commit
+                logger.debug(
+                    "%s export response latest_commit=%s",
+                    cache_entry.cache_key(),
+                    latest_commit,
+                )
             response = json_response(
                 json_summary, request.args.get("pretty"), sort_keys=False
             )
@@ -1737,7 +1747,7 @@ def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
 
 
 def _clear_project(project_id: str) -> ResponseReturnValue:
-    if not local_developer_mode() and project_id:
+    if not local_mode() and project_id:
         found = False
         # only delete repos we cloned
         for visibility in ["public", "private"]:
@@ -2274,6 +2284,9 @@ def serve(
         from . import gui as unfurl_gui
 
         unfurl_gui.create_routes(local_env)
+        logger.info(
+            "Serving ui for project at %s", app.config.get("UNFURL_CURRENT_GIT_URL")
+        )
     else:
         current_project_id = get_current_project_id()
         if current_project_id:
@@ -2286,12 +2299,7 @@ def serve(
             logger.warning(
                 f"Serving from a local project that isn't hosted on {app.config['UNFURL_CLOUD_SERVER']}, no connection URL available."
             )
-
     enter_safe_mode()
-    if gui:
-        logger.info(
-            "Serving ui for project at %s", app.config.get("UNFURL_CURRENT_GIT_URL")
-        )
 
     import waitress
     from .translogger import make_filter  # type: ignore
