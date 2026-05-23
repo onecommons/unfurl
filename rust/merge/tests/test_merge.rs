@@ -324,6 +324,12 @@ fn diff_basic_and_roundtrips_through_merge() {
     // merge(old, diff) round-trips to new (the diff's defining property).
     let merged = merge(&old, &d).expect("merge round-trip");
     assert_eq!(merged, new, "merge(old, diff) should equal new");
+
+    // patch(old, new) over the same data — matches the trailing
+    // `patch_dict(old, new); assertEqual(old, new)` assertion in
+    // tests/test_runtime.py::ExpandDocTest::test_diff.
+    let patched = patch(&old, &new, false);
+    assert_eq!(patched, new, "patch(old, new, false) should equal new");
 }
 
 #[test]
