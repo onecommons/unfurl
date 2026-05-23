@@ -1,0 +1,4 @@
+app:
+  env:
+    "+?include": does-not-exist.yaml
+keep: 1

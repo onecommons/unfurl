@@ -4,7 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use unfurl_merge::{
-    diff, expand, intersect, load_file, merge, merge_with, patch, MergeError, MergeOptions, Node,
+    diff, expand, expand_with, intersect, load_file, merge, merge_with, patch, FileResolver,
+    MergeError, MergeOptions, Node,
 };
 
 fn fixtures_root() -> PathBuf {
@@ -461,4 +462,44 @@ fn expand_doc_detects_recursive_relative_include() {
         msg.contains("recursive") && msg.contains("test4"),
         "got: {msg}"
     );
+}
+
+#[test]
+fn expand_with_file_resolver_loads_sibling_yaml() {
+    // End-to-end: parent.yaml carries `+include: shared.yaml` inside
+    // app.env; FileResolver loads shared.yaml relative to parent's
+    // directory; the result merges shared into app.env with
+    // parent's own keys winning on conflict (LOG_LEVEL: debug vs
+    // shared's LOG_LEVEL: info).
+    let dir = fixtures_root().join("expand_file_include");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_with_file_resolver_errors_on_missing_required_include() {
+    let dir = fixtures_root().join("expand_file_include");
+    let doc = load_file(&dir.join("missing_required.yaml")).expect("doc");
+    let err = expand_with(&doc, &FileResolver).expect_err("should fail");
+    assert!(matches!(err, MergeError::MergeRejected(_)), "got {err:?}");
+}
+
+#[test]
+fn expand_with_file_resolver_drops_missing_optional_include() {
+    // `+?include` to a non-existent file: the directive is dropped
+    // along with its enclosing sub-mapping (matches merge.py's
+    // delete_path behavior when path is non-empty — the parent
+    // mapping was created to host the include, and once that fails
+    // it's treated as having no useful content). Unrelated sibling
+    // keys at a different path level survive.
+    let dir = fixtures_root().join("expand_file_include");
+    let doc = load_file(&dir.join("missing_optional.yaml")).expect("doc");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+    let json = expanded.to_json_value();
+    // app.env is removed (it only held the failed include); app
+    // itself stays (now empty); the unrelated `keep: 1` survives.
+    assert!(json["app"]["env"].is_null(), "expected app.env gone");
+    assert_eq!(json["keep"].as_i64(), Some(1));
 }

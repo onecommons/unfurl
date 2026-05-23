@@ -1,0 +1,7 @@
+app:
+  name: parent-app
+  env:
+    "+include": shared.yaml
+    LOG_LEVEL: debug
+other:
+  preserved: true

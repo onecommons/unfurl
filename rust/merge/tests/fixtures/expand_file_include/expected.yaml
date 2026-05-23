@@ -1,0 +1,8 @@
+app:
+  name: parent-app
+  env:
+    DATABASE_URL: postgres://localhost
+    LOG_LEVEL: debug
+    REDIS_URL: redis://localhost
+other:
+  preserved: true
