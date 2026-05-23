@@ -24,8 +24,8 @@ pub mod node;
 
 #[doc(inline)]
 pub use dict_merge::{
-    merge, merge_list_append_unique, merge_list_append_unique_with, merge_with, MergeOptions,
-    MERGE_STRATEGY_KEY,
+    diff, intersect, merge, merge_list_append_unique, merge_list_append_unique_with, merge_with,
+    patch, MergeOptions, MERGE_STRATEGY_KEY,
 };
 #[doc(inline)]
 pub use error::{MergeError, Result};

@@ -1,0 +1,7 @@
+a: 1
+b:
+  inner: keep
+items:
+  - alpha
+  - beta
+to_delete: yes

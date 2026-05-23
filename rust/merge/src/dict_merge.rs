@@ -327,3 +327,199 @@ fn node_as_str(n: &Node) -> Option<&str> {
         None
     }
 }
+
+/// Build a single-key mapping `{"+%": value}` with the given source.
+/// Used by [`diff`] to emit `whiteout` and `nullout` directives.
+fn directive(value: &str, source: Source) -> Node {
+    let mut entries = IndexMap::with_capacity(1);
+    entries.insert(MERGE_STRATEGY_KEY.into(), Node::String(value.into()));
+    Node::Mapping { entries, source }
+}
+
+// ----------------------------------------------------------------------
+// diff / patch / intersect
+// ----------------------------------------------------------------------
+
+/// Reverse-engineer a diff such that `merge(old, diff) == new`.
+///
+/// Walks `old` first (preserving its key order), then appends keys
+/// new added. Emits `+%: whiteout` for keys in `old` not in `new`,
+/// and `+%: nullout` when `old[k]` is a mapping and `new[k]` is
+/// `Null` (otherwise merge would treat `Null` as an empty mapping
+/// and the value would survive). Mirrors `merge.py::diff_dicts`.
+pub fn diff(old: &Node, new: &Node) -> Node {
+    let (
+        Node::Mapping {
+            entries: old_entries,
+            source,
+        },
+        Node::Mapping {
+            entries: new_entries,
+            ..
+        },
+    ) = (old, new)
+    else {
+        // Not both mappings — the smallest "diff" that merge can
+        // apply to land on `new` is `new` itself.
+        return new.clone();
+    };
+    diff_mappings(old_entries, new_entries, source.clone())
+}
+
+fn diff_mappings(
+    old: &IndexMap<String, Node>,
+    new: &IndexMap<String, Node>,
+    source: Source,
+) -> Node {
+    let mut out: IndexMap<String, Node> = IndexMap::new();
+    for (key, oldval) in old {
+        if let Some(newval) = new.get(key) {
+            if oldval != newval {
+                let diff_val = match (oldval, newval) {
+                    (Node::Mapping { .. }, Node::Mapping { .. }) => diff(oldval, newval),
+                    (Node::Mapping { .. }, Node::Null) => directive("nullout", source.clone()),
+                    _ => newval.clone(),
+                };
+                out.insert(key.clone(), diff_val);
+            }
+        } else {
+            out.insert(key.clone(), directive("whiteout", source.clone()));
+        }
+    }
+    for (key, newval) in new {
+        if !old.contains_key(key) {
+            out.insert(key.clone(), newval.clone());
+        }
+    }
+    Node::Mapping {
+        entries: out,
+        source,
+    }
+}
+
+/// Transform `old` into `new` structurally. Returns a new tree;
+/// the input is not mutated.
+///
+/// When `preserve` is `false` (the Python default), keys present
+/// in `old` but absent from `new` are dropped, and list values are
+/// rewritten to match `new` exactly.
+///
+/// When `preserve` is `true`, `old`-only keys are kept untouched,
+/// and list values become the union of old and new (old's items
+/// followed by new items not already present).
+///
+/// Differences vs `merge.py::patch_dict`: Python's `patch_dict`
+/// mutates `old` in place and (with `preserve=False`) tries to
+/// preserve object identity by reusing `old`'s items in lists. In
+/// Rust we work with owned `Node`s where identity is moot — the
+/// `preserve=False` output is structurally identical to the Python
+/// version's, but built fresh.
+pub fn patch(old: &Node, new: &Node, preserve: bool) -> Node {
+    let (
+        Node::Mapping {
+            entries: old_entries,
+            source,
+        },
+        Node::Mapping {
+            entries: new_entries,
+            ..
+        },
+    ) = (old, new)
+    else {
+        return new.clone();
+    };
+    patch_mappings(old_entries, new_entries, source.clone(), preserve)
+}
+
+fn patch_mappings(
+    old: &IndexMap<String, Node>,
+    new: &IndexMap<String, Node>,
+    source: Source,
+    preserve: bool,
+) -> Node {
+    let mut out: IndexMap<String, Node> = IndexMap::with_capacity(old.len() + new.len());
+    for (key, val) in old {
+        if let Some(newval) = new.get(key) {
+            if val == newval {
+                out.insert(key.clone(), val.clone());
+            } else {
+                let patched = match (val, newval) {
+                    (Node::Mapping { .. }, Node::Mapping { .. }) => patch(val, newval, preserve),
+                    (Node::Sequence(old_items), Node::Sequence(new_items)) => {
+                        if preserve {
+                            let mut combined = old_items.clone();
+                            for item in new_items {
+                                if !combined.iter().any(|e| e == item) {
+                                    combined.push(item.clone());
+                                }
+                            }
+                            Node::Sequence(combined)
+                        } else {
+                            Node::Sequence(new_items.clone())
+                        }
+                    }
+                    _ => newval.clone(),
+                };
+                out.insert(key.clone(), patched);
+            }
+        } else if preserve {
+            out.insert(key.clone(), val.clone());
+        }
+        // else: drop the key (not in new, not preserving)
+    }
+    for (key, newval) in new {
+        if !old.contains_key(key) {
+            out.insert(key.clone(), newval.clone());
+        }
+    }
+    Node::Mapping {
+        entries: out,
+        source,
+    }
+}
+
+/// Keep only keys whose values match `new`. Recurses on
+/// matched-but-different mapping pairs; drops the key otherwise.
+/// Mirrors `merge.py::intersect_dict`.
+pub fn intersect(old: &Node, new: &Node) -> Node {
+    let (
+        Node::Mapping {
+            entries: old_entries,
+            source,
+        },
+        Node::Mapping {
+            entries: new_entries,
+            ..
+        },
+    ) = (old, new)
+    else {
+        // Not both mappings — at top level, the "intersection" is
+        // `old` unchanged (the caller's outer mapping handles the
+        // drop decision when this is a nested value).
+        return old.clone();
+    };
+    intersect_mappings(old_entries, new_entries, source.clone())
+}
+
+fn intersect_mappings(
+    old: &IndexMap<String, Node>,
+    new: &IndexMap<String, Node>,
+    source: Source,
+) -> Node {
+    let mut out: IndexMap<String, Node> = IndexMap::new();
+    for (key, val) in old {
+        let Some(newval) = new.get(key) else {
+            continue;
+        };
+        if val == newval {
+            out.insert(key.clone(), val.clone());
+        } else if matches!((val, newval), (Node::Mapping { .. }, Node::Mapping { .. })) {
+            out.insert(key.clone(), intersect(val, newval));
+        }
+        // else: mismatched non-mapping — drop the key
+    }
+    Node::Mapping {
+        entries: out,
+        source,
+    }
+}

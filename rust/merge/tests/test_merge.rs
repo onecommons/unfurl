@@ -3,7 +3,9 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use unfurl_merge::{load_file, merge, merge_with, MergeError, MergeOptions, Node};
+use unfurl_merge::{
+    diff, intersect, load_file, merge, merge_with, patch, MergeError, MergeOptions, Node,
+};
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -302,4 +304,87 @@ fn merge_default_strategy_replace_at_top_level() {
     // base-only top-level keys still survive (they're handled in pass 2,
     // not by the strategy switch).
     assert!(entries.contains_key("keep_me"));
+}
+
+// ----------------------------------------------------------------------
+// diff / patch / intersect
+// ----------------------------------------------------------------------
+
+#[test]
+fn diff_basic_and_roundtrips_through_merge() {
+    // Ported from tests/test_runtime.py::ExpandDocTest::test_diff.
+    let dir = fixtures_root().join("diff_basic");
+    let old = load_file(&dir.join("old.yaml")).expect("old");
+    let new = load_file(&dir.join("new.yaml")).expect("new");
+    let expected_diff = load_file(&dir.join("expected_diff.yaml")).expect("expected_diff");
+
+    let d = diff(&old, &new);
+    assert_eq!(d, expected_diff, "diff(old, new)");
+
+    // merge(old, diff) round-trips to new (the diff's defining property).
+    let merged = merge(&old, &d).expect("merge round-trip");
+    assert_eq!(merged, new, "merge(old, diff) should equal new");
+}
+
+#[test]
+fn patch_basic_no_preserve_drops_old_only_keys_and_rewrites_lists() {
+    let dir = fixtures_root().join("patch_basic");
+    let old = load_file(&dir.join("old.yaml")).expect("old");
+    let new = load_file(&dir.join("new.yaml")).expect("new");
+    let expected = load_file(&dir.join("expected_no_preserve.yaml")).expect("expected");
+
+    let patched = patch(&old, &new, false);
+    assert_eq!(patched, expected);
+    // In Rust, patch(_, _, false) is structurally identical to `new`.
+    assert_eq!(patched, new, "preserve=false collapses to new");
+}
+
+#[test]
+fn patch_basic_preserve_keeps_old_keys_and_unions_lists() {
+    let dir = fixtures_root().join("patch_basic");
+    let old = load_file(&dir.join("old.yaml")).expect("old");
+    let new = load_file(&dir.join("new.yaml")).expect("new");
+    let expected = load_file(&dir.join("expected_preserve.yaml")).expect("expected");
+
+    let patched = patch(&old, &new, true);
+    assert_eq!(patched, expected);
+}
+
+#[test]
+fn intersect_keeps_matching_keys_only() {
+    let dir = fixtures_root().join("intersect_basic");
+    let old = load_file(&dir.join("old.yaml")).expect("old");
+    let new = load_file(&dir.join("new.yaml")).expect("new");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+
+    let result = intersect(&old, &new);
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn diff_treats_old_mapping_versus_new_null_as_nullout() {
+    // Specifically asserts the merge.py:667 special case.
+    let old_node = load_file(&fixtures_root().join("diff_basic").join("old.yaml")).expect("old");
+    let new_node = load_file(&fixtures_root().join("diff_basic").join("new.yaml")).expect("new");
+    let d = diff(&old_node, &new_node);
+    let Node::Mapping { entries, .. } = &d else {
+        panic!("diff should be a mapping");
+    };
+    let f_diff = entries.get("f").expect("f should be in diff");
+    let Node::Mapping {
+        entries: f_entries, ..
+    } = f_diff
+    else {
+        panic!("f's diff value should be a mapping (the nullout directive)");
+    };
+    assert_eq!(
+        f_entries
+            .get("+%")
+            .and_then(|n| if let Node::String(s) = n {
+                Some(s.as_str())
+            } else {
+                None
+            }),
+        Some("nullout")
+    );
 }

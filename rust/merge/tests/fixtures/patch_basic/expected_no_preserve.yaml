@@ -1,0 +1,7 @@
+a: 2
+b:
+  inner: changed
+items:
+  - beta
+  - gamma
+added: 99
