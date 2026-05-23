@@ -3,13 +3,12 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use unfurl_git_sync::merge::{load_file, Node};
+use unfurl_merge::{load_file, Node};
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("fixtures")
-        .join("merge")
 }
 
 #[test]

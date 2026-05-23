@@ -35,8 +35,6 @@ gix = { version = "0.66", default-features = false, features = ["max-performance
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde-saphyr = "0.0.25"
-saphyr = "0.0.6"
-indexmap = "2"
 async-trait = "0.1"
 thiserror = "1"
 tracing = "0.1"

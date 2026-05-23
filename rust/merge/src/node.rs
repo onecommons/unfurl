@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Source-tracking YAML node tree and loader.
 
-use crate::Error;
+use crate::MergeError;
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -94,15 +94,15 @@ impl Node {
 ///
 /// Multi-document YAML files take the first document; an empty file
 /// loads as [`Node::Null`].
-pub fn load_file(path: &Path) -> Result<Node, Error> {
+pub fn load_file(path: &Path) -> Result<Node, MergeError> {
     let text = std::fs::read_to_string(path)?;
     let file = Arc::new(path.to_path_buf());
     load_str(&text, &file, path)
 }
 
-fn load_str(text: &str, file: &Arc<PathBuf>, path: &Path) -> Result<Node, Error> {
+fn load_str(text: &str, file: &Arc<PathBuf>, path: &Path) -> Result<Node, MergeError> {
     use saphyr::LoadableYamlNode;
-    let mut docs = saphyr::MarkedYaml::load_from_str(text).map_err(|e| Error::Yaml {
+    let mut docs = saphyr::MarkedYaml::load_from_str(text).map_err(|e| MergeError::Yaml {
         path: path.display().to_string(),
         message: e.to_string(),
     })?;
@@ -112,7 +112,11 @@ fn load_str(text: &str, file: &Arc<PathBuf>, path: &Path) -> Result<Node, Error>
     from_marked(docs.remove(0), file, path)
 }
 
-fn from_marked(y: saphyr::MarkedYaml<'_>, file: &Arc<PathBuf>, path: &Path) -> Result<Node, Error> {
+fn from_marked(
+    y: saphyr::MarkedYaml<'_>,
+    file: &Arc<PathBuf>,
+    path: &Path,
+) -> Result<Node, MergeError> {
     let start = y.span.start;
     let line = start.line();
     let col = start.col();
@@ -146,25 +150,25 @@ fn from_marked(y: saphyr::MarkedYaml<'_>, file: &Arc<PathBuf>, path: &Path) -> R
             })
         }
         saphyr::YamlData::Tagged(_tag, inner) => from_marked(*inner, file, path),
-        saphyr::YamlData::Alias(_) => Err(Error::Yaml {
+        saphyr::YamlData::Alias(_) => Err(MergeError::Yaml {
             path: path.display().to_string(),
             message: "unresolved YAML alias (anchors not supported)".into(),
         }),
-        saphyr::YamlData::BadValue => Err(Error::Yaml {
+        saphyr::YamlData::BadValue => Err(MergeError::Yaml {
             path: path.display().to_string(),
             message: "invalid YAML value".into(),
         }),
     }
 }
 
-fn scalar_to_node(scalar: saphyr::Scalar<'_>, path: &Path) -> Result<Node, Error> {
+fn scalar_to_node(scalar: saphyr::Scalar<'_>, path: &Path) -> Result<Node, MergeError> {
     match scalar {
         saphyr::Scalar::Null => Ok(Node::Null),
         saphyr::Scalar::Boolean(b) => Ok(Node::Bool(b)),
         saphyr::Scalar::Integer(i) => Ok(Node::Number(i.into())),
         saphyr::Scalar::FloatingPoint(of) => serde_json::Number::from_f64(of.0)
             .map(Node::Number)
-            .ok_or_else(|| Error::Yaml {
+            .ok_or_else(|| MergeError::Yaml {
                 path: path.display().to_string(),
                 message: format!("non-finite float: {}", of.0),
             }),
@@ -172,8 +176,8 @@ fn scalar_to_node(scalar: saphyr::Scalar<'_>, path: &Path) -> Result<Node, Error
     }
 }
 
-fn scalar_key(y: saphyr::MarkedYaml<'_>, path: &Path) -> Result<String, Error> {
-    let make_err = |msg: String| Error::Yaml {
+fn scalar_key(y: saphyr::MarkedYaml<'_>, path: &Path) -> Result<String, MergeError> {
+    let make_err = |msg: String| MergeError::Yaml {
         path: path.display().to_string(),
         message: msg,
     };

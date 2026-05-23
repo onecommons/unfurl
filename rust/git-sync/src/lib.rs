@@ -61,7 +61,6 @@ pub mod error;
 pub mod format;
 pub mod formats;
 pub mod git;
-pub mod merge;
 pub mod model;
 pub mod sync;
 mod util;

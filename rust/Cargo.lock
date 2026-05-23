@@ -4311,8 +4311,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "gix",
- "indexmap 2.13.0",
- "saphyr",
  "serde",
  "serde-saphyr",
  "serde_json",
@@ -4324,6 +4322,17 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "unfurl-merge"
+version = "0.1.0"
+dependencies = [
+ "indexmap 2.13.0",
+ "saphyr",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
