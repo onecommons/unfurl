@@ -37,7 +37,7 @@ fn load_simple_yaml_preserves_structure_and_attaches_source() {
 }
 
 #[test]
-fn nested_mappings_share_source_with_root() {
+fn nested_mappings_share_file_arc_with_root() {
     let path = fixtures_root().join("simple").join("base.yaml");
     let node = load_file(&path).expect("load");
 
@@ -55,6 +55,40 @@ fn nested_mappings_share_source_with_root() {
         panic!("expected nested mapping");
     };
 
-    // Same Arc, not just equal contents — propagation should be cheap.
-    assert!(Arc::ptr_eq(root_src, nested_src));
+    // Per-mapping line/col differs, but the file path is shared by Arc.
+    assert!(Arc::ptr_eq(&root_src.file, &nested_src.file));
+}
+
+#[test]
+fn mapping_source_records_line_numbers() {
+    // base.yaml layout:
+    //   1: name: example
+    //   2: version: 1.0
+    //   3: items:
+    //   4:   - alpha
+    //   5:   - beta
+    //   6: nested:
+    //   7:   enabled: true
+    //   8:   count: 3
+    let path = fixtures_root().join("simple").join("base.yaml");
+    let node = load_file(&path).expect("load");
+
+    let Node::Mapping {
+        entries,
+        source: root_src,
+    } = &node
+    else {
+        panic!("expected root mapping");
+    };
+    let Node::Mapping {
+        source: nested_src, ..
+    } = &entries["nested"]
+    else {
+        panic!("expected nested mapping");
+    };
+
+    // Root mapping begins at line 1.
+    assert_eq!(root_src.line, 1, "root line = {}", root_src.line);
+    // Nested mapping's first key (`enabled`) is on line 7.
+    assert_eq!(nested_src.line, 7, "nested line = {}", nested_src.line);
 }
