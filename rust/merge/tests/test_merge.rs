@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use unfurl_merge::{load_file, Node};
+use unfurl_merge::{load_file, merge, MergeError, Node};
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -150,5 +150,76 @@ fn deserialize_into_reports_type_mismatch() {
     assert!(
         msg.contains("count") || msg.contains("string"),
         "unexpected error: {msg}"
+    );
+}
+
+// ----------------------------------------------------------------------
+// merge() primitive — fixture-driven round-trip tests
+// ----------------------------------------------------------------------
+
+fn assert_merge(name: &str) {
+    let dir = fixtures_root().join(name);
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let result = merge(&base, &overlay).expect("merge");
+    assert_eq!(result, expected, "{name}");
+}
+
+#[test]
+fn merge_deep_mappings() {
+    assert_merge("deep_merge");
+}
+
+#[test]
+fn merge_whiteout_drops_key() {
+    assert_merge("whiteout");
+}
+
+#[test]
+fn merge_nullout_replaces_with_null() {
+    assert_merge("nullout");
+}
+
+#[test]
+fn merge_listmerge_positional() {
+    // Ported from tests/test_runtime.py::ExpandDocTest::test_listmerge.
+    assert_merge("listmerge");
+}
+
+#[test]
+fn merge_listmerge_dicts_by_key() {
+    // Ported from tests/test_runtime.py::ExpandDocTest::test_listmerge_dicts.
+    assert_merge("listmerge_dicts");
+}
+
+#[test]
+fn merge_error_strategy_refuses_merge() {
+    let dir = fixtures_root().join("error_strategy");
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let err = merge(&base, &overlay).expect_err("should be rejected");
+    assert!(
+        matches!(err, MergeError::MergeRejected(ref msg) if msg.contains("protected")),
+        "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn merge_preserves_base_source_on_merged_mapping() {
+    // The merged mapping should inherit the base's Source (matches
+    // merge.py:67's make_map_with_base behavior).
+    let dir = fixtures_root().join("deep_merge");
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let result = merge(&base, &overlay).expect("merge");
+
+    let Node::Mapping { source, .. } = &result else {
+        panic!("expected mapping");
+    };
+    assert!(
+        source.file.ends_with("deep_merge/base.yaml"),
+        "got {:?}",
+        source.file
     );
 }

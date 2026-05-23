@@ -52,6 +52,24 @@ pub enum Node {
     },
 }
 
+/// Structural equality. Intentionally ignores [`Source`] on
+/// mappings so two trees loaded from different files compare equal
+/// when their data matches — what tests and merge dedup-checks
+/// almost always want.
+impl PartialEq for Node {
+    fn eq(&self, other: &Node) -> bool {
+        match (self, other) {
+            (Node::Null, Node::Null) => true,
+            (Node::Bool(a), Node::Bool(b)) => a == b,
+            (Node::Number(a), Node::Number(b)) => a == b,
+            (Node::String(a), Node::String(b)) => a == b,
+            (Node::Sequence(a), Node::Sequence(b)) => a == b,
+            (Node::Mapping { entries: ae, .. }, Node::Mapping { entries: be, .. }) => ae == be,
+            _ => false,
+        }
+    }
+}
+
 impl Node {
     /// Deserialize this node into any `T: DeserializeOwned`.
     ///

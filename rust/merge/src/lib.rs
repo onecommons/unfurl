@@ -18,9 +18,12 @@
 
 #![deny(rust_2018_idioms)]
 
+pub mod dict_merge;
 pub mod error;
 pub mod node;
 
+#[doc(inline)]
+pub use dict_merge::{merge, merge_list_append_unique, MERGE_STRATEGY_KEY};
 #[doc(inline)]
 pub use error::{MergeError, Result};
 #[doc(inline)]

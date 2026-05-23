@@ -18,6 +18,11 @@ pub enum MergeError {
         /// Upstream parser diagnostic.
         message: String,
     },
+
+    /// A merge was rejected — typically because the overlay
+    /// specified `+%: error` on a key that exists in the base.
+    #[error("merge rejected: {0}")]
+    MergeRejected(String),
 }
 
 /// Convenience alias for `std::result::Result<T, MergeError>`.

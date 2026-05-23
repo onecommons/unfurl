@@ -1,0 +1,3 @@
+protected:
+  "+%": error
+  data: try-to-overwrite

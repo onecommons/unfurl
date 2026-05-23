@@ -1,0 +1,5 @@
+spec:
+  - b: b
+  - c: override
+  - a:
+      "2": 2
