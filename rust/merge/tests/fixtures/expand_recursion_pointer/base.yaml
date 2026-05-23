@@ -1,0 +1,4 @@
+test3:
+  a:
+    recurse:
+      "+/test3": null

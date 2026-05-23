@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use unfurl_merge::{
-    diff, intersect, load_file, merge, merge_with, patch, MergeError, MergeOptions, Node,
+    diff, expand, intersect, load_file, merge, merge_with, patch, MergeError, MergeOptions, Node,
 };
 
 fn fixtures_root() -> PathBuf {
@@ -392,5 +392,73 @@ fn diff_treats_old_mapping_versus_new_null_as_nullout() {
                 None
             }),
         Some("nullout")
+    );
+}
+
+// ----------------------------------------------------------------------
+// expand_doc / expand_dict / expand_list  (Phase 2 includes)
+// ----------------------------------------------------------------------
+
+#[test]
+fn expand_doc_resolves_pointer_includes_and_overlays() {
+    // Direct port of tests/test_runtime.py::ExpandDocTest::test_expandDoc.
+    // Covers: pointer includes (+/t2), nested includes inside values,
+    // scalar template return (test3's d → "val"), list-resolves-into-list
+    // (test2's +/t4), overlay vs template via the "overlay" string
+    // value (test6), and the null-overlay-on-mapping convention
+    // (test4's a: null preserves base's a mapping).
+    let dir = fixtures_root().join("expand_doc");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_doc_silently_drops_missing_optional_includes() {
+    // Ported from test_missingInclude's doc3 case: +?/path with no
+    // target should drop the directive without erroring.
+    let dir = fixtures_root().join("expand_missing_optional");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_doc_errors_on_missing_required_pointer_include() {
+    // Ported from test_missingInclude's doc2 case: +/path without
+    // the ? prefix to a non-existent target should error.
+    let dir = fixtures_root().join("expand_missing_required");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let err = expand(&doc).expect_err("should fail");
+    assert!(matches!(err, MergeError::MergeRejected(_)), "got {err:?}");
+}
+
+#[test]
+fn expand_doc_detects_recursive_pointer_include() {
+    // Ported from test_recursion's first case: a deeply-nested key
+    // includes one of its own ancestors via absolute pointer.
+    let dir = fixtures_root().join("expand_recursion_pointer");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let err = expand(&doc).expect_err("should fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("recursive") && msg.contains("test3"),
+        "got: {msg}"
+    );
+}
+
+#[test]
+fn expand_doc_detects_recursive_relative_include() {
+    // Ported from test_recursion's second case: a node references
+    // its own parent via +../ syntax.
+    let dir = fixtures_root().join("expand_recursion_relative");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let err = expand(&doc).expect_err("should fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("recursive") && msg.contains("test4"),
+        "got: {msg}"
     );
 }

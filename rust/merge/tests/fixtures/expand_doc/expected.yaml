@@ -1,0 +1,44 @@
+t1:
+  b: 2
+t2:
+  a:
+    b: 1
+  c: c
+t3: val
+t4:
+  - a
+  - b
+t5:
+  d:
+    e: val
+base:
+  list:
+    - 1
+test1:
+  a:
+    b: 2
+  c: c
+  d: val
+  e: e
+test2:
+  - 1
+  - a
+  - b
+  - "+t4"
+  - a
+  - b
+test3:
+  list:
+    - 1
+    - 2
+    - 3
+test4:
+  a:
+    b: 1
+  c: c
+test5:
+  d:
+    e: null
+test6:
+  d:
+    e: val

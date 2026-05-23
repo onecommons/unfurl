@@ -184,12 +184,22 @@ fn merge_mappings(
             continue;
         }
 
-        // Non-mapping value: overlay wins.
+        // Non-mapping value: overlay wins — *except* that Null
+        // overlaid on a Mapping is treated as "no change" (matches
+        // merge.py:117, :126 — Python's `isinstance(val, Mapping)
+        // or val is None` followed by `if not val: continue`). To
+        // actually replace a base mapping with Null, callers use
+        // `+%: nullout`. Required by the test_expandDoc port.
         let Node::Mapping {
             entries: overlay_entries,
             ..
         } = overlay_value
         else {
+            if matches!(overlay_value, Node::Null)
+                && matches!(base.get(key), Some(Node::Mapping { .. }))
+            {
+                continue;
+            }
             out.insert(key.clone(), overlay_value.clone());
             continue;
         };

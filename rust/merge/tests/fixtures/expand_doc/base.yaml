@@ -1,0 +1,42 @@
+t1:
+  b: 2
+t2:
+  a:
+    b: 1
+  c: c
+t3: val
+t4:
+  - a
+  - b
+t5:
+  d:
+    e: val
+base:
+  list:
+    - 1
+test1:
+  "+/t2": null
+  a:
+    "+/t1": null
+  d:
+    "+/t3": null
+  e: e
+test2:
+  - 1
+  - "+/t4": ""
+  - "+t4"
+  - "+/t4": null
+test3:
+  list: [2, 1, 3]
+  "+/base": null
+test4:
+  "+/t2": null
+  a: null
+test5:
+  "+/t5": null
+  d:
+    e: null
+test6:
+  d:
+    e: null
+  "+/t5": overlay

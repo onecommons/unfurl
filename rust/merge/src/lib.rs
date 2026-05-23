@@ -20,6 +20,7 @@
 
 pub mod dict_merge;
 pub mod error;
+pub mod expand;
 pub mod include;
 pub mod node;
 
@@ -30,6 +31,8 @@ pub use dict_merge::{
 };
 #[doc(inline)]
 pub use error::{MergeError, Result};
+#[doc(inline)]
+pub use expand::{expand, expand_with, IncludeEntry, Includes};
 #[doc(inline)]
 pub use include::{
     find_template, lookup_path, parse_merge_key, FileResolver, IncludeResolver, MergeKey,
