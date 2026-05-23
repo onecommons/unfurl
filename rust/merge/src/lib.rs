@@ -31,6 +31,9 @@ pub use dict_merge::{
 #[doc(inline)]
 pub use error::{MergeError, Result};
 #[doc(inline)]
-pub use include::{find_template, lookup_path, parse_merge_key, MergeKey};
+pub use include::{
+    find_template, lookup_path, parse_merge_key, FileResolver, IncludeResolver, MergeKey,
+    NullResolver,
+};
 #[doc(inline)]
 pub use node::{load_file, Node, Source};

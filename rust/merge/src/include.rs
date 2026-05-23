@@ -14,9 +14,10 @@
 //! lives in a follow-up commit alongside the `IncludeResolver`
 //! trait.
 
-use crate::node::Node;
+use crate::node::{Node, Source};
 use crate::{MergeError, Result};
 use regex::Regex;
+use std::path::PathBuf;
 use std::sync::OnceLock;
 
 /// Parsed form of a `+...` merge key.
@@ -231,6 +232,59 @@ fn first_re() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^([?]?)(include[\w-]*)?([*]\S+)?([.]+)?$").unwrap())
 }
 
+// ----------------------------------------------------------------------
+// IncludeResolver — pluggable file-include loading
+// ----------------------------------------------------------------------
+
+/// Loads documents referenced by `+include` directives.
+///
+/// `expand`-style entry points consult an `IncludeResolver` when
+/// they encounter a merge key whose `include` field is set
+/// (e.g. `+include: foo.yaml`). The resolver decides how to map
+/// the directive value onto a [`Node`] tree: load a local file,
+/// fetch a URL, look up a CSAR, etc.
+///
+/// Implementations should return `Ok(None)` to signal "target not
+/// found"; the caller decides whether that's fatal based on the
+/// `maybe` flag of the [`MergeKey`].
+pub trait IncludeResolver {
+    /// Load a document referenced by `target` from the perspective
+    /// of `current` (the source of the mapping containing the
+    /// `+include` directive). `current.base_dir()` is the natural
+    /// anchor for relative paths.
+    fn load(&self, current: &Source, target: &str) -> Result<Option<Node>>;
+}
+
+/// Resolves `+include` targets as filesystem paths relative to the
+/// current document's directory using [`crate::load_file`].
+///
+/// Missing files return `Ok(None)` (the caller's `maybe` flag
+/// decides whether to error). Other I/O errors and YAML parse
+/// errors propagate as `Err(MergeError)`.
+pub struct FileResolver;
+
+impl IncludeResolver for FileResolver {
+    fn load(&self, current: &Source, target: &str) -> Result<Option<Node>> {
+        let resolved: PathBuf = current.base_dir().join(target);
+        match std::fs::metadata(&resolved) {
+            Ok(_) => Ok(Some(crate::load_file(&resolved)?)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(MergeError::Io(e)),
+        }
+    }
+}
+
+/// Resolver that never finds anything. Useful as the default for
+/// expand-style entry points that need pointer/relative includes
+/// only and shouldn't be able to read the filesystem.
+pub struct NullResolver;
+
+impl IncludeResolver for NullResolver {
+    fn load(&self, _: &Source, _: &str) -> Result<Option<Node>> {
+        Ok(None)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -370,5 +424,60 @@ mod tests {
             panic!("expected string");
         }
         assert_eq!(path, vec!["name".to_string()]);
+    }
+
+    // ------------------------------------------------------------------
+    // IncludeResolver / FileResolver / NullResolver
+    // ------------------------------------------------------------------
+
+    use std::sync::Arc;
+
+    fn fake_source_for(file: PathBuf) -> Source {
+        Source {
+            file: Arc::new(file),
+            line: 0,
+            col: 0,
+        }
+    }
+
+    #[test]
+    fn file_resolver_loads_sibling_file() {
+        let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("simple");
+        // Pretend a parent doc lives next to base.yaml.
+        let parent = fake_source_for(fixture_dir.join("parent.yaml"));
+        let node = FileResolver
+            .load(&parent, "base.yaml")
+            .expect("load")
+            .expect("Some");
+        // base.yaml's root mapping has the keys we expect.
+        if let Node::Mapping { entries, .. } = &node {
+            assert!(entries.contains_key("name"));
+            assert!(entries.contains_key("nested"));
+        } else {
+            panic!("expected mapping");
+        }
+    }
+
+    #[test]
+    fn file_resolver_returns_none_for_missing_file() {
+        let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("simple");
+        let parent = fake_source_for(fixture_dir.join("parent.yaml"));
+        let result = FileResolver
+            .load(&parent, "definitely-not-there.yaml")
+            .expect("no IO error");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn null_resolver_always_returns_none() {
+        let parent = fake_source_for(PathBuf::from("/whatever.yaml"));
+        let result = NullResolver.load(&parent, "anything").expect("no error");
+        assert!(result.is_none());
     }
 }
