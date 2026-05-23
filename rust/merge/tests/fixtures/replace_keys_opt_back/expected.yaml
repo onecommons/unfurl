@@ -1,0 +1,5 @@
+env:
+  db:
+    host: prod
+    port: 5432
+other: stays

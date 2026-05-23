@@ -3,7 +3,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
-use unfurl_merge::{load_file, merge, MergeError, Node};
+use unfurl_merge::{load_file, merge, merge_with, MergeError, MergeOptions, Node};
 
 fn fixtures_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -222,4 +222,84 @@ fn merge_preserves_base_source_on_merged_mapping() {
         "got {:?}",
         source.file
     );
+}
+
+// ----------------------------------------------------------------------
+// replace strategy / replace_keys
+// ----------------------------------------------------------------------
+
+fn assert_merge_with(name: &str, opts: &MergeOptions) {
+    let dir = fixtures_root().join(name);
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let result = merge_with(&base, &overlay, opts).expect("merge");
+    assert_eq!(result, expected, "{name}");
+}
+
+#[test]
+fn merge_explicit_replace_drops_base_keys() {
+    // Overlay's `db` mapping carries `+%: replace`, so base's
+    // port/user are dropped — only the overlay survives under `db`.
+    assert_merge("explicit_replace");
+}
+
+#[test]
+fn merge_replace_keys_flips_subtree_default() {
+    // Without replace_keys, base.env.db.port would survive. With
+    // replace_keys=["env"], the env subtree's default strategy
+    // flips to "replace", and env.db (mapping-vs-mapping under the
+    // replace default) is taken from overlay outright.
+    let opts = MergeOptions {
+        replace_keys: vec!["env".into()],
+        ..Default::default()
+    };
+    assert_merge_with("replace_keys", &opts);
+}
+
+#[test]
+fn merge_replace_keys_can_be_opt_out_with_explicit_merge_directive() {
+    // Same replace_keys=["env"] as above, but the overlay's env.db
+    // mapping declares `+%: merge`, restoring deep-merge for that
+    // subtree. base.env.db.port survives.
+    let opts = MergeOptions {
+        replace_keys: vec!["env".into()],
+        ..Default::default()
+    };
+    assert_merge_with("replace_keys_opt_back", &opts);
+}
+
+#[test]
+fn merge_default_strategy_replace_at_top_level() {
+    // default_strategy="replace" makes every key in overlay replace
+    // the base outright, even without explicit +% directives.
+    let dir = fixtures_root().join("deep_merge");
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let opts = MergeOptions {
+        default_strategy: "replace".into(),
+        ..Default::default()
+    };
+    let result = merge_with(&base, &overlay, &opts).expect("merge");
+
+    let Node::Mapping { entries, .. } = &result else {
+        panic!("expected mapping");
+    };
+    // a is a mapping in both — under replace default, overlay's a wins.
+    let Node::Mapping { entries: a, .. } = &entries["a"] else {
+        panic!("expected nested mapping");
+    };
+    assert_eq!(
+        a.get("b1").and_then(|n| n.to_json_value().as_i64()),
+        Some(99)
+    );
+    assert_eq!(
+        a.get("b3").and_then(|n| n.to_json_value().as_i64()),
+        Some(3)
+    );
+    // base.a.b2 is gone under replace.
+    assert!(!a.contains_key("b2"));
+    // base-only top-level keys still survive (they're handled in pass 2,
+    // not by the strategy switch).
+    assert!(entries.contains_key("keep_me"));
 }

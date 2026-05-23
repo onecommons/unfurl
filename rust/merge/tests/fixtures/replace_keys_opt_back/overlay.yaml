@@ -1,0 +1,4 @@
+env:
+  db:
+    "+%": merge
+    host: prod

@@ -1,0 +1,4 @@
+db:
+  "+%": replace
+  host: prod.example.com
+keep: 1
