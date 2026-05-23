@@ -92,3 +92,64 @@ fn mapping_source_records_line_numbers() {
     // Nested mapping's first key (`enabled`) is on line 7.
     assert_eq!(nested_src.line, 7, "nested line = {}", nested_src.line);
 }
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+struct Doc {
+    name: String,
+    version: f64,
+    items: Vec<String>,
+    nested: Nested,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+struct Nested {
+    enabled: bool,
+    count: i64,
+}
+
+#[test]
+fn deserialize_into_typed_struct() {
+    let path = fixtures_root().join("simple").join("base.yaml");
+    let node = load_file(&path).expect("load");
+
+    let doc: Doc = node.deserialize_into().expect("deserialize");
+    assert_eq!(
+        doc,
+        Doc {
+            name: "example".into(),
+            version: 1.0,
+            items: vec!["alpha".into(), "beta".into()],
+            nested: Nested {
+                enabled: true,
+                count: 3,
+            },
+        }
+    );
+}
+
+#[test]
+fn deserialize_into_reports_type_mismatch() {
+    let path = fixtures_root().join("simple").join("base.yaml");
+    let node = load_file(&path).expect("load");
+
+    // `count` is an integer in the fixture; asking for a String fails.
+    #[derive(serde::Deserialize, Debug)]
+    #[allow(dead_code)]
+    struct WrongShape {
+        nested: WrongNested,
+    }
+    #[derive(serde::Deserialize, Debug)]
+    #[allow(dead_code)]
+    struct WrongNested {
+        count: String,
+    }
+
+    let err = node
+        .deserialize_into::<WrongShape>()
+        .expect_err("should fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("count") || msg.contains("string"),
+        "unexpected error: {msg}"
+    );
+}

@@ -53,6 +53,19 @@ pub enum Node {
 }
 
 impl Node {
+    /// Deserialize this node into any `T: DeserializeOwned`.
+    ///
+    /// Routes through [`to_json_value`](Self::to_json_value) so the
+    /// caller gets full Serde derive support (structs, enums,
+    /// `Option`, `Vec`, etc.) at the cost of one intermediate
+    /// allocation. Error messages identify the offending field by
+    /// JSON-pointer-style path but do not carry source line numbers
+    /// — implement `serde::Deserializer` for `&Node` if you need
+    /// those.
+    pub fn deserialize_into<T: serde::de::DeserializeOwned>(&self) -> Result<T, serde_json::Error> {
+        serde_json::from_value(self.to_json_value())
+    }
+
     /// Convert to [`serde_json::Value`], discarding source info.
     ///
     /// Storage and existing crate APIs operate on `Value`; this is
