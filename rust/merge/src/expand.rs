@@ -252,17 +252,17 @@ fn expand_dict_inner<R: IncludeResolver>(
                     // gated on `!value_is_raw && template_is_mapping`
                     // (matches merge.py's combined `if not _is_raw…
                     // and isinstance(template, Mapping)` block).
-                    if !value_is_raw && template_is_mapping {
-                        if mk.include.is_none()
-                            && mk.anchor.is_none()
-                            && template_path.len() <= path.len()
-                            && path[..template_path.len()] == template_path[..]
-                        {
-                            return Err(MergeError::MergeRejected(format!(
-                                "recursive include {:?} in {:?} when including {}",
-                                template_path, path, mk.key
-                            )));
-                        }
+                    if !value_is_raw
+                        && template_is_mapping
+                        && mk.include.is_none()
+                        && mk.anchor.is_none()
+                        && template_path.len() <= path.len()
+                        && path[..template_path.len()] == template_path[..]
+                    {
+                        return Err(MergeError::MergeRejected(format!(
+                            "recursive include {:?} in {:?} when including {}",
+                            template_path, path, mk.key
+                        )));
                     }
 
                     includes
