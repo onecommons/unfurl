@@ -1,0 +1,8 @@
+service:
+  db: postgres
+  port: 5432
+  app: my-app
+templates:
+  shared:
+    db: postgres
+    port: 5432

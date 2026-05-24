@@ -1,0 +1,8 @@
+templates:
+  shared:
+    "+&": my_template
+    db: postgres
+    port: 5432
+service:
+  "+*my_template": null
+  app: my-app

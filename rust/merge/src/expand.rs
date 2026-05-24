@@ -13,6 +13,14 @@ use crate::include::{find_template, parse_merge_key, IncludeResolver, MergeKey, 
 use crate::node::{Node, Source};
 use crate::{MergeError, Result};
 use indexmap::IndexMap;
+use std::collections::HashMap;
+
+/// In-doc anchor cache populated by `+&: name` declarations and
+/// consulted by `+*name` references. Mirrors the
+/// `doc._anchorCache` mechanism in `merge.py:516-517` but without
+/// the YAML-native anchor walk (we only support manual
+/// declarations via the `+&` key).
+type Anchors = HashMap<String, Node>;
 
 /// One include directive encountered during expansion.
 #[derive(Clone, Debug)]
@@ -78,7 +86,8 @@ pub fn expand_with<R: IncludeResolver>(doc: &Node, resolver: &R) -> Result<(Incl
     }
 
     let mut includes = Includes::new();
-    let mut expanded = expand_dict(doc, &[], &mut includes, doc, resolver)?;
+    let mut anchors: Anchors = HashMap::new();
+    let mut expanded = expand_dict(doc, &[], &mut includes, doc, resolver, &mut anchors)?;
 
     let mut last_missing = 0usize;
     loop {
@@ -119,7 +128,12 @@ pub fn expand_with<R: IncludeResolver>(doc: &Node, resolver: &R) -> Result<(Incl
         }
         last_missing = missing_count;
         includes = Includes::new();
-        expanded = expand_dict(&expanded, &[], &mut includes, doc, resolver)?;
+        // Don't clear `anchors` — pass 1's `+&: name` registrations
+        // are exactly what lets pass 2 resolve forward `+*name`
+        // references that came before their declaration in document
+        // order. Pass 2 may re-register the same names with newer
+        // content; that overwrite is correct.
+        expanded = expand_dict(&expanded, &[], &mut includes, doc, resolver, &mut anchors)?;
     }
 }
 
@@ -138,8 +152,9 @@ fn expand_dict<R: IncludeResolver>(
     includes: &mut Includes,
     current: &Node,
     resolver: &R,
+    anchors: &mut Anchors,
 ) -> Result<Node> {
-    match expand_dict_inner(doc, path, includes, current, resolver)? {
+    match expand_dict_inner(doc, path, includes, current, resolver, anchors)? {
         DictExpansion::Mapping(n) | DictExpansion::Value(n) => Ok(n),
     }
 }
@@ -150,6 +165,7 @@ fn expand_dict_inner<R: IncludeResolver>(
     includes: &mut Includes,
     current: &Node,
     resolver: &R,
+    anchors: &mut Anchors,
 ) -> Result<DictExpansion> {
     let Node::Mapping {
         entries: cur_entries,
@@ -163,6 +179,14 @@ fn expand_dict_inner<R: IncludeResolver>(
     let mut cp_entries: IndexMap<String, Node> = IndexMap::with_capacity(cur_entries.len());
     let mut templates: Vec<Node> = Vec::new();
     let mut overlays: Vec<Node> = Vec::new();
+    // Anchor names declared via `+&: name` in this mapping. The
+    // registration happens after the mapping is fully expanded so
+    // the cache entry holds the final (merged) form rather than a
+    // partial snapshot. Diverges slightly from `merge.py:516-517`,
+    // which captures cp mid-iteration via Python's mutable reference
+    // semantics; the retry loop in `expand_with` papers over any
+    // ordering-dependent lookups.
+    let mut declared_anchors: Vec<String> = Vec::new();
 
     for (key, value) in cur_entries {
         // Bare `+%` strategy key is data, copied as-is.
@@ -172,10 +196,13 @@ fn expand_dict_inner<R: IncludeResolver>(
         }
 
         if key.starts_with('+') {
-            // `+&name` registers an anchor cache entry — anchors not
-            // supported yet, skip silently to match Python's behavior
-            // when no anchor cache is present.
+            // `+&: name` — declare this mapping as an anchor under
+            // `name`. Mirrors `merge.py:515-518`. We collect names
+            // now and register the final result after the loop.
             if key.len() == 2 && key.as_bytes()[1] == b'&' {
+                if let Node::String(name) = value {
+                    declared_anchors.push(name.clone());
+                }
                 continue;
             }
 
@@ -186,8 +213,10 @@ fn expand_dict_inner<R: IncludeResolver>(
                 continue;
             };
 
-            // Resolve template — file include or pointer/relative.
-            let resolution = if let Some(_include) = &mk.include {
+            // Resolve template: anchor, file include, or pointer/relative.
+            let resolution = if mk.anchor.is_some() {
+                resolve_anchor(&mk, anchors)
+            } else if mk.include.is_some() {
                 resolve_include(&mk, value, cur_source, resolver)?
             } else {
                 resolve_pointer(doc, &mk, path)?
@@ -239,7 +268,7 @@ fn expand_dict_inner<R: IncludeResolver>(
                     let expanded_template = if matches!(template, Node::Mapping { .. }) {
                         // Use the template's discovered path so its
                         // own relative includes resolve correctly.
-                        expand_dict(doc, &template_path, includes, &template, resolver)?
+                        expand_dict(doc, &template_path, includes, &template, resolver, anchors)?
                     } else {
                         template
                     };
@@ -275,10 +304,17 @@ fn expand_dict_inner<R: IncludeResolver>(
         let mut child_path = path.to_vec();
         child_path.push(key.clone());
         let expanded_value = match value {
-            Node::Mapping { .. } => expand_dict(doc, &child_path, includes, value, resolver)?,
-            Node::Sequence(items) => {
-                Node::Sequence(expand_list(doc, &child_path, includes, items, resolver)?)
+            Node::Mapping { .. } => {
+                expand_dict(doc, &child_path, includes, value, resolver, anchors)?
             }
+            Node::Sequence(items) => Node::Sequence(expand_list(
+                doc,
+                &child_path,
+                includes,
+                items,
+                resolver,
+                anchors,
+            )?),
             other => other.clone(),
         };
         cp_entries.insert(key.clone(), expanded_value);
@@ -290,22 +326,31 @@ fn expand_dict_inner<R: IncludeResolver>(
         source: cur_source.clone(),
     };
 
-    if templates.is_empty() && overlays.is_empty() {
-        return Ok(DictExpansion::Mapping(cp_node));
+    let result = if templates.is_empty() && overlays.is_empty() {
+        cp_node
+    } else {
+        // Merge order: templates..., cp, overlays... (Python pops front
+        // from `[t1..., cp, o1...]`, so each subsequent merge has the
+        // next item as overlay over the running accumulator).
+        let mut chain: Vec<Node> = Vec::with_capacity(templates.len() + overlays.len() + 1);
+        chain.append(&mut templates);
+        chain.push(cp_node);
+        chain.append(&mut overlays);
+        let mut accum = chain.remove(0);
+        for next in chain {
+            accum = merge(&accum, &next)?;
+        }
+        accum
+    };
+
+    // Register any `+&: name` declarations under the final result.
+    // A re-declaration with the same name overwrites; matches a
+    // later sibling winning if it uses the same anchor name.
+    for name in declared_anchors {
+        anchors.insert(name, result.clone());
     }
 
-    // Merge order: templates..., cp, overlays... (Python pops front
-    // from `[t1..., cp, o1...]`, so each subsequent merge has the
-    // next item as overlay over the running accumulator).
-    let mut chain: Vec<Node> = Vec::with_capacity(templates.len() + overlays.len() + 1);
-    chain.append(&mut templates);
-    chain.push(cp_node);
-    chain.append(&mut overlays);
-    let mut accum = chain.remove(0);
-    for next in chain {
-        accum = merge(&accum, &next)?;
-    }
-    Ok(DictExpansion::Mapping(accum))
+    Ok(DictExpansion::Mapping(result))
 }
 
 fn expand_list<R: IncludeResolver>(
@@ -314,6 +359,7 @@ fn expand_list<R: IncludeResolver>(
     includes: &mut Includes,
     items: &[Node],
     resolver: &R,
+    anchors: &mut Anchors,
 ) -> Result<Vec<Node>> {
     let mut out: Vec<Node> = Vec::with_capacity(items.len());
     for (i, item) in items.iter().enumerate() {
@@ -326,7 +372,7 @@ fn expand_list<R: IncludeResolver>(
 
             let mut child_path = path.to_vec();
             child_path.push(i.to_string());
-            let new_item = expand_dict(doc, &child_path, includes, item, resolver)?;
+            let new_item = expand_dict(doc, &child_path, includes, item, resolver, anchors)?;
             // If the expanded value is a sequence, flatten its items
             // into the outer list (matches merge.py:639-642).
             if let Node::Sequence(inner) = new_item {
@@ -360,6 +406,39 @@ fn resolve_pointer(
             template_path: path,
         }),
         None => Ok(TemplateResolution::Missing),
+    }
+}
+
+/// Resolve a `+*name[.../pointer]` directive against the in-doc
+/// anchor cache populated by `+&: name` declarations.
+///
+/// Pointer segments (`mk.pointer`) are walked into the anchor's
+/// value after the name lookup (matches `merge.py::_find_template`
+/// at line 393, post-anchor branch). `mk.relative` is ignored for
+/// anchors — see the comment at `merge.py:376`.
+fn resolve_anchor(mk: &MergeKey, anchors: &Anchors) -> TemplateResolution {
+    let name = mk.anchor.as_ref().expect("anchor set");
+    let Some(mut node) = anchors.get(name) else {
+        return TemplateResolution::Missing;
+    };
+    for segment in &mk.pointer {
+        node = match node {
+            Node::Mapping { entries, .. } => match entries.get(segment) {
+                Some(v) => v,
+                None => return TemplateResolution::Missing,
+            },
+            Node::Sequence(items) => {
+                match segment.parse::<usize>().ok().and_then(|i| items.get(i)) {
+                    Some(v) => v,
+                    None => return TemplateResolution::Missing,
+                }
+            }
+            _ => return TemplateResolution::Missing,
+        };
+    }
+    TemplateResolution::Found {
+        template: node.clone(),
+        template_path: Vec::new(),
     }
 }
 

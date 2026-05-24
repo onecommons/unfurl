@@ -133,9 +133,12 @@ pub fn lookup_path<'a>(doc: &'a Node, path: &[String]) -> Option<&'a Node> {
 /// found and the include is required.
 ///
 /// File includes (`key.include.is_some()`) are not handled here —
-/// the caller is expected to dispatch to an include resolver
-/// (introduced in a follow-up commit). Anchors (`key.anchor.is_some()`)
-/// return `Err` since they're not yet supported.
+/// the caller is expected to dispatch to an [`IncludeResolver`].
+/// Anchor references (`key.anchor.is_some()`) require an in-doc
+/// anchor cache (populated by `+&: name` declarations), which
+/// `find_template` doesn't carry; the public `expand`/`expand_with`
+/// flow handles them. Calling `find_template` with an anchor key
+/// returns `Err`.
 pub fn find_template<'a>(
     doc: &'a Node,
     key: &MergeKey,

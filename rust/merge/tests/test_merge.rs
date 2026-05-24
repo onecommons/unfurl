@@ -487,6 +487,43 @@ fn expand_with_file_resolver_errors_on_missing_required_include() {
 }
 
 #[test]
+fn expand_doc_resolves_inline_anchor_declarations() {
+    // `+&: name` declares the surrounding mapping as an anchor;
+    // `+*name` elsewhere pulls in that mapping's expanded content.
+    // The anchor name is removed from the registering mapping.
+    let dir = fixtures_root().join("expand_anchor");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_doc_resolves_forward_anchor_references_via_retry() {
+    // The `+*` reference appears before the `+&` declaration in
+    // document order. First pass marks the reference as Missing;
+    // anchors persists across retry passes (intentionally), so the
+    // second pass finds the now-registered anchor and resolves.
+    let dir = fixtures_root().join("expand_anchor_forward");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_doc_errors_on_missing_required_anchor_reference() {
+    let dir = fixtures_root().join("expand_anchor_missing");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let err = expand(&doc).expect_err("should fail");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("never_declared") || msg.contains("missing"),
+        "got: {msg}"
+    );
+}
+
+#[test]
 fn expand_with_file_resolver_drops_missing_optional_include() {
     // `+?include` to a non-existent file: the directive is dropped
     // along with its enclosing sub-mapping (matches merge.py's
