@@ -240,19 +240,29 @@ fn expand_dict_inner<R: IncludeResolver>(
                     template,
                     template_path,
                 } => {
-                    // Recursion detection (matches merge.py:345-353):
-                    // if the template's absolute path is a prefix of
-                    // the current path, we'd be including an ancestor
-                    // of where we are — error.
-                    if mk.include.is_none()
-                        && mk.anchor.is_none()
-                        && template_path.len() <= path.len()
-                        && path[..template_path.len()] == template_path[..]
-                    {
-                        return Err(MergeError::MergeRejected(format!(
-                            "recursive include {:?} in {:?} when including {}",
-                            template_path, path, mk.key
-                        )));
+                    // A directive value containing "raw" opts out of
+                    // recursive expansion — the template is used
+                    // as-is, with its own `+...` directives left
+                    // verbatim in the result. Mirrors merge.py:340's
+                    // `_is_raw(value)` gate.
+                    let value_is_raw = matches!(value, Node::String(s) if s.contains("raw"));
+                    let template_is_mapping = matches!(template, Node::Mapping { .. });
+
+                    // Recursion check and recursive expansion both
+                    // gated on `!value_is_raw && template_is_mapping`
+                    // (matches merge.py's combined `if not _is_raw…
+                    // and isinstance(template, Mapping)` block).
+                    if !value_is_raw && template_is_mapping {
+                        if mk.include.is_none()
+                            && mk.anchor.is_none()
+                            && template_path.len() <= path.len()
+                            && path[..template_path.len()] == template_path[..]
+                        {
+                            return Err(MergeError::MergeRejected(format!(
+                                "recursive include {:?} in {:?} when including {}",
+                                template_path, path, mk.key
+                            )));
+                        }
                     }
 
                     includes
@@ -263,9 +273,7 @@ fn expand_dict_inner<R: IncludeResolver>(
                             value: value.clone(),
                         });
 
-                    // Recursively expand the template (its own
-                    // +directives need to resolve too).
-                    let expanded_template = if matches!(template, Node::Mapping { .. }) {
+                    let expanded_template = if !value_is_raw && template_is_mapping {
                         // Use the template's discovered path so its
                         // own relative includes resolve correctly.
                         expand_dict(doc, &template_path, includes, &template, resolver, anchors)?

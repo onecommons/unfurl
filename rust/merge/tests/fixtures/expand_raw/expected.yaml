@@ -1,0 +1,12 @@
+shared_data:
+  hello: world
+templates:
+  t1:
+    hello: world
+    static_key: value
+service_normal:
+  hello: world
+  static_key: value
+service_raw:
+  "+/shared_data": null
+  static_key: value

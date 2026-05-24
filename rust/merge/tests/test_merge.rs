@@ -564,6 +564,21 @@ fn expand_doc_resolves_forward_anchor_references_via_retry() {
 }
 
 #[test]
+fn expand_raw_value_skips_recursive_expansion() {
+    // When the include directive's value contains "raw", the
+    // resolved template is used as-is — its own +directives stay
+    // verbatim in the result. Matches merge.py:340's `_is_raw`
+    // gate. Contrast service_normal (which does recursively
+    // expand the included template's +/shared_data directive)
+    // with service_raw (which preserves it).
+    let dir = fixtures_root().join("expand_raw");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
 fn expand_doc_errors_on_missing_required_anchor_reference() {
     let dir = fixtures_root().join("expand_anchor_missing");
     let doc = load_file(&dir.join("base.yaml")).expect("base");
