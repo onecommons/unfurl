@@ -239,6 +239,27 @@ fn first_re() -> &'static Regex {
 // IncludeResolver — pluggable file-include loading
 // ----------------------------------------------------------------------
 
+/// What a `+include` directive points at.
+///
+/// Both forms in `docs/processing.rst` reduce to this:
+/// - String form `+include: foo.yaml` → `{ file: "foo.yaml", repository: None }`
+/// - Map form `+include: { file: foo.yaml, repository: r, merge: raw }`
+///   → `{ file: "foo.yaml", repository: Some("r") }`
+///   (the `merge:` value is consumed by `expand` for raw/overlay
+///   decisions and never reaches the resolver.)
+///
+/// Resolvers are expected to use `file` as the primary target and
+/// may consult `repository` for source-of-truth selection
+/// (e.g. cloudmap repositories). [`FileResolver`] ignores
+/// `repository`.
+pub struct IncludeTarget<'a> {
+    /// The file path or URL the include points at.
+    pub file: &'a str,
+    /// Optional repository hint from the map-form's `repository:`
+    /// key. Resolver-specific; ignored by [`FileResolver`].
+    pub repository: Option<&'a str>,
+}
+
 /// Loads documents referenced by `+include` directives.
 ///
 /// `expand`-style entry points consult an `IncludeResolver` when
@@ -255,7 +276,7 @@ pub trait IncludeResolver {
     /// of `current` (the source of the mapping containing the
     /// `+include` directive). `current.base_dir()` is the natural
     /// anchor for relative paths.
-    fn load(&self, current: &Source, target: &str) -> Result<Option<Node>>;
+    fn load(&self, current: &Source, target: &IncludeTarget<'_>) -> Result<Option<Node>>;
 }
 
 /// Resolves `+include` targets as filesystem paths relative to the
@@ -263,12 +284,13 @@ pub trait IncludeResolver {
 ///
 /// Missing files return `Ok(None)` (the caller's `maybe` flag
 /// decides whether to error). Other I/O errors and YAML parse
-/// errors propagate as `Err(MergeError)`.
+/// errors propagate as `Err(MergeError)`. The `repository` hint on
+/// [`IncludeTarget`] is ignored.
 pub struct FileResolver;
 
 impl IncludeResolver for FileResolver {
-    fn load(&self, current: &Source, target: &str) -> Result<Option<Node>> {
-        let resolved: PathBuf = current.base_dir().join(target);
+    fn load(&self, current: &Source, target: &IncludeTarget<'_>) -> Result<Option<Node>> {
+        let resolved: PathBuf = current.base_dir().join(target.file);
         match std::fs::metadata(&resolved) {
             Ok(_) => Ok(Some(crate::load_file(&resolved)?)),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -283,7 +305,7 @@ impl IncludeResolver for FileResolver {
 pub struct NullResolver;
 
 impl IncludeResolver for NullResolver {
-    fn load(&self, _: &Source, _: &str) -> Result<Option<Node>> {
+    fn load(&self, _: &Source, _: &IncludeTarget<'_>) -> Result<Option<Node>> {
         Ok(None)
     }
 }
@@ -443,6 +465,13 @@ mod tests {
         }
     }
 
+    fn target(file: &str) -> IncludeTarget<'_> {
+        IncludeTarget {
+            file,
+            repository: None,
+        }
+    }
+
     #[test]
     fn file_resolver_loads_sibling_file() {
         let fixture_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -452,7 +481,7 @@ mod tests {
         // Pretend a parent doc lives next to base.yaml.
         let parent = fake_source_for(fixture_dir.join("parent.yaml"));
         let node = FileResolver
-            .load(&parent, "base.yaml")
+            .load(&parent, &target("base.yaml"))
             .expect("load")
             .expect("Some");
         // base.yaml's root mapping has the keys we expect.
@@ -472,7 +501,7 @@ mod tests {
             .join("simple");
         let parent = fake_source_for(fixture_dir.join("parent.yaml"));
         let result = FileResolver
-            .load(&parent, "definitely-not-there.yaml")
+            .load(&parent, &target("definitely-not-there.yaml"))
             .expect("no IO error");
         assert!(result.is_none());
     }
@@ -480,7 +509,9 @@ mod tests {
     #[test]
     fn null_resolver_always_returns_none() {
         let parent = fake_source_for(PathBuf::from("/whatever.yaml"));
-        let result = NullResolver.load(&parent, "anything").expect("no error");
+        let result = NullResolver
+            .load(&parent, &target("anything"))
+            .expect("no error");
         assert!(result.is_none());
     }
 }

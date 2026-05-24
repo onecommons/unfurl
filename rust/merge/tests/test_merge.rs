@@ -531,6 +531,41 @@ fn expand_preserves_included_files_source_on_merged_mapping() {
 }
 
 #[test]
+fn expand_with_file_resolver_map_form_loads_file() {
+    // Map-form +include: {file: shared.yaml}. Same behavior as
+    // string form (which is tested elsewhere) — the map form is
+    // just an alternative spelling that also allows `repository`
+    // and `merge` keys.
+    let dir = fixtures_root().join("expand_include_map");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_with_file_resolver_map_form_with_merge_raw_preserves_inner_directives() {
+    // +include: {file: child.yaml, merge: raw}. The inner `merge:`
+    // value is what drives the raw/overlay decision, not the outer
+    // value. So the child's +/parent_data directive should be
+    // preserved verbatim in the output.
+    let dir = fixtures_root().join("expand_include_map_raw");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
+fn expand_with_file_resolver_map_form_without_file_key_errors() {
+    let dir = fixtures_root().join("expand_include_map_invalid");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let err = expand_with(&doc, &FileResolver).expect_err("should fail");
+    let msg = err.to_string();
+    assert!(msg.contains("file"), "got: {msg}");
+}
+
+#[test]
 fn expand_resolves_anchor_declared_and_referenced_inside_same_included_file() {
     // child.yaml declares `+&: shared` in `defaults` and references
     // `+*shared` in `db`. parent.yaml +include's child.yaml. The

@@ -1,0 +1,4 @@
+app:
+  "+include":
+    file: shared.yaml
+  LOG_LEVEL: debug

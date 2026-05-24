@@ -1,0 +1,6 @@
+parent_data:
+  source: from parent
+service:
+  "+include":
+    file: child.yaml
+    merge: raw

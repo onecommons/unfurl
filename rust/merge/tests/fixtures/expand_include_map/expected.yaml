@@ -1,0 +1,3 @@
+app:
+  DATABASE_URL: postgres://localhost
+  LOG_LEVEL: debug

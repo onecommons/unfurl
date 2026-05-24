@@ -1,0 +1,5 @@
+parent_data:
+  source: from parent
+service:
+  data: hello
+  "+/parent_data": null

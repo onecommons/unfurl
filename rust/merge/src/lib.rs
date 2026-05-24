@@ -35,8 +35,8 @@ pub use error::{MergeError, Result};
 pub use expand::{expand, expand_with, IncludeEntry, Includes};
 #[doc(inline)]
 pub use include::{
-    find_template, lookup_path, parse_merge_key, FileResolver, IncludeResolver, MergeKey,
-    NullResolver,
+    find_template, lookup_path, parse_merge_key, FileResolver, IncludeResolver, IncludeTarget,
+    MergeKey, NullResolver,
 };
 #[doc(inline)]
 pub use node::{load_file, Node, Source};

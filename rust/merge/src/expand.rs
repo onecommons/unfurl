@@ -9,7 +9,9 @@
 //! whiteout/nullout cleanup pass live here.
 
 use crate::dict_merge::{merge, MERGE_STRATEGY_KEY};
-use crate::include::{find_template, parse_merge_key, IncludeResolver, MergeKey, NullResolver};
+use crate::include::{
+    find_template, parse_merge_key, IncludeResolver, IncludeTarget, MergeKey, NullResolver,
+};
 use crate::node::{Node, Source};
 use crate::{MergeError, Result};
 use indexmap::IndexMap;
@@ -214,12 +216,18 @@ fn expand_dict_inner<R: IncludeResolver>(
             };
 
             // Resolve template: anchor, file include, or pointer/relative.
-            let resolution = if mk.anchor.is_some() {
-                resolve_anchor(&mk, anchors)
+            //
+            // `effective_value` is the value used for raw/overlay
+            // decisions. For most directives this is just `value`,
+            // but for the map-form `+include: {file, merge}` the
+            // inner `merge:` value takes over — the outer map is
+            // configuration for the resolver, not a merge marker.
+            let (resolution, effective_value) = if mk.anchor.is_some() {
+                (resolve_anchor(&mk, anchors), value.clone())
             } else if mk.include.is_some() {
                 resolve_include(&mk, value, cur_source, resolver)?
             } else {
-                resolve_pointer(doc, &mk, path)?
+                (resolve_pointer(doc, &mk, path)?, value.clone())
             };
 
             match resolution {
@@ -244,8 +252,11 @@ fn expand_dict_inner<R: IncludeResolver>(
                     // recursive expansion — the template is used
                     // as-is, with its own `+...` directives left
                     // verbatim in the result. Mirrors merge.py:340's
-                    // `_is_raw(value)` gate.
-                    let value_is_raw = matches!(value, Node::String(s) if s.contains("raw"));
+                    // `_is_raw(value)` gate. `effective_value` is
+                    // used here so map-form includes can opt in via
+                    // their inner `merge:` key.
+                    let value_is_raw =
+                        matches!(&effective_value, Node::String(s) if s.contains("raw"));
                     let template_is_mapping = matches!(template, Node::Mapping { .. });
 
                     // Recursion check and recursive expansion both
@@ -283,7 +294,7 @@ fn expand_dict_inner<R: IncludeResolver>(
 
                     if let Node::Mapping { .. } = &expanded_template {
                         let value_says_overlay = matches!(
-                            value,
+                            &effective_value,
                             Node::String(s) if s.contains("overlay")
                         );
                         if value_says_overlay {
@@ -450,31 +461,81 @@ fn resolve_anchor(mk: &MergeKey, anchors: &Anchors) -> TemplateResolution {
     }
 }
 
+/// Resolve a `+include` directive's value into a load target and
+/// an effective merge-value, then load it via `resolver`.
+///
+/// Supports both string and map forms from `docs/processing.rst:52-53`:
+/// - `+include: foo.yaml` — target = `{file: "foo.yaml"}`, effective value = `"foo.yaml"`
+/// - `+include: null` — target = `{file: ""}`, effective value = `Null`
+/// - `+include: {file: foo.yaml, repository?, merge?}` — target = the file/repository,
+///   effective value = inner `merge:` (or `Null` if absent)
+///
+/// The returned effective value is what the caller uses for
+/// raw/overlay decisions — the outer map's keys are
+/// resolver-config, not merge markers.
 fn resolve_include<R: IncludeResolver>(
     mk: &MergeKey,
     value: &Node,
     current_source: &Source,
     resolver: &R,
-) -> Result<TemplateResolution> {
-    let target = match value {
-        Node::String(s) => s.clone(),
-        Node::Null => String::new(),
-        other => {
-            return Err(MergeError::MergeRejected(format!(
-                "{}: include target must be a string, got {other:?}",
-                mk.key
-            )));
-        }
+) -> Result<(TemplateResolution, Node)> {
+    let (file, repository, effective_value) = parse_include_value(mk, value)?;
+    let target = IncludeTarget {
+        file: &file,
+        repository: repository.as_deref(),
     };
-    match resolver.load(current_source, &target)? {
-        Some(node) => Ok(TemplateResolution::Found {
+    let resolution = match resolver.load(current_source, &target)? {
+        Some(node) => TemplateResolution::Found {
             template: node,
             // File includes have no in-doc path; use an empty path so
             // the recursion-detection check (which only fires when
             // !mk.include) doesn't kick in anyway.
             template_path: Vec::new(),
-        }),
-        None => Ok(TemplateResolution::Missing),
+        },
+        None => TemplateResolution::Missing,
+    };
+    Ok((resolution, effective_value))
+}
+
+/// Pull `file` / `repository` / effective-merge-value out of an
+/// include directive's value. Errors on malformed map forms.
+fn parse_include_value(mk: &MergeKey, value: &Node) -> Result<(String, Option<String>, Node)> {
+    match value {
+        Node::String(s) => Ok((s.clone(), None, value.clone())),
+        Node::Null => Ok((String::new(), None, value.clone())),
+        Node::Mapping { entries, .. } => {
+            let file = match entries.get("file") {
+                Some(Node::String(s)) => s.clone(),
+                Some(other) => {
+                    return Err(MergeError::MergeRejected(format!(
+                        "{}: include map's `file` key must be a string, got {other:?}",
+                        mk.key
+                    )));
+                }
+                None => {
+                    return Err(MergeError::MergeRejected(format!(
+                        "{}: include map must have a `file` key",
+                        mk.key
+                    )));
+                }
+            };
+            let repository = match entries.get("repository") {
+                Some(Node::String(r)) => Some(r.clone()),
+                Some(other) => {
+                    return Err(MergeError::MergeRejected(format!(
+                        "{}: include map's `repository` key must be a string, got {other:?}",
+                        mk.key
+                    )));
+                }
+                None => None,
+            };
+            let effective = entries.get("merge").cloned().unwrap_or(Node::Null);
+            Ok((file, repository, effective))
+        }
+        other => Err(MergeError::MergeRejected(format!(
+            "{}: include value must be a string, null, or map; got {other:?}",
+            mk.key
+        ))),
     }
 }
 
