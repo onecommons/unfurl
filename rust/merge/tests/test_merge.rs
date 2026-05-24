@@ -479,6 +479,58 @@ fn expand_with_file_resolver_loads_sibling_yaml() {
 }
 
 #[test]
+fn expand_preserves_included_files_source_on_merged_mapping() {
+    // After expanding parent.yaml (which has `+include: shared.yaml`
+    // inside app.env), the merged app.env mapping should carry
+    // shared.yaml's Source — not parent.yaml's — so that any
+    // further `+include` directives nested *inside* the merged
+    // content would resolve relative to shared.yaml's directory.
+    //
+    // This is the load-bearing property behind the per-mapping
+    // Source tracking. PartialEq on Node ignores Source, so the
+    // structural-equality assertion in
+    // `expand_with_file_resolver_loads_sibling_yaml` doesn't catch
+    // regressions here — that's why this test exists separately.
+    let dir = fixtures_root().join("expand_file_include");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+
+    let Node::Mapping { entries: root, .. } = &expanded else {
+        panic!("expected root mapping");
+    };
+    let Node::Mapping { entries: app, .. } = &root["app"] else {
+        panic!("expected app mapping");
+    };
+    let Node::Mapping {
+        source: env_src, ..
+    } = &app["env"]
+    else {
+        panic!("expected env mapping");
+    };
+
+    assert!(
+        env_src.file.ends_with("shared.yaml"),
+        "expected app.env source to point at shared.yaml, got {:?}",
+        env_src.file
+    );
+
+    // The parent's own un-merged mapping (`app` itself) should
+    // still point at parent.yaml — we're not clobbering source
+    // everywhere, just where merge actually happened.
+    let Node::Mapping {
+        source: app_src, ..
+    } = &root["app"]
+    else {
+        unreachable!()
+    };
+    assert!(
+        app_src.file.ends_with("parent.yaml"),
+        "expected app's source to remain parent.yaml, got {:?}",
+        app_src.file
+    );
+}
+
+#[test]
 fn expand_with_file_resolver_errors_on_missing_required_include() {
     let dir = fixtures_root().join("expand_file_include");
     let doc = load_file(&dir.join("missing_required.yaml")).expect("doc");
