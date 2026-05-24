@@ -1,0 +1,8 @@
+app:
+  defaults:
+    port: 5432
+    host: localhost
+  db:
+    port: 5432
+    host: localhost
+    name: production_db

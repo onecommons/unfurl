@@ -1,0 +1,7 @@
+defaults:
+  "+&": shared
+  port: 5432
+  host: localhost
+db:
+  "+*shared": null
+  name: production_db

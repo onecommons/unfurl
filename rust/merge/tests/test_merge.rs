@@ -531,6 +531,20 @@ fn expand_preserves_included_files_source_on_merged_mapping() {
 }
 
 #[test]
+fn expand_resolves_anchor_declared_and_referenced_inside_same_included_file() {
+    // child.yaml declares `+&: shared` in `defaults` and references
+    // `+*shared` in `db`. parent.yaml +include's child.yaml. The
+    // expected behavior: the anchor cache is threaded through the
+    // recursive expand of the included file, so the in-file
+    // declaration and reference resolve against the same cache.
+    let dir = fixtures_root().join("expand_anchor_in_included_file");
+    let doc = load_file(&dir.join("parent.yaml")).expect("parent");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand_with(&doc, &FileResolver).expect("expand");
+    assert_eq!(expanded, expected);
+}
+
+#[test]
 fn expand_with_file_resolver_errors_on_missing_required_include() {
     let dir = fixtures_root().join("expand_file_include");
     let doc = load_file(&dir.join("missing_required.yaml")).expect("doc");
