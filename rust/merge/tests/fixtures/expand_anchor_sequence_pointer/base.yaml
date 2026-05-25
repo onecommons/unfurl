@@ -1,0 +1,10 @@
+templates:
+  data:
+    "+&": my_template
+    items:
+      - first_item
+      - shared:
+          k: v
+service:
+  "+*my_template/items/1": null
+  extra: x

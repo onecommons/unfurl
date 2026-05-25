@@ -1,0 +1,10 @@
+templates:
+  data:
+    items:
+      - first_item
+      - shared:
+          k: v
+service:
+  shared:
+    k: v
+  extra: x

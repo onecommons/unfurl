@@ -4,8 +4,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use unfurl_merge::{
-    diff, expand, expand_with, intersect, load_file, merge, merge_with, patch, FileResolver,
-    MergeError, MergeOptions, Node,
+    diff, expand, expand_with, intersect, load_file, merge, merge_list_append_unique,
+    merge_list_append_unique_with, merge_with, patch, FileResolver, MergeError, MergeOptions, Node,
 };
 
 fn fixtures_root() -> PathBuf {
@@ -655,4 +655,73 @@ fn expand_with_file_resolver_drops_missing_optional_include() {
     // itself stays (now empty); the unrelated `keep: 1` survives.
     assert!(json["app"]["env"].is_null(), "expected app.env gone");
     assert_eq!(json["keep"].as_i64(), Some(1));
+}
+
+// ----------------------------------------------------------------------
+// Direct primitive tests (coverage for the public list-merge wrappers
+// and the anchor-with-sequence-pointer path that the fixture-driven
+// tests never reach indirectly).
+// ----------------------------------------------------------------------
+
+#[test]
+fn merge_list_append_unique_called_directly_on_node_slices() {
+    // The public `merge_list_append_unique` wrapper is covered
+    // indirectly when merge() encounters sequence-vs-sequence keys,
+    // but no test calls the wrapper directly. Pulls the `spec`
+    // lists out of the listmerge_dicts fixture and merges them
+    // standalone — same data, different entry point.
+    let dir = fixtures_root().join("listmerge_dicts");
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+
+    let base_spec = extract_spec_list(&base);
+    let overlay_spec = extract_spec_list(&overlay);
+    let expected_spec = extract_spec_list(&expected);
+
+    let result = merge_list_append_unique(base_spec, overlay_spec).expect("merge");
+    assert_eq!(result, expected_spec);
+}
+
+#[test]
+fn merge_list_append_unique_with_default_options_matches_no_options_variant() {
+    // The `_with` wrapper threads MergeOptions through to nested
+    // mapping merges inside list items. With default options the
+    // behavior should be identical to the no-options variant.
+    let dir = fixtures_root().join("listmerge_dicts");
+    let base = load_file(&dir.join("base.yaml")).expect("base");
+    let overlay = load_file(&dir.join("overlay.yaml")).expect("overlay");
+
+    let base_spec = extract_spec_list(&base);
+    let overlay_spec = extract_spec_list(&overlay);
+
+    let plain = merge_list_append_unique(base_spec, overlay_spec).expect("plain");
+    let with_opts =
+        merge_list_append_unique_with(base_spec, overlay_spec, &MergeOptions::default())
+            .expect("with");
+    assert_eq!(plain, with_opts);
+}
+
+fn extract_spec_list(node: &Node) -> &[Node] {
+    let Node::Mapping { entries, .. } = node else {
+        panic!("expected root mapping");
+    };
+    let Node::Sequence(items) = &entries["spec"] else {
+        panic!("expected spec to be a sequence");
+    };
+    items.as_slice()
+}
+
+#[test]
+fn expand_anchor_reference_with_sequence_index_pointer() {
+    // `+*my_template/items/1` exercises resolve_anchor's
+    // sequence-arm: after looking up `my_template` (a mapping),
+    // the pointer descends into `items` (a sequence) and indexes
+    // position 1. None of the other anchor tests use a sub-pointer
+    // into a list, so this is the only test that hits expand.rs:450.
+    let dir = fixtures_root().join("expand_anchor_sequence_pointer");
+    let doc = load_file(&dir.join("base.yaml")).expect("base");
+    let expected = load_file(&dir.join("expected.yaml")).expect("expected");
+    let (_includes, expanded) = expand(&doc).expect("expand");
+    assert_eq!(expanded, expected);
 }
