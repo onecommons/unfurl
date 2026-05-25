@@ -15,7 +15,7 @@
 #
 # Whole-workspace workflow (requires every workspace member to
 # build with the chosen feature set):
-#   cargo llvm-cov --lcov --output-path lcov.info --workspace
+#   cargo llvm-cov --lcov --output-path lcov.info --no-default-features --workspace
 #   awk -f rust/dev/lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
 #   cargo crap --workspace --lcov lcov.clean.info --top 20
 #
