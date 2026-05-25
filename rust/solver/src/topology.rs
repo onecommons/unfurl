@@ -1180,4 +1180,266 @@ mod tests {
             ]
         );
     }
+
+    // ------------------------------------------------------------------
+    // enum trait-impl coverage: hand-written PartialEq / Hash / get_value /
+    // variant_id methods on Constraint / SimpleValue / CriteriaTerm that
+    // weren't reached by the existing solver tests.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn constraint_partial_eq_same_variant_compares_inner_value() {
+        let a = Constraint::equal {
+            v: ToscaValue::from(1),
+        };
+        let b = Constraint::equal {
+            v: ToscaValue::from(1),
+        };
+        let c = Constraint::equal {
+            v: ToscaValue::from(2),
+        };
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn constraint_partial_eq_different_variants_never_match() {
+        let v = ToscaValue::from(1);
+        let ops: Vec<Constraint> = vec![
+            Constraint::equal { v: v.clone() },
+            Constraint::greater_than { v: v.clone() },
+            Constraint::greater_or_equal { v: v.clone() },
+            Constraint::less_than { v: v.clone() },
+            Constraint::less_or_equal { v: v.clone() },
+            Constraint::length { v: v.clone() },
+            Constraint::min_length { v: v.clone() },
+            Constraint::max_length { v: v.clone() },
+        ];
+        for (i, a) in ops.iter().enumerate() {
+            for (j, b) in ops.iter().enumerate() {
+                if i == j {
+                    assert_eq!(a, b, "{i} should equal itself");
+                } else {
+                    assert_ne!(a, b, "{i} vs {j} should differ — different variants");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn constraint_pattern_eq_ignores_compiled_regex_struct() {
+        // The two CompiledPatterns are separate instances; the Eq impl
+        // should look at the ToscaValue only.
+        let p = "abc".to_string();
+        let a = Constraint::pattern {
+            v: ToscaValue::from(p.clone()),
+            compiled: CompiledPattern::new(p.clone()).unwrap(),
+        };
+        let b = Constraint::pattern {
+            v: ToscaValue::from(p.clone()),
+            compiled: CompiledPattern::new(p.clone()).unwrap(),
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn constraint_hash_distinguishes_variants_with_same_inner_value() {
+        use std::collections::HashSet;
+        let v = ToscaValue::from(1);
+        let mut set = HashSet::new();
+        set.insert(Constraint::equal { v: v.clone() });
+        set.insert(Constraint::equal { v: v.clone() }); // dup
+        assert_eq!(set.len(), 1);
+        set.insert(Constraint::greater_than { v: v.clone() });
+        set.insert(Constraint::less_than { v: v.clone() });
+        assert_eq!(set.len(), 3, "variant discriminant must be hashed");
+        set.insert(Constraint::equal {
+            v: ToscaValue::from(2),
+        }); // diff value, same variant
+        assert_eq!(set.len(), 4);
+    }
+
+    #[test]
+    fn constraint_get_value_extracts_inner_for_every_variant() {
+        let v = ToscaValue::from(7);
+        let p = "x".to_string();
+        let pattern_v = ToscaValue::from(p.clone());
+        let cases: Vec<Constraint> = vec![
+            Constraint::equal { v: v.clone() },
+            Constraint::greater_than { v: v.clone() },
+            Constraint::greater_or_equal { v: v.clone() },
+            Constraint::less_than { v: v.clone() },
+            Constraint::less_or_equal { v: v.clone() },
+            Constraint::in_range {
+                v: ToscaValue::from((1, 10)),
+            },
+            Constraint::valid_values {
+                v: ToscaValue::from(vec![v.clone()]),
+            },
+            Constraint::length { v: v.clone() },
+            Constraint::min_length { v: v.clone() },
+            Constraint::max_length { v: v.clone() },
+            Constraint::version {
+                v: ToscaValue::from("1.0".to_string()),
+            },
+            Constraint::pattern {
+                v: pattern_v.clone(),
+                compiled: CompiledPattern::new(p.clone()).unwrap(),
+            },
+        ];
+        // get_value just returns &ToscaValue; verifying it doesn't panic and
+        // returns the value we constructed with is enough to cover every arm.
+        for c in &cases {
+            let inner = c.get_value();
+            match c {
+                Constraint::in_range { v } => assert_eq!(inner, v),
+                Constraint::valid_values { v } => assert_eq!(inner, v),
+                Constraint::version { v } => assert_eq!(inner, v),
+                Constraint::pattern { v, .. } => assert_eq!(inner, v),
+                _ => assert_eq!(inner, &v),
+            }
+        }
+    }
+
+    #[test]
+    fn constraint_matches_basic_comparison_ops() {
+        let val = ToscaValue::from(5);
+        assert_eq!(
+            Constraint::equal {
+                v: ToscaValue::from(5)
+            }
+            .matches(&val),
+            Some(true)
+        );
+        assert_eq!(
+            Constraint::equal {
+                v: ToscaValue::from(6)
+            }
+            .matches(&val),
+            Some(false)
+        );
+        assert_eq!(
+            Constraint::greater_than {
+                v: ToscaValue::from(3)
+            }
+            .matches(&val),
+            Some(true)
+        );
+        assert_eq!(
+            Constraint::greater_than {
+                v: ToscaValue::from(5)
+            }
+            .matches(&val),
+            Some(false)
+        );
+        assert_eq!(
+            Constraint::greater_or_equal {
+                v: ToscaValue::from(5)
+            }
+            .matches(&val),
+            Some(true)
+        );
+        assert_eq!(
+            Constraint::less_than {
+                v: ToscaValue::from(10)
+            }
+            .matches(&val),
+            Some(true)
+        );
+        assert_eq!(
+            Constraint::less_or_equal {
+                v: ToscaValue::from(5)
+            }
+            .matches(&val),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn constraint_matches_valid_values() {
+        let value_list = ToscaValue::from(vec![
+            ToscaValue::from(1),
+            ToscaValue::from(2),
+            ToscaValue::from(3),
+        ]);
+        let c = Constraint::valid_values { v: value_list };
+        assert_eq!(c.matches(&ToscaValue::from(2)), Some(true));
+        assert_eq!(c.matches(&ToscaValue::from(7)), Some(false));
+    }
+
+    #[test]
+    fn constraint_matches_length_against_string() {
+        let s = ToscaValue::from("hello".to_string()); // len 5
+        assert_eq!(
+            Constraint::length {
+                v: ToscaValue::from(5_i128)
+            }
+            .matches(&s),
+            Some(true)
+        );
+        assert_eq!(
+            Constraint::length {
+                v: ToscaValue::from(4_i128)
+            }
+            .matches(&s),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn constraint_matches_length_against_non_sized_value_returns_none() {
+        // Integers have no `len`; matches returns None.
+        let n = ToscaValue::from(42);
+        assert_eq!(
+            Constraint::length {
+                v: ToscaValue::from(1_i128)
+            }
+            .matches(&n),
+            None
+        );
+    }
+
+    #[test]
+    fn simple_value_variant_id_is_distinct_for_every_variant() {
+        use std::collections::HashSet;
+        let values: Vec<SimpleValue> = vec![
+            SimpleValue::integer { v: 1 },
+            SimpleValue::string { v: "x".into() },
+            SimpleValue::boolean { v: true },
+            SimpleValue::float { v: OrderedF64(1.0) },
+            SimpleValue::list { v: vec![] },
+            SimpleValue::range { v: (1, 2) },
+            SimpleValue::map { v: BTreeMap::new() },
+        ];
+        let ids: HashSet<usize> = values.iter().map(SimpleValue::variant_id).collect();
+        assert_eq!(ids.len(), values.len(), "every variant needs a unique id");
+        // And the values are non-zero (the impl uses 1..=7).
+        for v in &values {
+            assert!(v.variant_id() >= 1);
+        }
+    }
+
+    #[test]
+    fn criteria_term_variant_id_is_distinct_for_every_variant() {
+        use std::collections::HashSet;
+        let terms: Vec<CriteriaTerm> = vec![
+            CriteriaTerm::NodeName { n: "a".into() },
+            CriteriaTerm::NodeType { n: "T".into() },
+            CriteriaTerm::CapabilityName { n: "c".into() },
+            CriteriaTerm::CapabilityTypeGroup {
+                names: vec!["g".into()],
+            },
+            CriteriaTerm::PropFilter {
+                n: "p".into(),
+                capability: None,
+                constraints: vec![],
+            },
+            CriteriaTerm::NodeMatch {
+                start_node: "n".into(),
+                query: vec![],
+            },
+        ];
+        let ids: HashSet<usize> = terms.iter().map(CriteriaTerm::variant_id).collect();
+        assert_eq!(ids.len(), terms.len());
+    }
 }
