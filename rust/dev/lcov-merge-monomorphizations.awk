@@ -4,11 +4,20 @@
 # stop reporting "phantom" zero entries for instantiations that
 # compiled but were never linked into a running test binary.
 #
-# Usage:
-#   awk -f lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
+# Works on any lcov.info produced from this workspace (or any other
+# Rust project); the script is agnostic about which crate the
+# functions come from.
 #
-# Then point your tool at lcov.clean.info, e.g.:
-#   cargo crap --top 20 --lcov lcov.clean.info
+# Single-crate workflow:
+#   cargo llvm-cov --lcov --output-path lcov.info --no-default-features -p <crate>
+#   awk -f rust/dev/lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
+#   cargo crap --lcov lcov.clean.info --path <crate> --top 20
+#
+# Whole-workspace workflow (requires every workspace member to
+# build with the chosen feature set):
+#   cargo llvm-cov --lcov --output-path lcov.info --workspace
+#   awk -f rust/dev/lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
+#   cargo crap --workspace --lcov lcov.clean.info --top 20
 #
 # What it does:
 # - For each (source_file, function_line), find the maximum FNDA
