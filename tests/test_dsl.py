@@ -1,3 +1,8 @@
+# Copyright (c) 2025 Adam Souzis
+# SPDX-License-Identifier: MIT
+"""
+TOSCA DSL tests.
+Run this file as a script to generate Python DSL files from YAML. Accepts an optional argument to only regenerate builtins or specific templates."""
 import os
 import time
 from typing import Any, List, Optional, Dict, Sequence, Union
@@ -2320,6 +2325,7 @@ node_types:
 
 
 if __name__ == "__main__":
+    # Run this file as a script to generate Python DSL files from YAML. Accepts an optional argument to only regenerate builtins or specific templates.
     if len(sys.argv) > 1:
         target = sys.argv[1]
     else:
@@ -2357,6 +2363,8 @@ if __name__ == "__main__":
             file: configurators/templates/supervisor.yaml
           - repository: unfurl
             file: tosca_plugins/artifacts.yaml
+          - repository: unfurl
+            file: tosca_plugins/cloudmap_types.yaml
           - repository: unfurl
             file: tosca_plugins/k8s.yaml
           - repository: unfurl

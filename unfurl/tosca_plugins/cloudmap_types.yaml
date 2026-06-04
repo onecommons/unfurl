@@ -1,0 +1,170 @@
+# Copyright (c) 2026 Adam Souzis
+# SPDX-License-Identifier: MIT
+#
+# Artifact types declared by the cloudmap subsystem. The string values must
+# stay in sync with the EntitySchema constants in cloudmap_defs.py.
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+metadata:
+  template_name: CloudMap artifact types
+  template_author: onecommons.org
+  template_version: 1.0.0
+
+artifact_types:
+
+  # ---- Base types ---------------------------------------------------------
+
+  cloudmap.artifacts.Root:
+    derived_from: tosca.artifacts.Root
+    description: >
+      Namespace root for every cloudmap.artifacts.* type. Consumers can use
+      this to filter "is this artifact a cloudmap-known kind?".
+
+  cloudmap.artifacts.Attestation:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Base for supply-chain evidence documents (in-toto, SPDX, CycloneDX,
+      SLSA, BuildKit provenance, etc.). These are signed or unsigned
+      attestations about other artifacts.
+
+  cloudmap.artifacts.Pipeline:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Base for CI/CD pipeline *definitions* (e.g., a GitHub Actions workflow
+      YAML or a GitLab .gitlab-ci.yml). Pipeline runs (i.e., the records of
+      individual executions) extend CIRun instead.
+
+  # ---- Generic / structural -----------------------------------------------
+
+  cloudmap.artifacts.GenericPackage:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Catch-all artifact type for generic ``pkg:`` PURLs (npm, pypi, maven,
+      cargo, etc.) that the cloudmap doesn't model with a dedicated type.
+
+  cloudmap.artifacts.Empty:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Null artifact used to represent empty documents or placeholders.
+
+  cloudmap.artifacts.Group:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Generic grouping of artifacts (use ``notable`` to declare members).
+
+  cloudmap.artifacts.AbstractBlueprint:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      Artifact definition that does not correspond to a concrete artifact.
+
+  # ---- Code and build inputs ----------------------------------------------
+
+  cloudmap.artifacts.Containerfile:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A Dockerfile / Containerfile that defines a container image build.
+
+  cloudmap.artifacts.CloudMap:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A CloudMap document (this very schema).
+
+  cloudmap.artifacts.tosca.ServiceTemplate:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A TOSCA service template describing a cloud blueprint.
+
+  cloudmap.artifacts.tosca.TypeLibrary:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A TOSCA type library (a reusable bundle of node, capability, and
+      relationship type definitions).
+
+  cloudmap.artifacts.unfurl.Ensemble:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      An Unfurl ensemble: a TOSCA topology together with its deployment
+      state and operation history.
+
+  cloudmap.artifacts.unfurl.Project:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      An Unfurl project (i.e., an ``unfurl.yaml`` and the surrounding
+      directory layout).
+
+  cloudmap.artifacts.unfurl.Package:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A versioned repository, roughly analogous to a language-agnostic Go
+      module: a repo URL plus a semver tag.
+
+  # ---- Released / published artifacts -------------------------------------
+
+  cloudmap.artifacts.oci.Image:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      An OCI / Docker container image, identified by a ``pkg:oci`` PURL.
+
+  # ---- Records of activity ------------------------------------------------
+
+  cloudmap.artifacts.PullRequest:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A pull request / merge request record.
+
+  cloudmap.artifacts.CommitMessage:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A commit message record.
+
+  cloudmap.artifacts.CIRun:
+    derived_from: cloudmap.artifacts.Root
+    description: >
+      A record of an individual CI pipeline execution (a workflow run, a
+      GitLab pipeline run, etc.). See ``cloudmap.artifacts.Pipeline`` for
+      the pipeline *definition*.
+
+  # ---- CI pipeline definitions --------------------------------------------
+
+  cloudmap.artifacts.GitHubWorkflow:
+    derived_from: cloudmap.artifacts.Pipeline
+    description: >
+      A GitHub Actions workflow definition (a YAML file under
+      ``.github/workflows/``).
+
+  cloudmap.artifacts.GitLabPipeline:
+    derived_from: cloudmap.artifacts.Pipeline
+    description: >
+      A GitLab CI pipeline definition (typically ``.gitlab-ci.yml``).
+
+  # ---- Supply-chain attestations ------------------------------------------
+
+  cloudmap.artifacts.InTotoAttestation:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      An in-toto attestation (media type ``application/vnd.in-toto+json``).
+
+  cloudmap.artifacts.SpdxDocument:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      An SPDX SBOM document.
+
+  cloudmap.artifacts.CycloneDxBom:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      A CycloneDX SBOM document.
+
+  cloudmap.artifacts.SlsaProvenance02:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      A SLSA v0.2 provenance attestation.
+
+  cloudmap.artifacts.SlsaProvenance1:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      A SLSA v1 provenance attestation.
+
+  cloudmap.artifacts.BuildkitProvenance:
+    derived_from: cloudmap.artifacts.Attestation
+    description: >
+      A BuildKit provenance attestation. See
+      https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md
