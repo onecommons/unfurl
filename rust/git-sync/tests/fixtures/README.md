@@ -1,7 +1,4 @@
 # Test fixtures
 
-`expected_cloudmap.yaml` is a one-shot manual copy of
-`/Users/adam/_dev/unfurl/tests/fixtures/expected_cloudmap.yaml` (i.e.
-the cloudmap fixture used by `tests/test_cloudmap.py`). Re-vendor by
-re-copying when the upstream fixture changes — we deliberately do not
-symlink across crates so this crate stays self-contained.
+`expected_cloudmap.yaml` is a copy of
+`tests/fixtures/expected_cloudmap.yaml` in this git repository. It isn't particularly important to keep in sync with that file, but if it is updated with the latest, `expected_cloudmap_after_save.yaml` will have to be manually updated too for the tests in `test_crud.rs` to pass.

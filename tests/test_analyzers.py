@@ -265,13 +265,13 @@ class TestPipelineRunsMocked:
         assert len(results) == 1
         inst = results[0]
         assert inst.url == "https://gitlab.example.com/project/-/pipelines/42"
-        assert EntitySchema.CIPipelineRun in inst.type.types
+        assert EntitySchema.CIRun in inst.type.types
         assert inst.source_revision == "abc123"
         assert inst.status == "verified"
         assert inst.metadata.title == "Pipeline #42"
 
         # Verify properties in type constraint
-        constraint = inst.type.types[EntitySchema.CIPipelineRun]
+        constraint = inst.type.types[EntitySchema.CIRun]
         assert constraint is not None
         props = constraint["properties"]
         assert props["id"] == 42
@@ -325,14 +325,14 @@ class TestPipelineRunsMocked:
         assert len(results) == 1
         inst = results[0]
         assert inst.url == "https://github.com/owner/repo/actions/runs/123"
-        assert EntitySchema.CIPipelineRun in inst.type.types
+        assert EntitySchema.CIRun in inst.type.types
         assert inst.source_revision == "def456"
         assert inst.status == "verified"
         assert inst.metadata.title == "CI"
         assert ".github/workflows/ci.yml" in inst.source
 
         # Verify properties in type constraint
-        constraint = inst.type.types[EntitySchema.CIPipelineRun]
+        constraint = inst.type.types[EntitySchema.CIRun]
         assert constraint is not None
         props = constraint["properties"]
         assert props["id"] == 123
@@ -396,7 +396,7 @@ class TestAnalyzeUrlPipelineRuns:
 
         mock_instantiation = Instantiation(
             url="https://example.com/pipelines/1",
-            type=TypeRefs({EntitySchema.CIPipelineRun: None}),
+            type=TypeRefs({EntitySchema.CIRun: None}),
             source="git://example.com/owner/repo.git",
             source_revision="abc123",
             revision="abc123",
@@ -429,7 +429,7 @@ class TestAnalyzeUrlPipelineRuns:
         assert "https://example.com/pipelines/1" in db.instantiations
         inst = db.instantiations["https://example.com/pipelines/1"]
         assert inst.status == "verified"
-        assert EntitySchema.CIPipelineRun in inst.type.types
+        assert EntitySchema.CIRun in inst.type.types
         mock_host.get_pipeline_runs.assert_called_once_with(
             result, ref="main", commit=""
         )
@@ -633,7 +633,7 @@ class TestGitLabPipelineRunsIntegration:
         runs = list(gitlab_manager.get_pipeline_runs(gitlab_repo_info, ref="main", limit=5))
         assert len(runs) >= 1
         inst = runs[0]
-        assert EntitySchema.CIPipelineRun in inst.type.types
+        assert EntitySchema.CIRun in inst.type.types
         assert inst.source_revision
         assert inst.url
 
@@ -659,7 +659,7 @@ class TestGitHubWorkflowRunsIntegration:
         runs = list(github_manager.get_pipeline_runs(github_repo_info, ref="main", limit=5))
         assert len(runs) >= 1
         inst = runs[0]
-        assert EntitySchema.CIPipelineRun in inst.type.types
+        assert EntitySchema.CIRun in inst.type.types
         assert inst.source_revision
         assert inst.url
 

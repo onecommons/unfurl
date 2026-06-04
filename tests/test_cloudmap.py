@@ -141,7 +141,7 @@ repositories:
     notable:
       .gitlab-ci.yml:
         type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+          cloudmap.artifacts.GitLabPipeline:
       ensemble/ensemble.yaml:
         type:
           cloudmap.artifacts.unfurl.Ensemble:
@@ -173,7 +173,7 @@ repositories:
     notable:
       .gitlab-ci.yml:
         type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+          cloudmap.artifacts.GitLabPipeline:
       ensemble-template.yaml#spec/service_template:
         type:
           cloudmap.artifacts.tosca.ServiceTemplate:
@@ -213,7 +213,7 @@ repositories:
           cloudmap.artifacts.Containerfile:
       .gitlab-ci.yml:
         type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+          cloudmap.artifacts.GitLabPipeline:
       dummy-ensemble.yaml:
         type:
           cloudmap.artifacts.tosca.TypeLibrary:
@@ -265,7 +265,7 @@ repositories:
     notable:
       .gitlab-ci.yml:
         type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+          cloudmap.artifacts.GitLabPipeline:
       dummy-ensemble.yaml:
         type:
           cloudmap.artifacts.tosca.TypeLibrary:
@@ -273,7 +273,7 @@ repositories:
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:
     type:
-      cloudmap.artifacts.ci.GitLabPipeline:
+      cloudmap.artifacts.GitLabPipeline:
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
@@ -306,7 +306,7 @@ artifacts:
       version: 0.1
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
-      cloudmap.artifacts.ci.GitLabPipeline:
+      cloudmap.artifacts.GitLabPipeline:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
@@ -334,14 +334,14 @@ artifacts:
       cloudmap.artifacts.Containerfile:
   git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
     type:
-      cloudmap.artifacts.ci.GitLabPipeline:
+      cloudmap.artifacts.GitLabPipeline:
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
   git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
     type:
-      cloudmap.artifacts.ci.GitLabPipeline:
+      cloudmap.artifacts.GitLabPipeline:
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
@@ -2142,23 +2142,23 @@ CloudMap
 │               │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 ├── Artifacts
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml
-│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
+│   │   │        (cloudmap.artifacts.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
 │   │   │        (cloudmap.artifacts.unfurl.Ensemble) [seen]
 │   ├── Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
 │   │   │        Odoo (cloudmap.artifacts.unfurl.Ensemble v0.1) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
-│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
+│   │   │        (cloudmap.artifacts.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile
 │   │   │        (cloudmap.artifacts.Containerfile)
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml
-│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
+│   │   │        (cloudmap.artifacts.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
 │   │   │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   ├── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml
-│   │   │        (cloudmap.artifacts.ci.GitLabPipeline)
+│   │   │        (cloudmap.artifacts.GitLabPipeline)
 │   ├── Artifact git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
 │   │   │        (cloudmap.artifacts.tosca.TypeLibrary) [seen]
 │   └── Artifact pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest

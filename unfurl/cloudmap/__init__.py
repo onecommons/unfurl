@@ -1688,7 +1688,7 @@ class GitlabManager(RepositoryHost):
                 url=full_pipeline.web_url,
                 type=TypeRefs(
                     {
-                        EntitySchema.CIPipelineRun: TypeRefConstraint(
+                        EntitySchema.CIRun: TypeRefConstraint(
                             properties=cast(Dict[str, Any], properties)
                         )
                     }
@@ -1710,7 +1710,7 @@ class GitlabManager(RepositoryHost):
 def _gitlab_pipeline_properties(
     project: Any, full_pipeline: Any
 ) -> PipelineRunProperties:
-    """Extract properties from a GitLab pipeline for the CIPipelineRun type constraint."""
+    """Extract properties from a GitLab pipeline for the CIRun type constraint."""
     artifacts: List[PipelineArtifact] = []
     artifacts_expire_at = ""
     variables: List[PipelineVariable] = []
@@ -1753,7 +1753,7 @@ def _gitlab_pipeline_properties(
 
 
 def _github_run_properties(run: Any) -> PipelineRunProperties:
-    """Extract properties from a GitHub workflow run for the CIPipelineRun type constraint."""
+    """Extract properties from a GitHub workflow run for the CIRun type constraint."""
     artifacts: List[PipelineArtifact] = []
     artifacts_expire_at = ""
 
@@ -2204,7 +2204,7 @@ else:
                     url=run.html_url,
                     type=TypeRefs(
                         {
-                            EntitySchema.CIPipelineRun: TypeRefConstraint(
+                            EntitySchema.CIRun: TypeRefConstraint(
                                 properties=cast(Dict[str, Any], properties)
                             )
                         }

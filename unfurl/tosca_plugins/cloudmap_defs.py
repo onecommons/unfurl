@@ -128,9 +128,9 @@ class EntitySchema:
     "Generic grouping of artifacts (use notable to declare members)"
     AbstractBlueprint = "cloudmap.artifacts.AbstractBlueprint"
     "Artifact definition that does not correspond to a concrete artifact"
-    GitHubWorkflow = "cloudmap.artifacts.ci.GitHubWorkflow"
-    GitLabPipeline = "cloudmap.artifacts.ci.GitLabPipeline"
-    CIPipelineRun = "cloudmap.artifacts.ci.PipelineRun"
+    GitHubWorkflow = "cloudmap.artifacts.GitHubWorkflow"
+    GitLabPipeline = "cloudmap.artifacts.GitLabPipeline"
+    CIRun = "cloudmap.artifacts.CIRun"
 
 
 ArtifactMappings = {
@@ -282,7 +282,7 @@ class PipelineVariable(TypedDict):
 
 
 class PipelineRunProperties(TypedDict, total=False):
-    """Properties for a CIPipelineRun type constraint."""
+    """Properties for a CIRun type constraint."""
 
     id: int
     log_url: str
@@ -1265,13 +1265,7 @@ class AnalyzerContext(CloudMapView):
 
 
 class Analyzer:
-    """Common base for cloudmap analyzers.
-
-    Both file/folder-based :class:`RepositoryNotable` and URL-based
-    :class:`URLAnalyzer` subclasses inherit from this so they share the
-    ``artifact_type`` class attribute (the EntitySchema string assigned to
-    artifacts produced by the analyzer).
-    """
+    """Common base for cloudmap analyzers."""
 
     artifact_type: str = EntitySchema.GenericFile
 
@@ -1305,9 +1299,8 @@ class RepositoryNotable(Analyzer):
         self.file = file
         self.digest = digest
         self.fragment = ""
-        self.artifact_id: Optional[str] = (
-            None  # Artifact ID when added to directory.db.artifacts
-        )
+        # Artifact ID when added to directory.db.artifacts
+        self.artifact_id: Optional[str] = None
 
     def __repr__(self):
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
