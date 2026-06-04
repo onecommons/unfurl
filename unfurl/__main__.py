@@ -529,11 +529,27 @@ def _remote_docker_cmd(
         if name in os.environ:
             envvar_filter[name] = os.environ[name]
     if envvar_filter:
-        env = filter_env(local_env.map_value(envvar_filter, None), addOnly=True)
+        container_env = filter_env(
+            local_env.map_value(envvar_filter, None), addOnly=True
+        )
     else:
-        env = None
-    cmd = DockerCmd(runtime, env or {}).build()
-    return env, cmd + version_check + cmd_line, False
+        container_env = {}
+    cmd = DockerCmd(runtime, container_env).build()
+    # `container_env` is the filtered set of vars to inject into the container
+    # (already encoded into `cmd` as `-e VAR=val` args). The subprocess that
+    # *invokes* `docker` needs its own env — at minimum PATH, so non-/usr/bin
+    # docker installs (Rancher Desktop, OrbStack, asdf shims, etc.) are
+    # findable; without PATH execvp falls back to its compiled-in default
+    # (`/usr/bin:/bin:/usr/sbin:/sbin` on macOS) and silently misses them.
+    # Inherit a curated handful of host vars rather than the whole os.environ
+    # so we don't undo the filter_env intent for the *container* side.
+    subprocess_env = {
+        k: os.environ[k]
+        for k in ("PATH", "HOME", "TERM", "LANG", "LC_ALL", "DOCKER_HOST")
+        if k in os.environ
+    }
+    subprocess_env.update(container_env)
+    return subprocess_env, cmd + version_check + cmd_line, False
 
 
 def _venv(runtime, env):
@@ -574,14 +590,82 @@ def _remote_cmd(runtime: str, cmd_line: List[str], version_check: List[str]):
 
 
 class DockerCmd:
-    """Builds command for docker runtime"""
+    """Builds command for docker runtime.
+
+    The ``--ci`` flag in the specifier string (e.g.
+    ``docker:my/image --ci``) switches to a layout that survives runners
+    where ``--user`` maps to a uid with no ``/etc/passwd`` entry and no
+    readable ``~/.gitconfig``:
+
+    * cwd is bind-mounted at the same absolute path inside the container
+      (rather than at ``/data``), so paths the caller has already resolved
+      on the host (``UNFURL_HOME``, project args, etc.) remain valid inside.
+    * ``HOME=/tmp`` + ``USER=unfurl`` are injected so ansible's tmp dir,
+      ``getpass.getuser()``, and friends don't crash with an unknown uid.
+    * Git identity + ``init.defaultBranch=main`` are passed via env vars,
+      so ``git commit`` / ``git init`` work without a host gitconfig mount.
+    * The user home dir is **not** mounted (it would mask container state
+      and re-introduce the uid mismatch).
+
+    Default mode keeps the legacy ``/data`` mount + home dir mount for
+    developers running ``unfurl deploy`` with their real credentials.
+    """
+
+    CI_FLAG = "--ci"
+    NO_CI_FLAG = "--no-ci"
+    # Vendor-specific env vars used as a fallback when `CI` itself isn't set.
+    # Most modern CI systems also set `CI=true` (which we check first), but
+    # a handful of self-hosted runner configs forget to.
+    _CI_VENDOR_ENV = (
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "BUILDKITE",
+        "JENKINS_HOME",
+        "CIRCLECI",
+        "TRAVIS",
+        "BITBUCKET_BUILD_NUMBER",
+        "DRONE",
+    )
 
     def __init__(self, specifier_string: str, env_vars: dict) -> None:
         self.env_vars = env_vars
         # if running from a development branch use "latest" otherwise the image for this release
         tag = "latest" if len(version_tuple()) > 3 else __version__()
         self.image = self.parse_image(specifier_string, tag)
-        self.docker_args = self.parse_docker_args(specifier_string)
+        docker_args = self.parse_docker_args(specifier_string)
+        # Resolution: explicit `--ci` always wins, `--no-ci` always disables,
+        # otherwise sniff the environment for CI markers.
+        explicit_on = self.CI_FLAG in docker_args
+        explicit_off = self.NO_CI_FLAG in docker_args
+        if explicit_on:
+            self.ci_mode = True
+        elif explicit_off:
+            self.ci_mode = False
+        else:
+            self.ci_mode = self._auto_detect_ci()
+            if self.ci_mode:
+                logging.getLogger("unfurl").info(
+                    "docker runtime: CI mode auto-detected from environment "
+                    "(pass --no-ci to disable)"
+                )
+        # Consume the flags so they aren't forwarded to `docker run` (which
+        # would reject them as unknown).
+        self.docker_args = [
+            a for a in docker_args if a not in (self.CI_FLAG, self.NO_CI_FLAG)
+        ]
+
+    @classmethod
+    def _auto_detect_ci(cls) -> bool:
+        """True if the environment looks like CI (no `--ci`/`--no-ci` set).
+
+        Heuristic: ``CI=true`` (set by basically every major CI runner) or
+        any of the vendor-specific markers in `_CI_VENDOR_ENV`. We don't
+        infer CI from missing tty alone — piped invocations in dev shells
+        would false-positive and lose access to ``~/.aws``/``~/.gitconfig``.
+        """
+        if os.environ.get("CI", "").lower() in ("1", "true", "yes"):
+            return True
+        return any(os.environ.get(v) for v in cls._CI_VENDOR_ENV)
 
     @staticmethod
     def parse_image(specifier_string, version):
@@ -593,7 +677,11 @@ class DockerCmd:
                 return image
             else:
                 return f"{image}:{version}"
-        return f"onecommons/unfurl:{version}"
+        # Default to the multi-arch ghcr.io image (built for amd64 + arm64 by
+        # .github/workflows/dev_images.yml); the docker.io/onecommons/unfurl
+        # tags are amd64-only and would require `--platform=linux/amd64` to
+        # run on Apple Silicon and other arm64 hosts.
+        return f"ghcr.io/onecommons/unfurl:{version}"
 
     @staticmethod
     def parse_docker_args(specifier_string):
@@ -605,38 +693,69 @@ class DockerCmd:
     def build(self) -> list:
         """Prepare command which will be run as subprocess"""
 
-        cmd = [
-            "docker",
-            "run",
-            "--rm",
-            "-w",
-            "/data",
-            "-u",
-            f"{os.getuid()}:{os.getgid()}",
-        ]
-        if sys.stdout.isatty():
+        cmd = ["docker", "run", "--rm"]
+        if self.ci_mode:
+            cwd = str(Path.cwd())
+            cmd += ["-v", f"{cwd}:{cwd}", "-w", cwd]
+        else:
+            cmd += ["-w", "/data"]
+        cmd += ["-u", f"{os.getuid()}:{os.getgid()}"]
+        # Need both halves of the tty: -i keeps stdin open (so the
+        # container can read prompts), -t allocates a pty (so click's
+        # /dev/tty open inside the container resolves). Asymmetric host
+        # ttys (e.g., stdout-only) would attach a pty to nothing.
+        if sys.stdin.isatty() and sys.stdout.isatty():
             cmd.append("-it")
         cmd.extend(self.env_vars_to_args())
         cmd.extend(self.default_volumes())
         cmd.extend(self.docker_args)
-        cmd.extend([self.image, "unfurl", "--no-runtime"])
+        if self.ci_mode:
+            cmd += ["--entrypoint", "unfurl", self.image, "--no-runtime"]
+        else:
+            cmd += [self.image, "unfurl", "--no-runtime"]
         return cmd
 
     def env_vars_to_args(self) -> list:
-        user = getpass.getuser()
-        args = [
-            "-e",
-            f"HOME=/home/{user}",
-            "-e",
-            f"USER={user}",
-        ]
+        if self.ci_mode:
+            args = [
+                "-e",
+                "HOME=/tmp",
+                "-e",
+                "USER=unfurl",
+                "-e",
+                "GIT_AUTHOR_NAME=unfurl",
+                "-e",
+                "GIT_AUTHOR_EMAIL=unfurl@example.com",
+                "-e",
+                "GIT_COMMITTER_NAME=unfurl",
+                "-e",
+                "GIT_COMMITTER_EMAIL=unfurl@example.com",
+                "-e",
+                "GIT_CONFIG_COUNT=1",
+                "-e",
+                "GIT_CONFIG_KEY_0=init.defaultBranch",
+                "-e",
+                "GIT_CONFIG_VALUE_0=main",
+            ]
+        else:
+            user = getpass.getuser()
+            args = [
+                "-e",
+                f"HOME=/home/{user}",
+                "-e",
+                f"USER={user}",
+            ]
         for k, v in self.env_vars.items():
             args.extend(["-e", f"{k}={v}"])
         return args
 
-    @staticmethod
-    def default_volumes() -> list:
+    def default_volumes(self) -> list:
         """Volumes for docker command"""
+        if self.ci_mode:
+            # cwd is mounted in build() (at the same path inside); home is
+            # intentionally omitted (would mask container state + reintroduce
+            # the uid-mismatch problem ci mode is meant to avoid).
+            return ["-v", "/var/run/docker.sock:/var/run/docker.sock"]
         user = getpass.getuser()
         return [
             "-v",
@@ -713,13 +832,21 @@ def _print_summary(job: "Job", options) -> str:
 
 
 def yesno(prompt):
+    if not sys.stdin.isatty():
+        # `click.getchar()` blindly opens /dev/tty and raises
+        # `OSError: [Errno 6] No such device or address` when there
+        # isn't one — CliRunner.invoke, CI logs, piped invocations,
+        # `docker run` without `-it`, etc. Treat as "no" (the
+        # documented default for any non-y answer) and surface why
+        # so the caller knows to pass --approve / set UNFURL_APPROVE.
+        click.echo(
+            f"{prompt} [yN] (no tty: assuming no; pass --approve to skip the prompt)"
+        )
+        return False
     click.echo(prompt + " [yN] ", nl=False)
     c = click.getchar()
     click.echo(c)
-    if c == "y" or c == "Y":
-        return True
-    else:
-        return False
+    return c in ("y", "Y")
 
 
 def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary, folder):

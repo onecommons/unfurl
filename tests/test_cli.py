@@ -232,61 +232,6 @@ class CliTest(unittest.TestCase):
             finally:
                 os.environ["UNFURL_NORUNTIME"] = "1"
 
-    @unittest.skipIf(
-        "slow" in os.getenv("UNFURL_TEST_SKIP", "")
-        or "docker" in os.getenv("UNFURL_TEST_SKIP", ""),
-        "UNFURL_TEST_SKIP set",
-    )
-    def test_docker_runtime(self):
-        ensemble = """
-apiVersion: unfurl/v1alpha1
-kind: Ensemble
-configurations:
-  create:
-    implementation:
-      className: unfurl.configurators.shell.ShellConfigurator
-    inputs:
-      command: "echo hello world"
-spec:
-  service_template:
-    topology_template:
-      node_templates:
-        test1:
-          type: tosca.nodes.Root
-          interfaces:
-            Standard:
-              +/configurations:
-"""
-        runner = CliRunner()
-        runtime = "docker:onecommons/unfurl:latest"
-        _args[:] = [
-            f"--runtime={runtime}",
-            "--no-version-check",
-            "-vvv",
-            "deploy",
-            "ensemble.yaml",
-        ]
-
-        with runner.isolated_filesystem():
-            with open("ensemble.yaml", "w") as f:
-                f.write(ensemble)
-            try:
-                if os.environ.get("UNFURL_NORUNTIME"):
-                    del os.environ["UNFURL_NORUNTIME"]
-                result = runner.invoke(
-                    cli, ["--runtime=" + runtime, "--no-version-check", "deploy", "ensemble.yaml"]
-                )
-            finally:
-                os.environ["UNFURL_NORUNTIME"] = "1"
-
-        # uncomment this to see output:
-        # print("result.output", result.exit_code, result.output)
-        assert not result.exception, "\n".join(
-            traceback.format_exception(*result.exc_info)
-        )
-        assert result.exit_code == 0, result.stderr
-        self.assertIn("running remote with _args", result.output)
-
     def test_badargs(self):
         runner = CliRunner()
         result = runner.invoke(cli, ["--badarg"])

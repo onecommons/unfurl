@@ -580,16 +580,45 @@ The format for the ``docker:`` runtime specifier is:
 
 ``docker:[image]?:[tag]? [docker_args]?``
 
-If ``image`` is omitted, "onecommons/unfurl" is used.
+If ``image`` is omitted, "ghcr.io/onecommons/unfurl" is used.
 If ``tag`` is omitted, the image tag is set to the version of the Unfurl instance that is executing this command.
 
-For example, if both omitted (e.g. ``docker:``) and you are running version 0.3.1 of Unfurl, the container image "onecommons/unfurl:0.3.1" will be used.
+For example, if both are omitted (e.g. ``docker:``) and you are running version 0.3.1 of Unfurl, the container image "ghcr.io/onecommons/unfurl:0.3.1" will be used. The ghcr.io images are multi-arch (linux/amd64 + linux/arm64) so they run natively on Apple Silicon and other arm64 hosts.
 
-Anything thing after the tag will be treated as arguments to be passed to the docker run command that is called when executing this runtime.
+Anything after the tag will be treated as arguments to be passed to the ``docker run`` command. The special flags ``--ci`` and ``--no-ci`` are consumed by Unfurl itself (not forwarded to docker) and switch the container layout — see `CI mode` below.
 
 .. tip::
 
   Since specifying ``docker_args`` will require a space separator, the whole runtime argument will have to be quoted.
+
+By default the container is configured for a developer's interactive workstation:
+
+* The current working directory is mounted at ``/data`` inside the container (``-w /data``).
+* The user's home directory is mounted at ``/home/<user>`` so credentials like ``~/.aws/``, ``~/.kube/``, ``~/.ssh/``, ``~/.gitconfig`` are visible inside.
+* ``HOME`` and ``USER`` reflect the host user's identity.
+* ``-it`` is added when both stdin and stdout are TTYs, so interactive prompts (e.g. ``proceed with job? [yN]``) work as expected.
+* The Docker socket (``/var/run/docker.sock``) is forwarded so nested container workloads (Terraform, Ansible, etc.) launch on the host's daemon.
+
+CI mode
++++++++
+
+CI mode is for environments where ``--user $(id -u):$(id -g)`` maps to a uid with no ``/etc/passwd`` entry and there is no readable ``~/.gitconfig`` — typical CI runners, ephemeral build agents, etc.
+
+It is **auto-detected** when any of the following are set in the environment: ``CI`` (the de-facto standard set by GitHub Actions, GitLab CI, CircleCI, Travis, Buildkite, Bitbucket Pipelines, Drone) or one of the vendor-specific markers (``GITHUB_ACTIONS``, ``GITLAB_CI``, ``BUILDKITE``, ``JENKINS_HOME``, ``CIRCLECI``, ``TRAVIS``, ``BITBUCKET_BUILD_NUMBER``, ``DRONE``).
+
+To override auto-detection, pass one of:
+
+* ``--ci`` — force CI mode on, even if the env doesn't look like CI (useful for containerized dev shells where the image's ``/etc/passwd`` is also minimal).
+* ``--no-ci`` — force the default developer layout, even if the env *does* look like CI (useful to keep the user's credentials mounted).
+
+In CI mode:
+
+* The current working directory is mounted at **the same absolute path inside** the container (rather than under ``/data``), so any path the caller resolved on the host (``UNFURL_HOME``, project arguments, etc.) remains valid inside.
+* ``HOME=/tmp`` and ``USER=unfurl`` are injected as env vars, sidestepping crashes from tools that look up the runtime uid in ``/etc/passwd`` (Ansible's tmp dir, Python's ``getpass.getuser()``, etc.).
+* Git identity is provided via env vars (``GIT_AUTHOR_NAME``, ``GIT_AUTHOR_EMAIL``, ``GIT_COMMITTER_NAME``, ``GIT_COMMITTER_EMAIL``) so ``git commit`` works without a host gitconfig mount.
+* ``init.defaultBranch=main`` is forced (via ``GIT_CONFIG_COUNT`` / ``GIT_CONFIG_KEY_0`` / ``GIT_CONFIG_VALUE_0``) so ``git init`` produces ``main`` rather than ``master``.
+* The user's home directory is **not** mounted (it would mask container state and re-introduce the uid mismatch).
+* ``--entrypoint unfurl`` is set explicitly so the image's default entrypoint doesn't affect dispatch.
 
 shell default
 -------------
