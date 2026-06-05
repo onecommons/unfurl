@@ -1042,6 +1042,7 @@ class GitRepo(Repo):
             return ""
 
     def resolve_rev_spec(self, revision) -> Optional[str]:
+        """Resolve a revision specifier (e.g. branch or tag name) to a commit hash in this repository, or return None if it can't be resolved."""
         try:
             return self.repo.commit(revision).hexsha
         except Exception:
@@ -1140,9 +1141,11 @@ class GitRepo(Repo):
             commitId + ":" + path, stdout_as_string=stdout_as_string
         )
 
-    def checkout(self, revision="", **kw):
+    def checkout(self, revision="", fetch_first=False, **kw):
         # if revision isn't specified and repo is not pinned:
         #  save the ref of current head
+        if fetch_first and self.repo.remotes:
+            self.run_cmd(["fetch", revision or "HEAD", "--tags", "--update-shallow"])
         self.repo.git.checkout(revision, **kw)
         logger.info(
             "checking out '%s' at %s to %s",

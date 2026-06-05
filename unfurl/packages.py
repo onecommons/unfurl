@@ -830,12 +830,13 @@ class ProxiedRepo(Repo):
         return datetime.datetime.fromisoformat(timestamp).timestamp()
 
     def resolve_rev_spec(self, revision: str) -> Optional[str]:
+        """Resolve a revision specifier (e.g. branch or tag name) to a commit hash in this repository, or return None if it can't be resolved."""
         hash = self.revision
         tag = self.current_tag
         version = self._info.get("Version", "")
         if revision in (hash, tag, version):
             return hash
-        if hash.startswith(revision) and len(revision) >= 7:
+        if hash.startswith(revision) and len(revision) >= 5:
             return hash
         return None
 

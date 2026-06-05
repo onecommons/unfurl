@@ -830,6 +830,8 @@ class Manifest(AttributeManager):
     def find_or_clone_repo(
         self, repo_view: RepoView, base: str
     ) -> Tuple[Optional[Repo], Optional[bool]]:
+        """Find or clone the repo for the given RepoView.
+        Returns a tuple of (Repo, created) where created is True if the repo was cloned."""
         url, _, _ = split_git_url(repo_view.url)
         if not url:
             raise UnfurlError(f"invalid git URL {repo_view.url}")

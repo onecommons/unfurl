@@ -345,7 +345,7 @@ class ServerCacheResolver(SimpleCacheResolver):
                     project_id = None
                 if project_id and local_projects.get(project_id):
                     return None
-            if self.local_env.find_git_repo(url):
+            if self.local_env.find_repo(url):
                 return None
         return get_remote_tags_cached(url, pattern, self.args)
 

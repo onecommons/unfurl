@@ -2395,7 +2395,7 @@ class CloudMap:
             branch_exists = True
         else:
             branch = host_branch
-            local_repo = local_env.find_git_repo(url, branch)
+            local_repo = local_env.find_repo(url, branch)
             if (
                 local_repo
                 and isinstance(local_repo, GitRepo)

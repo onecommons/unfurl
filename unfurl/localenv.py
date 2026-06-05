@@ -344,7 +344,7 @@ class Project:
 
     def _find_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Union[RepoView, str]:
+    ) -> Tuple[Optional[RepoView], str, bool]:
         # if repo isn't found, return the repo url, possibly rewritten to include server credentials
         apply_credentials = self.overrides.get("apply_url_credentials")
         candidate = None
@@ -364,11 +364,11 @@ class Project:
             if match:
                 if revision:
                     if repo.revision == repo.resolve_rev_spec(revision):
-                        return repository
+                        return repository, repoURL, True
                     # revisions don't match but we'll return it if we don't find a better candidate
                     candidate = repository
                 else:
-                    return repository
+                    return repository, repoURL, True
             elif apply_credentials:
                 # if an existing repository has the same hostname as the new repository's url
                 # and has credentials, update the new url with those credentials
@@ -383,13 +383,13 @@ class Project:
                         repoURL = add_user_to_url(
                             repoURL, candidate_parts.username, password
                         )
-        return candidate or repoURL
+        return candidate, repoURL, False
 
     def find_repo(self, repoURL: str, revision: Optional[str] = None) -> Optional[Repo]:
-        repo_or_url = self._find_repo(repoURL, revision)
-        if isinstance(repo_or_url, str):
+        repo, _, _ = self._find_repo(repoURL, revision)
+        if not repo:
             return None
-        return repo_or_url.repo
+        return repo.repo
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
@@ -1491,7 +1491,7 @@ class LocalEnv:
             if currentProject:
                 repo = currentProject.find_repo(url)
             if not repo:
-                repo = self.find_git_repo(url)
+                repo = self.find_repo(url)
             if project.get("file"):
                 file = os.path.join(file, project.get("file"))
 
@@ -1690,32 +1690,29 @@ class LocalEnv:
         state["loader_cache"] = {}  # don't pickle cache
         return state
 
-    def _find_git_repo(
+    def _find_repo(
         self, repoURL: str, revision: Optional[str] = None
-    ) -> Union[RepoView, str]:
+    ) -> Tuple[Optional[RepoView], str, bool]:
         project = self.project or self.homeProject
         count = 0
+        candidate = None
         while project:
             count += 1
             assert count < 6, (
                 project.projectRoot,
                 project.parentProject and project.parentProject.projectRoot,
             )
-            candidate = project._find_repo(repoURL, revision)
-            if isinstance(candidate, RepoView):
-                return candidate
-            elif candidate != repoURL:
-                repoURL = candidate
+            candidate, repoURL, match = project._find_repo(repoURL, revision)
+            if candidate and match:
+                return candidate, repoURL, match
             project = project.parentProject
-        return repoURL
+        return candidate, repoURL, False
 
-    def find_git_repo(
-        self, repoURL: str, revision: Optional[str] = None
-    ) -> Optional[Repo]:
-        repo_or_url = self._find_git_repo(repoURL, revision)
-        if isinstance(repo_or_url, str):
+    def find_repo(self, repoURL: str, revision: Optional[str] = None) -> Optional[Repo]:
+        repoview, _, _ = self._find_repo(repoURL, revision)
+        if repoview is None:
             return None
-        return repo_or_url.repo
+        return repoview.repo
 
     def _create_working_dir(
         self, repoURL, revision, basepath, package: Optional[Package] = None
@@ -1743,39 +1740,39 @@ class LocalEnv:
         checkout_args: dict = {},
         package: Optional["Package"] = None,
     ) -> Tuple[Optional[Repo], Optional[str], Optional[bool]]:
-        repoview_or_url = self._find_git_repo(repoURL, revision)
+        repoview, url, exact = self._find_repo(repoURL, revision)
         created = False
         locked = package and package.locked or False
-        if isinstance(repoview_or_url, RepoView):
-            repo = repoview_or_url.repo
+        if repoview is not None:
+            repo = repoview.repo
             assert repo
             logger.verbose(
                 "Using existing repository at %s for %s", repo.working_dir, repoURL
             )
-            if (
-                not locked
-                and not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
-                and not (repoview_or_url.package and repoview_or_url.package.locked)
-            ):
-                # A ProxiedRepo pinned to one tag from the Go-module
-                # proxy can't switch refs by itself; convert it to a
-                # regular git working tree first, then fall through to
-                # the same `pull(revision=…)` path that updates a
-                # GitRepo.  Keeping convert+pull together in the same
-                # block as the existing GitRepo pull means both
-                # respect `UNFURL_SKIP_UPSTREAM_CHECK` identically —
-                # the user opting out of upstream chatter opts out of
-                # both.
-                if isinstance(repo, ProxiedRepo):
-                    repo = repo.convert_to_git()
-                    repoview_or_url.repo = repo
-                if isinstance(repo, GitRepo):
-                    if not repo.is_dirty():
-                        repo.pull(revision=revision)
+            if not locked and not (repoview.package and repoview.package.locked):
+                dirty = repo.is_dirty()
+                if (revision and not exact) or checkout_args:
+                    if repo.is_dirty():
+                        logger.warning(
+                            f"{repo.working_dir} is dirty, skipping checking out revision {revision}"
+                        )
+                    else:
+                        if isinstance(repo, ProxiedRepo):
+                            gitrepo = repo.convert_to_git()
+                        else:
+                            gitrepo = cast(GitRepo, repo)
+                        gitrepo.checkout(
+                            revision or "", fetch_first=True, **checkout_args
+                        )
+                        repoview.repo = gitrepo
+                elif (
+                    not self.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK")
+                    and isinstance(repo, GitRepo)
+                    and not dirty
+                ):
+                    repo.pull(revision=revision)
         else:
-            # it's the repoUrl (possibly rewritten) at this point
-            assert isinstance(repoview_or_url, str), repoview_or_url
-            url = repoview_or_url
+            # url is the repoUrl (possibly rewritten) at this point
             # git-local repos must already exist locally
             if url.startswith("git-local://"):
                 return None, None, None
@@ -1785,19 +1782,7 @@ class LocalEnv:
             if not repo:
                 return None, None, None
 
-        if revision:
-            if isinstance(repo, GitRepo) and (
-                checkout_args or repo.revision != repo.resolve_rev_spec(revision)
-            ):
-                if repo.is_dirty():
-                    logger.warning(
-                        f"{repo.working_dir} is dirty, skipping checking out revision {revision}"
-                    )
-                else:
-                    repo.checkout(revision, **checkout_args)
-            return repo, repo.revision, created
-        else:
-            return repo, repo.revision, created
+        return repo, repo.revision, created
 
     def find_path_in_repos(
         self, path: str, importLoader: Optional[Any] = None
@@ -1833,8 +1818,8 @@ class LocalEnv:
         else:
             base_path = os.getcwd()
 
-        repo_view = self._find_git_repo(url, revision)
-        if not isinstance(repo_view, RepoView):
+        repo_view, _, _ = self._find_repo(url, revision)
+        if repo_view is None:
             return "", ""
         return repo_view.get_link(base_path, name)
 
@@ -1864,7 +1849,7 @@ class LocalEnv:
         asdfDataDir = os.getenv("ASDF_DATA_DIR")
         if not asdfDataDir:
             # check if an ensemble previously installed asdf via git
-            repo = self.find_git_repo("https://github.com/asdf-vm/asdf.git/")
+            repo = self.find_repo("https://github.com/asdf-vm/asdf.git/")
             if repo:
                 asdfDataDir = repo.working_dir
             else:

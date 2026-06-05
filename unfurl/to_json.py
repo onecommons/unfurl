@@ -1335,7 +1335,7 @@ def get_blueprint_from_topology(
     if server_host:
         repo = spec_repo.repo
         if not repo and manifest.localEnv:
-            repo = manifest.localEnv.find_git_repo(spec_repo.url)
+            repo = manifest.localEnv.find_repo(spec_repo.url)
         if repo:
             projectPath = get_project_path(repo, server_host)
         # else:  # XXX the repositories hasn't been cloned yet, so when we support remote:

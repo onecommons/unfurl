@@ -841,17 +841,14 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return False
 
     def _find_repoview(self, url: str) -> RepoView:
-        repo_view = None
         git_url, path, revision = split_git_url(url)  # we only support git urls
         assert self.local_env
-        repoview_or_url = self.local_env._find_git_repo(git_url, revision)
-        if isinstance(repoview_or_url, RepoView):
-            repo_view = repoview_or_url
-        else:
-            # repo wasn't not found, repoview_or_url is the git_url (with credentials possibly applied)
+        repo_view, resolved_url, exact = self.local_env._find_repo(git_url, revision)
+        if repo_view is None:
+            # repo wasn't not found, resolved_url is the git_url (with credentials possibly applied)
             # create new RepoView for this url
-            name = Repo.get_path_for_git_repo(repoview_or_url, name_only=True)
-            repository = self.get_repository(name, dict(url=repoview_or_url), True)
+            name = Repo.get_path_for_git_repo(resolved_url, name_only=True)
+            repository = self.get_repository(name, dict(url=resolved_url), True)
             repo_view = RepoView(repository, None)
         return repo_view
 
@@ -891,7 +888,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if self.local_env:
             if self.local_env.overrides.get(
                 "UNFURL_SKIP_UPSTREAM_CHECK"
-            ) and self.local_env.find_git_repo(url):
+            ) and self.local_env.find_repo(url):
                 return None  # skip if repo exists and skip_check is set
         elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             return None
@@ -945,7 +942,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         for repo_view in self.manifest.repositories.values():
             if not repo_view.repo:
                 if self.local_env:
-                    repo_view.repo = self.local_env.find_git_repo(repo_view.url)
+                    repo_view.repo = self.local_env.find_repo(repo_view.url)
             wd = repo_view.working_dir
             if not wd:
                 continue
