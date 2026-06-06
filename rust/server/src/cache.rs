@@ -631,4 +631,81 @@ mod tests {
             }
         }
     }
+
+    /// Every variant of `HashableValue` should round-trip through
+    /// `hashable_to_json` to its expected JSON form, plus the two
+    /// "unrepresentable" paths (NaN, non-UTF-8 bytes) should return
+    /// `None`.
+    ///
+    /// Skips the `HashableValue::Int(BigInt)` arm because constructing
+    /// a `BigInt` would require pulling `num-bigint` in as a dev-dep;
+    /// that arm is a one-liner (`format!("{:?}", val)`) and a future
+    /// change can pick it up cheaply if 100% coverage matters.
+    #[test]
+    fn hashable_to_json_covers_each_variant() {
+        // Trivial-conversion arms.
+        assert_eq!(
+            hashable_to_json(&HashableValue::None),
+            Some(JsonValue::Null),
+        );
+        assert_eq!(
+            hashable_to_json(&HashableValue::Bool(true)),
+            Some(JsonValue::Bool(true)),
+        );
+        assert_eq!(
+            hashable_to_json(&HashableValue::I64(42)),
+            Some(JsonValue::Number(42.into())),
+        );
+        assert_eq!(
+            hashable_to_json(&HashableValue::F64(1.5)),
+            Some(JsonValue::Number(
+                serde_json::Number::from_f64(1.5).unwrap()
+            )),
+        );
+        assert_eq!(
+            hashable_to_json(&HashableValue::String("hi".into())),
+            Some(JsonValue::String("hi".into())),
+        );
+
+        // Bytes: utf-8 round-trips; non-utf-8 returns None.
+        assert_eq!(
+            hashable_to_json(&HashableValue::Bytes(b"hello".to_vec())),
+            Some(JsonValue::String("hello".into())),
+        );
+        assert_eq!(
+            hashable_to_json(&HashableValue::Bytes(vec![0xff, 0xfe])),
+            None,
+            "non-utf8 bytes should return None",
+        );
+
+        // F64 NaN can't be represented as a JSON number → None.
+        assert_eq!(
+            hashable_to_json(&HashableValue::F64(f64::NAN)),
+            None,
+            "NaN should return None",
+        );
+
+        // Recursive arms: Tuple and FrozenSet both serialize as JSON arrays.
+        assert_eq!(
+            hashable_to_json(&HashableValue::Tuple(vec![
+                HashableValue::I64(1),
+                HashableValue::String("x".into()),
+            ])),
+            Some(serde_json::json!([1, "x"])),
+        );
+        let mut frozen: std::collections::BTreeSet<HashableValue> =
+            std::collections::BTreeSet::new();
+        frozen.insert(HashableValue::I64(7));
+        assert_eq!(
+            hashable_to_json(&HashableValue::FrozenSet(frozen)),
+            Some(serde_json::json!([7])),
+        );
+
+        // If any element of a recursive arm is itself unrepresentable,
+        // the whole thing propagates `None`.
+        assert_eq!(
+            hashable_to_json(&HashableValue::Tuple(vec![HashableValue::F64(f64::NAN)])),
+            None,
+        );
+    }
 }

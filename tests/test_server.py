@@ -1138,18 +1138,32 @@ def test_server_update_deployment(server_env):
                 last_commit = new_commit
 
             if server_env == "queue-rust":
-                last_commit = _wait_for_new_commit("remote.git", last_commit)
+                # Don't pre-wait for the worker — let the rust proxy resolve
+                # the queue itself by passing the queueid + the pre-commit
+                # latest_commit.  This exercises resolve_queued_request's
+                # check → kick_worker → poll-loop → UseNewCommit path, which
+                # is otherwise dead code in the test suite (every other test
+                # either drops the queueid or waits the queue out first).
+                res = requests.get(
+                    f"http://{HOST}:{port}/export",
+                    params={
+                        "auth_project": "remote",
+                        "latest_commit": last_commit,  # old commit
+                        "queueid": queueid,
+                        "format": "deployment",
+                    },
+                    timeout=15,
+                )
             else:
                 _wait_for_queue(server_env)
-
-            res = requests.get(
-                f"http://{HOST}:{port}/export",
-                params={
-                    "auth_project": "remote",
-                    "latest_commit": last_commit,  # enable caching but just get the latest in the cache
-                    "format": "deployment",
-                },
-            )
+                res = requests.get(
+                    f"http://{HOST}:{port}/export",
+                    params={
+                        "auth_project": "remote",
+                        "latest_commit": last_commit,  # enable caching but just get the latest in the cache
+                        "format": "deployment",
+                    },
+                )
             assert res.status_code == 200
             assert (
                 res.json()["ResourceTemplate"]["container_service"]["properties"][0][
