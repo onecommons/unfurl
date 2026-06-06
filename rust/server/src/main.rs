@@ -231,6 +231,7 @@ async fn main() {
         let app_clone = app.clone();
         tasks.push(tokio::spawn(async move {
             axum::serve(listener, app_clone)
+                .with_graceful_shutdown(shutdown_signal())
                 .await
                 .expect("server error");
         }));
@@ -240,5 +241,28 @@ async fn main() {
     }
     for task in tasks {
         task.await.expect("server task panicked");
+    }
+}
+
+/// Resolves when the process receives SIGINT (Ctrl-C) or SIGTERM
+async fn shutdown_signal() {
+    use tokio::signal;
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("failed to install SIGINT handler");
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
 }
