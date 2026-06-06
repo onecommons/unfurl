@@ -129,7 +129,7 @@ jobs:
           cargo test -p unfurl-git-sync --manifest-path rust/Cargo.toml --no-default-features --features postgres
       - name: Rust CRAP report and gate (py3.14 only)
         if: matrix.python == '3.14'
-        run: ./rust/dev/coverage.sh --report-only --fail-above --min 30
+        run: ./rust/dev/coverage.sh --report-only --threshold 40 --fail-above --min 20
       - name: upload code coverage report
         if: matrix.python == 3.14
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

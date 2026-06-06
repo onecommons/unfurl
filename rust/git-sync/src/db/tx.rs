@@ -517,10 +517,7 @@ where
 /// Reconstruct a [`crate::CommitRef`] from the (expected_version,
 /// expected_commit) bind pair so the SQL-level conflict carries the
 /// same shape as the early-bailout one from `enforce_conflict`.
-fn race_expected(
-    expected_version: Option<i64>,
-    expected_commit: Option<&str>,
-) -> crate::CommitRef {
+fn race_expected(expected_version: Option<i64>, expected_commit: Option<&str>) -> crate::CommitRef {
     match (expected_commit, expected_version) {
         (Some(c), _) => crate::CommitRef::Commit(c.to_string()),
         (None, Some(v)) => crate::CommitRef::Pending(v),

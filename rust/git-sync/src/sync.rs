@@ -760,118 +760,57 @@ impl SyncedRepo {
         }
 
         let abs = self.inner.repo_path.join(file_path);
-        let ext = file_path
-            .rsplit_once('.')
-            .map(|(_, e)| e.to_ascii_lowercase())
-            .unwrap_or_default();
+        let ext = extract_ext(file_path);
 
-        // Parse the existing on-disk file (if any) into a serde_json
-        // value. When the file is missing, start from an empty object.
-        let mut root: serde_json::Value = match std::fs::read(&abs) {
-            Ok(bytes) => parse_bytes_for_extension(file_path, &ext, &bytes)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                serde_json::Value::Object(serde_json::Map::new())
-            }
-            Err(e) => return Err(Error::Io(e)),
-        };
+        let mut root = load_root(&abs, file_path, &ext)?;
+        let touched = apply_pending_records(&mut root, pending);
+        self.apply_format_ordering(&mut root, file_path, &touched)
+            .await?;
+        let bytes = serialize_root(&root, file_path, &ext)?;
 
-        // The document must be an object; if it isn't, replace it.
-        if !root.is_object() {
-            root = serde_json::Value::Object(serde_json::Map::new());
-        }
-
-        let mut touched_sections: Vec<String> = Vec::new();
-
-        for rec in pending {
-            let section_name = rec.path.trim_start_matches('/').to_string();
-            if section_name.is_empty() {
-                // v1 supports single-segment parents only.
-                continue;
-            }
-            let root_obj = root.as_object_mut().expect("root is object");
-            if rec.deleted {
-                // Use `shift_remove` (not `remove`/`swap_remove`) so we
-                // preserve the order of the surviving entries —
-                // critical for the "minimally-edited" output the tests
-                // assert against.
-                if let Some(section) = root_obj
-                    .get_mut(&section_name)
-                    .and_then(|v| v.as_object_mut())
-                {
-                    section.shift_remove(&rec.key);
-                    if section.is_empty() {
-                        root_obj.shift_remove(&section_name);
-                    }
-                }
-            } else {
-                let section = root_obj
-                    .entry(section_name.clone())
-                    .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-                if !section.is_object() {
-                    *section = serde_json::Value::Object(serde_json::Map::new());
-                }
-                let section_obj = section.as_object_mut().expect("section is object");
-                section_obj.insert(rec.key, rec.json);
-            }
-            if !touched_sections.contains(&section_name) {
-                touched_sections.push(section_name);
-            }
-        }
-
-        // Apply the format's per-section ordering policy, but only to
-        // sections this batch actually wrote into.
-        let format_name = db::file::get(self.db(), self.worktree_id(), file_path)
-            .await?
-            .map(|f| f.format);
-        if let Some(name) = format_name {
-            if let Some(fmt) = self.formats().by_name(&name) {
-                if let Some(root_obj) = root.as_object_mut() {
-                    for section_name in &touched_sections {
-                        if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
-                            continue;
-                        }
-                        if let Some(section_obj) = root_obj
-                            .get_mut(section_name.as_str())
-                            .and_then(|v| v.as_object_mut())
-                        {
-                            section_obj.sort_keys();
-                        }
-                    }
-                }
-            }
-        }
-
-        // Serialize per extension.
-        let bytes: Vec<u8> = match ext.as_str() {
-            "yaml" | "yml" => {
-                let s = serde_saphyr::to_string(&root).map_err(|e| Error::Yaml {
-                    path: file_path.to_string(),
-                    message: e.to_string(),
-                })?;
-                crate::util::elide_explicit_nulls(&s).into_bytes()
-            }
-            "json" => serde_json::to_vec_pretty(&root).map_err(|e| Error::Json {
-                path: file_path.to_string(),
-                source: e,
-            })?,
-            other => return Err(Error::Other(format!("unsupported extension: {other}"))),
-        };
-
-        // Skip writes if the bytes are unchanged.
         if let Ok(existing) = std::fs::read(&abs) {
             if existing == bytes {
                 return Ok(None);
             }
         }
 
-        // Atomic replace via tempfile in the same directory.
-        let dir = abs.parent().unwrap_or_else(|| Path::new("."));
-        std::fs::create_dir_all(dir)?;
-        let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
-        tmp.write_all(&bytes)?;
-        tmp.flush()?;
-        tmp.persist(&abs).map_err(|e| Error::Io(e.error))?;
+        atomic_write(&abs, &bytes)?;
         Ok(Some(abs))
+    }
+
+    /// Apply the format's per-section ordering policy to the sections
+    /// this batch actually wrote into. No-op when the file has no
+    /// registered format or when the format opts out of sorting.
+    async fn apply_format_ordering(
+        &self,
+        root: &mut serde_json::Value,
+        file_path: &str,
+        touched_sections: &[String],
+    ) -> Result<()> {
+        let Some(name) = db::file::get(self.db(), self.worktree_id(), file_path)
+            .await?
+            .map(|f| f.format)
+        else {
+            return Ok(());
+        };
+        let Some(fmt) = self.formats().by_name(&name) else {
+            return Ok(());
+        };
+        let Some(root_obj) = root.as_object_mut() else {
+            return Ok(());
+        };
+        for section_name in touched_sections {
+            if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
+                continue;
+            }
+            if let Some(section_obj) = root_obj
+                .get_mut(section_name.as_str())
+                .and_then(|v| v.as_object_mut())
+            {
+                section_obj.sort_keys();
+            }
+        }
+        Ok(())
     }
 
     /// Persist all pending edits and create a git commit.
@@ -911,6 +850,126 @@ impl SyncedRepo {
 
         Ok(Some(oid_str))
     }
+}
+
+/// Lower-cased extension of `file_path`, or empty when there isn't one.
+fn extract_ext(file_path: &str) -> String {
+    file_path
+        .rsplit_once('.')
+        .map(|(_, e)| e.to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+/// Load the on-disk document at `abs` as a `serde_json::Value` and
+/// guarantee it's an object. A missing file yields an empty object;
+/// a non-object root is replaced with one.
+fn load_root(abs: &Path, file_path: &str, ext: &str) -> Result<serde_json::Value> {
+    let mut root: serde_json::Value = match std::fs::read(abs) {
+        Ok(bytes) => parse_bytes_for_extension(file_path, ext, &bytes)?,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            serde_json::Value::Object(serde_json::Map::new())
+        }
+        Err(e) => return Err(Error::Io(e)),
+    };
+    if !root.is_object() {
+        root = serde_json::Value::Object(serde_json::Map::new());
+    }
+    Ok(root)
+}
+
+/// Apply every pending record to `root` in order. Returns the list of
+/// top-level section names this batch touched (insertion-order, no
+/// duplicates) so callers can re-sort just those sections.
+fn apply_pending_records(root: &mut serde_json::Value, pending: Vec<Record>) -> Vec<String> {
+    let mut touched: Vec<String> = Vec::new();
+    for rec in pending {
+        let section_name = rec.path.trim_start_matches('/').to_string();
+        // v1 supports single-segment parents only.
+        if section_name.is_empty() {
+            continue;
+        }
+        let root_obj = root.as_object_mut().expect("root is object");
+        if rec.deleted {
+            apply_delete(root_obj, &section_name, &rec.key);
+        } else {
+            apply_insert(root_obj, &section_name, rec.key, rec.json);
+        }
+        if !touched.contains(&section_name) {
+            touched.push(section_name);
+        }
+    }
+    touched
+}
+
+/// Remove `key` from `root_obj[section_name]`. Drops the section
+/// entirely when it becomes empty. Uses `shift_remove` (not
+/// `remove`/`swap_remove`) so the order of the surviving entries is
+/// preserved — critical for the "minimally-edited" output the tests
+/// assert against.
+fn apply_delete(
+    root_obj: &mut serde_json::Map<String, serde_json::Value>,
+    section_name: &str,
+    key: &str,
+) {
+    if let Some(section) = root_obj
+        .get_mut(section_name)
+        .and_then(|v| v.as_object_mut())
+    {
+        section.shift_remove(key);
+        if section.is_empty() {
+            root_obj.shift_remove(section_name);
+        }
+    }
+}
+
+/// Insert or replace `root_obj[section_name][key] = json`, creating
+/// the section if it's missing and replacing any non-object value.
+fn apply_insert(
+    root_obj: &mut serde_json::Map<String, serde_json::Value>,
+    section_name: &str,
+    key: String,
+    json: serde_json::Value,
+) {
+    let section = root_obj
+        .entry(section_name.to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !section.is_object() {
+        *section = serde_json::Value::Object(serde_json::Map::new());
+    }
+    section
+        .as_object_mut()
+        .expect("section is object")
+        .insert(key, json);
+}
+
+/// Serialize `root` as YAML or JSON depending on `ext`.
+fn serialize_root(root: &serde_json::Value, file_path: &str, ext: &str) -> Result<Vec<u8>> {
+    match ext {
+        "yaml" | "yml" => {
+            let s = serde_saphyr::to_string(root).map_err(|e| Error::Yaml {
+                path: file_path.to_string(),
+                message: e.to_string(),
+            })?;
+            Ok(crate::util::elide_explicit_nulls(&s).into_bytes())
+        }
+        "json" => serde_json::to_vec_pretty(root).map_err(|e| Error::Json {
+            path: file_path.to_string(),
+            source: e,
+        }),
+        other => Err(Error::Other(format!("unsupported extension: {other}"))),
+    }
+}
+
+/// Atomic-replace `abs` with `bytes` via a tempfile in the same
+/// directory. Creates the parent directory if needed.
+fn atomic_write(abs: &Path, bytes: &[u8]) -> Result<()> {
+    let dir = abs.parent().unwrap_or_else(|| Path::new("."));
+    std::fs::create_dir_all(dir)?;
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(bytes)?;
+    tmp.flush()?;
+    tmp.persist(abs).map_err(|e| Error::Io(e.error))?;
+    Ok(())
 }
 
 /// Parse `bytes` as YAML or JSON depending on the file extension and

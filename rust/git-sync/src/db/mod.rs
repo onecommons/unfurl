@@ -130,12 +130,11 @@ impl Db {
                 //
                 // None of these change correctness — they bound the
                 // blast radius of pathological clients.
-                let opts = PgConnectOptions::from_str(url)?
-                    .options([
-                        ("statement_timeout", "30s"),
-                        ("lock_timeout", "10s"),
-                        ("idle_in_transaction_session_timeout", "60s"),
-                    ]);
+                let opts = PgConnectOptions::from_str(url)?.options([
+                    ("statement_timeout", "30s"),
+                    ("lock_timeout", "10s"),
+                    ("idle_in_transaction_session_timeout", "60s"),
+                ]);
 
                 // Postgres scales with concurrent connections better
                 // than SQLite (no global write lock), so default to a
