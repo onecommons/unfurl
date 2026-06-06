@@ -4,6 +4,7 @@ import traceback
 import unittest
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 
 from unfurl import __version__, version_tuple
@@ -149,6 +150,12 @@ class TestDockerRuntime(unittest.TestCase):
     one isn't available.
     """
 
+    # Locally the happy path is ~17s; the 90s timeout tolerates a cold
+    # image pull on a fresh runner without exceeding pytest-timeout's
+    # default. `reruns=2` rides over transient registry/daemon flakiness
+    # without paying the worst case three times in a row.
+    @pytest.mark.timeout(90)
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     def test_docker_runtime(self):
         ensemble = """
 apiVersion: unfurl/v1alpha1
