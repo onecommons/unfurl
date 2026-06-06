@@ -8,16 +8,17 @@
 # Rust project); the script is agnostic about which crate the
 # functions come from.
 #
-# Single-crate workflow:
-#   cargo llvm-cov --lcov --output-path lcov.info --no-default-features -p <crate>
-#   awk -f rust/dev/lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
-#   cargo crap --lcov lcov.clean.info --path <crate> --top 20
+# Whole-workspace workflow (the canonical pipeline; see rust/dev/coverage.sh
+# for a one-shot wrapper that runs all three stages):
+#   cargo llvm-cov --lcov --output-path target/lcov.raw.info --no-default-features --workspace
+#   awk -f rust/dev/lcov-merge-monomorphizations.awk target/lcov.raw.info > target/lcov.clean.info
+#   cargo crap --workspace --lcov target/lcov.clean.info --top 20
 #
-# Whole-workspace workflow (requires every workspace member to
-# build with the chosen feature set):
-#   cargo llvm-cov --lcov --output-path lcov.info --no-default-features --workspace
-#   awk -f rust/dev/lcov-merge-monomorphizations.awk lcov.info > lcov.clean.info
-#   cargo crap --workspace --lcov lcov.clean.info --top 20
+# Single-crate workflow (paths are arbitrary — the awk reads whatever file
+# you give it):
+#   cargo llvm-cov --lcov --output-path target/lcov.raw.info --no-default-features -p <crate>
+#   awk -f rust/dev/lcov-merge-monomorphizations.awk target/lcov.raw.info > target/lcov.clean.info
+#   cargo crap --lcov target/lcov.clean.info --path <crate> --top 20
 #
 # What it does:
 # - For each (source_file, function_line), find the maximum FNDA

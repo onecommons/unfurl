@@ -35,7 +35,7 @@ jobs:
         uses: dtolnay/rust-toolchain@5d458579430fc14a04a08a1e7d3694f545e91ce6 # stable
         with:
             toolchain: stable
-            components: clippy
+            components: clippy, llvm-tools-preview
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
@@ -80,6 +80,22 @@ jobs:
         run: pip install tox==3.28.0
       - name: Install oas3-gen
         run: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
+      - name: Setup Rust coverage instrumentation (py3.14 only)
+        # Build the rust extension (via tox's setup_rust) AND the
+        # standalone unfurl-server binary AND the cargo test suite all
+        # under `-C instrument-coverage`. The .profraw files written by
+        # each (including subprocesses spawned by test_server.py) land
+        # under target/llvm-cov-target/ and are merged by `cargo llvm-cov
+        # report` after every test stage completes.
+        if: matrix.python == '3.14'
+        run: |
+          cargo install cargo-llvm-cov --version 0.8.7 --locked
+          cargo install cargo-crap --version 0.2.1 --locked
+          cd rust
+          cargo llvm-cov clean --workspace
+          # show-env emits shell-style single-quoted values (KEY='val'); $GITHUB_ENV
+          # treats the RHS literally, so strip the surrounding quotes before writing.
+          cargo llvm-cov show-env | sed "s/='\(.*\)'$/=\1/" >> "$GITHUB_ENV"
       - name: Run mypy and Tox
         # Run tox using the version of Python in `PATH`
         run: |
@@ -111,6 +127,9 @@ jobs:
           cargo clippy --manifest-path rust/Cargo.toml --all-features -- -D warnings
           cargo test --no-default-features --manifest-path rust/Cargo.toml
           cargo test -p unfurl-git-sync --manifest-path rust/Cargo.toml --no-default-features --features postgres
+      - name: Rust CRAP report and gate (py3.14 only)
+        if: matrix.python == '3.14'
+        run: ./rust/dev/coverage.sh --report-only --fail-above --min 30
       - name: upload code coverage report
         if: matrix.python == 3.14
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
