@@ -59,6 +59,13 @@ def test_input():
     result2 = configurator.run_process(cmd="python -c 'import sys; print(sys.stdin.read())'", input="hello world")
     assert result2.stdout.strip() == "hello world"
 
+    result3 = configurator.run_process(
+        cmd="python -c 'import sys; print(sys.stdin.read())'",
+        input="hello world",
+        echo=False,
+    )
+    assert result3.stdout.strip() == "hello world"
+
 
 class TestDryRun:
     @pytest.mark.parametrize(

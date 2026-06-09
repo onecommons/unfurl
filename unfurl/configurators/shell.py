@@ -442,6 +442,8 @@ class ShellConfigurator(TemplateConfigurator):
                 # Windows and 2.7 don't have _save_input
                 run = subprocess.run  # type: ignore
                 extra_kwargs = {}
+                if input_bytes is not None:
+                    popen_kwargs.pop("stdin", None)
             completed = run(
                 popen_arg,
                 timeout=timeout,
