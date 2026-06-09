@@ -161,7 +161,7 @@
     },
     "typedURLs": {
       "type": "object",
-      "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.",
+      "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\".",
       "$$target": "#/definitions/typedURLs",
       "propertyNames": {
         "description": "",
@@ -262,7 +262,7 @@
         },
         "instantiated_by": {
           "$ref": "#/definitions/typedURLs",
-          "description": "URLs referencing entries in instantiations with optional type constraints."
+          "description": "URLs referencing instantiations that created or validated this artifact."
         },
         "digest": {
           "type": "string",
@@ -386,7 +386,7 @@
         },
         "instantiated_by": {
           "$ref": "#/definitions/typedURLs",
-          "description": "URLs referencing entries in instantiations with optional type constraints."
+          "description": "URLs referencing instantiations that created or validated this service."
         },
         "discovery": {
           "$ref": "#/definitions/discovery"

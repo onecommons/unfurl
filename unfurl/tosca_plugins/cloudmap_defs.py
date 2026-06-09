@@ -329,16 +329,24 @@ class TypeRefs:
         string) and normalises it into the canonical ``{<type-name>: None}``
         dict so callers can rely on ``self.types`` always being a dict.
         """
+        self.metadata: Dict[str, Any] = {}
         if types is None:
             self.types: TypeRefJson = {}
         elif isinstance(types, str):
             self.types = {types: None}
         else:
-            self.types = types
+            assert isinstance(types, Mapping), (
+                "TypeRefs must be initialized with a dict or a string"
+            )
+            self.types = dict(types)
+            self.metadata = cast(dict, self.types.pop("metadata", {}))
 
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
-        return {k: filter_dict(self.types[k]) or None for k in sorted(self.types)}
+        types = {k: filter_dict(self.types[k]) or None for k in sorted(self.types)}
+        if self.metadata:
+            types["metadata"] = cast(TypeRefConstraint, self.metadata)
+        return types
 
     def aslist(self) -> List[Tuple[str, Optional[Any]]]:
         """Return list of (type name, constraints) pairs."""
