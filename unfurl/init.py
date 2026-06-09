@@ -14,12 +14,11 @@ from jinja2.loaders import FileSystemLoader
 from pathlib import Path
 import json
 
-from . import DefaultNames, __version__, get_home_config_path, is_version_unreleased
-from .localenv import LocalEnv, Project, LocalConfig
+from . import DefaultNames, get_home_config_path
+from .localenv import LocalEnv, Project
 from .repo import (
     GitRepo,
     Repo,
-    git_url_join,
     is_url_or_git_path,
     normalize_git_url,
     split_git_url,
@@ -31,7 +30,6 @@ from .util import (
     UnfurlError,
     assert_not_none,
     get_base_dir,
-    is_relative_to,
     substitute_env,
     API_VERSION,
 )

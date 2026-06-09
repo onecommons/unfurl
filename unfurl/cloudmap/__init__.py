@@ -122,7 +122,6 @@ from ..oci import create_oci_artifact
 from ..repo import (
     GitRepo,
     Repo,
-    git_url_join,
     is_git_worktree,
     normalize_git_url,
     sanitize_url,

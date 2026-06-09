@@ -69,6 +69,14 @@ def join_resource_url(base_url: str, join_url: str) -> str:
     if not base.scheme:
         return join_url  # if base_url is not an absolute URL, just return the join_url
     join = urlparse(join_url)
+    if base.scheme == "git" and not join.scheme:
+        base_url, file_path, revision = split_git_url(base_url)
+        if join.fragment:
+            return base_url + "#" + join.fragment
+        # assume URL is a git ref
+        if not base_url.endswith(".git"):
+            base_url += ".git"
+        return git_url_join(base_url, file_path, join_url)
     if join.scheme or (not join.fragment and not join.query and "@" not in join.path):
         # just return join url if it is an absolute URL or a bare name without a purl version
         return join_url

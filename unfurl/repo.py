@@ -174,11 +174,11 @@ def git_url_join(url: str, path: str, revision: str, commit: str = "") -> str:
     if commit:
         revision = f"{revision}~{commit}"
     if revision and path:
-        return f"{url}.git#{revision}:{path}"
+        return f"{url}#{revision}:{path}"
     elif revision:
-        return f"{url}.git#{revision}"
+        return f"{url}#{revision}"
     elif path:
-        return f"{url}.git#:{path}"
+        return f"{url}#:{path}"
     else:
         return url
 
