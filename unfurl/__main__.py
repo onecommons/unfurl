@@ -21,7 +21,7 @@ import subprocess
 import sys
 import traceback
 from pathlib import Path
-from typing import Any, Optional, List, Union, TYPE_CHECKING
+from typing import Any, Optional, List, Tuple, Union, TYPE_CHECKING
 from typing_extensions import Literal
 from click import Context
 from rich_click.utils import OptionGroupDict, CommandGroupDict
@@ -2197,9 +2197,9 @@ def serve(
 )
 @click.option(
     "--add",
-    default=None,
+    multiple=True,
     metavar="URL",
-    help="Add a single record for the given URL to the cloudmap.",
+    help="Add a record for the given URL to the cloudmap. Repeatable.",
 )
 @click.option(
     "--graph",
@@ -2228,7 +2228,7 @@ def cloudmap(
     dryrun: bool = False,
     repository: str = "",
     commit: bool = False,
-    add: Optional[str] = None,
+    add: Tuple[str, ...] = (),
     analyze: Literal["yes", "no", "save-only", "default"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
@@ -2285,11 +2285,19 @@ def cloudmap(
         commit,
     )
     if add:
-        r = cloud_map.analyze_url(add, analyze)
-        if r:
-            cloud_map.save(f"Added {r.__class__.__name__} record for " + r.url)
-        else:
-            click.echo("Failed to add record for " + add)
+        added = []
+        failed = []
+        for url in add:
+            r = cloud_map.analyze_url(url, analyze)
+            if r:
+                added.append(r)
+            else:
+                failed.append(url)
+        if added:
+            names = ", ".join(f"{r.__class__.__name__}({r.key})" for r in added)
+            cloud_map.save(f"Added {len(added)} record(s): {names}")
+        for url in failed:
+            click.echo(f"{url} skipped: already added or failed to add record")
         return
     assert host
     host.dryrun = dryrun

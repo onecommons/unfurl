@@ -19,11 +19,15 @@ from unfurl.cloudmap.analyzers import (
     Notables,
 )
 from unfurl.tosca_plugins.cloudmap_defs import (
+    Artifact,
+    ArtifactMetadata,
     CommonMetadata,
+    Discovery,
     EntitySchema,
     Instantiation,
-    TypeRefs,
     Repository,
+    Service,
+    TypeRefs,
 )
 UNFURL_TEST_UNFURL_GUI_TOKEN_URL = os.getenv("UNFURL_TEST_UNFURL_GUI_TOKEN_URL")
 UNFURL_TEST_GITHUB_KEY = os.getenv("UNFURL_TEST_GITHUB_KEY")
@@ -745,7 +749,7 @@ class TestArtifactAnalyzerRegistry:
         assert artifact.metadata.version == "4.17.21"
         # Persisted in the cloudmap and idempotent on repeat calls.
         assert cm.directory.db.get_artifact(url) is artifact
-        assert cm.analyze_url(url) is artifact
+        assert cm.analyze_url(url, "yes") == artifact
 
     def test_generic_pkg_analyzer_omits_empty_metadata(self, tmp_path):
         """When the PURL has no name/version components, ``title`` and
@@ -993,3 +997,184 @@ environments:
             cloudmap.directory.analyzer.files["custom-test.yaml"].__name__
             == "CustomTestNotable"
         )
+
+
+@skip_github_integration
+def test_analyze_url(tmp_path):
+    """Test CloudMap.analyze_url() correctly identifies and creates Repository, Artifact, and Service records."""
+
+    unfurl_yaml = tmp_path / "unfurl.yaml"
+    unfurl_yaml.write_text(f"""apiVersion: {API_VERSION}
+kind: Project
+""")
+
+    # Create a minimal cloudmap YAML file in a temp directory
+    cloudmap_file = tmp_path / "cloudmap.yaml"
+
+    local_env = LocalEnv(str(unfurl_yaml), can_be_empty=True)
+    cm = CloudMap(
+        repo=None,
+        host_branch="main",
+        path=str(cloudmap_file),
+        local_env=local_env,
+        localrepo_root=str(tmp_path),
+    )
+    db = cm.directory.db
+
+    # Case 1: plain git URL without file path → creates a Repository
+    repo_url = "git://gitrepos.org/someorg/somerepo.git"
+    repo = cm.analyze_url(repo_url, "no")
+    assert isinstance(repo, Repository)
+    expected_repo = Repository(
+        url=repo_url,
+        path="someorg/somerepo",
+        name="somerepo",
+    )
+    assert repo == expected_repo
+    assert db.repositories[repo_url] is repo
+    # Calling again should return None when the Repository already exists and analyze == "no"
+    repo2 = cm.analyze_url(repo_url, "no")
+    assert repo2 is None
+
+    # Case 2: git URL with a file path fragment → creates Repository + Artifact
+    result = cm.analyze_url(
+        "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
+    )
+    assert result.notable == {
+        "modules/Dockerfile": {
+            "type": {
+                "cloudmap.artifacts.Containerfile": None,
+            }
+        }
+    }
+    artifact_url = f"{result.url}#:modules/Dockerfile"
+    assert artifact_url in db.artifacts, list(db.artifacts)
+    artifact = db.artifacts[artifact_url]
+    expected_artifact = Artifact(
+        url=artifact_url,
+        type=TypeRefs({EntitySchema.ContainerFile: None}),
+    )
+    assert artifact == expected_artifact
+
+    # Case 3: pkg:oci PURL with pinned tag → creates Artifact + Instantiation via OCI
+    pkg_url = "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4"
+    oci_artifact = cm.analyze_url(pkg_url, "yes")
+    instantiation_url = "https://registry-1.docker.io/v2/library/nginx/blobs/sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635"
+    expected_oci = Artifact(
+        url=pkg_url,
+        type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+        instantiated_by={instantiation_url: None},
+        digest="sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
+        metadata=ArtifactMetadata(
+            description="Official build of Nginx.",
+            homepage_url="https://hub.docker.com/_/nginx",
+            source_revision="cffeb933620093bc0c08c0b28c3d5cbaec79d729",
+            source_url="https://github.com/nginxinc/docker-nginx.git#cffeb933620093bc0c08c0b28c3d5cbaec79d729:mainline/debian",
+            version="1.27.4",
+            created="2025-02-05T21:27:16Z",
+            platforms=[
+                {"architecture": "amd64", "os": "linux"},
+                {"architecture": "arm", "os": "linux"},
+                {"architecture": "arm", "os": "linux"},
+                {"architecture": "arm64", "os": "linux"},
+                {"architecture": "386", "os": "linux"},
+                {"architecture": "mips64le", "os": "linux"},
+                {"architecture": "ppc64le", "os": "linux"},
+                {"architecture": "s390x", "os": "linux"},
+            ],
+        ),
+        discovery=Discovery(
+            sources=[
+                "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
+                "https://hub.docker.com/v2/repositories/library/nginx/",
+            ],
+        ),
+    )
+    assert oci_artifact == expected_oci
+    assert db.artifacts[pkg_url] is oci_artifact
+
+    # Verify the Instantiation record was also created
+    assert instantiation_url in db.instantiations
+    expected_instantiation = Instantiation(
+        url=instantiation_url,
+        type=TypeRefs({
+            "cloudmap.artifacts.InTotoAttestation": None,
+            "cloudmap.artifacts.SpdxDocument": None,
+        }),
+        instantiated={
+            "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4": None
+        },
+        digest="sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635",
+        source_revision="cffeb933620093bc0c08c0b28c3d5cbaec79d729",
+        source="https://github.com/nginxinc/docker-nginx.git#cffeb933620093bc0c08c0b28c3d5cbaec79d729:mainline/debian",
+    )
+    assert db.instantiations[instantiation_url] == expected_instantiation
+
+    # Case 4: regular HTTPS URL → creates a Service
+    svc_url = "https://example.com/myservice"
+    service = cm.analyze_url(svc_url, "no")
+    expected_service = Service(url=svc_url)
+    assert service == expected_service
+    assert db.services[svc_url] is service
+    # Calling again is idempotent
+    service2 = cm.analyze_url(svc_url, "yes")
+    assert service2 == service
+
+    # Case 5: missing git repository → should return None and not create a record
+    assert cm.analyze_url("git://github.com/onecommons/does-not-exist", "no") is None
+
+    # Case 6: git+https scheme URL → treated as git repository
+    gitplus_repo = cm.analyze_url("git+https://rando.com/org/repo.git", "no")
+    expected_gitplus = Repository(
+        url="git://rando.com/org/repo.git",
+        path="org/repo",
+        name="repo",
+        protocols=["https"],
+    )
+    assert gitplus_repo == expected_gitplus
+
+
+def test_analyze_url_generic_purl(tmp_path):
+    """Test CloudMap.analyze_url() with generic (non-OCI/Docker) PURLs."""
+
+    cloudmap_file = tmp_path / "cloudmap.yaml"
+
+    cm = CloudMap(
+        repo=None, host_branch="main", path=str(cloudmap_file), skip_analysis=True
+    )
+    db = cm.directory.db
+
+    # Simple PURL with name and version
+    npm_url = "pkg:npm/express@4.18.2"
+    npm_art = cm.analyze_url(npm_url, "no")
+    expected_npm = Artifact(
+        url=npm_url,
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
+        metadata=ArtifactMetadata(title="express", version="4.18.2"),
+    )
+    assert npm_art == expected_npm
+    assert db.artifacts[npm_url] is npm_art
+
+    # PURL with namespace
+    maven_url = "pkg:maven/org.apache.xmlgraphics/batik-anim@1.9.1"
+    maven_art = cm.analyze_url(maven_url, "no")
+    expected_maven = Artifact(
+        url=maven_url,
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
+        metadata=ArtifactMetadata(title="batik-anim", version="1.9.1"),
+    )
+    assert maven_art == expected_maven
+
+    # PURL without version
+    pypi_url = "pkg:pypi/requests"
+    pypi_art = cm.analyze_url(pypi_url, "no")
+    expected_pypi = Artifact(
+        url=pypi_url,
+        type=TypeRefs({EntitySchema.GenericPackage: None}),
+        metadata=ArtifactMetadata(title="requests"),
+    )
+    assert pypi_art == expected_pypi
+
+    # # Idempotent
+    # pypi_art2 = cm.analyze_url(pypi_url, "no")
+    # assert pypi_art2 is pypi_art

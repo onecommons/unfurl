@@ -712,6 +712,9 @@ class CloudMapDB(CloudMapView):
         return self.repositories.values()
 
 
+Analyze_Options = Literal["yes", "no", "save-only", "default"]
+
+
 class Directory(_LocalGitRepos, AnalyzerContext):
     DEFAULT_NAME = "cloudmap.yml"
 
@@ -759,8 +762,8 @@ class Directory(_LocalGitRepos, AnalyzerContext):
     def analyze_url(
         self,
         url: str,
-        analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
+        analyze: Analyze_Options = "default",
+    ) -> Optional[CloudMapRecord]:
         return self.cloudmap.analyze_url(url, analyze)
 
     def add_record(self, record: CloudMapRecord) -> None:
@@ -2289,7 +2292,6 @@ class CloudMap:
             if issubclass(cls, URLAnalyzer):
                 self.register_url_analyzer(cls)
 
-        self._visited: set[str] = set()
         self.directory = Directory(
             self,
             filepath,
@@ -2740,30 +2742,25 @@ class CloudMap:
     def analyze_url(
         self,
         url: str,
-        analyze: Literal["yes", "no", "save-only", "default"] = "default",
-    ) -> Optional[Union[Repository, Artifact, Service, Instantiation]]:
+        analyze: Analyze_Options = "default",
+    ) -> Optional[CloudMapRecord]:
         """Analyze a URL and add the resulting record to the cloudmap.
 
         Determines the record type based on the URL scheme and structure:
 
         - Git URLs (git:, git+https:, .git suffix, local paths) → Repository
         - Package URLs (pkg:) → Artifact
-        - Everything else → Service
+        - Everything else → try URL analyzers, default to Service if no takers.
 
         Args:
             url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
             analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
 
         Returns:
-            The Repository, Artifact, or Service that was added (or already existed).
+            If analyze != "yes" return None if the URL is already in the database,
+            otherwise, return the Repository, Artifact, or Service that was added (or None if there was an error).
         """
         db = self.directory.db
-        if url in self._visited:
-            # Already processed this URL, return existing record if any
-            return (
-                db.get_artifact(url) or db.services.get(url) or db.get_repository(url)
-            )
-        self._visited.add(url)
         parts = urlparse(url)
 
         if not parts.scheme:
@@ -2775,15 +2772,13 @@ class CloudMap:
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
 
-        # Short-circuit: a record already added under this URL is treated as
-        # cached (matches the previous _add_pkg_record behaviour for the
-        # generic-PURL branch). URLAnalyzers may produce Artifact / Service /
-        # Instantiation records, so check all three slots.
-        existing = (
-            db.get_artifact(url) or db.get_service(url) or db.get_instantiation(url)
-        )
-        if existing is not None:
-            return existing
+        if analyze != "yes":
+            # unless analyze is "yes", don't add a new record if the URL already exists in the database
+            existing = (
+                db.get_artifact(url) or db.get_service(url) or db.get_instantiation(url)
+            )
+            if existing is not None:
+                return None
 
         # Dispatch URL-based records to a registered URLAnalyzer (covers
         # pkg:oci, pkg:docker, any other pkg:* and custom URL schemes).
@@ -2796,20 +2791,8 @@ class CloudMap:
                 continue
             record = analyzer.analyze_url(self.directory)
             if record is not None:
-                # Route the returned VersionedRecord to the right collection
-                # by type. Repository isn't a VersionedRecord so it's not
-                # handled here — URLAnalyzers that need to record a
-                # Repository should call directory.add_record directly.
-                if isinstance(record, (Artifact, Service, Instantiation)):
-                    db.add_record(record)
-                else:
-                    self.logger.warning(
-                        "URLAnalyzer %s returned unsupported record type %s for %s",
-                        analyzer_cls.__name__,
-                        type(record).__name__,
-                        url,
-                    )
-            return cast(Optional[Union[Artifact, Service, Instantiation]], record)
+                db.add_record(record)
+                return record
 
         if self._is_git_url(url):
             return self._add_repository_record(url, analyze)
@@ -2822,15 +2805,12 @@ class CloudMap:
     def _add_repository_record(
         self,
         url: str,
-        analyze: Literal["yes", "no", "save-only", "default"],
+        analyze: Analyze_Options,
     ) -> Optional[Repository]:
         db = self.directory.db
         host: Optional[RepositoryHost] = None
         repo_url, file_path, revision, commit = split_git_url_with_commit(url)
         canonical_url = get_repository_url(repo_url)
-        self._visited.add(repo_url)
-        self._visited.add(canonical_url)
-
         current_do_analysis = self.directory.do_analysis
         if file_path:
             if analyze == "default":
@@ -2839,6 +2819,10 @@ class CloudMap:
                 # don't analyze the whole repo if a file path is specified, just analyze the file
                 self.directory.do_analysis = False
         repo_info = db.get_repository(canonical_url)
+        if analyze != "yes" and repo_info is not None:
+            # if not analyzing, return None if the repository already exists
+            return None
+
         download = False
         if analyze == "yes" or analyze == "save-only":
             if not self.directory.repos_root:
