@@ -195,7 +195,7 @@ def convert_to_yaml(
         package_path = Path(get_base_dir(path)).relative_to(root_path)
         relpath = str(package_path).strip("/").replace("/", ".").strip(".")
         if repo_view.repository.name == "unfurl":
-            package = "unfurl."
+            package = "unfurl"
         else:
             name = re.sub(r"\W", "_", repo_view.repository.name)
             assert name.isidentifier(), name
@@ -634,7 +634,10 @@ class ProxyList(ProxyCollection, MutableSequence):
 
 
 def _proxy_prop(
-    type_info: tosca.TypeInfo, value: Any, obj: Optional[ToscaType] = None
+    type_info: tosca.TypeInfo,
+    value: Any,
+    obj: Optional[ToscaType] = None,
+    name: Optional[str] = None,
 ) -> Any:
     # converts a value set on an instance to one usable when globalstate.mode == "runtime"
     if value is None:
@@ -646,7 +649,7 @@ def _proxy_prop(
     ):
         return ProxyMap(value, type_info)
     elif type_info.collection is list or (
-        dict in type_info.types and isinstance(value, MutableSequence)
+        list in type_info.types and isinstance(value, MutableSequence)
     ):
         return ProxyList(value, type_info)
     elif issubclass(prop_type, tosca.DataEntity):
@@ -655,9 +658,15 @@ def _proxy_prop(
         elif isinstance(value, (type(None), prop_type)):
             return value
         else:
-            raise TypeError(f"can't convert value to {prop_type}: {value}")
+            raise TypeError(
+                f"can't convert value to {prop_type}: {value}"
+                + (f" for property {name}" if name else "")
+            )
     elif not type_info.instance_check(value):
-        raise TypeError(f"value of type {type(value)} is not type {prop_type}: {value}")
+        raise TypeError(
+            f"value of type {type(value)} is not type {prop_type}: {value}"
+            + (f" for property {name}" if name else "")
+        )
     return value
 
 
@@ -974,6 +983,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                         type_info,
                         self._instance.attributes[field.tosca_name],
                         getattr(self._obj, name) if self._obj else None,
+                        name,
                     )
                 self._cache[name] = val
                 return val
@@ -1014,6 +1024,7 @@ class InstanceProxyBase(InstanceProxy, Generic[PT]):
                     _Tosca_Field.find_type_info(self._cls, field.type),
                     self._instance.attributes[name],
                     getattr(self._obj, name) if self._obj else None,
+                    name,
                 )
                 self._cache[name] = val
                 return val
