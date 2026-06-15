@@ -27,7 +27,7 @@ Unfurl will then search the cloud map for a repository whose key matches ``<pack
 
 ### Update a cloud map
 
-``unfurl cloudmap --import HOST`` will update the cloudmap with latest from the given repository host.  ``HOST`` can be url, the name of the host (as declared in the {ref}`cloudmaps/hosts<configuration>` section of the project's default environment), or "local" to update from the local files system. 
+``unfurl cloudmap --import HOST`` will update the cloudmap with latest from the given repository host.  ``HOST`` can be an url, the name of the host (as declared in the {ref}`cloudmaps/hosts<configuration>` section of the project's default environment), or "local" to update from the local files system.
 
 For example, this command will update the cloudmap with metadata from local clones of git repositories:
 
@@ -41,7 +41,7 @@ Import updates the cloudmap in a local branch, so you have manually merge those 
 
 ### Update a repository host with a cloud map
 
-You can update a gitlab or unfurl cloud instance with latest in the cloud map using the ``--export`` option of the {cli}`unfurl cloudmap<unfurl-cloudmap>` command. 
+You can update a gitlab or unfurl cloud instance with latest in the cloud map using the ``--export`` option of the {cli}`unfurl cloudmap<unfurl-cloudmap>` command.
 
 For each matching repository in the cloudmap, a new project will be created if missing or existing project metadata will be updated. Then local git clones of the projects will be use to merge and push git changes to the host. The ``--force`` flag can be used to force push changes instead of merging.
 
@@ -108,50 +108,8 @@ environments:
 
 If you take a look at a {ref}`cloudmap.yaml` file, you'll find YAML that looks like:
 
-```yaml
-repositories:
-  unfurl.cloud/onecommons/blueprints/mediawiki:
-    git: unfurl.cloud/onecommons/blueprints/mediawiki.git
-    path: onecommons/blueprints/mediawiki
-    name: MediaWiki
-    protocols:
-    - https
-    - ssh
-    internal_id: '35'
-    project_url: https://unfurl.cloud/onecommons/blueprints/mediawiki
-    metadata:
-      description: MediaWiki is free and open-source wiki software used in Wikipedia,
-        Wiktionary, and many other online encyclopedias.
-      issues_url: https://unfurl.cloud/onecommons/blueprints/mediawiki/-/issues
-      homepage_url: https://unfurl.cloud/onecommons/blueprints/mediawiki
-    default_branch: main
-    branches:
-      main: 0fc60cb3afd06ae2c4abe038007e9ff4db398662
-    tags:
-      v1.0.0: 0fc60cb3afd06ae2c4abe038007e9ff4db398662
-      v0.1.0: 225932bc2a45473d682e48f272bc48fcd83909bb
-    notable:
-      ensemble-template.yaml#spec/service_template:
-        artifact_type: artifact.tosca.ServiceTemplate
-        name: Mediawiki
-        version: 0.1
-        description: MediaWiki is free and open-source wiki software used in Wikipedia,
-          Wiktionary, and many other online encyclopedias.
-        type:
-          name: Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki
-          title: Mediawiki
-          extends:
-          - Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki
-          - SQLWebApp@unfurl.cloud/onecommons/std:generic_types
-          - WebApp@unfurl.cloud/onecommons/std:generic_types
-        dependencies:
-        - MySQLDB@unfurl.cloud/onecommons/std:generic_types
-        artifacts:
-        - docker.io/bitnami/mediawiki
-...
-artifacts:
-  docker.io/bitnami/mediawiki:
-    type: artifacts.OCIImage
+```{literalinclude} examples/cloudmap.yaml
+:language: yaml
 ```
 
 The full {ref}`json schema <CloudMap Schema>` can be found {ref}`here <CloudMap Schema>` but key sections include:
@@ -160,19 +118,23 @@ The full {ref}`json schema <CloudMap Schema>` can be found {ref}`here <CloudMap 
 
 The bulk of a cloud map file is in the `repositories` section, which consists of map of git repositories where the key is a {ref}`package id <package identifiers>` and includes project metadata and other repository metadata such as mirrors and forks that are not stored in git repositories themselves.
 
-### Notables
+### Repository Contents
 
-The `notable` section lists files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map. Unfurl looks for files of interest when synchronizing repositories with the cloud map but entries can be also be added manually. Examples of notables would be a `Dockerfile` for building container images or a `ensemble-template.yaml` that contains cloud blueprints for deploying.
-
-As the example above shows, the notables for TOSCA service templates and Unfurl blueprint describe both the services they deploy and its dependencies, such as artifacts (e.g. container images) or other services (e.g. a database service) and use fully qualified identifiers with packages ids they can reference other repositories in the cloudmap.
-
-This enables the cloudmap to used like a package manager to resolve the dependencies and components that are needed to be used to deploy an application.
+The `contains` section of a repository non-exhaustively lists that files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map. Each entry maps a path within the repository (optionally followed by a `#<fragment>` to identify a sub-element of the file) to one or more type identifiers. Unfurl looks for files of interest when synchronizing repositories with the cloud map but entries can also be added manually. Typical examples are a `Dockerfile` used to build a container image or an `ensemble-template.yaml` that contains a cloud blueprint for deployment. Each entry in `contains` may reference an `artifact` (see below) whose URL is derived from the repository URL and the path (e.g.`ensemble-template.yaml#spec/service_template` becomes `git://.../mediawiki.git#:ensemble-template.yaml%23spec/service_template`).
 
 ### Artifacts
 
-Most code isn't used directly, instead there is a build or packaging process to create the the artifact (for example, an executable binary, a software package, or a container image) that actually used when an application is deployed; the `artifacts` section of a cloud map lists artifacts.
+Most code isn't used directly, instead there is a build or packaging process to create the artifact (for example, an executable binary, a software package, or a container image) that is actually used when an application is deployed; the `artifacts` section of a cloud map lists artifacts. Artifact keys are package URLs (PURLs) for published artifacts (e.g. `pkg:oci/...`, `pkg:npm/...`) or `git://` URLs for files within a repository.
 
-Artifacts are declared separately from repositories because there isn't necessarily a way to determine how artifacts are built, but that relationship can be expressed with the `builds` annotation in the `notable` section. In the future, the cloud map schema will be extended to better represent the build processes build artifacts from code in repositories.
+Each artifact can describe what it `instantiates` (the types or components it embodies), its build- or run-time `dependencies`, its `references` to other artifacts/repositories/services, its build- or instantiation history via `instantiated_by`, and human-readable `metadata`. Using fully qualified identifiers with package ids, artifacts can reference other repositories and artifacts in the cloud map, enabling it to be used like a package manager to resolve the dependencies and components needed to deploy an application.
+
+### Types
+
+The `types` section is a catalog of TOSCA type definitions referenced by artifacts and services. Each entry has a `kind` (`Component`, `Artifact`, or `Capability`), an optional list of `extends` parent types, and metadata. Types are referenced by artifacts (via `instantiates`) and by other types (via `extends`) using fully-qualified names of the form `<TypeName>@<package_id>`.
+
+### Services and Instantiations
+
+The `services` section lists deployed service instances reachable at a URL (with endpoints, connections, and policies), and the `instantiations` section records build, deploy, or attestation events that produced specific artifacts or services. Both sections cross-reference artifacts via `instantiated_by` / `instantiated` so the graph of "what built/deployed what" can be traversed.
 
 ## Future directions
 

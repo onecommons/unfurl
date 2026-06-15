@@ -13,7 +13,7 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 from . import (
     CloudMapDB,
     CloudType,
-    RepositoryNotable,
+    RepositoryAnalyzer,
     AnalyzerContext,
     Repository,
     Service,
@@ -48,7 +48,7 @@ if TYPE_CHECKING:
 logger = getLogger("unfurl")
 
 
-class ContainerBuilderNotable(RepositoryNotable):
+class ContainerBuilderAnalyzer(RepositoryAnalyzer):
     files = ("Containerfile", "Dockerfile")
     artifact_type = EntitySchema.ContainerFile
 
@@ -82,7 +82,7 @@ def find_images_k8s(resources: List[Dict[str, Any]]) -> List[str]:
     return images
 
 
-class UnfurlNotable(RepositoryNotable):
+class UnfurlAnalyzer(RepositoryAnalyzer):
     files = [
         DefaultNames.LocalConfig,
         DefaultNames.EnsembleTemplate,
@@ -291,9 +291,9 @@ class UnfurlNotable(RepositoryNotable):
         folder: str,
         file: str,
         digest: str = "",
-    ) -> Optional[UnfurlNotable]:
+    ) -> Optional[UnfurlAnalyzer]:
         try:
-            return UnfurlNotable(folder, file, digest)
+            return UnfurlAnalyzer(folder, file, digest)
         except UnfurlError:
             logger.info("analysis failed for %s", file, exc_info=True)
             return None
@@ -578,12 +578,12 @@ def migrate_old_notable_format(
     return migrated_artifact_ids
 
 
-class GitLabPipelineNotable(RepositoryNotable):
+class GitLabPipelineAnalyzer(RepositoryAnalyzer):
     files = (".gitlab-ci.yml",)
     artifact_type = EntitySchema.GitLabPipeline
 
 
-class GitHubWorkflowNotable(RepositoryNotable):
+class GitHubWorkflowAnalyzer(RepositoryAnalyzer):
     folders = (".github",)
     artifact_type = EntitySchema.GitHubWorkflow
 
@@ -613,11 +613,11 @@ class GitHubWorkflowNotable(RepositoryNotable):
         return base
 
 
-Notables = (
-    UnfurlNotable,
-    ContainerBuilderNotable,
-    GitLabPipelineNotable,
-    GitHubWorkflowNotable,
+Analyzers = (
+    UnfurlAnalyzer,
+    ContainerBuilderAnalyzer,
+    GitLabPipelineAnalyzer,
+    GitHubWorkflowAnalyzer,
 )
 
 

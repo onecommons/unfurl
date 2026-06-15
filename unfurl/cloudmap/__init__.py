@@ -98,7 +98,7 @@ from ..tosca_plugins.cloudmap_defs import (
     CommonMetadata,
     EntitySchema,
     Instantiation,
-    RepositoryNotable,
+    RepositoryAnalyzer,
     PipelineArtifact,
     PipelineRunProperties,
     PipelineVariable,
@@ -189,23 +189,23 @@ def force_merge_local_and_push_to_remote(
         logger.info(f"pushed to {sanitize_url(remote.url, True)}: {pushinfo.summary}")
 
 
-class RepositoryAnalyzer:
+class AnalyzerRegistry:
     max_analyze_depth = 4
 
-    def __init__(self, notables: List[Type[RepositoryNotable]], logger=logger):
+    def __init__(self, notables: List[Type[RepositoryAnalyzer]], logger=logger):
         self.logger = logger
-        self.files: Dict[str, Type[RepositoryNotable]] = {}
-        self.folders: Dict[str, Type[RepositoryNotable]] = {}
-        # Generic catch-all RepositoryNotable subclasses (those that declare
+        self.files: Dict[str, Type[RepositoryAnalyzer]] = {}
+        self.folders: Dict[str, Type[RepositoryAnalyzer]] = {}
+        # Generic catch-all RepositoryAnalyzer subclasses (those that declare
         # neither files nor folders). Each entry is consulted via its
         # ``init()`` factory whenever no name-specific class matched a path,
         # in registration order; the first ``init()`` returning a non-None
         # instance wins.
-        self.generic: List[Type[RepositoryNotable]] = []
+        self.generic: List[Type[RepositoryAnalyzer]] = []
         for n in notables:
             self.add_notable_class(n)
 
-    def add_notable_class(self, cls: Type[RepositoryNotable]):
+    def add_notable_class(self, cls: Type[RepositoryAnalyzer]):
         for file in cls.files:
             self.files[file] = cls
         for folder in cls.folders:
@@ -216,8 +216,8 @@ class RepositoryAnalyzer:
 
     def _match_generic(
         self, dirname: str, filename: str, digest: str = ""
-    ) -> Tuple[Optional[RepositoryNotable], Optional[Type[RepositoryNotable]]]:
-        """Try every generic RepositoryNotable; return the first instance
+    ) -> Tuple[Optional[RepositoryAnalyzer], Optional[Type[RepositoryAnalyzer]]]:
+        """Try every generic RepositoryAnalyzer; return the first instance
         that ``init()`` produces, along with its class."""
         for cls in self.generic:
             instance = cls.init(dirname, filename, digest)
@@ -225,12 +225,12 @@ class RepositoryAnalyzer:
                 return instance, cls
         return None, None
 
-    def analyze_local(self, root_dir: str, start_path: str) -> List[RepositoryNotable]:
-        notables: List[RepositoryNotable] = []
+    def analyze_local(self, root_dir: str, start_path: str) -> List[RepositoryAnalyzer]:
+        notables: List[RepositoryAnalyzer] = []
         for root, dirs, files in os.walk(start_path):
             notable = None
             notable_cls = None
-            notables_found: List[Type[RepositoryNotable]] = []
+            notables_found: List[Type[RepositoryAnalyzer]] = []
             rel_root = str(Path(root).relative_to(Path(root_dir)))
             for folder in dirs:
                 notable_cls = self.folders.get(folder)
@@ -238,7 +238,7 @@ class RepositoryAnalyzer:
                     if notable_cls not in notables_found:
                         notable = notable_cls.init(rel_root, "")
                 if not notable:
-                    # Fall back to generic RepositoryNotables (no files/folders
+                    # Fall back to generic RepositoryAnalyzers (no files/folders
                     # declared). The first init() to accept the folder wins.
                     notable, notable_cls = self._match_generic(rel_root, "")
                 if notable:
@@ -258,7 +258,7 @@ class RepositoryAnalyzer:
 
     def analyze_path(
         self, file_path: str, root_dir: str = ""
-    ) -> List[RepositoryNotable]:
+    ) -> List[RepositoryAnalyzer]:
         """Analyze a single file or directory path for notables.
 
         If the path points to a directory under root_dir, delegates to analyze_local().
@@ -284,7 +284,7 @@ class RepositoryAnalyzer:
             notable_inst = notable_cls.init(dirname, filename)
             if notable_inst:
                 return [notable_inst]
-        # Fall back to generic RepositoryNotables.
+        # Fall back to generic RepositoryAnalyzers.
         generic_inst, _ = self._match_generic(dirname, filename)
         if generic_inst is not None:
             return [generic_inst]
@@ -294,13 +294,13 @@ class RepositoryAnalyzer:
         self,
         root_path: str,
         children: List[IndexObject],
-        notables: List[RepositoryNotable],
+        notables: List[RepositoryAnalyzer],
         depth=-1,
     ):
         descend: List[IndexObject] = []
         if depth > self.max_analyze_depth:
             return descend
-        notables_found: List[Type[RepositoryNotable]] = []
+        notables_found: List[Type[RepositoryAnalyzer]] = []
         for item in children:
             notable = None
             notable_cls = None
@@ -733,19 +733,19 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         self.do_analysis = not skip_analysis
 
         # Start with default Notable classes and add custom analyzers from cloudmap.
-        # Only RepositoryNotable subclasses go through RepositoryAnalyzer;
+        # Only RepositoryAnalyzer subclasses go through RepositoryAnalyzer;
         # URLAnalyzer subclasses live on cloudmap.url_analyzers instead.
-        from .analyzers import Notables
+        from .analyzers import Analyzers
 
-        notable_classes: List[Type[RepositoryNotable]] = list(Notables)
+        notable_classes: List[Type[RepositoryAnalyzer]] = list(Analyzers)
         # note: these will override built-in analyzers if they register the same files and folders types
         notable_classes.extend(
             cls
             for cls in cloudmap.custom_analyzers
-            if issubclass(cls, RepositoryNotable)
+            if issubclass(cls, RepositoryAnalyzer)
         )
 
-        self.analyzer = RepositoryAnalyzer(notable_classes, self.logger)
+        self.analyzer = AnalyzerRegistry(notable_classes, self.logger)
 
     def _set_repos(self, root: str) -> None:
         super()._set_repos(root)
@@ -855,8 +855,8 @@ class Directory(_LocalGitRepos, AnalyzerContext):
 
     def analyze_repo(
         self, repo_info: Repository, repo: GitRepo
-    ) -> List[RepositoryNotable]:
-        notables: List[RepositoryNotable] = []
+    ) -> List[RepositoryAnalyzer]:
+        notables: List[RepositoryAnalyzer] = []
 
         root = repo.repo.head.commit.tree
         items = [root]
@@ -882,7 +882,7 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info: Repository,
         repo: GitRepo,
         previous_contains: TypedUrls,
-    ) -> Optional[List[RepositoryNotable]]:
+    ) -> Optional[List[RepositoryAnalyzer]]:
         if self.do_analysis:
             try:
                 return self.analyze(repo_info, repo)
@@ -896,7 +896,7 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info.contains = previous_contains
         return None
 
-    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryNotable]:
+    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryAnalyzer]:
         self.logger.verbose("analyzing %s", repo_info.url)
         notables = self.analyze_repo(repo_info, repo)
         for n in notables:
@@ -2517,7 +2517,7 @@ class CloudMap:
                     local_env.overrides.get("safe_mode"),
                 )
                 if analyzer_class and issubclass(analyzer_class, Analyzer):
-                    # Both RepositoryNotable and URLAnalyzer subclasses are
+                    # Both RepositoryAnalyzer and URLAnalyzer subclasses are
                     # accepted; CloudMap dispatches them to the right registry.
                     custom_analyzers.append(analyzer_class)
                     logger.debug(

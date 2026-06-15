@@ -4,7 +4,7 @@
 Safe-importable cloudmap data type definitions.
 
 Contains the dataclasses, TypedDicts, protocols, and helper functions used by
-the cloudmap subsystem. This module is safe to import from sandboxed Notable
+the cloudmap subsystem. This module is safe to import from sandboxed Analyzer
 subclasses.
 """
 
@@ -971,7 +971,7 @@ class Repository(CloudMapRecord):
             branch = self.get_default_branch()
         self.branches[branch] = repo.revision
 
-    def add_notables(self, notables: List["RepositoryNotable"]) -> None:
+    def add_notables(self, notables: List["RepositoryAnalyzer"]) -> None:
         notables.sort(key=attrgetter("path"))
         contains: TypedUrls = {}
         for n in notables:
@@ -1154,19 +1154,11 @@ CloudTypeDict = Dict[str, CloudType]
 RepositoryDict = Dict[str, Repository]
 
 
-T = TypeVar("T", bound="RepositoryNotable")
+T = TypeVar("T", bound="RepositoryAnalyzer")
 
 
 class CloudMapView(ABC):
-    """Abstract base class for cloudmap views.
-
-    All concrete cloudmap implementations (the local ``CloudMapDB`` /
-    ``Directory`` and the remote ``CloudMapProxy``) inherit from this.
-    Replaces the earlier ``Protocol`` form so subclasses get the usual
-    ABC guarantees (``isinstance`` checks, missing-method
-    ``TypeError`` on instantiation, ``super()``-callable concrete
-    methods).
-    """
+    """Abstract base class for cloudmap views."""
 
     # --- Look up existing records ---
 
@@ -1227,9 +1219,9 @@ class AnalyzerContext(CloudMapView):
     """Abstract base class for the cloudmap context analyzers see.
 
     Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
-    custom Notable subclasses (possibly loaded in safe mode) need to contribute
+    custom Analyzer subclasses (possibly loaded in safe mode) need to contribute
     records to the cloudmap. Attributes with a leading underscore are inaccessible
-    from sandboxed code and are intended for built-in Notable classes only.
+    from sandboxed code and are intended for built-in Analyzer classes only.
     """
 
     logger: "UnfurlLogger"
@@ -1245,7 +1237,7 @@ class AnalyzerContext(CloudMapView):
         """Parent environment for loading nested unfurl projects.
 
         Names with _<name>__<suffix> can not be accessed from sandboxed Notables,
-        so this is only accessible to built-in Notable classes and not custom Notables loaded in safe mode.
+        so this is only accessible to built-in Analyzer classes and not custom Notables loaded in safe mode.
         """
 
     # --- Add records ---
@@ -1291,19 +1283,19 @@ class Analyzer:
     artifact_type: str = EntitySchema.GenericFile
 
 
-class RepositoryNotable(Analyzer):
+class RepositoryAnalyzer(Analyzer):
     """
     Base class for plugins that discover notable files or directories in a repository
     -- for example, a Dockerfile, Helm chart, or TOSCA service template.
 
     Subclasses declare which filenames or directory names they match via the
     ``files`` and ``folders`` class attributes. The ``RepositoryAnalyzer`` walks
-    a repository tree, instantiates the appropriate Notable subclass for each
+    a repository tree, instantiates the appropriate Analyzer subclass for each
     match, and calls ``analyze()`` to produce an ``Artifact`` for the cloud map.
 
     Attributes:
-        files: Filenames that this Notable class matches (e.g. ``["Dockerfile"]``).
-        folders: Directory names that this Notable class matches (e.g. ``["charts"]``).
+        files: Filenames that this Analyzer class matches (e.g. ``["Dockerfile"]``).
+        folders: Directory names that this Analyzer class matches (e.g. ``["charts"]``).
         artifact_type: The artifact type to assign to matched artifacts (inherited from :class:`Analyzer`).
     """
 
@@ -1359,8 +1351,8 @@ class RepositoryNotable(Analyzer):
             return self.folder
 
     @classmethod
-    def _exist_in_folder(cls, folder: str, notables: List["RepositoryNotable"]):
-        """Check whether a Notable of this class already exists for the given folder."""
+    def _exist_in_folder(cls, folder: str, notables: List["RepositoryAnalyzer"]):
+        """Check whether a Analyzer of this class already exists for the given folder."""
         for n in notables:
             if cls is n.__class__ and n.folder == folder:
                 return True
@@ -1373,7 +1365,7 @@ class RepositoryNotable(Analyzer):
         file: str,
         digest: str = "",
     ) -> Optional[T]:
-        """Factory method for creating a Notable instance.
+        """Factory method for creating a Analyzer instance.
 
         Subclasses can override this to conditionally reject a match
         (by returning None) or to customize initialization.
@@ -1384,7 +1376,7 @@ class RepositoryNotable(Analyzer):
 class URLAnalyzer(Analyzer):
     """Base class for analyzers that produce records from a URL.
 
-    Whereas :class:`RepositoryNotable` analyzes files/directories inside a git
+    Whereas :class:`RepositoryAnalyzer` analyzes files/directories inside a git
     repository, ``URLAnalyzer`` subclasses handle URLs directly — for
     example PURL-based references like ``pkg:oci/...``, ``pkg:npm/...``, or
     custom schemes contributed by plugins.
@@ -1399,7 +1391,7 @@ class URLAnalyzer(Analyzer):
       :class:`Instantiation` records via the passed-in :class:`AnalyzerContext`).
 
     Custom subclasses can be loaded via the ``cloudmaps.analyzers`` config in
-    the same way as :class:`RepositoryNotable` subclasses.
+    the same way as :class:`RepositoryAnalyzer` subclasses.
     """
 
     url_schemes: Sequence[str] = ()
@@ -1500,7 +1492,7 @@ __all__ = [
     # Analyzer base classes & context
     "CloudMapView",
     "Analyzer",
-    "RepositoryNotable",
+    "RepositoryAnalyzer",
     "URLAnalyzer",
     "AnalyzerContext",
 ]

@@ -668,7 +668,7 @@
         },
         "contains": {
           "$ref": "#/definitions/typedURLs",
-          "description": "Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
+          "description": "Map of files or directories (as relative URLs) in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
         }
       },
       "additionalProperties": true

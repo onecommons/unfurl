@@ -2005,7 +2005,7 @@ def test_server_cloudmap(server_env):
             assert res.json() == expected_full
 
             # Single artifact query
-            artifact_url = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml"
+            artifact_url = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template"
             res = requests.get(base, params={"url": artifact_url})
             assert res.status_code == 200
             expected_artifact = json.loads(

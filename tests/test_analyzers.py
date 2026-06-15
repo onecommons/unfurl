@@ -9,14 +9,14 @@ from unfurl.cloudmap import (
     GithubManager,
     GitlabManager,
     RepositoryHost,
-    RepositoryAnalyzer,
+    AnalyzerRegistry,
 )
 from unfurl.localenv import LocalEnv
 from unfurl.util import API_VERSION
 from unfurl.cloudmap.analyzers import (
-    GitHubWorkflowNotable,
-    GitLabPipelineNotable,
-    Notables,
+    GitHubWorkflowAnalyzer,
+    GitLabPipelineAnalyzer,
+    Analyzers,
 )
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
@@ -43,62 +43,62 @@ skip_github_integration = pytest.mark.skipif(
 )
 
 
-class TestCINotables:
+class TestCIAnalyzers:
     """Test CI notable detection."""
 
     def test_gitlab_pipeline_notable_match(self, tmp_path):
-        """Create a temp repo with .gitlab-ci.yml, verify GitLabPipelineNotable is found."""
+        """Create a temp repo with .gitlab-ci.yml, verify GitLabPipelineAnalyzer is found."""
         (tmp_path / ".gitlab-ci.yml").write_text("stages:\n  - build\n")
-        analyzer = RepositoryAnalyzer(list(Notables))
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
-        ci_notables = [n for n in notables if isinstance(n, GitLabPipelineNotable)]
-        assert len(ci_notables) == 1
-        assert ci_notables[0].artifact_type == EntitySchema.GitLabPipeline
+        analyzer = AnalyzerRegistry(list(Analyzers))
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        ci_analyzers = [n for n in analyzers if isinstance(n, GitLabPipelineAnalyzer)]
+        assert len(ci_analyzers) == 1
+        assert ci_analyzers[0].artifact_type == EntitySchema.GitLabPipeline
 
     def test_github_workflow_notable_match(self, tmp_path):
-        """Create a temp repo with .github/workflows/ci.yml, verify GitHubWorkflowNotable is found."""
+        """Create a temp repo with .github/workflows/ci.yml, verify GitHubWorkflowAnalyzer is found."""
         workflows_dir = tmp_path / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
         (workflows_dir / "ci.yml").write_text("name: CI\non: push\n")
-        analyzer = RepositoryAnalyzer(list(Notables))
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
-        gh_notables = [n for n in notables if isinstance(n, GitHubWorkflowNotable)]
-        assert len(gh_notables) == 1
-        assert gh_notables[0].artifact_type == EntitySchema.GitHubWorkflow
+        analyzer = AnalyzerRegistry(list(Analyzers))
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        gh_analyzers = [n for n in analyzers if isinstance(n, GitHubWorkflowAnalyzer)]
+        assert len(gh_analyzers) == 1
+        assert gh_analyzers[0].artifact_type == EntitySchema.GitHubWorkflow
 
     def test_github_workflow_notable_no_workflows_dir(self, tmp_path):
         """If .github exists but no workflows/ subdir, analyze returns None."""
         (tmp_path / ".github").mkdir()
         (tmp_path / ".github" / "CODEOWNERS").write_text("* @owner\n")
-        analyzer = RepositoryAnalyzer(list(Notables))
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
-        gh_notables = [n for n in notables if isinstance(n, GitHubWorkflowNotable)]
+        analyzer = AnalyzerRegistry(list(Analyzers))
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        gh_analyzers = [n for n in analyzers if isinstance(n, GitHubWorkflowAnalyzer)]
         # The notable is created but analyze() should return None
-        assert len(gh_notables) == 1
+        assert len(gh_analyzers) == 1
         repo_info = Repository(url="git://example.com/repo.git", path="repo", name="repo")
-        artifact = gh_notables[0].analyze(MagicMock(), repo_info, str(tmp_path))
+        artifact = gh_analyzers[0].analyze(MagicMock(), repo_info, str(tmp_path))
         assert artifact is None
 
     def test_no_ci_notable(self, tmp_path):
-        """Repo without CI files returns no CI notables."""
+        """Repo without CI files returns no CI analyzers."""
         (tmp_path / "README.md").write_text("# Hello\n")
-        analyzer = RepositoryAnalyzer(list(Notables))
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
-        ci_notables = [
+        analyzer = AnalyzerRegistry(list(Analyzers))
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        ci_analyzers = [
             n
-            for n in notables
-            if isinstance(n, (GitLabPipelineNotable, GitHubWorkflowNotable))
+            for n in analyzers
+            if isinstance(n, (GitLabPipelineAnalyzer, GitHubWorkflowAnalyzer))
         ]
-        assert len(ci_notables) == 0
+        assert len(ci_analyzers) == 0
 
     def test_github_workflow_notable_path(self, tmp_path):
-        """Test that GitHubWorkflowNotable.path returns .github/workflows."""
-        notable = GitHubWorkflowNotable(".", "")
+        """Test that GitHubWorkflowAnalyzer.path returns .github/workflows."""
+        notable = GitHubWorkflowAnalyzer(".", "")
         assert notable.path == ".github/workflows"
 
     def test_github_workflow_notable_path_nested(self):
         """Test path for a nested folder."""
-        notable = GitHubWorkflowNotable("subdir", "")
+        notable = GitHubWorkflowAnalyzer("subdir", "")
         assert notable.path == os.path.join("subdir", ".github", "workflows")
 
     def test_github_workflow_notable_analyze(self, tmp_path):
@@ -109,27 +109,27 @@ class TestCINotables:
         repo_info = Repository(
             url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
         )
-        notable = GitHubWorkflowNotable(".", "")
+        notable = GitHubWorkflowAnalyzer(".", "")
         artifact = notable.analyze(MagicMock(), repo_info, str(tmp_path))
         assert artifact is not None
         assert EntitySchema.GitHubWorkflow in artifact.type.types
         assert ".github/workflows" in artifact.url
 
 
-class TestGenericRepositoryNotableFallback:
-    """Generic ``RepositoryNotable`` subclasses (no ``files``/``folders``
+class TestGenericRepositoryAnalyzerFallback:
+    """Generic ``RepositoryAnalyzer`` subclasses (no ``files``/``folders``
     declared) are consulted as fallbacks: for every path the walker visits
-    where no name-specific class matched, ``RepositoryAnalyzer`` calls
+    where no name-specific class matched, ``AnalyzerRegistry`` calls
     ``init()`` on each generic class in registration order and uses the
     first instance returned.
     """
 
     @staticmethod
     def _make_generic_class():
-        """A generic Notable that accepts ``*.toml`` files and reports them."""
-        from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+        """A generic Analyzer that accepts ``*.toml`` files and reports them."""
+        from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer
 
-        class TomlNotable(RepositoryNotable):
+        class TomlAnalyzer(RepositoryAnalyzer):
             files = ()  # generic — no name-keyed registration
             folders = ()
             artifact_type = EntitySchema.GenericFile
@@ -143,55 +143,55 @@ class TestGenericRepositoryNotableFallback:
                     return cls(folder, file, digest)
                 return None
 
-        return TomlNotable
+        return TomlAnalyzer
 
     def test_register_classifies_as_generic(self):
         """Classes with empty ``files``/``folders`` go onto
-        ``RepositoryAnalyzer.generic`` instead of the file/folder maps."""
-        TomlNotable = self._make_generic_class()
-        analyzer = RepositoryAnalyzer([TomlNotable])
-        assert analyzer.generic == [TomlNotable]
+        ``AnalyzerRegistry.generic`` instead of the file/folder maps."""
+        TomlAnalyzer = self._make_generic_class()
+        analyzer = AnalyzerRegistry([TomlAnalyzer])
+        assert analyzer.generic == [TomlAnalyzer]
         assert analyzer.files == {}
         assert analyzer.folders == {}
 
     def test_analyze_local_falls_back_to_generic(self, tmp_path):
         """``analyze_local`` consults the generic class for unmatched files
         and uses whatever ``init()`` returns."""
-        TomlNotable = self._make_generic_class()
+        TomlAnalyzer = self._make_generic_class()
         (tmp_path / "pyproject.toml").write_text("[tool.x]\n")
         (tmp_path / "README.md").write_text("# hi\n")
 
-        analyzer = RepositoryAnalyzer(list(Notables) + [TomlNotable])
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        analyzer = AnalyzerRegistry(list(Analyzers) + [TomlAnalyzer])
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
 
         # The generic class accepted pyproject.toml and produced an instance.
-        toml_hits = [n for n in notables if isinstance(n, TomlNotable)]
+        toml_hits = [n for n in analyzers if isinstance(n, TomlAnalyzer)]
         assert len(toml_hits) == 1
         assert toml_hits[0].file == "pyproject.toml"
 
         # init() was consulted for the unmatched file.
-        seen_files = {filename for (_dir, filename, _digest) in TomlNotable.init_calls}
+        seen_files = {filename for (_dir, filename, _digest) in TomlAnalyzer.init_calls}
         assert "pyproject.toml" in seen_files
 
     def test_analyze_path_falls_back_to_generic(self, tmp_path):
         """``analyze_path`` for a single file with no name match consults
         the generic chain."""
-        TomlNotable = self._make_generic_class()
+        TomlAnalyzer = self._make_generic_class()
         (tmp_path / "Cargo.toml").write_text("[package]\nname='x'\n")
 
-        analyzer = RepositoryAnalyzer(list(Notables) + [TomlNotable])
+        analyzer = AnalyzerRegistry(list(Analyzers) + [TomlAnalyzer])
         result = analyzer.analyze_path("Cargo.toml", str(tmp_path))
 
         assert len(result) == 1
-        assert isinstance(result[0], TomlNotable)
+        assert isinstance(result[0], TomlAnalyzer)
         assert result[0].file == "Cargo.toml"
 
     def test_specific_match_wins_over_generic(self, tmp_path):
         """Name-specific classes are tried first; the generic fallback only
         runs if nothing claimed the file."""
-        from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+        from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer
 
-        class NoOpGeneric(RepositoryNotable):
+        class NoOpGeneric(RepositoryAnalyzer):
             files = ()
             folders = ()
             init_calls: list = []
@@ -201,16 +201,16 @@ class TestGenericRepositoryNotableFallback:
                 cls.init_calls.append(file)
                 return cls(folder, file, digest)
 
-        # .gitlab-ci.yml is claimed by the built-in GitLabPipelineNotable.
+        # .gitlab-ci.yml is claimed by the built-in GitLabPipelineAnalyzer.
         (tmp_path / ".gitlab-ci.yml").write_text("stages: []\n")
 
-        analyzer = RepositoryAnalyzer(list(Notables) + [NoOpGeneric])
-        notables = analyzer.analyze_local(str(tmp_path), str(tmp_path))
+        analyzer = AnalyzerRegistry(list(Analyzers) + [NoOpGeneric])
+        analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
 
         # The generic was never consulted for the matched file.
         assert ".gitlab-ci.yml" not in NoOpGeneric.init_calls
         # And exactly one notable was produced — the specific GitLab one.
-        gitlab_hits = [n for n in notables if isinstance(n, GitLabPipelineNotable)]
+        gitlab_hits = [n for n in analyzers if isinstance(n, GitLabPipelineAnalyzer)]
         assert len(gitlab_hits) == 1
 
 
@@ -863,35 +863,35 @@ class TestArtifactAnalyzerRegistry:
         (
             "valid_custom_analyzer",
             """
-from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable, Repository, Artifact
+from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer, Repository, Artifact
 
-class CustomTestNotable(RepositoryNotable):
+class CustomTestAnalyzer(RepositoryAnalyzer):
     files = ["custom-test.yaml"]
     folders = []
 
     def analyze(self, directory, repo_info, root_path):
-        directory.logger.info(f"CustomTestNotable analyzing {self.file}")
+        directory.logger.info(f"CustomTestAnalyzer analyzing {self.file}")
         return None
 """,
-            ["notables/custom.py#CustomTestNotable"],
+            ["analyzers/custom.py#CustomTestAnalyzer"],
             1,
-            "Loaded custom CustomTestNotable",
+            "Loaded custom CustomTestAnalyzer",
         ),
         (
             "invalid_path",
             None,  # No file created
-            ["notables/nonexistent.py#MissingClass"],
+            ["analyzers/nonexistent.py#MissingClass"],
             0,
             "Failed to load custom Analyzer",
         ),
         (
             "not_notable_subclass",
             """
-class NotANotable:
+class NotAAnalyzer:
     def __init__(self):
         pass
 """,
-            ["notables/notnotable.py#NotANotable"],
+            ["analyzers/notnotable.py#NotAAnalyzer"],
             0,
             "not a subclass of Analyzer",
         ),
@@ -902,15 +902,15 @@ class NotANotable:
             # the module fails to load.
             "unsafe_underscore_access",
             """
-from unfurl.tosca_plugins.cloudmap_defs import RepositoryNotable
+from unfurl.tosca_plugins.cloudmap_defs import RepositoryAnalyzer
 
-class UnsafeTestNotable(RepositoryNotable):
+class UnsafeTestAnalyzer(RepositoryAnalyzer):
     files = ["unsafe-test.yaml"]
 
     def analyze(self, directory, repo_info, root_path):
         return directory._local__env
 """,
-            ["notables/unsafe.py#UnsafeTestNotable"],
+            ["analyzers/unsafe.py#UnsafeTestAnalyzer"],
             0,
             "Failed to load custom Analyzer",
         ),
@@ -949,10 +949,10 @@ repositories: {{}}
     project_path.mkdir()
 
     if custom_class_code:
-        notables_dir = project_path / "notables"
-        notables_dir.mkdir()
+        analyzers_dir = project_path / "analyzers"
+        analyzers_dir.mkdir()
         class_file = analyzer_config[0].split("#")[0].split("/")[-1]
-        custom_py = notables_dir / class_file
+        custom_py = analyzers_dir / class_file
         custom_py.write_text(custom_class_code)
 
     unfurl_yaml = project_path / "unfurl.yaml"
@@ -991,11 +991,11 @@ environments:
     assert expected_log in caplog.text
 
     if expected_count > 0:
-        assert cloudmap.custom_analyzers[0].__name__ == "CustomTestNotable"
+        assert cloudmap.custom_analyzers[0].__name__ == "CustomTestAnalyzer"
         assert "custom-test.yaml" in cloudmap.directory.analyzer.files
         assert (
             cloudmap.directory.analyzer.files["custom-test.yaml"].__name__
-            == "CustomTestNotable"
+            == "CustomTestAnalyzer"
         )
 
 
@@ -1040,10 +1040,11 @@ kind: Project
     result = cm.analyze_url(
         "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
     )
-    artifact_url = f"{result.url}#:modules/Dockerfile"
+    # Repository.contains is keyed by repo-relative file path
     assert result.contains == {
-        artifact_url: TypeRefs({"cloudmap.artifacts.Containerfile": None})
+        "modules/Dockerfile": TypeRefs({"cloudmap.artifacts.Containerfile": None})
     }
+    artifact_url = f"{result.url}#:modules/Dockerfile"
     assert artifact_url in db.artifacts, list(db.artifacts)
     artifact = db.artifacts[artifact_url]
     expected_artifact = Artifact(
