@@ -47,6 +47,7 @@ from typing_extensions import (
     Annotated,
     Self,
     TypeAlias,
+    Literal,
 )
 
 import sys
@@ -781,6 +782,21 @@ class _AnnotationResolver(ast.NodeVisitor):
             )
         return Union[self.visit(node.left), self.visit(node.right)]
 
+    def visit_Call(self, node: ast.Call) -> Any:
+        # Handle TOSCA constraints inside Annotated like `Annotated[int, (greater_than(0),)]`
+        # appears as a Call AST node when the surrounding annotation is
+        # a PEP-563 string. Resolving the callee goes through
+        # `_lookup_class` (name resolution only — no __import__) so the
+        # blast radius is bounded to names already in the annotation's
+        # scope, which is the same set that eager (non-PEP-563)
+        # evaluation would invoke at class-definition time.
+        func = self.visit(node.func)
+        args = [self.visit(a) for a in node.args]
+        kwargs = {
+            kw.arg: self.visit(kw.value) for kw in node.keywords if kw.arg is not None
+        }
+        return func(*args, **kwargs)
+
 
 def _string_to_type(s: str, cls) -> Any:
     """Resolve an annotation string to a real type object using ``cls``'s
@@ -905,6 +921,20 @@ def pytype_to_tosca_type(_type, as_str=False) -> TypeInfo:
     else:
         metadata = None
     origin = get_origin(_type)
+    if origin is Literal:
+        # Map `Literal["a", "b"]` to a `valid_values` constraint on the
+        # shared type of the literal values. Mixed-type literals (rare)
+        # fall back to `object` so the constraint is the only check.
+        literal_values = list(get_args(_type))
+        value_types = {type(v) for v in literal_values}
+        shared: type = value_types.pop() if len(value_types) == 1 else object
+        valid_values_constraint = valid_values(literal_values)
+        if metadata is None:
+            metadata = [valid_values_constraint]
+        else:
+            metadata = list(metadata) + [valid_values_constraint]
+        types_tuple = (shared.__name__,) if as_str else (shared,)
+        return TypeInfo(optional, None, types_tuple, metadata)
     collection: Optional[Union[Type[tuple], Type[list], Type[dict]]] = None
     if origin == collections.abc.Sequence:
         collection = list
@@ -1325,6 +1355,18 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
 
     @staticmethod
     def find_type_info(owner: Type["_ToscaType"], _type) -> TypeInfo:
+        # Mirror the pre-resolve in pytype_to_tosca_schema
+        if isinstance(_type, ForwardRef):
+            arg: Optional[str] = _type.__forward_arg__
+        elif isinstance(_type, str):
+            arg = _type
+        else:
+            arg = None
+        if arg and ("_getitem_(" in arg or "[" in arg or "|" in arg or "." in arg):
+            try:
+                _type = _string_to_type(arg, owner)
+            except (NameError, TypeError, SyntaxError, AttributeError):
+                pass
         type_info = pytype_to_tosca_type(_type)
         types = tuple(owner._resolve_class(t, True) for t in type_info.types)
         return type_info._replace(types=types)
@@ -1580,7 +1622,6 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
         return type_only_def
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
-        # dict[str, list[int, constraint], constraint]
         # Strings reach us when `from __future__ import annotations` is
         # in effect (PEP 563 stores `__annotations__` as raw source) and
         # `ForwardRef`s reach us via the older runtime-evaluated path.

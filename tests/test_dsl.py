@@ -6,7 +6,9 @@ Run this file as a script to generate Python DSL files from YAML. Accepts an opt
 import os
 import time
 from typing import Any, List, Optional, Dict, Sequence, Union
+from typing_extensions import Literal
 import typing
+
 from unittest.mock import MagicMock, patch
 import pytest
 from pprint import pprint
@@ -2220,13 +2222,11 @@ class ComputedArtifact(unfurl.artifacts.ShellExecutable):
 def annotation_resolver_cls():
     """A stand-in for the resolving class that ``_string_to_type``
     expects — only needs a classmethod ``_lookup_class(name)``."""
-    from typing import Dict, List, Optional, Union
-    import typing
-
     class _Stub:
         scope = {
             "Dict": Dict,
             "List": List,
+            "Literal": Literal,
             "Optional": Optional,
             "Union": Union,
             "str": str,
@@ -2263,6 +2263,9 @@ def annotation_resolver_cls():
         ("typing.Union[int, str]", Union[int, str]),
         # Plain bare name still works (no Subscript/BinOp/Attribute).
         ("object", object),
+        # Literal with two string values — resolves to a real `Literal`
+        # construct so downstream `get_origin`/`get_args` work.
+        ("Literal['text', 'json']", Literal["text", "json"]),
     ],
 )
 def test_string_to_type_handles_generics_and_unions(
@@ -2326,6 +2329,32 @@ def test_string_to_type_propagates_lookup_failure(annotation_resolver_cls):
             "Union[Dict[str, int], None]",
             {"type": "map", "entry_schema": {"type": "integer"}},
         ),
+        # Literal narrows to a TOSCA string with a valid_values constraint.
+        (
+            "Literal['text', 'json']",
+            {
+                "type": "string",
+                "constraints": [{"valid_values": ["text", "json"]}],
+            },
+        ),
+        # Optional[Literal[...]] → required: False + same constraint.
+        (
+            "Union[Literal['text', 'json'], None]",
+            {
+                "type": "string",
+                "constraints": [{"valid_values": ["text", "json"]}],
+            },
+        ),
+        # Annotated[int, (greater_than(0),)] → TOSCA integer with a
+        # greater_than constraint. Exercises DataConstraint-as-metadata
+        # round-tripping through pytype_to_tosca_schema.
+        (
+            "Annotated[int, (greater_than(0),)]",
+            {
+                "type": "integer",
+                "constraints": [{"greater_than": 0}],
+            },
+        ),
     ],
 )
 @pytest.mark.parametrize(
@@ -2353,7 +2382,9 @@ def test_dsl_string_annotations_for_generics_yield_correct_tosca_schema(
     future_import = "from __future__ import annotations\n" if use_future else ""
     src = f"""
 {future_import}from typing import Dict, List, Union
+from typing_extensions import Annotated, Literal
 import tosca
+from tosca import greater_than
 
 
 class MyData(tosca.DataEntity):
@@ -2470,6 +2501,50 @@ def test_typeinfo():
     assert t.simple_types == (dict,)
     assert t.instance_check({"D": {"a": {}}})
     assert not t.instance_check({"D": []})
+
+    # Literal["text", "json"] → str + valid_values constraint.
+    from tosca._tosca import valid_values
+
+    t = tosca.pytype_to_tosca_type(Literal["text", "json"])
+    assert t.optional is False
+    assert t.collection is None
+    assert t.types == (str,)
+    assert t.metadata and isinstance(t.metadata[0], valid_values)
+    assert t.metadata[0].constraint == ["text", "json"]
+    assert t.instance_check("text")
+    assert not t.instance_check(1)
+
+    # Optional[Literal[...]] strips the None and keeps the constraint.
+    t = tosca.pytype_to_tosca_type(Optional[Literal["text", "json"]])
+    assert t.optional is True
+    assert t.types == (str,)
+    assert t.metadata and isinstance(t.metadata[0], valid_values)
+    assert t.metadata[0].constraint == ["text", "json"]
+
+    # Mixed-type Literal falls back to `object` for the shared type;
+    # the constraint still preserves the original values.
+    t = tosca.pytype_to_tosca_type(Literal["a", 1])
+    assert t.types == (object,)
+    assert t.metadata and isinstance(t.metadata[0], valid_values)
+    assert t.metadata[0].constraint == ["a", 1]
+
+    # Annotated[int, (greater_than(0),)] preserves the int type and
+    # surfaces the DataConstraint via TypeInfo.metadata so the schema
+    # emitter can render it as a TOSCA `constraints` entry.
+    import typing_extensions
+    from tosca._tosca import greater_than
+
+    t = tosca.pytype_to_tosca_type(
+        typing_extensions.Annotated[int, (greater_than(0),)]
+    )
+    assert t.optional is False
+    assert t.collection is None
+    assert t.types == (int,)
+    assert t.metadata is not None
+    constraints = [c for c in t.metadata if isinstance(c, greater_than)]
+    assert len(constraints) == 1
+    assert constraints[0].constraint == 0
+
 
 def test_typeddict():
     python_src = """
