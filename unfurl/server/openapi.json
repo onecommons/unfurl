@@ -1799,7 +1799,7 @@
             ],
             "description": "Human-readable metadata about the artifact."
           },
-          "notable": {
+          "contains": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
             "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
             "type": "object"
@@ -2221,29 +2221,9 @@
             "description": "Repository name.",
             "type": "string"
           },
-          "notable": {
-            "oneOf": [
-              {
-                "additionalProperties": {
-                  "additionalProperties": false,
-                  "properties": {
-                    "artifact": {
-                      "description": "URL of an artifact that represents this notable file or directory.",
-                      "type": "string"
-                    },
-                    "type": {
-                      "$ref": "#/components/schemas/cloudmap_typeRef"
-                    }
-                  },
-                  "type": "object"
-                },
-                "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
-                "type": "object"
-              },
-              {
-                "$ref": "#/components/schemas/cloudmap_inlineArtifact"
-              }
-            ]
+          "contains": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
           },
           "path": {
             "description": "Project path relative to base location of git repositories on the host.",

@@ -179,7 +179,9 @@ class UnfurlNotable(RepositoryNotable):
                     purl = image_artifact.url
                     references[purl] = None
 
-            artifact_url = repo_info.artifact_url(os.path.join(self.folder, self.file))
+            # Include any URL fragment (e.g. "#spec/service_template") so the
+            # artifact URL distinguishes sub-elements of the same file.
+            artifact_url = repo_info.artifact_url(self.path)
 
             # Create main artifact using helper method
             artifact, cloud_type = create_artifact_from_notable(
@@ -342,6 +344,8 @@ class UnfurlNotable(RepositoryNotable):
             directory: CloudMapView to add instantiation and service to
             artifact: The ensemble artifact
         """
+        from urllib.parse import quote
+
         # Get spec repository for source information
         spec_repo_view = manifest.repositories.get("spec")
         analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
@@ -354,9 +358,15 @@ class UnfurlNotable(RepositoryNotable):
             inputs=artifact.references,
         )
         if spec_repo_view:
+            blueprint_path = get_blueprint_path(manifest)
+            # Include the spec template's fragment (e.g. ``spec/service_template``)
+            # so the source URL identifies the sub-element within the blueprint file
+            fragment = manifest.tosca.fragment if manifest.tosca else ""
+            if fragment:
+                blueprint_path = blueprint_path + "#" + fragment
             instantiation.source = (
                 get_repository_url(spec_repo_view.url)
-                + f"#:{get_blueprint_path(manifest)}"
+                + f"#:{quote(blueprint_path)}"
             )
             instantiation.source_revision = spec_repo_view.get_current_commit()
 
@@ -438,7 +448,7 @@ def create_artifact_from_notable(
     version: str = "",
     description: str = "",
     thumbnail: str = "",
-    notables: Optional[TypedUrls] = None,
+    contains: Optional[TypedUrls] = None,
     references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
     type_info: Optional[Dict[str, Any]] = None,
@@ -456,7 +466,7 @@ def create_artifact_from_notable(
         version: Version string (maps to metadata.version)
         description: Description (maps to metadata.description)
         thumbnail: Icon or thumbnail URL (maps to metadata.thumbnail)
-        notables: Map of artifact IDs this artifact references (maps to notable)
+        contains: Map of artifact URLs this artifact embeds or incorporates
         references: Map of artifact IDs this artifact references (maps to references)
         dependencies: List of dependencies (maps to requires)
         type_info: Type definition dict with 'name', 'title', 'extends' (creates CloudType)
@@ -488,7 +498,7 @@ def create_artifact_from_notable(
     artifact = Artifact(
         url=artifact_pkg,
         type=TypeRefs().add(artifact_type, version=version),
-        notable=notables or {},
+        contains=contains or {},
         references=references or {},
         instantiates=instantiates,
         dependencies=dependencies or {},
@@ -499,22 +509,28 @@ def create_artifact_from_notable(
     return artifact, cloud_type
 
 
-def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
+def migrate_old_notable_format(
+    db: CloudMapDB, repo: Repository, old_notable: Dict[str, dict]
+) -> List[str]:
     """
-    Migrate old Repository.notable dictionary format to new List[str] format.
+    Migrate old Repository.notable dictionary format to the new
+    ``Repository.contains`` TypedUrls format.
 
     Creates Artifact instances from old inline notable definitions and adds them
     to db.artifacts and db.types.
 
     Args:
         db: CloudMapDB instance to add artifacts and types to
-        repo: Repository with potentially old-format notable dict
+        repo: Repository whose ``contains`` should be populated
+        old_notable: Old ``notable`` dict mapping file paths to either an
+            inline-artifact definition (with ``artifact_type``) or a
+            ``{type, artifact}`` entry.
 
     Returns:
-        Notable converted to artifact IDs
+        Artifact URLs that were migrated.
     """
     migrated_artifact_ids: List[str] = []
-    for file_path, notable_dict in cast(Dict[str, dict], repo.notable).items():
+    for file_path, notable_dict in old_notable.items():
         if "artifact_type" in notable_dict:
             # Create artifact pkg from repository URL + file path
             artifact_pkg = repo.artifact_url(file_path)
@@ -530,7 +546,7 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
                 description=notable_dict.pop("description", ""),
                 thumbnail=notable_dict.pop("thumbnail_url", "")
                 or repo.metadata.thumbnail_url,
-                notables={
+                contains={
                     build_oci_purl(ContainerImage.split(ref)): None
                     for ref in notable_dict.pop("artifacts", [])
                 },
@@ -543,11 +559,6 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
                 ctx=None,
                 instantiates_key=notable_name,
             )
-            while notable_dict:
-                notable_dict.popitem()  # remove any remaining old fields
-            # update notable to new format:
-            notable_dict["type"] = artifact.type
-            notable_dict["artifact"] = artifact_pkg
 
             # Add CloudType if created
             if cloud_type:
@@ -555,7 +566,14 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
 
             # Add to artifacts dict
             db.artifacts[artifact_pkg] = artifact
+            repo.contains[file_path] = artifact.type
             migrated_artifact_ids.append(artifact_pkg)
+        else:
+            # `{type, artifact}` entry — key by file path, value is the type
+            type_dict = notable_dict.get("type")
+            repo.contains[file_path] = (
+                TypeRefs(types=type_dict) if type_dict else None
+            )
 
     return migrated_artifact_ids
 

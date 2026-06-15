@@ -242,7 +242,7 @@
           "$ref": "#/definitions/typeRef",
           "description": "Type identifier from types/artifacts with optional version constraints."
         },
-        "notable": {
+        "contains": {
           "type": "object",
           "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
           "$ref": "#/definitions/typedURLs"
@@ -666,29 +666,9 @@
             "description": "Commit SHA hash for the tag."
           }
         },
-        "notable": {
-          "oneOf": [
-            {
-              "type": "object",
-              "description": "Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map",
-              "additionalProperties": {
-                "type": "object",
-                "properties": {
-                  "type": {
-                    "$ref": "#/definitions/typeRef"
-                  },
-                  "artifact": {
-                    "type": "string",
-                    "description": "URL of an artifact that represents this notable file or directory."
-                  }
-                },
-                "additionalProperties": false
-              }
-            },
-            {
-              "$ref": "#/definitions/inlineArtifact"
-            }
-          ]
+        "contains": {
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
         }
       },
       "additionalProperties": true

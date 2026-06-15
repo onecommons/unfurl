@@ -1040,14 +1040,10 @@ kind: Project
     result = cm.analyze_url(
         "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
     )
-    assert result.notable == {
-        "modules/Dockerfile": {
-            "type": {
-                "cloudmap.artifacts.Containerfile": None,
-            }
-        }
-    }
     artifact_url = f"{result.url}#:modules/Dockerfile"
+    assert result.contains == {
+        artifact_url: TypeRefs({"cloudmap.artifacts.Containerfile": None})
+    }
     assert artifact_url in db.artifacts, list(db.artifacts)
     artifact = db.artifacts[artifact_url]
     expected_artifact = Artifact(

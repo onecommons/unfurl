@@ -660,7 +660,7 @@ class Artifact(VersionedRecord):
     url: str
     type: TypeRefs = field(default_factory=TypeRefs)
     """Type identifier from types/artifacts with optional version constraints"""
-    notable: TypedUrls = field(default_factory=dict)
+    contains: TypedUrls = field(default_factory=dict)
     """"Map of URLs of interesting artifacts that this artifact embeds or incorporates."""
     references: TypedUrls = field(default_factory=dict)
     """Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."""
@@ -705,7 +705,7 @@ class Artifact(VersionedRecord):
             self.type = TypeRefs(types=self.type)
         self.instantiates = TypeRefs.urls_fromdict(self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
-        self.notable = TypeRefs.urls_fromdict(self.notable)
+        self.contains = TypeRefs.urls_fromdict(self.contains)
         self.references = TypeRefs.urls_fromdict(self.references)
         if isinstance(self.instantiated_by, list):
             self.instantiated_by = {url: None for url in self.instantiated_by}
@@ -738,7 +738,7 @@ class Artifact(VersionedRecord):
                 v = filter_dict(v)
             elif k == "discovery" and v:
                 v = filter_dict(v)
-            elif k == "notable":
+            elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             elif k == "references":
                 v = TypeRefs.urls_asdict(v)
@@ -856,11 +856,6 @@ class RepositoryMetadata(CommonMetadata):
         pass
 
 
-class NotableDict(TypedDict, total=False):
-    type: TypeRefJson
-    artifact: str
-
-
 @dataclass
 class Repository(CloudMapRecord):
     url: str
@@ -887,8 +882,8 @@ class Repository(CloudMapRecord):
     'The default branch of the repository (e.g. "main").'
     branches: Dict[str, str] = field(default_factory=dict)
     tags: Dict[str, str] = field(default_factory=dict)
-    notable: Dict[str, NotableDict] = field(default_factory=dict)
-    """Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map"""
+    contains: TypedUrls = field(default_factory=dict)
+    """Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."""
 
     @property
     def key(self) -> str:
@@ -910,6 +905,7 @@ class Repository(CloudMapRecord):
                 # migrate deprecated key
                 md["thumbnail_url"] = md.pop("avatar_url")
             self.metadata = RepositoryMetadata(**(md or {}))
+        self.contains = TypeRefs.urls_fromdict(self.contains)
 
     def get_current_commit(self) -> str:
         """Return the current commit for the default branch."""
@@ -927,11 +923,17 @@ class Repository(CloudMapRecord):
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values and skip url, (save as the key instead)
-        return {
-            k: (filter_dict(v) if k == "metadata" else v)
-            for k, v in asdict(self).items()
-            if v and k != "url"
-        }
+        result: Dict[str, Any] = {}
+        for k, v in asdict(self).items():
+            if k == "url":
+                continue
+            if k == "metadata":
+                v = filter_dict(v)
+            elif k == "contains":
+                v = TypeRefs.urls_asdict(v)
+            if v:
+                result[k] = v
+        return result
 
     def git_url(self, preference=()) -> str:
         "URL to clone the repository using preferred protocol or the first available protocol"
@@ -971,7 +973,11 @@ class Repository(CloudMapRecord):
 
     def add_notables(self, notables: List["RepositoryNotable"]) -> None:
         notables.sort(key=attrgetter("path"))
-        self.notable = {n.path: n.asdict() for n in notables}
+        contains: TypedUrls = {}
+        for n in notables:
+            type_refs = TypeRefs({n.artifact_type: None}) if n.artifact_type else None
+            contains[n.path] = type_refs
+        self.contains = contains
 
     def get_default_branch(self):
         return self.default_branch or "main"
@@ -1374,13 +1380,6 @@ class RepositoryNotable(Analyzer):
         """
         return cls(folder, file, digest)
 
-    def asdict(self) -> NotableDict:
-        """Serialize this Notable to a dict for inclusion in Repository.notable."""
-        metadata = NotableDict(type={self.artifact_type: None})
-        if self.artifact_id:
-            metadata["artifact"] = self.artifact_id
-        return metadata
-
 
 class URLAnalyzer(Analyzer):
     """Base class for analyzers that produce records from a URL.
@@ -1476,7 +1475,6 @@ __all__ = [
     "ArtifactMappings",
     "CloudMapRecord",
     # TypedDicts
-    "NotableDict",
     "TypeRefConstraint",
     "PipelineArtifact",
     "PipelineVariable",

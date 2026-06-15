@@ -683,19 +683,20 @@ class CloudMapGraphWalker:
                 edges.append(("mirror_of", [record.mirror_of]))
             if record.service:
                 edges.append(("service", [record.service]))
-            if record.notable:
-                urls = [
-                    nd.get("artifact", "")
-                    for nd in record.notable.values()
-                    if isinstance(nd, dict) and nd.get("artifact")
-                ]
-                if urls:
-                    edges.append(("notable", urls))
+            if record.contains:
+                # contains keys are file paths within the repository (optionally
+                # followed by ``#<fragment>``); derive the artifact URL for
+                # navigation
+                contains_urls = {
+                    record.artifact_url(file_path): type_refs
+                    for file_path, type_refs in record.contains.items()
+                }
+                self._walk_typed_urls("contains", contains_urls, visited)
 
         elif kind == "Artifact":
             assert isinstance(record, Artifact)
-            if record.notable:
-                self._walk_typed_urls("notable", record.notable, visited)
+            if record.contains:
+                self._walk_typed_urls("contains", record.contains, visited)
             if record.references:
                 # if this artifact is part of a repository, reference the repository URL
                 repo_url = record.get_repository_url()

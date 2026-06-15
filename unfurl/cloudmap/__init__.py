@@ -99,7 +99,6 @@ from ..tosca_plugins.cloudmap_defs import (
     EntitySchema,
     Instantiation,
     RepositoryNotable,
-    NotableDict,
     PipelineArtifact,
     PipelineRunProperties,
     PipelineVariable,
@@ -109,6 +108,7 @@ from ..tosca_plugins.cloudmap_defs import (
     Service,
     ServiceDict,
     TypeRefConstraint,
+    TypedUrls,
     TypeRefs,
     get_repository_url,
     AnalyzerContext,
@@ -567,12 +567,13 @@ class CloudMapDB(CloudMapView):
         repositories = cast(Dict, db.get("repositories") or {})
         self.repositories: RepositoryDict = {}
         for url, r in repositories.items():
+            # Backwards compatibility: migrate the deprecated `notable` key to `contains`
+            old_notable = r.pop("notable", None)
             repo = Repository(url=r.pop("git", url), **r)
-            # Backwards compatibility: migrate old notable dictionary format to new format
-            if isinstance(repo.notable, dict):
+            if isinstance(old_notable, dict):
                 from .analyzers import migrate_old_notable_format
 
-                migrate_old_notable_format(self, repo)
+                migrate_old_notable_format(self, repo, old_notable)
             self.add_record(repo)
 
         # Load services
@@ -880,19 +881,19 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         self,
         repo_info: Repository,
         repo: GitRepo,
-        previous_notables: Dict[str, NotableDict],
+        previous_contains: TypedUrls,
     ) -> Optional[List[RepositoryNotable]]:
         if self.do_analysis:
             try:
                 return self.analyze(repo_info, repo)
             except Exception:
                 # restore previous
-                repo_info.notable = previous_notables
+                repo_info.contains = previous_contains
                 self.logger.error(
                     "Unexpected error analyzing %s.", repo_info.url, exc_info=True
                 )
         # no analysis happened, preserve previous analysis
-        repo_info.notable = previous_notables
+        repo_info.contains = previous_contains
         return None
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryNotable]:
@@ -1061,7 +1062,7 @@ class RepositoryHost:
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
-            directory.maybe_analyze(r, repo, previous.notable if previous else {})
+            directory.maybe_analyze(r, repo, previous.contains if previous else {})
 
     def _push_to_host(
         self,
@@ -1196,7 +1197,7 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                 else:
                     directory.db.add_record(repository)
                 directory.maybe_analyze(
-                    repository, repo, previous.notable if previous else {}
+                    repository, repo, previous.contains if previous else {}
                 )
                 count += 1
         return count
@@ -2914,7 +2915,11 @@ class CloudMap:
                                 repo_info.url,
                                 exc_info=True,
                             )
-                        repo_info.notable[n.path] = n.asdict()
+                        repo_info.contains[n.path] = (
+                            TypeRefs({n.artifact_type: None})
+                            if n.artifact_type
+                            else None
+                        )
                 else:
                     artifact_url = repo_info.artifact_url(file_path)
                     if not db.get_artifact(artifact_url):
@@ -2923,8 +2928,8 @@ class CloudMap:
                             type=TypeRefs({EntitySchema.GenericFile: None}),
                         )
                         db.add_record(artifact)
-                    if file_path not in repo_info.notable:
-                        repo_info.notable[file_path] = {}
+                    if file_path not in repo_info.contains:
+                        repo_info.contains[file_path] = None
 
         # Fetch pipeline runs if a ref or commit was specified in the URL
         if repo_info and (revision or commit):
