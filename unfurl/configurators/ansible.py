@@ -161,7 +161,7 @@ class AnsibleConfigurator(TemplateConfigurator):
         super().__init__(*args, **kw)
         self._cleanupRoutines: List[Callable] = []
 
-    def can_dry_run(self, task):
+    def can_dry_run(self, task) -> bool:
         return True
 
     def check_digest(self, task: TaskView, changeset) -> bool:

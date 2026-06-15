@@ -798,6 +798,7 @@ class TaskView:
         rm = ResultsMap(inputs, ctx, validate, defs)
         if "arguments" not in rm:
             # add to inputs as lazily evaluated expression function
+            # (the "_arguments" eval function calls ctx._task._arguments())
             # this way "arguments" is recorded as a input digest key when accessed
             rm._attributes["arguments"] = dict(eval=dict(_arguments=None))
         return rm

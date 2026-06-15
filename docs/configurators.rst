@@ -233,7 +233,7 @@ Example
                                 - +%: merge
                                   env:
                                   - name: ENVVAR
-                                    value: 
+                                    value:
 
 Inputs
 ------
@@ -841,7 +841,7 @@ Or you could implement completely custom behavior by having the execute method r
 Arguments
 =========
 
-When a node operation invokes its implementation artifact's ``execute`` operation, Unfurl looks for a operation input named ``arguments`` to pass as the ``execute`` operation's inputs.
+When a node operation invokes its implementation artifact's ``execute`` operation, Unfurl looks for an operation input named ``arguments`` to pass as the ``execute`` operation's inputs.
 This should be dictionary whose keys and values corresponds to the ``execute`` operation's input specification.
 
 If an ``arguments`` input isn't explicitly declared, it will be synthesized from the following sources (listed here from lowest to highest merge order):

@@ -495,7 +495,9 @@ class ShellConfigurator(TemplateConfigurator):
             )
         return not error
 
-    def _process_outputs(self, task: "TaskView", result: Dict[str, Any]):
+    def _process_outputs(
+        self, task: "TaskView", result: Dict[str, Any]
+    ) -> Tuple[Optional[Exception], Optional[Dict[str, Any]]]:
         tpl = task.inputs.get_original("outputsTemplate")
         if tpl is None:
             return None, None
@@ -522,7 +524,7 @@ class ShellConfigurator(TemplateConfigurator):
         error, outputs = self._process_outputs(task, resultDict)
         return success and not error, status, outputs
 
-    def can_run(self, task):
+    def can_run(self, task) -> Union[bool, str]:
         params = task.inputs
         cmd = params.get("command", self._default_cmd)
         if not cmd:
@@ -531,8 +533,8 @@ class ShellConfigurator(TemplateConfigurator):
             return f"'{cmd[0]}' is not executable"
         return True
 
-    def can_dry_run(self, task):
-        return task.inputs.get("dryrun")
+    def can_dry_run(self, task) -> bool:
+        return bool(task.inputs.get("dryrun"))
 
     def render(self, task: TaskView):
         cmd = task.inputs["command"]

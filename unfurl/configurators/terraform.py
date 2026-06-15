@@ -218,7 +218,7 @@ class TerraformConfigurator(ShellConfigurator):
         # default: defer to mock implementation if present otherwise defer to runtime check (can_dry_run())
         return bool(inputs.get("dryrun_outputs"))
 
-    def can_dry_run(self, task):
+    def can_dry_run(self, task) -> bool:
         return True
 
     def _run_init(

@@ -12,7 +12,7 @@ Instances are represented as a dictionary containing its properties and attribut
 
   :implementation: The artifact used by the operation's implementation (or null if one wasn't set).
   :inputs: A dictionary containing the inputs declared on the task's operation.
-  :arguments: A dictionary containing inputs and properties passed to task's `artifact`.
+  :arguments: A dictionary containing inputs and properties passed to the task's implementation `artifact`.
   :connections: See :std:ref:`Connections` below.
   :SELF: The current task's target instance.
   :Self: The `Python DSL` `object <tosca.ToscaType>` representing ``SELF`` if one was defined, or null.
@@ -49,7 +49,7 @@ You can define connections in the following ways:
 * In the `relationship templates` section of your TOSCA service template.
 * In the :std:ref:`connections` section of the ensemble's environment.
 * On the source node template by defining a requirement with inline relationship with ``default_for`` set to "SELF".
-* Imported from an external ensemble by setting the ``connections`` key in the `external ensembles` section. The imported connections are added to the main ensemble's default connections. This allows the main ensemble to connect to resources in the imported ensemble, For example, a Kubernetes cluster. Its value is a list of names of the relationship templates to import from the external ensemble. To import connections defined inline in a requirement on a node template use ``<instance_name>::<requirement_name>`` as the name. 
+* Imported from an external ensemble by setting the ``connections`` key in the `external ensembles` section. The imported connections are added to the main ensemble's default connections. This allows the main ensemble to connect to resources in the imported ensemble, For example, a Kubernetes cluster. Its value is a list of names of the relationship templates to import from the external ensemble. To import connections defined inline in a requirement on a node template use ``<instance_name>::<requirement_name>`` as the name.
 * Added by a operation at runtime via a `resultTemplate <resultTemplate>` or the `TaskView.update_instances()` method.
 
 A relationship template is treated as a connection when it has the ``default_for`` key set. If this key is present, it indicates that the relationship template doesn't need to be explicitly referenced in the ``requirements`` section of a node template as regular relationship templates
@@ -189,14 +189,14 @@ The following environment variables can be set to enable debugging features, tes
   Set to a port number (or "1" to use default port 5678) to wait for a remote debugger (like VS-Code) to attach on startup. Requires `debugpy <https://pypi.org/project/debugpy/>`_ to be installed.
 
 **UNFURL_TEST_PRINT_YAML_SRC**
-  Prints the YAML source (at DEBUG logging level) generated when DSL Python is converted to TOSCA YAML. 
+  Prints the YAML source (at DEBUG logging level) generated when DSL Python is converted to TOSCA YAML.
 
 **UNFURL_TEST_PRINT_AST_SRC**
   When the TOSCA DSL imports loader executes Python code, convert the processed Python Abstract Syntax Tree (AST) back to Python source code and  print it. Helpful to debug exceptions raised from user-defined Python DSL templates, which might not have the source code reported in the exception stack trace.
 
 **UNFURL_TEST_DUMP_SOLVER**
   Set to "1" or "2" to enable diagnostic output from the TOSCA solver when performs model inference.
-  
+
   - "1": Prints nodes, requirements, requirement matches, property expressions, property matches, term matches, queries (final), and query results
   - "2": Additionally prints relationships, queries (intermediate), results (intermediate), and transitive matches
 
