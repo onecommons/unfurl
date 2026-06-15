@@ -19,7 +19,7 @@ class MyArtifact(unfurl.artifacts.ShellExecutable):
     def execute(self, arg1: str, arg2: int) -> Outputs:
         command = f"""echo '{{"a_output": "{arg1}{arg2}"}}'"""
         %s  # see test_artifact.py::test_artifact_execute
-        return MyArtifact.Outputs()  # outputsTemplate convert the output json should conform to MyArtifact.Outputs
+        return MyArtifact.Outputs()  # `outputsTemplate` converts the output to json that should conform to MyArtifact.Outputs
 
 
 class MyNode(tosca.nodes.Root):

@@ -1,5 +1,6 @@
 # Copyright (c) 2023 Adam Souzis
 # SPDX-License-Identifier: MIT
+import ast
 import collections.abc
 from contextlib import contextmanager
 import copy
@@ -197,19 +198,29 @@ class ToscaObject:
         origin = get_origin(_type)
         if origin:
             if origin is Union:  # also true if origin is Optional
-                _type = [a for a in get_args(_type) if a is not type(None)][0]
+                non_none = [a for a in get_args(_type) if a is not type(None)]
+                # `Union[None]` and `Optional[None]` should fall back to
+                # NoneType rather than crashing with IndexError.
+                _type = non_none[0] if non_none else type(None)
             elif not is_item and origin in [Annotated, list, collections.abc.Sequence]:
-                _type = get_args(_type)[0]
+                args = get_args(_type)
+                # Un-parameterised generics (e.g. `typing.List` with no
+                # `[…]`) have no args — fall back to the origin class.
+                _type = args[0] if args else origin
             else:
                 _type = origin
         if isinstance(_type, str):
-            if "[" in _type:
-                # XXX nested type annotations not supported (note the \w)
-                match = re.search(r"\[(\w+)\]", _type)
-                if match and match.group(1):
-                    _type = match.group(1)
-                else:
-                    raise NameError(f"invalid type annotation: {_type}")
+            if "_getitem_(" in _type:
+                _type = _undo_safe_mode_getitem(_type)
+            if "[" in _type or "|" in _type or "." in _type:
+                try:
+                    real = _string_to_type(_type, cls)
+                except (NameError, TypeError, SyntaxError, AttributeError):
+                    real = None
+                if real is not None:
+                    # Re-enter so origin-unwrapping (Union/Annotated/list)
+                    # runs on the freshly-constructed real type.
+                    return cls._resolve_class(real, is_item=is_item)
             return cls._lookup_class(_type)
         elif isinstance(_type, ForwardRef):
             return cls._resolve_class(_type.__forward_arg__)
@@ -247,16 +258,26 @@ class ToscaObject:
                     raise TypeError(f"{qname} is a module, not a class")
                 obj = modules[name]
             else:
-                if name != qname:
-                    unresolved_name = "{name} of {qname}"
-                else:
-                    unresolved_name = name
-                raise NameError(
-                    f"{unresolved_name} not found in {cls.__name__}'s scope"
+                # Fall back to Python builtins for unqualified names like
+                # `object`, `int`, `str`, etc. — these are valid type
+                # annotations (e.g. `command: object`) `__builtins__`
+                # is the module when imported normally and the module's
+                # `__dict__` when exec'd in restricted mode — handle both.
+                obj = (
+                    __builtins__.get(name)
+                    if isinstance(__builtins__, dict)
+                    else getattr(__builtins__, name, None)
                 )
+                if obj is None:
+                    if name != qname:
+                        unresolved_name = "{name} of {qname}"
+                    else:
+                        unresolved_name = name
+                    raise NameError(
+                        f"{unresolved_name} not found in {cls.__name__}'s scope"
+                    )
         while names:
             name = names.pop(0)
-            ns = obj
             obj = getattr(obj, name, None)
             if obj is None:
                 raise AttributeError(f"can't find {name} in {qname}")
@@ -630,12 +651,162 @@ def _get_type_name(_type):
     return getattr(_type, "__name__", getattr(_type, "_name", ""))
 
 
+class _GetItemUndoTransformer(ast.NodeTransformer):
+    """Reverse RestrictedPython's ``_getitem_(X, Y)`` rewrite back to
+    the ``X[Y]`` subscript form, recursively. ``ast.parse`` here is
+    parse-only — we never compile or eval the result, just turn it back
+    into a string for our own structural matching."""
+
+    def visit_Call(self, node: ast.Call) -> ast.AST:
+        self.generic_visit(node)
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "_getitem_"
+            and len(node.args) == 2
+            and not node.keywords
+        ):
+            return ast.copy_location(
+                ast.Subscript(
+                    value=node.args[0],
+                    slice=node.args[1],
+                    ctx=ast.Load(),
+                ),
+                node,
+            )
+        return node
+
+
+def _undo_safe_mode_getitem(s: str) -> str:
+    """If `s` contains any ``_getitem_(X, Y)`` calls (RestrictedPython's
+    subscript rewrite, captured verbatim under ``from __future__ import
+    annotations``), rewrite them recursively to ``X[Y]`` form so the
+    type-resolution layer sees the original syntax. Returns `s`
+    unchanged if it doesn't parse as an expression."""
+    if "_getitem_(" not in s:
+        return s
+    try:
+        tree = ast.parse(s, mode="eval")
+    except SyntaxError:
+        return s
+    tree = _GetItemUndoTransformer().visit(tree)
+    ast.fix_missing_locations(tree)
+    return ast.unparse(tree.body)
+
+
+def _peel_optional_string(s: str) -> Tuple[bool, str]:
+    """If `s` is a top-level ``Union[..., None]`` / ``Optional[...]``
+    expression (possibly with nested generics), peel off the optional
+    wrapper and return ``(True, inner)``; otherwise ``(False, s)``.
+
+    Uses ast to be depth-aware — naive comma splitting would mis-split
+    on nested generics like ``Union[Dict[str, int], None]``."""
+    if not s.startswith(("Union[", "Optional[")):
+        return False, s
+    try:
+        expr = ast.parse(s, mode="eval").body
+    except SyntaxError:
+        return False, s
+    if not (isinstance(expr, ast.Subscript) and isinstance(expr.value, ast.Name)):
+        return False, s
+    container = expr.value.id
+    slc = expr.slice
+    if container == "Optional":
+        return True, ast.unparse(slc)
+    if container != "Union":
+        return False, s
+    args = slc.elts if isinstance(slc, ast.Tuple) else [slc]
+    non_none = [
+        a for a in args if not (isinstance(a, ast.Constant) and a.value is None)
+    ]
+    is_optional = len(non_none) < len(args)
+    if not non_none:
+        return is_optional, "None"
+    if len(non_none) == 1:
+        return is_optional, ast.unparse(non_none[0])
+    return is_optional, "Union[" + ", ".join(ast.unparse(a) for a in non_none) + "]"
+
+
+class _AnnotationResolver(ast.NodeVisitor):
+    """Walk an annotation expression AST and resolve each ``Name`` to a
+    real type via ``cls._lookup_class``. Handles ``Subscript`` (generic
+    parametrisation like ``Dict[str, int]``), ``BinOp BitOr`` (PEP-604
+    ``A | None``), ``Attribute`` (dotted names like ``typing.Union``),
+    nested ``Tuple`` and ``List`` slices (e.g. ``Callable[[A], B]``),
+    and ``Constant`` (literal ``None``).
+
+    Pure structural walk: ``ast.parse`` is invoked in ``mode='eval'``
+    elsewhere but is *never* compiled or executed; we evaluate the tree
+    manually using only ``_lookup_class``/``getattr``/``__class_getitem__``.
+    """
+
+    def __init__(self, cls):
+        self.cls = cls
+
+    def visit(self, node: ast.AST) -> Any:
+        method = "visit_" + type(node).__name__
+        visitor = getattr(self, method, self.generic_visit)
+        return visitor(node)
+
+    def generic_visit(self, node: ast.AST) -> Any:
+        raise NameError(f"unsupported annotation AST node: {type(node).__name__}")
+
+    def visit_Name(self, node: ast.Name) -> Any:
+        return self.cls._lookup_class(node.id)
+
+    def visit_Constant(self, node: ast.Constant) -> Any:
+        return node.value
+
+    def visit_Attribute(self, node: ast.Attribute) -> Any:
+        base = self.visit(node.value)
+        return getattr(base, node.attr)
+
+    def visit_Tuple(self, node: ast.Tuple) -> Any:
+        return tuple(self.visit(e) for e in node.elts)
+
+    def visit_List(self, node: ast.List) -> Any:
+        # `Callable[[A, B], C]` carries the arg list as ast.List
+        return [self.visit(e) for e in node.elts]
+
+    def visit_Subscript(self, node: ast.Subscript) -> Any:
+        container = self.visit(node.value)
+        slc = node.slice
+        if isinstance(slc, ast.Tuple):
+            return container[tuple(self.visit(e) for e in slc.elts)]
+        return container[self.visit(slc)]
+
+    def visit_BinOp(self, node: ast.BinOp) -> Any:
+        if not isinstance(node.op, ast.BitOr):
+            raise NameError(
+                f"unsupported binop in annotation: {type(node.op).__name__}"
+            )
+        return Union[self.visit(node.left), self.visit(node.right)]
+
+
+def _string_to_type(s: str, cls) -> Any:
+    """Resolve an annotation string to a real type object using ``cls``'s
+    name-resolution scope.
+
+    Reverses RestrictedPython's ``_getitem_`` rewrite first when present,
+    then parses (`mode='eval'`) and walks the AST through
+    ``_AnnotationResolver``. The result is a constructed type (e.g. ``Dict[str, int]``)
+    that downstream ``get_origin``/``get_args`` handle normally.
+    """
+    if "_getitem_(" in s:
+        s = _undo_safe_mode_getitem(s)
+    node = ast.parse(s, mode="eval").body
+    return _AnnotationResolver(cls).visit(node)
+
+
 def get_optional_type(_type) -> Tuple[bool, Any]:
     # if not optional return false, type
     # else return true, type or type
     if isinstance(_type, ForwardRef):
         _type = _type.__forward_arg__
     if isinstance(_type, str):
+        _type = _undo_safe_mode_getitem(_type)
+        is_optional, inner = _peel_optional_string(_type)
+        if is_optional or inner != _type:
+            return is_optional, _to_union([inner])
         union = [t.strip() for t in _type.split("|")]
         try:
             union.remove("None")
@@ -1410,6 +1581,28 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
 
     def pytype_to_tosca_schema(self, _type) -> Tuple[dict, bool]:
         # dict[str, list[int, constraint], constraint]
+        # Strings reach us when `from __future__ import annotations` is
+        # in effect (PEP 563 stores `__annotations__` as raw source) and
+        # `ForwardRef`s reach us via the older runtime-evaluated path.
+        # In either case, a string carrying a generic / PEP-604 / dotted
+        # / safe-mode-rewritten annotation needs to be pre-resolved to a
+        # real type so pytype_to_tosca_type's collection-extraction code
+        # paths see the proper origin/args.
+        if isinstance(_type, ForwardRef):
+            arg: Optional[str] = _type.__forward_arg__
+        elif isinstance(_type, str):
+            arg = _type
+        else:
+            arg = None
+        if (
+            arg
+            and self.owner is not None
+            and ("_getitem_(" in arg or "[" in arg or "|" in arg or "." in arg)
+        ):
+            try:
+                _type = _string_to_type(arg, self.owner)
+            except (NameError, TypeError, SyntaxError, AttributeError):
+                pass  # leave as-is; let downstream surface the error
         info = pytype_to_tosca_type(_type)
         _type = info.type
         schema: Dict[str, Any] = {}
@@ -1417,9 +1610,14 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             tosca_type = "map"
         elif info.collection is list:
             tosca_type = "list"
+        elif info.type is Any or _get_type_name(info.type) == "Any":
+            tosca_type = "any"
         else:
             _type = self._resolve_class(info.type)
-            tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
+            if _type is Any or str(_type) == "typing.Any":
+                tosca_type = "any"
+            else:
+                tosca_type = PYTHON_TO_TOSCA_TYPES.get(_get_type_name(_type), "")
             if not tosca_type:  # it must be a datatype
                 if not issubclass(_type, _BaseDataType):
                     raise TypeError(f"unrecognized value type: {_type}")

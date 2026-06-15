@@ -597,7 +597,7 @@ node_types:
 interface_types:
   MyCustomInterface:
     derived_from: tosca.interfaces.Root
-    inputs: 
+    inputs:
       location:
         type: string
       version:
@@ -751,7 +751,7 @@ node_types:
     - req:
         node: tosca.nodes.Root
         node_filter:
-          match: 
+          match:
           - get_nodes_of_type: MyNode
   Derived:
     derived_from: Base
@@ -2136,7 +2136,7 @@ def test_sandbox_allowed(capsys):
     _to_yaml("print('hello', 'world')", True)
     captured = capsys.readouterr()
     assert captured.out == "hello world"
-    
+
     allowed = [
         """foo = {}; foo[1] = 2; bar = []; bar.append(1); baz = ()""",
         """foo = dict(); foo[1] = 2; bar = list(); bar.append(1); baz = tuple()""",
@@ -2165,6 +2165,205 @@ node.__class__.feature
     for src in allowed:
         # print("\nallowed?\n", src)
         assert _to_yaml(src, True)
+
+
+@pytest.mark.parametrize(
+    "annotation",
+    [
+        "Union[object, None]",
+        "Any",
+        "object",
+    ],
+)
+@pytest.mark.parametrize(
+    "use_future",
+    [
+        # PEP-563: __annotations__ entries are raw strings; the string
+        # path resolves them via _string_to_type.
+        True,
+        # No PEP-563: annotations evaluate at class-def time. Safe
+        # mode rewrites `Union[object, None]` to
+        # `_getitem_(Union, (object, None))`, but `_getitem_` is bound
+        # to default_guarded_getitem so the result is a real
+        # `Union[object, None]` typing object — the real-type path.
+        False,
+    ],
+)
+def test_computed_artifact_any_property_annotations(use_future, annotation):
+    future_import = "from __future__ import annotations\n" if use_future else ""
+    src = f"""
+{future_import}from typing import Any, Union
+import unfurl
+import tosca
+
+class ComputedArtifact(unfurl.artifacts.ShellExecutable):
+    _type_name = "test.artifacts.ComputedArtifact"
+
+    def _computed(self):
+        return None
+
+    command: {annotation} = tosca.Computed(factory=_computed)
+"""
+
+    yaml_src = _to_yaml(src, True)
+
+    command = yaml_src["artifact_types"]["test.artifacts.ComputedArtifact"][
+        "properties"
+    ]["command"]
+    assert command["type"] == "any"
+    assert command["default"]["eval"]["computed"].endswith(
+        ":ComputedArtifact._computed"
+    )
+
+
+@pytest.fixture
+def annotation_resolver_cls():
+    """A stand-in for the resolving class that ``_string_to_type``
+    expects — only needs a classmethod ``_lookup_class(name)``."""
+    from typing import Dict, List, Optional, Union
+    import typing
+
+    class _Stub:
+        scope = {
+            "Dict": Dict,
+            "List": List,
+            "Optional": Optional,
+            "Union": Union,
+            "str": str,
+            "int": int,
+            "bool": bool,
+            "object": object,
+            "typing": typing,
+        }
+
+        @classmethod
+        def _lookup_class(cls, name):
+            try:
+                return cls.scope[name]
+            except KeyError as e:
+                raise NameError(f"{name} not found") from e
+
+    return _Stub
+
+
+@pytest.mark.parametrize(
+    "annotation,expected",
+    [
+        # Simple generic — used to fail because comma broke the regex.
+        ("Dict[str, int]", Dict[str, int]),
+        # Nested generic — used to lose the container.
+        ("List[Optional[str]]", List[Optional[str]]),
+        # Optional wrapper around a nested generic.
+        ("Union[Dict[str, int], None]", Optional[Dict[str, int]]),
+        # PEP-604 union.
+        ("str | None", Optional[str]),
+        # Three-element union.
+        ("Union[int, str, bool]", Union[int, str, bool]),
+        # Dotted name resolves through Attribute walking.
+        ("typing.Union[int, str]", Union[int, str]),
+        # Plain bare name still works (no Subscript/BinOp/Attribute).
+        ("object", object),
+    ],
+)
+def test_string_to_type_handles_generics_and_unions(
+    annotation, expected, annotation_resolver_cls
+):
+    from tosca._tosca import _string_to_type
+
+    assert _string_to_type(annotation, annotation_resolver_cls) == expected
+
+
+@pytest.mark.parametrize(
+    "annotation,expected",
+    [
+        ("_getitem_(Union, (object, None))", Optional[object]),
+        # Recursive — outer Union wrapping nested Dict.
+        (
+            "_getitem_(Union, (_getitem_(Dict, (str, int)), None))",
+            Optional[Dict[str, int]],
+        ),
+        (
+            "_getitem_(Union, (_getitem_(List, _getitem_(Optional, str)), None))",
+            Optional[List[Optional[str]]],
+        ),
+        # No safe-mode wrapper at all — passes through unchanged.
+        ("Dict[str, int]", Dict[str, int]),
+    ],
+)
+def test_string_to_type_undoes_safe_mode_getitem_recursively(
+    annotation, expected, annotation_resolver_cls
+):
+    from tosca._tosca import _string_to_type
+
+    assert _string_to_type(annotation, annotation_resolver_cls) == expected
+
+
+def test_string_to_type_propagates_lookup_failure(annotation_resolver_cls):
+    """Names that aren't in the resolving scope should surface as
+    ``NameError`` — we don't want silent fallbacks here."""
+    from tosca._tosca import _string_to_type
+
+    with pytest.raises(NameError):
+        _string_to_type("Mystery[int]", annotation_resolver_cls)
+
+
+@pytest.mark.parametrize(
+    "annotation,expected_yaml",
+    [
+        # Stringified Dict resolves to TOSCA map with int values.
+        (
+            "Dict[str, int]",
+            {"type": "map", "entry_schema": {"type": "integer"}},
+        ),
+        # Stringified List resolves to TOSCA list with bool entries.
+        (
+            "List[bool]",
+            {"type": "list", "entry_schema": {"type": "boolean"}},
+        ),
+        # Nested generic under safe-mode round-trip → required: False
+        # plus map of integers.
+        (
+            "Union[Dict[str, int], None]",
+            {"type": "map", "entry_schema": {"type": "integer"}},
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "use_future",
+    [
+        # PEP-563: __annotations__ values are raw source strings. Goes
+        # through the string-resolve path (`_string_to_type`).
+        True,
+        # No PEP-563: __annotations__ values are real type objects.
+        # Safe mode still rewrites the subscript to `_getitem_(…)`, but
+        # that's now an *executable* call (bound to
+        # `default_guarded_getitem`) so the runtime ends up with a real
+        # generic alias — the string-resolve path is bypassed and we go
+        # via `get_origin`/`get_args` directly.
+        False,
+    ],
+)
+def test_dsl_string_annotations_for_generics_yield_correct_tosca_schema(
+    use_future, annotation, expected_yaml
+):
+    """End-to-end: a generic annotation on a TOSCA data type's property
+    field should produce the right ``type``/``entry_schema`` in the
+    emitted YAML.
+    """
+    future_import = "from __future__ import annotations\n" if use_future else ""
+    src = f"""
+{future_import}from typing import Dict, List, Union
+import tosca
+
+
+class MyData(tosca.DataEntity):
+    _type_name = "test.datatypes.MyData"
+    payload: {annotation}
+"""
+    yaml_src = _to_yaml(src, True)
+    payload = yaml_src["data_types"]["test.datatypes.MyData"]["properties"]["payload"]
+    for key, value in expected_yaml.items():
+        assert payload[key] == value, payload
 
 
 @pytest.mark.skipif(not os.getenv("UNFURL_TMPDIR"), reason="UNFURL_TMPDIR not set")
