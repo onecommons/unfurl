@@ -196,6 +196,7 @@ class UnfurlNotable(RepositoryNotable):
                 type_info=type_info,
                 ctx=directory,
                 digest=self.digest,
+                instantiates_key=node.name if node else "",
             )
 
             # Add CloudType if created
@@ -443,6 +444,7 @@ def create_artifact_from_notable(
     type_info: Optional[Dict[str, Any]] = None,
     ctx: Optional[AnalyzerContext] = None,
     digest: str = "",
+    instantiates_key: str = "",
 ) -> Tuple[Artifact, Optional[CloudType]]:
     """
     Create an Artifact from notable metadata fields.
@@ -473,14 +475,14 @@ def create_artifact_from_notable(
     )
 
     # Handle type field: create CloudType and add to instantiates
-    instantiates = TypeRefs()
+    instantiates: TypedUrls = {}
     cloud_type = None
     if type_info and isinstance(type_info, dict):
         cloud_type = create_cloud_type_from_type_info(type_info, ctx)
         type_name = type_info.get("name", "")
         if type_name:
-            # Add to artifact's instantiates
-            instantiates.add(type_name)
+            # Add to artifact's instantiates under the caller-supplied URL/label key
+            instantiates[instantiates_key] = TypeRefs().add(type_name)
 
     # Create the artifact
     artifact = Artifact(
@@ -519,10 +521,11 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
 
             # Create artifact using helper method
             type_info = notable_dict.pop("type", None)
+            notable_name = notable_dict.pop("name", "")
             artifact, cloud_type = create_artifact_from_notable(
                 artifact_pkg=artifact_pkg,
                 artifact_type=notable_dict.pop("artifact_type", ""),
-                name=notable_dict.pop("name", ""),
+                name=notable_name,
                 version=str(notable_dict.pop("version", "") or ""),
                 description=notable_dict.pop("description", ""),
                 thumbnail=notable_dict.pop("thumbnail_url", "")
@@ -538,6 +541,7 @@ def migrate_old_notable_format(db: CloudMapDB, repo: Repository) -> List[str]:
                 },
                 type_info=type_info,
                 ctx=None,
+                instantiates_key=notable_name,
             )
             while notable_dict:
                 notable_dict.popitem()  # remove any remaining old fields

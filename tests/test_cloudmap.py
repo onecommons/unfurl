@@ -292,7 +292,8 @@ artifacts:
           version: 1.1.1
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
-      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+      the_app:
+        Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
       aws:
         unfurl.relationships.ConnectsTo.AWSAccount:
@@ -317,7 +318,8 @@ artifacts:
           version: 0.7.7
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
-      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+      the_app:
+        Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
       Database:
         PostgresDB@unfurl.cloud/onecommons/unfurl-types:
@@ -549,7 +551,8 @@ artifacts:
     notable:
       pkg:oci/cronicle?repository_url=docker.io/soulteary:
     instantiates:
-      CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
+      cronicle:
+        CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
     metadata:
       description: A simple, distributed task scheduler and runner with a web based
         UI.
@@ -1220,9 +1223,11 @@ artifacts:
     notable:
       pkg:oci:ghcr.io/library/alpine:
     instantiates:
-      software.WebServer:
-        version: "1.25"
-      software.HTTPServer:
+      web:
+        software.WebServer:
+          version: "1.25"
+      http:
+        software.HTTPServer:
     dependencies:
       "os":
         software.Linux:
@@ -1349,13 +1354,17 @@ types:
                 break
         assert build_instantiation is not None, "Build instantiation not found"
 
-        # Verify instantiates uses typeRef structure
+        # Verify instantiates uses typedURLs structure
         instantiates = artifact.instantiates
-        assert isinstance(instantiates, TypeRefs)
-        assert "software.WebServer" in instantiates.types
-        assert instantiates.types["software.WebServer"]["version"] == "1.25"
-        assert "software.HTTPServer" in instantiates.types
-        assert instantiates.types["software.HTTPServer"] is None
+        assert isinstance(instantiates, dict)
+        assert "web" in instantiates
+        web = instantiates["web"]
+        assert isinstance(web, TypeRefs)
+        assert web.types["software.WebServer"]["version"] == "1.25"
+        assert "http" in instantiates
+        http = instantiates["http"]
+        assert isinstance(http, TypeRefs)
+        assert http.types["software.HTTPServer"] is None
 
         # Verify dependencies uses typeRef structure
         assert artifact.dependencies == {
@@ -1931,7 +1940,7 @@ CloudMap
 │   │           │       │       └── extends
 │   │           │       │           └── unfurl.relationships.ConnectsTo.CloudAccount
 │   │           │       └── instantiates
-│   │           │           └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
+│   │           │           └── the_app: Odoo@unfurl.cloud/onecommons/blueprints/odoo
 │   │           │               └── notable
 │   │           │                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │   │           │                       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
@@ -2014,7 +2023,7 @@ Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.ya
 │       └── extends
 │           └── unfurl.relationships.ConnectsTo.CloudAccount
 └── instantiates
-    └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
+    └── the_app: Odoo@unfurl.cloud/onecommons/blueprints/odoo
         └── notable
             └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
                 │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
@@ -2048,7 +2057,7 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │       │       └── extends
 │       │           └── unfurl.relationships.ConnectsTo.CloudAccount
 │       └── instantiates
-│           └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
+│           └── the_app: Odoo@unfurl.cloud/onecommons/blueprints/odoo
 │               └── notable
 │                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
 │                       │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1) [seen]
@@ -2085,7 +2094,7 @@ Artifact git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/bl
 │   ├── gcp: unfurl.relationships.ConnectsTo.GoogleCloudProject
 │   └── odoo-aws-1: unfurl.relationships.ConnectsTo.AWSAccount
 └── instantiates
-    └── Odoo@unfurl.cloud/onecommons/blueprints/odoo
+    └── the_app: Odoo@unfurl.cloud/onecommons/blueprints/odoo
 """
 # fmt: on
 

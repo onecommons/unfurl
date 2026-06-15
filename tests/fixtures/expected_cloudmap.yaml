@@ -169,7 +169,8 @@ artifacts:
           version: 1.1.1
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
-      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+      the_app:
+        Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
       aws:
         unfurl.relationships.ConnectsTo.AWSAccount:
@@ -194,7 +195,8 @@ artifacts:
           version: 0.7.7
       pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
-      Odoo@unfurl.cloud/onecommons/blueprints/odoo:
+      the_app:
+        Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
       Database:
         PostgresDB@unfurl.cloud/onecommons/unfurl-types:

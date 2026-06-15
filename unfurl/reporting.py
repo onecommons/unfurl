@@ -707,13 +707,8 @@ class CloudMapGraphWalker:
                 self._walk_typed_urls("references", referenced, visited)
             if record.dependencies:
                 self._walk_typed_urls("dependencies", record.dependencies, visited)
-            if record.instantiates and record.instantiates.types:
-                self.visitor.visit_relationship("instantiates")
-                for name, c in record.instantiates.types.items():
-                    self.visitor.visit_type_ref(name, dict(c) if c else None)
-                    self._walk_child(name, visited, _walk_only=True)
-                    self.visitor.leave_type_ref()
-                self.visitor.leave_relationship("instantiates")
+            if record.instantiates:
+                self._walk_typed_urls("instantiates", record.instantiates, visited)
             if record.instantiated_by:
                 self._walk_typed_urls(
                     "instantiated_by", record.instantiated_by, visited

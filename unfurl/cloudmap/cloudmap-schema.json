@@ -253,8 +253,8 @@
           "$ref": "#/definitions/typedURLs"
         },
         "instantiates": {
-          "$ref": "#/definitions/typeRef",
-          "description": "Types that this artifact instantiates (e.g., software package, service image or template, capabilities pipeline, build tools) with optional version constraints."
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
         },
         "dependencies": {
           "$ref": "#/definitions/typedURLs",

@@ -664,8 +664,8 @@ class Artifact(VersionedRecord):
     """"Map of URLs of interesting artifacts that this artifact embeds or incorporates."""
     references: TypedUrls = field(default_factory=dict)
     """Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."""
-    instantiates: TypeRefs = field(default_factory=TypeRefs)
-    """Types that this artifact instantiates with optional version constraints"""
+    instantiates: TypedUrls = field(default_factory=dict)
+    """Map of URLs (or labels) of entities this artifact instantiates with optional type constraints."""
     dependencies: TypedUrls = field(default_factory=dict)
     """Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the type may imply additional requirements or some dependencies might be optional."""
     instantiated_by: TypedUrls = field(default_factory=dict)
@@ -703,8 +703,7 @@ class Artifact(VersionedRecord):
             self.discovery = Discovery(**(self.discovery or {}))
         if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
-        if not isinstance(self.instantiates, TypeRefs):
-            self.instantiates = TypeRefs(types=self.instantiates)
+        self.instantiates = TypeRefs.urls_fromdict(self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
         self.notable = TypeRefs.urls_fromdict(self.notable)
         self.references = TypeRefs.urls_fromdict(self.references)
@@ -745,8 +744,8 @@ class Artifact(VersionedRecord):
                 v = TypeRefs.urls_asdict(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
-            elif k == "instantiates" and v:
-                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "instantiates":
+                v = TypeRefs.urls_asdict(v)
             elif k == "dependencies":
                 v = TypeRefs.urls_asdict(v)
             elif k == "instantiated_by":

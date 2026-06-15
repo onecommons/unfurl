@@ -1766,8 +1766,8 @@
             "description": "URLs referencing entries in instantiations with optional type constraints."
           },
           "instantiates": {
-            "$ref": "#/components/schemas/cloudmap_typeRef",
-            "description": "Types that this artifact instantiates (e.g., software package, service image or template, capabilities pipeline, build tools) with optional version constraints."
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
           },
           "metadata": {
             "allOf": [

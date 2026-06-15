@@ -62,7 +62,8 @@
           ],
           "instantiates": [
             {
-              "type": "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+              "type": "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+              "label": "the_app"
             }
           ]
         }
