@@ -1116,8 +1116,6 @@ class CloudType(CloudMapRecord):
     """Artifact containing type definition"""
     extends: List[str] = field(default_factory=list)
     """List of fully-qualified type names that this type extends"""
-    implementations: List[str] = field(default_factory=list)
-    """Non-exhaustive list URLs to repositories or artifacts that implement this type."""
     status: Optional[
         Literal["draft", "experimental", "stable", "deprecated", "removed"]
     ] = None

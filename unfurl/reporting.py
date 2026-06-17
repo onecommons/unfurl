@@ -748,8 +748,6 @@ class CloudMapGraphWalker:
                 edges.append(("source", [record.source]))
             if record.model:
                 edges.append(("model", [record.model]))
-            if record.implementations:
-                edges.append(("implementations", list(record.implementations)))
 
         for label, urls in edges:
             if not urls:

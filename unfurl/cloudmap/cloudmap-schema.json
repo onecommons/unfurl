@@ -686,13 +686,6 @@
             "Capability"
           ]
         },
-        "implementations": {
-          "type": "array",
-          "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
-          "items": {
-            "type": "string"
-          }
-        },
         "status": {
           "type": "string",
           "description": "Maturity level of the type definition.",
