@@ -688,7 +688,7 @@ class OCIArtifactAnalyzer(URLAnalyzer):
 
     def analyze_url(self, directory: AnalyzerContext) -> Optional[Artifact]:
         # Local import avoids a top-level circular dep with unfurl.oci.
-        from ..oci import create_oci_artifact
+        from .oci import create_oci_artifact
 
         artifact, instantiation, _artifact_fetch = create_oci_artifact(self.image)
         if instantiation:

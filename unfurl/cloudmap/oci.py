@@ -42,9 +42,9 @@ from tenacity import (
     wait_exponential_jitter,
     before_sleep_log,
 )
-from .support import ContainerImageParts, ContainerImage
-from .logs import getLogger
-from .tosca_plugins.cloudmap_defs import (
+from ..support import ContainerImageParts, ContainerImage
+from ..logs import getLogger
+from ..tosca_plugins.cloudmap_defs import (
     ArtifactMappings,
     ArtifactMetadata,
     Artifact,

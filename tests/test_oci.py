@@ -2,7 +2,7 @@ import json
 import pytest
 from dataclasses import replace
 
-from unfurl import oci
+from unfurl.cloudmap import oci
 from unfurl.tosca_plugins.cloudmap_defs import (
      Artifact,
      ArtifactMetadata,

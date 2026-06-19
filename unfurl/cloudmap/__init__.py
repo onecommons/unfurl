@@ -117,7 +117,7 @@ from ..tosca_plugins.cloudmap_defs import (
 from ..support import ContainerImage
 from ..configurator import Configurator, TaskView
 from ..util import load_class_from_file
-from ..oci import create_oci_artifact
+from .oci import create_oci_artifact
 
 from ..repo import (
     GitRepo,

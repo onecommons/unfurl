@@ -1208,7 +1208,7 @@ class ContainerImage(ExternalValue):
         return name
 
     def fetch_digest(self) -> Optional[str]:
-        from .oci import registry_v2_fetch
+        from .cloudmap.oci import registry_v2_fetch
 
         if not self.digest:
             ref = self.split(self.get())
