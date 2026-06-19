@@ -162,11 +162,21 @@ def create_oci_artifact(
                     source_revision=metadata.source_revision,
                     instantiated={purl: None},  # link instantiation to artifact
                 )
-                artifact_metadata = predicate.get("metadata")
+                if "metadata" in predicate:  # SlsaProvenance 0.2
+                    artifact_metadata = predicate["metadata"].get(
+                        "https://mobyproject.org/buildkit@v1#metadata"
+                    )
+                    metadata.created = predicate["metadata"].get("buildFinishedOn")
+                    if predicate["metadata"].get("reproducible"):
+                        instantiation.status = "reproducible"
+                elif "runDetails" in predicate:  # SlsaProvenance 1
+                    run_metadata = predicate["runDetails"].get("metadata", {})
+                    metadata.created = run_metadata.get("finishedOn")
+                    artifact_metadata = run_metadata.get("buildkit_metadata")
+                else:
+                    artifact_metadata = None
                 if isinstance(artifact_metadata, dict):
-                    vcs_info = artifact_metadata.get(
-                        "https://mobyproject.org/buildkit@v1#metadata", {}
-                    ).get("vcs")
+                    vcs_info = artifact_metadata.get("vcs")
                     if isinstance(vcs_info, dict):
                         # Add the artifact's manifest URL to sources
                         # Extract VCS info for build instantiation
