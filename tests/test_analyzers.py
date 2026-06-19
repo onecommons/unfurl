@@ -1,5 +1,6 @@
 import os
 import tempfile
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -228,6 +229,8 @@ class TestPipelineRunsMocked:
         manager.gitlab = MagicMock()
         manager.hostname = "gitlab.example.com"
         manager.canonical_url = ""
+        # Pipeline variables are only collected with save_internal set.
+        manager.save_internal = True
 
         mock_pipeline = MagicMock()
         mock_pipeline.id = 42
@@ -236,9 +239,19 @@ class TestPipelineRunsMocked:
 
         full_pipeline = MagicMock()
         full_pipeline.id = 42
+        full_pipeline.iid = 7
         full_pipeline.web_url = "https://gitlab.example.com/project/-/pipelines/42"
         full_pipeline.sha = "abc123"
         full_pipeline.status = "success"
+        full_pipeline.source = "merge_request_event"
+        full_pipeline.user = {"username": "octocat", "name": "The Octocat"}
+        # Merge-request pipeline ref → discussion_url is derived from the iid.
+        full_pipeline.ref = "refs/merge-requests/7/head"
+        # GitLab returns RFC 3339 strings for timestamps.
+        full_pipeline.created_at = "2026-04-01T01:00:00Z"
+        full_pipeline.started_at = "2026-04-01T01:30:00Z"
+        full_pipeline.finished_at = "2026-04-01T02:03:04Z"
+        full_pipeline.committed_at = "2026-04-01T00:55:00Z"
 
         # Mock job with artifacts
         mock_job = MagicMock()
@@ -273,12 +286,25 @@ class TestPipelineRunsMocked:
         assert inst.source_revision == "abc123"
         assert inst.status == "verified"
         assert inst.metadata.title == "Pipeline #42"
+        # The finished time is saved in the instantiation metadata.
+        assert inst.metadata.created == "2026-04-01T02:03:04Z"
+        # The merge-request URL (from the ref iid) is the discussion link.
+        assert (
+            inst.metadata.discussion_url
+            == "https://gitlab.example.com/owner/repo/-/merge_requests/7"
+        )
 
         # Verify properties in type constraint
         constraint = inst.type.types[EntitySchema.CIRun]
         assert constraint is not None
         props = constraint["properties"]
         assert props["id"] == 42
+        assert props["run_number"] == 7
+        assert props["trigger"] == "merge_request_event"
+        assert props["actor"] == "octocat"
+        assert props["created_at"] == "2026-04-01T01:00:00Z"
+        assert props["started_at"] == "2026-04-01T01:30:00Z"
+        assert props["committed_at"] == "2026-04-01T00:55:00Z"
         assert props["log_url"] == "https://gitlab.example.com/project/-/pipelines/42"
         assert len(props["artifacts"]) == 1
         assert props["artifacts"][0]["name"] == "build/build.zip"
@@ -286,6 +312,14 @@ class TestPipelineRunsMocked:
         assert props["artifacts_expire_at"] == "2026-04-01T00:00:00Z"
         assert len(props["variables"]) == 1
         assert props["variables"][0] == {"key": "CI_DEBUG", "value": "true"}
+        assert props["finished_at"] == "2026-04-01T02:03:04Z"
+
+        # With save_internal off, pipeline variables (which may hold
+        # secrets) are not collected.
+        manager.save_internal = False
+        inst_no_vars = list(manager.get_pipeline_runs(repo_info, ref="main"))[0]
+        props_no_vars = inst_no_vars.type.types[EntitySchema.CIRun]["properties"]
+        assert props_no_vars["variables"] == []
 
     @pytest.mark.skipif(GithubManager is None, reason="PyGithub not installed")
     def test_github_get_pipeline_runs(self):
@@ -297,15 +331,25 @@ class TestPipelineRunsMocked:
         mock_run = MagicMock()
         mock_run.html_url = "https://github.com/owner/repo/actions/runs/123"
         mock_run.id = 123
+        mock_run.run_number = 5
         mock_run.head_sha = "def456"
         mock_run.head_branch = "main"
         mock_run.conclusion = "success"
         mock_run.status = "completed"
         mock_run.name = "CI"
         mock_run.display_title = "CI"
-        mock_run.event = "push"
+        mock_run.event = "pull_request"
         mock_run.path = ".github/workflows/ci.yml"
         mock_run.logs_url = "https://api.github.com/repos/owner/repo/actions/runs/123/logs"
+        mock_run.actor = MagicMock(login="octocat")
+        # PyGithub returns datetime objects for run timestamps.
+        mock_run.created_at = datetime(2026, 4, 1, 1, 0, 0, tzinfo=timezone.utc)
+        mock_run.run_started_at = datetime(2026, 4, 1, 1, 30, 0, tzinfo=timezone.utc)
+        mock_run.updated_at = datetime(2026, 4, 1, 2, 3, 4, tzinfo=timezone.utc)
+        # head_commit timestamp lives in the run's raw payload, not a typed attr.
+        mock_run.raw_data = {"head_commit": {"timestamp": "2026-04-01T00:55:00Z"}}
+        # An associated PR → discussion_url.
+        mock_run.pull_requests = [MagicMock(number=42)]
 
         # Mock artifacts
         mock_artifact = MagicMock()
@@ -334,18 +378,29 @@ class TestPipelineRunsMocked:
         assert inst.status == "verified"
         assert inst.metadata.title == "CI"
         assert ".github/workflows/ci.yml" in inst.source
+        # The finished time (datetime → RFC 3339 string) is saved in metadata.
+        assert inst.metadata.created == "2026-04-01T02:03:04+00:00"
+        # The associated PR URL (from the embedded pull_requests) is the link.
+        assert inst.metadata.discussion_url == "https://github.com/owner/repo/pull/42"
 
         # Verify properties in type constraint
         constraint = inst.type.types[EntitySchema.CIRun]
         assert constraint is not None
         props = constraint["properties"]
         assert props["id"] == 123
+        assert props["run_number"] == 5
+        assert props["trigger"] == "pull_request"
+        assert props["actor"] == "octocat"
+        assert props["created_at"] == "2026-04-01T01:00:00+00:00"
+        assert props["started_at"] == "2026-04-01T01:30:00+00:00"
+        assert props["committed_at"] == "2026-04-01T00:55:00Z"
         assert props["log_url"] == "https://api.github.com/repos/owner/repo/actions/runs/123/logs"
         assert len(props["artifacts"]) == 1
         assert props["artifacts"][0]["name"] == "dist"
         assert props["artifacts"][0]["size"] == 2048
         assert props["artifacts"][0]["expires_at"] == "2026-04-15T00:00:00Z"
         assert props["artifacts_expire_at"] == "2026-04-15T00:00:00Z"
+        assert props["finished_at"] == "2026-04-01T02:03:04+00:00"
         # GitHub does not include variables
         assert "variables" not in props
 
@@ -354,6 +409,7 @@ class TestPipelineRunsMocked:
         manager.gitlab = MagicMock()
         manager.hostname = "gitlab.example.com"
         manager.canonical_url = ""
+        manager.save_internal = False
 
         pipelines = []
         for i in range(5):
@@ -367,9 +423,17 @@ class TestPipelineRunsMocked:
         def make_full_pipeline(pid):
             fp = MagicMock()
             fp.id = pid
+            fp.iid = pid
             fp.web_url = f"https://gitlab.example.com/project/-/pipelines/{pid}"
             fp.sha = f"sha{pid}"
             fp.status = "success"
+            fp.source = "push"
+            fp.user = {"username": "octocat"}
+            fp.ref = "main"
+            fp.created_at = ""
+            fp.started_at = ""
+            fp.finished_at = f"2026-04-0{pid + 1}T00:00:00Z"
+            fp.committed_at = ""
             fp.jobs.list.return_value = []
             fp.variables.list.return_value = []
             return fp

@@ -293,10 +293,24 @@ class PipelineRunProperties(TypedDict, total=False):
     """Properties for a CIRun type constraint."""
 
     id: int
+    run_number: int
+    """Human-friendly sequential run number (GitLab pipeline ``iid`` / GitHub ``run_number``)."""
     log_url: str
+    trigger: str
+    """What triggered the run (GitLab pipeline ``source`` / GitHub run ``event``)."""
+    actor: str
+    """Username of whoever triggered the run (GitLab pipeline ``user`` / GitHub run ``actor``)."""
     artifacts: List[PipelineArtifact]
     artifacts_expire_at: str
     variables: List[PipelineVariable]
+    created_at: str
+    """Date and time the run was created/queued, conforming to RFC 3339."""
+    started_at: str
+    """Date and time the run started executing, conforming to RFC 3339."""
+    finished_at: str
+    """Date and time the pipeline run finished, conforming to RFC 3339."""
+    committed_at: str
+    """Date and time of the run's head commit (GitLab ``committed_at`` / GitHub ``head_commit.timestamp``), conforming to RFC 3339."""
 
 
 class TypeRefConstraint(TypedDict, total=False):

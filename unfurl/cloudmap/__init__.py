@@ -1685,17 +1685,29 @@ class GitlabManager(RepositoryHost):
                 break
             full_pipeline = project.pipelines.get(pipeline.id)
 
-            properties = _gitlab_pipeline_properties(project, full_pipeline)
+            properties = _gitlab_pipeline_properties(
+                project, full_pipeline, self.save_internal
+            )
+
+            # For merge-request pipelines the ref is
+            # `refs/merge-requests/<iid>/head`; construct the MR URL from
+            # the extracted iid and use it as the discussion link.
+            discussion_url = ""
+            mr_match = re.match(
+                r"refs/merge-requests/(\d+)/head", full_pipeline.ref or ""
+            )
+            if mr_match:
+                discussion_url = (
+                    f"{project.web_url}/-/merge_requests/{mr_match.group(1)}"
+                )
 
             instantiation = Instantiation(
                 url=full_pipeline.web_url,
-                type=TypeRefs(
-                    {
-                        EntitySchema.CIRun: TypeRefConstraint(
-                            properties=cast(Dict[str, Any], properties)
-                        )
-                    }
-                ),
+                type=TypeRefs({
+                    EntitySchema.CIRun: TypeRefConstraint(
+                        properties=cast(Dict[str, Any], properties)
+                    )
+                }),
                 source=repo_info.artifact_url(".gitlab-ci.yml"),
                 source_ref=full_pipeline.ref,
                 source_revision=full_pipeline.sha,
@@ -1704,6 +1716,9 @@ class GitlabManager(RepositoryHost):
                 metadata=CommonMetadata(
                     title=f"Pipeline #{full_pipeline.id}",
                     description=full_pipeline.status,
+                    # `created` records when the run finished (RFC 3339).
+                    created=properties.get("finished_at", ""),
+                    discussion_url=discussion_url,
                 ),
             )
             count += 1
@@ -1711,9 +1726,17 @@ class GitlabManager(RepositoryHost):
 
 
 def _gitlab_pipeline_properties(
-    project: Any, full_pipeline: Any
+    project: Any, full_pipeline: Any, save_variables: bool = False
 ) -> PipelineRunProperties:
-    """Extract properties from a GitLab pipeline for the CIRun type constraint."""
+    """Extract properties from a GitLab pipeline for the CIRun type constraint.
+
+    Pipeline variables are the externally-supplied inputs to a pipeline
+    (manual-run form, trigger tokens, scheduled-pipeline variables, API
+    ``variables``). Their values come back in cleartext and may contain
+    secrets, and the cloudmap is committed to git, so they're only
+    collected when ``save_variables`` is set (driven by the host's
+    ``save_internal`` option).
+    """
     artifacts: List[PipelineArtifact] = []
     artifacts_expire_at = ""
     variables: List[PipelineVariable] = []
@@ -1739,19 +1762,37 @@ def _gitlab_pipeline_properties(
     except Exception:
         pass
 
-    # Fetch pipeline variables (GitLab only)
-    try:
-        raw_variables = full_pipeline.variables.list(get_all=True)
-        variables = [PipelineVariable(key=v.key, value=v.value) for v in raw_variables]
-    except Exception:
-        pass
+    # Fetch pipeline variables (GitLab only). These can hold secrets, so
+    # only collect them when the host opts in via `save_internal`.
+    if save_variables:
+        try:
+            raw_variables = full_pipeline.variables.list(get_all=True)
+            variables = [
+                PipelineVariable(key=v.key, value=v.value) for v in raw_variables
+            ]
+        except Exception:
+            pass
 
+    # GitLab pipeline `user` is a raw dict (name/username/...).
+    user = getattr(full_pipeline, "user", None)
+    actor = user.get("username", "") if isinstance(user, dict) else ""
+
+    # pipeline variables — the variables passed when that specific pipeline was created (manual "Run pipeline"
+    # form inputs, trigger-token variables, scheduled-pipeline variables, API variables).
     return PipelineRunProperties(
         id=full_pipeline.id,
+        run_number=getattr(full_pipeline, "iid", 0) or 0,
         log_url=full_pipeline.web_url,
+        trigger=getattr(full_pipeline, "source", "") or "",
+        actor=actor,
         artifacts=artifacts,
         artifacts_expire_at=artifacts_expire_at,
         variables=variables,
+        # GitLab returns RFC 3339 strings for timestamps already.
+        created_at=getattr(full_pipeline, "created_at", "") or "",
+        started_at=getattr(full_pipeline, "started_at", "") or "",
+        finished_at=getattr(full_pipeline, "finished_at", "") or "",
+        committed_at=getattr(full_pipeline, "committed_at", "") or "",
     )
 
 
@@ -1777,12 +1818,36 @@ def _github_run_properties(run: Any) -> PipelineRunProperties:
     except Exception:
         pass
 
-    return PipelineRunProperties(
+    actor = run.actor.login if getattr(run, "actor", None) else ""
+    # The workflow-run payload embeds head_commit with a top-level
+    # `timestamp`; PyGithub doesn't surface it as a typed attribute, so
+    # read it from the already-loaded raw data (no extra request).
+    committed_at = ""
+    try:
+        head_commit = run.raw_data.get("head_commit") or {}
+        committed_at = head_commit.get("timestamp", "") or ""
+    except Exception:
+        pass
+
+    pp = PipelineRunProperties(
         id=run.id,
+        run_number=getattr(run, "run_number", 0) or 0,
         log_url=run.logs_url,
+        trigger=getattr(run, "event", "") or "",
+        actor=actor,
         artifacts=artifacts,
         artifacts_expire_at=artifacts_expire_at,
     )
+    # PyGithub returns datetimes; emit RFC 3339 strings, skipping None.
+    if committed_at:
+        pp["committed_at"] = committed_at
+    if run.created_at:
+        pp["created_at"] = run.created_at.isoformat()
+    if run.run_started_at:
+        pp["started_at"] = run.run_started_at.isoformat()
+    if run.updated_at:
+        pp["finished_at"] = run.updated_at.isoformat()
+    return pp
 
 
 InstantiationStatus = Literal[
@@ -2203,15 +2268,21 @@ else:
 
                 properties = _github_run_properties(run)
 
+                # The run payload embeds associated pull requests (only
+                # for same-repo PRs); use the first as the discussion link.
+                discussion_url = ""
+                prs = getattr(run, "pull_requests", None) or []
+                if prs:
+                    base = run.html_url.split("/actions/")[0]
+                    discussion_url = f"{base}/pull/{prs[0].number}"
+
                 instantiation = Instantiation(
                     url=run.html_url,
-                    type=TypeRefs(
-                        {
-                            EntitySchema.CIRun: TypeRefConstraint(
-                                properties=cast(Dict[str, Any], properties)
-                            )
-                        }
-                    ),
+                    type=TypeRefs({
+                        EntitySchema.CIRun: TypeRefConstraint(
+                            properties=cast(Dict[str, Any], properties)
+                        )
+                    }),
                     source=repo_info.artifact_url(
                         run.path
                     ),  # e.g. ".github/workflows/ci.yml"
@@ -2222,6 +2293,9 @@ else:
                     metadata=CommonMetadata(
                         title=run.name or run.display_title,
                         description=f"{run.event}: {run.conclusion or run.status}",
+                        # `created` records when the run finished (RFC 3339).
+                        created=properties.get("finished_at", ""),
+                        discussion_url=discussion_url,
                     ),
                 )
                 count += 1
