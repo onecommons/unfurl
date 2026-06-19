@@ -618,7 +618,17 @@ impl SyncedRepo {
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
-        crud_create(self, file_path, path, key, json, expected_commit).await
+        // Dispatch on the concrete pool type; the body is shared via the
+        // generic `crud_create_in_pool` (same pattern as `apply_batch`).
+        match self.db() {
+            Db::Sqlite(pool) => {
+                crud_create_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => {
+                crud_create_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+        }
     }
 
     /// Replace an existing record's JSON.
@@ -640,7 +650,15 @@ impl SyncedRepo {
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
-        crud_update(self, file_path, path, key, json, expected_commit).await
+        match self.db() {
+            Db::Sqlite(pool) => {
+                crud_update_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => {
+                crud_update_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+        }
     }
 
     /// Insert-or-replace a record.
@@ -662,7 +680,15 @@ impl SyncedRepo {
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
-        crud_upsert(self, file_path, path, key, json, expected_commit).await
+        match self.db() {
+            Db::Sqlite(pool) => {
+                crud_upsert_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => {
+                crud_upsert_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+            }
+        }
     }
 
     /// Tombstone the record at `(file_path, path, key)` and clear its
@@ -685,7 +711,15 @@ impl SyncedRepo {
         key: &str,
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
-        crud_delete(self, file_path, path, key, expected_commit).await
+        match self.db() {
+            Db::Sqlite(pool) => {
+                crud_delete_in_pool(self, pool, file_path, path, key, expected_commit).await
+            }
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => {
+                crud_delete_in_pool(self, pool, file_path, path, key, expected_commit).await
+            }
+        }
     }
 
     /// Apply a batch of [`BatchOp`]s under a single SQL transaction.
@@ -1054,9 +1088,7 @@ fn enforce_conflict(
         }
         CommitRef::Commit(expected_oid) => {
             // Oid token requires an existing record at the given key,
-            // and its commit_id must match. (Previously this fell back
-            // to the file's commit_id when the record was absent;
-            // dropped along with the resolver helper.)
+            // and its commit_id must match.
             match existing_record_commit {
                 Some(actual) if actual == expected_oid => Ok(()),
                 actual => Err(Error::Conflict {
@@ -1075,495 +1107,307 @@ fn enforce_conflict(
 // `Conflict`) the transaction is dropped without commit, so SQLite /
 // Postgres roll it back atomically.
 
-async fn crud_create(
+// Note: See the comment under "Generic transaction helpers." in tx.rs if you are wondering why we need all these `where` clauses on these generic functions.
+
+async fn crud_create_in_pool<DB>(
     sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
     file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<WriteOutcome> {
+) -> Result<WriteOutcome>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let format_owner: Option<String>;
-    let id: i64;
-    let version: i64;
-    match sync.db() {
-        Db::Sqlite(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file, then worktree default. NotFound
-            // when none of those yield a value (e.g. brand-new key
-            // and no `default_file_path` set).
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .or_else(|| lookup.default_file_path.clone())
-                .ok_or_else(|| Error::NotFound {
-                    file_path: String::new(),
-                    path: path.to_string(),
-                })?;
-            let file_path: &str = &resolved_fp;
-            // Live row → conflict. Tombstones are treated as absent so
-            // `create_record` resurrects them.
-            if lookup.record_id.is_some() {
-                return Err(Error::AlreadyExists {
-                    file_path: file_path.to_string(),
-                    path: path.to_string(),
-                });
-            }
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    false,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            id = db::tx::create_record(
-                &mut tx,
-                sync.worktree_id(),
-                file_path,
-                path,
-                key,
-                &json_text,
-                version,
-                exp_v,
-                exp_c,
-            )
-            .await?;
-            format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file, then worktree default. NotFound
-            // when none of those yield a value (e.g. brand-new key
-            // and no `default_file_path` set).
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .or_else(|| lookup.default_file_path.clone())
-                .ok_or_else(|| Error::NotFound {
-                    file_path: String::new(),
-                    path: path.to_string(),
-                })?;
-            let file_path: &str = &resolved_fp;
-            if lookup.record_id.is_some() {
-                return Err(Error::AlreadyExists {
-                    file_path: file_path.to_string(),
-                    path: path.to_string(),
-                });
-            }
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    false,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            id = db::tx::create_record(
-                &mut tx,
-                sync.worktree_id(),
-                file_path,
-                path,
-                key,
-                &json_text,
-                version,
-                exp_v,
-                exp_c,
-            )
-            .await?;
-            format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    // Resolve the effective file_path: caller-supplied, then existing
+    // record's file, then worktree default. NotFound when none of those
+    // yield a value (e.g. brand-new key and no `default_file_path` set).
+    let resolved_fp: String = file_path
+        .map(str::to_string)
+        .or_else(|| lookup.record_file_path.clone())
+        .or_else(|| lookup.default_file_path.clone())
+        .ok_or_else(|| Error::NotFound {
+            file_path: String::new(),
+            path: path.to_string(),
+        })?;
+    let file_path: &str = &resolved_fp;
+    // Live row → conflict. Tombstones are treated as absent so
+    // `create_record` resurrects them.
+    if lookup.record_id.is_some() {
+        return Err(Error::AlreadyExists {
+            file_path: file_path.to_string(),
+            path: path.to_string(),
+        });
     }
+    if let Some(exp) = expected_commit.as_ref() {
+        enforce_conflict(
+            file_path,
+            path,
+            exp,
+            lookup.record_commit.as_ref(),
+            lookup.record_version,
+            false,
+        )?;
+    }
+    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+    let id = db::tx::create_record(
+        &mut tx,
+        sync.worktree_id(),
+        file_path,
+        path,
+        key,
+        &json_text,
+        version,
+        exp_v,
+        exp_c,
+    )
+    .await?;
+    let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
+    db::tx::replace_aliases(
+        &mut tx,
+        id,
+        &compute_aliases(
+            sync,
+            format_owner.as_deref(),
+            id,
+            file_path,
+            path,
+            key,
+            &json,
+        ),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
 
-async fn crud_update(
+async fn crud_update_in_pool<DB>(
     sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
     file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<WriteOutcome> {
+) -> Result<WriteOutcome>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let id: i64;
-    let version: i64;
-    match sync.db() {
-        Db::Sqlite(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file. update/delete don't fall back
-            // to the worktree default — they require an existing
-            // record, and the `record_id.ok_or(NotFound)` below
-            // catches the absent case.
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .unwrap_or_default();
-            let file_path: &str = &resolved_fp;
-            // Tombstone or absent → NotFound.
-            id = lookup.record_id.ok_or_else(|| Error::NotFound {
-                file_path: file_path.to_string(),
-                path: path.to_string(),
-            })?;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    true,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
-            let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file. update/delete don't fall back
-            // to the worktree default — they require an existing
-            // record, and the `record_id.ok_or(NotFound)` below
-            // catches the absent case.
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .unwrap_or_default();
-            let file_path: &str = &resolved_fp;
-            id = lookup.record_id.ok_or_else(|| Error::NotFound {
-                file_path: file_path.to_string(),
-                path: path.to_string(),
-            })?;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    true,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
-            let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    // Resolve the effective file_path: caller-supplied, then existing
+    // record's file. update/delete don't fall back to the worktree
+    // default — they require an existing record, and the
+    // `record_id.ok_or(NotFound)` below catches the absent case.
+    let resolved_fp: String = file_path
+        .map(str::to_string)
+        .or_else(|| lookup.record_file_path.clone())
+        .unwrap_or_default();
+    let file_path: &str = &resolved_fp;
+    // Tombstone or absent → NotFound.
+    let id = lookup.record_id.ok_or_else(|| Error::NotFound {
+        file_path: file_path.to_string(),
+        path: path.to_string(),
+    })?;
+    if let Some(exp) = expected_commit.as_ref() {
+        enforce_conflict(
+            file_path,
+            path,
+            exp,
+            lookup.record_commit.as_ref(),
+            lookup.record_version,
+            true,
+        )?;
     }
+    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+    db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
+    let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
+    db::tx::replace_aliases(
+        &mut tx,
+        id,
+        &compute_aliases(
+            sync,
+            format_owner.as_deref(),
+            id,
+            file_path,
+            path,
+            key,
+            &json,
+        ),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
 
-async fn crud_upsert(
+async fn crud_upsert_in_pool<DB>(
     sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
     file_path: Option<&str>,
     path: &str,
     key: &str,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
-) -> Result<WriteOutcome> {
+) -> Result<WriteOutcome>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let id: i64;
-    let version: i64;
-    match sync.db() {
-        Db::Sqlite(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file, then worktree default. NotFound
-            // when none of those yield a value (e.g. brand-new key
-            // and no `default_file_path` set).
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .or_else(|| lookup.default_file_path.clone())
-                .ok_or_else(|| Error::NotFound {
-                    file_path: String::new(),
-                    path: path.to_string(),
-                })?;
-            let file_path: &str = &resolved_fp;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    lookup.record_id.is_some(),
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            id = db::tx::upsert_record(
-                &mut tx,
-                sync.worktree_id(),
-                file_path,
-                path,
-                key,
-                &json_text,
-                version,
-                exp_v,
-                exp_c,
-            )
-            .await?;
-            let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file, then worktree default. NotFound
-            // when none of those yield a value (e.g. brand-new key
-            // and no `default_file_path` set).
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .or_else(|| lookup.default_file_path.clone())
-                .ok_or_else(|| Error::NotFound {
-                    file_path: String::new(),
-                    path: path.to_string(),
-                })?;
-            let file_path: &str = &resolved_fp;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    lookup.record_id.is_some(),
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            id = db::tx::upsert_record(
-                &mut tx,
-                sync.worktree_id(),
-                file_path,
-                path,
-                key,
-                &json_text,
-                version,
-                exp_v,
-                exp_c,
-            )
-            .await?;
-            let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
-                &mut tx,
-                id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
-            )
-            .await?;
-            tx.commit().await?;
-        }
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    // Resolve the effective file_path: caller-supplied, then existing
+    // record's file, then worktree default. NotFound when none of those
+    // yield a value (e.g. brand-new key and no `default_file_path` set).
+    let resolved_fp: String = file_path
+        .map(str::to_string)
+        .or_else(|| lookup.record_file_path.clone())
+        .or_else(|| lookup.default_file_path.clone())
+        .ok_or_else(|| Error::NotFound {
+            file_path: String::new(),
+            path: path.to_string(),
+        })?;
+    let file_path: &str = &resolved_fp;
+    if let Some(exp) = expected_commit.as_ref() {
+        enforce_conflict(
+            file_path,
+            path,
+            exp,
+            lookup.record_commit.as_ref(),
+            lookup.record_version,
+            lookup.record_id.is_some(),
+        )?;
     }
+    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+    let id = db::tx::upsert_record(
+        &mut tx,
+        sync.worktree_id(),
+        file_path,
+        path,
+        key,
+        &json_text,
+        version,
+        exp_v,
+        exp_c,
+    )
+    .await?;
+    let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
+    db::tx::replace_aliases(
+        &mut tx,
+        id,
+        &compute_aliases(
+            sync,
+            format_owner.as_deref(),
+            id,
+            file_path,
+            path,
+            key,
+            &json,
+        ),
+    )
+    .await?;
+    tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
 
-async fn crud_delete(
+async fn crud_delete_in_pool<DB>(
     sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
     file_path: Option<&str>,
     path: &str,
     key: &str,
     expected_commit: Option<CommitRef>,
-) -> Result<WriteOutcome> {
-    let id: i64;
-    let version: i64;
-    match sync.db() {
-        Db::Sqlite(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file. update/delete don't fall back
-            // to the worktree default — they require an existing
-            // record, and the `record_id.ok_or(NotFound)` below
-            // catches the absent case.
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .unwrap_or_default();
-            let file_path: &str = &resolved_fp;
-            // Tombstone or absent → NotFound. We never hard-delete here;
-            // `commit_repository` is the only path that purges
-            // tombstones once they've been written to disk.
-            id = lookup.record_id.ok_or_else(|| Error::NotFound {
-                file_path: file_path.to_string(),
-                path: path.to_string(),
-            })?;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    true,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
-            tx.commit().await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let mut tx = pool.begin().await?;
-            let lookup =
-                db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
-            // Resolve the effective file_path: caller-supplied, then
-            // existing record's file. update/delete don't fall back
-            // to the worktree default — they require an existing
-            // record, and the `record_id.ok_or(NotFound)` below
-            // catches the absent case.
-            let resolved_fp: String = file_path
-                .map(str::to_string)
-                .or_else(|| lookup.record_file_path.clone())
-                .unwrap_or_default();
-            let file_path: &str = &resolved_fp;
-            id = lookup.record_id.ok_or_else(|| Error::NotFound {
-                file_path: file_path.to_string(),
-                path: path.to_string(),
-            })?;
-            if let Some(exp) = expected_commit.as_ref() {
-                enforce_conflict(
-                    file_path,
-                    path,
-                    exp,
-                    lookup.record_commit.as_ref(),
-                    lookup.record_version,
-                    true,
-                )?;
-            }
-            version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
-            let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
-            db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
-            tx.commit().await?;
-        }
+) -> Result<WriteOutcome>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    // Resolve the effective file_path: caller-supplied, then existing
+    // record's file. update/delete don't fall back to the worktree
+    // default — they require an existing record, and the
+    // `record_id.ok_or(NotFound)` below catches the absent case.
+    let resolved_fp: String = file_path
+        .map(str::to_string)
+        .or_else(|| lookup.record_file_path.clone())
+        .unwrap_or_default();
+    let file_path: &str = &resolved_fp;
+    // Tombstone or absent → NotFound. We never hard-delete here;
+    // `commit_repository` is the only path that purges tombstones once
+    // they've been written to disk.
+    let id = lookup.record_id.ok_or_else(|| Error::NotFound {
+        file_path: file_path.to_string(),
+        path: path.to_string(),
+    })?;
+    if let Some(exp) = expected_commit.as_ref() {
+        enforce_conflict(
+            file_path,
+            path,
+            exp,
+            lookup.record_commit.as_ref(),
+            lookup.record_version,
+            true,
+        )?;
     }
+    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
+    db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
+    tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
 
-// Note: See the comment in tx.rs on why we need all these `where` clauses on these generic functions.
 
 /// Apply a single [`BatchOp`] in the caller-owned transaction,
 /// returning the new `(id, version)` on success.
