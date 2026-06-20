@@ -1,4 +1,3 @@
-# pbr uses this for install_requires
 pipenv==2024.0.0 # MIT
 click>=8.0.1,<8.1.4 # BSD 3-clause
 jsonschema==4.25.1 # MIT

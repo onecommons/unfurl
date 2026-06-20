@@ -74,11 +74,6 @@ logger = logging.getLogger("unfurl")
 
 API_VERSION = "unfurl/v1.0.0"
 
-try:
-    from importlib.metadata import files
-except ImportError:
-    from importlib_metadata import files  # type: ignore
-
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
 _package_digest: Optional[str] = None
@@ -94,17 +89,17 @@ def get_package_digest() -> str:
     basedir = os.path.dirname(_basepath)
     if os.path.isdir(os.path.join(basedir, ".git")):
         repo = Repo(basedir)
-        # same as pbr's git_version
+        # the short git sha of the working tree (source/dev checkout)
         _package_digest = repo.git.log(n=1, pretty="format:%h")
     else:
-        _package_digest = ""
-        pkg_files = files("unfurl")
-        if pkg_files:
-            try:
-                pbr = [p for p in pkg_files if "pbr.json" in str(p)][0]
-                _package_digest = json.loads(pbr.read_text())["git_version"]
-            except Exception:  # no git or pbr.json
-                _package_digest = ""
+        # installed (non-git) build: read the short sha recorded inside the
+        # package at build time by setup.py (see unfurl/_installed_sha.py).
+        try:
+            from ._installed_sha import GIT_SHA
+
+            _package_digest = GIT_SHA
+        except Exception:  # no _installed_sha module (e.g. built without git)
+            _package_digest = ""
     return str(_package_digest)
 
 

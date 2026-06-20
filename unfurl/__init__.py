@@ -5,7 +5,7 @@ import os
 import sys
 from typing import Dict, Optional, Union, TYPE_CHECKING
 
-import pbr.version
+from importlib.metadata import version as _dist_version, PackageNotFoundError
 
 from . import logs
 
@@ -15,26 +15,31 @@ logs.initialize_logging()
 
 
 def __version__(include_prerelease: bool = False) -> str:
-    # this is expensive so make this a function to calculate lazily
+    # the version recorded in the installed distribution metadata,
+    # set at build time by setuptools-scm (e.g. "1.2.0" or "1.2.1.dev859")
+    try:
+        v = _dist_version("unfurl")
+    except PackageNotFoundError:
+        v = "0.0.0"
     if include_prerelease:
-        # if running from a repository appends .devNNN using something like git describe
-        return pbr.version.VersionInfo(__name__).release_string()
-    else:  # semver only (last release)
-        return pbr.version.VersionInfo(__name__).version_string()
+        # full version, appends .devNNN for builds after the last release tag
+        return v
+    else:  # semver only (last release): strip .devNNN and any +local build tag
+        return v.split("+", 1)[0].split(".dev", 1)[0]
 
 
 def semver_prerelease() -> str:
-    bpr_ver = __version__(True)
-    parts = bpr_ver.split(".")
+    ver = __version__(True)
+    parts = ver.split(".")
     # if ends with .devNNN, bump the patch version to indicate upcoming release and append pre-release version
     if len(parts) > 3:
         return f"{parts[0]}.{parts[1]}.{int(parts[2]) + 1}-dev.{parts[3].lstrip('dev')}"
     else:
-        return bpr_ver
+        return ver
 
 
 def version_tuple(v: Union[None, str] = None) -> tuple:
-    "Convert a pbr or semver version string into a comparable 3 or 4 item tuple."
+    "Convert a semver version string into a comparable 3 or 4 item tuple."
     if v is None:
         v = __version__(True)
     elif "-" in v:  # its a semver with a pre-release version

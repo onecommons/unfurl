@@ -26,9 +26,16 @@ requires = [
     "setuptools>=78.1.1",
     "wheel>=0.46.2",
     "setuptools-rust>=1.7.0",
-    "pbr",
+    "setuptools-scm>=8",
 ]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+# Derive the version from git tags (e.g. tag v1.2.0 -> "1.2.0", and commits
+# after it -> "1.2.1.dev<N>"). `no-local-version` drops the "+g<sha>" suffix so
+# the version stays uploadable to PyPI. The git
+# sha is recorded separately in unfurl/_installed_sha.py (see setup.py).
+local_scheme = "no-local-version"
 
 [tool.setuptools]
 zip-safe = false

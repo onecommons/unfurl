@@ -1,6 +1,8 @@
 # general things to ignore
 build/
 dist/
+# generated at build time by setup.py (git short sha for get_package_digest)
+unfurl/_installed_sha.py
 *.egg-info/
 *.egg
 .eggs

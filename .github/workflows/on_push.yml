@@ -399,7 +399,7 @@ jobs:
       if: matrix.os == 'macos-14'
 
     - name: install python dependencies
-      run: pip install -U setuptools wheel twine pbr
+      run: pip install -U setuptools wheel twine setuptools-scm
 
     - name: build sdist
       if: matrix.name == 'ubuntu-manylinux-aarch64'

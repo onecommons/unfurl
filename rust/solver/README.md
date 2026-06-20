@@ -37,7 +37,7 @@ To compile the Python extension, in the parent of this directory, run:
 
 ``python setup.py build_rust --debug --inplace``
 
-Run `pip install setuptools-rust>=1.7.0 pbr` to install `setup.py`'s requirements.
+Run `pip install setuptools-rust>=1.7.0 setuptools-scm` to install `setup.py`'s requirements.
 
 ## Tests
 
