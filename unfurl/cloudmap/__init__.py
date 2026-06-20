@@ -111,10 +111,11 @@ from ..tosca_plugins.cloudmap_defs import (
     TypedUrls,
     TypeRefs,
     get_repository_url,
+    build_oci_purl,
     AnalyzerContext,
     CloudMapView,
 )
-from ..support import ContainerImage
+from ..support import ContainerImage, ContainerImageParts
 from ..configurator import Configurator, TaskView
 from ..util import load_class_from_file
 from .oci import create_oci_artifact
@@ -233,14 +234,20 @@ class AnalyzerRegistry:
             notables_found: List[Type[RepositoryAnalyzer]] = []
             rel_root = str(Path(root).relative_to(Path(root_dir)))
             for folder in dirs:
+                # Pass the matched directory's own path as `folder` (file="") so
+                # that `notable.path` is the directory path, consistent with
+                # analyze_repo_tree() which inits folder matches with item.path.
+                folder_path = (
+                    folder if rel_root == "." else os.path.join(rel_root, folder)
+                )
                 notable_cls = self.folders.get(folder)
                 if notable_cls:
                     if notable_cls not in notables_found:
-                        notable = notable_cls.init(rel_root, "")
+                        notable = notable_cls.init(folder_path, "")
                 if not notable:
                     # Fall back to generic RepositoryAnalyzers (no files/folders
                     # declared). The first init() to accept the folder wins.
-                    notable, notable_cls = self._match_generic(rel_root, "")
+                    notable, notable_cls = self._match_generic(folder_path, "")
                 if notable:
                     dirs.remove(folder)  # don't visit folder
             for filename in files:
@@ -898,20 +905,31 @@ class Directory(_LocalGitRepos, AnalyzerContext):
 
     def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryAnalyzer]:
         self.logger.verbose("analyzing %s", repo_info.url)
-        notables = self.analyze_repo(repo_info, repo)
-        for n in notables:
-            artifact = n.analyze(self, repo_info, repo.working_dir)
-            if artifact:
-                # XXX what to do if self.db.get_artifact(artifact.url)?
-                # (currently we want to give this priority for the git digest)
-                self.db.add_record(artifact)
-                url = artifact.metadata.source_url
-                if (
-                    url
-                    and CloudMap._is_git_url(url)
-                    and not self.db.get_repository(url)
-                ):
-                    self.cloudmap.analyze_url(url, "no")
+        analyze_queue = self.analyze_repo(repo_info, repo)
+        notables = []
+        for n in analyze_queue:
+            try:
+                artifact = n.analyze(self, repo_info, repo.working_dir)
+                if artifact:
+                    # XXX what to do if self.db.get_artifact(artifact.url)?
+                    # (currently we want to give this priority for the git digest)
+                    self.db.add_record(artifact)
+                    url = artifact.metadata.source_url
+                    if (
+                        url
+                        and CloudMap._is_git_url(url)
+                        and not self.db.get_repository(url)
+                    ):
+                        self.cloudmap.analyze_url(url, "no")
+            except Exception:
+                self.logger.error(
+                    "Unexpected error analyzing notable %s in %s.",
+                    n.path,
+                    repo_info.url,
+                    exc_info=True,
+                )
+            else:
+                notables.append(n)
         repo_info.add_notables(notables)
         return notables
 
@@ -2812,6 +2830,10 @@ class CloudMap:
             return True
         if parts.path.endswith(".git"):
             return True
+        if parts.hostname == "github.com" and parts.path.strip("/").count("/") == 1:
+            return True
+        if parts.hostname in ("github.com", "unfurl.cloud") and "/-/" not in parts.path:
+            return True
         return False
 
     def analyze_url(
@@ -2840,12 +2862,18 @@ class CloudMap:
 
         if not parts.scheme:
             # No scheme - see if it's a local path inside a git repository
-            repo = Repo.find_containing_git_repo(url)
+            repo = os.path.exists(url) and Repo.find_containing_git_repo(url)
             if repo:
-                # don't include "." as a path to examine
                 self.directory._add_repo(repo)
+                # don't include "." as a path to examine
                 url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
                 return self._add_repository_record(url, analyze)
+            else:
+                self.logger.info(
+                    "URL %s has no scheme and is not a local path; treating as container image name",
+                    url,
+                )
+                url = build_oci_purl(ContainerImageParts.split(url))
 
         if analyze != "yes":
             # unless analyze is "yes", don't add a new record if the URL already exists in the database

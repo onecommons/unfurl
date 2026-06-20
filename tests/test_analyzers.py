@@ -68,17 +68,19 @@ class TestCIAnalyzers:
         assert gh_analyzers[0].artifact_type == EntitySchema.GitHubWorkflow
 
     def test_github_workflow_notable_no_workflows_dir(self, tmp_path):
-        """If .github exists but no workflows/ subdir, analyze returns None."""
+        """If .github exists but no workflows/ subdir, analyze adds nothing."""
         (tmp_path / ".github").mkdir()
         (tmp_path / ".github" / "CODEOWNERS").write_text("* @owner\n")
         analyzer = AnalyzerRegistry(list(Analyzers))
         analyzers = analyzer.analyze_local(str(tmp_path), str(tmp_path))
         gh_analyzers = [n for n in analyzers if isinstance(n, GitHubWorkflowAnalyzer)]
-        # The notable is created but analyze() should return None
+        # The notable is created but analyze() should return None and record
+        # no `contains` entries (no directory-level entry).
         assert len(gh_analyzers) == 1
         repo_info = Repository(url="git://example.com/repo.git", path="repo", name="repo")
         artifact = gh_analyzers[0].analyze(MagicMock(), repo_info, str(tmp_path))
         assert artifact is None
+        assert gh_analyzers[0].contains == {}
 
     def test_no_ci_notable(self, tmp_path):
         """Repo without CI files returns no CI analyzers."""
@@ -92,29 +94,71 @@ class TestCIAnalyzers:
         ]
         assert len(ci_analyzers) == 0
 
-    def test_github_workflow_notable_path(self, tmp_path):
-        """Test that GitHubWorkflowAnalyzer.path returns .github/workflows."""
-        notable = GitHubWorkflowAnalyzer(".", "")
-        assert notable.path == ".github/workflows"
-
-    def test_github_workflow_notable_path_nested(self):
-        """Test path for a nested folder."""
-        notable = GitHubWorkflowAnalyzer("subdir", "")
-        assert notable.path == os.path.join("subdir", ".github", "workflows")
-
     def test_github_workflow_notable_analyze(self, tmp_path):
-        """Test that analyze returns an artifact with the correct type and URL."""
+        """analyze() emits a separate artifact + `contains` entry per workflow file."""
         workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        (workflows_dir / "ci.yml").write_text("name: CI\n")
+        (workflows_dir / "release.yaml").write_text("name: Release\n")
+        # non-yaml files and subdirectories are ignored
+        (workflows_dir / "README.md").write_text("# workflows\n")
+        (workflows_dir / "scripts").mkdir()
+        repo_info = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+        directory = MagicMock()
+        # both walkers construct folder matches with the matched dir's path
+        notable = GitHubWorkflowAnalyzer(".github", "")
+        # artifacts are added via directory.add_record(), so analyze() returns None
+        artifact = notable.analyze(directory, repo_info, str(tmp_path))
+        assert artifact is None
+
+        # one `contains` entry per workflow file, each typed as a GitHubWorkflow
+        assert set(notable.contains) == {
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yaml",
+        }
+        for type_refs in notable.contains.values():
+            assert EntitySchema.GitHubWorkflow in type_refs.types
+
+        # a separate artifact was recorded for each workflow file
+        recorded = [c.args[0] for c in directory.add_record.call_args_list]
+        recorded_urls = {a.url for a in recorded}
+        assert len(recorded) == 2
+        assert any(u.endswith(".github/workflows/ci.yml") for u in recorded_urls)
+        assert any(u.endswith(".github/workflows/release.yaml") for u in recorded_urls)
+        for a in recorded:
+            assert EntitySchema.GitHubWorkflow in a.type.types
+
+    def test_github_workflow_analyze_nested_folder(self, tmp_path):
+        """A nested match: folder is the matched .github dir's full path."""
+        workflows_dir = tmp_path / "subdir" / ".github" / "workflows"
         workflows_dir.mkdir(parents=True)
         (workflows_dir / "ci.yml").write_text("name: CI\n")
         repo_info = Repository(
             url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
         )
-        notable = GitHubWorkflowAnalyzer(".", "")
-        artifact = notable.analyze(MagicMock(), repo_info, str(tmp_path))
-        assert artifact is not None
-        assert EntitySchema.GitHubWorkflow in artifact.type.types
-        assert ".github/workflows" in artifact.url
+        # folder == "subdir/.github" mimics the walker's init(<matched dir path>, ...)
+        notable = GitHubWorkflowAnalyzer(os.path.join("subdir", ".github"), "")
+        notable.analyze(MagicMock(), repo_info, str(tmp_path))
+        assert set(notable.contains) == {"subdir/.github/workflows/ci.yml"}
+
+    def test_github_workflow_multiple_entries_in_contains(self, tmp_path):
+        """add_notables records every per-file entry an analyzer contributes."""
+        workflows_dir = tmp_path / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        (workflows_dir / "ci.yml").write_text("name: CI\n")
+        (workflows_dir / "release.yaml").write_text("name: Release\n")
+        repo_info = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+        notable = GitHubWorkflowAnalyzer(".github", "")
+        notable.analyze(MagicMock(), repo_info, str(tmp_path))
+        repo_info.add_notables([notable])
+        assert set(repo_info.contains) == {
+            ".github/workflows/ci.yml",
+            ".github/workflows/release.yaml",
+        }
 
 
 class TestGenericRepositoryAnalyzerFallback:

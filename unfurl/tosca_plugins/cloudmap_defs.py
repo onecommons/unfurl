@@ -989,9 +989,16 @@ class Repository(CloudMapRecord):
         notables.sort(key=attrgetter("path"))
         contains: TypedUrls = {}
         for n in notables:
-            type_refs = TypeRefs({n.artifact_type: None}) if n.artifact_type else None
-            contains[n.path] = type_refs
-        self.contains = contains
+            if n.contains is not None:
+                # analyzer mapped to multiple entries (e.g. one per workflow file)
+                contains.update(n.contains)
+            else:
+                type_refs = (
+                    TypeRefs({n.artifact_type: None}) if n.artifact_type else None
+                )
+                contains[n.path] = type_refs
+        # keep entries ordered by path even when an analyzer contributed several
+        self.contains = {k: contains[k] for k in sorted(contains)}
 
     def get_default_branch(self):
         return self.default_branch or "main"
@@ -1324,8 +1331,7 @@ class RepositoryAnalyzer(Analyzer):
         self.file = file
         self.digest = digest
         self.fragment = ""
-        # Artifact ID when added to directory.db.artifacts
-        self.artifact_id: Optional[str] = None
+        self.contains: Optional[TypedUrls] = None
 
     def __repr__(self):
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"

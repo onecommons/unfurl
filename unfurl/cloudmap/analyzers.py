@@ -228,9 +228,6 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 self._create_ensemble_instantiation_and_service(
                     manifest, repo_info, directory, typename, artifact
                 )
-
-            # Store artifact ID for repository notable
-            self.artifact_id = artifact_url
         else:
             self.artifact_type = EntitySchema.UnfurlProject
         return artifact
@@ -590,27 +587,33 @@ class GitHubWorkflowAnalyzer(RepositoryAnalyzer):
     def analyze(
         self, directory: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
-        # self.folder is the parent of .github (e.g. ".")
-        workflows_dir = os.path.join(root_path, self.folder, ".github", "workflows")
+        # Emit a separate artifact and `contains` entry for each workflow file
+        # in .github/workflows.
+        workflows_rel = os.path.join(self.folder, "workflows")
+        if workflows_rel.startswith("./"):
+            workflows_rel = workflows_rel[2:]
+        workflows_dir = os.path.join(root_path, workflows_rel)
+        # populated even when empty so add_notables records no spurious
+        # directory-level entry (self.contains overrides the default self.path).
+        self.contains = {}
         if not os.path.isdir(workflows_dir):
             return None
-        # Create artifact pointing to the workflows directory
-        workflows_path = os.path.join(self.folder, ".github", "workflows")
-        if workflows_path.startswith("./"):
-            workflows_path = workflows_path[2:]
-        artifact_url = repo_info.artifact_url(workflows_path)
-        return Artifact(
-            url=artifact_url,
-            type=TypeRefs({self.artifact_type: None}),
-        )
-
-    @property
-    def path(self) -> str:
-        # Override to report .github/workflows as the notable path
-        base = os.path.join(self.folder, ".github", "workflows")
-        if base.startswith("./"):
-            base = base[2:]
-        return base
+        for entry in sorted(os.listdir(workflows_dir)):
+            if not entry.endswith((".yml", ".yaml")):
+                continue
+            if not os.path.isfile(os.path.join(workflows_dir, entry)):
+                continue
+            rel_path = os.path.join(workflows_rel, entry)
+            type_refs = TypeRefs({self.artifact_type: None})
+            directory.add_record(
+                Artifact(
+                    url=repo_info.artifact_url(rel_path),
+                    type=TypeRefs({self.artifact_type: None}),
+                )
+            )
+            self.contains[rel_path] = type_refs
+        # artifacts were added above via directory.add_record
+        return None
 
 
 Analyzers = (

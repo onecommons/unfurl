@@ -1818,13 +1818,22 @@ def test_is_git_url():
     """Test the _is_git_url static method with various URL formats."""
     from unfurl.cloudmap import CloudMap
 
+    # git scheme or .git suffix
     assert CloudMap._is_git_url("git://github.com/org/repo") is True
     assert CloudMap._is_git_url("git+https://github.com/org/repo") is True
     assert CloudMap._is_git_url("git+ssh://github.com/org/repo") is True
     assert CloudMap._is_git_url("https://github.com/org/repo.git") is True
     assert CloudMap._is_git_url("https://example.com/repo.git") is True
     assert CloudMap._is_git_url("https://example.com/repo.git#:path/file") is True
-    assert CloudMap._is_git_url("https://github.com/org/repo") is False
+    # github.com "org/repo" paths are treated as git repos even without .git
+    assert CloudMap._is_git_url("https://github.com/org/repo") is True
+    assert CloudMap._is_git_url("https://github.com/org/repo/subdir") is True
+    # unfurl.cloud project paths (no hyphen) are git repos too
+    assert CloudMap._is_git_url("https://unfurl.cloud/org/repo") is True
+    assert CloudMap._is_git_url("https://unfurl.cloud/org/repo/name") is True
+    assert CloudMap._is_git_url("https://unfurl.cloud/org/repo-name") is True
+    assert CloudMap._is_git_url("https://unfurl.cloud/org/repo/-/pipelines") is False
+    # other hosts without a git scheme or .git suffix are not git URLs
     assert CloudMap._is_git_url("https://gitlab.com/org/repo") is False
     assert CloudMap._is_git_url("https://example.com/service") is False
     assert (
