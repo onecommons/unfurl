@@ -98,6 +98,7 @@ from ..tosca_plugins.cloudmap_defs import (
     CommonMetadata,
     EntitySchema,
     Instantiation,
+    TypeRefStatus,
     RepositoryAnalyzer,
     PipelineArtifact,
     PipelineRunProperties,
@@ -1146,6 +1147,7 @@ class RepositoryHost:
         ref: str = "",
         commit: str = "",
         limit: int = 0,
+        status: Optional[List[str]] = None,
     ) -> Iterable[Instantiation]:
         f"""Return pipeline/workflow run Instantiations for the given repository.
 
@@ -1156,6 +1158,10 @@ class RepositoryHost:
             ref: Git ref (branch or tag name) to filter runs
             commit: Git commit SHA to filter runs
             limit: Max number of runs to return (default: {self.DEFAULT_PIPELINE_LIMIT})
+            status: If given, only return runs whose status is in this list
+                (GitLab pipeline ``status``; GitHub run ``status`` or
+                ``conclusion``). The platform API is used to filter when a
+                single status is requested, otherwise filtering is client-side.
         """
         return []
 
@@ -1682,6 +1688,7 @@ class GitlabManager(RepositoryHost):
         ref: str = "",
         commit: str = "",
         limit: int = 0,
+        status: Optional[List[str]] = None,
     ) -> Iterable[Instantiation]:
         limit = limit or self.DEFAULT_PIPELINE_LIMIT
         project_path = self.extract_project_path(repo_info.url)
@@ -1692,6 +1699,10 @@ class GitlabManager(RepositoryHost):
             kwargs["ref"] = ref
         if commit:
             kwargs["sha"] = commit
+        # GitLab's pipelines `status` filter takes a single value; let the API
+        # filter when exactly one status is requested.
+        if status and len(status) == 1:
+            kwargs["status"] = status[0]
 
         pipelines = project.pipelines.list(
             order_by="id", sort="desc", iterator=True, **kwargs
@@ -1701,6 +1712,11 @@ class GitlabManager(RepositoryHost):
         for pipeline in pipelines:
             if limit and count >= limit:
                 break
+            # Client-side filter for the multi-status case (a no-op when the
+            # API already filtered). The list item carries `.status`, so we
+            # skip the extra full fetch for non-matching pipelines.
+            if status and getattr(pipeline, "status", None) not in status:
+                continue
             full_pipeline = project.pipelines.get(pipeline.id)
 
             properties = _gitlab_pipeline_properties(
@@ -1718,22 +1734,21 @@ class GitlabManager(RepositoryHost):
                 discussion_url = (
                     f"{project.web_url}/-/merge_requests/{mr_match.group(1)}"
                 )
-
             instantiation = Instantiation(
                 url=full_pipeline.web_url,
                 type=TypeRefs({
-                    EntitySchema.CIRun: TypeRefConstraint(
-                        properties=cast(Dict[str, Any], properties)
+                    EntitySchema.GitLabPipelineRun: TypeRefConstraint(
+                        properties=cast(Dict[str, Any], properties),
+                        status=_map_ci_status(full_pipeline.status),
                     )
                 }),
                 source=repo_info.artifact_url(".gitlab-ci.yml"),
                 source_ref=full_pipeline.ref,
                 source_revision=full_pipeline.sha,
                 revision=full_pipeline.sha,
-                status=_map_ci_status(full_pipeline.status),
                 metadata=CommonMetadata(
                     title=f"Pipeline #{full_pipeline.id}",
-                    description=full_pipeline.status,
+                    description=f"{properties['trigger']}: {properties['status']}",
                     # `created` records when the run finished (RFC 3339).
                     created=properties.get("finished_at", ""),
                     discussion_url=discussion_url,
@@ -1800,6 +1815,7 @@ def _gitlab_pipeline_properties(
     return PipelineRunProperties(
         id=full_pipeline.id,
         run_number=getattr(full_pipeline, "iid", 0) or 0,
+        status=getattr(full_pipeline, "status", "") or "",
         log_url=full_pipeline.web_url,
         trigger=getattr(full_pipeline, "source", "") or "",
         actor=actor,
@@ -1850,6 +1866,9 @@ def _github_run_properties(run: Any) -> PipelineRunProperties:
     pp = PipelineRunProperties(
         id=run.id,
         run_number=getattr(run, "run_number", 0) or 0,
+        # `conclusion` is the outcome once completed (success/failure/...);
+        # fall back to `status` (queued/in_progress) while still running.
+        status=getattr(run, "conclusion", "") or getattr(run, "status", "") or "",
         log_url=run.logs_url,
         trigger=getattr(run, "event", "") or "",
         actor=actor,
@@ -1868,35 +1887,23 @@ def _github_run_properties(run: Any) -> PipelineRunProperties:
     return pp
 
 
-InstantiationStatus = Literal[
-    "draft",
-    "model",
-    "planned",
-    "WIP",
-    "observed",
-    "verifiable",
-    "verified",
-    "reproducible",
-    "reproduced",
-]
-
 _CI_STATUS_MAP: Dict[
     str,
-    InstantiationStatus,
+    TypeRefStatus,
 ] = {
-    "success": "verified",
-    "failed": "observed",
-    "running": "WIP",
-    "pending": "planned",
-    "canceled": "observed",
-    "cancelled": "observed",
-    "skipped": "observed",
+    "success": "present",
+    "failed": "failed",
+    "running": "unknown",
+    "pending": "absent",
+    "canceled": "failed",
+    "cancelled": "failed",
+    "skipped": "absent",
 }
 
 
 def _map_ci_status(
     status: str,
-) -> Optional[InstantiationStatus]:
+) -> Optional[TypeRefStatus]:
     """Map GitHub/GitLab CI status to Instantiation status."""
     return _CI_STATUS_MAP.get(status)
 
@@ -2266,6 +2273,7 @@ else:
             ref: str = "",
             commit: str = "",
             limit: int = 0,
+            status: Optional[List[str]] = None,
         ) -> Iterable[Instantiation]:
             limit = limit or self.DEFAULT_PIPELINE_LIMIT
             project_path = self.extract_project_path(repo_info.url)
@@ -2276,13 +2284,26 @@ else:
                 kwargs["branch"] = ref  # tags too
             if commit:
                 kwargs["head_sha"] = commit
+            # GitHub's `status` filter takes a single value matched against the
+            # run's status OR conclusion; let the API filter when one is given.
+            if status and len(status) == 1:
+                kwargs["status"] = status[0]
 
             runs = gh_repo.get_workflow_runs(**kwargs)
 
+            status_set = set(status) if status else None
             count = 0
             for run in runs:
                 if limit and count >= limit:
                     break
+
+                # Client-side filter for the multi-status case. GitHub matches a
+                # status against either the run status or its conclusion, so do
+                # the same here (a no-op when the API already filtered).
+                if status_set is not None and not (
+                    status_set & {run.status, run.conclusion}
+                ):
+                    continue
 
                 properties = _github_run_properties(run)
 
@@ -2297,8 +2318,9 @@ else:
                 instantiation = Instantiation(
                     url=run.html_url,
                     type=TypeRefs({
-                        EntitySchema.CIRun: TypeRefConstraint(
-                            properties=cast(Dict[str, Any], properties)
+                        EntitySchema.GitHubRun: TypeRefConstraint(
+                            properties=cast(Dict[str, Any], properties),
+                            status=_map_ci_status(run.conclusion or run.status),
                         )
                     }),
                     source=repo_info.artifact_url(
@@ -2307,7 +2329,6 @@ else:
                     source_ref=run.head_branch,
                     source_revision=run.head_sha,
                     revision=run.head_sha,
-                    status=_map_ci_status(run.conclusion or run.status),
                     metadata=CommonMetadata(
                         title=run.name or run.display_title,
                         description=f"{run.event}: {run.conclusion or run.status}",

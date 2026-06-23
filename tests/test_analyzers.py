@@ -17,6 +17,7 @@ from unfurl.util import API_VERSION
 from unfurl.cloudmap.analyzers import (
     GitHubWorkflowAnalyzer,
     GitLabPipelineAnalyzer,
+    UnfurlAnalyzer,
     Analyzers,
 )
 from unfurl.tosca_plugins.cloudmap_defs import (
@@ -159,6 +160,94 @@ class TestCIAnalyzers:
             ".github/workflows/ci.yml",
             ".github/workflows/release.yaml",
         }
+
+
+class TestEnsembleInstantiation:
+    """UnfurlAnalyzer._create_ensemble_instantiation_and_service() pulls the
+    ensemble's last-job status/summary/time into the Instantiation."""
+
+    def _make_manifest(self, last_job):
+        manifest = MagicMock()
+        manifest.repositories.get.return_value = None  # no "spec" repo
+        manifest.lastJob = last_job
+        manifest.uri = "https://example.com/ensemble"
+        return manifest
+
+    def _run(self, last_job):
+        analyzer = UnfurlAnalyzer(".", "ensemble.yaml")
+        manifest = self._make_manifest(last_job)
+        repo_info = MagicMock()
+        repo_info.get_current_commit.return_value = "abc123"
+        directory = MagicMock()
+        directory.do_analysis = False
+        directory.get_artifact.return_value = None
+        artifact = MagicMock()
+        artifact.url = "git://example.com/repo.git#:ensemble.yaml"
+        artifact.references = {}
+        with patch(
+            "unfurl.cloudmap.analyzers.get_deployment_url", return_value=None
+        ):
+            analyzer._create_ensemble_instantiation_and_service(
+                manifest, repo_info, directory, "test.Type", artifact
+            )
+        # the Instantiation is the record added that isn't the Service
+        added = [c.args[0] for c in directory.add_record.call_args_list]
+        insts = [r for r in added if isinstance(r, Instantiation)]
+        assert len(insts) == 1
+        return insts[0]
+
+    @staticmethod
+    def _status(inst):
+        # deployment status lives in the Ensemble type-ref constraint
+        constraint = inst.type.types[EntitySchema.Ensemble]
+        return constraint.get("status") if constraint else None
+
+    def test_lastjob_sets_status_and_metadata(self):
+        last_job = {
+            "changeId": 1,
+            "startTime": "2026-04-01-12-00-00-000000",
+            "endTime": "2026-04-01-12-30-00-000000",
+            "workflow": "deploy",
+            "summary": "2 instances deployed",
+            "readyState": {"effective": "ok", "local": "ok"},
+        }
+        inst = self._run(last_job)
+        assert self._status(inst) == "present"
+        assert inst.metadata.created == "2026-04-01 12:30:00+00:00"
+        assert inst.metadata.description == "deploy: 2 instances deployed"
+
+    def test_lastjob_error_status_is_failed(self):
+        last_job = {
+            "changeId": 2,
+            "startTime": "2026-04-01-12-00-00-000000",
+            "endTime": "2026-04-01-12-30-00-000000",
+            "workflow": "deploy",
+            "summary": "1 failed",
+            "readyState": {"effective": "error", "local": "error"},
+        }
+        inst = self._run(last_job)
+        assert self._status(inst) == "failed"
+
+    def test_no_lastjob_leaves_status_unset(self):
+        inst = self._run(None)
+        assert self._status(inst) is None
+        assert inst.metadata.created == ""
+
+    def test_malformed_lastjob_does_not_raise(self):
+        # missing startTime/endTime, bad status name, bad time format — all
+        # tolerated by _add_lastjob without raising.
+        last_job = {
+            "workflow": "deploy",
+            "summary": "partial",
+            "readyState": {"effective": "bogus-status"},
+            "endTime": "not-a-timestamp",
+        }
+        inst = self._run(last_job)
+        # status couldn't be mapped, time couldn't be parsed -> left unset,
+        # but the readable fields still come through.
+        assert self._status(inst) is None
+        assert inst.metadata.created == ""
+        assert inst.metadata.description == "deploy: partial"
 
 
 class TestGenericRepositoryAnalyzerFallback:
@@ -326,9 +415,8 @@ class TestPipelineRunsMocked:
         assert len(results) == 1
         inst = results[0]
         assert inst.url == "https://gitlab.example.com/project/-/pipelines/42"
-        assert EntitySchema.CIRun in inst.type.types
+        assert EntitySchema.GitLabPipelineRun in inst.type.types
         assert inst.source_revision == "abc123"
-        assert inst.status == "verified"
         assert inst.metadata.title == "Pipeline #42"
         # The finished time is saved in the instantiation metadata.
         assert inst.metadata.created == "2026-04-01T02:03:04Z"
@@ -339,11 +427,14 @@ class TestPipelineRunsMocked:
         )
 
         # Verify properties in type constraint
-        constraint = inst.type.types[EntitySchema.CIRun]
+        constraint = inst.type.types[EntitySchema.GitLabPipelineRun]
         assert constraint is not None
+        # the CI status is mapped onto the type-ref constraint
+        assert constraint["status"] == "present"
         props = constraint["properties"]
         assert props["id"] == 42
         assert props["run_number"] == 7
+        assert props["status"] == "success"
         assert props["trigger"] == "merge_request_event"
         assert props["actor"] == "octocat"
         assert props["created_at"] == "2026-04-01T01:00:00Z"
@@ -362,7 +453,9 @@ class TestPipelineRunsMocked:
         # secrets) are not collected.
         manager.save_internal = False
         inst_no_vars = list(manager.get_pipeline_runs(repo_info, ref="main"))[0]
-        props_no_vars = inst_no_vars.type.types[EntitySchema.CIRun]["properties"]
+        props_no_vars = inst_no_vars.type.types[EntitySchema.GitLabPipelineRun][
+            "properties"
+        ]
         assert props_no_vars["variables"] == []
 
     @pytest.mark.skipif(GithubManager is None, reason="PyGithub not installed")
@@ -417,9 +510,8 @@ class TestPipelineRunsMocked:
         assert len(results) == 1
         inst = results[0]
         assert inst.url == "https://github.com/owner/repo/actions/runs/123"
-        assert EntitySchema.CIRun in inst.type.types
+        assert EntitySchema.GitHubRun in inst.type.types
         assert inst.source_revision == "def456"
-        assert inst.status == "verified"
         assert inst.metadata.title == "CI"
         assert ".github/workflows/ci.yml" in inst.source
         # The finished time (datetime → RFC 3339 string) is saved in metadata.
@@ -428,11 +520,15 @@ class TestPipelineRunsMocked:
         assert inst.metadata.discussion_url == "https://github.com/owner/repo/pull/42"
 
         # Verify properties in type constraint
-        constraint = inst.type.types[EntitySchema.CIRun]
+        constraint = inst.type.types[EntitySchema.GitHubRun]
         assert constraint is not None
+        # the CI status is mapped onto the type-ref constraint
+        assert constraint["status"] == "present"
         props = constraint["properties"]
         assert props["id"] == 123
         assert props["run_number"] == 5
+        # `conclusion` ("success") wins over `status` ("completed")
+        assert props["status"] == "success"
         assert props["trigger"] == "pull_request"
         assert props["actor"] == "octocat"
         assert props["created_at"] == "2026-04-01T01:00:00+00:00"
@@ -495,6 +591,132 @@ class TestPipelineRunsMocked:
         results = list(manager.get_pipeline_runs(repo_info, limit=2))
         assert len(results) == 2
 
+    def test_gitlab_get_pipeline_runs_status_filter(self):
+        manager = GitlabManager.__new__(GitlabManager)
+        manager.gitlab = MagicMock()
+        manager.hostname = "gitlab.example.com"
+        manager.canonical_url = ""
+        manager.save_internal = False
+
+        statuses = ["success", "failed", "running"]
+        list_items = []
+        for i, st in enumerate(statuses):
+            p = MagicMock()
+            p.id = i
+            p.status = st  # the list item carries the status
+            list_items.append(p)
+
+        mock_project = MagicMock()
+        # the mocked API returns everything; filtering is what we're testing
+        mock_project.pipelines.list.return_value = list_items
+
+        def make_full_pipeline(pid):
+            fp = MagicMock()
+            fp.id = pid
+            fp.iid = pid
+            fp.web_url = f"https://gitlab.example.com/project/-/pipelines/{pid}"
+            fp.sha = f"sha{pid}"
+            fp.status = statuses[pid]
+            fp.source = "push"
+            fp.user = {"username": "octocat"}
+            fp.ref = "main"
+            fp.created_at = fp.started_at = fp.finished_at = fp.committed_at = ""
+            fp.jobs.list.return_value = []
+            fp.variables.list.return_value = []
+            return fp
+
+        mock_project.pipelines.get.side_effect = make_full_pipeline
+        mock_project.web_url = "https://gitlab.example.com/owner/repo"
+        manager.gitlab.projects.get.return_value = mock_project
+        repo_info = Repository(
+            url="git://gitlab.example.com/owner/repo.git",
+            path="owner/repo",
+            name="repo",
+        )
+
+        # single status -> forwarded to the API and applied client-side
+        results = list(manager.get_pipeline_runs(repo_info, status=["failed"]))
+        assert mock_project.pipelines.list.call_args.kwargs.get("status") == "failed"
+        assert len(results) == 1
+        props = results[0].type.types[EntitySchema.GitLabPipelineRun]["properties"]
+        assert props["status"] == "failed"
+
+        # multiple statuses -> no API status kwarg, client-side filter applies
+        mock_project.pipelines.list.reset_mock()
+        results = list(
+            manager.get_pipeline_runs(repo_info, status=["success", "running"])
+        )
+        assert "status" not in mock_project.pipelines.list.call_args.kwargs
+        got = {
+            r.type.types[EntitySchema.GitLabPipelineRun]["properties"]["status"]
+            for r in results
+        }
+        assert got == {"success", "running"}
+
+    @pytest.mark.skipif(GithubManager is None, reason="PyGithub not installed")
+    def test_github_get_pipeline_runs_status_filter(self):
+        manager = GithubManager.__new__(GithubManager)
+        manager.github = MagicMock()
+        manager.hostname = "github.com"
+        manager.canonical_url = ""
+
+        def make_run(rid, status, conclusion):
+            run = MagicMock()
+            run.html_url = f"https://github.com/owner/repo/actions/runs/{rid}"
+            run.id = rid
+            run.run_number = rid
+            run.head_sha = f"sha{rid}"
+            run.head_branch = "main"
+            run.status = status
+            run.conclusion = conclusion
+            run.name = "CI"
+            run.display_title = "CI"
+            run.event = "push"
+            run.path = ".github/workflows/ci.yml"
+            run.logs_url = f"https://api.github.com/repos/owner/repo/actions/runs/{rid}/logs"
+            run.actor = MagicMock(login="octocat")
+            run.created_at = None
+            run.run_started_at = None
+            run.updated_at = None
+            run.raw_data = {}
+            run.pull_requests = []
+            run.get_artifacts.return_value = []
+            return run
+
+        all_runs = [
+            make_run(1, "completed", "success"),
+            make_run(2, "completed", "failure"),
+            make_run(3, "in_progress", None),
+        ]
+        mock_gh_repo = MagicMock()
+        mock_gh_repo.get_workflow_runs.return_value = all_runs
+        manager.github.get_repo.return_value = mock_gh_repo
+        repo_info = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+
+        # single status (a conclusion) -> forwarded to the API and filtered
+        results = list(manager.get_pipeline_runs(repo_info, status=["failure"]))
+        assert mock_gh_repo.get_workflow_runs.call_args.kwargs.get("status") == "failure"
+        got = {
+            r.type.types[EntitySchema.GitHubRun]["properties"]["status"]
+            for r in results
+        }
+        assert got == {"failure"}
+
+        # multiple statuses -> no API status kwarg; matches run status OR conclusion
+        mock_gh_repo.get_workflow_runs.reset_mock()
+        results = list(
+            manager.get_pipeline_runs(repo_info, status=["success", "in_progress"])
+        )
+        assert "status" not in mock_gh_repo.get_workflow_runs.call_args.kwargs
+        got = {
+            r.type.types[EntitySchema.GitHubRun]["properties"]["status"]
+            for r in results
+        }
+        # run 1 matches by conclusion "success"; run 3 matches by status "in_progress"
+        assert got == {"success", "in_progress"}
+
 
 class TestAnalyzeUrlPipelineRuns:
     """Test that analyze_url fetches pipeline runs when URL has ref or commit."""
@@ -512,7 +734,6 @@ class TestAnalyzeUrlPipelineRuns:
             source="git://example.com/owner/repo.git",
             source_revision="abc123",
             revision="abc123",
-            status="verified",
             metadata=CommonMetadata(title="Pipeline #1", description="success"),
         )
 
@@ -540,7 +761,6 @@ class TestAnalyzeUrlPipelineRuns:
         db = cm.directory.db
         assert "https://example.com/pipelines/1" in db.instantiations
         inst = db.instantiations["https://example.com/pipelines/1"]
-        assert inst.status == "verified"
         assert EntitySchema.CIRun in inst.type.types
         mock_host.get_pipeline_runs.assert_called_once_with(
             result, ref="main", commit=""
@@ -745,7 +965,7 @@ class TestGitLabPipelineRunsIntegration:
         runs = list(gitlab_manager.get_pipeline_runs(gitlab_repo_info, ref="main", limit=5))
         assert len(runs) >= 1
         inst = runs[0]
-        assert EntitySchema.CIRun in inst.type.types
+        assert EntitySchema.GitLabPipelineRun in inst.type.types
         assert inst.source_revision
         assert inst.url
 
@@ -771,7 +991,7 @@ class TestGitHubWorkflowRunsIntegration:
         runs = list(github_manager.get_pipeline_runs(github_repo_info, ref="main", limit=5))
         assert len(runs) >= 1
         inst = runs[0]
-        assert EntitySchema.CIRun in inst.type.types
+        assert EntitySchema.GitHubRun in inst.type.types
         assert inst.source_revision
         assert inst.url
 

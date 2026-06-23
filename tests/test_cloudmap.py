@@ -1192,7 +1192,6 @@ instantiations:
       cloudmap.artifacts.IntotoAttestation: null
     source: https://github.com/onecommons/unfurl#:.
     source_revision: f5da8de13ae2dcce293508c4ccac9b373e66dd49
-    status: observed
   "2023-09-24T15:31:00Z":
     type:
       cloudmap.artifacts.unfurl.Ensemble: null
@@ -1332,7 +1331,6 @@ types:
                 assert (
                     inst.source_revision == "f5da8de13ae2dcce293508c4ccac9b373e66dd49"
                 )
-                assert inst.status == "observed"
                 break
         assert build_instantiation is not None, "Build instantiation not found"
 
@@ -1716,10 +1714,9 @@ def test_instantiation_versions():
         "url": "test-inst",
         "type": {"software.Nginx": None},
         "versions": {
-            "v1": {"digest": "sha256:abc123", "status": "verified"},
+            "v1": {"digest": "sha256:abc123"},
             "v2": {
                 "digest": "sha256:def456",
-                "status": "verified",
                 "type": {"software.Nginx": {"version": "1.25"}},
             },
         },
@@ -1738,7 +1735,6 @@ def test_instantiation_versions():
 
     # Verify other properties
     assert inst.versions["v1"].digest == "sha256:abc123"
-    assert inst.versions["v1"].status == "verified"
     assert inst.versions["v2"].digest == "sha256:def456"
 
     assert inst.versions["v2"]._parent == inst
@@ -1749,7 +1745,6 @@ def test_instantiation_versions():
     assert "v1" in result["versions"]
     assert "v2" in result["versions"]
     assert result["versions"]["v1"]["digest"] == "sha256:abc123"
-    assert result["versions"]["v1"]["status"] == "verified"
     assert result["versions"]["v2"]["digest"] == "sha256:def456"
 
     # Verify the result is JSON serializable

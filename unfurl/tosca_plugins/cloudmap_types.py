@@ -156,6 +156,22 @@ class cloudmap_artifacts_CIRun(cloudmap_artifacts_Root):
     _type_name = "cloudmap.artifacts.CIRun"
 
 
+class cloudmap_artifacts_GitLabPipelineRun(cloudmap_artifacts_CIRun):
+    """
+    A record of an individual GitLab CI pipeline execution.
+    """
+
+    _type_name = "cloudmap.artifacts.GitLabPipelineRun"
+
+
+class cloudmap_artifacts_GitHubRun(cloudmap_artifacts_CIRun):
+    """
+    A record of an individual GitHub Actions workflow run.
+    """
+
+    _type_name = "cloudmap.artifacts.GitHubRun"
+
+
 class cloudmap_artifacts_GitHubWorkflow(cloudmap_artifacts_Pipeline):
     """
     A GitHub Actions workflow definition (a YAML file under ``.github/workflows/``).
@@ -239,6 +255,8 @@ __all__ = [
     "cloudmap_artifacts_PullRequest",
     "cloudmap_artifacts_CommitMessage",
     "cloudmap_artifacts_CIRun",
+    "cloudmap_artifacts_GitLabPipelineRun",
+    "cloudmap_artifacts_GitHubRun",
     "cloudmap_artifacts_GitHubWorkflow",
     "cloudmap_artifacts_GitLabPipeline",
     "cloudmap_artifacts_InTotoAttestation",

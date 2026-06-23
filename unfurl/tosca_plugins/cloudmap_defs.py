@@ -139,6 +139,10 @@ class EntitySchema:
     GitHubWorkflow = "cloudmap.artifacts.GitHubWorkflow"
     GitLabPipeline = "cloudmap.artifacts.GitLabPipeline"
     CIRun = "cloudmap.artifacts.CIRun"
+    GitLabPipelineRun = "cloudmap.artifacts.GitLabPipelineRun"
+    "A record of an individual GitLab CI pipeline execution (subtype of CIRun)."
+    GitHubRun = "cloudmap.artifacts.GitHubRun"
+    "A record of an individual GitHub Actions workflow run (subtype of CIRun)."
 
 
 ArtifactMappings = {
@@ -292,11 +296,14 @@ class PipelineVariable(TypedDict):
 class PipelineRunProperties(TypedDict, total=False):
     """Properties for a CIRun type constraint."""
 
-    id: int
+    id: Required[int]
     run_number: int
     """Human-friendly sequential run number (GitLab pipeline ``iid`` / GitHub ``run_number``)."""
+    status: Required[str]
+    """Raw outcome of the run (GitLab pipeline ``status`` e.g. ``success``/``failed``;
+    GitHub run ``conclusion`` if completed, else its ``status``)."""
     log_url: str
-    trigger: str
+    trigger: Required[str]
     """What triggered the run (GitLab pipeline ``source`` / GitHub run ``event``)."""
     actor: str
     """Username of whoever triggered the run (GitLab pipeline ``user`` / GitHub run ``actor``)."""
@@ -314,7 +321,7 @@ class PipelineRunProperties(TypedDict, total=False):
 
 
 class TypeRefConstraint(TypedDict, total=False):
-    status: TypeRefStatus
+    status: Optional[TypeRefStatus]
     version: Union[int, float, str]
     properties: Dict[str, Any]
     metadata: Dict[str, Any]
@@ -519,20 +526,8 @@ class Instantiation(VersionedRecord):
     """Additional metadata about the instantiation."""
     discovery: Optional["Discovery"] = None
     """Metadata discovery information"""
-    status: Optional[
-        Literal[
-            "draft",
-            "model",
-            "planned",
-            "WIP",
-            "observed",
-            "verifiable",
-            "verified",
-            "reproducible",
-            "reproduced",
-        ]
-    ] = None
-    """Status of the instantiation's reproducibility and verification."""
+    status: Optional[LifecycleStatus] = None
+    """Lifecycle status of the instantiation"""
     versions: Dict[str, "Instantiation"] = field(default_factory=dict)
     """Instantiations that are variants of this instantiation (for example, different deployments or environments)"""
     _parent: InitVar[Optional["Instantiation"]] = None

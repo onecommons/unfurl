@@ -167,8 +167,7 @@ def create_oci_artifact(
                         "https://mobyproject.org/buildkit@v1#metadata"
                     )
                     metadata.created = predicate["metadata"].get("buildFinishedOn")
-                    if predicate["metadata"].get("reproducible"):
-                        instantiation.status = "reproducible"
+                    # predicate["metadata"]["reproducible"] is 0.2 only
                 elif "runDetails" in predicate:  # SlsaProvenance 1
                     run_metadata = predicate["runDetails"].get("metadata", {})
                     metadata.created = run_metadata.get("finishedOn")

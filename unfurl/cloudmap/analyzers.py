@@ -27,14 +27,13 @@ from ..graphql import (
     _add_lastjob,
 )
 from ..spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
-from ..support import ContainerImage
+from ..support import ContainerImage, Status
 from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
     TypeRefStatus,
     TypeRefConstraint,
     URLAnalyzer,
-    CloudMapView,
     CommonMetadata,
     EntitySchema,
     Instantiation,

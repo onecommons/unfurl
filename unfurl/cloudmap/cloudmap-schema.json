@@ -280,7 +280,8 @@
           "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
         },
         "status": {
-          "$ref": "#/definitions/lifecycle_status"
+          "$ref": "#/definitions/lifecycle_status",
+          "description": "Lifecycle status of the instantiation"
         },
         "release_schedule": {
           "$ref": "#/definitions/release_schedule"
@@ -456,19 +457,7 @@
           "$ref": "#/definitions/discovery"
         },
         "status": {
-          "type": "string",
-          "description": "Status of the instantiation.",
-          "enum": [
-            "draft",
-            "model",
-            "planned",
-            "WIP",
-            "observed",
-            "verifiable",
-            "verified",
-            "reproducible",
-            "reproduced"
-          ]
+          "$ref": "#/definitions/lifecycle_status"
         },
         "versions": {
           "type": "object",

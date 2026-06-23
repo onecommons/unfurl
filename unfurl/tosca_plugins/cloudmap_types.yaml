@@ -123,6 +123,16 @@ artifact_types:
       GitLab pipeline run, etc.). See ``cloudmap.artifacts.Pipeline`` for
       the pipeline *definition*.
 
+  cloudmap.artifacts.GitLabPipelineRun:
+    derived_from: cloudmap.artifacts.CIRun
+    description: >
+      A record of an individual GitLab CI pipeline execution.
+
+  cloudmap.artifacts.GitHubRun:
+    derived_from: cloudmap.artifacts.CIRun
+    description: >
+      A record of an individual GitHub Actions workflow run.
+
   # ---- CI pipeline definitions --------------------------------------------
 
   cloudmap.artifacts.GitHubWorkflow:

@@ -1746,9 +1746,14 @@
         "$$target": "#/definitions/artifact",
         "additionalProperties": true,
         "properties": {
+          "contains": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
+            "type": "object"
+          },
           "dependencies": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Software, services, or environment context that the instantiation may depend on. Keys are labels or artifact URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+            "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
           },
           "digest": {
             "description": "Cryptographic digest of the artifact.",
@@ -1763,7 +1768,7 @@
           },
           "instantiated_by": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "URLs referencing entries in instantiations with optional type constraints."
+            "description": "URLs referencing instantiations that created or validated this artifact."
           },
           "instantiates": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
@@ -1799,21 +1804,17 @@
             ],
             "description": "Human-readable metadata about the artifact."
           },
-          "contains": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
-            "type": "object"
-          },
           "references": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
+            "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
             "type": "object"
           },
           "release_schedule": {
             "$ref": "#/components/schemas/cloudmap_release_schedule"
           },
           "status": {
-            "$ref": "#/components/schemas/cloudmap_lifecycle_status"
+            "$ref": "#/components/schemas/cloudmap_lifecycle_status",
+            "description": "Lifecycle status of the instantiation"
           },
           "tags": {
             "description": "List of available tags for this artifact (e.g., container image tags).",
@@ -1976,19 +1977,7 @@
             "type": "string"
           },
           "status": {
-            "description": "Status of the instantiation.",
-            "enum": [
-              "draft",
-              "model",
-              "planned",
-              "WIP",
-              "observed",
-              "verifiable",
-              "verified",
-              "reproducible",
-              "reproduced"
-            ],
-            "type": "string"
+            "$ref": "#/components/schemas/cloudmap_lifecycle_status"
           },
           "type": {
             "$ref": "#/components/schemas/cloudmap_typeRef",
@@ -2154,6 +2143,10 @@
             "description": "Map of branch names to their commit SHA hashes.",
             "type": "object"
           },
+          "contains": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of files or directories (as relative URLs) in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
+          },
           "default_branch": {
             "description": "Default branch name (e.g., main, master).",
             "type": "string"
@@ -2221,10 +2214,6 @@
             "description": "Repository name.",
             "type": "string"
           },
-          "contains": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Map of artifact URLs (for files or directories in the repository) that are useful for characterizing the repository and integrating it with the other resources in the cloud map, with optional type constraints."
-          },
           "path": {
             "description": "Project path relative to base location of git repositories on the host.",
             "type": "string"
@@ -2285,7 +2274,7 @@
           },
           "instantiated_by": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "URLs referencing entries in instantiations with optional type constraints."
+            "description": "URLs referencing instantiations that created or validated this service."
           },
           "metadata": {
             "$ref": "#/components/schemas/cloudmap_metadata",
@@ -2341,13 +2330,6 @@
         "properties": {
           "extends": {
             "description": "List of fully-qualified type names that this type extends.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "implementations": {
-            "description": "Non-exhaustive list URLs to repositories or artifacts that implement this type.",
             "items": {
               "type": "string"
             },
@@ -2460,7 +2442,7 @@
             }
           ]
         },
-        "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.",
+        "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\".",
         "propertyNames": {
           "description": "",
           "pattern": "^[^\\s]+$"
