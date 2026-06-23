@@ -19,12 +19,20 @@ from . import (
     Service,
     get_repository_url,
 )
-from ..graphql import ResourceTypesByName, get_deployment_url, TypeName
+from ..graphql import (
+    ResourceTypesByName,
+    get_deployment_url,
+    TypeName,
+    Deployment,
+    _add_lastjob,
+)
 from ..spec import NodeSpec, Ref, SafeRefContext, TopologySpec, ToscaSpec, is_function
 from ..support import ContainerImage
 from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    TypeRefStatus,
+    TypeRefConstraint,
     URLAnalyzer,
     CloudMapView,
     CommonMetadata,
@@ -46,6 +54,15 @@ if TYPE_CHECKING:
     from ..yamlmanifest import YamlManifest
 
 logger = getLogger("unfurl")
+
+_DEPLOY_STATUS_MAP: Dict[Status, TypeRefStatus] = {
+    Status.unknown: "unknown",
+    Status.ok: "present",
+    Status.degraded: "present",
+    Status.error: "failed",
+    Status.pending: "absent",
+    Status.absent: "absent",
+}
 
 
 class ContainerBuilderAnalyzer(RepositoryAnalyzer):
@@ -351,9 +368,11 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         instantiation = Instantiation(
             url=artifact.url,
             revision=repo_info.get_current_commit(),
-            type=TypeRefs(types={EntitySchema.Ensemble: None}),
             inputs=artifact.references,
         )
+
+        self._apply_lastjob(manifest, instantiation)
+
         if spec_repo_view:
             blueprint_path = get_blueprint_path(manifest)
             # Include the spec template's fragment (e.g. ``spec/service_template``)
@@ -386,6 +405,37 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         directory.add_record(instantiation)
         if instantiation.source and not directory.get_artifact(instantiation.source):
             directory.analyze_url(instantiation.source, analyze)
+
+    def _apply_lastjob(
+        self,
+        manifest: YamlManifest,
+        instantiation: Instantiation,
+    ) -> None:
+        """Set the instantiation's status/created/description from the
+        ensemble's last job, reusing the GraphQL export's ``_add_lastjob``."""
+        if not manifest.lastJob:
+            instantiation.type = TypeRefs(types={EntitySchema.Ensemble: None})
+            return
+        deployment = cast(Deployment, {})
+        _add_lastjob(manifest.lastJob, deployment)
+        deploy_status = None
+        op_status = deployment.get("status")
+        if op_status is not None:
+            deploy_status = _DEPLOY_STATUS_MAP.get(op_status)
+        instantiation.type = TypeRefs(
+            types={EntitySchema.Ensemble: TypeRefConstraint(status=deploy_status)}
+        )
+
+        # Record when the deployment last ran and a summary of it.
+        deploy_time = deployment.get("deployTime", "")
+        if deploy_time:
+            instantiation.metadata.created = deploy_time
+        summary = deployment.get("summary", "")
+        workflow = deployment.get("workflow", "")
+        if summary or workflow:
+            instantiation.metadata.description = (
+                f"{workflow}: {summary}" if workflow else summary
+            )
 
     def _get_artifacttype(self, path: str) -> str:
         if path.endswith(DefaultNames.EnsembleTemplate):

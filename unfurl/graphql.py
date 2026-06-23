@@ -186,7 +186,7 @@ from .runtime import EntityInstance, TopologyInstance
 from .logs import sensitive, is_sensitive, getLogger
 from .spec import NodeSpec, TopologySpec, is_function
 from .lock import Lock
-from .util import to_enum, UnfurlError, unique_name
+from .util import UnfurlError, unique_name
 from .support import NodeState, Status
 
 if TYPE_CHECKING:
@@ -655,21 +655,32 @@ def js_timestamp(ts: datetime.datetime) -> str:
 
 
 def _add_lastjob(last_job: dict, deployment: Deployment) -> None:
+    # Tolerate a malformed / hand-edited lastJob: never raise, just skip any
+    # field that can't be read. Callers treat a missing field as "not recorded".
     readyState = last_job.get("readyState")
     workflow = last_job.get("workflow")
     if workflow:
         deployment["workflow"] = workflow
     if isinstance(readyState, dict):
-        deployment["status"] = to_enum(
-            Status, readyState.get("effective", readyState.get("local"))
-        )
-        if workflow == "undeploy" and deployment["status"] == Status.ok:
-            deployment["status"] = Status.absent
+        name = readyState.get("effective", readyState.get("local"))
+        # Status.__members__.get avoids the KeyError that Status[name] raises
+        # on an unrecognized status name.
+        status = Status.__members__.get(name) if isinstance(name, str) else None
+        if status is not None:
+            if workflow == "undeploy" and status == Status.ok:
+                status = Status.absent
+            deployment["status"] = status
     deployment["summary"] = last_job.get("summary", "")
-    deployTimeString = last_job.get("endTime", last_job["startTime"])
-    deployment["deployTime"] = js_timestamp(
-        datetime.datetime.strptime(deployTimeString, ChangeRecord.DateTimeFormat)
-    )
+    deploy_time_string = last_job.get("endTime", last_job.get("startTime"))
+    if isinstance(deploy_time_string, str):
+        try:
+            deploy_time = datetime.datetime.strptime(
+                deploy_time_string, ChangeRecord.DateTimeFormat
+            )
+        except ValueError:
+            pass
+        else:
+            deployment["deployTime"] = js_timestamp(deploy_time)
 
 
 def get_deployment_url(
