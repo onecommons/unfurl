@@ -41,9 +41,18 @@ from .tosca_plugins.cloudmap_defs import (
     Repository,
     CloudType,
     Service,
+    Component,
     Artifact,
     Instantiation,
     TypeRefs,
+)
+
+from .server.schemas import (
+    GraphJson,
+    GraphNodeJson,
+    RecordRef,
+    RelEntry,
+    TypeRefJson,
 )
 
 if TYPE_CHECKING:
@@ -595,6 +604,7 @@ class CloudMapGraphWalker:
             sections: List[Tuple[str, str, Iterable[Any]]] = [
                 ("Repositories", "Repository", self.view.find_repositories()),
                 ("Artifacts", "Artifact", self.view.find_artifacts()),
+                ("Components", "Component", self.view.find_components()),
                 ("Instantiations", "Instantiation", self.view.find_instantiations()),
                 ("Services", "Service", self.view.find_services()),
                 ("Types", "Type", self.view.find_types()),
@@ -632,6 +642,7 @@ class CloudMapGraphWalker:
         for kind, getter in (
             ("Instantiation", self.view.get_instantiation),
             ("Artifact", self.view.get_artifact),
+            ("Component", self.view.get_component),
             ("Service", self.view.get_service),
             ("Repository", self.view.get_repository),
             ("Type", self.view.get_type),
@@ -735,6 +746,21 @@ class CloudMapGraphWalker:
                     "instantiated_by", record.instantiated_by, visited
                 )
 
+        elif kind == "Component":
+            assert isinstance(record, Component)
+            if record.source:
+                self.visitor.visit_relationship("source")
+                self._walk_child(record.source, visited)
+                self.visitor.leave_relationship("source")
+            if record.contains:
+                self._walk_typed_urls("contains", record.contains, visited)
+            if record.references:
+                self._walk_typed_urls("references", record.references, visited)
+            if record.instantiates:
+                self._walk_typed_urls("instantiates", record.instantiates, visited)
+            if record.dependencies:
+                self._walk_typed_urls("dependencies", record.dependencies, visited)
+
         elif kind == "Type":
             assert isinstance(record, CloudType)
             if record.extends:
@@ -814,6 +840,7 @@ class RichTreeVisitor(CloudMapGraphVisitor):
     _KIND_STYLES: Dict[str, str] = {
         "Repository": "green",
         "Artifact": "cyan",
+        "Component": "bright_cyan",
         "Instantiation": "yellow",
         "Service": "magenta",
         "Type": "blue",
@@ -964,14 +991,6 @@ class RichTreeVisitor(CloudMapGraphVisitor):
     def not_found(self, url: str) -> None:
         self.console.print(f"[red]Record not found:[/] {escape(url)}")
 
-
-from .server.schemas import (
-    GraphJson,
-    GraphNodeJson,
-    RecordRef,
-    RelEntry,
-    TypeRefJson,
-)
 
 _SECTION_FOR_KIND: Dict[str, str] = {
     "Repository": "Repositories",
@@ -1133,6 +1152,7 @@ def cloudmap_graph_json(view: "CloudMapView", start_url: str = "") -> GraphJson:
 _CLOUDMAP_KIND_TO_SECTION: Dict[str, str] = {
     "Repository": "repositories",
     "Artifact": "artifacts",
+    "Component": "components",
     "Instantiation": "instantiations",
     "Service": "services",
     "Type": "types",

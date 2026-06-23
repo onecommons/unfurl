@@ -135,7 +135,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage_report_py${{ matrix.python }}
-          path: htmlcov      
+          path: htmlcov
       - name: build docs
         if: matrix.python == 3.12
         run: tox -e docs -- -W --keep-going
@@ -430,9 +430,9 @@ jobs:
         CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_2
         # Version pinned in rust/server/.oas3-gen-version; enforced at
         # compile time by rust/server/build.rs.
-        CIBW_BEFORE_BUILD: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked && rustup show
+        CIBW_BEFORE_BUILD: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked && rustup component add rustfmt && rustup show
         CIBW_BEFORE_BUILD_LINUX: >
-          curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y &&
+          curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y && rustup component add rustfmt &&
           cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked &&
           rustup show
 

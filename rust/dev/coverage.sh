@@ -76,6 +76,7 @@ cargo crap \
     --workspace \
     --lcov "$CLEAN_LCOV" \
     --exclude '**/unfurl_types.rs' \
+    --exclude '**/cloudmap_types.rs' \
     --exclude '**/build.rs' \
     --allow 'test_*' \
     --allow 'dump_*' \

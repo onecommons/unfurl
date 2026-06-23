@@ -73,6 +73,17 @@
             },
             "type": "object"
           },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_component"
+            },
+            "description": "Components that are produced or consumed by artifacts and services. Components describe relationships (references, instantiates, dependencies) and are identified by URL or label.",
+            "propertyNames": {
+              "description": "URL or label of the component.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
           "instantiations": {
             "additionalProperties": {
               "$ref": "#/components/schemas/cloudmap_instantiation"
@@ -1744,102 +1755,134 @@
       },
       "cloudmap_artifact": {
         "$$target": "#/definitions/artifact",
-        "additionalProperties": true,
-        "properties": {
-          "contains": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
-            "type": "object"
-          },
-          "dependencies": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
-          },
-          "digest": {
-            "description": "Cryptographic digest of the artifact.",
-            "type": "string"
-          },
-          "discovery": {
-            "$ref": "#/components/schemas/cloudmap_discovery"
-          },
-          "immutable": {
-            "description": "Indicates whether the artifact identifier refers to an artifact that will not change.",
-            "type": "boolean"
-          },
-          "instantiated_by": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "URLs referencing instantiations that created or validated this artifact."
-          },
-          "instantiates": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
-          },
-          "metadata": {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/cloudmap_metadata"
+        "allOf": [
+          {
+            "additionalProperties": true,
+            "properties": {
+              "digest": {
+                "description": "Cryptographic digest of the artifact.",
+                "type": "string"
               },
-              {
-                "properties": {
-                  "platforms": {
-                    "description": "List of platforms this artifact supports.",
-                    "items": {
-                      "properties": {
-                        "architecture": {
-                          "description": "CPU architecture (e.g., amd64, arm64).",
-                          "type": "string"
+              "discovery": {
+                "$ref": "#/components/schemas/cloudmap_discovery"
+              },
+              "immutable": {
+                "description": "Indicates whether the artifact identifier refers to an artifact that will not change.",
+                "type": "boolean"
+              },
+              "instantiated_by": {
+                "$ref": "#/components/schemas/cloudmap_typedURLs",
+                "description": "URLs referencing instantiations that created or validated this artifact."
+              },
+              "metadata": {
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/cloudmap_metadata"
+                  },
+                  {
+                    "properties": {
+                      "platforms": {
+                        "description": "List of platforms this artifact supports.",
+                        "items": {
+                          "properties": {
+                            "architecture": {
+                              "description": "CPU architecture (e.g., amd64, arm64).",
+                              "type": "string"
+                            },
+                            "os": {
+                              "description": "Operating system (e.g., linux, windows).",
+                              "type": "string"
+                            }
+                          },
+                          "type": "object"
                         },
-                        "os": {
-                          "description": "Operating system (e.g., linux, windows).",
-                          "type": "string"
-                        }
-                      },
-                      "type": "object"
+                        "type": "array"
+                      }
                     },
-                    "type": "array"
+                    "type": "object"
                   }
+                ],
+                "description": "Human-readable metadata about the artifact."
+              },
+              "release_schedule": {
+                "$ref": "#/components/schemas/cloudmap_release_schedule"
+              },
+              "status": {
+                "$ref": "#/components/schemas/cloudmap_lifecycle_status"
+              },
+              "tags": {
+                "description": "List of available tags for this artifact (e.g., container image tags).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "type": {
+                "$ref": "#/components/schemas/cloudmap_typeRef",
+                "description": "Type identifier from types/artifacts with optional version constraints."
+              },
+              "versions": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/cloudmap_artifact"
+                },
+                "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
+                "propertyNames": {
+                  "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+                  "pattern": "^[^\\s]*$"
                 },
                 "type": "object"
               }
-            ],
-            "description": "Human-readable metadata about the artifact."
-          },
-          "references": {
-            "$ref": "#/components/schemas/cloudmap_typedURLs",
-            "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
-            "type": "object"
-          },
-          "release_schedule": {
-            "$ref": "#/components/schemas/cloudmap_release_schedule"
-          },
-          "status": {
-            "$ref": "#/components/schemas/cloudmap_lifecycle_status",
-            "description": "Lifecycle status of the instantiation"
-          },
-          "tags": {
-            "description": "List of available tags for this artifact (e.g., container image tags).",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "type": {
-            "$ref": "#/components/schemas/cloudmap_typeRef",
-            "description": "Type identifier from types/artifacts with optional version constraints."
-          },
-          "versions": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/cloudmap_artifact"
-            },
-            "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
-            "propertyNames": {
-              "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
-              "pattern": "^[^\\s]*$"
             },
             "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/cloudmap_relationships"
           }
-        },
+        ],
         "title": "Artifact",
+        "type": "object"
+      },
+      "cloudmap_component": {
+        "$$target": "#/definitions/component",
+        "allOf": [
+          {
+            "additionalProperties": true,
+            "properties": {
+              "metadata": {
+                "$ref": "#/components/schemas/cloudmap_metadata",
+                "description": "Human-readable metadata about the service."
+              },
+              "source": {
+                "description": "Repository or artifact URL.",
+                "type": "string"
+              },
+              "status": {
+                "$ref": "#/components/schemas/cloudmap_lifecycle_status",
+                "description": "Lifecycle status of the component."
+              },
+              "type": {
+                "$ref": "#/components/schemas/cloudmap_typeRef",
+                "description": "Type identifier from types/components with optional version constraints."
+              },
+              "versions": {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/cloudmap_component"
+                },
+                "description": "Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.",
+                "propertyNames": {
+                  "description": "URL of the component variant.",
+                  "pattern": "^[^\\s]*$"
+                },
+                "type": "object"
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/cloudmap_relationships"
+          }
+        ],
+        "title": "Component",
         "type": "object"
       },
       "cloudmap_discovery": {
@@ -1977,7 +2020,8 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/cloudmap_lifecycle_status"
+            "$ref": "#/components/schemas/cloudmap_lifecycle_status",
+            "description": "Lifecycle status of the instantiation"
           },
           "type": {
             "$ref": "#/components/schemas/cloudmap_typeRef",
@@ -2093,6 +2137,30 @@
           }
         },
         "title": "Common Metadata",
+        "type": "object"
+      },
+      "cloudmap_relationships": {
+        "$$target": "#/definitions/relationships",
+        "description": "Common relationships used by artifacts and components to describe how they relate to other records and types. Each field is a typedURLs map whose key is a URL or label and whose value is an optional type reference.",
+        "properties": {
+          "contains": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs of interesting artifacts that this record embeds or incorporates."
+          },
+          "dependencies": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+          },
+          "instantiates": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."
+          },
+          "references": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."
+          }
+        },
+        "title": "Relationships",
         "type": "object"
       },
       "cloudmap_release_schedule": {
@@ -2303,7 +2371,7 @@
           },
           "status": {
             "$ref": "#/components/schemas/cloudmap_lifecycle_status",
-            "description": "Operational status of the service."
+            "description": "Lifecycle status of the service."
           },
           "type": {
             "$ref": "#/components/schemas/cloudmap_typeRef",

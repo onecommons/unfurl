@@ -37,6 +37,7 @@ from ..tosca_plugins.cloudmap_defs import (
     CloudMapRecord,
     CloudMapView,
     CloudType,
+    Component,
     Instantiation,
     Repository,
     Service,
@@ -85,6 +86,7 @@ _SECTIONS: Tuple[str, ...] = (
     "artifacts",
     "repositories",
     "services",
+    "components",
     "instantiations",
 )
 
@@ -227,6 +229,8 @@ class CloudMapCache(CloudMapDB):
             record = Artifact(url=clean.pop("url", key), **clean)
         elif section == "services":
             record = Service(url=clean.pop("url", key), **clean)
+        elif section == "components":
+            record = Component(url=clean.pop("url", key), **clean)
         elif section == "instantiations":
             record = Instantiation(url=clean.pop("url", key), **clean)
         elif section == "types":
@@ -481,6 +485,13 @@ class CloudMapProxy(CloudMapView):
         self._fetch_by_key("services", url)
         return self._cache.get_service(url)
 
+    def get_component(self, url: str) -> Optional[Component]:
+        hit = self._cache.get_component(url)
+        if hit is not None:
+            return hit
+        self._fetch_by_key("components", url)
+        return self._cache.get_component(url)
+
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         hit = self._cache.get_instantiation(url)
         if hit is not None:
@@ -539,6 +550,10 @@ class CloudMapProxy(CloudMapView):
         self._ensure_section("services")
         yield from self._cache.find_services(type)
 
+    def find_components(self, type: str = "") -> Iterator[Component]:
+        self._ensure_section("components")
+        yield from self._cache.find_components(type)
+
     def find_instantiations(self, type: str = "") -> Iterator[Instantiation]:
         self._ensure_section("instantiations")
         yield from self._cache.find_instantiations(type)
@@ -579,6 +594,8 @@ class CloudMapProxy(CloudMapView):
             return "artifacts"
         if isinstance(record, Service):
             return "services"
+        if isinstance(record, Component):
+            return "components"
         if isinstance(record, Instantiation):
             return "instantiations"
         if isinstance(record, CloudType):

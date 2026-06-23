@@ -775,6 +775,81 @@ class Artifact(VersionedRecord):
         return result
 
 
+@dataclass
+class Component(VersionedRecord):
+    """
+    A component that describes relationships (references, instantiates,
+    dependencies) and is identified by URL or label.
+    """
+
+    url: str
+    type: TypeRefs = field(default_factory=TypeRefs)
+    """Type identifier from types/components with optional version constraints"""
+    source: str = ""
+    """Repository or artifact URL."""
+    contains: TypedUrls = field(default_factory=dict)
+    """Map of URLs of interesting artifacts that this component embeds or incorporates."""
+    references: TypedUrls = field(default_factory=dict)
+    """Map of URLs of interesting artifacts, repositories or services that this component may reference when executed or instantiated."""
+    instantiates: TypedUrls = field(default_factory=dict)
+    """Map of URLs (or labels) of entities this component instantiates with optional type constraints."""
+    dependencies: TypedUrls = field(default_factory=dict)
+    """Software, services, or environment context that this component may depend on. Keys are labels or URLs, values are type constraints of components or capabilities."""
+    metadata: CommonMetadata = field(default_factory=CommonMetadata)
+    """Human-readable metadata"""
+    status: Optional[LifecycleStatus] = None
+    """Lifecycle status of the component."""
+    versions: Dict[str, "Component"] = field(default_factory=dict)
+    """Components that are variants of this component"""
+    _parent: InitVar[Optional["Component"]] = None
+
+    def __post_init__(self, _parent: Optional["Component"] = None):
+        if self.url:
+            self.url = validate_url(self.url, "Component.url")
+        if self.source:
+            self.source = validate_url(self.source, "Component.source")
+        if not isinstance(self.metadata, CommonMetadata):
+            self.metadata = CommonMetadata(**(self.metadata or {}))
+        if not isinstance(self.type, TypeRefs):
+            self.type = TypeRefs(types=self.type)
+        self.contains = TypeRefs.urls_fromdict(self.contains)
+        self.references = TypeRefs.urls_fromdict(self.references)
+        self.instantiates = TypeRefs.urls_fromdict(self.instantiates)
+        self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
+        if self.versions:
+            self.versions = self._load_versions()
+        self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
+
+    def asdict(self) -> Dict[str, Any]:
+        result = {}
+        for k, v in asdict(self).items():
+            if k == "url":
+                continue  # skip url, save as the key instead
+            if k == "metadata":
+                v = filter_dict(v)
+            elif k == "type" and v:
+                v = v.asdict() if isinstance(v, TypeRefs) else v
+            elif k == "contains":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "references":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "instantiates":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "dependencies":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "versions" and v:
+                v = {
+                    url: (c.asdict() if isinstance(c, Component) else c)
+                    for url, c in v.items()
+                }
+            # exclude empty values and values inherited from parent
+            if v and (
+                not self._parent or v != getattr(self._parent, k)  # type: ignore
+            ):
+                result[k] = v
+        return result
+
+
 def get_repository_url(url: str) -> str:
     """Return the git:// URL for the repository without user or fragment"""
     parts = urlparse(normalize_git_url(url))
@@ -1164,6 +1239,7 @@ class CloudType(CloudMapRecord):
 
 
 ServiceDict = Dict[str, Service]
+ComponentDict = Dict[str, Component]
 CloudTypeDict = Dict[str, CloudType]
 RepositoryDict = Dict[str, Repository]
 
@@ -1183,6 +1259,9 @@ class CloudMapView(ABC):
     def get_service(self, url: str) -> Optional["Service"]: ...
 
     @abstractmethod
+    def get_component(self, url: str) -> Optional["Component"]: ...
+
+    @abstractmethod
     def get_instantiation(self, url: str) -> Optional["Instantiation"]: ...
 
     @abstractmethod
@@ -1200,6 +1279,10 @@ class CloudMapView(ABC):
     @abstractmethod
     def find_services(self, type: str = "") -> Iterable["Service"]:
         """An empty filter returns all services."""
+
+    @abstractmethod
+    def find_components(self, type: str = "") -> Iterable["Component"]:
+        """An empty filter returns all components."""
 
     @abstractmethod
     def find_instantiations(self, type: str = "") -> Iterable["Instantiation"]:
@@ -1474,6 +1557,7 @@ __all__ = [
     "Discovery",
     "ScheduledRelease",
     "Artifact",
+    "Component",
     # Supporting classes
     "TypeRefs",
     "EntitySchema",
@@ -1494,6 +1578,7 @@ __all__ = [
     "LifecycleStatus",
     "ArtifactDict",
     "ServiceDict",
+    "ComponentDict",
     "CloudTypeDict",
     "RepositoryDict",
     # Helpers

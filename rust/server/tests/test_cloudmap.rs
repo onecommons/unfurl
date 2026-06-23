@@ -232,8 +232,10 @@ async fn follow_walks_graph_when_key_supplied() {
     }
     keys.sort();
     let mut expected = vec![
-        "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+        "git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml",
+        "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
         "git://unfurl.cloud/onecommons/unfurl-types.git",
+        "git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml",
         "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml",
         "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo",
     ];
@@ -246,7 +248,7 @@ async fn follow_walks_graph_when_key_supplied() {
         .and_then(|v| v.as_object())
         .expect("artifacts in followed");
     let ensemble = artifacts
-        .get("git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml")
+        .get("git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template")
         .expect("ensemble-template artifact");
     assert!(ensemble.get("type").is_some(), "artifact has a type field");
 

@@ -134,11 +134,15 @@ Cloudmap definitions
 
 .. jsonschema:: cloudmap-schema.json#/definitions/discovery
 
+.. jsonschema:: cloudmap-schema.json#/definitions/relationships
+
 .. jsonschema:: cloudmap-schema.json#/definitions/repository
 
 .. jsonschema:: cloudmap-schema.json#/definitions/service
 
 .. jsonschema:: cloudmap-schema.json#/definitions/artifact
+
+.. jsonschema:: cloudmap-schema.json#/definitions/component
 
 .. jsonschema:: cloudmap-schema.json#/definitions/lifecycle_status
 

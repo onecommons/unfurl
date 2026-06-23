@@ -20,17 +20,32 @@
 //! derives `Deserialize` on request-body types and `Serialize` on
 //! response types, which is the orientation the server needs.
 
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
-const SPEC_PATH: &str = "../../unfurl/server/openapi.json";
+/// Default location of the OpenAPI spec, relative to this crate's
+/// directory. Overridable via the [`SPEC_PATH_ENV`] env var (e.g. for
+/// out-of-tree builds or vendored copies).
+const DEFAULT_SPEC_PATH: &str = "../../unfurl/server/openapi.json";
+/// Env var that overrides [`DEFAULT_SPEC_PATH`] when set and non-empty.
+const SPEC_PATH_ENV: &str = "UNFURL_OPENAPI_SPEC";
 /// File containing the pinned `oas3-gen` version this crate's
 /// committed `src/unfurl_types.rs` was generated against. Read by both
 /// this build script and CI so the version lives in exactly one place.
 const VERSION_FILE: &str = ".oas3-gen-version";
 
 fn main() {
-    println!("cargo:rerun-if-changed={SPEC_PATH}");
+    println!("cargo:rerun-if-env-changed={SPEC_PATH_ENV}");
+
+    // Resolve the spec path: env override if set and non-empty,
+    // otherwise the hard-coded default.
+    let spec_path = match std::env::var(SPEC_PATH_ENV) {
+        Ok(v) if !v.trim().is_empty() => v,
+        _ => DEFAULT_SPEC_PATH.to_string(),
+    };
+
+    println!("cargo:rerun-if-changed={spec_path}");
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/unfurl_types.rs");
     println!("cargo:rerun-if-changed={VERSION_FILE}");
@@ -38,6 +53,21 @@ fn main() {
     let manifest_dir =
         PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let committed = manifest_dir.join("src/unfurl_types.rs");
+
+    // The OpenAPI spec lives outside the crate directory by default
+    // (`../../unfurl/server/openapi.json`), so a build from a published
+    // crates.io tarball (or any checkout without the spec) won't have
+    // it. In that case there's nothing to regenerate from — fall back
+    // to the committed `src/unfurl_types.rs` snapshot. Checking this
+    // first also avoids the version-file read and oas3-gen probe below,
+    // none of which can do anything useful without the spec.
+    if !std::path::Path::new(&spec_path).exists() {
+        println!(
+            "cargo:warning=unfurl-server: {spec_path} not found; \
+             using existing src/unfurl_types.rs"
+        );
+        return;
+    }
 
     let expected_version = std::fs::read_to_string(manifest_dir.join(VERSION_FILE))
         .unwrap_or_else(|e| panic!("read {VERSION_FILE}: {e}"))
@@ -91,10 +121,40 @@ fn main() {
         );
     }
 
+    // Regenerating requires rustfmt so the written `src/unfurl_types.rs`
+    // matches `cargo fmt`'s output (see `rustfmt` below). When it's
+    // unavailable (e.g. rustup's minimal profile / some CI images that ship
+    // oas3-gen but not rustfmt), skip regeneration and trust the committed
+    // snapshot rather than writing an unformatted file that `cargo fmt
+    // --check` would then reject. Match git-sync/build.rs's policy.
+    // `status().map(success)` catches both a missing binary and a rustup
+    // shim that exits non-zero because the component isn't installed.
+    if !Command::new("rustfmt")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+    {
+        assert!(
+            committed.exists(),
+            "rustfmt is not installed and the committed fallback \
+             src/unfurl_types.rs is missing.\n\
+             Install with:\n  \
+             rustup component add rustfmt"
+        );
+        println!(
+            "cargo:warning=unfurl-server: rustfmt not found; \
+             using existing src/unfurl_types.rs"
+        );
+        return;
+    }
+
     let status = Command::new("oas3-gen")
         .arg("generate")
         .arg("--input")
-        .arg(SPEC_PATH)
+        .arg(&spec_path)
         .arg("--output")
         .arg(&work_dir)
         .arg("--all-schemas")
@@ -119,9 +179,46 @@ fn main() {
     // Prepend the allow header so the file is a valid stand-alone module.
     let with_header =
         format!("#![allow(unused_imports, dead_code, deprecated, clippy::all)]\n{cleaned}");
+    // Run the result through rustfmt so the committed file matches `cargo
+    // fmt`'s output — otherwise `cargo fmt` reformats it and the next build
+    // (which regenerates it here) churns the diff back. Falls back to the
+    // unformatted source when rustfmt isn't available.
+    let formatted = rustfmt(&with_header).unwrap_or(with_header);
     // Write directly to src/unfurl_types.rs — declared as a normal module in
     // lib.rs and committed to git as the fallback for builds without oas3-gen.
-    std::fs::write(&committed, with_header).expect("write src/unfurl_types.rs");
+    std::fs::write(&committed, formatted).expect("write src/unfurl_types.rs");
+}
+
+/// Pipe `src` through `rustfmt --emit stdout` (edition 2021) and return the
+/// formatted output, or `None` if rustfmt is unavailable or fails.
+///
+/// Formatting is best-effort: unlike the code-generation itself, a missing or
+/// broken rustfmt shouldn't fail the build — the caller falls back to the
+/// unformatted source. Keeping the committed `unfurl_types.rs` rustfmt-clean
+/// only matters so `cargo fmt` doesn't diverge from what this script writes.
+fn rustfmt(src: &str) -> Option<String> {
+    let mut child = Command::new("rustfmt")
+        .arg("--edition")
+        .arg("2021")
+        .arg("--emit")
+        .arg("stdout")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    {
+        // Take ownership of stdin and drop it (closing the pipe) before
+        // waiting, so rustfmt sees EOF and can't deadlock / break the pipe
+        // on large inputs.
+        let mut stdin = child.stdin.take()?;
+        stdin.write_all(src.as_bytes()).ok()?;
+    }
+    let out = child.wait_with_output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
 }
 
 /// Remove leading inner-doc-comment (`//!`) lines and any blank

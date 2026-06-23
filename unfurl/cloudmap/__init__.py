@@ -95,6 +95,8 @@ from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     CloudType,
     CloudTypeDict,
+    Component,
+    ComponentDict,
     CommonMetadata,
     EntitySchema,
     Instantiation,
@@ -458,6 +460,12 @@ class CloudMapDB(CloudMapView):
             url = url[len("#/services/") :]
         return self.services.get(url)
 
+    def get_component(self, url: str) -> Optional[Component]:
+        if url.startswith("#/components/"):
+            # support component references by url fragment
+            url = url[len("#/components/") :]
+        return self.components.get(url)
+
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         if url.startswith("#/instantiations/"):
             # support instantiation references by url fragment
@@ -478,6 +486,10 @@ class CloudMapDB(CloudMapView):
             self.services[record.url] = record
             for svc in record.versions.values():
                 self.services[svc.url] = svc
+        elif isinstance(record, Component):
+            self.components[record.url] = record
+            for comp in record.versions.values():
+                self.components[comp.url] = comp
         elif isinstance(record, Instantiation):
             # Instantiation.__post_init__ auto-generates `url` when not
             # set, so reading record.url is safe here.
@@ -506,6 +518,10 @@ class CloudMapDB(CloudMapView):
             self.services.pop(record.url, None)
             for svc in record.versions.values():
                 self.services.pop(svc.url, None)
+        elif isinstance(record, Component):
+            self.components.pop(record.url, None)
+            for comp in record.versions.values():
+                self.components.pop(comp.url, None)
         elif isinstance(record, Instantiation):
             self.instantiations.pop(record.url, None)
             for inst in record.versions.values():
@@ -588,6 +604,10 @@ class CloudMapDB(CloudMapView):
         services = cast(Dict, db.get("services") or {})
         self.services: ServiceDict = self._load_resource(services, Service)
 
+        # Load components
+        components = cast(Dict, db.get("components") or {})
+        self.components: ComponentDict = self._load_resource(components, Component)
+
         # Load instantiations
         instantiations = cast(Dict, db.get("instantiations") or {})
         self.instantiations: Dict[str, Instantiation] = self._load_resource(
@@ -599,7 +619,7 @@ class CloudMapDB(CloudMapView):
     def _load_resource(
         self,
         resources: Dict[str, Any],
-        cls: Union[Type[Artifact], Type[Service], Type[Instantiation]],
+        cls: Union[Type[Artifact], Type[Service], Type[Component], Type[Instantiation]],
     ) -> Dict[str, Any]:
         resource_dict = {
             url: (a if isinstance(a, cls) else cls(url=a.pop("url", url), **a))
@@ -664,6 +684,19 @@ class CloudMapDB(CloudMapView):
         elif old_services:
             changed = True
 
+        old_components = self.db.pop("components", None)
+        if self.components:
+            new_components = {
+                url: val.asdict()
+                for url, val in sorted(self.components.items())
+                if not val._parent  # type: ignore[attr-defined]
+            }
+            if new_components != old_components:
+                changed = True
+            self.db["components"] = new_components
+        elif old_components:
+            changed = True
+
         old_instantiations = self.db.pop("instantiations", None)
         if self.instantiations:
             new_instantiations = {
@@ -707,6 +740,12 @@ class CloudMapDB(CloudMapView):
         if not type:
             return self.services.values()
         return (s for s in self.services.values() if type in s.type.types)
+
+    def find_components(self, type: str = "") -> Iterable[Component]:
+        """An empty filter returns all components."""
+        if not type:
+            return self.components.values()
+        return (c for c in self.components.values() if type in c.type.types)
 
     def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
         """An empty filter returns all instantiations."""
@@ -790,6 +829,9 @@ class Directory(_LocalGitRepos, AnalyzerContext):
     def find_services(self, type: str = "") -> Iterable[Service]:
         return self.db.find_services(type)
 
+    def find_components(self, type: str = "") -> Iterable[Component]:
+        return self.db.find_components(type)
+
     def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
         return self.db.find_instantiations(type)
 
@@ -801,6 +843,9 @@ class Directory(_LocalGitRepos, AnalyzerContext):
 
     def get_service(self, url: str) -> Optional[Service]:
         return self.db.get_service(url)
+
+    def get_component(self, url: str) -> Optional[Component]:
+        return self.db.get_component(url)
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         return self.db.get_instantiation(url)

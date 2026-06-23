@@ -233,24 +233,19 @@
         }
       }
     },
-    "artifact": {
+    "relationships": {
       "type": "object",
-      "title": "Artifact",
-      "$$target": "#/definitions/artifact",
+      "title": "Relationships",
+      "description": "Common relationships used by artifacts and components to describe how they relate to other records and types. Each field is a typedURLs map whose key is a URL or label and whose value is an optional type reference.",
+      "$$target": "#/definitions/relationships",
       "properties": {
-        "type": {
-          "$ref": "#/definitions/typeRef",
-          "description": "Type identifier from types/artifacts with optional version constraints."
-        },
         "contains": {
-          "type": "object",
-          "description": "Map of URLs of interesting artifacts that this artifact embeds or incorporates.",
-          "$ref": "#/definitions/typedURLs"
+          "$ref": "#/definitions/typedURLs",
+          "description": "Map of URLs of interesting artifacts that this record embeds or incorporates."
         },
         "references": {
-          "type": "object",
-          "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated.",
-          "$ref": "#/definitions/typedURLs"
+          "$ref": "#/definitions/typedURLs",
+          "description": "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."
         },
         "instantiates": {
           "$ref": "#/definitions/typedURLs",
@@ -259,79 +254,140 @@
         "dependencies": {
           "$ref": "#/definitions/typedURLs",
           "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
-        },
-        "instantiated_by": {
-          "$ref": "#/definitions/typedURLs",
-          "description": "URLs referencing instantiations that created or validated this artifact."
-        },
-        "digest": {
-          "type": "string",
-          "description": "Cryptographic digest of the artifact."
-        },
-        "tags": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of available tags for this artifact (e.g., container image tags)."
-        },
-        "immutable": {
-          "type": "boolean",
-          "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
-        },
-        "status": {
-          "$ref": "#/definitions/lifecycle_status",
-          "description": "Lifecycle status of the instantiation"
-        },
-        "release_schedule": {
-          "$ref": "#/definitions/release_schedule"
-        },
-        "metadata": {
-          "description": "Human-readable metadata about the artifact.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/metadata"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "title": "Artifact",
+      "$$target": "#/definitions/artifact",
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "$ref": "#/definitions/typeRef",
+              "description": "Type identifier from types/artifacts with optional version constraints."
             },
-            {
-              "type": "object",
-              "properties": {
-                "platforms": {
-                  "type": "array",
-                  "description": "List of platforms this artifact supports.",
-                  "items": {
-                    "type": "object",
-                    "properties": {
-                      "architecture": {
-                        "type": "string",
-                        "description": "CPU architecture (e.g., amd64, arm64)."
-                      },
-                      "os": {
-                        "type": "string",
-                        "description": "Operating system (e.g., linux, windows)."
+            "instantiated_by": {
+              "$ref": "#/definitions/typedURLs",
+              "description": "URLs referencing instantiations that created or validated this artifact."
+            },
+            "digest": {
+              "type": "string",
+              "description": "Cryptographic digest of the artifact."
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of available tags for this artifact (e.g., container image tags)."
+            },
+            "immutable": {
+              "type": "boolean",
+              "description": "Indicates whether the artifact identifier refers to an artifact that will not change."
+            },
+            "status": {
+              "$ref": "#/definitions/lifecycle_status"
+            },
+            "release_schedule": {
+              "$ref": "#/definitions/release_schedule"
+            },
+            "metadata": {
+              "description": "Human-readable metadata about the artifact.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/metadata"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "platforms": {
+                      "type": "array",
+                      "description": "List of platforms this artifact supports.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "architecture": {
+                            "type": "string",
+                            "description": "CPU architecture (e.g., amd64, arm64)."
+                          },
+                          "os": {
+                            "type": "string",
+                            "description": "Operating system (e.g., linux, windows)."
+                          }
+                        }
                       }
                     }
                   }
                 }
+              ]
+            },
+            "discovery": {
+              "$ref": "#/definitions/discovery"
+            },
+            "versions": {
+              "type": "object",
+              "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
+              "propertyNames": {
+                "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
+                "pattern": "^[^\\s]*$"
+              },
+              "additionalProperties": {
+                "$ref": "#/definitions/artifact"
               }
             }
-          ]
-        },
-        "discovery": {
-          "$ref": "#/definitions/discovery"
-        },
-        "versions": {
-          "type": "object",
-          "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
-          "propertyNames": {
-            "description": "A PURL identifier or another URL if the artifact is of a type not supported by PURL.",
-            "pattern": "^[^\\s]*$"
           },
-          "additionalProperties": {
-            "$ref": "#/definitions/artifact"
-          }
+          "additionalProperties": true
+        },
+        {
+          "$ref": "#/definitions/relationships"
         }
-      },
-      "additionalProperties": true
+      ]
+    },
+    "component": {
+      "type": "object",
+      "title": "Component",
+      "$$target": "#/definitions/component",
+      "allOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "$ref": "#/definitions/typeRef",
+              "description": "Type identifier from types/components with optional version constraints."
+            },
+            "metadata": {
+              "description": "Human-readable metadata about the service.",
+              "$ref": "#/definitions/metadata"
+            },
+            "status": {
+              "$ref": "#/definitions/lifecycle_status",
+              "description": "Lifecycle status of the component."
+            },
+            "source": {
+              "type": "string",
+              "description": "Repository or artifact URL."
+            },
+            "versions": {
+              "type": "object",
+              "description": "Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.",
+              "propertyNames": {
+                "description": "URL of the component variant.",
+                "pattern": "^[^\\s]*$"
+              },
+              "additionalProperties": {
+                "$ref": "#/definitions/component"
+              }
+            }
+          },
+          "additionalProperties": true
+        },
+        {
+          "$ref": "#/definitions/relationships"
+        }
+      ]
     },
     "service": {
       "type": "object",
@@ -361,7 +417,7 @@
         },
         "status": {
           "$ref": "#/definitions/lifecycle_status",
-          "description": "Operational status of the service."
+          "description": "Lifecycle status of the service."
         },
         "metadata": {
           "description": "Human-readable metadata about the service.",
@@ -457,7 +513,8 @@
           "$ref": "#/definitions/discovery"
         },
         "status": {
-          "$ref": "#/definitions/lifecycle_status"
+          "$ref": "#/definitions/lifecycle_status",
+          "description": "Lifecycle status of the instantiation"
         },
         "versions": {
           "type": "object",
@@ -746,6 +803,17 @@
       },
       "additionalProperties": {
         "$ref": "#/definitions/artifact"
+      }
+    },
+    "components": {
+      "type": "object",
+      "description": "Components that are produced or consumed by artifacts and services. Components describe relationships (references, instantiates, dependencies) and are identified by URL or label.",
+      "propertyNames": {
+        "description": "URL or label of the component.",
+        "pattern": "^[^\\s]*$"
+      },
+      "additionalProperties": {
+        "$ref": "#/definitions/component"
       }
     },
     "services": {

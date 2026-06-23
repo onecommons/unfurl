@@ -38,10 +38,10 @@ pub struct CloudMapDocument {
     pub api_version: CloudMapDocumentApiVersion,
     /// Tangible object that instantiates services or other artifacts. Artifact ID is either a package URL (see <https://github.com/package-url/purl-spec>) or repository URL with path.
     pub artifacts: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
+    /// Components that are produced or consumed by artifacts and services. Components describe relationships (references, instantiates, dependencies) and are identified by URL or label.
+    pub components: Option<std::collections::HashMap<String, Box<CloudmapComponent>>>,
     /// Build and deployment information for artifacts and services. Keys are URLs.
-    pub instantiations: Option<
-        std::collections::HashMap<String, Box<CloudmapInstantiation>>,
-    >,
+    pub instantiations: Option<std::collections::HashMap<String, Box<CloudmapInstantiation>>>,
     #[default("CloudMap".to_string())]
     pub kind: String,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
@@ -75,14 +75,10 @@ impl core::str::FromStr for CloudMapDocumentApiVersion {
         match s {
             "unfurl/v1alpha1" => Ok(Self::UnfurlV1alpha1),
             "unfurl/v1.0.0" => Ok(Self::UnfurlV100),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "unfurl/v1alpha1, unfurl/v1.0.0"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "unfurl/v1alpha1, unfurl/v1.0.0"
+            )),
         }
     }
 }
@@ -145,7 +141,9 @@ pub struct CloudMapResponseTypeRefJson {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapArtifact {
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub contains: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub dependencies: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Cryptographic digest of the artifact.
     pub digest: Option<String>,
@@ -153,19 +151,13 @@ pub struct CloudmapArtifact {
     pub discovery: Option<CloudmapDiscovery>,
     /// Indicates whether the artifact identifier refers to an artifact that will not change.
     pub immutable: Option<bool>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
-    pub instantiated_by: Option<
-        std::collections::HashMap<String, Option<CloudmapTypeRef>>,
-    >,
-    /// Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.
-    pub instantiates: Option<
-        std::collections::HashMap<String, Option<serde_json::Value>>,
-    >,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub instantiated_by: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub instantiates: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Human-readable metadata about the artifact.
     pub metadata: Option<serde_json::Value>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
-    pub notable: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub references: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Scheduled Release for an artifact or service.
     pub release_schedule: Option<Vec<serde_json::Value>>,
@@ -177,6 +169,31 @@ pub struct CloudmapArtifact {
     pub r#type: Option<std::collections::HashMap<String, Option<serde_json::Value>>>,
     /// Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.
     pub versions: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
+    /// Additional properties not defined in the schema.
+    #[serde(flatten)]
+    pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
+}
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudmapComponent {
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub contains: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub dependencies: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub instantiates: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
+    pub metadata: Option<CloudmapMetadata>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub references: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Repository or artifact URL.
+    pub source: Option<String>,
+    pub status: Option<CloudmapLifecycleStatus>,
+    /// Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.
+    #[serde(rename = "type")]
+    pub r#type: Option<std::collections::HashMap<String, Option<serde_json::Value>>>,
+    /// Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.
+    pub versions: Option<std::collections::HashMap<String, Box<CloudmapComponent>>>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
@@ -204,9 +221,9 @@ pub struct CloudmapInstantiation {
     pub digest: Option<String>,
     /// Metadata discovery information.
     pub discovery: Option<CloudmapDiscovery>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub inputs: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub instantiated: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
@@ -218,8 +235,7 @@ pub struct CloudmapInstantiation {
     pub source_ref: Option<String>,
     /// If source URL references a repository, the source control revision of that repository.
     pub source_revision: Option<String>,
-    /// Status of the instantiation.
-    pub status: Option<CloudmapInstantiationStatus>,
+    pub status: Option<CloudmapLifecycleStatus>,
     /// Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.
     #[serde(rename = "type")]
     pub r#type: Option<std::collections::HashMap<String, Option<serde_json::Value>>>,
@@ -229,87 +245,7 @@ pub struct CloudmapInstantiation {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
-/// Status of the instantiation.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
-pub enum CloudmapInstantiationStatus {
-    #[serde(rename = "draft")]
-    #[default]
-    Draft,
-    #[serde(rename = "model")]
-    Model,
-    #[serde(rename = "planned")]
-    Planned,
-    #[serde(rename = "WIP")]
-    Wip,
-    #[serde(rename = "observed")]
-    Observed,
-    #[serde(rename = "verifiable")]
-    Verifiable,
-    #[serde(rename = "verified")]
-    Verified,
-    #[serde(rename = "reproducible")]
-    Reproducible,
-    #[serde(rename = "reproduced")]
-    Reproduced,
-}
-impl core::fmt::Display for CloudmapInstantiationStatus {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            Self::Draft => write!(f, "draft"),
-            Self::Model => write!(f, "model"),
-            Self::Planned => write!(f, "planned"),
-            Self::Wip => write!(f, "WIP"),
-            Self::Observed => write!(f, "observed"),
-            Self::Verifiable => write!(f, "verifiable"),
-            Self::Verified => write!(f, "verified"),
-            Self::Reproducible => write!(f, "reproducible"),
-            Self::Reproduced => write!(f, "reproduced"),
-        }
-    }
-}
-impl core::str::FromStr for CloudmapInstantiationStatus {
-    type Err = String;
-    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
-        match s {
-            "draft" => Ok(Self::Draft),
-            "model" => Ok(Self::Model),
-            "planned" => Ok(Self::Planned),
-            "WIP" => Ok(Self::Wip),
-            "observed" => Ok(Self::Observed),
-            "verifiable" => Ok(Self::Verifiable),
-            "verified" => Ok(Self::Verified),
-            "reproducible" => Ok(Self::Reproducible),
-            "reproduced" => Ok(Self::Reproduced),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "draft, model, planned, WIP, observed, verifiable, verified, reproducible, reproduced"
-                    ),
-                )
-            }
-        }
-    }
-}
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapLifecycleStatus {
     #[serde(rename = "wishlist")]
     #[default]
@@ -421,6 +357,19 @@ pub enum CloudmapMetadataVersion {
     String(String),
     Number(f64),
 }
+/// Common relationships used by artifacts and components to describe how they relate to other records and types. Each field is a typedURLs map whose key is a URL or label and whose value is an optional type reference.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudmapRelationships {
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub contains: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub dependencies: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub instantiates: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub references: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
+}
 /// Scheduled Release for an artifact or service.
 pub type CloudmapReleaseSchedule = Vec<CloudmapReleaseScheduleCloudmapReleaseSchedule>;
 #[serde_with::skip_serializing_none]
@@ -447,6 +396,8 @@ pub enum CloudmapReleaseScheduleCloudmapReleaseScheduleVersion {
 pub struct CloudmapRepository {
     /// Map of branch names to their commit SHA hashes.
     pub branches: Option<std::collections::HashMap<String, String>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub contains: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Default branch name (e.g., main, master).
     pub default_branch: Option<String>,
     /// URL of the repository that this repository was forked from.
@@ -461,7 +412,6 @@ pub struct CloudmapRepository {
     pub mirror_of: Option<String>,
     /// Repository name.
     pub name: Option<String>,
-    pub notable: Option<CloudmapRepositoryNotable>,
     /// Project path relative to base location of git repositories on the host.
     pub path: Option<String>,
     /// True if the repository is not publicly accessible.
@@ -478,42 +428,19 @@ pub struct CloudmapRepository {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
-#[serde(untagged)]
-pub enum CloudmapRepositoryNotable {
-    /// Map of paths to files and directories in the repository that are useful for characterizing the repository and integrating it with the other resources in the cloud map
-    #[default]
-    Object(std::collections::HashMap<String, serde_json::Value>),
-    /// **(Deprecated)** Inline artifact
-    #[deprecated]
-    CloudmapInlineArtifact(CloudmapInlineArtifact),
-}
-impl CloudmapRepositoryNotable {
-    /// **(Deprecated)** Inline artifact
-    pub fn inline_artifact(
-        additional_properties: std::collections::HashMap<String, serde_json::Value>,
-    ) -> Self {
-        Self::CloudmapInlineArtifact(CloudmapInlineArtifact {
-            additional_properties,
-            ..Default::default()
-        })
-    }
-}
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapService {
     /// Access to the service (who can resolve the URL).
     pub access: Option<CloudmapServiceAccess>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub connections: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Metadata discovery information.
     pub discovery: Option<CloudmapDiscovery>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
     pub endpoints: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
-    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
-    pub instantiated_by: Option<
-        std::collections::HashMap<String, Option<CloudmapTypeRef>>,
-    >,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
+    pub instantiated_by: Option<std::collections::HashMap<String, Option<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
     /// Service policies and legal information.
@@ -531,16 +458,7 @@ pub struct CloudmapService {
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// Access to the service (who can resolve the URL).
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapServiceAccess {
     #[serde(rename = "public")]
     #[default]
@@ -566,14 +484,10 @@ impl core::str::FromStr for CloudmapServiceAccess {
             "public" => Ok(Self::Public),
             "private" => Ok(Self::Private),
             "none" => Ok(Self::None),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "public, private, none"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "public, private, none"
+            )),
         }
     }
 }
@@ -593,8 +507,6 @@ pub struct CloudmapServicePolicies {
 pub struct CloudmapType {
     /// List of fully-qualified type names that this type extends.
     pub extends: Option<Vec<String>>,
-    /// Non-exhaustive list URLs to repositories or artifacts that implement this type.
-    pub implementations: Option<Vec<String>>,
     /// The kind of the type. One of: Component, Artifact, or Capability.
     pub kind: Option<CloudmapTypeKind>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
@@ -610,16 +522,7 @@ pub struct CloudmapType {
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// The kind of the type. One of: Component, Artifact, or Capability.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapTypeKind {
     #[default]
     Component,
@@ -642,14 +545,10 @@ impl core::str::FromStr for CloudmapTypeKind {
             "Component" => Ok(Self::Component),
             "Artifact" => Ok(Self::Artifact),
             "Capability" => Ok(Self::Capability),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "Component, Artifact, Capability"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "Component, Artifact, Capability"
+            )),
         }
     }
 }
@@ -658,22 +557,10 @@ impl core::str::FromStr for CloudmapTypeKind {
 pub struct CloudmapTypeRef {
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
-    pub additional_properties: std::collections::HashMap<
-        String,
-        Option<serde_json::Value>,
-    >,
+    pub additional_properties: std::collections::HashMap<String, Option<serde_json::Value>>,
 }
 /// Maturity level of the type definition.
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Hash,
-    Serialize,
-    Deserialize,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapTypeStatus {
     #[serde(rename = "draft")]
     #[default]
@@ -707,26 +594,19 @@ impl core::str::FromStr for CloudmapTypeStatus {
             "stable" => Ok(Self::Stable),
             "deprecated" => Ok(Self::Deprecated),
             "removed" => Ok(Self::Removed),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "draft, experimental, stable, deprecated, removed"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "draft, experimental, stable, deprecated, removed"
+            )),
         }
     }
 }
-/// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints.
+/// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata".
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapTypedUrLs {
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
-    pub additional_properties: std::collections::HashMap<
-        String,
-        Option<CloudmapTypeRef>,
-    >,
+    pub additional_properties: std::collections::HashMap<String, Option<CloudmapTypeRef>>,
 }
 /// GraphQL-style JSON database returned by /export and /types.
 ///
@@ -737,9 +617,8 @@ pub struct CloudmapTypedUrLs {
 pub struct ExportResponse {
     /// Map of blueprint name → ApplicationBlueprint object
     #[serde(rename = "ApplicationBlueprint")]
-    pub application_blueprint: Option<
-        std::collections::HashMap<String, ExportResponseApplicationBlueprint>,
-    >,
+    pub application_blueprint:
+        Option<std::collections::HashMap<String, ExportResponseApplicationBlueprint>>,
     /// Map of deployment name → Deployment object (deployment format only)
     #[serde(rename = "Deployment")]
     pub deployment: Option<std::collections::HashMap<String, ExportResponseDeployment>>,
@@ -748,24 +627,18 @@ pub struct ExportResponse {
     pub deployment_environment: Option<ExportResponseDeploymentEnvironment>,
     /// Map of path → DeploymentPath object (registered ensemble paths)
     #[serde(rename = "DeploymentPath")]
-    pub deployment_path: Option<
-        std::collections::HashMap<String, ExportResponseDeploymentPath>,
-    >,
+    pub deployment_path: Option<std::collections::HashMap<String, ExportResponseDeploymentPath>>,
     /// Map of blueprint name → DeploymentTemplate object
     #[serde(rename = "DeploymentTemplate")]
-    pub deployment_template: Option<
-        std::collections::HashMap<String, ExportResponseDeploymentTemplate>,
-    >,
+    pub deployment_template:
+        Option<std::collections::HashMap<String, ExportResponseDeploymentTemplate>>,
     /// Map of template name → ResourceTemplate object (TOSCA node template)
     #[serde(rename = "ResourceTemplate")]
-    pub resource_template: Option<
-        std::collections::HashMap<String, ExportResponseResourceTemplate>,
-    >,
+    pub resource_template:
+        Option<std::collections::HashMap<String, ExportResponseResourceTemplate>>,
     /// Map of type name → ResourceType object (TOSCA node type)
     #[serde(rename = "ResourceType")]
-    pub resource_type: Option<
-        std::collections::HashMap<String, ExportResponseResourceType>,
-    >,
+    pub resource_type: Option<std::collections::HashMap<String, ExportResponseResourceType>>,
     /// Embedded deployment exports (present when include_all_deployments=true)
     pub deployments: Option<ExportResponseDeployments>,
     /// Latest commit hash observed by the export; clients can use this for cache validation
@@ -778,13 +651,7 @@ pub struct ExportResponse {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseApplicationBlueprint {
     #[serde(rename = "__typename")]
@@ -844,9 +711,7 @@ pub struct ExportResponseDeployment {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct ExportResponseDeploymentEnvironment {
-    pub connections: Option<
-        std::collections::HashMap<String, ExportResponseResourceTemplate>,
-    >,
+    pub connections: Option<std::collections::HashMap<String, ExportResponseResourceTemplate>>,
     pub instances: std::collections::HashMap<String, ExportResponseResourceTemplate>,
     pub name: Option<String>,
     pub primary_provider: Option<ExportResponseResourceTemplate>,
@@ -857,13 +722,7 @@ pub struct ExportResponseDeploymentEnvironment {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseDeploymentPath {
     #[serde(rename = "__typename")]
@@ -886,19 +745,12 @@ pub struct ExportResponseDeploymentPath {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseDeploymentTemplate {
     #[serde(rename = "ResourceTemplate")]
-    pub resource_template: Option<
-        std::collections::HashMap<String, ExportResponseResourceTemplate>,
-    >,
+    pub resource_template:
+        Option<std::collections::HashMap<String, ExportResponseResourceTemplate>>,
     #[serde(rename = "__typename")]
     #[validate(length(min = 1u64))]
     pub typename: String,
@@ -933,13 +785,7 @@ pub enum ExportResponseDeployments {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseImportDef {
     #[validate(length(min = 1u64))]
@@ -972,13 +818,7 @@ pub struct ExportResponseRequirement {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseRequirementConstraint {
     #[serde(rename = "__typename")]
@@ -1033,13 +873,7 @@ pub struct ExportResponseResourceTemplate {
 }
 #[serde_with::skip_serializing_none]
 #[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
 )]
 pub struct ExportResponseResourceType {
     #[serde(rename = "__typename")]
@@ -1050,9 +884,7 @@ pub struct ExportResponseResourceType {
     pub sourceinfo: Option<ExportResponseImportDef>,
     pub badge: Option<String>,
     #[serde(rename = "computedPropertiesSchema")]
-    pub computed_properties_schema: Option<
-        std::collections::HashMap<String, serde_json::Value>,
-    >,
+    pub computed_properties_schema: Option<std::collections::HashMap<String, serde_json::Value>>,
     pub description: Option<String>,
     pub details_url: Option<String>,
     pub directives: Option<Vec<String>>,
@@ -1113,14 +945,10 @@ impl core::str::FromStr for ExportResponseStatus {
             "3" => Ok(Self::Value3),
             "4" => Ok(Self::Value4),
             "5" => Ok(Self::Value5),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "0, 1, 2, 3, 4, 5"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "0, 1, 2, 3, 4, 5"
+            )),
         }
     }
 }
@@ -1167,8 +995,7 @@ impl IntoResponse for GetCloudmapResponse {
         match self {
             Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1237,14 +1064,10 @@ impl core::str::FromStr for GetExportRequestQueryFormat {
             "deployment" => Ok(Self::Deployment),
             "blueprint" => Ok(Self::Blueprint),
             "environments" => Ok(Self::Environments),
-            _ => {
-                Err(
-                    format!(
-                        "unknown variant '{}', expected one of: {}", s,
-                        "deployment, blueprint, environments"
-                    ),
-                )
-            }
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "deployment, blueprint, environments"
+            )),
         }
     }
 }
@@ -1282,8 +1105,7 @@ impl IntoResponse for GetGraphResponse {
         match self {
             Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1363,12 +1185,10 @@ impl IntoResponse for GetTypesResponse {
                 (http::StatusCode::UNAUTHORIZED, axum::Json(data)).into_response()
             }
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::InternalServerError(data) => {
-                (http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1504,16 +1324,12 @@ impl IntoResponse for PostBatchPatchResponse {
             Self::Unauthorized(data) => {
                 (http::StatusCode::UNAUTHORIZED, axum::Json(data)).into_response()
             }
-            Self::Conflict(data) => {
-                (http::StatusCode::CONFLICT, axum::Json(data)).into_response()
-            }
+            Self::Conflict(data) => (http::StatusCode::CONFLICT, axum::Json(data)).into_response(),
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::InternalServerError(data) => {
-                (http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::INTERNAL_SERVER_ERROR, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1558,9 +1374,7 @@ pub struct PostCloudmapRequest {
     /// Commit message for the local commit; falls back to a generated default.
     pub commit_msg: Option<String>,
     /// Build and deployment information for artifacts and services. Keys are URLs.
-    pub instantiations: Option<
-        std::collections::HashMap<String, Box<CloudmapInstantiation>>,
-    >,
+    pub instantiations: Option<std::collections::HashMap<String, Box<CloudmapInstantiation>>>,
     pub kind: Option<String>,
     /// Last commit oid the client observed. Forwarded to git-level OCC checks.
     pub latest_commit: Option<String>,
@@ -1610,8 +1424,7 @@ impl IntoResponse for PostCloudmapResponse {
         match self {
             Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1672,14 +1485,7 @@ pub struct PostEmptyCacheRequest {
     pub query: PostEmptyCacheRequestQuery,
 }
 impl PostEmptyCacheRequest {}
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 pub struct PostEmptyCacheRequestQuery {
     /// Must equal the UNFURL_SERVER_ADMIN_PROJECT environment variable
     #[validate(length(min = 1u64))]
@@ -1702,8 +1508,7 @@ impl IntoResponse for PostEmptyCacheResponse {
         match self {
             Self::Ok => http::StatusCode::OK.into_response(),
             Self::UnprocessableEntity(data) => {
-                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data))
-                    .into_response()
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
             }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
@@ -1716,14 +1521,7 @@ pub struct PostPopulateCacheRequest {
     pub query: PostPopulateCacheRequestQuery,
 }
 impl PostPopulateCacheRequest {}
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Deserialize,
-    validator::Validate,
-    oas3_gen_support::Default
-)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 pub struct PostPopulateCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
@@ -1783,4 +1581,3 @@ pub struct ValidationErrorDetaillocation {
     #[serde(rename = "<field_name>")]
     pub field_name: Option<Vec<String>>,
 }
-

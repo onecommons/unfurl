@@ -8,3 +8,4 @@
 //! [`crate::FormatRegistry::register`].
 
 pub mod cloudmap;
+pub mod cloudmap_types;

@@ -41,6 +41,20 @@ tracing = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 url = "2"
 tempfile = "3"
+# Used at runtime by code generated from cloudmap-schema.json by
+# `typify` — pattern-validated string types compile to `regress::Regex`
+# constructors.
+regress = "0.10"
+
+[build-dependencies]
+# Generates Rust types from `unfurl/cloudmap/cloudmap-schema.json` so
+# the cloudmap format walker can deserialize records into typed
+# structs instead of indexing raw JSON by string. The build script
+# shells out to `rustfmt` for formatting (which ships in rustup's
+# default profile); see `build.rs` for the fallback when it's missing.
+typify = { version = "0.7", default-features = false }
+schemars = "0.8"
+serde_json = "1"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }

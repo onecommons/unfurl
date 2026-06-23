@@ -1408,7 +1408,6 @@ where
     Ok(WriteOutcome { id, version })
 }
 
-
 /// Apply a single [`BatchOp`] in the caller-owned transaction,
 /// returning the new `(id, version)` on success.
 ///

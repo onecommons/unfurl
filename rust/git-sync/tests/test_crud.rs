@@ -533,23 +533,21 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     //
     // Breadth-first expectation:
     //
-    // 1. The repository's `notable["ensemble-template.yaml#…"]
-    //    .artifact` URL adds:
-    //        /artifacts # git://…blueprints/odoo.git#:ensemble-template.yaml
-    //    (The strip-and-`.git`-normalise step also emits the bare
-    //    `git://…blueprints/odoo.git`, but that's the start record —
-    //    deduped.)
+    // 1. Each `Repository.contains[<file-path>]` key resolves (via
+    //    `Repository.artifact_url()`) to an artifact URL. The odoo repo
+    //    has three entries (`.gitlab-ci.yml`, `ensemble-template.yaml#…`,
+    //    `unfurl.yaml`); the first two have matching artifact records.
     //
-    // 2. That artifact's `references` block has two URLs.
+    // 2. The `ensemble-template.yaml%23spec/service_template` artifact's
+    //    `references` block has two URLs:
     //    a. `git://…/unfurl-types#v0.7.7:.` — strip + normalise to
-    //       `git://…/unfurl-types.git`, which matches the repository:
-    //           /repositories # git://unfurl.cloud/onecommons/unfurl-types.git
-    //    b. `pkg:oci/odoo?…&tag=latest` — alias-resolves to:
-    //           /artifacts # pkg:oci/odoo?repository_url=docker.io/bitnami/odoo
+    //       `git://…/unfurl-types.git`, which matches the repository.
+    //    b. `pkg:oci/odoo?…&tag=latest` — alias-resolves to the OCI
+    //       artifact `pkg:oci/odoo?repository_url=docker.io/bitnami/odoo`.
     //
-    // 3. The unfurl-types repository's `notable["dummy-ensemble.yaml"]
-    //    .artifact` URL reaches:
-    //        /artifacts # git://…/unfurl-types.git#:dummy-ensemble.yaml
+    // 3. The unfurl-types repository's `contains` keys resolve to:
+    //    `/artifacts # git://…/unfurl-types.git#:.gitlab-ci.yml` and
+    //    `/artifacts # git://…/unfurl-types.git#:dummy-ensemble.yaml`.
     //
     // 4. The OCI image and the dummy-ensemble TypeLibrary have no
     //    follow-shaped fields. BFS ends.
@@ -566,7 +564,11 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     let expected_walk: Vec<(&str, &str)> = vec![
         (
             "/artifacts",
-            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml",
+            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml",
+        ),
+        (
+            "/artifacts",
+            "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
         ),
         (
             "/artifacts",
@@ -575,6 +577,10 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
         (
             "/repositories",
             "git://unfurl.cloud/onecommons/unfurl-types.git",
+        ),
+        (
+            "/artifacts",
+            "git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml",
         ),
         (
             "/artifacts",
@@ -623,12 +629,12 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
         .collect();
     assert_eq!(
         walked_ids, expected_walk,
-        "follow walk should reach the four expected records",
+        "follow walk should reach the expected records",
     );
 
     // Spot-check a few payloads to confirm these are the expected
     // records (and not coincidental key matches).
-    let ensemble_template = &walked[0];
+    let ensemble_template = &walked[1];
     assert_eq!(
         ensemble_template
             .json
@@ -638,7 +644,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             .map(|s| s.as_str()),
         Some("cloudmap.artifacts.tosca.ServiceTemplate"),
     );
-    let oci = &walked[1];
+    let oci = &walked[2];
     assert_eq!(
         oci.json
             .get("type")
@@ -647,7 +653,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             .map(|s| s.as_str()),
         Some("cloudmap.artifacts.oci.Image"),
     );
-    let unfurl_types_repo = &walked[2];
+    let unfurl_types_repo = &walked[3];
     assert_eq!(
         unfurl_types_repo.json.get("name").and_then(|n| n.as_str()),
         Some("unfurl-types"),
@@ -656,7 +662,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
         oci.json.get("versions").is_some(),
         "the OCI artifact still has its versions block"
     );
-    let dummy_ensemble = &walked[3];
+    let dummy_ensemble = &walked[5];
     assert_eq!(
         dummy_ensemble
             .json
@@ -667,7 +673,9 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
         Some("cloudmap.artifacts.tosca.TypeLibrary"),
     );
 
-    // follow=1 → BFS truncates after the first hop (ensemble-template).
+    // follow=1 → BFS truncates after the first hop (`.gitlab-ci.yml`,
+    // which is alphabetically the first `contains` entry of the start
+    // repository).
     let (_, walked_small) = sync
         .find_records_follow(
             None,

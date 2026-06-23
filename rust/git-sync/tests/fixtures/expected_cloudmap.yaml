@@ -15,18 +15,13 @@ repositories:
     default_branch: main
     branches:
       main: 4551885dfab39991cfdb958cb79fcb6aa282481d
-    notable:
+    contains:
       .gitlab-ci.yml:
-        type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+        cloudmap.artifacts.ci.GitLabPipeline:
       ensemble/ensemble.yaml:
-        type:
-          cloudmap.artifacts.unfurl.Ensemble:
-        artifact: git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml
+        cloudmap.artifacts.unfurl.Ensemble:
       environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
-        type:
-          cloudmap.artifacts.unfurl.Ensemble:
-        artifact: git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        cloudmap.artifacts.unfurl.Ensemble:
   git://unfurl.cloud/onecommons/blueprints/odoo.git:
     path: onecommons/blueprints/odoo
     name: Odoo
@@ -47,17 +42,13 @@ repositories:
     tags:
       v1.0.0: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
       v0.1.0: be0da659d7358bc4d24d988f436a5508e098b252
-    notable:
+    contains:
       .gitlab-ci.yml:
-        type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+        cloudmap.artifacts.ci.GitLabPipeline:
       ensemble-template.yaml#spec/service_template:
-        type:
-          cloudmap.artifacts.tosca.ServiceTemplate:
-        artifact: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+        cloudmap.artifacts.tosca.ServiceTemplate:
       unfurl.yaml:
-        type:
-          cloudmap.artifacts.unfurl.Project:
+        cloudmap.artifacts.unfurl.Project:
   git://unfurl.cloud/onecommons/std.git:
     path: onecommons/std
     name: std
@@ -84,17 +75,13 @@ repositories:
       v1.0.1: 254e5a87af19aa7e39cab8a02f6b27df8fcfe348
       v1.0.0: 8ed0136c658cf22f1aab3242a536470d3c35f28e
       INITIAL: 0e306c3e627b9c027b0abb6d3969b01126c2ffe1
-    notable:
+    contains:
       .devcontainer/Containerfile:
-        type:
-          cloudmap.artifacts.Containerfile:
+        cloudmap.artifacts.Containerfile:
       .gitlab-ci.yml:
-        type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+        cloudmap.artifacts.ci.GitLabPipeline:
       dummy-ensemble.yaml:
-        type:
-          cloudmap.artifacts.tosca.TypeLibrary:
-        artifact: git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml
+        cloudmap.artifacts.tosca.TypeLibrary:
   git://unfurl.cloud/onecommons/unfurl-types.git:
     path: onecommons/unfurl-types
     name: unfurl-types
@@ -139,14 +126,11 @@ repositories:
       v0.2.0: 3368772296efe28b409f13d793e066b2f5f5f1a6
       v0.1.0: d0e8f921478f864da2037e1143afe3dd35e590ad
       before-caddy: aa831e8cfc58c84e5ecfe963afe6c472b1cb9476
-    notable:
+    contains:
       .gitlab-ci.yml:
-        type:
-          cloudmap.artifacts.ci.GitLabPipeline:
+        cloudmap.artifacts.ci.GitLabPipeline:
       dummy-ensemble.yaml:
-        type:
-          cloudmap.artifacts.tosca.TypeLibrary:
-        artifact: git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml
+        cloudmap.artifacts.tosca.TypeLibrary:
 artifacts:
   git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:
     type:
@@ -184,7 +168,7 @@ artifacts:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.ci.GitLabPipeline:
-  git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml:
+  git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
         version: 0.1
@@ -251,7 +235,7 @@ instantiations:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     revision: 4551885dfab39991cfdb958cb79fcb6aa282481d
-    source: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+    source: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
     source_revision: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
     instantiated:
       https://example.com/oodo:

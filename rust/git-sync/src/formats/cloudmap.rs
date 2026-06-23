@@ -15,17 +15,24 @@
 //!   (`unfurl/tosca_plugins/cloudmap_defs.py:416–441`) plus
 //!   `join_resource_url` (`unfurl/tosca_plugins/cloudmap_defs.py:64–92`).
 //! - [`CloudMapFormat::follow`] ports `CloudMapGraphWalker._walk_edges`
-//!   (`unfurl/reporting.py:658–740`).
+//!   (`unfurl/reporting.py:658–740`). It deserializes each record's
+//!   JSON into the typed structs in [`crate::formats::cloudmap_types`]
+//!   (generated from `unfurl/cloudmap/cloudmap-schema.json`) and walks
+//!   the typed fields, so a schema change that renames or removes a
+//!   field surfaces as a compile error here rather than silently
+//!   producing empty follow-edges.
 
 use std::collections::BTreeSet;
 
 use url::Url;
 
 use crate::format::DataFormat;
+use crate::formats::cloudmap_types as ct;
 use crate::{Order, Record};
 
 const PATH_PREFIXES: &[&str] = &[
     "services",
+    "components",
     "repositories",
     "artifacts",
     "instantiations",
@@ -105,50 +112,71 @@ impl DataFormat for CloudMapFormat {
 
     fn follow(&self, record: &Record) -> Vec<String> {
         // Equivalent to CloudMapGraphWalker._walk_edges in `unfurl/reporting.py`.
-        // Only URL-shaped edges are returned (`_is_url`, line 632).
+        // Records are deserialized into the typed structs in
+        // `cloudmap_types` so field names are checked against the JSON
+        // Schema at compile time. Only URL-shaped edges are emitted
+        // (`_is_url`, `unfurl/reporting.py`).
         let Some(prefix) = Self::record_section(record) else {
             return Vec::new();
         };
 
         let mut urls: Vec<String> = Vec::new();
         let json = &record.json;
+        let parent_key = record.key.as_str();
 
         match prefix {
             "repositories" => {
-                push_str(&mut urls, json.get("fork_of"));
-                push_str(&mut urls, json.get("mirror_of"));
-                push_str(&mut urls, json.get("service"));
-                if let Some(notable) = json.get("notable").and_then(|v| v.as_object()) {
-                    for nd in notable.values() {
-                        push_str(&mut urls, nd.get("artifact"));
+                if let Ok(repo) = serde_json::from_value::<ct::Repository>(json.clone()) {
+                    push_opt(&mut urls, repo.fork_of);
+                    push_opt(&mut urls, repo.mirror_of);
+                    push_opt(&mut urls, repo.service);
+                    // `Repository.contains` keys are repo-relative file
+                    // paths (with optional `#fragment`); the artifact URL
+                    // they refer to is derived from the repository key.
+                    if let Some(contains) = repo.contains {
+                        for key in contains.0.keys() {
+                            urls.push(derive_artifact_url(parent_key, key));
+                        }
                     }
                 }
             }
             "artifacts" => {
-                collect_typed_url_keys(json.get("notable"), &mut urls);
-                collect_typed_url_keys(json.get("references"), &mut urls);
-                collect_typed_url_keys(json.get("dependencies"), &mut urls);
-                collect_typed_url_keys(json.get("instantiated_by"), &mut urls);
-                // `instantiates` → only label-shaped (type names); skip.
+                if let Ok(art) = serde_json::from_value::<ct::Artifact>(json.clone()) {
+                    extend_url_keys(&mut urls, art.contains.as_ref());
+                    extend_url_keys(&mut urls, art.references.as_ref());
+                    extend_url_keys(&mut urls, art.dependencies.as_ref());
+                    extend_url_keys(&mut urls, art.instantiated_by.as_ref());
+                    extend_url_keys(&mut urls, art.instantiates.as_ref());
+                }
+            }
+            "components" => {
+                if let Ok(comp) = serde_json::from_value::<ct::Component>(json.clone()) {
+                    push_opt(&mut urls, comp.source);
+                    extend_url_keys(&mut urls, comp.contains.as_ref());
+                    extend_url_keys(&mut urls, comp.references.as_ref());
+                    extend_url_keys(&mut urls, comp.dependencies.as_ref());
+                    extend_url_keys(&mut urls, comp.instantiates.as_ref());
+                }
             }
             "instantiations" => {
-                push_str(&mut urls, json.get("source"));
-                collect_typed_url_keys(json.get("instantiated"), &mut urls);
-                collect_typed_url_keys(json.get("inputs"), &mut urls);
+                if let Ok(inst) = serde_json::from_value::<ct::Instantiation>(json.clone()) {
+                    push_opt(&mut urls, inst.source);
+                    extend_url_keys(&mut urls, inst.instantiated.as_ref());
+                    extend_url_keys(&mut urls, inst.inputs.as_ref());
+                }
             }
             "services" => {
-                collect_typed_url_keys(json.get("connections"), &mut urls);
-                collect_typed_url_keys(json.get("instantiated_by"), &mut urls);
+                if let Ok(svc) = serde_json::from_value::<ct::Service>(json.clone()) {
+                    extend_url_keys(&mut urls, svc.connections.as_ref());
+                    extend_url_keys(&mut urls, svc.instantiated_by.as_ref());
+                }
             }
             "types" => {
-                push_str(&mut urls, json.get("source"));
-                push_str(&mut urls, json.get("model"));
-                if let Some(impls) = json.get("implementations").and_then(|v| v.as_array()) {
-                    for v in impls {
-                        push_str(&mut urls, Some(v));
-                    }
+                if let Ok(ty) = serde_json::from_value::<ct::Type>(json.clone()) {
+                    push_opt(&mut urls, ty.source);
+                    push_opt(&mut urls, ty.model);
+                    // `extends` is type-name labelled, not URL-shaped — skip.
                 }
-                // `extends` is type-name labelled, not URL-shaped — skip.
             }
             _ => {}
         }
@@ -211,25 +239,45 @@ fn is_url(s: &str) -> bool {
     s.contains("://") || s.starts_with("pkg:")
 }
 
-fn push_str(out: &mut Vec<String>, value: Option<&serde_json::Value>) {
-    if let Some(v) = value.and_then(|v| v.as_str()) {
+fn push_opt(out: &mut Vec<String>, value: Option<String>) {
+    if let Some(v) = value {
         if !v.is_empty() {
-            out.push(v.to_string());
+            out.push(v);
         }
     }
 }
 
-/// Walk a "typed-urls" mapping (`{ url-or-label: TypeRefs|null }`) and
-/// pick out only the URL-shaped keys.
-fn collect_typed_url_keys(value: Option<&serde_json::Value>, out: &mut Vec<String>) {
-    let Some(obj) = value.and_then(|v| v.as_object()) else {
-        return;
-    };
-    for key in obj.keys() {
-        if is_url(key) {
-            out.push(key.clone());
-        }
+/// Collect the URL-shaped keys from a [`ct::TypedUrLs`] map.
+fn typed_url_keys(typed: &ct::TypedUrLs) -> Vec<String> {
+    typed
+        .0
+        .keys()
+        .map(|k| k.to_string())
+        .filter(|k| is_url(k))
+        .collect()
+}
+
+fn extend_url_keys(out: &mut Vec<String>, typed: Option<&ct::TypedUrLs>) {
+    if let Some(t) = typed {
+        out.extend(typed_url_keys(t));
     }
+}
+
+/// Build an artifact URL from a repository key and a `contains` entry.
+///
+/// `Repository.contains` keys are repo-relative file paths (optionally
+/// followed by `#<fragment>`); the artifact URL is derived by
+/// URL-encoding the path and appending it to the repo URL with `#:`.
+/// Mirrors `Repository.artifact_url()` in
+/// `unfurl/tosca_plugins/cloudmap_defs.py`.
+fn derive_artifact_url(repo_url: &str, file_path: &str) -> String {
+    // `quote()` in Python encodes `#` and most special chars; for the
+    // small set of characters typically found in a repo file path
+    // (alphanum + `/._-`), only `#` actually needs encoding here. The
+    // walker is lenient — if the derived URL doesn't match any record,
+    // `_walk_child` simply emits a missing-ref and moves on.
+    let encoded = file_path.replace('#', "%23");
+    format!("{repo_url}#:{encoded}")
 }
 
 /// JSON-pointer escape per RFC 6901 § 4: `~` → `~0`, `/` → `~1`.
@@ -241,10 +289,13 @@ pub(crate) fn escape_pointer_segment(seg: &str) -> String {
     seg.replace('~', "~0").replace('/', "~1")
 }
 
-/// Port of `unfurl/tosca_plugins/cloudmap_defs.py:64–92`
-/// (`join_resource_url`).
+/// Port of `join_resource_url` in `unfurl/tosca_plugins/cloudmap_defs.py`
 ///
 /// - If `base_url` has no scheme → return `join_url`.
+/// - If `base_url` is `git://` and `join_url` has no scheme → use git-URL
+///   join semantics (replace the fragment outright if `join_url` has
+///   one; otherwise treat `join_url` as a revision and rebuild via
+///   [`git_url_join`], ensuring the repo URL ends in `.git`).
 /// - If `join_url` is absolute, or has neither fragment / query / `@` →
 ///   return `join_url`.
 /// - Otherwise replace fragment, merge query, handle `@`-prefixed path.
@@ -273,9 +324,26 @@ pub(crate) fn join_resource_url(base_url: &str, join_url: &str) -> String {
     };
 
     let join_has_at = join_path.as_deref().is_some_and(|p| p.contains('@'));
+    let join_has_scheme = join_parsed.as_ref().is_some_and(|j| !j.scheme().is_empty());
+
+    // Git-scheme special case (matches `cloudmap_defs.py:72-79`). When
+    // the base is a `git://` URL and `join_url` carries no scheme of
+    // its own, the join is interpreted through git-URL conventions.
+    if base.scheme() == "git" && !join_has_scheme {
+        let (mut repo_url, file_path, _revision) = split_git_url(base_url);
+        if let Some(frag) = join_fragment.as_deref() {
+            return format!("{repo_url}#{frag}");
+        }
+        // Treat `join_url` as a git ref (revision); ensure the repo URL
+        // ends in `.git` so `git_url_join` produces a canonical key.
+        if !repo_url.ends_with(".git") {
+            repo_url.push_str(".git");
+        }
+        return git_url_join(&repo_url, &file_path, join_url);
+    }
 
     // "absolute URL or a bare name without a purl version" → return as-is.
-    if join_parsed.as_ref().is_some_and(|j| !j.scheme().is_empty()) {
+    if join_has_scheme {
         return join_url.to_string();
     }
     if join_fragment.is_none() && join_query.is_none() && !join_has_at {
@@ -325,6 +393,77 @@ pub(crate) fn join_resource_url(base_url: &str, join_url: &str) -> String {
     }
 
     new_url.to_string()
+}
+
+/// Port of `split_git_url` in `unfurl/repo.py:165` (restricted to
+/// `git://` / `https://` URLs — the `git-local:` and `--`-flag handling
+/// in Python isn't reachable from cloudmap data).
+///
+/// Splits a URL with a git-style fragment (`#[<revision>[~<commit>]][:<path>]`)
+/// into `(repository_url_without_fragment, file_path, revision)`. The
+/// commit suffix is dropped; the file path is percent-decoded.
+fn split_git_url(url: &str) -> (String, String, String) {
+    let Some((head, frag)) = url.split_once('#') else {
+        return (url.to_string(), String::new(), String::new());
+    };
+    let (rev_part, path_part) = match frag.split_once(':') {
+        Some((r, p)) => (r.to_string(), p.to_string()),
+        None => (frag.to_string(), String::new()),
+    };
+    let revision = match rev_part.split_once('~') {
+        Some((r, _)) => r.to_string(),
+        None => rev_part,
+    };
+    (head.to_string(), percent_decode(&path_part), revision)
+}
+
+/// Port of `git_url_join` in `unfurl/repo.py:173`. Builds a git-style
+/// fragment from `(url, path, revision)`:
+///
+/// - revision + path → `url#revision:path`
+/// - revision only → `url#revision`
+/// - path only → `url#:path`
+/// - neither → `url`
+fn git_url_join(url: &str, path: &str, revision: &str) -> String {
+    if !revision.is_empty() && !path.is_empty() {
+        format!("{url}#{revision}:{path}")
+    } else if !revision.is_empty() {
+        format!("{url}#{revision}")
+    } else if !path.is_empty() {
+        format!("{url}#:{path}")
+    } else {
+        url.to_string()
+    }
+}
+
+/// Decode `%xx` escapes in a path-like string (sufficient for git
+/// `#:<path>` fragments — no `+` to space translation, no UTF-8 strict
+/// validation). Matches Python's `unquote` for the inputs we care about.
+fn percent_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let (Some(h), Some(l)) = (hex_digit(bytes[i + 1]), hex_digit(bytes[i + 2])) {
+                out.push((h << 4) | l);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn hex_digit(b: u8) -> Option<u8> {
+    match b {
+        b'0'..=b'9' => Some(b - b'0'),
+        b'a'..=b'f' => Some(b - b'a' + 10),
+        b'A'..=b'F' => Some(b - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn parse_fragment(s: &str) -> Option<String> {
@@ -403,8 +542,74 @@ mod tests {
     }
 
     #[test]
-    fn join_bare_name_returns_join() {
-        assert_eq!(join_resource_url("git://a.com/x", "bare"), "bare");
+    fn join_bare_name_git_treats_as_revision() {
+        // Matches `cloudmap_defs.py:72-79`: a bare join under a
+        // `git://` base is interpreted as a git revision, so the
+        // result is `<repo>.git#<revision>` (the `.git` suffix is
+        // added when missing).
+        assert_eq!(
+            join_resource_url("git://a.com/x", "bare"),
+            "git://a.com/x.git#bare",
+        );
+        // `.git` already present → not re-added.
+        assert_eq!(
+            join_resource_url("git://a.com/x.git", "v1.0"),
+            "git://a.com/x.git#v1.0",
+        );
+    }
+
+    #[test]
+    fn join_git_with_fragment_replaces_fragment() {
+        // `cloudmap_defs.py:74-75`: a join with a `#fragment` under a
+        // `git://` base replaces the base's fragment outright.
+        assert_eq!(
+            join_resource_url("git://a.com/x.git#main:foo", "#v2"),
+            "git://a.com/x.git#v2",
+        );
+    }
+
+    #[test]
+    fn join_git_with_revision_and_path() {
+        // Base has a `#:path` fragment; bare join overlays the revision.
+        assert_eq!(
+            join_resource_url("git://a.com/x.git#:foo/bar", "v1.0"),
+            "git://a.com/x.git#v1.0:foo/bar",
+        );
+    }
+
+    #[test]
+    fn join_non_git_bare_name_returns_join() {
+        // Non-git bases keep the original "bare name → as-is" semantics.
+        assert_eq!(join_resource_url("https://a.com/x", "bare"), "bare",);
+    }
+
+    #[test]
+    fn split_git_url_round_trip() {
+        let (u, p, r) = split_git_url("git://a.com/x.git#main:src/foo");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git", "src/foo", "main")
+        );
+        let (u, p, r) = split_git_url("git://a.com/x.git#:src/foo");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git", "src/foo", "")
+        );
+        // Commit suffix is dropped (matches Python's split_git_url which
+        // returns only the first three elements of split_git_url_with_commit).
+        let (u, p, r) = split_git_url("git://a.com/x.git#main~abc123:src");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git", "src", "main")
+        );
+        let (u, p, r) = split_git_url("git://a.com/x.git");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git", "", "")
+        );
+        // Percent-decoded path.
+        let (_, p, _) = split_git_url("git://a.com/x.git#:foo%23bar");
+        assert_eq!(p, "foo#bar");
     }
 
     #[test]
