@@ -1377,8 +1377,6 @@ class AnalyzerContext(CloudMapView):
 class Analyzer:
     """Common base for cloudmap analyzers."""
 
-    artifact_type: str = EntitySchema.GenericFile
-
 
 class RepositoryAnalyzer(Analyzer):
     """
@@ -1396,6 +1394,7 @@ class RepositoryAnalyzer(Analyzer):
         artifact_type: The artifact type to assign to matched artifacts (inherited from :class:`Analyzer`).
     """
 
+    artifact_type: str = EntitySchema.GenericFile
     files: Sequence[str] = ()
     folders: Sequence[str] = ()
 
@@ -1510,6 +1509,53 @@ class URLAnalyzer(Analyzer):
         ``None`` if no artifact should be recorded.
         """
         return None
+
+
+class PipelineRunAnalyzer(Analyzer):
+    """Analyzer for CI pipelines / workflow runs.
+
+    Subclasses are matched by the ``repositories``, ``sources``, and
+    ``source_types`` class attributes; an empty attribute acts as a wildcard
+    (matches anything). They override :py:meth:`analyze_pipeline_run`.
+
+    Class attributes:
+        repositories: Repository urls to match. Matches if any url matches the
+            pipeline's repository (or a repository it derives from via
+            ``fork_of`` / ``mirror_of``). Empty matches any repository.
+        sources: Relative workflow file paths to match, e.g.
+            ``".github/workflows/foo.yaml"``. Matches if any path equals the
+            pipeline's source. Empty matches any source.
+        source_types: :class:`TypeRefs` to match against the source file's type
+            references (found in the repository's ``contains`` map or, failing
+            that, on the source's :class:`Artifact` record). Matches if any
+            entry's type names are all present in the source's type references.
+            Empty matches any source type.
+    """
+
+    repositories: Sequence[str] = ()
+    sources: Sequence[str] = ()
+    source_types: Sequence[TypeRefs] = ()
+
+    def analyze_pipeline_run(
+        self,
+        context: "AnalyzerContext",
+        repo_info: "Repository",
+        instantiation: "Instantiation",
+        obj: Any,
+        root_path: str,
+    ) -> None:
+        """Enrich ``instantiation`` in place.
+
+        Args:
+            context: The cloudmap analyzer context (for adding related records).
+            repo_info: The Repository the pipeline run belongs to.
+            instantiation: The Instantiation record for the pipeline/run.
+            obj: The platform pipeline / workflow-run object. Set to ``None``
+                when running in safe mode (sandboxed analyzers don't get the
+                raw API object).
+            root_path: The repository's local working directory, or ``""`` if
+                the repository is not cloned locally.
+        """
 
 
 class HostConfig(TypedDict, total=False):

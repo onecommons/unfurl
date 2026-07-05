@@ -67,6 +67,7 @@ from typing import (
     List,
     Dict,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -92,6 +93,7 @@ from ..tosca_plugins.cloudmap_defs import (
     Analyzer,
     ArtifactDict,
     URLAnalyzer,
+    PipelineRunAnalyzer,
     Artifact,
     CloudType,
     CloudTypeDict,
@@ -128,6 +130,7 @@ from ..repo import (
     Repo,
     is_git_worktree,
     normalize_git_url,
+    normalize_git_url_hard,
     sanitize_url,
     split_git_url,
     split_git_url_with_commit,
@@ -136,7 +139,7 @@ from ..util import API_VERSION, UnfurlError
 from ..localenv import LocalEnv
 from ..yamlloader import YamlConfig, urlopen as _urlopen
 from ..logs import getLogger, UnfurlLogger
-from unfurl import repo
+from tosca import safe_mode
 
 logger = getLogger("unfurl")
 
@@ -1193,6 +1196,9 @@ class RepositoryHost:
         commit: str = "",
         limit: int = 0,
         status: Optional[List[str]] = None,
+        workflow_file: str = "",
+        trigger: Optional[List[str]] = None,
+        context: Optional["Directory"] = None,
     ) -> Iterable[Instantiation]:
         f"""Return pipeline/workflow run Instantiations for the given repository.
 
@@ -1207,8 +1213,49 @@ class RepositoryHost:
                 (GitLab pipeline ``status``; GitHub run ``status`` or
                 ``conclusion``). The platform API is used to filter when a
                 single status is requested, otherwise filtering is client-side.
+            workflow_file: If given, only return runs for this workflow file
+                path. For GitLab, matched against the project's CI config path
+                (client-side; returns nothing if it doesn't match). For GitHub,
+                matched against each run's ``path`` field (client-side filter).
+            trigger: If given, only return runs whose trigger matches
+                (GitLab pipeline ``source`` / GitHub run ``event``). The
+                platform API is used to filter when a single value is given,
+                otherwise filtering is client-side.
+            context: If given, each built Instantiation is passed to a matching
+                :class:`PipelineRunAnalyzer` (looked up via
+                ``context.cloudmap.find_pipeline_analyzers``) for enrichment.
         """
         return []
+
+    def _run_pipeline_analyzer(
+        self,
+        context: "Directory",
+        repo_info: "Repository",
+        instantiation: Instantiation,
+        obj: Any,
+        source: str,
+    ) -> None:
+        """Invoke a matching :class:`PipelineRunAnalyzer` to enrich ``instantiation``.
+
+        Looks up a custom analyzer by ``repo_info.url`` and ``source``. The raw
+        platform object ``obj`` is withheld (set to ``None``) when running in
+        safe mode, since sandboxed analyzers must not access the API client.
+        """
+        analyzer_cls = context.cloudmap.find_pipeline_analyzers(repo_info, source)
+        if analyzer_cls is None:
+            return
+        if safe_mode():
+            obj = None  # withhold raw API object from sandboxed analyzers
+        repo = context.find_repo(repo_info.url, "")
+        root_path = repo.working_dir if repo else ""
+        try:
+            analyzer_cls().analyze_pipeline_run(
+                context, repo_info, instantiation, obj, root_path
+            )
+        except Exception:
+            self.logger.error(
+                "Pipeline run analyzer failed for %s", repo_info.url, exc_info=True
+            )
 
 
 class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
@@ -1734,10 +1781,21 @@ class GitlabManager(RepositoryHost):
         commit: str = "",
         limit: int = 0,
         status: Optional[List[str]] = None,
+        workflow_file: str = "",
+        trigger: Optional[List[str]] = None,
+        context: Optional["Directory"] = None,
     ) -> Iterable[Instantiation]:
         limit = limit or self.DEFAULT_PIPELINE_LIMIT
         project_path = self.extract_project_path(repo_info.url)
         project = self.gitlab.projects.get(project_path)
+
+        # GitLab projects have a single CI config file (defaults to
+        # `.gitlab-ci.yml`); used both for the workflow_file filter and as the
+        # `source` matched against PipelineRunAnalyzer subclasses.
+        ci_path = getattr(project, "ci_config_path", "") or ".gitlab-ci.yml"
+        if workflow_file and ci_path != workflow_file:
+            # The requested workflow_file doesn't match; no matching runs.
+            return
 
         kwargs: Dict[str, Any] = {}
         if ref:
@@ -1748,6 +1806,9 @@ class GitlabManager(RepositoryHost):
         # filter when exactly one status is requested.
         if status and len(status) == 1:
             kwargs["status"] = status[0]
+        # GitLab's `source` filter (pipeline trigger) takes a single value.
+        if trigger and len(trigger) == 1:
+            kwargs["source"] = trigger[0]
 
         pipelines = project.pipelines.list(
             order_by="id", sort="desc", iterator=True, **kwargs
@@ -1761,6 +1822,14 @@ class GitlabManager(RepositoryHost):
             # API already filtered). The list item carries `.status`, so we
             # skip the extra full fetch for non-matching pipelines.
             if status and getattr(pipeline, "status", None) not in status:
+                continue
+            # Client-side trigger filter for the multi-value case. List items
+            # carry `.source`, so we can avoid the full fetch here too.
+            if (
+                trigger
+                and len(trigger) > 1
+                and getattr(pipeline, "source", None) not in trigger
+            ):
                 continue
             full_pipeline = project.pipelines.get(pipeline.id)
 
@@ -1799,6 +1868,10 @@ class GitlabManager(RepositoryHost):
                     discussion_url=discussion_url,
                 ),
             )
+            if context is not None:
+                self._run_pipeline_analyzer(
+                    context, repo_info, instantiation, full_pipeline, ci_path
+                )
             count += 1
             yield instantiation
 
@@ -1875,7 +1948,7 @@ def _gitlab_pipeline_properties(
     )
 
 
-def _github_run_properties(run: Any) -> PipelineRunProperties:
+def _github_run_properties(run: "WorkflowRun") -> PipelineRunProperties:
     """Extract properties from a GitHub workflow run for the CIRun type constraint."""
     artifacts: List[PipelineArtifact] = []
     artifacts_expire_at = ""
@@ -1961,6 +2034,7 @@ try:
     from github.Organization import Organization as GithubOrganization
     from github.NamedUser import NamedUser
     from github.AuthenticatedUser import AuthenticatedUser
+    from github.WorkflowRun import WorkflowRun
 except ImportError:
     github = None  # type:ignore[assignment]
     GithubManager = None  # type:ignore[no-redef]
@@ -2319,6 +2393,9 @@ else:
             commit: str = "",
             limit: int = 0,
             status: Optional[List[str]] = None,
+            workflow_file: str = "",
+            trigger: Optional[List[str]] = None,
+            context: Optional["Directory"] = None,
         ) -> Iterable[Instantiation]:
             limit = limit or self.DEFAULT_PIPELINE_LIMIT
             project_path = self.extract_project_path(repo_info.url)
@@ -2333,14 +2410,27 @@ else:
             # run's status OR conclusion; let the API filter when one is given.
             if status and len(status) == 1:
                 kwargs["status"] = status[0]
+            # GitHub's `event` filter (pipeline trigger) takes a single value.
+            if trigger and len(trigger) == 1:
+                kwargs["event"] = trigger[0]
 
             runs = gh_repo.get_workflow_runs(**kwargs)
 
             status_set = set(status) if status else None
+            trigger_set = set(trigger) if trigger else None
             count = 0
             for run in runs:
                 if limit and count >= limit:
                     break
+
+                # Client-side filter: skip runs from a different workflow file.
+                if workflow_file and run.path != workflow_file:
+                    continue
+
+                # Client-side trigger filter for the multi-value case (a no-op
+                # when the API already filtered with a single event).
+                if trigger_set is not None and run.event not in trigger_set:
+                    continue
 
                 # Client-side filter for the multi-status case. GitHub matches a
                 # status against either the run status or its conclusion, so do
@@ -2382,6 +2472,10 @@ else:
                         discussion_url=discussion_url,
                     ),
                 )
+                if context is not None:
+                    self._run_pipeline_analyzer(
+                        context, repo_info, instantiation, run, run.path
+                    )
                 count += 1
                 yield instantiation
 
@@ -2462,6 +2556,108 @@ class CloudMap:
         """Register a :class:`URLAnalyzer` subclass for each of its ``url_schemes``."""
         for scheme in cls.url_schemes:
             self.url_analyzers[scheme] = cls
+
+    def _collect_origin_urls(self, repository: "Repository") -> Set[str]:
+        """Return the normalized set of URLs ``repository`` derives from.
+
+        Starts with the repository's own ``url`` and transitively follows its
+        ``fork_of`` and ``mirror_of`` links: for each followed url that has a
+        :class:`Repository` record in the cloudmap, its own origins are
+        followed too. A ``visited`` set guards against cycles."""
+        urls: Set[str] = set()
+
+        def walk(repo: "Repository") -> None:
+            for url in (repo.url, repo.fork_of, repo.mirror_of):
+                if not url:
+                    continue
+                norm = normalize_git_url_hard(url)
+                if norm in urls:
+                    continue
+                urls.add(norm)
+                # follow the chain when a record exists for the origin url
+                origin = self.directory.get_repository(url)
+                if origin is not None and origin is not repo:
+                    walk(origin)
+
+        walk(repository)
+        return urls
+
+    def _source_typerefs(
+        self, repository: "Repository", source: str
+    ) -> Optional[TypeRefs]:
+        """Resolve the type references for the pipeline's ``source`` file.
+
+        Looks it up in the repository's ``contains`` map first (keyed by
+        relative path), falling back to the type of the source's
+        :class:`Artifact` record. Returns ``None`` when neither is found."""
+        if source in repository.contains:
+            return repository.contains[source]
+        artifact = self.directory.get_artifact(repository.artifact_url(source))
+        if artifact is not None:
+            return artifact.type
+        return None
+
+    def _typerefs_match(
+        self, wanted: Sequence[TypeRefs], source_types: Optional[TypeRefs]
+    ) -> bool:
+        """True if any :class:`TypeRefs` in ``wanted`` has all of its type
+        names present in ``source_types``.
+
+        The set of available names includes not just the source's own type
+        names but also every type they (transitively) extend, resolved via the
+        cloudmap's :class:`CloudType` records, so an analyzer keyed on a base
+        type also matches a source declaring one of its subtypes."""
+        if source_types is None:
+            return False
+        available: Set[str] = set()
+        pending = list(source_types.names())
+        while pending:
+            name = pending.pop()
+            if name in available:
+                continue
+            available.add(name)
+            record = self.directory.get_type(name)
+            if record is not None:
+                pending.extend(record.extends)
+        return any(set(tr.names()) <= available for tr in wanted)
+
+    def find_pipeline_analyzers(
+        self, repository: "Repository", source: str
+    ) -> Optional[Type[PipelineRunAnalyzer]]:
+        """Return the first custom :class:`PipelineRunAnalyzer` matching the
+        pipeline's ``repository`` and ``source``.
+
+        An analyzer matches when each of its non-empty ``repositories``,
+        ``sources``, and ``source_types`` class attributes matches (an empty
+        attribute is a wildcard):
+
+        - ``repositories``: any url matches the repository's own ``url`` or a
+          repository it transitively derives from (``fork_of`` / ``mirror_of``,
+          see :meth:`_collect_origin_urls`), so an analyzer keyed on an upstream
+          repository also matches its forks and mirrors.
+        - ``sources``: any path equals ``source``.
+        - ``source_types``: any entry's type names are all present in the
+          source file's type references (see :meth:`_source_typerefs`)."""
+        candidates = self._collect_origin_urls(repository)
+        source_types: Optional[TypeRefs] = None
+        source_types_resolved = False
+        for cls in self.custom_analyzers:
+            if not (isinstance(cls, type) and issubclass(cls, PipelineRunAnalyzer)):
+                continue
+            if cls.repositories and not any(
+                normalize_git_url_hard(r) in candidates for r in cls.repositories
+            ):
+                continue
+            if cls.sources and source not in cls.sources:
+                continue
+            if cls.source_types:
+                if not source_types_resolved:
+                    source_types = self._source_typerefs(repository, source)
+                    source_types_resolved = True
+                if not self._typerefs_match(cls.source_types, source_types):
+                    continue
+            return cls
+        return None
 
     def match_url_analyzer(self, url: str) -> Iterator[Type[URLAnalyzer]]:
         """Yield every registered analyzer whose URL prefix matches ``url``,
@@ -2672,7 +2868,6 @@ class CloudMap:
                     analyzer_path,
                     base_dir,
                     "Analyzer class",
-                    local_env.overrides.get("safe_mode"),
                 )
                 if analyzer_class and issubclass(analyzer_class, Analyzer):
                     # Both RepositoryAnalyzer and URLAnalyzer subclasses are
@@ -3117,7 +3312,11 @@ class CloudMap:
             if host:
                 try:
                     for instantiation in host.get_pipeline_runs(
-                        repo_info, ref=revision, commit=commit
+                        repo_info,
+                        ref=revision,
+                        commit=commit,
+                        context=self.directory,
+                        workflow_file=file_path,
                     ):
                         db.add_record(instantiation)
                 except Exception:

@@ -23,14 +23,17 @@ from unfurl.cloudmap.analyzers import (
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    CloudType,
     CommonMetadata,
     Discovery,
     EntitySchema,
     Instantiation,
+    PipelineRunAnalyzer,
     Repository,
     Service,
     TypeRefs,
 )
+from tosca import global_state
 UNFURL_TEST_UNFURL_GUI_TOKEN_URL = os.getenv("UNFURL_TEST_UNFURL_GUI_TOKEN_URL")
 UNFURL_TEST_GITHUB_KEY = os.getenv("UNFURL_TEST_GITHUB_KEY")
 
@@ -718,6 +721,362 @@ class TestPipelineRunsMocked:
         assert got == {"success", "in_progress"}
 
 
+class TestPipelineRunAnalyzer:
+    """Test PipelineRunAnalyzer matching and invocation from get_pipeline_runs."""
+
+    @staticmethod
+    def _make_analyzer():
+        """A PipelineRunAnalyzer matching owner/repo's foo.yaml workflow that
+        records each invocation and marks the instantiation."""
+        calls: list = []
+
+        class FooPipelineAnalyzer(PipelineRunAnalyzer):
+            repositories = ("git://github.com/owner/repo.git",)
+            sources = (".github/workflows/foo.yaml",)
+
+            def analyze_pipeline_run(
+                self, context, repo_info, instantiation, obj, root_path
+            ):
+                calls.append((obj, root_path, instantiation))
+                instantiation.metadata.notes = "seen"
+
+        return FooPipelineAnalyzer, calls
+
+    def test_find_pipeline_analyzers_matching(self):
+        cls, _calls = self._make_analyzer()
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [cls]
+        # no Repository records in the cloudmap -> origin chain isn't extended
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+
+        def repo(url, **kw):
+            return Repository(url=url, path="owner/repo", name="repo", **kw)
+
+        # exact source + normalized repo url (note: missing .git is normalized)
+        assert (
+            cm.find_pipeline_analyzers(
+                repo("git://github.com/owner/repo"), ".github/workflows/foo.yaml"
+            )
+            is cls
+        )
+        # non-matching source -> None
+        assert (
+            cm.find_pipeline_analyzers(
+                repo("git://github.com/owner/repo.git"), ".github/workflows/bar.yaml"
+            )
+            is None
+        )
+        # non-matching repository -> None
+        assert (
+            cm.find_pipeline_analyzers(
+                repo("git://github.com/other/repo.git"), ".github/workflows/foo.yaml"
+            )
+            is None
+        )
+        # a fork whose fork_of points at the analyzer's repository -> matches
+        assert (
+            cm.find_pipeline_analyzers(
+                repo(
+                    "git://github.com/fork/repo.git",
+                    fork_of="git://github.com/owner/repo.git",
+                ),
+                ".github/workflows/foo.yaml",
+            )
+            is cls
+        )
+        # a mirror whose mirror_of points at the analyzer's repository -> matches
+        assert (
+            cm.find_pipeline_analyzers(
+                repo(
+                    "git://github.com/mirror/repo.git",
+                    mirror_of="git://github.com/owner/repo.git",
+                ),
+                ".github/workflows/foo.yaml",
+            )
+            is cls
+        )
+
+    def test_find_pipeline_analyzers_follows_chain(self):
+        """fork_of/mirror_of are followed transitively through Repository
+        records that exist in the cloudmap."""
+        cls, _calls = self._make_analyzer()  # keyed on owner/repo
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [cls]
+
+        # leaf forks mid; mid (a cloudmap record) in turn forks owner/repo
+        # (the analyzer's repository). Only mid has a Repository record.
+        mid = Repository(
+            url="git://github.com/mid/repo.git",
+            path="mid/repo",
+            name="repo",
+            fork_of="git://github.com/owner/repo.git",
+        )
+        records = {"git://github.com/mid/repo.git": mid}
+        cm.directory = MagicMock()
+        cm.directory.get_repository.side_effect = lambda url: records.get(url)
+
+        leaf = Repository(
+            url="git://github.com/leaf/repo.git",
+            path="leaf/repo",
+            name="repo",
+            fork_of="git://github.com/mid/repo.git",
+        )
+        # leaf -> mid (record) -> owner/repo matches the analyzer
+        assert cm.find_pipeline_analyzers(leaf, ".github/workflows/foo.yaml") is cls
+
+        # a leaf whose chain never reaches the analyzer's repository -> None
+        records["git://github.com/mid/repo.git"] = Repository(
+            url="git://github.com/mid/repo.git",
+            path="mid/repo",
+            name="repo",
+            fork_of="git://github.com/elsewhere/repo.git",
+        )
+        assert cm.find_pipeline_analyzers(leaf, ".github/workflows/foo.yaml") is None
+
+    def test_find_pipeline_analyzers_chain_cycle(self):
+        """A fork_of/mirror_of cycle through records terminates."""
+        cls, _calls = self._make_analyzer()
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [cls]
+
+        a = Repository(
+            url="git://github.com/a/repo.git",
+            path="a/repo",
+            name="repo",
+            fork_of="git://github.com/b/repo.git",
+        )
+        b = Repository(
+            url="git://github.com/b/repo.git",
+            path="b/repo",
+            name="repo",
+            fork_of="git://github.com/a/repo.git",  # back-edge -> cycle
+        )
+        records = {
+            "git://github.com/a/repo.git": a,
+            "git://github.com/b/repo.git": b,
+        }
+        cm.directory = MagicMock()
+        cm.directory.get_repository.side_effect = lambda url: records.get(url)
+
+        # neither a nor b derive from owner/repo -> None, and no infinite loop
+        assert cm.find_pipeline_analyzers(a, ".github/workflows/foo.yaml") is None
+
+    def test_find_pipeline_analyzers_source_types(self):
+        """source_types matches against the source file's type refs found in
+        the repository's `contains` map or on its Artifact record."""
+
+        class TypedAnalyzer(PipelineRunAnalyzer):
+            # wildcard repositories/sources; only the source type gates
+            source_types = (
+                TypeRefs({EntitySchema.GitHubWorkflow: None}),
+            )
+
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [TypedAnalyzer]
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+        cm.directory.get_artifact.return_value = None
+        cm.directory.get_type.return_value = None
+
+        src = ".github/workflows/foo.yaml"
+
+        # 1. type found in `contains` (with an extra type present too) -> match
+        repo = Repository(
+            url="git://github.com/owner/repo.git",
+            path="owner/repo",
+            name="repo",
+            contains={
+                src: TypeRefs(
+                    {EntitySchema.GitHubWorkflow: None, EntitySchema.GenericFile: None}
+                )
+            },
+        )
+        assert cm.find_pipeline_analyzers(repo, src) is TypedAnalyzer
+
+        # 2. `contains` has the source but not the wanted type -> None
+        repo_other = Repository(
+            url="git://github.com/owner/repo.git",
+            path="owner/repo",
+            name="repo",
+            contains={src: TypeRefs({EntitySchema.GenericFile: None})},
+        )
+        assert cm.find_pipeline_analyzers(repo_other, src) is None
+
+        # 3. source absent from `contains` -> fall back to the Artifact record
+        repo_bare = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+        cm.directory.get_artifact.return_value = Artifact(
+            url=repo_bare.artifact_url(src),
+            type=TypeRefs({EntitySchema.GitHubWorkflow: None}),
+        )
+        assert cm.find_pipeline_analyzers(repo_bare, src) is TypedAnalyzer
+
+        # 4. no `contains` entry and no Artifact record -> None
+        cm.directory.get_artifact.return_value = None
+        assert cm.find_pipeline_analyzers(repo_bare, src) is None
+
+    def test_find_pipeline_analyzers_source_types_all_required(self):
+        """All type names in a source_types entry must be present in the
+        source's type refs."""
+
+        class TwoTypeAnalyzer(PipelineRunAnalyzer):
+            source_types = (
+                TypeRefs(
+                    {EntitySchema.GitHubWorkflow: None, EntitySchema.GenericFile: None}
+                ),
+            )
+
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [TwoTypeAnalyzer]
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+        cm.directory.get_artifact.return_value = None
+        cm.directory.get_type.return_value = None
+
+        src = ".github/workflows/foo.yaml"
+        # only one of the two wanted types present -> not a match
+        repo = Repository(
+            url="git://github.com/owner/repo.git",
+            path="owner/repo",
+            name="repo",
+            contains={src: TypeRefs({EntitySchema.GitHubWorkflow: None})},
+        )
+        assert cm.find_pipeline_analyzers(repo, src) is None
+
+    def test_find_pipeline_analyzers_source_types_extends(self):
+        """source_types matches a base type when the source declares a subtype
+        whose CloudType record (transitively) extends it."""
+
+        base_type = "custom.BaseWorkflow"
+        mid_type = "custom.MidWorkflow"
+        sub_type = "custom.SubWorkflow"
+
+        class BaseAnalyzer(PipelineRunAnalyzer):
+            source_types = (TypeRefs({base_type: None}),)
+
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [BaseAnalyzer]
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+        cm.directory.get_artifact.return_value = None
+
+        # sub_type -> mid_type -> base_type (transitive extends chain)
+        type_records = {
+            sub_type: CloudType(name=sub_type, kind="Artifact", extends=[mid_type]),
+            mid_type: CloudType(name=mid_type, kind="Artifact", extends=[base_type]),
+        }
+        cm.directory.get_type.side_effect = lambda name: type_records.get(name)
+
+        src = ".github/workflows/foo.yaml"
+        repo = Repository(
+            url="git://github.com/owner/repo.git",
+            path="owner/repo",
+            name="repo",
+            contains={src: TypeRefs({sub_type: None})},
+        )
+        # the source only declares sub_type, but it transitively extends base_type
+        assert cm.find_pipeline_analyzers(repo, src) is BaseAnalyzer
+
+        # an unrelated base type with no record and not in the chain -> None
+        class UnrelatedAnalyzer(PipelineRunAnalyzer):
+            source_types = (TypeRefs({"custom.Unrelated": None}),)
+
+        cm.custom_analyzers = [UnrelatedAnalyzer]
+        assert cm.find_pipeline_analyzers(repo, src) is None
+
+    @staticmethod
+    def _make_manager_and_run():
+        manager = GithubManager.__new__(GithubManager)
+        manager.github = MagicMock()
+        manager.hostname = "github.com"
+        manager.canonical_url = ""
+
+        run = MagicMock()
+        run.html_url = "https://github.com/owner/repo/actions/runs/9"
+        run.id = 9
+        run.run_number = 1
+        run.head_sha = "sha9"
+        run.head_branch = "main"
+        run.status = "completed"
+        run.conclusion = "success"
+        run.name = "Foo"
+        run.display_title = "Foo"
+        run.event = "push"
+        run.path = ".github/workflows/foo.yaml"
+        run.logs_url = "https://api.github.com/repos/owner/repo/actions/runs/9/logs"
+        run.actor = MagicMock(login="octocat")
+        run.created_at = None
+        run.run_started_at = None
+        run.updated_at = None
+        run.raw_data = {}
+        run.pull_requests = []
+        run.get_artifacts.return_value = []
+
+        mock_gh_repo = MagicMock()
+        mock_gh_repo.get_workflow_runs.return_value = [run]
+        manager.github.get_repo.return_value = mock_gh_repo
+        return manager, run
+
+    def test_get_pipeline_runs_invokes_analyzer(self):
+        cls, calls = self._make_analyzer()
+        manager, run = self._make_manager_and_run()
+
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [cls]
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+
+        context = MagicMock()
+        context.cloudmap = cm
+        context._local__env = None  # not safe mode
+        context.find_repo.return_value = None  # not cloned -> root_path ""
+
+        repo_info = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+        results = list(
+            manager.get_pipeline_runs(repo_info, ref="main", context=context)
+        )
+        assert len(results) == 1
+        # analyzer ran with the raw run object and empty root_path
+        assert len(calls) == 1
+        obj, root_path, inst = calls[0]
+        assert obj is run
+        assert root_path == ""
+        assert inst is results[0]
+        # the instantiation was mutated in place
+        assert results[0].metadata.notes == "seen"
+
+    def test_get_pipeline_runs_safe_mode_withholds_obj(self):
+        cls, calls = self._make_analyzer()
+        manager, run = self._make_manager_and_run()
+
+        cm = CloudMap.__new__(CloudMap)
+        cm.custom_analyzers = [cls]
+        cm.directory = MagicMock()
+        cm.directory.get_repository.return_value = None
+
+        context = MagicMock()
+        context.cloudmap = cm
+        context.find_repo.return_value = None
+
+        repo_info = Repository(
+            url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
+        )
+        # safe mode -> raw API object must be withheld from sandboxed analyzers
+        saved = global_state.safe_mode
+        global_state.safe_mode = True
+        try:
+            list(manager.get_pipeline_runs(repo_info, ref="main", context=context))
+        finally:
+            global_state.safe_mode = saved
+        assert len(calls) == 1
+        obj, _root_path, _inst = calls[0]
+        assert obj is None
+
+
 class TestAnalyzeUrlPipelineRuns:
     """Test that analyze_url fetches pipeline runs when URL has ref or commit."""
 
@@ -763,7 +1122,7 @@ class TestAnalyzeUrlPipelineRuns:
         inst = db.instantiations["https://example.com/pipelines/1"]
         assert EntitySchema.CIRun in inst.type.types
         mock_host.get_pipeline_runs.assert_called_once_with(
-            result, ref="main", commit=""
+            result, ref="main", commit="", context=cm.directory, workflow_file=""
         )
 
     def test_analyze_url_with_commit_fetches_pipelines(self, tmp_path):
@@ -1303,17 +1662,23 @@ environments:
     local_env = LocalEnv(
         str(project_path),
         can_be_empty=True,
-        overrides={"safe_mode": True},
     )
 
-    cloudmap = CloudMap.from_name(
-        local_env,
-        "cloudmap",
-        None,  # clone_root
-        "",  # host_name
-        False,  # skip_analysis
-        False,  # commit
-    )
+    # Analyzers are loaded in safe mode; `load_class_from_file` reads the
+    # safe-mode state from the `global_state.safe_mode` global.
+    saved = global_state.safe_mode
+    global_state.safe_mode = True
+    try:
+        cloudmap = CloudMap.from_name(
+            local_env,
+            "cloudmap",
+            None,  # clone_root
+            "",  # host_name
+            False,  # skip_analysis
+            False,  # commit
+        )
+    finally:
+        global_state.safe_mode = saved
 
     assert len(cloudmap.custom_analyzers) == expected_count
     assert expected_log in caplog.text
