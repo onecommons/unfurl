@@ -193,7 +193,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                     # XXX directory.add_credentials(image)
                     image_artifact = directory.add_image_artifact(image)
                     purl = image_artifact.url
-                    references[purl] = None
+                    references[("", purl)] = None
 
             # Include any URL fragment (e.g. "#spec/service_template") so the
             # artifact URL distinguishes sub-elements of the same file.
@@ -208,9 +208,9 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
                 references=references,
-                dependencies={
-                    name: TypeRefs({v: None}) for name, v in dependencies.items()
-                },
+                dependencies=TypeRefs.urls_fromdict(
+                    {name: TypeRefs({v: None}) for name, v in dependencies.items()}
+                ),
                 type_info=type_info,
                 ctx=directory,
                 digest=self.digest,
@@ -266,7 +266,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         else:
             if repo_view.revision:
                 giturl += f"#{repo_view.revision}"
-        references[giturl] = type_ref
+        references[("", giturl)] = type_ref
         return giturl
 
     def get_type_info(
@@ -396,10 +396,10 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
             service = Service(
                 url=deployment_url,
                 type=TypeRefs(types={typename: None}),
-                instantiated_by={instantiation.url: None},
+                instantiated_by={("", instantiation.url): None},
             )
             directory.add_record(service)
-            instantiation.instantiated = {deployment_url: None}
+            instantiation.instantiated = {("", deployment_url): None}
 
         directory.add_record(instantiation)
         if instantiation.source and not directory.get_artifact(instantiation.source):
@@ -530,8 +530,9 @@ def create_artifact_from_notable(
         thumbnail_url=thumbnail,
     )
 
-    # Handle type field: create CloudType and add to instantiates
-    instantiates: TypedUrls = {}
+    # Handle type field: create CloudType and add to instantiates.
+    # Keyed by a caller-supplied URL/label; normalized when passed to Artifact.
+    instantiates: Dict[str, Optional[TypeRefs]] = {}
     cloud_type = None
     if type_info and isinstance(type_info, dict):
         cloud_type = create_cloud_type_from_type_info(type_info, ctx)
@@ -546,7 +547,7 @@ def create_artifact_from_notable(
         type=TypeRefs().add(artifact_type, version=version),
         contains=contains or {},
         references=references or {},
-        instantiates=instantiates,
+        instantiates=TypeRefs.urls_fromdict(instantiates),
         dependencies=dependencies or {},
         metadata=metadata,
         digest=digest,
@@ -593,14 +594,16 @@ def migrate_old_notable_format(
                 thumbnail=notable_dict.pop("thumbnail_url", "")
                 or repo.metadata.thumbnail_url,
                 contains={
-                    build_oci_purl(ContainerImage.split(ref)): None
+                    ("", build_oci_purl(ContainerImage.split(ref))): None
                     for ref in notable_dict.pop("artifacts", [])
                 },
-                dependencies={
-                    "": TypeRefs(
-                        {v: None for v in notable_dict.pop("dependencies", [])}
-                    )
-                },
+                dependencies=TypeRefs.urls_fromdict(
+                    {
+                        "": TypeRefs(
+                            {v: None for v in notable_dict.pop("dependencies", [])}
+                        )
+                    }
+                ),
                 type_info=type_info,
                 ctx=None,
                 instantiates_key=notable_name,
@@ -612,12 +615,12 @@ def migrate_old_notable_format(
 
             # Add to artifacts dict
             db.artifacts[artifact_pkg] = artifact
-            repo.contains[file_path] = artifact.type
+            repo.contains[("", file_path)] = artifact.type
             migrated_artifact_ids.append(artifact_pkg)
         else:
             # `{type, artifact}` entry — key by file path, value is the type
             type_dict = notable_dict.get("type")
-            repo.contains[file_path] = (
+            repo.contains[("", file_path)] = (
                 TypeRefs(types=type_dict) if type_dict else None
             )
 

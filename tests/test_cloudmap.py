@@ -10,6 +10,7 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     Discovery,
     EntitySchema,
     Instantiation,
+    is_label,
     join_resource_url,
     Repository,
     RepositoryMetadata,
@@ -35,6 +36,52 @@ skip_integration = pytest.mark.skipif(
     not UNFURL_TEST_CLOUDMAP_URL,
     reason="need UNFURL_TEST_CLOUDMAP_URL set to run integration test",
 )
+
+
+def test_is_label():
+    # labels: word chars, '-', '.'
+    assert is_label("web")
+    assert is_label("Database")
+    assert is_label(".gitlab-ci.yml")  # dotted file names look like labels
+    assert is_label("software.Nginx")
+    # not labels: urls, paths, global type ids (contain ':' '/' '@')
+    assert not is_label("")
+    assert not is_label("git://example.com/repo.git")
+    assert not is_label("pkg:oci/nginx")
+    assert not is_label("ensemble/ensemble.yaml")
+    assert not is_label("CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle")
+
+
+def test_typed_urls_fromdict_and_asdict():
+    tr = TypeRefs({"software.Nginx": {"version": "1.25"}})
+
+    # 1. plain url form: url -> ("", url)
+    d = TypeRefs.urls_fromdict({"git://example.com/repo.git": tr})
+    assert d == {("", "git://example.com/repo.git"): tr}
+    assert TypeRefs.urls_asdict(d) == {"git://example.com/repo.git": tr.asdict()}
+
+    # 2. label with a plain typeRefs map (keys are type names) -> (label, "")
+    d = TypeRefs.urls_fromdict({"Database": {"PostgresDB@ns/x": None}})
+    assert d == {("Database", ""): TypeRefs({"PostgresDB@ns/x": None})}
+    assert TypeRefs.urls_asdict(d) == {"Database": {"PostgresDB@ns/x": None}}
+
+    # 3. label with a nested {url: typeRefs} map -> (label, url) per nested url
+    d = TypeRefs.urls_fromdict({"the_db": {"git://example.com/db.git": None}})
+    assert d == {("the_db", "git://example.com/db.git"): TypeRefs(None)}
+    assert TypeRefs.urls_asdict(d) == {"the_db": {"git://example.com/db.git": None}}
+
+    # 4. keys_are_urls=True: skip is_label, dotted file names stay url-parts
+    d = TypeRefs.urls_fromdict(
+        {".gitlab-ci.yml": {"cloudmap.artifacts.GitLabPipeline": None}},
+        keys_are_urls=True,
+    )
+    assert d == {
+        ("", ".gitlab-ci.yml"): TypeRefs({"cloudmap.artifacts.GitLabPipeline": None})
+    }
+
+    # 5. already-normalized (tuple keys) pass through unchanged
+    tuple_keyed = {("lbl", "git://example.com/x.git"): tr}
+    assert TypeRefs.urls_fromdict(tuple_keyed) == tuple_keyed
 
 
 # XXX more tests:
@@ -1337,18 +1384,19 @@ types:
         # Verify instantiates uses typedURLs structure
         instantiates = artifact.instantiates
         assert isinstance(instantiates, dict)
-        assert "web" in instantiates
-        web = instantiates["web"]
+        # label-form entries are keyed by (label, "")
+        assert ("web", "") in instantiates
+        web = instantiates[("web", "")]
         assert isinstance(web, TypeRefs)
         assert web.types["software.WebServer"]["version"] == "1.25"
-        assert "http" in instantiates
-        http = instantiates["http"]
+        assert ("http", "") in instantiates
+        http = instantiates[("http", "")]
         assert isinstance(http, TypeRefs)
         assert http.types["software.HTTPServer"] is None
 
         # Verify dependencies uses typeRef structure
         assert artifact.dependencies == {
-            "os": TypeRefs({"software.Linux": {"version": ">=5.0"}})
+            ("os", ""): TypeRefs({"software.Linux": {"version": ">=5.0"}})
         }
 
         assert artifact.metadata.title == "Nginx Web Server"

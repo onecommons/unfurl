@@ -13,6 +13,7 @@ from dataclasses import dataclass, asdict, field, InitVar
 from functools import total_ordering
 import os
 import os.path
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from operator import attrgetter
@@ -333,6 +334,17 @@ TypeRefJson = Dict[
     Optional[TypeRefConstraint],
 ]
 
+_LABEL_RE = re.compile(r"^[\w.-]+$")
+
+
+def is_label(key: str) -> bool:
+    """Return True if ``key`` looks like a label rather than a URL.
+
+    Labels are restricted to word characters, ``-`` and ``.`` (the ``[\\w.-]``
+    character class); anything containing other characters (e.g. ``:`` or ``/``
+    as found in URLs and file paths) is not a label."""
+    return bool(_LABEL_RE.match(key))
+
 
 @total_ordering
 class TypeRefs:
@@ -359,8 +371,9 @@ class TypeRefs:
             assert isinstance(types, Mapping), (
                 "TypeRefs must be initialized with a dict or a string"
             )
-            self.types = dict(types)
-            self.metadata = cast(dict, self.types.pop("metadata", {}))
+            self.types = dict(types)  # copy
+            if "metadata" in self.types:
+                self.metadata = cast(dict, self.types.pop("metadata") or {})
 
     def asdict(self) -> TypeRefJson:
         """Return JSON representation of typeRef."""
@@ -428,32 +441,92 @@ class TypeRefs:
         )
 
     @staticmethod
-    def urls_asdict(typed_urls: "TypedUrls") -> Dict[str, Optional[TypeRefJson]]:
-        """Convert TypedUrls to a dict with TypeRefJson values."""
-        result: Dict[str, Optional[TypeRefJson]] = {}
-        for url in sorted(typed_urls):
-            type_refs = typed_urls[url]
+    def urls_asdict(typed_urls: "TypedUrls") -> Dict[str, Any]:
+        """Serialize a :data:`TypedUrls` map back to its JSON representation.
+
+        Keys are ``(label, url)`` tuples. Entries are grouped by label:
+
+        - ``("", url)`` becomes ``{url: typeRefs}`` (the plain form).
+        - ``(label, "")`` becomes ``{label: typeRefs}``.
+        - ``(label, url)`` entries sharing a label are nested under it:
+          ``{label: {url: typeRefs, ...}}``.
+        """
+        result: Dict[str, Any] = {}
+        for label, url in sorted(typed_urls):
+            type_refs = typed_urls[(label, url)]
             if isinstance(type_refs, TypeRefs):
-                result[url] = type_refs.asdict() or None
+                value: Optional[TypeRefJson] = type_refs.asdict() or None
             else:
-                result[url] = type_refs
+                value = type_refs
+            if not label:
+                result[url] = value
+            elif not url:
+                result[label] = value
+            else:
+                nested = result.setdefault(label, {})
+                nested[url] = value
         return result
 
     @staticmethod
     def urls_fromdict(
-        type_urls_dict: Union["TypedUrls", Dict[str, Optional[TypeRefJson]]],
+        type_urls_dict: Union["TypedUrls", Dict[str, Any]],
+        keys_are_urls: bool = False,
     ) -> "TypedUrls":
-        """Convert instantiated dict values to Optional[TypeRefs]"""
+        """Normalize a JSON typedURLs map (or an already-parsed :data:`TypedUrls`)
+        into ``{(label, url): Optional[TypeRefs]}``.
+
+        Supports two JSON forms:
+
+        - ``url: typeRefs | null`` -> ``("", url)`` (the key is not a label).
+        - ``label: {url: typeRefs | null}`` -> ``(label, url)`` for each nested
+          url. If the value of a label is instead a plain typeRefs map (its keys
+          are type names, not urls) the entry is stored as ``(label, "")``.
+
+        When ``keys_are_urls`` is True assume the key is a url and always use the first form.
+        """
         type_urls: TypedUrls = {}
         for k, v in type_urls_dict.items():
-            if isinstance(v, TypeRefs):
-                type_urls[k] = v
+            if isinstance(k, tuple):
+                # already a (label, url) key
+                type_urls[k] = v if isinstance(v, TypeRefs) else TypeRefs(types=v)
+            elif keys_are_urls or not is_label(k):
+                # the key is a url or file path, no label
+                type_urls[("", k)] = v if isinstance(v, TypeRefs) else TypeRefs(types=v)
             else:
-                type_urls[k] = TypeRefs(types=v)
+                if isinstance(v, Mapping) and _keys_are_urls(v):
+                    # label: {url: typeRefs} nested form
+                    for url, tr in v.items():
+                        type_urls[(k, url)] = (
+                            tr if isinstance(tr, TypeRefs) else TypeRefs(types=tr)
+                        )
+                else:
+                    # label whose value is a plain typeRefs map (or null)
+                    type_urls[(k, "")] = (
+                        v if isinstance(v, TypeRefs) else TypeRefs(types=v)
+                    )
         return type_urls
 
 
-TypedUrls = Dict[str, Optional[TypeRefs]]
+# A URL is a string that starts with a valid URI scheme followed by ``:``
+# (RFC 3986 § 3.1: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )). This mirrors
+# the ``propertyNames`` patterns used to discriminate url keys from type-name
+# keys in ``unfurl/cloudmap/cloudmap-schema.json`` and ``is_url`` in
+# ``rust/git-sync/src/formats/cloudmap.rs``.
+_URL_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+
+
+def _is_url(key: str) -> bool:
+    """Return True if ``key`` is a URL (starts with a URI scheme).
+    Simple test to distinguish global type names from URLs."""
+    return bool(_URL_SCHEME_RE.match(key))
+
+
+def _keys_are_urls(value: "Mapping[str, Any]") -> bool:
+    """True if ``value`` is a non-empty map whose keys are all urls."""
+    return bool(value) and all(_is_url(key) for key in value)
+
+
+TypedUrls = Dict[Tuple[str, str], Optional[TypeRefs]]
 
 
 class CloudMapRecord:
@@ -989,7 +1062,8 @@ class Repository(CloudMapRecord):
                 # migrate deprecated key
                 md["thumbnail_url"] = md.pop("avatar_url")
             self.metadata = RepositoryMetadata(**(md or {}))
-        self.contains = TypeRefs.urls_fromdict(self.contains)
+        # contains keys are repo-relative file paths (url-parts), not labels
+        self.contains = TypeRefs.urls_fromdict(self.contains, keys_are_urls=True)
 
     def get_current_commit(self) -> str:
         """Return the current commit for the default branch."""
@@ -1057,7 +1131,8 @@ class Repository(CloudMapRecord):
 
     def add_notables(self, notables: List["RepositoryAnalyzer"]) -> None:
         notables.sort(key=attrgetter("path"))
-        contains: TypedUrls = {}
+        # analyzers contribute entries keyed by repo-relative file path
+        contains: Dict[str, Optional[TypeRefs]] = {}
         for n in notables:
             if n.contains is not None:
                 # analyzer mapped to multiple entries (e.g. one per workflow file)
@@ -1067,8 +1142,11 @@ class Repository(CloudMapRecord):
                     TypeRefs({n.artifact_type: None}) if n.artifact_type else None
                 )
                 contains[n.path] = type_refs
-        # keep entries ordered by path even when an analyzer contributed several
-        self.contains = {k: contains[k] for k in sorted(contains)}
+        # keep entries ordered by path even when an analyzer contributed several,
+        # normalizing the file-path keys into ("", url) form
+        self.contains = TypeRefs.urls_fromdict(
+            {k: contains[k] for k in sorted(contains)}, keys_are_urls=True
+        )
 
     def get_default_branch(self):
         return self.default_branch or "main"
@@ -1215,6 +1293,8 @@ class CloudType(CloudMapRecord):
     """URL of artifact or service to use as a model for instances of this type"""
     metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Additional metadata about the type"""
+    properties: Optional[Dict[str, Any]] = None
+    """JSON Schema describing the properties of instances of this type."""
 
     @property
     def key(self) -> str:
@@ -1408,7 +1488,9 @@ class RepositoryAnalyzer(Analyzer):
         self.file = file
         self.digest = digest
         self.fragment = ""
-        self.contains: Optional[TypedUrls] = None
+        # keyed by repo-relative file path; normalized to (label, url) form
+        # when merged into a Repository by Repository.add_notables()
+        self.contains: Optional[Dict[str, Optional[TypeRefs]]] = None
 
     def __repr__(self):
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"

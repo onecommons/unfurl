@@ -659,28 +659,28 @@ class CloudMapGraphWalker:
             # XXX if type in get_types() construct a record from type kind
         return results
 
-    @staticmethod
-    def _is_url(key: str) -> bool:
-        return "://" in key or key.startswith("pkg:")
-
     def _walk_typed_urls(
-        self, label: str, typed_urls: Dict[str, Any], visited: set
+        self, label: str, typed_urls: Dict[Tuple[str, str], Any], visited: set
     ) -> None:
         if not typed_urls:
             return
         self.visitor.visit_relationship(label)
-        for key, tr in typed_urls.items():
-            if self._is_url(key):
-                # Key is a URL — walk as a record ref with type_refs metadata
-                self._walk_child(key, visited, type_refs=tr)
+        # keys are (entry_label, url) tuples; only the url is followed, the
+        # label part of the key is not.
+        for (entry_label, url), tr in typed_urls.items():
+            if url:
+                # walk the url as a record ref with type_refs metadata
+                self._walk_child(url, visited, type_refs=tr)
             elif isinstance(tr, TypeRefs) and tr.types:
-                # Key is a label — each type name becomes a type ref
+                # no followable url — each type name becomes a type ref
                 for name, constraint in tr.aslist():
-                    self.visitor.visit_type_ref(name, constraint, label=key)
+                    self.visitor.visit_type_ref(
+                        name, constraint, label=entry_label or url
+                    )
                     self._walk_child(name, visited, _walk_only=True)
                     self.visitor.leave_type_ref()
             else:
-                self.visitor.visit_label(key)
+                self.visitor.visit_label(entry_label or url)
         self.visitor.leave_relationship(label)
 
     def _walk_edges(self, record: Any, kind: str, visited: set) -> None:
@@ -695,12 +695,12 @@ class CloudMapGraphWalker:
             if record.service:
                 edges.append(("service", [record.service]))
             if record.contains:
-                # contains keys are file paths within the repository (optionally
-                # followed by ``#<fragment>``); derive the artifact URL for
-                # navigation
+                # contains url keys are file paths within the repository
+                # (optionally followed by ``#<fragment>``); derive the artifact
+                # URL for navigation, preserving the entry's label
                 contains_urls = {
-                    record.artifact_url(file_path): type_refs
-                    for file_path, type_refs in record.contains.items()
+                    (entry_label, record.artifact_url(url) if url else ""): type_refs
+                    for (entry_label, url), type_refs in record.contains.items()
                 }
                 self._walk_typed_urls("contains", contains_urls, visited)
 
@@ -711,9 +711,9 @@ class CloudMapGraphWalker:
             if record.references:
                 # if this artifact is part of a repository, reference the repository URL
                 repo_url = record.get_repository_url()
-                if repo_url and repo_url not in record.references:
+                if repo_url and ("", repo_url) not in record.references:
                     referenced = record.references.copy()
-                    referenced[repo_url] = None
+                    referenced[("", repo_url)] = None
                 else:
                     referenced = record.references
                 self._walk_typed_urls("references", referenced, visited)

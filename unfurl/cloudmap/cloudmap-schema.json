@@ -107,8 +107,8 @@
       "description": "Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.",
       "$$target": "#/definitions/typeRef",
       "propertyNames": {
-        "description": "Type name (e.g., software.Nginx, capabilities.GitOps).",
-        "pattern": "^[^\\s]+$"
+        "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).",
+        "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$"
       },
       "additionalProperties": {
         "oneOf": [
@@ -161,10 +161,10 @@
     },
     "typedURLs": {
       "type": "object",
-      "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\".",
+      "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\". Alternatively, keys can be labels and its value a nested typed URL map.",
       "$$target": "#/definitions/typedURLs",
       "propertyNames": {
-        "description": "",
+        "description": "URL or label",
         "pattern": "^[^\\s]+$"
       },
       "additionalProperties": {
@@ -175,6 +175,25 @@
           {
             "type": "object",
             "$ref": "#/definitions/typeRef"
+          },
+          {
+            "type": "object",
+            "description": "Nested map for a label key: URLs to type references.",
+            "propertyNames": {
+              "description": "URL (starts with a scheme).",
+              "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:"
+            },
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "object",
+                  "$ref": "#/definitions/typeRef"
+                }
+              ]
+            }
           }
         ]
       }
@@ -762,6 +781,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "properties": {
+          "type": "object",
+          "description": "JSON Schema describing the properties of instances of this type."
         }
       },
       "additionalProperties": true

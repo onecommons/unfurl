@@ -160,7 +160,9 @@ def create_oci_artifact(
                     digest=artifact_fetch.artifact_digest,
                     source=metadata.source_url,
                     source_revision=metadata.source_revision,
-                    instantiated={purl: None},  # link instantiation to artifact
+                    instantiated=TypeRefs.urls_fromdict({
+                        purl: None
+                    }),  # link instantiation to artifact
                 )
                 if "metadata" in predicate:  # SlsaProvenance 0.2
                     artifact_metadata = predicate["metadata"].get(
@@ -234,7 +236,9 @@ def create_oci_artifact(
         metadata.homepage_url = f"https://{ref.host[len('registry.') :]}/{'/'.join(ref.full_name.split('/')[:2])}"
 
     # Create and return Artifact with instantiation
-    instantiated_by: TypedUrls = {instantiation.url: None} if instantiation else {}
+    instantiated_by = TypeRefs.urls_fromdict(
+        {instantiation.url: None} if instantiation else {}
+    )
     artifact_types = TypeRefs()
     artifact_types.add(EntitySchema.OCIImage)
     artifact = Artifact(

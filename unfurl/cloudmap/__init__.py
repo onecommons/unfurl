@@ -83,6 +83,8 @@ import git.cmd
 from git.objects import IndexObject
 import gitlab
 from gitlab.v4.objects import Project, Group, ProjectTag, ProjectBranch
+
+from ..merge import _json_pointer_unescape
 from ..server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from ..projectpaths import _getdir
 from ..tosca_plugins.cloudmap_defs import (
@@ -435,16 +437,25 @@ class CloudMapDB(CloudMapView):
     def __init__(self, path=".", contents=None, validate: bool = True) -> None:
         self._load(path, contents, validate)
 
+    @staticmethod
+    def _normalize_url(url: str, section: str) -> str:
+        """
+        Normalize url to a canonical form for use as a key in the cloudmap database.
+
+        Records can be referenced by a JSON-pointer-style url fragment
+        (e.g. ``#/artifacts/<key>``); return the bare key when ``url`` uses
+        that form, otherwise return ``url`` unchanged."""
+        prefix = f"#/{section}/"
+        if url.startswith(prefix):
+            return _json_pointer_unescape(url[len(prefix) :])
+        return url
+
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
         """Get a repository by its key (URL)."""
         if isinstance(r, Repository):
             url = r.url
         else:
-            if r.startswith("#/repositories/"):
-                # support repository references by url fragment
-                url = r[len("#/repositories/") :]
-            else:
-                url = get_repository_url(r)  # its a str
+            url = get_repository_url(self._normalize_url(r, "repositories"))
         found = self.repositories.get(url)
         if not found and not url.endswith(".git"):
             # package ids don't have .git suffix, try adding it
@@ -452,28 +463,16 @@ class CloudMapDB(CloudMapView):
         return found
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
-        if url.startswith("#/artifacts/"):
-            # support artifact references by url fragment
-            url = url[len("#/artifacts/") :]
-        return self.artifacts.get(url)
+        return self.artifacts.get(self._normalize_url(url, "artifacts"))
 
     def get_service(self, url: str) -> Optional[Service]:
-        if url.startswith("#/services/"):
-            # support service references by url fragment
-            url = url[len("#/services/") :]
-        return self.services.get(url)
+        return self.services.get(self._normalize_url(url, "services"))
 
     def get_component(self, url: str) -> Optional[Component]:
-        if url.startswith("#/components/"):
-            # support component references by url fragment
-            url = url[len("#/components/") :]
-        return self.components.get(url)
+        return self.components.get(self._normalize_url(url, "components"))
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
-        if url.startswith("#/instantiations/"):
-            # support instantiation references by url fragment
-            url = url[len("#/instantiations/") :]
-        return self.instantiations.get(url)
+        return self.instantiations.get(self._normalize_url(url, "instantiations"))
 
     def get_type(self, name: str) -> Optional[CloudType]:
         return self.types.get(name)
@@ -2590,8 +2589,8 @@ class CloudMap:
         Looks it up in the repository's ``contains`` map first (keyed by
         relative path), falling back to the type of the source's
         :class:`Artifact` record. Returns ``None`` when neither is found."""
-        if source in repository.contains:
-            return repository.contains[source]
+        if ("", source) in repository.contains:
+            return repository.contains[("", source)]
         artifact = self.directory.get_artifact(repository.artifact_url(source))
         if artifact is not None:
             return artifact.type
@@ -3278,7 +3277,7 @@ class CloudMap:
                                 repo_info.url,
                                 exc_info=True,
                             )
-                        repo_info.contains[n.path] = (
+                        repo_info.contains[("", n.path)] = (
                             TypeRefs({n.artifact_type: None})
                             if n.artifact_type
                             else None
@@ -3291,8 +3290,8 @@ class CloudMap:
                             type=TypeRefs({EntitySchema.GenericFile: None}),
                         )
                         db.add_record(artifact)
-                    if file_path not in repo_info.contains:
-                        repo_info.contains[file_path] = None
+                    if ("", file_path) not in repo_info.contains:
+                        repo_info.contains[("", file_path)] = None
 
         # Fetch pipeline runs if a ref or commit was specified in the URL
         if repo_info and (revision or commit):

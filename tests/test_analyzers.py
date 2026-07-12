@@ -160,8 +160,8 @@ class TestCIAnalyzers:
         notable.analyze(MagicMock(), repo_info, str(tmp_path))
         repo_info.add_notables([notable])
         assert set(repo_info.contains) == {
-            ".github/workflows/ci.yml",
-            ".github/workflows/release.yaml",
+            ("", ".github/workflows/ci.yml"),
+            ("", ".github/workflows/release.yaml"),
         }
 
 
@@ -1733,9 +1733,11 @@ kind: Project
     result = cm.analyze_url(
         "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
     )
-    # Repository.contains is keyed by repo-relative file path
+    # Repository.contains is keyed by (label, url); url is the repo-relative path
     assert result.contains == {
-        "modules/Dockerfile": TypeRefs({"cloudmap.artifacts.Containerfile": None})
+        ("", "modules/Dockerfile"): TypeRefs(
+            {"cloudmap.artifacts.Containerfile": None}
+        )
     }
     artifact_url = f"{result.url}#:modules/Dockerfile"
     assert artifact_url in db.artifacts, list(db.artifacts)

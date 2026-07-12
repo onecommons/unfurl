@@ -2421,6 +2421,10 @@
             "description": "URL of artifact or service to use a model for instances of this type.",
             "type": "string"
           },
+          "properties": {
+            "description": "JSON Schema describing the properties of instances of this type.",
+            "type": "object"
+          },
           "source": {
             "description": "Artifact containing type definition. Include if it cannot be derived from the type name.",
             "type": "string"
@@ -2491,8 +2495,8 @@
         },
         "description": "Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.",
         "propertyNames": {
-          "description": "Type name (e.g., software.Nginx, capabilities.GitOps).",
-          "pattern": "^[^\\s]+$"
+          "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).",
+          "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$"
         },
         "title": "Type Ref",
         "type": "object"
@@ -2507,12 +2511,31 @@
             {
               "$ref": "#/components/schemas/cloudmap_typeRef",
               "type": "object"
+            },
+            {
+              "additionalProperties": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/cloudmap_typeRef",
+                    "type": "object"
+                  }
+                ]
+              },
+              "description": "Nested map for a label key: URLs to type references.",
+              "propertyNames": {
+                "description": "URL (starts with a scheme).",
+                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:"
+              },
+              "type": "object"
             }
           ]
         },
-        "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\".",
+        "description": "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\". Alternatively, keys can be labels and its value a nested typed URL map.",
         "propertyNames": {
-          "description": "",
+          "description": "URL or label",
           "pattern": "^[^\\s]+$"
         },
         "type": "object"

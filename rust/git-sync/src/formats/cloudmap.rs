@@ -234,9 +234,29 @@ fn strip_git_fragment(url: &str) -> Option<String> {
     }
 }
 
-/// Predicate from `unfurl/reporting.py:632` (`_is_url`).
-fn is_url(s: &str) -> bool {
-    s.contains("://") || s.starts_with("pkg:")
+/// A URL starts with a valid URI scheme followed by `:` (RFC 3986 § 3.1:
+/// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`).
+/// Simple test to distinguish global type names from URLs.
+/// This matches the `typedURLs`` propertyNames pattern in `unfurl/cloudmap/cloudmap-schema.json`.
+pub fn is_url(s: &str) -> bool {
+    let Some((scheme, _rest)) = s.split_once(':') else {
+        return false;
+    };
+    let mut chars = scheme.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+}
+
+/// Predicate from `is_label` in `unfurl/tosca_plugins/cloudmap_defs.py`:
+/// A key is a label if every character matches `[\w.-]`. URLs and file paths
+/// (which contain `:` or `/`) are not labels.
+pub fn is_label(s: &str) -> bool {
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
 }
 
 fn push_opt(out: &mut Vec<String>, value: Option<String>) {
@@ -247,19 +267,24 @@ fn push_opt(out: &mut Vec<String>, value: Option<String>) {
     }
 }
 
-/// Collect the URL-shaped keys from a [`ct::TypedUrLs`] map.
-fn typed_url_keys(typed: &ct::TypedUrLs) -> Vec<String> {
-    typed
-        .0
-        .keys()
-        .map(|k| k.to_string())
-        .filter(|k| is_url(k))
-        .collect()
-}
-
+/// Collect the URL-shaped targets from a [`ct::TypedUrLs`] map.
+///
+/// Mirrors `_walk_typed_urls` in `unfurl/reporting.py`.
 fn extend_url_keys(out: &mut Vec<String>, typed: Option<&ct::TypedUrLs>) {
     if let Some(t) = typed {
-        out.extend(typed_url_keys(t));
+        for (key, value) in t.0.iter() {
+            let key = key.to_string();
+            if is_url(&key) {
+                out.push(key);
+            } else if let ct::TypedUrLsValue::Variant2(map) = value {
+                for nested_key in map.keys() {
+                    let nested_key = nested_key.to_string();
+                    if is_url(&nested_key) {
+                        out.push(nested_key);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -617,7 +642,15 @@ mod tests {
         assert!(is_url("git://x"));
         assert!(is_url("https://x"));
         assert!(is_url("pkg:oci/odoo"));
+        assert!(is_url("git+https://x"));
         assert!(!is_url("just-a-name"));
+        assert!(!is_url(""));
+        // type names contain ':' (namespace) but the prefix is not a scheme
+        assert!(!is_url("WebApp@unfurl.cloud/onecommons/std:generic_types"));
+        assert!(!is_url("software.Nginx"));
+        // a leading ':' or non-alpha scheme start is not a url
+        assert!(!is_url(":foo"));
+        assert!(!is_url("1abc:foo"));
     }
 
     #[test]

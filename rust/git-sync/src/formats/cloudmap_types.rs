@@ -3168,6 +3168,10 @@ impl<'de> ::serde::Deserialize<'de> for ServiceVersionsKey {
 #[doc = "      \"description\": \"URL of artifact or service to use a model for instances of this type.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"properties\": {"]
+#[doc = "      \"description\": \"JSON Schema describing the properties of instances of this type.\","]
+#[doc = "      \"type\": \"object\""]
+#[doc = "    },"]
 #[doc = "    \"source\": {"]
 #[doc = "      \"description\": \"Artifact containing type definition. Include if it cannot be derived from the type name.\","]
 #[doc = "      \"type\": \"string\""]
@@ -3203,6 +3207,9 @@ pub struct Type {
     #[doc = "URL of artifact or service to use a model for instances of this type."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub model: ::std::option::Option<::std::string::String>,
+    #[doc = "JSON Schema describing the properties of instances of this type."]
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub properties: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     #[doc = "Artifact containing type definition. Include if it cannot be derived from the type name."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub source: ::std::option::Option<::std::string::String>,
@@ -3217,6 +3224,7 @@ impl ::std::default::Default for Type {
             kind: Default::default(),
             metadata: Default::default(),
             model: Default::default(),
+            properties: Default::default(),
             source: Default::default(),
             status: Default::default(),
         }
@@ -3355,8 +3363,8 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeKind {
 #[doc = "    ]"]
 #[doc = "  },"]
 #[doc = "  \"propertyNames\": {"]
-#[doc = "    \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps).\","]
-#[doc = "    \"pattern\": \"^[^\\\\s]+$\""]
+#[doc = "    \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).\","]
+#[doc = "    \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\\\s]+$\""]
 #[doc = "  },"]
 #[doc = "  \"$$target\": \"#/definitions/typeRef\""]
 #[doc = "}"]
@@ -3393,15 +3401,15 @@ impl
         Self(value)
     }
 }
-#[doc = "Type name (e.g., software.Nginx, capabilities.GitOps)."]
+#[doc = "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps).\","]
+#[doc = "  \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).\","]
 #[doc = "  \"type\": \"string\","]
-#[doc = "  \"pattern\": \"^[^\\\\s]+$\""]
+#[doc = "  \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\\\s]+$\""]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
@@ -3423,9 +3431,11 @@ impl ::std::str::FromStr for TypeRefKey {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[^\\s]+$").unwrap());
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$").unwrap()
+            });
         if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[^\\s]+$\"".into());
+            return Err("doesn't match pattern \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$\"".into());
         }
         Ok(Self(value.to_string()))
     }
@@ -3753,13 +3763,13 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeStatus {
         value.parse()
     }
 }
-#[doc = "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\"."]
+#[doc = "Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \"metadata\". Alternatively, keys can be labels and its value a nested typed URL map."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \\\"metadata\\\".\","]
+#[doc = "  \"description\": \"Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or \\\"metadata\\\". Alternatively, keys can be labels and its value a nested typed URL map.\","]
 #[doc = "  \"type\": \"object\","]
 #[doc = "  \"additionalProperties\": {"]
 #[doc = "    \"oneOf\": ["]
@@ -3769,11 +3779,30 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeStatus {
 #[doc = "      {"]
 #[doc = "        \"type\": \"object\","]
 #[doc = "        \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "      },"]
+#[doc = "      {"]
+#[doc = "        \"description\": \"Nested map for a label key: URLs to type references.\","]
+#[doc = "        \"type\": \"object\","]
+#[doc = "        \"additionalProperties\": {"]
+#[doc = "          \"oneOf\": ["]
+#[doc = "            {"]
+#[doc = "              \"type\": \"null\""]
+#[doc = "            },"]
+#[doc = "            {"]
+#[doc = "              \"type\": \"object\","]
+#[doc = "              \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "            }"]
+#[doc = "          ]"]
+#[doc = "        },"]
+#[doc = "        \"propertyNames\": {"]
+#[doc = "          \"description\": \"URL (starts with a scheme).\","]
+#[doc = "          \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "        }"]
 #[doc = "      }"]
 #[doc = "    ]"]
 #[doc = "  },"]
 #[doc = "  \"propertyNames\": {"]
-#[doc = "    \"description\": \"\","]
+#[doc = "    \"description\": \"URL or label\","]
 #[doc = "    \"pattern\": \"^[^\\\\s]+$\""]
 #[doc = "  },"]
 #[doc = "  \"$$target\": \"#/definitions/typedURLs\""]
@@ -3782,36 +3811,30 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeStatus {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 #[serde(transparent)]
-pub struct TypedUrLs(pub ::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>>);
+pub struct TypedUrLs(pub ::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue>);
 impl ::std::ops::Deref for TypedUrLs {
-    type Target = ::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>>;
-    fn deref(&self) -> &::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>> {
+    type Target = ::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue>;
+    fn deref(&self) -> &::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue> {
         &self.0
     }
 }
-impl ::std::convert::From<TypedUrLs>
-    for ::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>>
-{
+impl ::std::convert::From<TypedUrLs> for ::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue> {
     fn from(value: TypedUrLs) -> Self {
         value.0
     }
 }
-impl ::std::convert::From<::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>>>
-    for TypedUrLs
-{
-    fn from(
-        value: ::std::collections::HashMap<TypedUrLsKey, ::std::option::Option<TypeRef>>,
-    ) -> Self {
+impl ::std::convert::From<::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue>> for TypedUrLs {
+    fn from(value: ::std::collections::HashMap<TypedUrLsKey, TypedUrLsValue>) -> Self {
         Self(value)
     }
 }
-#[doc = ""]
+#[doc = "URL or label"]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"\","]
+#[doc = "  \"description\": \"URL or label\","]
 #[doc = "  \"type\": \"string\","]
 #[doc = "  \"pattern\": \"^[^\\\\s]+$\""]
 #[doc = "}"]
@@ -3865,6 +3888,144 @@ impl ::std::convert::TryFrom<::std::string::String> for TypedUrLsKey {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for TypedUrLsKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+#[doc = "`TypedUrLsValue`"]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"oneOf\": ["]
+#[doc = "    {"]
+#[doc = "      \"type\": \"null\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"description\": \"Nested map for a label key: URLs to type references.\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"oneOf\": ["]
+#[doc = "          {"]
+#[doc = "            \"type\": \"null\""]
+#[doc = "          },"]
+#[doc = "          {"]
+#[doc = "            \"type\": \"object\","]
+#[doc = "            \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "          }"]
+#[doc = "        ]"]
+#[doc = "      },"]
+#[doc = "      \"propertyNames\": {"]
+#[doc = "        \"description\": \"URL (starts with a scheme).\","]
+#[doc = "        \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "      }"]
+#[doc = "    }"]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum TypedUrLsValue {
+    Variant0,
+    Variant1(TypeRef),
+    Variant2(
+        ::std::collections::HashMap<TypedUrLsValueVariant2Key, ::std::option::Option<TypeRef>>,
+    ),
+}
+impl ::std::convert::From<TypeRef> for TypedUrLsValue {
+    fn from(value: TypeRef) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl
+    ::std::convert::From<
+        ::std::collections::HashMap<TypedUrLsValueVariant2Key, ::std::option::Option<TypeRef>>,
+    > for TypedUrLsValue
+{
+    fn from(
+        value: ::std::collections::HashMap<
+            TypedUrLsValueVariant2Key,
+            ::std::option::Option<TypeRef>,
+        >,
+    ) -> Self {
+        Self::Variant2(value)
+    }
+}
+#[doc = "URL (starts with a scheme)."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"URL (starts with a scheme).\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(:: serde :: Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TypedUrLsValueVariant2Key(::std::string::String);
+impl ::std::ops::Deref for TypedUrLsValueVariant2Key {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TypedUrLsValueVariant2Key> for ::std::string::String {
+    fn from(value: TypedUrLsValueVariant2Key) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TypedUrLsValueVariant2Key {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| {
+                ::regress::Regex::new("^[A-Za-z][A-Za-z0-9+.-]*:").unwrap()
+            });
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^[A-Za-z][A-Za-z0-9+.-]*:\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TypedUrLsValueVariant2Key {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for TypedUrLsValueVariant2Key {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for TypedUrLsValueVariant2Key {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TypedUrLsValueVariant2Key {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
