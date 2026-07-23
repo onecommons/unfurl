@@ -1398,7 +1398,19 @@ class Convert:
         )
         cmd = ""
         inline_import: Optional[str] = None
-        if kw is None or kw.get("primary"):
+        # when the implementation is a "file.py#ClassName" reference, find_implementation
+        # resolves it to both a className (whose module ends in "_py") and a synthetic
+        # primary artifact. Prefer the className.
+        classname = kw.get("className") if kw else None
+        file_loaded_class = bool(
+            classname and classname.rpartition(".")[0].endswith("_py")
+        )
+        use_classname = (
+            kw is not None
+            and "className" in kw
+            and (file_loaded_class or not kw.get("primary"))
+        )
+        if not use_classname and (kw is None or kw.get("primary")):
             if isinstance(op.implementation, dict):
                 artifact = op.implementation.get("primary")
                 kw = op.implementation.copy()
@@ -1414,7 +1426,7 @@ class Convert:
                     cmd = f"self.{artifact}.execute"
             if not cmd and artifact:
                 cmd = f"self.find_artifact({self.value2python_repr(artifact)}).execute"
-        elif "className" in kw:
+        elif kw is not None and "className" in kw:
             cmd = kw["className"]
             module, sep, klass = cmd.rpartition(".")
             if module:
@@ -1425,7 +1437,8 @@ class Convert:
                     assert module_path
                     if self.path:
                         module_path = os.path.relpath(
-                            module_path, start=os.path.abspath(self.path)
+                            module_path,
+                            start=os.path.dirname(os.path.abspath(self.path)),
                         )
                     cmd = f'self.load_class("{module_path}", "{klass}")'
                 elif self._builtin_prefix:
@@ -1438,7 +1451,7 @@ class Convert:
                     self.imports.add_import(module)
         else:
             logger.error("could not handle unexpected operation implementation: %s", kw)
-        return cmd, kw, inline_import
+        return cmd, kw if kw is not None else {}, inline_import
 
     def operation2func(
         self,

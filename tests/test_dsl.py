@@ -3,7 +3,9 @@
 """
 TOSCA DSL tests.
 Run this file as a script to generate Python DSL files from YAML. Accepts an optional argument to only regenerate builtins or specific templates."""
+
 import os
+import textwrap
 import time
 from typing import Any, List, Optional, Dict, Sequence, Union
 from typing_extensions import Literal
@@ -31,6 +33,7 @@ from tosca.python2yaml import PythonToYaml, python_src_to_yaml_obj
 from toscaparser.elements.entity_type import EntityType, globals
 from unfurl.yamlloader import ImportResolver, load_yaml, yaml
 from unfurl.manifest import Manifest
+from unfurl.yamlmanifest import YamlManifest
 from toscaparser.tosca_template import ToscaTemplate
 from unfurl.configurators.templates.docker import unfurl_datatypes_DockerContainer
 import tosca
@@ -41,6 +44,7 @@ def _to_python(
     python_target_version=None,
     write_policy=tosca.WritePolicy.never,
     manifest=None,
+    python_path="",
 ):
     tosca_yaml = load_yaml(
         yaml, yaml_str, readonly=True
@@ -57,6 +61,7 @@ def _to_python(
         globals._annotate_namespaces = False
         src = yaml2python.yaml_to_python(
             __file__,
+            python_path=python_path,
             tosca_dict=tosca_yaml,
             import_resolver=import_resolver,
             python_target_version=python_target_version,
@@ -647,6 +652,59 @@ topology_template:
     # yaml.dump(yaml_dict, sys.stdout)
     tosca_yaml = load_yaml(yaml, yaml_src)
     assert yaml_dict == tosca_yaml
+
+
+def test_shorthand_operations_with_python_file():
+    yaml_src = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  test:
+      derived_from: tosca.nodes.Root
+      interfaces:
+        Standard:
+          configure:
+              implementation: examples/import/spec/configurators.py#LocallyDefinedConfigurator
+"""
+    # the manifest wraps the same service template and adds a node template so it
+    # has a topology (which is what makes find_implementation() resolve the file
+    # reference to a synthetic primary artifact).
+    ensemble_src = f"""
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+{textwrap.indent(yaml_src.strip(), "    ")}
+    topology_template:
+      node_templates:
+        aTest:
+          type: test
+"""
+    manifest_path = os.path.join(os.path.dirname(__file__), "manifest.yaml")
+    manifest = YamlManifest(ensemble_src, path=manifest_path)
+    assert manifest.tosca and manifest.tosca.topology, "manifest needs a topology"
+    # write the generated module next to configurators.py so load_class() gets a
+    # relative path. The relpath must be resolved against the output *directory*
+    # (examples/import/spec), so the expected result is just "configurators.py" --
+    # regression guard against a spurious "../configurators.py".
+    python_path = os.path.join(
+        os.path.dirname(__file__), "examples", "import", "spec", "generated.py"
+    )
+    try:
+        src, src_tpl = _to_python(yaml_src, manifest=manifest, python_path=python_path)
+    finally:
+        # _to_python writes the module to python_path; don't leave it behind
+        if os.path.exists(python_path):
+            os.remove(python_path)
+    # print(src)
+    assert "find_artifact" not in src, (
+        "file.py#ClassName should generate load_class(), not find_artifact()"
+    )
+    assert "../configurators.py" not in src, (
+        "load_class path must resolve against the output directory, not the file"
+    )
+    assert 'self.load_class("configurators.py", "LocallyDefinedConfigurator")' in src, (
+        "expected configure operation to use load_class with the file-relative path"
+    )
 
 
 def test_interface_inputs():
@@ -2123,16 +2181,17 @@ tosca.nodes.Root._type_name = 'pown'""",
         "import unfurl; unfurl._ImmutableModule__set_sub_module('foo', 'bar')",
         "import tosca; del tosca.nodes.Root().__class__._name"
         "import tosca; tosca.nodes.Root().__class__.trick = 'tricky'",
-        '''
+        """
         def t():
             from unfurl.repo import normalize_git_url
             normalize_git_url('http://example.com')
-        '''
+        """,
     ]
     for src in denied:
         # misc errors: SyntaxError, NameError, TypeError
         with pytest.raises(Exception):
             assert _to_yaml(src, True)
+
 
 def test_sandbox_allowed(capsys):
     _to_yaml("print('hello', 'world')", True)
@@ -2222,6 +2281,7 @@ class ComputedArtifact(unfurl.artifacts.ShellExecutable):
 def annotation_resolver_cls():
     """A stand-in for the resolving class that ``_string_to_type``
     expects — only needs a classmethod ``_lookup_class(name)``."""
+
     class _Stub:
         scope = {
             "Dict": Dict,
@@ -2534,9 +2594,7 @@ def test_typeinfo():
     import typing_extensions
     from tosca._tosca import greater_than
 
-    t = tosca.pytype_to_tosca_type(
-        typing_extensions.Annotated[int, (greater_than(0),)]
-    )
+    t = tosca.pytype_to_tosca_type(typing_extensions.Annotated[int, (greater_than(0),)])
     assert t.optional is False
     assert t.collection is None
     assert t.types == (int,)
