@@ -142,9 +142,9 @@ pub struct CloudMapResponseTypeRefJson {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapArtifact {
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub contains: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub contains: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub dependencies: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Cryptographic digest of the artifact.
     pub digest: Option<String>,
     /// Metadata discovery information.
@@ -152,13 +152,13 @@ pub struct CloudmapArtifact {
     /// Indicates whether the artifact identifier refers to an artifact that will not change.
     pub immutable: Option<bool>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiated_by: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiates: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Human-readable metadata about the artifact.
     pub metadata: Option<serde_json::Value>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub references: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub references: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Scheduled Release for an artifact or service.
     pub release_schedule: Option<Vec<serde_json::Value>>,
     pub status: Option<CloudmapLifecycleStatus>,
@@ -177,15 +177,15 @@ pub struct CloudmapArtifact {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapComponent {
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub contains: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub contains: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub dependencies: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiates: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub references: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub references: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Repository or artifact URL.
     pub source: Option<String>,
     pub status: Option<CloudmapLifecycleStatus>,
@@ -222,9 +222,9 @@ pub struct CloudmapInstantiation {
     /// Metadata discovery information.
     pub discovery: Option<CloudmapDiscovery>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub inputs: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub inputs: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiated: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiated: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
     /// If instantiation URL references a repository, source control revision of that repository.
@@ -362,13 +362,13 @@ pub enum CloudmapMetadataVersion {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapRelationships {
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub contains: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub contains: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub dependencies: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiates: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub references: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub references: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
 }
 /// Scheduled Release for an artifact or service.
 pub type CloudmapReleaseSchedule = Vec<CloudmapReleaseScheduleCloudmapReleaseSchedule>;
@@ -397,7 +397,7 @@ pub struct CloudmapRepository {
     /// Map of branch names to their commit SHA hashes.
     pub branches: Option<std::collections::HashMap<String, String>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub contains: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub contains: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Default branch name (e.g., main, master).
     pub default_branch: Option<String>,
     /// URL of the repository that this repository was forked from.
@@ -434,13 +434,13 @@ pub struct CloudmapService {
     /// Access to the service (who can resolve the URL).
     pub access: Option<CloudmapServiceAccess>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub connections: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub connections: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Metadata discovery information.
     pub discovery: Option<CloudmapDiscovery>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub endpoints: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub endpoints: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
-    pub instantiated_by: Option<std::collections::HashMap<String, CloudmapTypeRef>>,
+    pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
     /// Service policies and legal information.
@@ -608,7 +608,7 @@ impl core::str::FromStr for CloudmapTypeStatus {
 pub struct CloudmapTypedUrLs {
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
-    pub additional_properties: std::collections::HashMap<String, CloudmapTypeRef>,
+    pub additional_properties: std::collections::HashMap<String, Box<CloudmapTypeRef>>,
 }
 /// GraphQL-style JSON database returned by /export and /types.
 ///

@@ -119,42 +119,49 @@
           {
             "type": "object",
             "description": "Constraints on the type.",
-            "properties": {
-              "version": {
-                "description": "Version constraint for the type.",
-                "anyOf": [
-                  {
-                    "type": "string"
+            "allOf": [
+              {
+                "$ref": "#/definitions/relationships"
+              },
+              {
+                "properties": {
+                  "version": {
+                    "description": "Version constraint for the type.",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "number"
+                      }
+                    ]
                   },
-                  {
-                    "type": "number"
+                  "metadata": {
+                    "description": "Additional metadata about the type reference.",
+                    "type": "object"
+                  },
+                  "model": {
+                    "type": "string",
+                    "description": "URL of artifact or service model that constrains this type reference."
+                  },
+                  "properties": {
+                    "type": "object",
+                    "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition."
+                  },
+                  "status": {
+                    "type": "string",
+                    "description": "Status of the instance or capability.",
+                    "enum": [
+                      "unknown",
+                      "absent",
+                      "present",
+                      "failed",
+                      "validated"
+                    ]
                   }
-                ]
-              },
-              "metadata": {
-                "description": "Additional metadata about the type reference.",
-                "type": "object"
-              },
-              "model": {
-                "type": "string",
-                "description": "URL of artifact or service model that constrains this type reference."
-              },
-              "properties": {
-                "type": "object",
-                "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition."
-              },
-              "status": {
-                "type": "string",
-                "description": "Status of the instance or capability.",
-                "enum": [
-                  "unknown",
-                  "absent",
-                  "present",
-                  "failed",
-                  "validated"
-                ]
+                }
               }
-            }
+            ]
           }
         ]
       }

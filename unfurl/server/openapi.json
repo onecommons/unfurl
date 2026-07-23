@@ -2452,43 +2452,50 @@
               "type": "null"
             },
             {
-              "description": "Constraints on the type.",
-              "properties": {
-                "metadata": {
-                  "description": "Additional metadata about the type reference.",
-                  "type": "object"
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/cloudmap_relationships"
                 },
-                "model": {
-                  "description": "URL of artifact or service model that constrains this type reference.",
-                  "type": "string"
-                },
-                "properties": {
-                  "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition.",
-                  "type": "object"
-                },
-                "status": {
-                  "description": "Status of the instance or capability.",
-                  "enum": [
-                    "unknown",
-                    "absent",
-                    "present",
-                    "failed",
-                    "validated"
-                  ],
-                  "type": "string"
-                },
-                "version": {
-                  "anyOf": [
-                    {
+                {
+                  "properties": {
+                    "metadata": {
+                      "description": "Additional metadata about the type reference.",
+                      "type": "object"
+                    },
+                    "model": {
+                      "description": "URL of artifact or service model that constrains this type reference.",
                       "type": "string"
                     },
-                    {
-                      "type": "number"
+                    "properties": {
+                      "description": "Constraints on instance properties that are associated with the type. Actual interpretation of properties is entirely up to the type definition.",
+                      "type": "object"
+                    },
+                    "status": {
+                      "description": "Status of the instance or capability.",
+                      "enum": [
+                        "unknown",
+                        "absent",
+                        "present",
+                        "failed",
+                        "validated"
+                      ],
+                      "type": "string"
+                    },
+                    "version": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "number"
+                        }
+                      ],
+                      "description": "Version constraint for the type."
                     }
-                  ],
-                  "description": "Version constraint for the type."
+                  }
                 }
-              },
+              ],
+              "description": "Constraints on the type.",
               "type": "object"
             }
           ]
