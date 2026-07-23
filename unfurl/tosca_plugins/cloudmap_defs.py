@@ -148,6 +148,7 @@ class EntitySchema:
 
 ArtifactMappings = {
     "https://in-toto.io/Statement/v0.1": EntitySchema.InTotoAttestation,
+    "https://in-toto.io/Statement/v1": EntitySchema.InTotoAttestation,
     "https://spdx.dev/Document": EntitySchema.SpDxDoc,
     "https://slsa.dev/provenance/v0.2": EntitySchema.SlsaProvenance02,
     "https://slsa.dev/provenance/v1": EntitySchema.SlsaProvenance1,
