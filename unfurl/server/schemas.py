@@ -228,6 +228,27 @@ class CloudMapDocQuery(ProjectQuery):
             "ignored by the Python YAML fallback."
         ),
     )
+    type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fully-qualified type name; return only records whose "
+            "``type`` declares this type or a type that (transitively) "
+            "``extends`` it, per the ``types`` section of the CloudMap."
+        ),
+    )
+    select: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated list of JSON Pointer paths (RFC 6901, "
+            "e.g. ``/type,/metadata/title``); when set, each record in "
+            "the response (both elements of the pair) is reduced to "
+            "only the selected properties, keeping their nested "
+            "structure. Paths without a leading ``/`` get one "
+            "prepended. The special entry ``$key`` adds the record's "
+            "key to the reduced record under ``\"$key\"``. Paths that "
+            "don't resolve are omitted."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------

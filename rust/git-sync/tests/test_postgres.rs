@@ -47,6 +47,7 @@ async fn cloudmap_end_to_end_postgres() {
             Some("git://example.com/x.git".into()),
             false,
             None,
+            None,
         )
         .await
         .expect("find");

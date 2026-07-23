@@ -19,8 +19,9 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use serde_json::{json, Map, Value};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
+use tokio::sync::Mutex;
 use unfurl_git_sync::{BatchOp, CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
 use crate::proxy;
@@ -61,6 +62,21 @@ fn path_for_kind(kind: &str) -> Option<&'static str> {
 #[derive(Clone)]
 pub struct CloudMapState {
     inner: Arc<SyncedRepo>,
+    /// Lazily-built reverse `extends` adjacency of the `/types`
+    /// section, used by the `type` query filter. See
+    /// [`CloudMapState::subtype_names`].
+    types_cache: Arc<Mutex<Option<TypesCache>>>,
+}
+
+/// Cached reverse `extends` adjacency of the `/types` section.
+struct TypesCache {
+    /// `(COUNT(*), MAX(version))` of the `/types` section at build
+    /// time ([`SyncedRepo::section_stat`]). The cache is stale exactly
+    /// when a fresh probe returns a different pair.
+    stat: (i64, Option<i64>),
+    /// Parent type name → type names that directly declare it in
+    /// their `extends` list.
+    children: HashMap<String, Vec<String>>,
 }
 
 impl CloudMapState {
@@ -98,6 +114,7 @@ impl CloudMapState {
         synced.update_from_working_dir().await?;
         Ok(Self {
             inner: Arc::new(synced),
+            types_cache: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -109,7 +126,72 @@ impl CloudMapState {
     pub fn from_synced(synced: SyncedRepo) -> Self {
         Self {
             inner: Arc::new(synced),
+            types_cache: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Expand `type_name` to itself plus every subtype — every type
+    /// record whose `extends` list (transitively) contains it.
+    ///
+    /// The reverse-extends adjacency is built from the `/types`
+    /// section and cached; each call re-probes the section's
+    /// `(COUNT(*), MAX(version))` stat ([`SyncedRepo::section_stat`])
+    /// and rebuilds only when the pair moved, so writes to other
+    /// sections leave the cache warm. `type_name` need not have a
+    /// type record — the result then is just the name itself.
+    async fn subtype_names(&self, type_name: &str) -> Result<Vec<String>, unfurl_git_sync::Error> {
+        let stat = self.inner.section_stat("/types").await?;
+        let mut guard = self.types_cache.lock().await;
+        // (`Option::is_none_or` reads better but is stable only since
+        // Rust 1.82; MSRV is 1.70.)
+        if !matches!(guard.as_ref(), Some(c) if c.stat == stat) {
+            // Two separate queries (probe, then fetch) — a write
+            // landing in between can pair a fresh section with a
+            // stale stat or vice versa; either way the next request's
+            // probe mismatches and rebuilds, so the cache is at most
+            // one write behind, never stuck.
+            let records = self
+                .inner
+                .find_records(None, Some("/types".into()), None, false, None, None)
+                .await?;
+            let mut children: HashMap<String, Vec<String>> = HashMap::new();
+            for r in &records {
+                let Some(extends) = r.json.get("extends").and_then(Value::as_array) else {
+                    continue;
+                };
+                for parent in extends.iter().filter_map(Value::as_str) {
+                    // Type records commonly list themselves first in
+                    // `extends`; skip the self-edge.
+                    if parent != r.key {
+                        children
+                            .entry(parent.to_string())
+                            .or_default()
+                            .push(r.key.clone());
+                    }
+                }
+            }
+            *guard = Some(TypesCache { stat, children });
+        }
+        let cache = guard.as_ref().expect("types cache just populated");
+
+        // BFS over the reverse edges, starting at (and including) the
+        // requested name. `extends` lists are often pre-flattened
+        // (full ancestor closure) — the walk handles both that and
+        // direct-parents-only producers.
+        let mut out: Vec<String> = Vec::new();
+        let mut seen: HashSet<&str> = HashSet::from([type_name]);
+        let mut queue: Vec<&str> = vec![type_name];
+        while let Some(name) = queue.pop() {
+            out.push(name.to_string());
+            if let Some(kids) = cache.children.get(name) {
+                for kid in kids {
+                    if seen.insert(kid.as_str()) {
+                        queue.push(kid.as_str());
+                    }
+                }
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -211,6 +293,20 @@ async fn build_response(
         })
         .unwrap_or_default();
 
+    // Expand the optional `type` filter to the requested name plus
+    // all of its (transitive) subtypes per the `/types` section, then
+    // push the name set down into the SQL record match. Applies to
+    // the initial set only — the follow walk stays unfiltered.
+    let type_names: Option<Vec<String>> = match params.r#type.as_deref() {
+        Some(t) if !t.is_empty() => Some(
+            cm.subtype_names(t)
+                .await
+                .map_err(|e| LocalError::Internal(format!("subtype_names: {e}")))?,
+        ),
+        _ => None,
+    };
+    let type_filtered = type_names.is_some();
+
     let (initial, followed_records) = synced
         .find_records_follow(
             None,
@@ -220,21 +316,131 @@ async fn build_response(
             follow,
             params.since_version,
             exclude_ids,
+            type_names,
         )
         .await
         .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;
 
     if let (Some(kind_str), Some(key_str)) = (kind, key) {
         if initial.is_empty() {
+            let hint = if type_filtered {
+                " with matching type"
+            } else {
+                ""
+            };
             return Err(LocalError::NotFound(format!(
-                "key {key_str:?} not found in {kind_str:?}"
+                "key {key_str:?} not found in {kind_str:?}{hint}"
             )));
         }
     }
 
-    let primary = records_to_document(initial);
-    let followed = records_to_document(followed_records);
+    // `select` reduces every returned record (both halves of the
+    // pair) to the requested properties. Parsed once here; empty /
+    // all-blank values mean "no projection".
+    let select_paths: Option<Vec<SelectPath>> = params
+        .select
+        .as_deref()
+        .map(parse_select)
+        .filter(|p| !p.is_empty());
+
+    let primary = records_to_document(initial, select_paths.as_deref());
+    let followed = records_to_document(followed_records, select_paths.as_deref());
     Ok(vec![primary, followed])
+}
+
+/// A parsed `select` entry: the special `$key` item or a JSON
+/// Pointer's unescaped reference tokens (paired with the raw pointer
+/// string for [`Value::pointer`] resolution).
+enum SelectPath {
+    /// The literal `$key` item — adds the record's key under `"$key"`.
+    Key,
+    /// A JSON Pointer: `(raw, unescaped reference tokens)`.
+    Pointer(String, Vec<String>),
+}
+
+/// Parse the `select` query param: comma-separated JSON Pointers
+/// (RFC 6901). Items are trimmed and empties dropped; a missing
+/// leading `/` is prepended; `$key` maps to [`SelectPath::Key`].
+/// Pointers that have a strict prefix also in the list are dropped —
+/// the ancestor pointer already selects the whole subtree.
+fn parse_select(raw: &str) -> Vec<SelectPath> {
+    let mut pointers: Vec<(String, Vec<String>)> = Vec::new();
+    let mut keys = 0usize;
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        if part == "$key" {
+            keys += 1;
+            continue;
+        }
+        let ptr = if part.starts_with('/') {
+            part.to_string()
+        } else {
+            format!("/{part}")
+        };
+        let tokens: Vec<String> = ptr
+            .split('/')
+            .skip(1)
+            .map(|t| t.replace("~1", "/").replace("~0", "~"))
+            .collect();
+        pointers.push((ptr, tokens));
+    }
+    let mut out: Vec<SelectPath> = Vec::new();
+    if keys > 0 {
+        out.push(SelectPath::Key);
+    }
+    for (i, (ptr, tokens)) in pointers.iter().enumerate() {
+        let covered = pointers.iter().enumerate().any(|(j, (_, other))| {
+            i != j && other.len() < tokens.len() && &tokens[..other.len()] == other.as_slice()
+        });
+        if !covered {
+            out.push(SelectPath::Pointer(ptr.clone(), tokens.clone()));
+        }
+    }
+    out
+}
+
+/// Reduce `record` to the properties named by `select`, keeping their
+/// nested structure (array indices become object keys). Unresolvable
+/// paths are omitted; [`SelectPath::Key`] adds the record's key.
+fn project_record(record: &Value, key: &str, select: &[SelectPath]) -> Value {
+    let mut out = Map::new();
+    for path in select {
+        match path {
+            SelectPath::Key => {
+                out.insert("$key".to_string(), Value::from(key));
+            }
+            SelectPath::Pointer(raw, tokens) => {
+                let Some(value) = record.pointer(raw) else {
+                    continue;
+                };
+                set_nested(&mut out, tokens, value.clone());
+            }
+        }
+    }
+    Value::Object(out)
+}
+
+/// Insert `value` at the nested location named by `tokens`, creating
+/// intermediate objects as needed. Prefix-dedup in [`parse_select`]
+/// guarantees no intermediate node is a non-object leaf.
+fn set_nested(out: &mut Map<String, Value>, tokens: &[String], value: Value) {
+    match tokens {
+        [] => {}
+        [leaf] => {
+            out.insert(leaf.clone(), value);
+        }
+        [first, rest @ ..] => {
+            let entry = out
+                .entry(first.clone())
+                .or_insert_with(|| Value::Object(Map::new()));
+            if let Value::Object(map) = entry {
+                set_nested(map, rest, value);
+            }
+        }
+    }
 }
 
 /// Group records by section (`record.path`) and emit a CloudMap-shaped
@@ -258,14 +464,22 @@ async fn build_response(
 /// Records whose JSON payload isn't an object are left as-is — the
 /// cloudmap format only emits map-valued records, so this is a
 /// defensive fallthrough.
-fn records_to_document(records: Vec<Record>) -> Value {
+///
+/// When `select` is set, each record is then reduced via
+/// [`project_record`]. Projection runs **after** annotation, so the
+/// `unfurl.server.*` keys are selectable (and dropped otherwise).
+fn records_to_document(records: Vec<Record>, select: Option<&[SelectPath]>) -> Value {
     let mut sections: BTreeMap<&'static str, Map<String, Value>> = BTreeMap::new();
     for r in records {
         let Some(section) = section_for_path(&r.path) else {
             continue;
         };
         let enriched = annotate_record(r.json, r.id, r.version, r.commit_id);
-        sections.entry(section).or_default().insert(r.key, enriched);
+        let entry = match select {
+            Some(paths) => project_record(&enriched, &r.key, paths),
+            None => enriched,
+        };
+        sections.entry(section).or_default().insert(r.key, entry);
     }
     let mut out = Map::new();
     for (section, entries) in sections {

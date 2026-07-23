@@ -740,3 +740,216 @@ async fn post_proxies_when_cloudmap_unconfigured() {
         "expected proxy failure (no python backend running), got {status}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// `type` query filter
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn type_filter_matches_declared_type() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?type=cloudmap.artifacts.ci.GitLabPipeline").await;
+    assert_eq!(status, StatusCode::OK);
+    let primary = body[0].as_object().expect("primary object");
+    assert_eq!(
+        primary.keys().collect::<Vec<_>>(),
+        vec!["artifacts"],
+        "only artifacts declare the pipeline type"
+    );
+    let artifacts = primary["artifacts"].as_object().expect("artifacts");
+    assert_eq!(artifacts.len(), 4, "keys: {:?}", artifacts.keys());
+    assert!(artifacts.keys().all(|k| k.ends_with(".gitlab-ci.yml")));
+    assert_eq!(body[1], serde_json::json!({}));
+}
+
+#[tokio::test]
+async fn type_filter_matches_subtypes_via_extends() {
+    // services/https://example.com/oodo declares type `Odoo@…`, whose
+    // type record (transitively) extends `SoftwareService@…` —
+    // querying the base type must match the subtype-declaring record.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let t = "SoftwareService@unfurl.cloud/onecommons/std:generic_types";
+    let (status, body) = get_json(app, &format!("/cloudmap?type={}", urlencoding::encode(t))).await;
+    assert_eq!(status, StatusCode::OK);
+    let primary = body[0].as_object().expect("primary object");
+    assert_eq!(primary.keys().collect::<Vec<_>>(), vec!["services"]);
+    let services = primary["services"].as_object().expect("services");
+    assert!(services.contains_key("https://example.com/oodo"));
+}
+
+#[tokio::test]
+async fn type_filter_without_matches_returns_empty_doc() {
+    // `tosca.relationships.ConnectsTo` has subtypes in /types
+    // (AWSAccount, GoogleCloudProject) but no record *declares* any of
+    // them as its own `type` — they only appear as dependency
+    // constraints. The filter applies and matches nothing.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?type=tosca.relationships.ConnectsTo").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body[0], serde_json::json!({}));
+    assert_eq!(body[1], serde_json::json!({}));
+}
+
+#[tokio::test]
+async fn type_filter_with_kind_and_key() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let state = make_state(cm);
+    let key = "https://example.com/oodo";
+
+    // Matching type (via extends: Odoo@… extends tosca.nodes.Root).
+    let uri = format!(
+        "/cloudmap?kind=services&key={}&type=tosca.nodes.Root",
+        urlencoding::encode(key)
+    );
+    let (status, body) = get_json(router(state.clone()), &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body[0]["services"].get(key).is_some());
+
+    // Record exists but its type doesn't satisfy the filter → 404.
+    let uri = format!(
+        "/cloudmap?kind=services&key={}&type=cloudmap.artifacts.oci.Image",
+        urlencoding::encode(key)
+    );
+    let (status, _body) = get_json(router(state), &uri).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn type_filter_cache_invalidated_when_types_change() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let state = make_state(cm);
+    let uri = "/cloudmap?type=cloudmap.artifacts.tosca.TypeLibrary";
+
+    // Warm the closure cache.
+    let (status, body) = get_json(router(state.clone()), uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let before = body[0]["artifacts"].as_object().expect("artifacts").len();
+    assert_eq!(before, 2, "fixture has two TypeLibrary artifacts");
+
+    // Write a new subtype into /types plus an artifact declaring it.
+    let (status, post_body) = post_json(
+        router(state.clone()),
+        serde_json::json!({
+            "types": {
+                "test.SubTypeLibrary": {
+                    "kind": "Artifact",
+                    "extends": ["cloudmap.artifacts.tosca.TypeLibrary"]
+                }
+            },
+            "artifacts": {
+                "https://example.com/newlib": {
+                    "type": {"test.SubTypeLibrary": null}
+                }
+            }
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "post failed: {post_body}");
+
+    // The probe must notice the /types change, rebuild the closure,
+    // and pick up the record declaring the new subtype.
+    let (status, body) = get_json(router(state), uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let artifacts = body[0]["artifacts"].as_object().expect("artifacts");
+    assert_eq!(artifacts.len(), before + 1, "keys: {:?}", artifacts.keys());
+    assert!(artifacts.contains_key("https://example.com/newlib"));
+}
+
+// ---------------------------------------------------------------------------
+// `select` query projection
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn select_projects_records_to_requested_properties() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=artifacts&select=/type,$key").await;
+    assert_eq!(status, StatusCode::OK);
+    let artifacts = body[0]["artifacts"].as_object().expect("artifacts");
+    assert!(!artifacts.is_empty());
+    for (key, record) in artifacts {
+        let record = record.as_object().expect("record object");
+        // Exactly the selected properties — no digest, metadata, or
+        // `unfurl.server.*` annotations.
+        assert!(record.len() <= 2, "unexpected keys: {:?}", record.keys());
+        assert_eq!(record["$key"], Value::from(key.as_str()));
+        assert!(record.get("type").is_some(), "artifacts declare a type");
+    }
+}
+
+#[tokio::test]
+async fn select_reconstructs_nested_paths_and_drops_missing() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template";
+    let uri = format!(
+        "/cloudmap?kind=artifacts&key={}&select=/metadata/title,/no/such/path",
+        urlencoding::encode(key)
+    );
+    let (status, body) = get_json(app, &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let record = &body[0]["artifacts"][key];
+    assert_eq!(
+        record,
+        &serde_json::json!({"metadata": {"title": "Odoo"}}),
+        "nested structure kept, unresolvable path omitted"
+    );
+}
+
+#[tokio::test]
+async fn select_applies_to_followed_records_too() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
+    let uri = format!(
+        "/cloudmap?kind=repositories&key={}&follow=10&select=$key",
+        urlencoding::encode(key)
+    );
+    let (status, body) = get_json(app, &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let followed = body[1].as_object().expect("followed object");
+    assert!(!followed.is_empty(), "follow=10 reaches records");
+    for (_section, records) in followed {
+        for (k, record) in records.as_object().expect("records") {
+            assert_eq!(
+                record,
+                &serde_json::json!({"$key": k}),
+                "followed records are projected too"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn select_prefix_dedup_and_bare_paths() {
+    // `/metadata` covers `/metadata/title`; a path without a leading
+    // slash gets one prepended; `unfurl.server.*` keys are selectable
+    // because projection runs after annotation.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let state = make_state(cm);
+    let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template";
+
+    let uri = format!(
+        "/cloudmap?kind=artifacts&key={}&select=/metadata,/metadata/title",
+        urlencoding::encode(key)
+    );
+    let (status, body) = get_json(router(state.clone()), &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let metadata = &body[0]["artifacts"][key]["metadata"];
+    assert_eq!(metadata["title"], "Odoo");
+    assert_eq!(metadata["version"], 0.1, "whole subtree selected");
+
+    let uri = format!(
+        "/cloudmap?kind=artifacts&key={}&select=digest,unfurl.server.version",
+        urlencoding::encode(key)
+    );
+    let (status, body) = get_json(router(state), &uri).await;
+    assert_eq!(status, StatusCode::OK);
+    let record = body[0]["artifacts"][key].as_object().expect("record");
+    assert!(record["digest"].is_string());
+    assert!(record["unfurl.server.version"].is_i64());
+    assert_eq!(record.len(), 2, "keys: {:?}", record.keys());
+}

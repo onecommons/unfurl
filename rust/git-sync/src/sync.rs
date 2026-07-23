@@ -362,6 +362,13 @@ impl SyncedRepo {
     /// (joined on `record_id`). Without a `key` filter, `alias` is a
     /// no-op. Tombstoned records are hidden.
     ///
+    /// `type_names`, when set and non-empty, restricts results to
+    /// records whose JSON payload declares one of the given names as a
+    /// key of its `type` object (the cloudmap `typeRef` shape).
+    /// Matching is by exact name — expand subtypes first (e.g. via the
+    /// `extends` closure of the `/types` section) to match a type
+    /// hierarchy.
+    ///
     /// Results are ordered by `(path, key)` for stable output.
     pub async fn find_records(
         &self,
@@ -370,6 +377,7 @@ impl SyncedRepo {
         key: Option<String>,
         alias: bool,
         since_version: Option<i64>,
+        type_names: Option<Vec<String>>,
     ) -> Result<Vec<Record>> {
         db::record::find(
             self.db(),
@@ -379,8 +387,20 @@ impl SyncedRepo {
             key.as_deref(),
             alias,
             since_version,
+            type_names.as_deref(),
         )
         .await
+    }
+
+    /// Change-detection probe for a section: `(COUNT(*),
+    /// MAX(version))` over every row (tombstones included) whose
+    /// `record.path` equals `path`.
+    ///
+    /// The pair moves whenever the section's contents change and only
+    /// then — suitable as a cache key for derived data (e.g. the
+    /// `extends` closure of the `/types` section).
+    pub async fn section_stat(&self, path: &str) -> Result<(i64, Option<i64>)> {
+        db::record::section_stat(self.db(), self.worktree_id(), path).await
     }
 
     /// Like [`Self::find_records`], but also walks
@@ -399,6 +419,13 @@ impl SyncedRepo {
     /// filters, and `followed` is the breadth-first frontier capped
     /// at `follow` entries. `follow == 0` returns an empty followed
     /// set.
+    ///
+    /// `type_names` filters the **initial** set only (see
+    /// [`Self::find_records`]); the follow walk traverses edges from
+    /// those matches without re-applying the type filter, so the
+    /// followed set stays a complete neighborhood of the starting
+    /// records.
+    #[allow(clippy::too_many_arguments)]
     pub async fn find_records_follow(
         &self,
         file_path: Option<String>,
@@ -408,6 +435,7 @@ impl SyncedRepo {
         follow: u32,
         since_version: Option<i64>,
         exclude: Vec<i64>,
+        type_names: Option<Vec<String>>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
         // Soft cap on the size of a single batched `key IN (...)`
         // query. Each follow batch binds `2 * keys` parameters (the
@@ -427,7 +455,7 @@ impl SyncedRepo {
         }
 
         let initial = self
-            .find_records(file_path, path, key, alias, since_version)
+            .find_records(file_path, path, key, alias, since_version, type_names)
             .await?;
         if follow == 0 || initial.is_empty() {
             return Ok((initial, Vec::new()));

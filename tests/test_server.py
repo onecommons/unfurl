@@ -2026,8 +2026,133 @@ def test_server_cloudmap(server_env):
             res = requests.get(base, params={"url": "nonexistent://url"})
             assert res.status_code == 404
 
-            # ----- POST /cloudmap end-to-end -----
+            # ----- GET /cloudmap?type=... (rust fast-path and Python
+            # YAML fallback must agree) -----
             cloudmap_url = f"http://{HOST}:{port}/cloudmap"
+
+            # Exact declared-type match: only the four .gitlab-ci.yml
+            # artifacts declare the pipeline type, so the filtered doc
+            # contains just the artifacts section.
+            res = requests.get(
+                cloudmap_url, params={"type": "cloudmap.artifacts.GitLabPipeline"}
+            )
+            assert res.status_code == 200, res.text
+            primary, followed = res.json()
+            assert list(primary) == ["artifacts"]
+            assert len(primary["artifacts"]) == 4
+            assert all(k.endswith(".gitlab-ci.yml") for k in primary["artifacts"])
+            assert followed == {}
+
+            # Subtype match via `extends`: the service declares type
+            # `Odoo@…`, whose type record (transitively) extends
+            # `SoftwareService@…` — querying the base type matches it.
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "type": "SoftwareService@unfurl.cloud/onecommons/std:generic_types"
+                },
+            )
+            assert res.status_code == 200, res.text
+            primary = res.json()[0]
+            assert list(primary) == ["services"]
+            assert list(primary["services"]) == ["https://example.com/oodo"]
+
+            # No record declares the type (or a subtype) → empty doc,
+            # not an error.
+            res = requests.get(
+                cloudmap_url, params={"type": "tosca.relationships.ConnectsTo"}
+            )
+            assert res.status_code == 200, res.text
+            assert res.json() == [{}, {}]
+
+            # kind + key + type AND together: matching type (via
+            # extends: Odoo@… extends tosca.nodes.Root) → 200 ...
+            service_key = "https://example.com/oodo"
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "services",
+                    "key": service_key,
+                    "type": "tosca.nodes.Root",
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert service_key in res.json()[0]["services"]
+
+            # ... and a record whose type doesn't satisfy the filter
+            # → 404.
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "services",
+                    "key": service_key,
+                    "type": "cloudmap.artifacts.oci.Image",
+                },
+            )
+            assert res.status_code == 404, res.text
+
+            # ----- GET /cloudmap?select=... (projection; rust and
+            # Python must return byte-identical records since the
+            # `unfurl.server.*` annotations are dropped unless
+            # selected) -----
+
+            # `$key` + a top-level property: exact record equality
+            # across all server variants.
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "services",
+                    "key": service_key,
+                    "select": "/type,$key",
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()[0] == {
+                "services": {
+                    service_key: {
+                        "type": {
+                            "Odoo@unfurl.cloud/onecommons/blueprints/odoo": None
+                        },
+                        "$key": service_key,
+                    }
+                }
+            }
+
+            # Composes with the type filter.
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "type": "cloudmap.artifacts.GitLabPipeline",
+                    "select": "$key",
+                },
+            )
+            assert res.status_code == 200, res.text
+            primary = res.json()[0]
+            assert list(primary) == ["artifacts"]
+            assert primary["artifacts"] == {
+                k: {"$key": k} for k in primary["artifacts"]
+            }
+
+            # Nested pointer keeps structure; unresolvable paths are
+            # omitted.
+            template_key = (
+                "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+                "#:ensemble-template.yaml%23spec/service_template"
+            )
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "artifacts",
+                    "key": template_key,
+                    "select": "/metadata/title,/no/such/path",
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()[0] == {
+                "artifacts": {template_key: {"metadata": {"title": "Odoo"}}}
+            }
+
+            # ----- POST /cloudmap end-to-end -----
             cloudmap_path = os.path.abspath("cloudmap.yaml")
 
             # 1. Upsert: rewrite an existing repository entry. The

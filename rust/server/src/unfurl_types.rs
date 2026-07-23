@@ -981,6 +981,11 @@ pub struct GetCloudmapRequestQuery {
     pub since_version: Option<i64>,
     /// Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.
     pub exclude: Option<String>,
+    /// Fully-qualified type name; return only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
+    #[serde(rename = "type")]
+    pub r#type: Option<String>,
+    /// Comma-separated list of JSON Pointer paths (RFC 6901, e.g. ``/type,/metadata/title``); when set, each record in the response (both elements of the pair) is reduced to only the selected properties, keeping their nested structure. Paths without a leading ``/`` get one prepended. The special entry ``$key`` adds the record's key to the reduced record under ``"$key"``. Paths that don't resolve are omitted.
+    pub select: Option<String>,
 }
 /// Response types for GetCloudmapResponse
 #[derive(Debug, Clone)]

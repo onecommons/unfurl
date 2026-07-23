@@ -14,7 +14,7 @@ async fn cloudmap_end_to_end_sqlite() {
     assert!(stats.records_upserted >= 5, "stats: {stats:?}");
 
     let repos = sync
-        .find_records(None, None, None, false, None)
+        .find_records(None, None, None, false, None, None)
         .await
         .expect("find_records");
     assert!(
@@ -58,6 +58,7 @@ async fn cloudmap_end_to_end_sqlite() {
             Some("/repositories".into()),
             Some("git://example.com/x.git".into()),
             false,
+            None,
             None,
         )
         .await

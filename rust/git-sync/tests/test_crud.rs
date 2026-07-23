@@ -444,6 +444,100 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     );
 }
 
+async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
+    // `type_names` matches records whose `type` typeRef object
+    // declares one of the given names as a key. Exact names only —
+    // subtype expansion is the caller's job.
+    sync.update_from_working_dir().await.expect("update");
+
+    let pipelines = sync
+        .find_records(
+            None,
+            None,
+            None,
+            false,
+            None,
+            Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
+        )
+        .await
+        .expect("type filter");
+    assert_eq!(
+        pipelines.len(),
+        4,
+        "fixture has four .gitlab-ci.yml artifacts: {:?}",
+        pipelines.iter().map(|r| &r.key).collect::<Vec<_>>()
+    );
+    assert!(pipelines
+        .iter()
+        .all(|r| r.path == "/artifacts" && r.key.ends_with(".gitlab-ci.yml")));
+
+    // Multiple names OR together and compose with the `path` filter.
+    let multi = sync
+        .find_records(
+            None,
+            Some("/services".into()),
+            None,
+            false,
+            None,
+            Some(vec![
+                "Odoo@unfurl.cloud/onecommons/blueprints/odoo".into(),
+                "no.such.Type".into(),
+            ]),
+        )
+        .await
+        .expect("multi type filter");
+    assert_eq!(multi.len(), 1);
+    assert_eq!(multi[0].key, "https://example.com/oodo");
+
+    // Unknown name matches nothing.
+    let none = sync
+        .find_records(
+            None,
+            None,
+            None,
+            false,
+            None,
+            Some(vec!["no.such.Type".into()]),
+        )
+        .await
+        .expect("unknown type");
+    assert!(none.is_empty());
+
+    // An empty name list is treated as "no filter", not "match none".
+    let all = sync
+        .find_records(None, None, None, false, None, Some(Vec::new()))
+        .await
+        .expect("empty type list");
+    let unfiltered = sync
+        .find_records(None, None, None, false, None, None)
+        .await
+        .expect("unfiltered");
+    assert_eq!(all.len(), unfiltered.len());
+
+    // The section-stat probe moves when (and only when) the section
+    // changes: an upsert into /types bumps its pair, and leaves other
+    // sections' pairs alone.
+    let types_before = sync.section_stat("/types").await.expect("stat");
+    let artifacts_before = sync.section_stat("/artifacts").await.expect("stat");
+    assert!(types_before.0 > 0, "fixture has type records");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/types",
+        "test.NewType",
+        serde_json::json!({"kind": "Component"}),
+        None,
+    )
+    .await
+    .expect("upsert type record");
+    let types_after = sync.section_stat("/types").await.expect("stat after");
+    let artifacts_after = sync.section_stat("/artifacts").await.expect("stat after");
+    assert_ne!(types_before, types_after, "types probe must move");
+    assert_eq!(
+        artifacts_before, artifacts_after,
+        "other sections' probes must not move"
+    );
+}
+
 async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // The fixture's pkg:oci/odoo OCI artifact has a `versions` map
     // (`@sha256:…`, `?tag=latest`); CloudMapFormat::find_alias turns
@@ -463,6 +557,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(parent_key.into()),
             false,
             None,
+            None,
         )
         .await
         .expect("find_records direct");
@@ -481,6 +576,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(alias_key.into()),
             false,
             None,
+            None,
         )
         .await
         .expect("find_records without alias");
@@ -497,6 +593,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(alias_key.into()),
             true,
             None,
+            None,
         )
         .await
         .expect("find_records via alias");
@@ -510,11 +607,11 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(None, Some(parent_path.into()), None, true, None)
+        .find_records(None, Some(parent_path.into()), None, true, None, None)
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
-        .find_records(None, Some(parent_path.into()), None, false, None)
+        .find_records(None, Some(parent_path.into()), None, false, None, None)
         .await
         .expect("find_records no key, alias=false");
     assert_eq!(
@@ -598,6 +695,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             0,
             None,
             Vec::new(),
+            None,
         )
         .await
         .expect("follow 0");
@@ -616,6 +714,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             10,
             None,
             Vec::new(),
+            None,
         )
         .await
         .expect("follow 10");
@@ -685,6 +784,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             1,
             None,
             Vec::new(),
+            None,
         )
         .await
         .expect("follow 1");
@@ -1281,6 +1381,7 @@ crud_test!(
 );
 crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
 crud_test!(find_records_follow_walk, run_find_records_follow_walk);
+crud_test!(find_records_type_filter, run_find_records_type_filter);
 crud_test!(
     pending_token_distinguishes_concurrent_updates,
     run_pending_token_distinguishes_concurrent_updates

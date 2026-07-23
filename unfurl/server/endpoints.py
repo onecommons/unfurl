@@ -83,6 +83,137 @@ logger = getLogger("unfurl.server")
 # ---------------------------------------------------------------------------
 
 
+def _subtype_names(types_section: Dict[str, Any], type_name: str) -> Set[str]:
+    """Expand ``type_name`` to itself plus every subtype — every type
+    record whose ``extends`` list (transitively) contains it.
+
+    Mirrors the rust server's ``CloudMapState::subtype_names``:
+    ``extends`` lists are often pre-flattened (full ancestor closure)
+    but the BFS also handles direct-parents-only producers, and
+    ``type_name`` need not have a type record.
+    """
+    children: Dict[str, List[str]] = {}
+    for name, record in types_section.items():
+        if not isinstance(record, dict):
+            continue
+        for parent in record.get("extends") or ():
+            # Type records commonly list themselves first in
+            # `extends`; skip the self-edge.
+            if isinstance(parent, str) and parent != name:
+                children.setdefault(parent, []).append(name)
+    names = {type_name}
+    queue = [type_name]
+    while queue:
+        for kid in children.get(queue.pop(), ()):
+            if kid not in names:
+                names.add(kid)
+                queue.append(kid)
+    return names
+
+
+def _declares_type(record: Any, type_names: Set[str]) -> bool:
+    """True when the record's ``type`` typeRef object declares one of
+    ``type_names`` as a key."""
+    if not isinstance(record, dict):
+        return False
+    type_ref = record.get("type")
+    return isinstance(type_ref, dict) and any(k in type_names for k in type_ref)
+
+
+# Sentinel distinguishing "pointer didn't resolve" from a legitimate
+# ``None``/``null`` value at the pointed-to location.
+_MISSING = object()
+
+# A parsed ``select`` entry: ``None`` for the special ``$key`` item,
+# otherwise the JSON Pointer's unescaped reference tokens.
+SelectPath = Optional[List[str]]
+
+
+def _parse_select(raw: str) -> List[SelectPath]:
+    """Parse the ``select`` query param into a list of paths.
+
+    Comma-separated JSON Pointers (RFC 6901); items are stripped and
+    empties dropped. A missing leading ``/`` is prepended. ``$key`` is
+    kept as the ``None`` marker. Pointers that have a strict prefix
+    also in the list are dropped — the ancestor pointer already
+    selects the whole subtree.
+    """
+    items: List[SelectPath] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if part == "$key":
+            items.append(None)
+            continue
+        if not part.startswith("/"):
+            part = "/" + part
+        items.append(
+            [t.replace("~1", "/").replace("~0", "~") for t in part.split("/")[1:]]
+        )
+    pointers = [i for i in items if i is not None]
+    return [
+        i
+        for i in items
+        if i is None
+        or not any(len(p) < len(i) and i[: len(p)] == p for p in pointers)
+    ]
+
+
+def _resolve_pointer(value: Any, tokens: List[str]) -> Any:
+    """Evaluate JSON Pointer reference tokens against ``value``;
+    return ``_MISSING`` when the pointer doesn't resolve."""
+    for t in tokens:
+        if isinstance(value, dict):
+            if t not in value:
+                return _MISSING
+            value = value[t]
+        elif isinstance(value, list):
+            # RFC 6901 array index: digits without leading zeros.
+            if not t.isdigit() or (len(t) > 1 and t.startswith("0")):
+                return _MISSING
+            idx = int(t)
+            if idx >= len(value):
+                return _MISSING
+            value = value[idx]
+        else:
+            return _MISSING
+    return value
+
+
+def _project_record(record: Any, key: str, select: List[SelectPath]) -> Dict[str, Any]:
+    """Reduce ``record`` to the properties named by ``select``,
+    keeping their nested structure (array indices become object keys).
+    Unresolvable paths are omitted; ``$key`` adds the record's key."""
+    out: Dict[str, Any] = {}
+    for tokens in select:
+        if tokens is None:
+            out["$key"] = key
+            continue
+        value = _resolve_pointer(record, tokens)
+        if value is _MISSING:
+            continue
+        node = out
+        for t in tokens[:-1]:
+            node = node.setdefault(t, {})
+        node[tokens[-1]] = value
+    return out
+
+
+def _project_document(
+    doc: Dict[str, Any], select: List[SelectPath]
+) -> Dict[str, Any]:
+    """Apply :func:`_project_record` to every record of a
+    CloudMap-shaped dict, dropping any non-section envelope keys."""
+    return {
+        section_name: {
+            k: _project_record(v, k, select) for k, v in section.items()
+        }
+        for section_name, section in doc.items()
+        if section_name in _CLOUDMAP_SECTIONS and isinstance(section, dict)
+    }
+
+
 @app.get("/cloudmap")
 @app.doc(
     summary="CloudMap document",
@@ -131,15 +262,50 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         except ValueError:
             pass
 
+    # `type` expands to the requested name plus all of its
+    # (transitive) subtypes per the `types` section, then restricts
+    # results to records declaring one of those names — mirroring the
+    # rust fast-path's semantics (filtered responses contain only the
+    # sections with matches; the follow walk stays unfiltered).
+    type_names: Optional[Set[str]] = None
+    if query.type:
+        type_names = _subtype_names(doc.get("types") or {}, query.type)
+
+    primary: Dict[str, Any]
     if not kind:
-        primary = doc
+        if type_names is None:
+            primary = doc
+        else:
+            primary = {}
+            for section_name in _CLOUDMAP_SECTIONS:
+                section = doc.get(section_name)
+                if not isinstance(section, dict):
+                    continue
+                matches = {
+                    k: v for k, v in section.items() if _declares_type(v, type_names)
+                }
+                if matches:
+                    primary[section_name] = matches
     else:
         section = doc.get(kind, {})
         if key is None:
-            primary = {kind: section}
+            if type_names is None:
+                primary = {kind: section}
+            else:
+                matches = (
+                    {k: v for k, v in section.items() if _declares_type(v, type_names)}
+                    if isinstance(section, dict)
+                    else {}
+                )
+                primary = {kind: matches} if matches else {}
         elif not isinstance(section, dict) or key not in section:
             return make_response(
                 jsonify(error=f"key {key!r} not found in {kind!r}"), 404
+            )
+        elif type_names is not None and not _declares_type(section[key], type_names):
+            return make_response(
+                jsonify(error=f"key {key!r} not found in {kind!r} with matching type"),
+                404,
             )
         else:
             primary = {kind: {key: section[key]}}
@@ -151,6 +317,14 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         visitor = CollectVisitor(key, follow, exclude=exclude_ids)
         walk_cloudmap_graph(db, visitor, key or "")
         followed = visitor.result
+
+    # `select` reduces every returned record (both halves of the
+    # pair) to the requested properties.
+    if query.select:
+        select_paths = _parse_select(query.select)
+        if select_paths:
+            primary = _project_document(primary, select_paths)
+            followed = _project_document(followed, select_paths)
 
     return [primary, followed]
 

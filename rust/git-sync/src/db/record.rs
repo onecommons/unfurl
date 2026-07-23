@@ -307,6 +307,13 @@ pub(crate) async fn load_pending(
 /// `since_version`, when set, restricts results to rows with
 /// `version > since_version`. Pushed down into SQL so the database
 /// drives the filter rather than the caller.
+///
+/// `type_names`, when set and non-empty, restricts results to records
+/// whose JSON payload has a `type` object declaring at least one of
+/// the given names as a key (the cloudmap `typeRef` shape). On
+/// Postgres this uses the `?|` key-existence operator so the GIN
+/// expression index over `(json -> 'type')` applies; on SQLite it
+/// scans with `json_each`.
 pub(crate) async fn find(
     db: &Db,
     worktree_id: i64,
@@ -315,9 +322,13 @@ pub(crate) async fn find(
     key: Option<&str>,
     alias: bool,
     since_version: Option<i64>,
+    type_names: Option<&[String]>,
 ) -> Result<Vec<Record>> {
     // The alias OR-clause is a no-op without a key.
     let alias_active = alias && key.is_some();
+    // An empty name list matches nothing under `?|` / `IN ()`; treat it
+    // as "no filter" instead so callers don't have to special-case it.
+    let type_names = type_names.filter(|t| !t.is_empty());
     match db {
         Db::Sqlite(pool) => {
             find_sqlite(
@@ -328,6 +339,7 @@ pub(crate) async fn find(
                 key,
                 alias_active,
                 since_version,
+                type_names,
             )
             .await
         }
@@ -341,12 +353,14 @@ pub(crate) async fn find(
                 key,
                 alias_active,
                 since_version,
+                type_names,
             )
             .await
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn find_sqlite(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     worktree_id: i64,
@@ -355,6 +369,7 @@ async fn find_sqlite(
     key: Option<&str>,
     alias_active: bool,
     since_version: Option<i64>,
+    type_names: Option<&[String]>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
@@ -379,6 +394,19 @@ async fn find_sqlite(
         }
         idx += 1;
     }
+    if let Some(ts) = type_names {
+        // `json_each` over the record's `type` typeRef map yields one
+        // row per declared type name (`key` column). Missing or
+        // non-object `type` yields no matching rows.
+        let start = idx;
+        let phs: Vec<String> = (0..ts.len()).map(|i| format!("?{}", start + i)).collect();
+        idx += ts.len();
+        sql.push_str(&format!(
+            " AND EXISTS (SELECT 1 FROM json_each(r.json, '$.type') jt \
+             WHERE jt.key IN ({}))",
+            phs.join(", ")
+        ));
+    }
     if since_version.is_some() {
         sql.push_str(&format!(" AND r.version > ?{idx}"));
         idx += 1;
@@ -397,6 +425,11 @@ async fn find_sqlite(
     }
     if let Some(k) = key {
         q = q.bind(k);
+    }
+    if let Some(ts) = type_names {
+        for t in ts {
+            q = q.bind(t.as_str());
+        }
     }
     if let Some(v) = since_version {
         q = q.bind(v);
@@ -426,6 +459,7 @@ async fn find_sqlite(
 }
 
 #[cfg(feature = "postgres")]
+#[allow(clippy::too_many_arguments)]
 async fn find_pg(
     pool: &sqlx::Pool<sqlx::Postgres>,
     worktree_id: i64,
@@ -434,6 +468,7 @@ async fn find_pg(
     key: Option<&str>,
     alias_active: bool,
     since_version: Option<i64>,
+    type_names: Option<&[String]>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
@@ -456,6 +491,14 @@ async fn find_pg(
         } else {
             sql.push_str(&format!(" AND r.key = ${idx}"));
         }
+        idx += 1;
+    }
+    if type_names.is_some() {
+        // `?|` (jsonb key-exists-any) is served by the GIN expression
+        // index over `(json -> 'type')`; see the migrations. (`?` here
+        // is a jsonb operator, not a bind placeholder — Postgres binds
+        // are `$N`.)
+        sql.push_str(&format!(" AND r.json -> 'type' ?| ${idx}::text[]"));
         idx += 1;
     }
     if since_version.is_some() {
@@ -486,6 +529,9 @@ async fn find_pg(
     }
     if let Some(k) = key {
         q = q.bind(k);
+    }
+    if let Some(ts) = type_names {
+        q = q.bind(ts);
     }
     if let Some(v) = since_version {
         q = q.bind(v);
@@ -861,6 +907,48 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
                 })),
                 None => Ok(None),
             }
+        }
+    }
+}
+
+/// Change-detection probe for a section: `(COUNT(*), MAX(version))`
+/// over every row with `record.path = path`, **tombstones included**
+/// (no `deleted` filter).
+///
+/// The pair moves whenever the section's contents change: an upsert
+/// or CRUD delete bumps that row's `version` (moving `MAX`), and a
+/// hard delete during re-sync ([`delete_missing`]) drops `COUNT` —
+/// while a simultaneous delete + add still moves `MAX` via the added
+/// row's fresh version. Writes to other sections touch neither.
+/// Satisfiable from the `(worktree_id, path, key)` index.
+pub(crate) async fn section_stat(
+    db: &Db,
+    worktree_id: i64,
+    path: &str,
+) -> Result<(i64, Option<i64>)> {
+    match db {
+        Db::Sqlite(pool) => {
+            let row: (i64, Option<i64>) = sqlx::query_as(
+                "SELECT COUNT(*), MAX(version) FROM record \
+                 WHERE worktree_id = ?1 AND path = ?2",
+            )
+            .bind(worktree_id)
+            .bind(path)
+            .fetch_one(pool)
+            .await?;
+            Ok(row)
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let row: (i64, Option<i64>) = sqlx::query_as(
+                "SELECT COUNT(*), MAX(version) FROM record \
+                 WHERE worktree_id = $1 AND path = $2",
+            )
+            .bind(worktree_id)
+            .bind(path)
+            .fetch_one(pool)
+            .await?;
+            Ok(row)
         }
     }
 }
