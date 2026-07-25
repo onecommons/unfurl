@@ -393,8 +393,10 @@ class Repo(abc.ABC):
         ...
 
     @abc.abstractmethod
-    def commit(self, msg: str) -> Optional[Commit]:
-        """Create a commit from the current index with *msg*.  Return None if there are no changes to commit."""
+    def commit(self, msg: str, author: Optional[str] = None) -> Optional[Commit]:
+        """Create a commit from the current index with *msg*, optionally attributed to
+        *author* (``"Name <email>"``, a bare name, or a bare email address).
+        Return None if there are no changes to commit."""
         ...
 
     def is_dirty(
@@ -786,7 +788,13 @@ class RepoView:
     def save_secrets(self) -> List[Path]:
         return commit_secrets(self.working_dir, self.yaml, self.repo)
 
-    def commit(self, msg: str, add_all: bool = False, save_secrets=True) -> int:
+    def commit(
+        self,
+        msg: str,
+        add_all: bool = False,
+        save_secrets=True,
+        author: Optional[str] = None,
+    ) -> int:
         assert not self.read_only
         repo = assert_not_none(self.repo)
         if self.yaml and save_secrets:
@@ -795,8 +803,9 @@ class RepoView:
                 repo.add_relative_path(local_path)
         if add_all:
             self.add_all()
-        repo.commit(msg)
-        return 1
+        # `repo.commit` returns None when the index matches HEAD, e.g. when this view
+        # was dirty only in the working tree and `add_all` didn't stage anything.
+        return 1 if repo.commit(msg, author) else 0
 
     def git_status(self):
         assert self.gitrepo
@@ -938,6 +947,41 @@ def add_transient_credentials(git, url, username, password):
         split_single_char_options=True, c=replacement
     )
     return transient_url
+
+
+def make_actor(
+    actor: Optional[str],
+    gitrepo: Optional[git.Repo] = None,
+    role: Literal["author", "committer"] = "committer",
+) -> Optional[git.Actor]:
+    """Convert an actor string into a git ``Actor``.
+
+    Accepts either ``"Name <email@example.com>"``, a bare name, or a bare email address.
+
+    Args:
+        actor: the string to parse; if empty, None is returned so git's defaults apply.
+        gitrepo: repository whose git configuration supplies any missing name or email
+          (git records the literal string "None" otherwise).
+        role: whether the actor is the commit's author or its committer -- it selects
+          which of ``GIT_AUTHOR_*`` / ``GIT_COMMITTER_*`` provides the defaults.
+    """
+    if not actor or not actor.strip():
+        return None
+    actor = actor.strip()
+    match = re.match(r"^(.*?)\s*<([^>]*)>$", actor)
+    if match:
+        name, email = match.group(1).strip(), match.group(2).strip()
+    elif "@" in actor and " " not in actor:
+        name, email = "", actor
+    else:
+        name, email = actor, ""
+    if not name or not email:
+        config_reader = gitrepo.config_reader() if gitrepo is not None else None
+        get_default = git.Actor.author if role == "author" else git.Actor.committer
+        default = get_default(config_reader)
+        name = name or default.name
+        email = email or default.email
+    return git.Actor(name, email)
 
 
 class GitRepo(Repo):
@@ -1184,12 +1228,29 @@ class GitRepo(Repo):
     def add_relative_path(self, path: str) -> None:
         self.repo.git.add(path)
 
-    def commit(self, msg: str) -> Optional[Commit]:
-        if self.repo.index.diff("HEAD"):
-            return self.repo.index.commit(msg)
+    def commit(self, msg: str, author: Optional[str] = None) -> Optional[Commit]:
+        if self.repo.head.is_valid():
+            changed = bool(self.repo.index.diff("HEAD"))
+        else:
+            # An unborn HEAD has no tree to diff against (`index.diff("HEAD")` raises
+            # BadName), so ask whether anything is staged for this first commit.
+            changed = bool(self.repo.index.entries)
+        if changed:
+            return self.repo.index.commit(
+                msg, author=make_actor(author, self.repo, "author")
+            )
         return None
 
-    def commit_files(self, files: List[str], msg: str) -> Commit:
+    def commit_files(
+        self, files: List[str], msg: str, author: Optional[str] = None
+    ) -> Commit:
+        """Add ``files`` to the index and commit them.
+
+        Args:
+            files: absolute paths of the files to commit.
+            msg: the commit message.
+            author: optional git author, either ``"Name <email>"`` or a bare name.
+        """
         # note: this will also commit existing changes in the index
         index = self.repo.index
         # local files risk confusion: local to repo or local to current working dir?, so require absolute path
@@ -1197,7 +1258,7 @@ class GitRepo(Repo):
             files
         )
         index.add(files)
-        return index.commit(msg)
+        return index.commit(msg, author=make_actor(author, self.repo, "author"))
 
     def is_dirty(self, untracked_files=False, path: Optional[str] = None) -> bool:
         # diff = self.repo.git.diff()  # "--abbrev=40", "--full-index", "--raw")

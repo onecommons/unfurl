@@ -14,7 +14,7 @@ example.org/mypackage/v2
 If the package references to a path in a git repository we follow Go's convention for including the path after ".git/" in the name. For example:
 
 ```
-onecommons.org/unfurl-type.git/anotherpackage/v2
+onecommons.org/unfurl-type.git/anotherpackage
 gitlab.com/onecommons/unfurl-types.git/v2
 ```
 
@@ -999,9 +999,9 @@ class ProxiedRepo(Repo):
         # always converts to git
         self._ensure_git().add_relative_path(path)
 
-    def commit(self, msg: str) -> Optional[Commit]:
-        # commit always converts to git if there are no changes to commit
-        return self._ensure_git().commit(msg)
+    def commit(self, msg: str, author: Optional[str] = None) -> Optional[Commit]:
+        # commit always converts to git even if there are no changes to commit
+        return self._ensure_git().commit(msg, author)
 
     @staticmethod
     def get_proxy_url(git_url: str, proxy_url: Optional[str] = None) -> Optional[str]:

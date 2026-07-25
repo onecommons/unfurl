@@ -1505,8 +1505,23 @@ class YamlManifest(ReadOnlyManifest):
         return saved
 
     def commit(
-        self, msg: str, add_all: bool = False, save_secrets=True, *, ensemble_only=False
+        self,
+        msg: str,
+        add_all: bool = False,
+        save_secrets=True,
+        *,
+        ensemble_only=False,
+        author: Optional[str] = None,
     ) -> int:
+        """Commit the dirty repositories this manifest references.
+
+        Args:
+            msg: the commit message.
+            add_all: stage all changes in the repository, not just the tracked ones.
+            save_secrets: encrypt and stage secret files before committing.
+            ensemble_only: only commit the ensemble's own repository.
+            author: optional git author, e.g. ``"Name <email>"``, defaults to git's config.
+        """
         committed = 0
         save_secrets = save_secrets and (
             not self.localEnv or not self.localEnv.overrides.get("skip_secret_files")
@@ -1516,19 +1531,19 @@ class YamlManifest(ReadOnlyManifest):
                 if repository.repo == self.repo:
                     continue
                 if not repository.read_only and repository.is_dirty():
-                    retVal = repository.commit(msg, add_all, save_secrets)
-                    committed += 1
-                    logger.info(
-                        "committed %s to %s: %s", retVal, repository.working_dir, msg
-                    )
+                    retVal = repository.commit(msg, add_all, save_secrets, author)
+                    committed += retVal
+                    if retVal:
+                        logger.info("committed to %s: %s", repository.working_dir, msg)
         # if manifest was changed: # e.g. calling commit after a job was run
         #    if commits were made writeLock and save updated manifest??
         #    (note: endCommit will be omitted as changes.yaml isn't updated)
         ensembleRepo = self.repositories["self"]
         if ensembleRepo.is_dirty():
-            retVal = ensembleRepo.commit(msg, add_all, save_secrets)
-            committed += 1
-            logger.info("committed %s to %s: %s", retVal, ensembleRepo.working_dir, msg)
+            retVal = ensembleRepo.commit(msg, add_all, save_secrets, author)
+            committed += retVal
+            if retVal:
+                logger.info("committed to %s: %s", ensembleRepo.working_dir, msg)
         return committed
 
     def get_change_log_path(self, folder="") -> str:

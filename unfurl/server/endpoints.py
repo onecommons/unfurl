@@ -497,6 +497,7 @@ def post_cloudmap(
         cast(str, password or ""),
         starting_revision,
         batched=True,
+        author=_get_author(request),
     )
     if commit_err:
         return commit_err
@@ -533,6 +534,16 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
 # ---------------------------------------------------------------------------
 # Patch endpoints
 # ---------------------------------------------------------------------------
+
+
+def _get_author(request) -> Optional[str]:
+    """The git author for commits made while handling ``request``.
+
+    Clients that authenticate the end user themselves can identify them with the
+    ``X-Unfurl-User`` header (``"Name <email>"``, a bare name, or a bare email address)
+    so the commit is attributed to them instead of to the server's git identity.
+    """
+    return request.headers.get("X-Unfurl-User")
 
 
 def _get_body(request) -> dict:
@@ -1172,6 +1183,7 @@ def _patch_environment(
                 password,
                 starting_revision,
                 bool(batched),
+                author=_get_author(request),
             )
             if err:
                 return err  # err will be an error response
@@ -1372,6 +1384,7 @@ def _patch_ensemble(
             current_working_dir,
             gui_mode,
             body.get("blueprint_url"),
+            _get_author(request),
         )
     cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
@@ -1405,7 +1418,9 @@ def _patch_ensemble(
     else:
         commit_msg = _get_commit_msg(body, "Update deployment")
         # XXX catch exception from commit and run git restore to rollback working dir
-        committed = manifest.commit(commit_msg, True, ensemble_only=True)
+        committed = manifest.commit(
+            commit_msg, True, ensemble_only=True, author=_get_author(request)
+        )
         if committed or create:
             logger.info(f"committed to {committed} repositories")
             # In standalone gui mode, app.config["UNFURL_GUI_MODE"] holds the
@@ -1445,6 +1460,7 @@ def _create_ensemble(
     current_working_dir: str,
     gui_mode: bool,
     blueprint_url: Optional[str],
+    author: Optional[str] = None,
 ):
     assert parent_localenv.project
     # if current_working_dir is set, use it as the home project so clone uses the local repository if available
@@ -1475,6 +1491,7 @@ def _create_ensemble(
             use_deployment_blueprint=deployment_blueprint,
             home=current_working_dir,
             parent_localenv=parent_localenv,
+            author=author,
         )
     else:
         logger.info("creating new deployment at %s", clone_location)
@@ -1493,6 +1510,7 @@ def _create_ensemble(
             use_deployment_blueprint=deployment_blueprint,
             home=current_working_dir,
             parent_localenv=parent_localenv,
+            author=author,
         )
     logger.info(msg)
 
@@ -1591,11 +1609,12 @@ def _commit_and_push(
     password: str,
     starting_revision: str,
     batched: bool = False,
+    author: Optional[str] = None,
 ):
     repo.add_all(full_path)
     # XXX catch exception and run git restore to rollback working dir
-    repo.commit_files([full_path], commit_msg)
-    logger.info("committed %s: %s", full_path, commit_msg)
+    repo.commit_files([full_path], commit_msg, author)
+    logger.info("committed %s: %s (author: %s)", full_path, commit_msg, author or "-")
     if app.config.get("UNFURL_GUI_MODE") or batched:
         return None  # don't push
     if password:

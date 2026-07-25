@@ -10,6 +10,7 @@ from unfurl.repo import (
     split_git_url,
     split_git_url_with_commit,
     is_url_or_git_path,
+    make_actor,
     RepoView,
     normalize_git_url,
     GitRepo,
@@ -718,7 +719,7 @@ reifiedManifestContent = """\
     # test that we can reference a repository declared in the environment during parse-time
     +?include:
       file: missing.yaml
-      repository: 
+      repository:
         name: include-early-repo
         url: file:///different-than-env
     instances:
@@ -866,3 +867,151 @@ def test_skeletons(skeleton):
     with runner.isolated_filesystem():
         run_cmd(runner, ["init", "--skeleton", skeleton, "--use-environment", "test", skeleton, "myensemble"])
         run_cmd(runner, ["validate", skeleton])
+
+
+# --- commit authorship -------------------------------------------------------
+
+
+@pytest.fixture
+def author_env(monkeypatch):
+    """Pin the ambient git identity so author/committer defaults are predictable.
+
+    ``git.Actor.author()`` consults ``GIT_AUTHOR_*`` before falling back to
+    ``user.name`` / ``user.email``, so the tests set the env explicitly rather than
+    relying on whatever the developer's or CI runner's git config happens to be.
+    """
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "Default Author")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "default-author@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "Server Bot")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "bot@server.local")
+
+
+def _new_repo(path) -> GitRepo:
+    os.makedirs(path, exist_ok=True)
+    return GitRepo(Repo.init(path))
+
+
+def _write(repo: GitRepo, name: str, contents: str) -> str:
+    path = os.path.join(repo.working_dir, name)
+    with open(path, "w") as f:
+        f.write(contents)
+    return path
+
+
+@pytest.mark.parametrize(
+    "actor,expected",
+    [
+        # fully specified: used verbatim
+        ("Jo Tester <jo@example.com>", ("Jo Tester", "jo@example.com")),
+        # bare name / bare email: the missing half comes from GIT_AUTHOR_*
+        ("Jo Tester", ("Jo Tester", "default-author@example.com")),
+        ("jo@example.com", ("Default Author", "jo@example.com")),
+        ("<jo@example.com>", ("Default Author", "jo@example.com")),
+        # a name with spaces isn't mistaken for an email address
+        ("Jo Q. Tester", ("Jo Q. Tester", "default-author@example.com")),
+    ],
+)
+def test_make_actor(author_env, actor, expected):
+    made = make_actor(actor, None, "author")
+    assert made is not None
+    assert (made.name, made.email) == expected
+
+
+@pytest.mark.parametrize("actor", [None, "", "   "])
+def test_make_actor_empty(author_env, actor):
+    # no actor -> None, so git applies its own configured identity
+    assert make_actor(actor) is None
+
+
+def test_make_actor_role(author_env):
+    # `role` selects which of GIT_AUTHOR_* / GIT_COMMITTER_* fills a missing half
+    assert make_actor("Jo Tester", None, "author").email == "default-author@example.com"
+    assert make_actor("Jo Tester", None, "committer").email == "bot@server.local"
+    # the default role is "committer"
+    assert make_actor("Jo Tester").email == "bot@server.local"
+
+
+def test_commit_files_author(author_env, tmp_path):
+    repo = _new_repo(tmp_path / "repo")
+    path = _write(repo, "a.txt", "one")
+    commit = repo.commit_files([path], "with author", "Jo Tester <jo@example.com>")
+    assert (commit.author.name, commit.author.email) == ("Jo Tester", "jo@example.com")
+    # only the author is overridden; the committer stays the ambient identity
+    assert (commit.committer.name, commit.committer.email) == (
+        "Server Bot",
+        "bot@server.local",
+    )
+
+    # no author -> git's configured author
+    path = _write(repo, "a.txt", "two")
+    commit = repo.commit_files([path], "no author")
+    assert (commit.author.name, commit.author.email) == (
+        "Default Author",
+        "default-author@example.com",
+    )
+
+
+def test_commit_author(author_env, tmp_path):
+    repo = _new_repo(tmp_path / "repo")
+    repo.repo.index.add([_write(repo, "a.txt", "one")])
+    commit = repo.commit("first", "Jo Tester <jo@example.com>")
+    assert commit is not None
+    assert (commit.author.name, commit.author.email) == ("Jo Tester", "jo@example.com")
+    assert commit.committer.name == "Server Bot"
+
+
+def test_commit_unborn_head(author_env, tmp_path):
+    """The first commit has no HEAD to diff against."""
+    repo = _new_repo(tmp_path / "repo")
+    assert not repo.repo.head.is_valid()
+    # nothing staged -> no empty root commit
+    assert repo.commit("nothing staged") is None
+    assert not repo.repo.head.is_valid()
+    # staged -> the root commit is created
+    repo.repo.index.add([_write(repo, "a.txt", "one")])
+    assert repo.commit("root commit") is not None
+    assert repo.revision
+
+
+def test_commit_skipped_when_unchanged(author_env, tmp_path):
+    repo = _new_repo(tmp_path / "repo")
+    repo.commit_files([_write(repo, "a.txt", "one")], "first")
+    revision = repo.revision
+    # index matches HEAD, so there is nothing to commit
+    assert repo.commit("no-op") is None
+    assert repo.revision == revision
+    # ... and RepoView reports that nothing was committed
+    view = RepoView({"name": "test", "url": repo.working_dir}, repo)
+    assert view.commit("no-op") == 0
+
+
+def test_init_commit_author(author_env, tmp_path):
+    """`author` passed to create_project/clone reaches every commit they make."""
+    from unfurl import init
+
+    project = str(tmp_path / "project")
+    init.create_project(
+        project, home="", no_runtime=True, author="Jo Tester <jo@example.com>"
+    )
+    init.clone(
+        project,
+        project,
+        "ensemble2",
+        existing=True,
+        mono=True,
+        home="",
+        author="Ada Lovelace <ada@example.com>",
+    )
+    repo = GitRepo(Repo(project))
+    authors = [
+        (c.author.name, c.author.email, c.committer.name)
+        for c in repo.repo.iter_commits()
+    ]
+    # newest first: clone's commits, then create_project's
+    assert authors[-2:] == [
+        ("Jo Tester", "jo@example.com", "Server Bot"),
+        ("Jo Tester", "jo@example.com", "Server Bot"),
+    ]
+    assert all(a[:2] == ("Ada Lovelace", "ada@example.com") for a in authors[:-2])
+    # the initial commit is still tagged, i.e. it wasn't skipped
+    assert "INITIAL" in [t.name for t in repo.repo.tags]

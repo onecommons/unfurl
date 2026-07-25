@@ -159,20 +159,20 @@ def create_home(
     return configPath
 
 
-def _create_repo(gitDir, ignore=True) -> GitRepo:
+def _create_repo(gitDir, ignore=True, author: Optional[str] = None) -> GitRepo:
     import git
 
     if not os.path.isdir(gitDir):
         os.makedirs(gitDir)
-    repo = git.Repo.init(gitDir)
-    repo.index.add(add_hidden_git_files(gitDir))
+    repo = GitRepo(git.Repo.init(gitDir))
+    repo.repo.index.add(add_hidden_git_files(gitDir))
     msg = f"Initial Commit for {uuid.uuid1()}"
-    repo.index.commit(msg)
-    repo.create_tag("INITIAL", message=msg)
+    repo.commit(msg, author)
+    repo.repo.create_tag("INITIAL", message=msg)
 
     if ignore:
         Repo.ignore_dir(gitDir)
-    return GitRepo(repo)
+    return repo
 
 
 def write_service_template(projectdir, templateDir, vars):
@@ -417,7 +417,9 @@ def _find_project_repo(projectdir: str) -> GitRepo:
 
 def _create_ensemble_project(ensembleDir: str, kw: dict) -> GitRepo:
     "If the ensemble will be in a external project, return its repository, otherwise create a new repository."
-    ensembleRepo = _create_repo(ensembleDir, not kw.get("submodule"))
+    ensembleRepo = _create_repo(
+        ensembleDir, not kw.get("submodule"), kw.get("author")
+    )
     _add_ensemble_specific_unfurl_config(ensembleRepo, kw)
     return ensembleRepo
 
@@ -431,13 +433,14 @@ def _commit_repos(
     ensembleDir,
     runtime,
 ):
+    author = kw.get("author")
     if ensembleRepo:
         ensembleRepo.add_all(ensembleDir)
         if shared:
             message = "Adding ensemble"
         else:
             message = "Default ensemble repository boilerplate"
-        ensembleRepo.repo.index.commit(message)
+        ensembleRepo.commit(message, author)
         ensembleRepo.repo.__del__()
 
     if kw.get("submodule"):
@@ -454,7 +457,7 @@ def _commit_repos(
             logger.error("Unable to create Unfurl runtime %s", runtime, exc_info=True)
 
     repo.add_all(projectdir)
-    repo.repo.index.commit(kw.get("msg") or "Create a new Unfurl project")
+    repo.commit(kw.get("msg") or "Create a new Unfurl project", author)
     repo.repo.__del__()
 
 
@@ -490,6 +493,7 @@ def create_project(
         repo = _find_project_repo(projectdir)
     else:
         repo = None
+    author = kw.get("author")
 
     if create_context:
         # set context to the project name
@@ -517,7 +521,7 @@ def create_project(
     if repo:
         add_hidden_git_files(projectdir)
     else:
-        repo = _create_repo(projectdir)
+        repo = _create_repo(projectdir, author=author)
 
     ensembleDir = os.path.join(projectdir, ensemble_name)
     shared = _get_shared(kw, homePath)
@@ -694,7 +698,7 @@ def _create_ensemble_repo(
 
     if not kw.get("render"):  # don't commit if --render set
         repo.repo.index.add([manifest_path])
-        repo.repo.index.commit("Default ensemble repository boilerplate")
+        repo.commit("Default ensemble repository boilerplate", kw.get("author"))
 
 
 def _looks_like(path, name):
@@ -1026,7 +1030,9 @@ class EnsembleBuilder:
         if not self.options.get("render") and ensemble_project.localConfig.config.saved:
             msg = f"Add ensemble at {ensemble_project.get_relative_path(manifest_path)}"
             assert_not_none(ensemble_project.project_repoview.gitrepo).commit_files(
-                [assert_not_none(ensemble_project.localConfig.config.path)], msg
+                [assert_not_none(ensemble_project.localConfig.config.path)],
+                msg,
+                self.options.get("author"),
             )
         self.manifest = manifest
         return destDir
@@ -1329,8 +1335,9 @@ class EnsembleBuilder:
             repo = currentProject.project_repoview.gitrepo
             if repo and (self.mono or self.options.get("empty")):
                 repo.add_all(csar.unzip_dir)
-                repo.repo.index.commit(
-                    f"Adding TOSCA CSAR {os.path.basename(source)} to project."
+                repo.commit(
+                    f"Adding TOSCA CSAR {os.path.basename(source)} to project.",
+                    self.options.get("author"),
                 )
         else:
             options = self.options.copy()
@@ -1396,6 +1403,10 @@ def clone(
     If the source is a git URL, the repository is cloned inside the destination project. A new ensemble is only created if the source specified a specific ensemble or template or if the source was blueprint project (i.e. it contains an ensemble template but doesn't contain any ensembles).
 
     When deploying an ensemble that is in project that was cloned into another project, the environment setting in each unfurl.yaml are merged, with the top-level project's settings taking precedence.
+
+    Options include ``author``, the git author for any commits made while cloning
+    (``"Name <email>"``, a bare name, or a bare email address); it defaults to git's
+    configured identity.
     """
     builder = EnsembleBuilder(source, ensemble_name, options)
     if not dest:
