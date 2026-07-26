@@ -2771,6 +2771,24 @@
           },
           {
             "in": "query",
+            "name": "cloudmap_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+              "title": "Cloudmap Path"
+            }
+          },
+          {
+            "in": "query",
             "name": "kind",
             "required": false,
             "schema": {
@@ -3751,6 +3769,24 @@
               "default": null,
               "description": "Setting this enables asynchronous writes",
               "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cloudmap_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+              "title": "Cloudmap Path"
             }
           },
           {

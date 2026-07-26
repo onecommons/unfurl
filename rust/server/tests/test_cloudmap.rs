@@ -953,3 +953,139 @@ async fn select_prefix_dedup_and_bare_paths() {
     assert!(record["unfurl.server.version"].is_i64());
     assert_eq!(record.len(), 2, "keys: {:?}", record.keys());
 }
+
+// ---------------------------------------------------------------------------
+// cloudmap_path — scoping reads and writes to one file
+// ---------------------------------------------------------------------------
+
+/// A second, minimal cloudmap document living alongside the fixture.
+/// `CloudMapFormat::is_format` keys off `kind: CloudMap`, not the file
+/// name, so this is indexed as its own file in the same worktree.
+const ALT_FILE: &str = "alt-cloudmap.yaml";
+const ALT_KEY: &str = "git://example.com/only-in-alt.git";
+
+/// Repo seeded with two cloudmap files: the shared fixture at
+/// `cloudmap.yaml` and [`ALT_FILE`] holding a single repository record.
+async fn open_two_file_state() -> (CloudMapState, SyncedRepo, TempDir) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    let alt = format!(
+        "apiVersion: unfurl/v1alpha1\nkind: CloudMap\nrepositories:\n  {ALT_KEY}:\n    git: {ALT_KEY}\n    path: only/in-alt\n    name: only-in-alt\n"
+    );
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[
+            ("cloudmap.yaml".to_string(), fixture),
+            (ALT_FILE.to_string(), alt.into_bytes()),
+        ],
+        "initial",
+    )
+    .expect("init repo");
+    let synced = SyncedRepo::open(
+        tmp.path(),
+        DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        },
+        FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo");
+    synced.update_from_working_dir().await.expect("update");
+    (CloudMapState::from_synced(synced.clone()), synced, tmp)
+}
+
+#[tokio::test]
+async fn get_without_cloudmap_path_spans_every_file() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK);
+    let repos = &body[0]["repositories"];
+    assert!(
+        repos.get(ALT_KEY).is_some(),
+        "unscoped read should include the alt file's record: {repos:?}"
+    );
+    assert!(
+        repos.as_object().expect("object").len() > 1,
+        "unscoped read should also include the fixture's records"
+    );
+}
+
+#[tokio::test]
+async fn get_with_cloudmap_path_scopes_to_that_file() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!("/cloudmap?kind=repositories&cloudmap_path={ALT_FILE}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let repos = body[0]["repositories"].as_object().expect("object");
+    assert_eq!(
+        repos.keys().collect::<Vec<_>>(),
+        vec![ALT_KEY],
+        "scoped read should return only the alt file's record"
+    );
+
+    // ... and the fixture file doesn't see the alt record.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        "/cloudmap?kind=repositories&cloudmap_path=cloudmap.yaml",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body[0]["repositories"].get(ALT_KEY).is_none(),
+        "cloudmap.yaml must not report the alt file's record"
+    );
+}
+
+#[tokio::test]
+async fn get_with_cloudmap_path_and_key_404s_across_files() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    // ALT_KEY exists, but not in cloudmap.yaml.
+    let (status, _body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&cloudmap_path=cloudmap.yaml&key={}",
+            urlencoding::encode(ALT_KEY)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn post_with_cloudmap_path_writes_to_that_file() {
+    let (cm, synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let new_url = "git://example.com/written-to-alt.git";
+    let body = serde_json::json!({
+        "cloudmap_path": ALT_FILE,
+        "repositories": {
+            new_url: { "name": "written-to-alt" },
+        }
+    });
+    let (status, _echo) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // It landed in the requested file, not the worktree default.
+    let rec = synced
+        .get_record(ALT_FILE, "/repositories", new_url)
+        .await
+        .expect("get_record")
+        .expect("present in the alt file");
+    assert_eq!(rec.file_path, ALT_FILE);
+    assert!(
+        synced
+            .get_record("cloudmap.yaml", "/repositories", new_url)
+            .await
+            .expect("get_record")
+            .is_none(),
+        "the record must not also appear in the default file"
+    );
+}

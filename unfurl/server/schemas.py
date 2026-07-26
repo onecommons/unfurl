@@ -173,7 +173,24 @@ CloudMapKind = Literal[
 ]
 
 
-class CloudMapQuery(ProjectQuery):
+class CloudMapBaseQuery(ProjectQuery):
+    """Query parameters shared by the cloudmap read endpoints.
+
+    ``cloudmap_path`` mirrors the POST ``/cloudmap`` body field of the same name, so a
+    cloudmap kept somewhere other than ``cloudmap.yaml`` can be read back through the
+    same path it was written to.
+    """
+
+    cloudmap_path: Optional[str] = Field(
+        default=None,
+        description=(
+            "Path of the cloudmap file inside the repo; defaults to "
+            "``cloudmap.yaml``."
+        ),
+    )
+
+
+class CloudMapQuery(CloudMapBaseQuery):
     """Query parameters for /graph endpoint."""
 
     url: Optional[str] = Field(
@@ -182,7 +199,7 @@ class CloudMapQuery(ProjectQuery):
     )
 
 
-class CloudMapDocQuery(ProjectQuery):
+class CloudMapDocQuery(CloudMapBaseQuery):
     """Query parameters for /cloudmap (raw document) endpoint."""
 
     kind: Optional[CloudMapKind] = Field(

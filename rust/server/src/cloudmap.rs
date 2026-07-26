@@ -63,9 +63,10 @@ fn path_for_kind(kind: &str) -> Option<&'static str> {
 pub struct CloudMapState {
     inner: Arc<SyncedRepo>,
     /// Lazily-built reverse `extends` adjacency of the `/types`
-    /// section, used by the `type` query filter. See
+    /// section, used by the `type` query filter, keyed by the
+    /// request's `cloudmap_path` (`None` = every file). See
     /// [`CloudMapState::subtype_names`].
-    types_cache: Arc<Mutex<Option<TypesCache>>>,
+    types_cache: Arc<Mutex<HashMap<Option<String>, TypesCache>>>,
 }
 
 /// Cached reverse `extends` adjacency of the `/types` section.
@@ -114,7 +115,7 @@ impl CloudMapState {
         synced.update_from_working_dir().await?;
         Ok(Self {
             inner: Arc::new(synced),
-            types_cache: Arc::new(Mutex::new(None)),
+            types_cache: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -126,7 +127,7 @@ impl CloudMapState {
     pub fn from_synced(synced: SyncedRepo) -> Self {
         Self {
             inner: Arc::new(synced),
-            types_cache: Arc::new(Mutex::new(None)),
+            types_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -139,12 +140,17 @@ impl CloudMapState {
     /// and rebuilds only when the pair moved, so writes to other
     /// sections leave the cache warm. `type_name` need not have a
     /// type record — the result then is just the name itself.
-    async fn subtype_names(&self, type_name: &str) -> Result<Vec<String>, unfurl_git_sync::Error> {
+    async fn subtype_names(
+        &self,
+        type_name: &str,
+        file_path: Option<&str>,
+    ) -> Result<Vec<String>, unfurl_git_sync::Error> {
         let stat = self.inner.section_stat("/types").await?;
+        let cache_key = file_path.map(str::to_string);
         let mut guard = self.types_cache.lock().await;
         // (`Option::is_none_or` reads better but is stable only since
         // Rust 1.82; MSRV is 1.70.)
-        if !matches!(guard.as_ref(), Some(c) if c.stat == stat) {
+        if !matches!(guard.get(&cache_key), Some(c) if c.stat == stat) {
             // Two separate queries (probe, then fetch) — a write
             // landing in between can pair a fresh section with a
             // stale stat or vice versa; either way the next request's
@@ -152,7 +158,14 @@ impl CloudMapState {
             // one write behind, never stuck.
             let records = self
                 .inner
-                .find_records(None, Some("/types".into()), None, false, None, None)
+                .find_records(
+                    cache_key.clone(),
+                    Some("/types".into()),
+                    None,
+                    false,
+                    None,
+                    None,
+                )
                 .await?;
             let mut children: HashMap<String, Vec<String>> = HashMap::new();
             for r in &records {
@@ -170,9 +183,9 @@ impl CloudMapState {
                     }
                 }
             }
-            *guard = Some(TypesCache { stat, children });
+            guard.insert(cache_key.clone(), TypesCache { stat, children });
         }
-        let cache = guard.as_ref().expect("types cache just populated");
+        let cache = guard.get(&cache_key).expect("types cache just populated");
 
         // BFS over the reverse edges, starting at (and including) the
         // requested name. `extends` lists are often pre-flattened
@@ -253,6 +266,14 @@ async fn build_response(
     let synced = cm.inner.as_ref();
     let kind = params.kind.as_deref();
     let key = params.key.as_deref();
+    // Scope the read to one cloudmap file when the request names one; `None` matches
+    // records from every file in the worktree, which is what a request without
+    // `cloudmap_path` has always done.
+    let file_path = params
+        .cloudmap_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty());
 
     // Resolve `kind` to its JSON-pointer path up-front so an unknown
     // kind 404s before we issue any DB query.
@@ -299,7 +320,7 @@ async fn build_response(
     // the initial set only — the follow walk stays unfiltered.
     let type_names: Option<Vec<String>> = match params.r#type.as_deref() {
         Some(t) if !t.is_empty() => Some(
-            cm.subtype_names(t)
+            cm.subtype_names(t, file_path)
                 .await
                 .map_err(|e| LocalError::Internal(format!("subtype_names: {e}")))?,
         ),
@@ -309,7 +330,7 @@ async fn build_response(
 
     let (initial, followed_records) = synced
         .find_records_follow(
-            None,
+            file_path.map(str::to_string),
             path.map(|s| s.to_string()),
             key.map(|s| s.to_string()),
             alias,
@@ -726,6 +747,17 @@ async fn apply_writes(
 ) -> Result<WriteOutcome, WriteError> {
     let synced = cm.inner.as_ref();
 
+    // A request naming a `cloudmap_path` writes to that file; without one, git-sync
+    // resolves the file per record (see `build_batch_op`). Read it before the
+    // `collect!` macro below moves the section fields out of `body`.
+    let file_path = body
+        .cloudmap_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string);
+    let file_path = file_path.as_deref();
+
     // Build (BatchOp, section_name) pairs in a fixed section order so
     // the batch is deterministic across requests.
     let mut ops: Vec<BatchOp> = Vec::new();
@@ -746,7 +778,7 @@ async fn apply_writes(
                             $section, key
                         ))
                     })?;
-                    let op = build_batch_op($section, $path, key, value)?;
+                    let op = build_batch_op($section, $path, key, value, file_path)?;
                     ops.push(op);
                     sections.push($section);
                 }
@@ -835,21 +867,26 @@ fn build_batch_op(
     path: &'static str,
     key: String,
     value: Value,
+    file_path: Option<&str>,
 ) -> Result<BatchOp, WriteError> {
+    // `None` leaves git-sync to resolve the file: the existing record's file, then
+    // (for upserts) the worktree's `default_file_path`. That's what a request without
+    // `cloudmap_path` should keep doing.
+    let file_path = file_path.map(str::to_string);
     match value {
         Value::Object(mut map) => {
             let commit_ref = pop_commit_ref(&mut map);
             let is_delete = matches!(map.remove("unfurl.server.deleted"), Some(Value::Bool(true)));
             if is_delete {
                 Ok(BatchOp::Delete {
-                    file_path: None,
+                    file_path,
                     path: path.to_string(),
                     key,
                     expected: commit_ref,
                 })
             } else {
                 Ok(BatchOp::Upsert {
-                    file_path: None,
+                    file_path,
                     path: path.to_string(),
                     key,
                     json: Value::Object(map),

@@ -390,6 +390,14 @@ class CloudMapProxy(CloudMapView):
         return r.json()
 
     def _post(self, body: Dict[str, Any]) -> Dict[str, Any]:
+        # ``cloudmap_path`` scopes reads via the query string but writes via the
+        # request body, so carry it over from ``base_url``. Without this a proxy
+        # built for one file would read from it and write to the default one.
+        if "cloudmap_path" not in body:
+            for key, value in self._base_query:
+                if key == "cloudmap_path" and value:
+                    body = dict(body, cloudmap_path=value)
+                    break
         r = self._session.post(
             self._endpoint,
             params=self._query_params(),

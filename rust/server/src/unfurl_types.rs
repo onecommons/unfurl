@@ -970,6 +970,8 @@ pub struct GetCloudmapRequestQuery {
     pub branch: Option<String>,
     /// Setting this enables asynchronous writes
     pub queueid: Option<i64>,
+    /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
+    pub cloudmap_path: Option<String>,
     /// Top-level CloudMap section to return; if omitted the full document is returned.
     pub kind: Option<String>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
@@ -1094,6 +1096,8 @@ pub struct GetGraphRequestQuery {
     pub branch: Option<String>,
     /// Setting this enables asynchronous writes
     pub queueid: Option<i64>,
+    /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
+    pub cloudmap_path: Option<String>,
     /// Optional artifact or instantiation URL to filter the graph to
     pub url: Option<String>,
 }

@@ -35,6 +35,8 @@ from ..repo import (
 )
 from ..util import assert_not_none, unique_name
 from ..yamlmanifest import YamlManifest
+from ..yamlloader import yaml
+
 from .schemas import (
     BatchPatchBody,
     CloudMapDocQuery,
@@ -240,7 +242,7 @@ def _project_document(
     description="Pair: [filtered CloudMap document, followed records]",
 )
 def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, load_cloudmap_local
+    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
 
     project_id = _cloudmap_project_id(request)
     branch = query.branch or CLOUDMAP_BRANCH
@@ -251,6 +253,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     err, doc, db = load_cloudmap_local(
         project_id,
         branch=branch,
+        file_name=query.cloudmap_path or CLOUDMAP_PATH,
         latest_commit=query.latest_commit,
         create_db=need_db,
     )
@@ -393,7 +396,7 @@ def post_cloudmap(
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
     so the ``latest_commit`` check is the only concurrency control in place.
     """
-    from .cache import CLOUDMAP_BRANCH, load_cloudmap_local
+    from .cache import CLOUDMAP_BRANCH, load_yaml_from_cache
 
     raw = _get_body(request)
     cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
@@ -417,12 +420,8 @@ def post_cloudmap(
             )
         body_sections[section] = entries
 
-    err, doc, _ = load_cloudmap_local(
-        project_id,
-        branch=branch,
-        file_name=cloudmap_path,
-        latest_commit=latest_commit,
-        create_db=False,
+    err, doc = load_yaml_from_cache(
+        project_id, branch, cloudmap_path, latest_commit=latest_commit
     )
     if doc is None:
         if isinstance(err, Response):
@@ -485,14 +484,9 @@ def post_cloudmap(
     if not applied:
         return {"commit": latest_commit, "applied": []}
 
-    # Write back to disk using the project's ruamel-based loader so
-    # we preserve quoting / commenting style that toscaparser's
-    # `load_yaml` already round-trips for the on-disk fixture.
-    from ..yamlloader import yaml as _yaml
-
     try:
         with open(full_path, "w") as f:
-            _yaml.dump(doc, f)
+            yaml.dump(doc, f)
     except OSError as e:
         return make_response(
             jsonify(error=f"could not write {cloudmap_path}: {e}"), 500
@@ -527,11 +521,13 @@ def post_cloudmap(
 @app.input(CloudMapQuery, location="query", arg_name="query")
 @app.output(CloudMapResponse, description="CloudMap dependency graph as JSON")
 def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
-    from .cache import get_cloudmap_view
+    from .cache import CLOUDMAP_PATH, get_cloudmap_view
     from ..reporting import cloudmap_graph_json
 
     project_id = _cloudmap_project_id(request)
-    err, db = get_cloudmap_view(project_id)
+    err, db = get_cloudmap_view(
+        project_id, file_name=query.cloudmap_path or CLOUDMAP_PATH
+    )
     if db is None:
         if isinstance(err, Response):
             return err

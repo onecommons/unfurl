@@ -2262,6 +2262,67 @@ def test_server_cloudmap(server_env):
                 # `detail.json._schema`; the message includes
                 # 'cloudmap schema violation' from our model_validator.
                 assert "cloudmap schema violation" in res.text
+
+            # 5. cloudmap_path round-trip: a document written to a
+            #    non-default path must be readable back through the
+            #    same path, and must not leak into the default file's
+            #    view. Before `cloudmap_path` was honored by the reads,
+            #    the POST wrote to `alt-cloudmap.yaml` while both GETs
+            #    kept serving `cloudmap.yaml`.
+            alt_path = "alt-cloudmap.yaml"
+            with open(os.path.abspath(alt_path), "w") as f:
+                f.write(
+                    "apiVersion: unfurl/v1alpha1\nkind: CloudMap\n"
+                    "repositories:\n"
+                    "  git://example.com/only-in-alt.git:\n"
+                    "    git: git://example.com/only-in-alt.git\n"
+                    "    path: only/in-alt\n"
+                    "    name: only-in-alt\n"
+                )
+            repo.commit_files([os.path.abspath(alt_path)], "Add alt cloudmap")
+            alt_key = "git://example.com/only-in-alt.git"
+
+            # the alt file's record is visible only through its own path
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "cloudmap_path": alt_path},
+            )
+            assert res.status_code == 200, res.text
+            assert list(res.json()[0]["repositories"]) == [alt_key], res.text
+
+            res = requests.get(cloudmap_url, params={"kind": "repositories"})
+            assert res.status_code == 200, res.text
+            assert alt_key not in res.json()[0]["repositories"], (
+                "the default cloudmap.yaml view must not include the alt file"
+            )
+
+            # POST to the alt path, then read it back through the same path
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "cloudmap_path": alt_path,
+                    "repositories": {
+                        alt_key: {"path": "only/in-alt", "name": "renamed-in-alt"}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "repositories",
+                    "key": alt_key,
+                    "cloudmap_path": alt_path,
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()[0]["repositories"][alt_key]["name"] == "renamed-in-alt"
+
+            # /graph honors it too
+            res = requests.get(
+                f"http://{HOST}:{port}/graph", params={"cloudmap_path": alt_path}
+            )
+            assert res.status_code == 200, res.text
         finally:
             _terminate_process(p)
 
