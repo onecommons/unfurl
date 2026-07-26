@@ -86,7 +86,10 @@ def load_yaml_from_cache(
     if cache:
         return cache_entry.get_or_set(cache, _work, latest_commit, cache_dependency=dep)
     else:
-        return _work(cache_entry, latest_commit)[:2]
+        try:
+            return _work(cache_entry, latest_commit)[:2]
+        except Exception as exc:
+            return exc, None
 
 
 def load_cloudmap_local(
@@ -160,7 +163,12 @@ def get_cloudmap_view(
         # Forward auth headers from the inbound request onto the
         # session so they're attached to every request the proxy makes.
         session = requests.Session()
-        for header in ("X-Git-Credentials", "Authorization", "WWW-Authenticate"):
+        for header in (
+            "X-Git-Credentials",
+            "Authorization",
+            "WWW-Authenticate",
+            "Private-Token",
+        ):
             value = request.headers.get(header)
             if value:
                 session.headers[header] = value

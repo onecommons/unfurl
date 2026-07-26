@@ -15,6 +15,7 @@ from multiprocessing import Process, set_start_method, get_context, Queue
 import requests
 from click.testing import CliRunner
 from git import Repo
+from werkzeug.exceptions import HTTPException
 from unfurl.server import endpoints as server_endpoints
 from unfurl.server import serve as server
 from unfurl.server import gui
@@ -2531,3 +2532,97 @@ class TestDoPatch:
 #   assert not os.system("git push --delete origin v1.0")
 #   assert not os.system("git tag v1.0 -m'retag'")
 #   assert not os.system("git push --tags origin")
+
+
+# --- auth_project guard ------------------------------------------------------
+
+
+def _missing_auth_project_client(monkeypatch, serve_path=None):
+    """A test client for a server that isn't serving a local path.
+
+    That's how the server runs when hosted (no ``UNFURL_SERVE_PATH``), and it's the
+    case where a request without ``auth_project`` has no project to resolve to.
+    """
+    if serve_path is None:
+        monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    else:
+        monkeypatch.setenv("UNFURL_SERVE_PATH", serve_path)
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    return server.app.test_client()
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/export?format=environments",
+        "/types",
+        "/cloudmap",  # POST: the write path still requires a project
+    ],
+)
+def test_missing_auth_project_rejected(monkeypatch, path):
+    """Without `auth_project` a hosted server must not fall back to its own cwd."""
+    client = _missing_auth_project_client(monkeypatch)
+    res = client.post(path, json={}) if path == "/cloudmap" else client.get(path)
+    assert res.status_code == 400, res.get_data(as_text=True)
+    assert res.json["code"] == "BAD_REQUEST"
+    assert "auth_project" in res.json["message"]
+
+
+def test_cloudmap_project_id_resolution(monkeypatch):
+    """`_cloudmap_project_id`: explicit > local project > the public cloudmap."""
+    from werkzeug.test import EnvironBuilder
+
+    def resolve(query, serve_path):
+        if serve_path is None:
+            monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+        else:
+            monkeypatch.setenv("UNFURL_SERVE_PATH", serve_path)
+        request = EnvironBuilder(query_string=query).get_request()
+        return server_endpoints._cloudmap_project_id(request)
+
+    # an explicit auth_project always wins
+    assert resolve("auth_project=me/proj", None) == "me/proj"
+    assert resolve("auth_project=me/proj", ".") == "me/proj"
+    # serving a local path -> "" so the request resolves to that project
+    assert resolve("", ".") == ""
+    # otherwise fall back to the public cloudmap
+    assert resolve("", None) == server_endpoints.CLOUDMAP_PROJECT
+
+
+def test_clone_repo_without_project_id(monkeypatch, tmp_path):
+    """A server serving a local path that isn't a repo must fail cleanly.
+
+    `get_project_id_or_abort` lets a request through when UNFURL_SERVE_PATH is set, so it can
+    still reach `_stage` -> `_clone_repo` with an empty project_id. There is nothing to
+    clone at that point; it must raise UnfurlError (which `_stage` turns into "no repo")
+    rather than the FileNotFoundError that `os.makedirs("")` used to raise.
+    """
+    from unfurl.util import UnfurlError
+
+    monkeypatch.setenv("UNFURL_SERVE_PATH", str(tmp_path))
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    monkeypatch.chdir(tmp_path)  # not a git worktree
+    with server.app.app_context():
+        with pytest.raises(UnfurlError, match="auth_project"):
+            server._clone_repo("", "main", None, {})
+        # ... and _stage reports "no repo" instead of propagating
+        assert server._stage("", "main", {}, False) is None
+
+
+def test_get_project_id_does_not_abort(monkeypatch):
+    """The plain getter stays a plain getter -- only the `_or_abort` variant rejects."""
+    from werkzeug.test import EnvironBuilder
+
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    request = EnvironBuilder(query_string="").get_request()
+    assert server.get_project_id(request) == ""
+
+    with server.app.test_request_context("/export"):
+        with pytest.raises(HTTPException) as exc:
+            server.get_project_id_or_abort(request)
+        assert exc.value.get_response().status_code == 400
+
+    # a server started on a local path is exempt
+    monkeypatch.setenv("UNFURL_SERVE_PATH", ".")
+    assert server.get_project_id_or_abort(request) == ""

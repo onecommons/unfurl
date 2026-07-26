@@ -1,16 +1,7 @@
 # Copyright (c) 2026 Adam Souzis
 # SPDX-License-Identifier: MIT
 """
-HTTP endpoints that mutate a project repository: the patch APIs
-(``/create_ensemble``, ``/update_ensemble``, ``/create_provider``,
-``/delete_deployment``, ``/update_environment``,
-``/delete_environment``, ``/batch_patch``) and the cloudmap APIs
-(``GET /cloudmap``, ``POST /cloudmap``, ``GET /graph``).
-
-All endpoints register on the shared :data:`unfurl.server.serve.app`
-APIFlask instance — ``serve.py`` imports this module at the bottom so
-the ``@app.<verb>(...)`` decorators run after the rest of the server
-is wired up.
+HTTP endpoints for unfurl server.
 """
 
 import gc
@@ -73,6 +64,8 @@ from .serve import (
     ensure_local_config,
     get_cache,
     get_project_id,
+    get_project_id_or_abort,
+    serving_local_path,
 )
 
 logger = getLogger("unfurl.server")
@@ -81,6 +74,22 @@ logger = getLogger("unfurl.server")
 # ---------------------------------------------------------------------------
 # CloudMap endpoints
 # ---------------------------------------------------------------------------
+
+CLOUDMAP_PROJECT = "onecommons/cloudmap"
+
+
+def _cloudmap_project_id(request) -> str:
+    """Which project to read the cloudmap from.
+
+    Unlike the other endpoints, the cloudmap reads have somewhere to go when a request
+    names no project, so they use this instead of `get_project_id_or_abort`: a server
+    started on a local path serves that project's own ``cloudmap.yaml``, and any other
+    server falls back to the public cloudmap.
+    """
+    project_id = get_project_id(request)
+    if project_id:
+        return project_id
+    return "" if serving_local_path() else CLOUDMAP_PROJECT
 
 
 def _subtype_names(types_section: Dict[str, Any], type_name: str) -> Set[str]:
@@ -231,15 +240,17 @@ def _project_document(
     description="Pair: [filtered CloudMap document, followed records]",
 )
 def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
-    from .cache import load_cloudmap_local
+    from .cache import CLOUDMAP_BRANCH, load_cloudmap_local
 
-    project_id = query.auth_project or ""
+    project_id = _cloudmap_project_id(request)
+    branch = query.branch or CLOUDMAP_BRANCH
     kind = query.kind
     key = query.key
     follow = query.follow
     need_db = follow > 0 and bool(key)
     err, doc, db = load_cloudmap_local(
         project_id,
+        branch=branch,
         latest_commit=query.latest_commit,
         create_db=need_db,
     )
@@ -389,6 +400,8 @@ def post_cloudmap(
     latest_commit = raw.get("latest_commit")
     username = raw.get("username")
     password = raw.get("private_token", raw.get("password"))
+    project_id = get_project_id_or_abort(request)
+    branch = raw.get("branch", CLOUDMAP_BRANCH)
 
     # Split the body: envelope keys vs cloudmap sections.
     body_sections: Dict[str, Dict[str, Any]] = {}
@@ -404,10 +417,9 @@ def post_cloudmap(
             )
         body_sections[section] = entries
 
-    project_id = get_project_id(request)
     err, doc, _ = load_cloudmap_local(
         project_id,
-        branch=CLOUDMAP_BRANCH,
+        branch=branch,
         file_name=cloudmap_path,
         latest_commit=latest_commit,
         create_db=False,
@@ -423,7 +435,7 @@ def post_cloudmap(
 
     # Resolve the on-disk path and the GitRepo for `_commit_and_push`.
     cache_entry = CacheEntry(
-        project_id, CLOUDMAP_BRANCH, cloudmap_path, "load_yaml", do_clone=True
+        project_id, branch, cloudmap_path, "load_yaml", do_clone=True
     )
     cache_entry._set_project_repo()
     repo = cache_entry.checked_repo
@@ -518,7 +530,7 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
     from .cache import get_cloudmap_view
     from ..reporting import cloudmap_graph_json
 
-    project_id = get_project_id(request)
+    project_id = _cloudmap_project_id(request)
     err, db = get_cloudmap_view(project_id)
     if db is None:
         if isinstance(err, Response):
@@ -568,7 +580,9 @@ def delete_deployment(
     query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_environment(body, get_project_id(request), delete_deployment=True)
+    return _patch_environment(
+        body, get_project_id_or_abort(request), delete_deployment=True
+    )
 
 
 @app.post("/update_environment")
@@ -584,7 +598,7 @@ def update_environment(
     query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_environment(body, get_project_id(request))
+    return _patch_environment(body, get_project_id_or_abort(request))
 
 
 @app.post("/delete_environment")
@@ -600,7 +614,7 @@ def delete_environment(
     query: ProjectAuthQuery, body_schema: PatchEnvironmentBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_environment(body, get_project_id(request))
+    return _patch_environment(body, get_project_id_or_abort(request))
 
 
 @app.post("/create_provider")
@@ -616,7 +630,7 @@ def create_provider(
     query: ProjectAuthQuery, body_schema: PatchEnsembleBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)
     err, readonly_localEnv = localenv_from_cache_checked(
@@ -874,7 +888,7 @@ def update_ensemble(
     query: ProjectAuthQuery, body_schema: PatchEnsembleBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_ensemble(body, False, get_project_id(request))
+    return _patch_ensemble(body, False, get_project_id_or_abort(request))
 
 
 @app.post("/create_ensemble")
@@ -890,7 +904,7 @@ def create_ensemble(
     query: ProjectAuthQuery, body_schema: PatchEnsembleBody
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    return _patch_ensemble(body, True, get_project_id(request))
+    return _patch_ensemble(body, True, get_project_id_or_abort(request))
 
 
 def _update_queue_key(
@@ -943,7 +957,7 @@ def batch_patch(
     query: ProjectAuthQuery, body_schema: "BatchPatchBody"
 ) -> ResponseReturnValue:
     body = _get_body(request)
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     batch_requests = body.get("requests", [])
     latest_commit = body.get("latest_commit") or ""
     branch = body.get("branch", DEFAULT_BRANCH)

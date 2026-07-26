@@ -224,7 +224,14 @@ class CloudMapCache(CloudMapDB):
 
         record: Any
         if section == "repositories":
+            # Backwards compatibility: migrate the deprecated `notable` key to
+            # `contains`, same as CloudMapDB._load() does for local YAML.
+            old_notable = clean.pop("notable", None)
             record = Repository(url=clean.pop("git", key), **clean)
+            if isinstance(old_notable, dict):
+                from .analyzers import migrate_old_notable_format
+
+                migrate_old_notable_format(self, record, old_notable)
         elif section == "artifacts":
             record = Artifact(url=clean.pop("url", key), **clean)
         elif section == "services":

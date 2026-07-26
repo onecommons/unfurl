@@ -51,7 +51,15 @@ from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
 from apiflask import APIFlask
-from flask import Request, Response, current_app, jsonify, make_response, request
+from flask import (
+    Request,
+    Response,
+    abort,
+    current_app,
+    jsonify,
+    make_response,
+    request,
+)
 import flask.json
 from flask.typing import ResponseReturnValue
 from flask_caching import Cache
@@ -390,11 +398,42 @@ if os.getenv("SERVER_SOFTWARE"):
     set_current_ensemble_git_url()
 
 
+def serving_local_path() -> bool:
+    """True when the server was started on a local path (``unfurl serve <path>``).
+
+    Such a server has a project to fall back on, so requests may omit ``auth_project``:
+    `_get_project_repo_dir` resolves them to ``UNFURL_CURRENT_WORKING_DIR`` (or the
+    process's current directory). A server without one has nothing to fall back to.
+    """
+    return bool(os.getenv("UNFURL_SERVE_PATH"))
+
+
 def get_project_id(request) -> str:
+    """The project a request names in its ``auth_project`` query parameter, if any."""
     project_id = request.args.get("auth_project")
     if project_id:
         return project_id
     return ""
+
+
+def get_project_id_or_abort(request) -> str:
+    """`get_project_id`, but aborts the request when it doesn't name a project.
+
+    Request handlers that need a project should use this. Without it the request
+    silently resolves to the server's current directory (see `_get_project_repo_dir`)
+    and its cached results share the empty project's cache namespace with every other
+    such request, breaking the assumption stated in the security note at the top of
+    this module. A server started on a local path is exempt -- that project is what
+    such requests are meant to operate on.
+    """
+    project_id = get_project_id(request)
+    if not project_id and not serving_local_path():
+        abort(
+            create_error_response(
+                "BAD_REQUEST", "Missing required query parameter 'auth_project'"
+            )
+        )
+    return project_id
 
 
 def get_current_project_id() -> str:
@@ -481,8 +520,17 @@ def _get_project_repo(
 def _clone_repo(
     project_id: str, branch: str, shallow_since: Optional[int], args: dict
 ) -> GitRepo:
+    if not project_id:
+        # `_get_project_repo_dir` would hand back the local path we're serving (or the
+        # process's current directory) and `get_project_url` would build a nonsense url
+        # like "https://unfurl.cloud/.git" -- there is nothing to clone.
+        raise UnfurlError(
+            "can not clone a project without an 'auth_project': "
+            "no repository was found at the local path being served"
+        )
     repo_path = _get_project_repo_dir(project_id, branch, args)
-    os.makedirs(os.path.dirname(repo_path), exist_ok=True)
+    # dirname() of a bare relative path is "", which makedirs rejects
+    os.makedirs(os.path.dirname(os.path.abspath(repo_path)), exist_ok=True)
     username, password = (
         args.get("username"),
         args.get("private_token", args.get("password")),
@@ -1500,7 +1548,7 @@ def _export(
     latest_commit = request.args.get("latest_commit")
     if latest_commit == "undefined":
         latest_commit = None
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     if (
         not deployment_path
         and include_all
@@ -1679,7 +1727,7 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
 @app.doc(summary="Populate export cache for a project file", tags=["Cache"])
 @app.input(PopulateCacheQuery, location="query", arg_name="query")
 def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     branch = request.args.get("branch", DEFAULT_BRANCH)
     for prefix in ["refs/heads/", "refs/tags/"]:
         if branch.startswith(prefix):
@@ -1727,7 +1775,7 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
 @app.doc(summary="Clear all cache entries (admin only)", tags=["Cache"])
 @app.input(EmptyCacheQuery, location="query", arg_name="query")
 def empty_cache(query: EmptyCacheQuery) -> ResponseReturnValue:
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     # only members of this project (with write permission) has permission for this
     admin_project = os.environ.get("UNFURL_SERVER_ADMIN_PROJECT")
     if not project_id or project_id != admin_project:
@@ -1742,7 +1790,7 @@ def empty_cache(query: EmptyCacheQuery) -> ResponseReturnValue:
 @app.doc(summary="Clear cache and cloned files for a project", tags=["Cache"])
 @app.input(ClearProjectQuery, location="query", arg_name="query")
 def clear_project(query: ClearProjectQuery) -> ResponseReturnValue:
-    project_id = get_project_id(request)
+    project_id = get_project_id_or_abort(request)
     return _clear_project(project_id)
 
 
