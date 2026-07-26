@@ -354,6 +354,7 @@ _CLOUDMAP_SECTIONS: Tuple[str, ...] = (
 _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
     "latest_commit",
     "cloudmap_path",
+    "commit",
     "username",
     "private_token",
     "password",
@@ -401,6 +402,8 @@ def post_cloudmap(
 
     raw = _get_body(request)
     cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
+    # None means "this handler's default", which is to commit.
+    commit_requested = raw.get("commit")
     latest_commit = raw.get("latest_commit")
     username = raw.get("username")
     password = raw.get("private_token", raw.get("password"))
@@ -488,24 +491,35 @@ def post_cloudmap(
                     section_doc[key] = payload
                     applied.append({"section": section, "key": key, "version": 0})
 
-    if not applied:
-        return {"commit": latest_commit, "applied": []}
+    if applied:
+        try:
+            # A new `cloudmap_path` may name a directory the repo doesn't have yet.
+            parent = os.path.dirname(full_path)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(full_path, "w") as f:
+                yaml.dump(doc, f)
+        except OSError as e:
+            return make_response(
+                jsonify(error=f"could not write {cloudmap_path}: {e}"), 500
+            )
+    elif not (commit_requested and repo.is_dirty(True, full_path)):
+        # Nothing to write. A body with no records is still meaningful when the
+        # caller asked to commit -- it means "commit what earlier `commit: false`
+        # requests left in the working tree" -- but only if there is in fact
+        # something uncommitted there.
+        return {"commit": repo.revision or None, "applied": []}
 
-    try:
-        # A new `cloudmap_path` may name a directory the repo doesn't have yet.
-        parent = os.path.dirname(full_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(full_path, "w") as f:
-            yaml.dump(doc, f)
-    except OSError as e:
-        return make_response(
-            jsonify(error=f"could not write {cloudmap_path}: {e}"), 500
-        )
+    if commit_requested is False:
+        # Leave the change in the working tree for a later request to commit.
+        # `commit` reports where the repository is, as everywhere else -- here
+        # that's the unchanged HEAD, which is what the caller should send as
+        # `latest_commit` on the follow-up request that does commit.
+        return {"commit": repo.revision or None, "applied": applied}
 
-    # Commit locally (no push). `changed` guarantees the working tree
-    # is dirty, so no `is_dirty()` check is required here.
-    commit_msg = raw.get("commit_msg") or f"Update {cloudmap_path}"
+    # Commit locally (no push). Everything above guarantees the working tree
+    # is dirty, so no further `is_dirty()` check is required here.
+    commit_msg = _get_commit_msg(raw, f"Update {cloudmap_path}")
     commit_err = _commit_and_push(
         repo,
         full_path,

@@ -6,12 +6,6 @@
 //! tracked files, derive `(origin, branch, head_oid)`, walk
 //! `git log -- <path>` lazily ([`last_commits_for_paths`]), and create
 //! a commit by overlaying blobs on top of the current HEAD tree.
-//!
-//! Commit creation deliberately bypasses the gix index API (verbose in
-//! 0.66) — we walk the current HEAD tree, replace blobs for the
-//! modified paths, and write a new tree directly through gix's object
-//! database.
-
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -150,6 +144,18 @@ pub fn commit_paths(
     let id = repo
         .commit("HEAD", message, new_tree_oid, parents)
         .map_err(git_err)?;
+
+    // Refresh the index to match the tree we just committed. Building the tree
+    // directly (above) never touches the index, so without this it still holds
+    // the pre-commit blobs: `git status` would report the just-committed files
+    // as both staged-modified and worktree-modified, and a later `git commit -a`
+    // by another tool could revert them. `index_from_tree` walks the whole tree,
+    // which is fine for the small documents this crate syncs.
+    let mut index = repo.index_from_tree(&new_tree_oid).map_err(git_err)?;
+    index
+        .write(gix::index::write::Options::default())
+        .map_err(git_err)?;
+
     Ok(id.detach())
 }
 

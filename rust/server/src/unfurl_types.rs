@@ -1283,7 +1283,7 @@ pub struct PatchEnvironmentBody {
 pub struct PatchResponse {
     /// Per-record results for batch CloudMap writes. Empty for single-record endpoints. In non-atomic mode, contains the records that committed even though the batch reported a conflict.
     pub applied: Option<Vec<PatchResponseAppliedRecord>>,
-    /// Commit hash after applying the patch, or null if no changes were committed
+    /// The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD (which the client can echo back as ``latest_commit``). Null only when the repository has no commits at all.
     pub commit: Option<String>,
     /// Monotonic version assigned to this uncommitted write operation.
     pub queueid: Option<i64>,
@@ -1382,6 +1382,8 @@ pub struct PostCloudmapRequest {
     pub atomic: Option<bool>,
     /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
     pub cloudmap_path: Option<String>,
+    /// Whether to commit the write to git. Omitted means each handler's own default: the Python handler commits, the rust one leaves the records staged in-flight. ``false`` writes the file without committing, so a later request can commit it; ``true`` commits, and is allowed with a body that carries no records at all -- the handler then commits whatever is already pending.
+    pub commit: Option<bool>,
     /// Commit message for the local commit; falls back to a generated default.
     pub commit_msg: Option<String>,
     /// Build and deployment information for artifacts and services. Keys are URLs.

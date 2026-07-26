@@ -294,7 +294,16 @@ def test_save_includes_envelope_and_round_trips_occ_for_known_key() -> None:
     record = proxy.get_artifact(url)
     assert record is not None
     assert record._unfurl_server_version == 6
-    assert record._unfurl_server_commit == "newoid"
+    # The response carried a queueid, so that is the token stamped and the
+    # response's `commit` is left off the record. `commit` reports where the
+    # *repository* is, which is not the same as where this row landed: the rust
+    # handler answers with HEAD whether it committed the row or left it staged.
+    # A `Pending(version)` token is valid in both cases (it survives
+    # `commit_repository` rolling the commit forward), while a `Commit(oid)`
+    # token only matches a row that really carries that commit -- and the
+    # server's `pop_commit_ref` prefers the commit key when both are sent, so
+    # stamping it would be the riskier of the two.
+    assert record._unfurl_server_commit is None
 
 
 def test_save_brand_new_record_has_no_occ_keys() -> None:

@@ -131,6 +131,23 @@ impl CloudMapState {
         }
     }
 
+    /// Flush every in-flight record to its file and commit the result,
+    /// returning the new commit oid — or `None` when nothing was staged.
+    ///
+    /// Driven by `commit: true` on `POST /cloudmap`; without it the handler
+    /// leaves records staged and the commit is somebody else's job.
+    pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
+        self.inner.commit_repository(message).await
+    }
+
+    /// The repository's HEAD commit as the recorded in the database.
+    ///
+    /// Read from the `worktree` row rather than from git. It can be stale if
+    /// something outside this process commits, which the next scan corrects.
+    pub async fn head_commit(&self) -> Result<Option<String>, unfurl_git_sync::Error> {
+        Ok(self.inner.get_worktree().await?.commit_id)
+    }
+
     /// Expand `type_name` to itself plus every subtype — every type
     /// record whose `extends` list (transitively) contains it.
     ///
@@ -600,18 +617,51 @@ pub async fn post_cloudmap_local(
     if let Some(unknown) = body.additional_properties.keys().next() {
         return Err(WriteError::BadRequest(format!("unknown section {unknown:?}")).into());
     }
-    // The Rust handler stages records to the SyncedRepo's database
-    // (in-flight, `commit_id IS NULL`). It does not drive a git
-    // commit — the caller does that separately — so `commit` is
-    // always null here. We return the largest `version` the CRUD
-    // calls stamped during this batch as `queueid`: the client can
-    // echo it back as `unfurl.server.version` on the next request to
-    // gate the optimistic-concurrency check. Versions are monotonic
-    // per worktree, so the last write's version is also the largest.
+    // By default the Rust handler only stages records to the SyncedRepo's
+    // database (in-flight, `commit_id IS NULL`) and leaves the commit to the
+    // caller, so the reported `commit` is just the unchanged HEAD. `commit:
+    // true` asks this handler to drive it instead: the staged records are
+    // flushed to disk and committed before responding. Either way we return
+    // the largest `version` the CRUD
+    // calls stamped during this batch as `queueid`: the client can echo it back
+    // as `unfurl.server.version` on the next request to gate the
+    // optimistic-concurrency check. Versions are monotonic per worktree, so the
+    // last write's version is also the largest.
     let atomic = body.atomic.unwrap_or(true);
+    let commit_requested = body.commit.unwrap_or(false);
+    // Not scoped to `cloudmap_path`: `commit_repository` commits every file with
+    // staged records, which may be more than the one this request named.
+    let commit_msg = body
+        .commit_msg
+        .clone()
+        .unwrap_or_else(|| "Update cloudmap".to_string());
     let result = apply_writes(cm, body, atomic).await?;
+    // A body carrying no records is legitimate here — it means "commit whatever
+    // is already staged". `commit_repository` is itself a no-op returning None
+    // when nothing is dirty, so there's no separate emptiness check to make.
+    let committed = if commit_requested {
+        cm.commit(&commit_msg)
+            .await
+            .map_err(|e| WriteError::Internal(format!("commit_repository: {e}")))?
+    } else {
+        None
+    };
+    // `commit` reports where the repository is now, matching the python
+    // handlers: the commit just made, or the unchanged HEAD when this request
+    // only staged records (the client's OCC token for staged writes is
+    // `queueid`, not this).
+    let commit = match committed {
+        // `commit_repository` hands back the oid it just wrote, so there is
+        // nothing to look up in that case.
+        Some(oid) => Some(oid),
+        // Staged only, or `commit: true` with nothing dirty — HEAD is unchanged.
+        None => cm
+            .head_commit()
+            .await
+            .map_err(|e| WriteError::Internal(format!("head_commit: {e}")))?,
+    };
     Ok(Json(unfurl_types::PatchResponse {
-        commit: None,
+        commit,
         queueid: result.last_version,
         applied: Some(result.applied),
     }))

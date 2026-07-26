@@ -282,17 +282,16 @@ def _load_cloudmap_schema() -> Dict[str, Any]:
         return json.load(f)
 
 
-_CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset(
-    [
-        "latest_commit",
-        "cloudmap_path",
-        "username",
-        "private_token",
-        "password",
-        "commit_msg",
-        "atomic",
-    ]
-)
+_CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset([
+    "latest_commit",
+    "cloudmap_path",
+    "commit",
+    "username",
+    "private_token",
+    "password",
+    "commit_msg",
+    "atomic",
+])
 
 
 class CloudMapDocument(BaseModel):
@@ -350,8 +349,7 @@ class CloudMapDocument(BaseModel):
 class PostCloudmapRequest(BaseModel):
     """Request body for ``POST /cloudmap``.
 
-    A CloudMap document portion (``apiVersion`` / ``kind`` / the five
-    section maps) plus request-only envelope/control fields
+    A CloudMap document portion plus request-only envelope/control fields
     (``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``
     / ``private_token`` / ``commit_msg``).
 
@@ -359,10 +357,6 @@ class PostCloudmapRequest(BaseModel):
     envelope keys live side-by-side at the top level. The endpoint
     splits them apart by name; the JSON-Schema validation only runs on
     the cloudmap-document subset.
-
-    This is the *typed request body* that ``oas3-gen`` propagates into
-    the rust ``unfurl_types`` types so the rust handler can use a
-    single typed extractor instead of hand-rolling a wrapper struct.
     """
 
     # --- cloudmap document portion ---
@@ -396,7 +390,15 @@ class PostCloudmapRequest(BaseModel):
     )
     cloudmap_path: Optional[str] = Field(
         default=None,
-        description="Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+        description="Path of the cloudmap file inside the repo.",
+    )
+    commit: Optional[bool] = Field(
+        default=None,
+        description=(
+            "Whether to commit the write to git."
+            "If Commit = true is sent with a body that carries no records at all the "
+            "handler then commits whatever is already pending."
+        ),
     )
     username: Optional[str] = Field(
         default=None,
@@ -728,7 +730,12 @@ class PatchResponse(BaseModel):
 
     commit: Optional[str] = Field(
         default=None,
-        description="Commit hash after applying the patch, or null if no changes were committed",
+        description=(
+            "The repository's commit hash after the request was handled: the "
+            "new commit when one was made, otherwise the unchanged HEAD (which "
+            "the client can echo back as ``latest_commit``). Null only when the "
+            "repository has no commits at all."
+        ),
     )
     queueid: Optional[int] = Field(
         default=None,

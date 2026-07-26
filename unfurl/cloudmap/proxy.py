@@ -690,8 +690,10 @@ class CloudMapProxy(CloudMapView):
         *,
         atomic: bool = True,
     ) -> Optional[str]:
-        """POST buffered writes to the server. Returns the new commit
-        oid (or ``None`` if there were no changes).
+        """POST buffered writes to the server. Returns the repository's commit
+        oid after the write -- the new commit when the server made one, the
+        unchanged HEAD when it only staged the records, and ``None`` for a
+        repository with no commits at all.
 
         ``atomic`` (default ``True``)
         If atomic is true, individual record failures, including concurrency conflicts rollback all changes.
@@ -759,9 +761,14 @@ class CloudMapProxy(CloudMapView):
         # private attrs on the dataclass instance (no parallel payload
         # cache).
         version_to_set = new_queueid if isinstance(new_queueid, int) else None
-        commit_to_set = (
-            new_commit if isinstance(new_commit, str) and new_commit else None
-        )
+        # ``commit`` says where the *repository* is, not where these records
+        # landed. A ``queueid`` in the response means the server staged them
+        # in-flight, so their rows still carry no commit.
+        # So only save the new commit when new_queueid is None.
+        if version_to_set is None and new_commit:
+            commit_to_set = new_commit
+        else:
+            commit_to_set = None
         for section, entries in self._pending_writes.items():
             for key in entries:
                 record = self._cache.get_record(section, key)

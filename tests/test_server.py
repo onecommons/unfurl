@@ -2196,20 +2196,14 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 200, res.text
             response = res.json()
-            # ``commit`` differs by path:
-            #   - rust local: stages in-flight (commit_id IS NULL); the
-            #     PatchResponse field is None and serde's
-            #     `skip_serializing_if = Option::is_none` drops it
-            #     entirely.
-            #   - python YAML (including queue-rust passthrough): a
-            #     real git oid is returned and ``cloudmap.yaml`` on
-            #     disk is updated synchronously.
-            if rust_cloudmap_local:
-                assert response.get("commit") is None
-            else:
-                assert "commit" in response
-                assert isinstance(response["commit"], str)
-                assert response["commit"], "commit oid should be non-empty"
+            # Both paths report the repository's current HEAD in ``commit``.
+            # They differ in whether this request moved it: the python YAML
+            # handler (including the queue-rust passthrough) commits
+            # synchronously, while the rust local handler stages the record
+            # in-flight and answers with the unchanged HEAD.
+            assert isinstance(response.get("commit"), str), response
+            assert response["commit"], "commit oid should be non-empty"
+            if not rust_cloudmap_local:
                 on_disk = Path(cloudmap_path).read_text()
                 assert "renamed-via-post" in on_disk
             # GET-after-upsert: both paths reflect the change. GET
@@ -2237,13 +2231,10 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 200, res.text
             response = res.json()
-            if rust_cloudmap_local:
-                # Same in-flight semantics as the upsert: ``commit`` is
-                # null and dropped by serde's
-                # `skip_serializing_if = Option::is_none`.
-                assert response.get("commit") is None
-            else:
-                assert "commit" in response
+            # Same as the upsert: ``commit`` is the repository's HEAD on both
+            # paths, moved by python's synchronous commit and unchanged by the
+            # rust handler's in-flight staging.
+            assert isinstance(response.get("commit"), str), response
             # GET-after-delete: both paths return 404 for the gone key.
             read_back = requests.get(
                 cloudmap_url,
@@ -2362,6 +2353,48 @@ def test_server_cloudmap(server_env):
                 assert new_url in created_doc["repositories"]
                 # committed, not just written
                 assert new_path in repo.run_cmd(["ls-files", new_path])[1]
+            # 7. `commit: false` writes without committing; a later
+            #    `commit: true` (with no records at all) commits it.
+            head_before = repo.revision
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "commit": False,
+                    "repositories": {
+                        existing_key: {"path": "onecommons/std", "name": "uncommitted"}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["commit"] == head_before, (
+                "commit=false reports the unchanged HEAD"
+            )
+            assert repo.revision == head_before, "commit=false must not move HEAD"
+            if not rust_cloudmap_local:
+                assert "uncommitted" in Path(cloudmap_path).read_text(), (
+                    "commit=false should still write the file"
+                )
+                assert repo.is_dirty(True, cloudmap_path), "left dirty for a later commit"
+
+            res = requests.post(
+                cloudmap_url,
+                json={"commit": True, "commit_msg": "commit the pending write"},
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["commit"], res.text
+            assert repo.revision != head_before, "commit=true should move HEAD"
+            assert not repo.is_dirty(True, cloudmap_path), "working tree is clean now"
+            assert (
+                "commit the pending write"
+                in repo.run_cmd(["log", "-1", "--format=%s"])[1]
+            )
+
+            # An empty commit=true against a clean tree is a no-op.
+            head_after = repo.revision
+            res = requests.post(cloudmap_url, json={"commit": True})
+            assert res.status_code == 200, res.text
+            assert repo.revision == head_after, "nothing dirty -> no new commit"
+
             # readable back through the same path
             res = requests.get(
                 cloudmap_url,
@@ -2486,11 +2519,12 @@ def test_cloudmap_proxy_round_trip(server_env):
             commit_oid = proxy.save()
 
             if is_rust:
-                # Rust local handler stages to its in-flight db;
-                # commit is null but the response's queueid
-                # (== largest unfurl.server.version stamped) is
-                # folded into the cache's _max_version.
-                assert commit_oid is None
+                # Rust local handler stages to its in-flight db: `commit`
+                # reports the repository's unchanged HEAD (nothing was
+                # committed), and the response's queueid (== largest
+                # unfurl.server.version stamped) is folded into the cache's
+                # _max_version, which is the OCC token for a staged write.
+                assert isinstance(commit_oid, str) and commit_oid
                 assert proxy._cache._max_version > initial_max
                 cached_record = proxy.get_artifact(new.url)
                 assert cached_record is not None

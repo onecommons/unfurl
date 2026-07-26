@@ -362,8 +362,9 @@ async fn read_version(cm: CloudMapState, kind: &str, key: &str) -> i64 {
 
 #[tokio::test]
 async fn post_upsert_writes_record() {
-    let (cm, _tmp) = open_cloudmap_state().await;
+    let (cm, tmp) = open_cloudmap_state().await;
     let key = "git://unfurl.cloud/onecommons/std.git";
+    let head = head_oid(tmp.path());
 
     let v_before = read_version(cm.clone(), "repositories", key).await;
 
@@ -375,14 +376,14 @@ async fn post_upsert_writes_record() {
     });
     let (status, response) = post_json(app, body).await;
     assert_eq!(status, StatusCode::OK);
-    // The Rust handler stages records as in-flight (no git commit
-    // yet) so the spec's `commit` field is null/absent here. Mirrors
-    // the Python handler when its working tree was already clean.
-    // `skip_serializing_none` on the generated PatchResponse means
-    // an absent key is equivalent to `null`.
-    assert!(
-        matches!(response.get("commit"), None | Some(Value::Null)),
-        "response should match PatchResponse shape with commit=null: {response:?}"
+    // The Rust handler stages records as in-flight (no git commit yet), so
+    // `commit` reports the repository's unchanged HEAD — same as the Python
+    // handler answering with `repo.revision` when it didn't commit either. The
+    // OCC token for a staged write is `queueid`, not this.
+    assert_eq!(
+        response.get("commit").and_then(Value::as_str),
+        Some(head.as_str()),
+        "staged write should report the unchanged HEAD: {response:?}"
     );
 
     // GET confirms the new value is visible and the row's version
@@ -1189,4 +1190,141 @@ async fn commit_repository_commits_a_newly_created_cloudmap() {
     let doc: serde_json::Value = serde_saphyr::from_str(&on_disk).expect("parses");
     assert_eq!(doc.get("kind").and_then(|v| v.as_str()), Some("CloudMap"));
     assert!(doc["repositories"].get(new_url).is_some(), "{on_disk}");
+}
+
+// ---------------------------------------------------------------------------
+// commit flag
+// ---------------------------------------------------------------------------
+
+/// HEAD's oid, for asserting whether a commit actually happened.
+fn head_oid(dir: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .expect("git rev-parse");
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
+#[tokio::test]
+async fn post_without_commit_flag_stages_only() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, response) = post_json(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "staged-only" } } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response.get("commit").and_then(Value::as_str),
+        Some(before.as_str()),
+        "default is still in-flight staging, so HEAD is reported unchanged: {response:?}"
+    );
+    assert_eq!(head_oid(tmp.path()), before, "HEAD must not have moved");
+}
+
+#[tokio::test]
+async fn post_with_commit_flag_commits() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, response) = post_json(
+        app,
+        serde_json::json!({
+            "commit": true,
+            "commit_msg": "committed by the handler",
+            "repositories": { key: { "name": "committed-by-handler" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let oid = response["commit"].as_str().expect("a commit oid");
+    assert_ne!(oid, before, "HEAD should have advanced");
+    assert_eq!(head_oid(tmp.path()), oid);
+
+    // `commit_msg` from the request body is used for the commit.
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%s"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git log");
+    assert_eq!(
+        String::from_utf8_lossy(&out.stdout).trim(),
+        "committed by the handler"
+    );
+
+    // The change reached the file on disk, too.
+    let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    assert!(on_disk.contains("committed-by-handler"), "{on_disk}");
+}
+
+#[tokio::test]
+async fn empty_post_with_commit_flag_commits_whatever_is_staged() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let before = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    // First request stages without committing (the default).
+    let app = router(make_state(cm.clone()));
+    let (status, _) = post_json(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "staged-then-committed" } } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(head_oid(tmp.path()), before);
+
+    // Second request carries no records at all — just `commit: true`.
+    let app = router(make_state(cm.clone()));
+    let (status, response) = post_json(app, serde_json::json!({ "commit": true })).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let oid = response["commit"].as_str().expect("a commit oid");
+    assert_ne!(oid, before);
+    let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    assert!(on_disk.contains("staged-then-committed"), "{on_disk}");
+
+    // Nothing left staged, so a repeat commit is a no-op.
+    let app = router(make_state(cm));
+    let (status, response) = post_json(app, serde_json::json!({ "commit": true })).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        response.get("commit").and_then(Value::as_str),
+        Some(oid),
+        "nothing dirty -> no new commit, HEAD reported as-is: {response:?}"
+    );
+    assert_eq!(head_oid(tmp.path()), oid, "HEAD must not have moved again");
+}
+
+#[tokio::test]
+async fn commit_leaves_the_working_tree_clean() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, response) = post_json(
+        app,
+        serde_json::json!({
+            "commit": true,
+            "repositories": { key: { "name": "clean-after-commit" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+
+    // `commit_paths` builds the tree directly instead of staging through the
+    // index, so the index has to be rewritten from the new tree — otherwise
+    // git reports the committed file as modified both staged and unstaged.
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git status");
+    let status_out = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        status_out.trim().is_empty(),
+        "working tree should be clean after commit, got:\n{status_out}"
+    );
 }
