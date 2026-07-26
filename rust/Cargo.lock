@@ -4429,6 +4429,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde-pickle",
+ "serde-saphyr",
  "serde_json",
  "serde_with",
  "tempfile",

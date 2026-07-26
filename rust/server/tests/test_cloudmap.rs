@@ -1089,3 +1089,104 @@ async fn post_with_cloudmap_path_writes_to_that_file() {
         "the record must not also appear in the default file"
     );
 }
+
+#[tokio::test]
+async fn post_with_new_cloudmap_path_creates_the_file() {
+    let (cm, synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let new_file = "brand-new-cloudmap.yaml";
+    let new_url = "git://example.com/in-new-file.git";
+    let body = serde_json::json!({
+        "cloudmap_path": new_file,
+        "repositories": {
+            new_url: { "path": "in/new-file", "name": "in-new-file" },
+        }
+    });
+    let (status, echo) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "response: {echo:?}");
+
+    let rec = synced
+        .get_record(new_file, "/repositories", new_url)
+        .await
+        .expect("get_record")
+        .expect("record staged against the new file");
+    assert_eq!(rec.file_path, new_file);
+
+    // Flushing pending records synthesises the file on disk.
+    let written = synced.write_file(new_file).await.expect("write_file");
+    assert!(written.is_some(), "write_file should have created the file");
+    let on_disk = std::fs::read_to_string(tmp.path().join(new_file)).expect("file exists");
+    assert!(on_disk.contains("in-new-file"), "{on_disk}");
+
+    // The synthesised document must be a *valid cloudmap*, not just the
+    // records: `apiVersion` and `kind` are both required by
+    // `unfurl/cloudmap/cloudmap-schema.json`, and `kind: CloudMap` is what
+    // `CloudMapFormat::is_format` keys off — without it the next
+    // `update_from_working_dir` scan skips the file entirely and the records
+    // fall out of the index.
+    let doc: serde_json::Value = serde_saphyr::from_str(&on_disk).expect("parses as YAML");
+    assert_eq!(
+        doc.get("kind").and_then(|v| v.as_str()),
+        Some("CloudMap"),
+        "synthesised file needs the cloudmap `kind` header: {on_disk}"
+    );
+    assert_eq!(
+        doc.get("apiVersion").and_then(|v| v.as_str()),
+        Some("unfurl/v1.0.0"),
+        "synthesised file needs the `apiVersion` header: {on_disk}"
+    );
+
+    // ... and a rescan of the worktree recognises it as a cloudmap, so the
+    // record survives a round-trip through the scanner.
+    synced.update_from_working_dir().await.expect("rescan");
+    let rescanned = synced
+        .get_record(new_file, "/repositories", new_url)
+        .await
+        .expect("get_record")
+        .expect("record still indexed after a rescan");
+    assert_eq!(rescanned.json["name"], "in-new-file");
+}
+
+#[tokio::test]
+async fn commit_repository_commits_a_newly_created_cloudmap() {
+    let (cm, synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    // A path whose parent directory isn't in HEAD's tree either.
+    let new_file = "maps/nested/brand-new-cloudmap.yaml";
+    let new_url = "git://example.com/committed-from-new-file.git";
+    let (status, echo) = post_json(
+        app,
+        serde_json::json!({
+            "cloudmap_path": new_file,
+            "repositories": { new_url: { "path": "in/new", "name": "committed" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "response: {echo:?}");
+
+    let oid = synced
+        .commit_repository("add a new cloudmap")
+        .await
+        .expect("commit_repository")
+        .expect("something was dirty, so a commit was made");
+
+    // The file is in the commit's tree even though it was never tracked:
+    // `git::commit_paths` builds the tree directly, inserting missing
+    // subtrees, rather than staging through the index.
+    let out = std::process::Command::new("git")
+        .args(["ls-tree", "-r", "--name-only", &oid])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git ls-tree");
+    let listed = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        listed.lines().any(|l| l == new_file),
+        "{new_file} missing from commit {oid}:\n{listed}"
+    );
+
+    // ... and its content round-trips as a valid cloudmap.
+    let on_disk = std::fs::read_to_string(tmp.path().join(new_file)).expect("on disk");
+    let doc: serde_json::Value = serde_saphyr::from_str(&on_disk).expect("parses");
+    assert_eq!(doc.get("kind").and_then(|v| v.as_str()), Some("CloudMap"));
+    assert!(doc["repositories"].get(new_url).is_some(), "{on_disk}");
+}

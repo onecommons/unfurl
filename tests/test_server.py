@@ -1975,9 +1975,28 @@ def test_server_cloudmap(server_env):
         # Create a git repo with cloudmap.yaml at CWD
         with open("cloudmap.yaml", "w") as f:
             f.write(cloudmap_content)
+        # A second cloudmap document for the `cloudmap_path` assertions. It
+        # must exist before the server starts because the rust fast-path
+        # indexes the worktree once, at startup. The name sorts after
+        # cloudmap.yaml so the worktree's auto-picked `default_file_path`
+        # (MIN(file_path)) still points at the primary cloudmap.
+        alt_path = "zz-alt-cloudmap.yaml"
+        alt_key = "git://example.com/only-in-alt.git"
+        with open(alt_path, "w") as f:
+            f.write(
+                "apiVersion: unfurl/v1.0.0\nkind: CloudMap\n"
+                "repositories:\n"
+                f"  {alt_key}:\n"
+                f"    git: {alt_key}\n"
+                "    path: only/in-alt\n"
+                "    name: only-in-alt\n"
+            )
         repo = GitRepo(Repo.init("."))
         repo.add_all(os.path.abspath("."))
-        repo.commit_files([os.path.abspath("cloudmap.yaml")], "Add cloudmap")
+        repo.commit_files(
+            [os.path.abspath("cloudmap.yaml"), os.path.abspath(alt_path)],
+            "Add cloudmap",
+        )
 
         extra_env = _env_for(server_env, "server-cloudmap")
         if rust_cloudmap_local:
@@ -1997,8 +2016,12 @@ def test_server_cloudmap(server_env):
             start_server_process(p, port, is_rust=is_rust)
             base = f"http://{HOST}:{port}/graph"
 
-            # Full graph
-            res = requests.get(base)
+            # Full graph. Scoped to cloudmap.yaml so the second cloudmap in
+            # the worktree stays out of it: a request naming no cloudmap_path
+            # means "the default file" to the Python handler but "every
+            # indexed file" to the rust one (see the rust integration test
+            # `get_without_cloudmap_path_spans_every_file`).
+            res = requests.get(base, params={"cloudmap_path": "cloudmap.yaml"})
             assert res.status_code == 200
             expected_full = json.loads(
                 (fixture_dir / "cloudmap_graph.json").read_text()
@@ -2263,26 +2286,11 @@ def test_server_cloudmap(server_env):
                 # 'cloudmap schema violation' from our model_validator.
                 assert "cloudmap schema violation" in res.text
 
-            # 5. cloudmap_path round-trip: a document written to a
-            #    non-default path must be readable back through the
-            #    same path, and must not leak into the default file's
-            #    view. Before `cloudmap_path` was honored by the reads,
-            #    the POST wrote to `alt-cloudmap.yaml` while both GETs
-            #    kept serving `cloudmap.yaml`.
-            alt_path = "alt-cloudmap.yaml"
-            with open(os.path.abspath(alt_path), "w") as f:
-                f.write(
-                    "apiVersion: unfurl/v1alpha1\nkind: CloudMap\n"
-                    "repositories:\n"
-                    "  git://example.com/only-in-alt.git:\n"
-                    "    git: git://example.com/only-in-alt.git\n"
-                    "    path: only/in-alt\n"
-                    "    name: only-in-alt\n"
-                )
-            repo.commit_files([os.path.abspath(alt_path)], "Add alt cloudmap")
-            alt_key = "git://example.com/only-in-alt.git"
-
-            # the alt file's record is visible only through its own path
+            # 5. cloudmap_path round-trip: the second cloudmap seeded above
+            #    must be reachable through its own path, and must not leak
+            #    into the default file's view. Before `cloudmap_path` was
+            #    honored by the reads, a POST wrote to the alt file while
+            #    both GETs kept serving `cloudmap.yaml`.
             res = requests.get(
                 cloudmap_url,
                 params={"kind": "repositories", "cloudmap_path": alt_path},
@@ -2290,10 +2298,13 @@ def test_server_cloudmap(server_env):
             assert res.status_code == 200, res.text
             assert list(res.json()[0]["repositories"]) == [alt_key], res.text
 
-            res = requests.get(cloudmap_url, params={"kind": "repositories"})
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "cloudmap_path": "cloudmap.yaml"},
+            )
             assert res.status_code == 200, res.text
             assert alt_key not in res.json()[0]["repositories"], (
-                "the default cloudmap.yaml view must not include the alt file"
+                "the cloudmap.yaml view must not include the alt file"
             )
 
             # POST to the alt path, then read it back through the same path
@@ -2323,6 +2334,45 @@ def test_server_cloudmap(server_env):
                 f"http://{HOST}:{port}/graph", params={"cloudmap_path": alt_path}
             )
             assert res.status_code == 200, res.text
+
+            # 6. POST to a cloudmap_path that doesn't exist yet creates the
+            #    file (in a subdirectory it also has to create) and adds it
+            #    to the repository, rather than failing to load it.
+            new_path = "maps/new-cloudmap.yaml"
+            new_url = "git://example.com/in-brand-new-file.git"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "cloudmap_path": new_path,
+                    "repositories": {
+                        new_url: {"path": "in/brand-new", "name": "brand-new"}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            if not rust_cloudmap_local:
+                created = Path(os.path.abspath(new_path))
+                assert created.is_file(), "the new cloudmap should be on disk"
+                created_doc = _yaml.safe_load(created.read_text())
+                # `apiVersion` + `kind` are both required by
+                # unfurl/cloudmap/cloudmap-schema.json, and `kind` is what
+                # identifies the file as a cloudmap to the rust scanner.
+                assert created_doc["apiVersion"] == "unfurl/v1.0.0"
+                assert created_doc["kind"] == "CloudMap"
+                assert new_url in created_doc["repositories"]
+                # committed, not just written
+                assert new_path in repo.run_cmd(["ls-files", new_path])[1]
+            # readable back through the same path
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "repositories",
+                    "key": new_url,
+                    "cloudmap_path": new_path,
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()[0]["repositories"][new_url]["name"] == "brand-new"
         finally:
             _terminate_process(p)
 

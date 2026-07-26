@@ -53,7 +53,6 @@ from ..packages import is_semver
 logger = getLogger("unfurl.server")
 CLOUDMAP_BRANCH = "main"
 # Default location of the cloudmap document inside a project repository.
-# Requests can point at another file with the ``cloudmap_path`` parameter.
 CLOUDMAP_PATH = "cloudmap.yaml"
 
 
@@ -124,7 +123,7 @@ def load_cloudmap_local(
 def get_cloudmap_view(
     project_id: str,
     branch: str = CLOUDMAP_BRANCH,
-    file_name: str = CLOUDMAP_PATH,
+    file_name: Optional[str] = None,
     root_entry: Optional["CacheEntry"] = None,
     latest_commit: Optional[str] = None,
     validate: bool = False,
@@ -142,23 +141,20 @@ def get_cloudmap_view(
     """
     # called by /get_types and /graph because they have python only logic.
     syncing_url = (
-        current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL")
+        cast(str, current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"))
         if has_app_context()
         else None
     )
     if syncing_url:
         from ..cloudmap.proxy import CloudMapProxy
 
-        # Forward auth_project, latest_commit and cloudmap_path so the rust
-        # handler can scope/pin its read against the same project + commit +
-        # file the caller is asking about. CloudMapProxy preserves query params
-        # from base_url on every request.
+        # CloudMapProxy preserves query params from base_url on every request.
         extra: List[Tuple[str, str]] = []
         if project_id:
             extra.append(("auth_project", project_id))
         if latest_commit:
             extra.append(("latest_commit", latest_commit))
-        if file_name != CLOUDMAP_PATH:
+        if file_name:
             extra.append(("cloudmap_path", file_name))
         if extra:
             parsed = urlparse(syncing_url)
@@ -185,7 +181,7 @@ def get_cloudmap_view(
         return None, CloudMapProxy(syncing_url, session=session, logger=logger)
 
     err, doc = load_yaml_from_cache(
-        project_id, branch, file_name, root_entry, latest_commit
+        project_id, branch, file_name or CLOUDMAP_PATH, root_entry, latest_commit
     )
     if doc is None:
         return err, None

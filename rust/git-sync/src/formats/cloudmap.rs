@@ -30,6 +30,11 @@ use crate::format::DataFormat;
 use crate::formats::cloudmap_types as ct;
 use crate::{Order, Record};
 
+/// `apiVersion` stamped on a cloudmap this crate creates. Matches
+/// `unfurl.util.API_VERSION`; the schema's enum also still accepts the older
+/// `unfurl/v1alpha1` for documents written elsewhere.
+const API_VERSION: &str = "unfurl/v1.0.0";
+
 const PATH_PREFIXES: &[&str] = &[
     "services",
     "components",
@@ -79,6 +84,13 @@ impl DataFormat for CloudMapFormat {
     fn is_format(&self, json: &serde_json::Value) -> bool {
         // `unfurl/cloudmap.py:518`: default_db sets kind = "CloudMap".
         json.get("kind").and_then(|v| v.as_str()) == Some("CloudMap")
+    }
+
+    fn new_document(&self) -> serde_json::Value {
+        // Same header as Python's `CloudMapDB._load` default_db. Both keys
+        // are `required` by `unfurl/cloudmap/cloudmap-schema.json`, and
+        // `kind` is what `is_format` above matches on.
+        serde_json::json!({ "apiVersion": API_VERSION, "kind": "CloudMap" })
     }
 
     fn path_prefixes(&self) -> &[&str] {

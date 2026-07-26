@@ -821,13 +821,27 @@ impl SyncedRepo {
             return Ok(None);
         }
 
+        let format = pending
+            .iter()
+            .find_map(|rec| self.formats().for_path(&rec.path));
+
         let abs = self.inner.repo_path.join(file_path);
         let ext = extract_ext(file_path);
 
+        let existed = abs.exists();
         let mut root = load_root(&abs, file_path, &ext)?;
+        if !existed {
+            // Brand-new document
+            if let (Some(fmt), Some(root_obj)) = (format, root.as_object_mut()) {
+                if let Some(header) = fmt.new_document().as_object() {
+                    for (k, v) in header {
+                        root_obj.insert(k.clone(), v.clone());
+                    }
+                }
+            }
+        }
         let touched = apply_pending_records(&mut root, pending);
-        self.apply_format_ordering(&mut root, file_path, &touched)
-            .await?;
+        apply_format_ordering(&mut root, format, &touched);
         let bytes = serialize_root(&root, file_path, &ext)?;
 
         if let Ok(existing) = std::fs::read(&abs) {
@@ -838,41 +852,6 @@ impl SyncedRepo {
 
         atomic_write(&abs, &bytes)?;
         Ok(Some(abs))
-    }
-
-    /// Apply the format's per-section ordering policy to the sections
-    /// this batch actually wrote into. No-op when the file has no
-    /// registered format or when the format opts out of sorting.
-    async fn apply_format_ordering(
-        &self,
-        root: &mut serde_json::Value,
-        file_path: &str,
-        touched_sections: &[String],
-    ) -> Result<()> {
-        let Some(name) = db::file::get(self.db(), self.worktree_id(), file_path)
-            .await?
-            .map(|f| f.format)
-        else {
-            return Ok(());
-        };
-        let Some(fmt) = self.formats().by_name(&name) else {
-            return Ok(());
-        };
-        let Some(root_obj) = root.as_object_mut() else {
-            return Ok(());
-        };
-        for section_name in touched_sections {
-            if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
-                continue;
-            }
-            if let Some(section_obj) = root_obj
-                .get_mut(section_name.as_str())
-                .and_then(|v| v.as_object_mut())
-            {
-                section_obj.sort_keys();
-            }
-        }
-        Ok(())
     }
 
     /// Persist all pending edits and create a git commit.
@@ -937,6 +916,30 @@ fn load_root(abs: &Path, file_path: &str, ext: &str) -> Result<serde_json::Value
         root = serde_json::Value::Object(serde_json::Map::new());
     }
     Ok(root)
+}
+
+/// Apply `format`'s per-section ordering policy to the sections this batch
+/// wrote into. No-op when the records matched no registered format, or when
+/// the format opts out of sorting for a section.
+fn apply_format_ordering(
+    root: &mut serde_json::Value,
+    format: Option<&dyn crate::DataFormat>,
+    touched_sections: &[String],
+) {
+    let (Some(fmt), Some(root_obj)) = (format, root.as_object_mut()) else {
+        return;
+    };
+    for section_name in touched_sections {
+        if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
+            continue;
+        }
+        if let Some(section_obj) = root_obj
+            .get_mut(section_name.as_str())
+            .and_then(|v| v.as_object_mut())
+        {
+            section_obj.sort_keys();
+        }
+    }
 }
 
 /// Apply every pending record to `root` in order. Returns the list of
@@ -1349,6 +1352,7 @@ where
             lookup.record_id.is_some(),
         )?;
     }
+    let format_owner = ensure_file_registered(sync, &mut tx, file_path, path).await?;
     let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     let id = db::tx::upsert_record(
@@ -1363,7 +1367,6 @@ where
         exp_c,
     )
     .await?;
-    let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
     db::tx::replace_aliases(
         &mut tx,
         id,
@@ -1507,6 +1510,7 @@ where
                     lookup.record_id.is_some(),
                 )?;
             }
+            let format_owner = ensure_file_registered(sync, tx, &resolved_fp, &op_path).await?;
             let version = db::tx::next_version(tx, sync.worktree_id()).await?;
             let (exp_v, exp_c) = occ_binds(expected.as_ref());
             let id = db::tx::upsert_record(
@@ -1521,7 +1525,6 @@ where
                 exp_c,
             )
             .await?;
-            let format_owner = db::tx::file_format(tx, sync.worktree_id(), &resolved_fp).await?;
             db::tx::replace_aliases(
                 tx,
                 id,
@@ -1651,6 +1654,45 @@ where
     }
     tx.commit().await?;
     Ok(outcome)
+}
+
+/// Return the format owning `file_path`, registering the file first if the
+/// worktree hasn't scanned it.
+///
+/// A write may name a `file_path` that doesn't exist yet — creating a second
+/// cloudmap, say. Records carry a foreign key to the `file` table, so the row
+/// has to exist before the insert; the file itself is synthesised on the next
+/// [`SyncedRepo::write_file`], which already handles a missing file on disk.
+/// The format is taken from whichever registered [`crate::DataFormat`] claims
+/// the record's section.
+async fn ensure_file_registered<DB>(
+    sync: &SyncedRepo,
+    tx: &mut sqlx::Transaction<'_, DB>,
+    file_path: &str,
+    record_path: &str,
+) -> Result<Option<String>>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    if let Some(existing) = db::tx::file_format(tx, sync.worktree_id(), file_path).await? {
+        return Ok(Some(existing));
+    }
+    // No format claims this section, so there's nothing to record the file as
+    // — `file.format` is NOT NULL. Callers writing a section no registered
+    // format knows about get a clear error instead of an FK violation.
+    let format = sync
+        .formats()
+        .for_path(record_path)
+        .ok_or_else(|| Error::UnknownFormat(record_path.to_string()))?
+        .name()
+        .to_string();
+    db::tx::ensure_file(tx, sync.worktree_id(), file_path, &format).await?;
+    Ok(Some(format))
 }
 
 fn compute_aliases(

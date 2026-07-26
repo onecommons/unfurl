@@ -67,6 +67,10 @@ pub(crate) trait Dialect: Database {
     const LOOKUP_COMMITS: &'static str;
     /// `SELECT format FROM file WHERE worktree_id = ? AND path = ?`.
     const FILE_FORMAT: &'static str;
+    /// `INSERT INTO file (...) … <conflict-skipping clause>`. Registers a
+    /// file the worktree hasn't scanned yet so record rows can satisfy the
+    /// `record -> file` foreign key; an existing row is left untouched.
+    const INSERT_FILE: &'static str;
     /// `DELETE FROM alias WHERE record_id = ?`.
     const DELETE_ALIASES: &'static str;
     /// `INSERT INTO alias (...) … <conflict-skipping clause>`.
@@ -100,6 +104,9 @@ impl Dialect for sqlx::Sqlite {
          LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = ?1 AND path = ?2";
+    const INSERT_FILE: &'static str =
+        "INSERT OR IGNORE INTO file (worktree_id, path, format, commit_id) \
+         VALUES (?1, ?2, ?3, NULL)";
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = ?1";
     const INSERT_ALIAS: &'static str =
         "INSERT OR IGNORE INTO alias (record_id, path, key) VALUES (?1, ?2, ?3)";
@@ -151,6 +158,8 @@ impl Dialect for sqlx::Postgres {
          LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = $1 AND path = $2";
+    const INSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
+         VALUES ($1, $2, $3, NULL) ON CONFLICT (worktree_id, path) DO NOTHING";
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = $1";
     const INSERT_ALIAS: &'static str =
         "INSERT INTO alias (record_id, path, key) VALUES ($1, $2, $3) \
@@ -301,6 +310,35 @@ where
         .fetch_optional(&mut **tx)
         .await?;
     Ok(row.map(|(f,)| f))
+}
+
+/// Register `file_path` in the `file` table if it isn't there already.
+///
+/// Record rows carry a `record (worktree_id, file_path) -> file
+/// (worktree_id, path)` foreign key, so a write naming a file the worktree
+/// hasn't scanned yet (a cloudmap that doesn't exist on disk, say) has to
+/// register it first. The file itself is synthesised later, by
+/// [`crate::SyncedRepo::write_file`]. An existing row is left untouched so
+/// this never clobbers a scanned file's format or `commit_id`.
+pub(crate) async fn ensure_file<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+    format: &str,
+) -> Result<()>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+{
+    sqlx::query(DB::INSERT_FILE)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(format)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 pub(crate) async fn replace_aliases<DB: Dialect>(

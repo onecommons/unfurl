@@ -46,6 +46,19 @@ pub trait DataFormat: Send + Sync {
     /// header.
     fn is_format(&self, json: &serde_json::Value) -> bool;
 
+    /// The header a brand-new document of this format needs, merged in
+    /// ahead of the records when [`crate::SyncedRepo::write_file`]
+    /// synthesises a file that isn't on disk yet.
+    ///
+    /// Whatever [`Self::is_format`] inspects belongs here — a synthesised
+    /// file without it wouldn't be recognised as this format by the next
+    /// [`crate::SyncedRepo::update_from_working_dir`] scan, and its records
+    /// would drop out of the index. The default is an empty header, for
+    /// formats identified some other way.
+    fn new_document(&self) -> serde_json::Value {
+        serde_json::Value::Object(serde_json::Map::new())
+    }
+
     /// Lists the top-level keys whose direct children are individual
     /// records.
     ///
@@ -140,6 +153,20 @@ impl FormatRegistry {
         self.formats
             .iter()
             .find(|f| f.name() == name)
+            .map(|b| b.as_ref())
+    }
+
+    /// Return the first registered format that claims `path`, a record's
+    /// parent JSON-pointer (e.g. `"/repositories"`), via its
+    /// [`DataFormat::path_prefixes`]; `None` if no format claims it.
+    ///
+    /// Used to pick the format for a file that doesn't exist yet, when a
+    /// write names a `file_path` the worktree hasn't seen.
+    pub fn for_path(&self, path: &str) -> Option<&dyn DataFormat> {
+        let section = path.trim_start_matches('/');
+        self.formats
+            .iter()
+            .find(|f| f.path_prefixes().contains(&section))
             .map(|b| b.as_ref())
     }
 }

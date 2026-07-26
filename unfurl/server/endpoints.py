@@ -33,7 +33,7 @@ from ..repo import (
     normalize_git_url_hard,
     sanitize_url,
 )
-from ..util import assert_not_none, unique_name
+from ..util import API_VERSION, assert_not_none, unique_name
 from ..yamlmanifest import YamlManifest
 from ..yamlloader import yaml
 
@@ -250,6 +250,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     key = query.key
     follow = query.follow
     need_db = follow > 0 and bool(key)
+    # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
     err, doc, db = load_cloudmap_local(
         project_id,
         branch=branch,
@@ -420,19 +421,8 @@ def post_cloudmap(
             )
         body_sections[section] = entries
 
-    err, doc = load_yaml_from_cache(
-        project_id, branch, cloudmap_path, latest_commit=latest_commit
-    )
-    if doc is None:
-        if isinstance(err, Response):
-            return err
-        return make_response(jsonify(error=str(err)), 500)
-    if not isinstance(doc, dict):
-        return make_response(
-            jsonify(error=f"{cloudmap_path} is not a YAML mapping"), 500
-        )
-
-    # Resolve the on-disk path and the GitRepo for `_commit_and_push`.
+    # Resolve the on-disk path and the GitRepo for `_commit_and_push` first, so a
+    # `cloudmap_path` that doesn't exist yet can be told apart from a load failure.
     cache_entry = CacheEntry(
         project_id, branch, cloudmap_path, "load_yaml", do_clone=True
     )
@@ -442,6 +432,23 @@ def post_cloudmap(
         return make_response(jsonify(error="cloudmap repository not available"), 500)
     full_path = os.path.join(repo.working_dir, cloudmap_path)
     starting_revision = repo.revision
+
+    if os.path.exists(full_path):
+        err, doc = load_yaml_from_cache(
+            project_id, branch, cloudmap_path, latest_commit=latest_commit
+        )
+        if doc is None:
+            if isinstance(err, Response):
+                return err
+            return make_response(jsonify(error=str(err)), 500)
+        if not isinstance(doc, dict):
+            return make_response(
+                jsonify(error=f"{cloudmap_path} is not a YAML mapping"), 500
+            )
+    else:
+        # Missing file -- start a new cloudmap rather than failing.
+        logger.info("creating new cloudmap at %s", cloudmap_path)
+        doc = dict(apiVersion=API_VERSION, kind="CloudMap")
     if starting_revision and latest_commit and starting_revision != latest_commit:
         return make_response(
             jsonify(
@@ -485,6 +492,10 @@ def post_cloudmap(
         return {"commit": latest_commit, "applied": []}
 
     try:
+        # A new `cloudmap_path` may name a directory the repo doesn't have yet.
+        parent = os.path.dirname(full_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(full_path, "w") as f:
             yaml.dump(doc, f)
     except OSError as e:
@@ -525,9 +536,8 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
     from ..reporting import cloudmap_graph_json
 
     project_id = _cloudmap_project_id(request)
-    err, db = get_cloudmap_view(
-        project_id, file_name=query.cloudmap_path or CLOUDMAP_PATH
-    )
+    # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
+    err, db = get_cloudmap_view(project_id, file_name=query.cloudmap_path)
     if db is None:
         if isinstance(err, Response):
             return err
