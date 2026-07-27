@@ -1489,3 +1489,67 @@ async fn dev_mode_serves_a_remote_backed_repo_without_auth_project() {
         get_json(app, "/cloudmap?kind=repositories&auth_project=someone/else").await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
 }
+
+#[tokio::test]
+async fn post_with_stale_latest_commit_returns_409() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let head = head_oid(tmp.path());
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    // Matching the current HEAD is accepted.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = post_json(
+        app,
+        serde_json::json!({
+            "latest_commit": head,
+            "repositories": { key: { "name": "occ-ok" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    // A commit the repository has moved past is refused, before any record is
+    // applied.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = post_json(
+        app,
+        serde_json::json!({
+            "latest_commit": "0000000000000000000000000000000000000000",
+            "repositories": { key: { "name": "occ-stale" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body:?}");
+    let msg = body["error"].as_str().unwrap_or_default();
+    assert!(msg.contains("latest_commit"), "{body:?}");
+    assert!(
+        msg.contains(&head),
+        "should report the current revision: {body:?}"
+    );
+
+    // The refused batch left nothing behind.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&key={}",
+            urlencoding::encode(key)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body[0]["repositories"][key]["name"], "occ-ok");
+}
+
+#[tokio::test]
+async fn post_without_latest_commit_skips_the_check() {
+    let (cm, _synced, _tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, body) = post_json(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "no-occ" } } }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+}

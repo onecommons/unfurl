@@ -796,6 +796,32 @@ async fn post_cloudmap_apply(
         .commit_msg
         .clone()
         .unwrap_or_else(|| "Update cloudmap".to_string());
+
+    // Repository-level optimistic concurrency, mirroring the python handler:
+    // refuse the write if the repository has moved since the commit the client
+    // last saw. Skipped when either side has nothing to compare, same as there.
+    //
+    // This is complementary to the per-record `unfurl.server.{version,commit}`
+    // check, not a substitute: another client's *staged* writes don't move
+    // HEAD, so they slip past this one and are caught per record instead.
+    let head = cm
+        .head_commit()
+        .await
+        .map_err(|e| WriteError::Internal(format!("head_commit: {e}")))?;
+    if let (Some(expected), Some(actual)) = (body.latest_commit.as_deref(), head.as_deref()) {
+        if expected != actual {
+            return Err(ApiError {
+                status: StatusCode::CONFLICT,
+                body: json!({
+                    "error": format!(
+                        "cloudmap has changed since latest_commit {expected}, \
+                         current revision is {actual}"
+                    )
+                }),
+            });
+        }
+    }
+
     let result = apply_writes(cm, body, atomic).await?;
     // A body carrying no records is legitimate here — it means "commit whatever
     // is already staged". `commit_repository` is itself a no-op returning None
@@ -811,16 +837,9 @@ async fn post_cloudmap_apply(
     // handlers: the commit just made, or the unchanged HEAD when this request
     // only staged records (the client's OCC token for staged writes is
     // `queueid`, not this).
-    let commit = match committed {
-        // `commit_repository` hands back the oid it just wrote, so there is
-        // nothing to look up in that case.
-        Some(oid) => Some(oid),
-        // Staged only, or `commit: true` with nothing dirty — HEAD is unchanged.
-        None => cm
-            .head_commit()
-            .await
-            .map_err(|e| WriteError::Internal(format!("head_commit: {e}")))?,
-    };
+    // `commit_repository` hands back the oid it just wrote; without a commit
+    // HEAD is unchanged, so the value read for the check above still stands.
+    let commit = committed.or(head);
     Ok(Json(unfurl_types::PatchResponse {
         commit,
         queueid: result.last_version,

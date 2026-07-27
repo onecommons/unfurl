@@ -752,7 +752,16 @@ class CloudMapProxy(CloudMapView):
 
         if isinstance(new_queueid, int) and new_queueid > self._cache._max_version:
             self._cache._max_version = new_queueid
-        if isinstance(new_commit, str) and new_commit:
+        # Refresh an existing `latest_commit`, but never acquire one here. The
+        # response's ``commit`` reports where the repository is, which is not
+        # evidence about what *this* client has read -- and sending it back on
+        # the next write asks the server to reject that write if anything at all
+        # was committed meanwhile, including changes to unrelated records. A
+        # client that has done a GET is asserting a read set it really holds; one
+        # that has only ever written shouldn't start asserting one. Keeping an
+        # existing token current still matters: without it, this client's own
+        # commit would make its next write conflict with itself.
+        if self._cache._latest_commit and isinstance(new_commit, str) and new_commit:
             self._cache._latest_commit = new_commit
 
         # Stamp the OCC tokens from the response onto every record in

@@ -2353,6 +2353,33 @@ def test_server_cloudmap(server_env):
                 assert new_url in created_doc["repositories"]
                 # committed, not just written
                 assert new_path in repo.run_cmd(["ls-files", new_path])[1]
+            # 6b. A stale `latest_commit` is refused with 409 by both
+            #     handlers: it pins the write to the repository revision the
+            #     client last saw.
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "latest_commit": "0" * 40,
+                    "repositories": {
+                        existing_key: {"path": "onecommons/std", "name": "stale-occ"}
+                    },
+                },
+            )
+            assert res.status_code == 409, res.text
+            assert "latest_commit" in res.text
+
+            # ... while the current revision is accepted.
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "latest_commit": repo.revision,
+                    "repositories": {
+                        existing_key: {"path": "onecommons/std", "name": "fresh-occ"}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+
             # 7. `commit: false` writes without committing; a later
             #    `commit: true` (with no records at all) commits it.
             head_before = repo.revision

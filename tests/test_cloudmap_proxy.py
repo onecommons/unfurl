@@ -579,3 +579,43 @@ def test_credentials_only_when_both_set() -> None:
     )
     list(proxy.find_artifacts())
     assert "X-Git-Credentials" not in session.get.call_args.kwargs["headers"]
+
+
+def test_save_does_not_acquire_latest_commit_for_a_write_only_client() -> None:
+    """A POST response's ``commit`` is not a read-set marker.
+
+    It reports where the repository is, so echoing it back on the next write
+    asks the server to reject that write if *anything* was committed meanwhile
+    -- including changes to records this client never looked at. A client that
+    has only ever written has no read set to assert, so it shouldn't start
+    asserting one.
+    """
+    proxy, session = _make_proxy(
+        post_returns=[
+            _make_response({"commit": "headoid", "queueid": 1, "applied": []}),
+            _make_response({"commit": "headoid", "queueid": 2, "applied": []}),
+        ],
+    )
+    proxy.add_record(Artifact(url="pkg:oci/x", metadata=ArtifactMetadata(title="x")))
+    assert proxy.save() == "headoid"
+    # The repo's HEAD came back, but the client didn't adopt it...
+    assert proxy._cache._latest_commit is None
+    # ... so the next write carries no repository-level OCC token.
+    proxy.add_record(Artifact(url="pkg:oci/y", metadata=ArtifactMetadata(title="y")))
+    proxy.save()
+    assert "latest_commit" not in session.post.call_args.kwargs["json"]
+
+
+def test_save_refreshes_an_existing_latest_commit() -> None:
+    """A client that *does* hold a read-set token keeps it current.
+
+    Without this the client's own commit would move HEAD past the token it is
+    still sending, and its next write would conflict with itself.
+    """
+    proxy, _session = _make_proxy(
+        post_returns=[_make_response({"commit": "newoid", "queueid": 1, "applied": []})]
+    )
+    proxy._cache._latest_commit = "oldoid"  # as a prior GET would have set it
+    proxy.add_record(Artifact(url="pkg:oci/x", metadata=ArtifactMetadata(title="x")))
+    proxy.save()
+    assert proxy._cache._latest_commit == "newoid"
