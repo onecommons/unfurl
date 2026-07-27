@@ -100,9 +100,36 @@ pub struct Config {
     /// (`postgres://...`). Required for the local cloudmap handler.
     #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
     pub cloudmap_db_url: Option<String>,
+
+    /// The local checkout this server was started on, if any.
+    ///
+    /// Reads python's `UNFURL_SERVE_PATH`, which `unfurl serve <path>` exports
+    /// for its own use and passes down in this process's environment, so both
+    /// servers decide "am I serving one checkout?" from the same value. Only
+    /// its presence is used here — see [`Config::dev_mode`]; the path itself
+    /// is python's business.
+    #[arg(long = "local", env = "UNFURL_SERVE_PATH")]
+    pub local: Option<String>,
 }
 
 impl Config {
+    /// Whether to serve the configured repositories directly, without checking
+    /// a request's `auth_project` against them.
+    ///
+    /// True when the server was started on a local checkout, where there is
+    /// one project and clients aren't expected to name it. This is the same
+    /// predicate the python server applies (`serving_local_path`), read from
+    /// the same variable so the two can't disagree — a local checkout usually
+    /// has a remote configured, so the repository itself can't be used to
+    /// infer this.
+    ///
+    /// A multi-tenant deployment must leave `UNFURL_SERVE_PATH` unset: it
+    /// disables the check that keeps one project's requests from being
+    /// answered out of another project's repository.
+    pub fn dev_mode(&self) -> bool {
+        self.local.as_deref().is_some_and(|p| !p.is_empty())
+    }
+
     /// Resolved backend URL (falls back to `http://{host}:{port+1}`).
     pub fn backend_url(&self) -> String {
         self.backend_url
@@ -215,6 +242,7 @@ mod tests {
             worker_poll_interval_secs: 0.1,
             cloudmap_repo: None,
             cloudmap_db_url: None,
+            local: None,
         }
     }
 
@@ -285,5 +313,29 @@ mod tests {
             super::redact_url("unix:///var/run/redis.sock?db=2"),
             "unix:///var/run/redis.sock?db=2"
         );
+    }
+}
+
+#[cfg(test)]
+mod local_mode_tests {
+    use super::Config;
+    use clap::Parser;
+
+    fn config_with_local(path: Option<&str>) -> Config {
+        let mut argv = vec!["unfurl-server"];
+        if let Some(p) = path {
+            argv.push("--local");
+            argv.push(p);
+        }
+        Config::parse_from(argv)
+    }
+
+    #[test]
+    fn dev_mode_follows_local() {
+        assert!(!config_with_local(None).dev_mode());
+        assert!(config_with_local(Some("/some/checkout")).dev_mode());
+        // Matches python's `bool(os.getenv("UNFURL_SERVE_PATH"))`: an empty
+        // value is not a serve path.
+        assert!(!config_with_local(Some("")).dev_mode());
     }
 }

@@ -25,6 +25,8 @@ use tokio::sync::Mutex;
 use unfurl_git_sync::{BatchOp, CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
 
 use crate::proxy;
+use axum::extract::FromRequest;
+
 use crate::routes::{ValidatedJson, ValidatedQuery};
 use crate::unfurl_types;
 use crate::AppState;
@@ -38,6 +40,30 @@ const KIND_TO_PATH: &[(&str, &str)] = &[
     ("instantiations", "/instantiations"),
     ("types", "/types"),
 ];
+
+/// Whether `project_id` (an `auth_project` query value) names the repository
+/// `origin` belongs to.
+///
+/// `worktree.origin` is the remote URL with the scheme stripped, e.g.
+/// `unfurl.cloud/onecommons/cloudmap.git`, so a project id like
+/// `onecommons/cloudmap` is a trailing path segment of it, with `.git`
+/// optional on either side.
+///
+/// A worktree with no configured remote records its filesystem path as the
+/// origin instead, which matches no project id. Serving such a checkout is what
+/// `--dev-mode` is for; it bypasses this check entirely.
+fn origin_matches(origin: &str, project_id: &str) -> bool {
+    fn strip(s: &str) -> &str {
+        let s = s.trim_matches('/');
+        s.strip_suffix(".git").unwrap_or(s)
+    }
+    let origin = strip(origin);
+    let project = strip(project_id);
+    if project.is_empty() {
+        return false;
+    }
+    origin == project || origin.ends_with(&format!("/{project}"))
+}
 
 /// Reverse lookup: `record.path` → cloudmap section name.
 fn section_for_path(path: &str) -> Option<&'static str> {
@@ -138,6 +164,33 @@ impl CloudMapState {
     /// leaves records staged and the commit is somebody else's job.
     pub async fn commit(&self, message: &str) -> Result<Option<String>, unfurl_git_sync::Error> {
         self.inner.commit_repository(message).await
+    }
+
+    /// Decide whether a request's `auth_project` may be served from the one
+    /// repository this handler is configured with.
+    ///
+    /// The fast-path serves a single `cloudmap_repo`, so a request for a
+    /// different project must not be answered from it, and a request naming no
+    /// project has nothing to attribute the write to.
+    ///
+    /// `dev_mode` (see [`crate::config::Config::dev_mode`]) skips both checks:
+    /// the server was started on one checkout and its clients aren't expected
+    /// to name it. That's a deliberate switch rather than something inferred
+    /// from the origin, because a local checkout can have a remote too.
+    pub async fn project_check(
+        &self,
+        project_id: Option<&str>,
+        dev_mode: bool,
+    ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
+        if dev_mode {
+            return Ok(ProjectCheck::Serve);
+        }
+        let origin = self.inner.get_worktree().await?.origin;
+        Ok(match project_id.filter(|p| !p.is_empty()) {
+            Some(p) if origin_matches(&origin, p) => ProjectCheck::Serve,
+            Some(_) => ProjectCheck::OtherProject,
+            None => ProjectCheck::Missing,
+        })
     }
 
     /// The repository's HEAD commit as the recorded in the database.
@@ -243,6 +296,40 @@ pub async fn handle_cloudmap(
         )
         .await;
     };
+    // A request naming a different project must not be answered from the one
+    // repository this handler serves; hand it to python, which routes per
+    // project. A request naming none keeps the previous behaviour.
+    {
+        match cm
+            .project_check(params.auth_project.as_deref(), state.config.dev_mode())
+            .await
+        {
+            // Reads without an `auth_project` keep working: they resolve to the
+            // configured repo, as they always have.
+            Ok(ProjectCheck::Serve) | Ok(ProjectCheck::Missing) => {}
+            Ok(ProjectCheck::OtherProject) => {
+                tracing::debug!(
+                    "auth_project {:?} is not the configured cloudmap repo; proxying",
+                    params.auth_project
+                );
+                return proxy::forward(
+                    &state.client,
+                    &state.config.backend_url(),
+                    req,
+                    state.config.max_body_bytes,
+                )
+                .await;
+            }
+            Err(e) => {
+                tracing::error!("cloudmap worktree lookup failed: {}", e);
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("worktree: {e}")})),
+                )
+                    .into_response();
+            }
+        }
+    }
     drop(req);
 
     match build_response(&cm, &params).await {
@@ -264,6 +351,19 @@ pub async fn handle_cloudmap(
 enum LocalError {
     NotFound(String),
     Internal(String),
+}
+
+/// Outcome of [`CloudMapState::project_check`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum ProjectCheck {
+    /// The request may be served from the configured repository.
+    Serve,
+    /// The request named a different project — python routes per project, so
+    /// it should be proxied there.
+    OtherProject,
+    /// The request named no project and the configured repository has a
+    /// remote, so there is nothing to attribute the request to.
+    Missing,
 }
 
 /// Build the `[primary, followed]` pair returned by `GET /cloudmap`.
@@ -603,12 +703,73 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 /// see [`post_cloudmap_proxy`] for the unconfigured fall-through.
 pub async fn post_cloudmap_local(
     State(state): State<AppState>,
-    ValidatedJson(body): ValidatedJson<unfurl_types::PostCloudmapRequest>,
-) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
+    ValidatedQuery(params): ValidatedQuery<unfurl_types::PostCloudmapRequestParamsQuery>,
+    req: Request<axum::body::Body>,
+) -> Response {
     let cm = state
         .cloudmap
         .as_ref()
         .expect("post_cloudmap_local registered without CloudMapState");
+
+    // Writes must name the project they target, the same as the python handler
+    // (`get_project_id_or_abort`) -- this handler serves one repository and
+    // would otherwise apply an unattributed write to it.
+    match cm
+        .project_check(params.auth_project.as_deref(), state.config.dev_mode())
+        .await
+    {
+        Ok(ProjectCheck::Serve) => {}
+        Ok(ProjectCheck::Missing) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "code": "BAD_REQUEST",
+                    "message": "Missing required query parameter 'auth_project'",
+                })),
+            )
+                .into_response();
+        }
+        Ok(ProjectCheck::OtherProject) => {
+            tracing::debug!(
+                "auth_project {:?} is not the configured cloudmap repo; proxying",
+                params.auth_project
+            );
+            return proxy::forward(
+                &state.client,
+                &state.config.backend_url(),
+                req,
+                state.config.max_body_bytes,
+            )
+            .await;
+        }
+        Err(e) => {
+            tracing::error!("cloudmap worktree lookup failed: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("worktree: {e}")})),
+            )
+                .into_response();
+        }
+    }
+
+    // Only now consume the body: proxying above needs the request intact.
+    let body =
+        match ValidatedJson::<unfurl_types::PostCloudmapRequest>::from_request(req, &state).await {
+            Ok(ValidatedJson(body)) => body,
+            Err(rejection) => return rejection,
+        };
+    match post_cloudmap_apply(cm, body).await {
+        Ok(response) => response.into_response(),
+        Err(err) => err.into_response(),
+    }
+}
+
+/// The local write itself, split out so [`post_cloudmap_local`] can own the
+/// auth_project checks and the raw request needed to proxy past them.
+async fn post_cloudmap_apply(
+    cm: &CloudMapState,
+    body: unfurl_types::PostCloudmapRequest,
+) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
     // Reject unknown top-level keys (sections or envelope) the same
     // way the Python handler does — they end up in the typed
     // request's `additional_properties` bag because oas3-gen reflects
@@ -956,5 +1117,44 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
         E::Conflict { actual, .. } => (Some("conflict".to_string()), actual.clone()),
         E::NotFound { .. } => (Some("not_found".to_string()), None),
         _ => (Some("error".to_string()), None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::origin_matches;
+
+    #[test]
+    fn origin_matches_project_path_suffix() {
+        let origin = "unfurl.cloud/onecommons/cloudmap.git";
+        assert!(origin_matches(origin, "onecommons/cloudmap"));
+        // `.git` optional on either side, leading/trailing slashes ignored.
+        assert!(origin_matches(origin, "onecommons/cloudmap.git"));
+        assert!(origin_matches(origin, "/onecommons/cloudmap/"));
+        assert!(origin_matches(
+            "unfurl.cloud/onecommons/cloudmap",
+            "onecommons/cloudmap"
+        ));
+    }
+
+    #[test]
+    fn origin_rejects_other_projects() {
+        let origin = "unfurl.cloud/onecommons/cloudmap.git";
+        assert!(!origin_matches(origin, "someone/else"));
+        assert!(!origin_matches(origin, ""));
+        // A suffix that isn't on a path boundary must not match.
+        assert!(!origin_matches(origin, "commons/cloudmap"));
+        // ... nor a prefix of the project id.
+        assert!(!origin_matches(origin, "onecommons"));
+    }
+
+    #[test]
+    fn origin_without_remote_matches_nothing() {
+        // A worktree with no remote records its filesystem path, which is not
+        // a project id. Serving such a checkout is what `--dev-mode` is for —
+        // this function deliberately doesn't treat it as a wildcard, so a
+        // strict deployment can't be talked into answering from it.
+        assert!(!origin_matches("/tmp/some/checkout", "onecommons/cloudmap"));
+        assert!(!origin_matches("/tmp/some/checkout", "anything/at-all"));
     }
 }

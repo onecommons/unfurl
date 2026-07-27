@@ -49,6 +49,25 @@ fn default_config() -> Config {
         worker_poll_interval_secs: 0.05,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        // These fixtures stand in for a server started on a local checkout
+        // (`unfurl serve <path>`), which is what turns off the auth_project
+        // check. The auth_project tests below build a strict config instead.
+        local: Some("/tmp/checkout".into()),
+    }
+}
+
+/// A multi-tenant config: `auth_project` is checked against the repository.
+fn strict_config() -> Config {
+    Config {
+        local: None,
+        ..default_config()
+    }
+}
+
+fn make_strict_state(cm: CloudMapState) -> AppState {
+    AppState {
+        config: Arc::new(strict_config()),
+        ..make_state(cm)
     }
 }
 
@@ -112,10 +131,21 @@ async fn get_json(app: Router, uri: &str) -> (StatusCode, Value) {
     (status, body)
 }
 
+/// POST with an `auth_project` naming the repo under test. The fixture repos
+/// have no remote, so any value satisfies the check; passing one keeps these
+/// tests representative of a real client.
 async fn post_json(app: Router, body: Value) -> (StatusCode, Value) {
+    post_json_as(app, body, Some("onecommons/cloudmap")).await
+}
+
+async fn post_json_as(app: Router, body: Value, auth_project: Option<&str>) -> (StatusCode, Value) {
+    let uri = match auth_project {
+        Some(p) => format!("/cloudmap?auth_project={}", urlencoding::encode(p)),
+        None => "/cloudmap".to_string(),
+    };
     let req = Request::builder()
         .method("POST")
-        .uri("/cloudmap")
+        .uri(uri)
         .header("content-type", "application/json")
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
@@ -1327,4 +1357,135 @@ async fn commit_leaves_the_working_tree_clean() {
         status_out.trim().is_empty(),
         "working tree should be clean after commit, got:\n{status_out}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// auth_project scoping
+// ---------------------------------------------------------------------------
+
+const REMOTE_PROJECT: &str = "onecommons/cloudmap";
+
+/// Like [`open_cloudmap_state`] but with an `origin` remote configured, so the
+/// worktree has a project identity to check `auth_project` against. Without a
+/// remote the check can't discriminate and everything is served locally.
+async fn open_state_with_remote() -> (CloudMapState, TempDir) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("cloudmap.yaml".to_string(), fixture)],
+        "initial",
+    )
+    .expect("init repo");
+    let out = std::process::Command::new("git")
+        .args([
+            "remote",
+            "add",
+            "origin",
+            &format!("https://unfurl.cloud/{REMOTE_PROJECT}.git"),
+        ])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git remote add");
+    assert!(out.status.success(), "{out:?}");
+
+    let synced = SyncedRepo::open(
+        tmp.path(),
+        DbConfig::Sqlite {
+            url: "sqlite::memory:".into(),
+        },
+        FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo");
+    synced.update_from_working_dir().await.expect("update");
+    (CloudMapState::from_synced(synced), tmp)
+}
+
+#[tokio::test]
+async fn post_without_auth_project_is_rejected_when_repo_has_a_remote() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    let app = router(make_strict_state(cm));
+    let (status, body) = post_json_as(
+        app,
+        serde_json::json!({ "repositories": {} }),
+        None, // no auth_project
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+    assert_eq!(body["code"], "BAD_REQUEST");
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("auth_project"),
+        "{body:?}"
+    );
+}
+
+#[tokio::test]
+async fn post_with_matching_auth_project_is_served_locally() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    let app = router(make_strict_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, body) = post_json_as(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "scoped-write" } } }),
+        Some(REMOTE_PROJECT),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+}
+
+#[tokio::test]
+async fn requests_for_another_project_are_proxied() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    // No python backend is running in this test, so a proxied request fails at
+    // the connection — a 502 is how we observe that the handler did *not*
+    // answer from its own repository.
+    let app = router(make_strict_state(cm.clone()));
+    let (status, _body) = get_json(app, "/cloudmap?auth_project=someone/else").await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "a read for another project must go to python, not the local repo"
+    );
+
+    let app = router(make_strict_state(cm));
+    let (status, _body) = post_json_as(
+        app,
+        serde_json::json!({ "repositories": {} }),
+        Some("someone/else"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "a write for another project must go to python"
+    );
+}
+
+#[tokio::test]
+async fn dev_mode_serves_a_remote_backed_repo_without_auth_project() {
+    // The case the switch exists for: a local checkout that still has a
+    // remote, so its origin looks like a real project id and the strict check
+    // would demand a matching `auth_project`.
+    let (cm, _tmp) = open_state_with_remote().await;
+    let app = router(make_state(cm.clone())); // default_config() => dev_mode
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, body) = post_json_as(
+        app,
+        serde_json::json!({ "repositories": { key: { "name": "dev-mode-write" } } }),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    // ... and it doesn't proxy a request for another project either: in dev
+    // mode there is only the one repository to serve.
+    let app = router(make_state(cm));
+    let (status, body) =
+        get_json(app, "/cloudmap?kind=repositories&auth_project=someone/else").await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
 }
