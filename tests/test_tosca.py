@@ -111,7 +111,7 @@ spec:
         server_ip:
           description: The private IP address of the provisioned server.
           value: { get_attribute: [ testSensitive, private_address ] }
-        server_ip_again:        
+        server_ip_again:
           value: {eval: "::testSensitive::ip_addresses::private"}
 
       node_templates:
@@ -389,7 +389,7 @@ class ToscaSyntaxTest(unittest.TestCase):
         assert repoPath == _get_base_dir(ctx, "repository.nested-imported-repo")
 
         # look for spec repo which will be the project root in "examples"
-        spec = _get_base_dir(ctx, "spec") 
+        spec = _get_base_dir(ctx, "spec")
         self.assertEqual(os.path.normpath(spec), os.path.dirname(base))
         # see AbstractTemplateTest.test_import for more tests of _get_base_dir
 
@@ -541,7 +541,7 @@ def test_import(caplog):
                 required: false
                 metadata:
                   sensitive: true
-              filter_prop: 
+              filter_prop:
                 type: string
             requirements:
               - connection:
@@ -695,6 +695,8 @@ spec:
             project_dir = os.path.abspath(os.getcwd())
             # note: ensemble and project are the same directory
             dir = _get_base_dir(ctx, "project")
+            assert dir == project_dir
+            dir = _get_base_dir(ctx, "project.root")
             assert dir == project_dir
             dir = _get_base_dir(ctx, "ensemble")
             assert dir == project_dir

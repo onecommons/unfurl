@@ -799,6 +799,11 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     @staticmethod
     def _is_inside(path: str, root: str) -> bool:
+        root = root.rstrip("/")
+        if root.endswith(("/.unfurl", "/_unfurl")):
+            # special case for projects in .unfurl directory to allow access to file inside the parent directory
+            root = os.path.dirname(root)
+
         # Accept if either the un-resolved (abspath) form or the symlink-resolved
         # (realpath) form of `path` is inside `root`. Comparing abspaths preserves
         # the case where a symlink inside the project points outside it (user
@@ -829,15 +834,17 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if self._is_inside(path, os.path.dirname(__file__)):
                 # special case for built-in "unfurl" repository
                 return False
-            if not self._is_inside(path, self.local_env.project.projectRoot):
-                if not self.local_env.homeProject or not self._is_inside(
-                    path, self.local_env.homeProject.projectRoot
-                ):
-                    msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
-                    if self.local_env.homeProject:
-                        msg += f' or home project: "{self.local_env.homeProject.projectRoot}"'
-                    ExceptionCollector.appendException(ImportError(msg))
-                    return True
+            if not self._is_inside(path, self.local_env.project.projectRoot) and (
+                not self.local_env.homeProject
+                or not self._is_inside(path, self.local_env.homeProject.projectRoot)
+            ):
+                msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
+                if self.local_env.homeProject:
+                    msg += (
+                        f' or home project: "{self.local_env.homeProject.projectRoot}"'
+                    )
+                ExceptionCollector.appendException(ImportError(msg))
+                return True
         return False
 
     def _find_repoview(self, url: str) -> RepoView:
@@ -1016,8 +1023,9 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 path = os.path.join(base, path)
             path = os.path.join(path, file_name)
             # repositories can be outside of the project when not in safe mode
-            if not repository_name or self._safe_mode:
-                if self._has_path_escaped_project(path):
+            if (
+                not repository_name or self._safe_mode
+            ) and self._has_path_escaped_project(path):
                     return None, None
         repo_view.add_file_ref(file_name)
         return path, (is_file, repo_view, base, file_name)

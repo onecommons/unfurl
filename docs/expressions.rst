@@ -416,9 +416,9 @@ Same example with ``foreach`` as a top-level eval key:
 
 .. code-block:: YAML
 
-  eval: $numbers 
+  eval: $numbers
   foreach: "{{ item * 2 }}"
-  vars: 
+  vars:
     numbers: [1, 2, 3]
 
   # Result: [2, 4, 6]
@@ -444,7 +444,7 @@ get_dir
 
   Return an absolute path to the given named folder where ``name`` is one of:
 
-  :ensemble:   Directory that contains the current instance's ensemble
+  :ensemble: Directory that contains the current instance's ensemble
   :ensemble.secrets: The "secrets" directory for the current instance's ensemble or the nearest vault encrypted parent directory
   :src: Directory of the source file this expression appears in
   :artifacts: Directory for the current instance (committed to repository).
@@ -458,6 +458,7 @@ get_dir
   :spec.home: Directory unique to current instance's TOSCA template (committed to the spec repository).
   :spec.local: Local directory unique to current instance's TOSCA template (excluded from repository).
   :project: The root directory of the current project.
+  :project.root: If the project is an `embedded project <embedded projects>` (a directory named ``.unfurl`` or ``_unfurl``) its parent directory, the otherwise the same as ``project``.
   :project.secrets: The "secrets" directory in the outermost project that is vault encrypted.
   :unfurl.home: The directory of the `home project<unfurl home>`.
   :repository.<name>: The directory of the repository with the given name.
@@ -522,7 +523,7 @@ is_function_defined
 
   :function: function name of a expression function
 
-Evaluates to true if the given expression function is available. 
+Evaluates to true if the given expression function is available.
 In the following example, the first expression returns true normally but false if a safe evaluation context.
 The second expression always returns false.
 
@@ -746,7 +747,7 @@ Invalid characters are replaced with "__".
 to_kubernetes_label
 ^^^^^^^^^^^^^^^^^^^
 
-Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label 
+Convert the given argument (see :std:ref:`to_label` for full description) to a kubernetes label
 following the rules found `here <https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/#syntax-and-character-set>`_.
 
 If the argument is a size scalar-unit, it is converted to a string following the `Kubernetes quantity syntax <https://pkg.go.dev/k8s.io/apimachinery/pkg/api/resource#Quantity>`_.
@@ -804,10 +805,10 @@ digestlen     If a digest is needed, the length of the digest to include in the 
 urljoin
 ^^^^^^^
 
-Evaluate a list of url components to a relative or absolute URL, 
+Evaluate a list of url components to a relative or absolute URL,
 where the list is ``[scheme, host, port, path, query, fragment]``.
 
-The list must have at least two items (``scheme`` and ``host``) present 
+The list must have at least two items (``scheme`` and ``host``) present
 but if either or both are empty a relative or scheme-relative URL is generated.
 If all items are empty, ``null`` is returned.
 The ``path``, ``query``, and ``fragment`` items are url-escaped if present.

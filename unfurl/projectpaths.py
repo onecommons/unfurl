@@ -754,6 +754,13 @@ def _get_base_dir(ctx, name=None):
             )
     elif name == "project":
         return spec and spec._get_project_dir() or instance.base_dir
+    elif name == "project.root":  # access to files
+        project_dir = (spec and spec._get_project_dir() or instance.base_dir).rstrip(
+            "/"
+        )
+        if project_dir.endswith(("/.unfurl", "/_unfurl")):
+            return os.path.dirname(project_dir)
+        return project_dir
     elif name == "project.secrets":
         if spec:
             local_env = spec._get_local_env()
