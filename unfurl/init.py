@@ -1228,10 +1228,10 @@ class EnsembleBuilder:
                 env_name, yaml.load(content)["environments"][env_name]
             )
             logger.info(
-                f"Added new environment {env_name} to project {existing_project.projectRoot}"
+                f'Added new environment "{env_name}" to project {existing_project.projectRoot}'
             )
-            if not self.mono:  # save now, not gonna be saved later
-                existing_project.localConfig.config.save()
+            # save now, might not be saved later
+            existing_project.localConfig.config.save()
             if shared_env and existing_project.parentProject:
                 # make sure the home project knows about the new shared environment
                 existing_project.parentProject.register_project(existing_project, True)

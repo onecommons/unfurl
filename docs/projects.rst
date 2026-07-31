@@ -14,7 +14,7 @@ Unfurl uses project to manage your deployments and blueprints -- for a high-leve
 An Unfurl project is a directory containing an `unfurl.yaml` file.
 Project can contain the following:
 
-- blueprints: ensemble-template.yaml and 
+- blueprints: ensemble-template.yaml and
 
 - ensembles: representation of a deployment
 
@@ -29,7 +29,7 @@ Project files
 
 Unfurl relies on a few file naming conventions to define a project:
 
-* `unfurl.yaml` is a project's main configuration file and is used as a marker to indicate that a directory contains an Unfurl project. 
+* `unfurl.yaml` is a project's main configuration file and is used as a marker to indicate that a directory contains an Unfurl project.
 * Each ensemble lives its own directory. The default name for its manifest file is `ensemble.yaml`.
 * ``ensemble-template.yaml`` defines the blueprint that is shared across ensembles in this project. It contains or includes the TOSCA service template.
 
@@ -72,7 +72,7 @@ In addition, when a job runs it will add files to the ``ensemble`` folder -- see
 Git Repositories
 ================
 
-Unfurl can create one or more git repositories when creating a project. Unfurl provides flexibility on how to map this layout to git repositories, supporting both "monorepo" and "polyrepo" arrangements. A project can also manage git repositories declared in a blueprint or 
+Unfurl can create one or more git repositories when creating a project. Unfurl provides flexibility on how to map this layout to git repositories, supporting both "monorepo" and "polyrepo" arrangements. A project can also manage git repositories declared in a blueprint or
 environment -- see `Repositories` for more information.
 
 We can refer to git repositories by their contents:
@@ -102,7 +102,7 @@ You can create a repository that contains all the ensembles deployed into a part
 Embedded projects
 -----------------
 
-Unfurl projects don't need to be live in a stand-alone git repository, they can be in any directory in a git repository. Unfurl commands will search for the nearest `unfurl.yaml` file or ``.unfurl`` directory.
+Unfurl projects don't need to be live in a stand-alone git repository, they can be in any directory in a git repository. Unfurl commands will search for the nearest `unfurl.yaml` file or ``.unfurl`` or ``_unfurl`` directories (set the ``UNFURL_SEARCH_ROOT`` environment variable to set the ancestor directory where the search stops.)
 
 This allows you to place an application's blueprint in an application's code repository. For example, if you already have a git repository containing your application's code, this command:
 
@@ -110,7 +110,7 @@ This allows you to place an application's blueprint in an application's code rep
 
     unfurl init --existing --empty
 
-will commit an Unfurl project at ``.unfurl`` (the default project name if not specified) in the git repository that the current directory is located in.
+will commit an Unfurl project at ``_unfurl`` (the default project name if not specified) in the git repository that the current directory is located in.
 
 Managing Git Repositories
 -------------------------
@@ -140,6 +140,17 @@ When creating a new project, the ``--use-environment`` option will set the ``def
 
 When creating a new ensemble, ``--use-environment`` will set the ensemble's environment (in the project's unfurl.yaml's ``ensembles`` section).
 
+.. tip::
+
+  You can add an new environment to an existing project with the ``init`` command using ``--use-environment`` to set the environment's name and ``--existing`` and ``--empty`` flags to suppress creating a new ensemble. For example:
+
+  .. code-block:: shell
+
+      unfurl init --use-environment aws-staging --existing --empty --skeleton aws
+
+  This adds a new environment named ``aws-staging`` to an existing project using the AWS skeleton (which adds common AWS environment variables to the environment).
+
+
 Shared Environments
 -------------------
 
@@ -157,9 +168,9 @@ For example:
 
 .. code-block:: shell
 
-    unfurl init --use-environment --mono aws-staging my_app_project staging 
+    unfurl init --use-environment aws-staging --mono my_app_project staging
 
-This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option. 
+This creates a new ensemble named "staging" in a project named "my_app_project" and sets to deploy into the environment you specified with ``--use-environment`` option.
 
 Because ``aws-staging`` was created as a shared environment, the ensemble will be added to the "aws-staging" project's repository even though it is managed by "my_app_project". We used the ``--mono`` option so the ensemble add in the same git repository as the ``aws-staging`` project.
 
@@ -168,7 +179,7 @@ The `unfurl home` project coordinates between projects so both projects need to 
 Inheritance and precedence
 --------------------------
 
-A Unfurl project can set environment defaults in the ``defaults`` section of ``environments``. 
+A Unfurl project can set environment defaults in the ``defaults`` section of ``environments``.
 
 An ensemble can also declare what properties and values it is expecting in its environment along with defaults values in the ``environment`` section of its `manifest<ensemble_yaml>`.
 
@@ -231,7 +242,7 @@ connections
 A map of `connection templates<Connections>`. Connection templates are TOSCA relationship templates that represent connections to cloud providers and other online services.
 The properties for each connection type match the environments variables commonly associated with each cloud provider. You can directly set the properties here or set the corresponding environments variables. If directly set here, their corresponding environments variable will be set when executing a job.
 
-`Connection templates<Connections>` can be aliased by setting its value to the name of another connection template. If the name uses the form "<env_name>:<connection_name>" then it will be set to "connection_name" in the environment "env_name".  
+`Connection templates<Connections>` can be aliased by setting its value to the name of another connection template. If the name uses the form "<env_name>:<connection_name>" then it will be set to "connection_name" in the environment "env_name".
 
 When environments are merged, you can delete the inherited connection by setting its key to null in the overriding environment.
 
@@ -265,7 +276,7 @@ External ensembles
 
 Ensembles from external Unfurl projects can be imported into an Unfurl environment, allowing ensembles in that environment to access external resources.
 
-The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways: 
+The `external` section of an environment lets you declare instances that are imported from external manifests. Instances listed here can be accessed in two ways:
 either through the `external <external_func>` expression function or by declaring a node template with a `"select" node template directive<tosca.NodeTemplateDirective.select>`. If that node template declares a ``node_filter`` on the body of the template the filter is used to select a matching external instance. Otherwise the name of the template will be used to match the external instance.
 
 A external ensemble declaration can have the following fields:
@@ -303,8 +314,8 @@ Creating projects
 
 To create your first Unfurl project run :cli:`unfurl init<unfurl-init>`.
 
-This will create a new project and commit it to new git repository unless the
-``--existing`` flag is used. If its specified, Unfurl will search the current directory and its parents looking for the nearest existing git repository. It will then add the new project to that repository if one is found. (You can set the ``UNFURL_SEARCH_ROOT`` environment variable to set the directory where the search stops.)
+This will create a new project and commits it to new git repository unless the
+``--render`` oe ``--existing`` flags are set. ``--render`` skips committing the project's files while ``--existing`` searches the current directory and its parents looking for the nearest existing git repository to commit the files to. (You can set the ``UNFURL_SEARCH_ROOT`` environment variable to set the directory where the search stops.)
 
 :cli:`unfurl init<unfurl-init>` will also create an ensemble in the project (unless the ``--empty`` flag used).
 Keeping the ensemble repository separate from the project repository is useful
@@ -322,7 +333,7 @@ Project Skeletons
 
 New Unfurl projects and ensembles are created from a "project skeleton", which is a directory containing Jinja2 templates that are used to render the project files.
 
-The :cli:`--skeleton<cmdoption-unfurl-init-skeleton>` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own. 
+The :cli:`--skeleton<cmdoption-unfurl-init-skeleton>` option lets you specify an alternative to the default project skeleton. Unfurl includes several skeletons for the major cloud providers like AWS. You can see all the built-in project skeletons :unfurl_github_tree:`here <unfurl/skeletons>` or use an absolute path to specify your own.
 
 You can pass skeleton variables to the skeleton Jinj2a templates using the :cli:`--var<cmdoption-unfurl-init-var>` option, like the example `below<vault_password_var>`.
 
@@ -363,7 +374,7 @@ where:
 Git URLs can specify a particular file in the repository using an URL fragment like ``#:<path/to/file>`` or ``#<branch_or_tag>:<path/to/file>``.
 You can also use a cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
 
-``<dest>`` is a file path. If ``<dest>`` already exists and is not inside an Unfurl project, clone will exit in error. If omitted, the destination name is derived from the source and created in the current directory. 
+``<dest>`` is a file path. If ``<dest>`` already exists and is not inside an Unfurl project, clone will exit in error. If omitted, the destination name is derived from the source and created in the current directory.
 
 Depending on the ``<source>``, use the clone command to accomplish one of the following:
 
@@ -379,11 +390,11 @@ The exception to this is when source is also a local file path and ``<dest>`` is
 Clone an ensemble
 -----------------
 
-To clone a ensemble, set the ``<source>`` to the repository that the ensemble appears in. 
+To clone a ensemble, set the ``<source>`` to the repository that the ensemble appears in.
 
-If ``<dest>`` is an existing project, the ensemble's project will be cloned inside the existing project and the effective environment of an ensemble will be the merger of the environment of the ensemble's project and the outer project's, as described in :ref:`Inheritance and precedence` above. 
+If ``<dest>`` is an existing project, the ensemble's project will be cloned inside the existing project and the effective environment of an ensemble will be the merger of the environment of the ensemble's project and the outer project's, as described in :ref:`Inheritance and precedence` above.
 
-If ``<dest>`` is empty the ensemble will be registered with the `unfurl home project<unfurl home>` (if present) and you can use the ``--use-environment`` option to specify which environment in the home project to to use.  
+If ``<dest>`` is empty the ensemble will be registered with the `unfurl home project<unfurl home>` (if present) and you can use the ``--use-environment`` option to specify which environment in the home project to to use.
 
 Either scenario allows you to put local specific settings in a local or home project without having to modify the shared ensemble.
 
@@ -427,7 +438,7 @@ Notes
 
   The password needs to communicated out of band. Alternatively, you can set an environment variable of the form ``UNFURL_VAULT_<VAULTID>_PASSWORD`` at runtime.
 
-* This step can be skipped if your project is hosted on `Unfurl Cloud`_, clone will retrieve the value password from `Unfurl Cloud`_. 
+* This step can be skipped if your project is hosted on `Unfurl Cloud`_, clone will retrieve the value password from `Unfurl Cloud`_.
 
 .. _publish_project:
 
@@ -484,7 +495,7 @@ Creating Unfurl Home
 --------------------
 
 The Unfurl home project is created automatically if it is missing when you run :cli:`unfurl init<unfurl-init>`.
-It will be created using the :unfurl_github_tree:`home <unfurl/skeletons/home>` project skeleton and `execution runtime` is added to it. 
+It will be created using the :unfurl_github_tree:`home <unfurl/skeletons/home>` project skeleton and `execution runtime` is added to it.
 
 Alternatively, you can create the home project manually:
 
