@@ -3856,6 +3856,7 @@ NodeType = Node
 class _OwnedToscaType(ToscaType):
     _local_name: Optional[str] = field(default=None, compare=False, builtin=False)
     _node: Optional[Node] = dataclasses.field(default=None, compare=False, repr=False)
+    "The node template that owns this template, if any. Internal, don't set this directly."
 
     def _set_parent(self, parent: "_ToscaType", name: str):
         # only set once
@@ -4005,6 +4006,7 @@ class Relationship(_OwnedToscaType):
         Union[str, CapabilityEntity, Node, Type[CapabilityEntity], Type[Node]]
     ] = field(default=None, builtin=False)
     _target: Node = field(default=None, builtin=True)
+    "The node template this relationship is targeting."
 
     @classmethod
     def _cls_to_yaml(cls, converter: "PythonToYaml") -> dict:

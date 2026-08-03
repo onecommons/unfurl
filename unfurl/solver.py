@@ -757,6 +757,12 @@ def solve_topology(
                 if target_name != node.name and (node.name, req_name) not in solved:
                     node_template = topology_template.node_templates[node.name]
                     node_template._invalid_requirements[req_name] = target_name
+                    logger.warning(
+                        'Solver: named target "%s" for requirement "%s" on "%s" did not fulfill its requirements',
+                        target_name,
+                        req_name,
+                        node.name,
+                    )
     return solved
 
 
