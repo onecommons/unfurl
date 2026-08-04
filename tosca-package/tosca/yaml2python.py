@@ -1728,6 +1728,9 @@ class Convert:
             if before_patch:
                 entity_tpl = before_patch
             src += f"_metadata={metadata_repr(metadata)},\n"
+        description = entity_tpl.get("description")
+        if description and description.strip():
+            src += f"_description={multiline_repr(description.strip(), '').rstrip()},\n"
         directives = entity_template.directives.copy()
         assert entity_template.type_definition
         properties = entity_tpl.get("properties")
@@ -1783,7 +1786,6 @@ class Convert:
         self, template, name, skipped, indent, pending_indent=""
     ) -> str:
         src = self.add_additional_properties(indent, name, skipped)
-        src += self.add_template_description(template, indent, name)
         src += self.add_template_interfaces(template, indent, name, pending_indent)
         return src
 
@@ -1858,7 +1860,6 @@ class Convert:
                     artifacts.append((artifact_name, artifact_src))
         src += ")\n"  # close ctor
         src += self.add_additional_properties(indent, name, skipped)
-        src += self.add_template_description(node_template, indent, name)
         # add these as attribute statements
         # (use setattr to avoid mypy complaints about attribute not defined)
         for artifact_name, artifact_src in artifacts:
@@ -1884,15 +1885,6 @@ class Convert:
                 src += f"{indent}{name}.{prop_name} = {prop_value}  # type: ignore[attr-defined]\n"
             else:
                 src += f"{indent}setattr({name}, '{prop_name}', {prop_value})\n"
-        return src
-
-    def add_template_description(self, template, indent, name) -> str:
-        src = ""
-        description = template.entity_tpl.get("description")
-        if description and description.strip():
-            src += f"{indent}{name}._description = " + add_description(
-                template.entity_tpl, indent
-            )
         return src
 
     def add_template_interfaces(

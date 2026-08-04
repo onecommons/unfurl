@@ -1812,6 +1812,71 @@ def test_simple_datatype():
     assert parsed_yaml == tosca_tpl2
 
 
+test_description_yaml = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  MyNode:
+    derived_from: tosca.nodes.Root
+    description: the node type description
+    properties:
+      prop1:
+        type: string
+        default: foo
+topology_template:
+  node_templates:
+    a_template:
+      type: MyNode
+      description: |-
+        a multi-line
+        template description
+      metadata: {'module': 'service_template'}
+  relationship_templates:
+    a_relationship:
+      type: tosca.relationships.ConnectsTo
+      description: the relationship template description
+      metadata: {'module': 'service_template'}
+"""
+
+test_description_python = '''
+import unfurl
+import tosca
+from tosca import Node, Relationship
+
+
+class MyNode(tosca.nodes.Root):
+    """the node type description"""
+
+    prop1: str = "foo"
+
+
+a_template: Node = MyNode(
+    "a_template",
+    _description="""
+a multi-line
+template description
+""",
+)
+
+a_relationship: Relationship = tosca.relationships.ConnectsTo(
+    "a_relationship", _description="the relationship template description"
+)
+
+__all__ = ["MyNode"]
+'''
+
+
+def test_description():
+    # a type's description is converted to and from the class' docstring,
+    # a template's description is converted to and from the _description field
+    python_src, parsed_yaml = _to_python(test_description_yaml)
+    # print(python_src)
+    assert '"""the node type description"""' in python_src
+    assert parsed_yaml == _to_yaml(python_src, True)
+    tosca_tpl2 = _to_yaml(test_description_python, True)
+    # pprint(tosca_tpl2)
+    assert parsed_yaml == tosca_tpl2
+
+
 test_group_yaml = """
 tosca_definitions_version: tosca_simple_unfurl_1_0_0
 topology_template:

@@ -3190,9 +3190,11 @@ class ToscaType(_ToscaType):
     _template_section: ClassVar[str] = ""
 
     _type_metadata: ClassVar[Optional[Dict[str, JsonType]]] = None
-    """Metadata to add to the type definition."""
+    """Metadata to add to the type definition. (The type's description is set by the class' docstring.)"""
     _metadata: Dict[str, JsonType] = dataclasses.field(default_factory=dict)
     """Metadata to add to the template."""
+    _description: str = dataclasses.field(default="")
+    """Description to add to the template."""
     _version: ClassVar[Optional[tosca_version]] = field(
         default=None, kw_only=MISSING, name="version", ClassVar=True
     )
@@ -3471,6 +3473,8 @@ class ToscaType(_ToscaType):
         # so we need to look for _ToscaFields and operation function in the object's __dict__ and generate yaml for them too
         dict_cls = converter.yaml_cls
         body = dict_cls(type=self.tosca_type_name())
+        if self._description and self._description.strip():
+            body["description"] = self._description.strip()
         if self._metadata:
             body["metadata"] = metadata_to_yaml(self._metadata)
         instance_values = self.get_instance_field_values()

@@ -29,7 +29,7 @@ The classes in this section are used to define TOSCA types corresponding to a TO
     Policy
 
 .. autoclass:: tosca.ToscaType
-  :members: _metadata, _type_metadata, _version
+  :members: _metadata, _description, _type_metadata, _version
 
   .. automethod:: _template_init
 
