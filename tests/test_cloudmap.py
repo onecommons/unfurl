@@ -84,6 +84,260 @@ def test_typed_urls_fromdict_and_asdict():
     assert TypeRefs.urls_fromdict(tuple_keyed) == tuple_keyed
 
 
+def test_normalize_url():
+    # _normalize_url returns (cloudmap_url, key, path)
+    normalize = CloudMapDB._normalize_url
+
+    # json pointer fragment form
+    assert normalize("#/services/https:~1~1example.com~1", "services") == (
+        "",
+        "https://example.com/",
+        [],
+    )
+    assert normalize("#/artifacts/foo", "services") == ("", "#/artifacts/foo", [])
+    # the keys after the record key are a path into the record
+    assert normalize("#/services/blah/blah", "services") == ("", "blah", ["blah"])
+    assert normalize("#/services/blah/a~1b/c", "services") == (
+        "",
+        "blah",
+        ["a/b", "c"],
+    )
+
+    # opaque-key shorthand: first key has a ":" or "@" so the rest is the key
+    assert normalize("service:https://example.com/", "services") == (
+        "",
+        "https://example.com/",
+        [],
+    )
+    assert normalize("instantiation:https:foo.com/path#version", "instantiations") == (
+        "",
+        "https:foo.com/path#version",
+        [],
+    )
+    assert normalize("type:Odoo@unfurl.cloud/onecommons/blueprints/odoo", "types") == (
+        "",
+        "Odoo@unfurl.cloud/onecommons/blueprints/odoo",
+        [],
+    )
+    assert normalize("artifact:pkg:oci:docker.io/library/nginx", "artifacts") == (
+        "",
+        "pkg:oci:docker.io/library/nginx",
+        [],
+    )
+    # percent-encoding in an opaque key is significant, don't decode it
+    assert normalize(
+        "artifact:git://example.com/foo.git#:ensemble-template.yaml%23spec/service_template",
+        "artifacts",
+    ) == (
+        "",
+        "git://example.com/foo.git#:ensemble-template.yaml%23spec/service_template",
+        [],
+    )
+
+    # undelimited keys are percent-decoded
+    assert normalize("component:Database", "components") == ("", "Database", [])
+    assert normalize("component:a%2Fb", "components") == ("", "a/b", [])
+
+    # delimited keys are used verbatim
+    assert normalize("service:[https://x]", "services") == ("", "https://x", [])
+    assert normalize("service:[https://x]/path", "services") == (
+        "",
+        "https://x",
+        ["path"],
+    )
+    assert normalize("instantiation:foo/instantiated", "instantiations") == (
+        "",
+        "foo",
+        ["instantiated"],
+    )
+    # nested brackets: the closing "]" is the one matching the opening "["
+    assert normalize("component:[instantiation:[https://x]/foo]", "components") == (
+        "",
+        "instantiation:[https://x]/foo",
+        [],
+    )
+    # the two equivalent forms in the schema reference resolve the same way
+    expected = (
+        "",
+        "https://pipeline.com/myrepo/34",
+        ["instantiated", "component:mycomponent@example.org:foo"],
+    )
+    assert (
+        normalize(
+            "#/instantiations/https:~1~1pipeline.com~1myrepo~134/instantiated/component:mycomponent@example.org:foo",
+            "instantiations",
+        )
+        == expected
+    )
+    assert (
+        normalize(
+            "instantiation:[https://pipeline.com/myrepo/34]/instantiated/[component:mycomponent@example.org:foo]",
+            "instantiations",
+        )
+        == expected
+    )
+
+    # the cloudmap document containing the record can be named explicitly
+    assert normalize("cloudmap:[file:cm.yaml]:service:[https://x]", "services") == (
+        "file:cm.yaml",
+        "https://x",
+        [],
+    )
+    assert normalize(
+        "cloudmap:[git://github.com/cloudmap.git#:cloudmap.yaml]:service:https://x/1.2",
+        "services",
+    ) == ("git://github.com/cloudmap.git#:cloudmap.yaml", "https://x/1.2", [])
+    # omitting it means this cloudmap
+    assert normalize("cloudmap:service:[https://x]/path", "services") == (
+        "",
+        "https://x",
+        ["path"],
+    )
+
+    # record type must match the section we're looking in
+    assert normalize("artifact:x@y", "services") == ("", "artifact:x@y", [])
+    assert normalize("bogus:x@y", "services") == ("", "bogus:x@y", [])
+    assert normalize("cloudmap:[file:cm.yaml]:artifact:x@y", "services") == (
+        "",
+        "cloudmap:[file:cm.yaml]:artifact:x@y",
+        [],
+    )
+    # not a pseudo-url at all
+    assert normalize("pkg:oci:docker.io/library/nginx", "artifacts") == (
+        "",
+        "pkg:oci:docker.io/library/nginx",
+        [],
+    )
+    assert normalize("https://example.com/", "services") == (
+        "",
+        "https://example.com/",
+        [],
+    )
+    assert normalize("service:", "services") == ("", "service:", [])
+
+    # malformed references are left alone
+    for malformed in (
+        "service:[https://x",  # missing the matching "]"
+        "service:[https://x]junk",  # trailing characters after a delimited key
+        "service:[https://x]/",  # trailing "/"
+        "service:foo//bar",  # empty key
+        "service:[]",  # empty delimited key
+        "service:fo[o",  # undelimited bracket
+        "cloudmap:[file:cm.yaml:service:x",  # unterminated cloudmap url
+        "cloudmap:[file:cm.yaml]service:x",  # missing ":" after the cloudmap url
+        "cloudmap:[]:service:x",  # empty cloudmap url
+    ):
+        assert normalize(malformed, "services") == ("", malformed, [])
+
+
+def test_get_record_by_pseudo_url(tmp_path):
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(expected_cloudmap)
+    db = CloudMapDB(str(cloudmap_path))
+
+    repo_url = "git://unfurl.cloud/feb20a/dashboard.git"
+    assert db.get_repository("repository:" + repo_url) is db.repositories[repo_url]
+
+    artifact_url = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template"
+    assert db.get_artifact("artifact:" + artifact_url) is db.artifacts[artifact_url]
+
+    service_url = "https://example.com/oodo"
+    assert db.get_service("service:" + service_url) is db.services[service_url]
+
+    inst_url = "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml"
+    assert (
+        db.get_instantiation("instantiation:" + inst_url) is db.instantiations[inst_url]
+    )
+
+    type_name = "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+    assert db.get_type("type:" + type_name) is db.types[type_name]
+    # a plain (label-like) key
+    relationship = "unfurl.relationships.ConnectsTo.AWSAccount"
+    assert db.get_type("type:" + relationship) is db.types[relationship]
+    # unprefixed keys still work
+    assert db.get_type(type_name) is db.types[type_name]
+    assert db.get_service(service_url) is db.services[service_url]
+    # wrong record type doesn't resolve
+    assert db.get_service("artifact:" + service_url) is None
+    # a key path into the record is ignored, the record itself is returned
+    assert (
+        db.get_service(f"service:[{service_url}]/endpoints") is db.services[service_url]
+    )
+
+
+def test_get_record_by_cloudmap_url(tmp_path):
+    cloudmap_path = tmp_path / "cloudmap.yaml"
+    cloudmap_path.write_text(expected_cloudmap)
+    db = CloudMapDB(str(cloudmap_path))
+    assert db.path == str(cloudmap_path)
+
+    service_url = "https://example.com/oodo"
+    service = db.services[service_url]
+    type_name = "Odoo@unfurl.cloud/onecommons/blueprints/odoo"
+
+    def get_service(cloudmap_url: str):
+        return db.get_service(f"cloudmap:[{cloudmap_url}]:service:{service_url}")
+
+    # this cloudmap, named as a path or a file: url, absolute or relative to it
+    assert get_service(str(cloudmap_path)) is service
+    assert get_service("file:" + str(cloudmap_path)) is service
+    assert get_service(cloudmap_path.as_uri()) is service
+    assert get_service("cloudmap.yaml") is service
+    assert get_service("file:cloudmap.yaml") is service
+    assert get_service("file:./cloudmap.yaml") is service
+    assert get_service(f"file:../{tmp_path.name}/cloudmap.yaml") is service
+    # the directory containing it
+    assert get_service(str(tmp_path)) is service
+    assert get_service("file:.") is service
+    assert (
+        db.get_type(f"cloudmap:[{cloudmap_path}]:type:{type_name}")
+        is db.types[type_name]
+    )
+
+    # another cloudmap document
+    assert get_service("file:other.yaml") is None
+    assert get_service(str(tmp_path / "sub" / "cloudmap.yaml")) is None
+    assert get_service("git://github.com/cloudmap.git#:cloudmap.yaml") is None
+    assert get_service("https://example.com/cloudmap.yaml") is None
+    # a bare fragment or query isn't a document url
+    assert get_service("#foo") is None
+    assert get_service("?q") is None
+    assert db.get_type(f"cloudmap:[file:other.yaml]:type:{type_name}") is None
+
+    # a "file:" url percent-encodes what a bare path spells out
+    spaced_path = tmp_path / "my map.yaml"
+    spaced_path.write_text(expected_cloudmap)
+    spaced = CloudMapDB(str(spaced_path))
+    for cloudmap_url in (spaced_path.as_uri(), "file:my%20map.yaml", "my map.yaml"):
+        assert (
+            spaced.get_service(f"cloudmap:[{cloudmap_url}]:service:{service_url}")
+            is not None
+        )
+
+    # a cloudmap that wasn't loaded from a file only matches the empty url
+    in_memory = CloudMapDB("", contents=db.db, validate=False)
+    assert not in_memory.path
+    assert in_memory.get_service(f"service:{service_url}") is not None
+    assert (
+        in_memory.get_service(f"cloudmap:[cloudmap.yaml]:service:{service_url}") is None
+    )
+
+    # given contents, the path is just where the cloudmap came from -- it can
+    # be relative (e.g. a path in a repository, as the server passes) and the
+    # file it names is never read
+    with change_cwd(str(tmp_path)):
+        preloaded = CloudMapDB("cloudmap.yaml", contents=db.db, validate=False)
+        assert preloaded.path == "cloudmap.yaml"
+        for cloudmap_url in ("cloudmap.yaml", "file:cloudmap.yaml", "file:."):
+            ref = f"cloudmap:[{cloudmap_url}]:service:{service_url}"
+            assert preloaded.get_service(ref) is not None
+        ref = f"cloudmap:[other.yaml]:service:{service_url}"
+        assert preloaded.get_service(ref) is None
+        # the file at that path exists but isn't loaded
+        empty = CloudMapDB("cloudmap.yaml", contents=CloudMapDB.make_empty_cloudmap())
+        assert not empty.services and not empty.repositories
+
+
 # XXX more tests:
 # add readonly public test of --import (doesn't need UNFURL_TEST_CLOUDMAP_URL)
 # add local test: unfurl cloudmap --sync local --clone-root local-repos

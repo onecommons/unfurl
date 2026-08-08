@@ -142,6 +142,25 @@ def test_get_artifact_populates_followed_records() -> None:
     assert session.get.call_count == 1
 
 
+def test_get_record_by_cloudmap_url() -> None:
+    """The endpoint identifies the cloudmap document the proxy mirrors."""
+    endpoint = "https://api.example.com/services/unfurl-server/cloudmap"
+    svc_url = "https://example.com/svc"
+    pair = [{"services": {svc_url: _service_payload(svc_url, version=7)}}, {}]
+    proxy, session = _make_proxy(get_returns=[_make_response(pair)])
+    assert proxy._cache.path == endpoint
+
+    # a reference to the served cloudmap resolves, by url or relative to it
+    assert proxy.get_service(f"cloudmap:[{endpoint}]:service:{svc_url}") is not None
+    assert session.get.call_count == 1
+    assert dict(session.get.call_args.kwargs["params"])["key"] == svc_url
+    assert proxy.get_service(f"cloudmap:[cloudmap]:service:{svc_url}") is not None
+    # a reference to another cloudmap doesn't, and isn't fetched
+    assert proxy.get_service("cloudmap:[file:other.yaml]:service:" + svc_url) is None
+    assert proxy.get_service(f"cloudmap:[{endpoint}/other]:service:{svc_url}") is None
+    assert session.get.call_count == 1
+
+
 def test_get_returns_none_on_404_and_caches_negative() -> None:
     proxy, session = _make_proxy(get_returns=[_make_response(None, status=404)])
 

@@ -173,6 +173,9 @@ class CloudMapCache(CloudMapDB):
     - ``_section_loaded`` — sections that have been fully enumerated
       (so :meth:`CloudMapProxy.find_*` doesn't refetch).
     - ``_negative`` — keys that 404'd on the server (negative cache).
+    - ``path`` — the url of the cloudmap the server serves (the proxy's
+      endpoint), so references that name a cloudmap document can be told
+      apart from references to it.
     - ``_max_version`` / ``_latest_commit`` — highest OCC tokens
       observed across the whole cache.
 
@@ -183,10 +186,12 @@ class CloudMapCache(CloudMapDB):
     parallel ``(section, key) -> payload`` dict.
     """
 
-    def __init__(self) -> None:
-        # Empty in-memory document; the schema validator never runs on
-        # the cache because the server is the source of truth.
-        super().__init__(path=".", contents=None, validate=False)
+    def __init__(self, url: str = "") -> None:
+        # Empty in-memory document; nothing is read from disk and the schema
+        # validator never runs on the cache because the server is the source
+        # of truth. ``url`` is where the cloudmap this mirrors is served, so
+        # it identifies this document (see CloudMapDB._matches_cloudmap_url).
+        super().__init__(path=url, contents=self.make_empty_cloudmap(), validate=False)
         self._section_loaded: Set[str] = set()
         self._negative: Set[Tuple[str, str]] = set()
         self._max_version: int = 0
@@ -346,8 +351,9 @@ class CloudMapProxy(CloudMapView):
         self._timeout = timeout if timeout is not None else DEFAULT_REQUEST_TIMEOUT
         self.logger: UnfurlLogger = logger
 
-        # In-memory mirror of records observed from the server.
-        self._cache = CloudMapCache()
+        # In-memory mirror of records observed from the server. The endpoint
+        # identifies the cloudmap document it mirrors.
+        self._cache = CloudMapCache(self._endpoint)
 
         # Buffered writes: section -> key -> payload dict (already
         # carries OCC keys when applicable).
@@ -471,6 +477,14 @@ class CloudMapProxy(CloudMapView):
         return sorted(ids)
 
     def _fetch_by_key(self, section: str, key: str) -> None:
+        # the server looks up records by their key, so resolve pseudo-URLs and
+        # json pointer fragments the same way the local cache does
+        # (a key path into the record is dropped, the record itself is fetched)
+        cloudmap_url, key, _path = CloudMapDB._normalize_url(key, section)
+        if not self._cache._matches_cloudmap_url(cloudmap_url):
+            # the record lives in another cloudmap document, not the one this
+            # server serves at self._endpoint
+            return
         if (section, key) in self._cache._negative:
             return
         cached_ids = self._cached_record_ids()
@@ -526,13 +540,9 @@ class CloudMapProxy(CloudMapView):
         if hit is not None:
             return hit
         # Mirror CloudMapDB.get_repository's URL coercion before going
-        # to the network so the cache key matches the server's.
-        if isinstance(r, Repository):
-            url = r.url
-        elif isinstance(r, str) and r.startswith("#/repositories/"):
-            url = r[len("#/repositories/") :]
-        else:
-            url = str(r)
+        # to the network so the cache key matches the server's
+        # (_fetch_by_key normalizes fragment and pseudo-URL references).
+        url = r.url if isinstance(r, Repository) else str(r)
         self._fetch_by_key("repositories", url)
         return self._cache.get_repository(r)
 

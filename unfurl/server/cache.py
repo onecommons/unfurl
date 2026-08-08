@@ -117,7 +117,7 @@ def load_cloudmap_local(
     )
     if doc is None or not create_db:
         return err, doc, None
-    return err, doc, CloudMapDB("", doc, validate)
+    return err, doc, CloudMapDB(file_name, doc, validate)
 
 
 def get_cloudmap_view(
@@ -180,12 +180,13 @@ def get_cloudmap_view(
         )
         return None, CloudMapProxy(syncing_url, session=session, logger=logger)
 
+    cloudmap_path = file_name or CLOUDMAP_PATH
     err, doc = load_yaml_from_cache(
-        project_id, branch, file_name or CLOUDMAP_PATH, root_entry, latest_commit
+        project_id, branch, cloudmap_path, root_entry, latest_commit
     )
     if doc is None:
         return err, None
-    return err, CloudMapDB("", doc, validate)
+    return err, CloudMapDB(cloudmap_path, doc, validate)
 
 
 def get_cloudmap_types(
