@@ -201,6 +201,39 @@ def _terminate_process(p: Process, timeout: float = 10.0) -> None:
 
 #  Increment port just in case server ports aren't closed in time for next test
 #  NB: if server processes aren't terminated: pkill -fl spawn_main
+def _canonical(value):
+    """Sort every list in a nested structure, for backend-independent compares.
+
+    Postgres stores records as ``jsonb``, which normalises object key order,
+    while sqlite's JSONB preserves it. The graph builds its ``rels`` lists by
+    iterating those maps, so the list order follows the storage order. Dicts
+    compare order-insensitively in python already; this makes the lists do the
+    same so a postgres-backed run can be compared against the same fixture.
+    """
+    if isinstance(value, dict):
+        return {k: _canonical(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return sorted(
+            (_canonical(v) for v in value), key=lambda v: json.dumps(v, sort_keys=True)
+        )
+    return value
+
+
+def _cloudmap_db_url() -> str:
+    """The ``UNFURL_CLOUDMAP_DB_URL`` for the rust cloudmap fast-path.
+
+    ``UNFURL_TEST_PG_URL`` (the same variable the git-sync crate's own tests
+    use) points the rust server at postgres, so the fast-path can be exercised
+    against either backend; without it, a scratch sqlite file in the test's
+    isolated filesystem. ``?mode=rwc`` tells sqlx to create that file if it
+    doesn't exist. Must be called with the isolated filesystem as the cwd.
+    """
+    pg_url = os.getenv("UNFURL_TEST_PG_URL")
+    if pg_url:
+        return pg_url
+    return f"sqlite://{os.path.abspath('cloudmap-sync.sqlite')}?mode=rwc"
+
+
 def _next_port():
     global _server_port
     # When the Rust proxy is active each server occupies TWO ports (N=Rust front-end,
@@ -2000,9 +2033,8 @@ def test_server_cloudmap(server_env):
 
         extra_env = _env_for(server_env, "server-cloudmap")
         if rust_cloudmap_local:
-            sqlite_path = os.path.abspath("cloudmap-sync.sqlite")
             extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
-            extra_env["UNFURL_CLOUDMAP_DB_URL"] = f"sqlite://{sqlite_path}?mode=rwc"
+            extra_env["UNFURL_CLOUDMAP_DB_URL"] = _cloudmap_db_url()
 
         ctx = get_context()
         error_queue = ctx.Queue()
@@ -2026,7 +2058,10 @@ def test_server_cloudmap(server_env):
             expected_full = json.loads(
                 (fixture_dir / "cloudmap_graph.json").read_text()
             )
-            assert res.json() == expected_full
+            # Compared through `_canonical` because a postgres-backed rust
+            # fast-path returns the record maps in jsonb's normalised key
+            # order, which reorders the `rels` lists built from them.
+            assert _canonical(res.json()) == _canonical(expected_full)
 
             # Single artifact query
             artifact_url = "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template"
@@ -2035,7 +2070,7 @@ def test_server_cloudmap(server_env):
             expected_artifact = json.loads(
                 (fixture_dir / "cloudmap_graph_artifact.json").read_text()
             )
-            assert res.json() == expected_artifact
+            assert _canonical(res.json()) == _canonical(expected_artifact)
 
             # Dual record query (URL in both artifacts and instantiations)
             dual_url = "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml"
@@ -2044,7 +2079,7 @@ def test_server_cloudmap(server_env):
             expected_dual = json.loads(
                 (fixture_dir / "cloudmap_graph_dual.json").read_text()
             )
-            assert res.json() == expected_dual
+            assert _canonical(res.json()) == _canonical(expected_dual)
 
             # Not found
             res = requests.get(base, params={"url": "nonexistent://url"})
@@ -2670,13 +2705,8 @@ def test_cloudmap_proxy_round_trip(server_env):
         extra_env = _env_for(server_env, "cloudmap-proxy")
         if is_rust:
             # sqlite db file for the rust SyncedRepo backend.
-            # `?mode=rwc` tells sqlx to create the file if it
-            # doesn't exist.
-            sqlite_path = os.path.abspath("cloudmap-sync.sqlite")
             extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
-            extra_env["UNFURL_CLOUDMAP_DB_URL"] = (
-                f"sqlite://{sqlite_path}?mode=rwc"
-            )
+            extra_env["UNFURL_CLOUDMAP_DB_URL"] = _cloudmap_db_url()
 
         ctx = get_context()
         error_queue = ctx.Queue()

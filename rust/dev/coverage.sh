@@ -2,7 +2,7 @@
 # Workspace-level coverage + CRAP-quality report.
 #
 # Pipeline:
-#   1. cargo llvm-cov --no-default-features --workspace  → lcov
+#   1. cargo llvm-cov --workspace (+ solver --no-default-features) → lcov
 #   2. lcov-merge-monomorphizations.awk                  → de-phantom'd lcov
 #   3. cargo crap --workspace                            → human-readable report
 #
@@ -38,6 +38,10 @@
 #                             git-sync integration tests; otherwise those
 #                             tests early-return and the corresponding
 #                             functions stay at 0% coverage.
+#   UNFURL_TEST_PG_URL      — same for the Postgres backend. The postgres
+#                             feature is on by default, so `find_pg` and
+#                             `find_many_pg` are compiled either way; without
+#                             this they are never run and report 0%.
 
 set -euo pipefail
 
@@ -58,8 +62,15 @@ if [ "$REPORT_ONLY" -eq 1 ]; then
     echo "==> cargo llvm-cov report (merging existing .profraw files)"
     cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
 else
-    echo "==> cargo llvm-cov --workspace --no-default-features"
-    cargo llvm-cov --lcov --output-path "$RAW_LCOV" --no-default-features --workspace
+    # Two runs merged into one report: the solver has to drop its default
+    # `python` feature (pyo3/extension-module doesn't link outside a python
+    # extension build), while every other crate is measured with its defaults
+    # on -- which is how unfurl-server gets its postgres code covered.
+    echo "==> cargo llvm-cov --workspace (solver separately, --no-default-features)"
+    cargo llvm-cov clean --workspace
+    cargo llvm-cov --no-report --workspace --exclude tosca-solver
+    cargo llvm-cov --no-report -p tosca-solver --no-default-features
+    cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
 fi
 
 echo "==> filtering monomorphization phantoms via awk"

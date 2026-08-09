@@ -125,7 +125,8 @@ jobs:
         if: matrix.python == '3.14'
         run: |
           cargo clippy --manifest-path rust/Cargo.toml --all-features -- -D warnings
-          cargo test --no-default-features --manifest-path rust/Cargo.toml
+          cargo test --manifest-path rust/Cargo.toml --workspace --exclude tosca-solver
+          cargo test --manifest-path rust/Cargo.toml -p tosca-solver --no-default-features
           cargo test -p unfurl-git-sync --manifest-path rust/Cargo.toml --no-default-features --features postgres
       - name: Rust CRAP report and gate (py3.14 only)
         if: matrix.python == '3.14'

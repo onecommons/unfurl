@@ -10,7 +10,10 @@ homepage = "https://github.com/onecommons/unfurl"
 repository = "https://github.com/onecommons/unfurl"
 
 [features]
-default = []
+# Postgres is on by default so the shipped binary can serve either backend;
+# `--no-default-features` (what CI and the coverage script use) still builds
+# the sqlite-only server.
+default = ["postgres"]
 postgres = ["unfurl-git-sync/postgres"]
 
 [lib]
