@@ -1774,12 +1774,12 @@ kind: Project
                 {"architecture": "ppc64le", "os": "linux"},
                 {"architecture": "s390x", "os": "linux"},
             ],
-        ),
-        discovery=Discovery(
-            sources=[
-                "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
-                "https://hub.docker.com/v2/repositories/library/nginx/",
-            ],
+            discovery=Discovery(
+                sources=[
+                    "https://registry-1.docker.io/v2/library/nginx/manifests/sha256:09369da6b10306312cd908661320086bf87fbae1b6b0c49a1f50ba531fef2eab",
+                    "https://hub.docker.com/v2/repositories/library/nginx/",
+                ],
+            ),
         ),
     )
     assert oci_artifact == expected_oci

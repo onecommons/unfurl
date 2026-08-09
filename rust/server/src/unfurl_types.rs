@@ -147,8 +147,6 @@ pub struct CloudmapArtifact {
     pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Cryptographic digest of the artifact.
     pub digest: Option<String>,
-    /// Metadata discovery information.
-    pub discovery: Option<CloudmapDiscovery>,
     /// Indicates whether the artifact identifier refers to an artifact that will not change.
     pub immutable: Option<bool>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
@@ -219,8 +217,6 @@ pub struct CloudmapInlineArtifact {
 pub struct CloudmapInstantiation {
     /// Cryptographic digest of the document referenced by the instantiation URL.
     pub digest: Option<String>,
-    /// Metadata discovery information.
-    pub discovery: Option<CloudmapDiscovery>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub inputs: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
@@ -322,6 +318,8 @@ pub struct CloudmapMetadata {
     pub created: Option<chrono::DateTime<chrono::Utc>>,
     /// Human-readable description.
     pub description: Option<String>,
+    /// Metadata discovery information.
+    pub discovery: Option<CloudmapDiscovery>,
     /// Link to issue, PR/MR, or discussion about this definition.
     pub discussion_url: Option<String>,
     /// URL to get documentation.
@@ -437,8 +435,6 @@ pub struct CloudmapService {
     pub access: Option<CloudmapServiceAccess>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub connections: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
-    /// Metadata discovery information.
-    pub discovery: Option<CloudmapDiscovery>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub endpoints: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
@@ -1383,6 +1379,8 @@ pub struct PostCloudmapRequest {
     pub commit: Option<bool>,
     /// Commit message for the local commit; falls back to a generated default.
     pub commit_msg: Option<String>,
+    /// Components that are produced or consumed by artifacts and services. Components describe relationships (references, instantiates, dependencies) and are identified by URL or label.
+    pub components: Option<std::collections::HashMap<String, Box<CloudmapComponent>>>,
     /// Build and deployment information for artifacts and services. Keys are URLs.
     pub instantiations: Option<std::collections::HashMap<String, Box<CloudmapInstantiation>>>,
     pub kind: Option<String>,

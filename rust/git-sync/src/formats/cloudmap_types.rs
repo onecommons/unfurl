@@ -47,9 +47,6 @@ pub mod error {
 #[doc = "          \"description\": \"Cryptographic digest of the artifact.\","]
 #[doc = "          \"type\": \"string\""]
 #[doc = "        },"]
-#[doc = "        \"discovery\": {"]
-#[doc = "          \"$ref\": \"#/definitions/discovery\""]
-#[doc = "        },"]
 #[doc = "        \"immutable\": {"]
 #[doc = "          \"description\": \"Indicates whether the artifact identifier refers to an artifact that will not change.\","]
 #[doc = "          \"type\": \"boolean\""]
@@ -134,8 +131,6 @@ pub struct Artifact {
     #[doc = "Cryptographic digest of the artifact."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub digest: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "Indicates whether the artifact identifier refers to an artifact that will not change."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub immutable: ::std::option::Option<bool>,
@@ -177,7 +172,6 @@ impl ::std::default::Default for Artifact {
             contains: Default::default(),
             dependencies: Default::default(),
             digest: Default::default(),
-            discovery: Default::default(),
             immutable: Default::default(),
             instantiated_by: Default::default(),
             instantiates: Default::default(),
@@ -236,6 +230,9 @@ pub struct ArtifactMetadata {
     #[doc = "Human-readable description."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub description: ::std::option::Option<::std::string::String>,
+    #[doc = "How this metadata was discovered."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "Link to issue, PR/MR, or discussion about this definition."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub discussion_url: ::std::option::Option<::std::string::String>,
@@ -284,6 +281,7 @@ impl ::std::default::Default for ArtifactMetadata {
         Self {
             created: Default::default(),
             description: Default::default(),
+            discovery: Default::default(),
             discussion_url: Default::default(),
             documentation_url: Default::default(),
             fork_of: Default::default(),
@@ -1594,9 +1592,6 @@ impl ::std::convert::From<f64> for InlineArtifactValueVersion {
 #[doc = "      \"description\": \"Cryptographic digest of the document referenced by the instantiation URL.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
-#[doc = "    \"discovery\": {"]
-#[doc = "      \"$ref\": \"#/definitions/discovery\""]
-#[doc = "    },"]
 #[doc = "    \"inputs\": {"]
 #[doc = "      \"description\": \"The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.\","]
 #[doc = "      \"type\": \"object\","]
@@ -1658,8 +1653,6 @@ pub struct Instantiation {
     #[doc = "Cryptographic digest of the document referenced by the instantiation URL."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub digest: ::std::option::Option<::std::string::String>,
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub inputs: ::std::option::Option<TypedUrLs>,
@@ -1702,7 +1695,6 @@ impl ::std::default::Default for Instantiation {
     fn default() -> Self {
         Self {
             digest: Default::default(),
-            discovery: Default::default(),
             inputs: Default::default(),
             instantiated: Default::default(),
             metadata: Default::default(),
@@ -1925,6 +1917,10 @@ impl ::std::convert::TryFrom<::std::string::String> for LifecycleStatus {
 #[doc = "      \"description\": \"Human-readable description.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"discovery\": {"]
+#[doc = "      \"description\": \"How this metadata was discovered.\","]
+#[doc = "      \"$ref\": \"#/definitions/discovery\""]
+#[doc = "    },"]
 #[doc = "    \"discussion_url\": {"]
 #[doc = "      \"description\": \"Link to issue, PR/MR, or discussion about this definition.\","]
 #[doc = "      \"type\": \"string\""]
@@ -2000,6 +1996,9 @@ pub struct Metadata {
     #[doc = "Human-readable description."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub description: ::std::option::Option<::std::string::String>,
+    #[doc = "How this metadata was discovered."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "Link to issue, PR/MR, or discussion about this definition."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub discussion_url: ::std::option::Option<::std::string::String>,
@@ -2045,6 +2044,7 @@ impl ::std::default::Default for Metadata {
         Self {
             created: Default::default(),
             description: Default::default(),
+            discovery: Default::default(),
             discussion_url: Default::default(),
             documentation_url: Default::default(),
             fork_of: Default::default(),
@@ -2579,6 +2579,9 @@ pub struct RepositoryMetadata {
     #[doc = "Human-readable description."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub description: ::std::option::Option<::std::string::String>,
+    #[doc = "How this metadata was discovered."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "Link to issue, PR/MR, or discussion about this definition."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub discussion_url: ::std::option::Option<::std::string::String>,
@@ -2639,6 +2642,7 @@ impl ::std::default::Default for RepositoryMetadata {
         Self {
             created: Default::default(),
             description: Default::default(),
+            discovery: Default::default(),
             discussion_url: Default::default(),
             documentation_url: Default::default(),
             fork_of: Default::default(),
@@ -2822,9 +2826,6 @@ impl ::std::convert::From<f64> for RepositoryMetadataVersion {
 #[doc = "      \"description\": \"Services this service connects to during operation.\","]
 #[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
 #[doc = "    },"]
-#[doc = "    \"discovery\": {"]
-#[doc = "      \"$ref\": \"#/definitions/discovery\""]
-#[doc = "    },"]
 #[doc = "    \"endpoints\": {"]
 #[doc = "      \"description\": \"Service endpoints.\","]
 #[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
@@ -2891,8 +2892,6 @@ pub struct Service {
     #[doc = "Services this service connects to during operation."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub connections: ::std::option::Option<TypedUrLs>,
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub discovery: ::std::option::Option<Discovery>,
     #[doc = "Service endpoints."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub endpoints: ::std::option::Option<TypedUrLs>,
@@ -2928,7 +2927,6 @@ impl ::std::default::Default for Service {
         Self {
             access: Default::default(),
             connections: Default::default(),
-            discovery: Default::default(),
             endpoints: Default::default(),
             instantiated_by: Default::default(),
             metadata: Default::default(),

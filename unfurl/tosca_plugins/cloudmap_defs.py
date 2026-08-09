@@ -307,12 +307,16 @@ class CommonMetadata:
     """Informal pointer to source ref (branch or tag name)"""
     source_revision: str = ""
     """Informal pointer to source code revision"""
+    discovery: Optional["Discovery"] = None
+    """How this metadata was discovered (last_checked, sources)"""
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values
-        return {k: v for k, v in asdict(self).items() if v}
+        return filter_metadata({k: v for k, v in asdict(self).items()}) or {}
 
     def __post_init__(self):
+        if self.discovery is not None and not isinstance(self.discovery, Discovery):
+            self.discovery = Discovery(**(self.discovery or {}))
         if self.fork_of:
             self.fork_of = validate_url(
                 self.fork_of, f"{self.__class__.__name__}.fork_of"
@@ -713,8 +717,6 @@ class Instantiation(VersionedRecord):
     """The artifact, service, or repository URLs that were consumed or referenced as part of the instantiation process."""
     metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Additional metadata about the instantiation."""
-    discovery: Optional["Discovery"] = None
-    """Metadata discovery information"""
     status: Optional[LifecycleStatus] = None
     """Lifecycle status of the instantiation"""
     versions: Dict[str, "Instantiation"] = field(default_factory=dict)
@@ -730,8 +732,6 @@ class Instantiation(VersionedRecord):
             self.type = TypeRefs(types=self.type)
         if not isinstance(self.metadata, CommonMetadata):
             self.metadata = CommonMetadata(**(self.metadata or {}))
-        if not isinstance(self.discovery, Discovery):
-            self.discovery = Discovery(**(self.discovery or {}))
         self.instantiated = TypeRefs.urls_fromdict(self.instantiated)
         self.inputs = TypeRefs.urls_fromdict(self.inputs)
         # Convert versions dict entries to Instantiation instances if they're still dicts
@@ -748,9 +748,7 @@ class Instantiation(VersionedRecord):
             if k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "metadata":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
-                v = filter_dict(v)
+                v = filter_metadata(v)
             elif k == "inputs":
                 v = TypeRefs.urls_asdict(v)
             elif k == "instantiated":
@@ -795,6 +793,20 @@ def filter_dict(d: Optional[_M]) -> Optional[_M]:
     if d is None:
         return None
     return cast(_M, {k: v for k, v in d.items() if v})
+
+
+def filter_metadata(d: Optional[_M]) -> Optional[_M]:
+    """Exclude empty values from a metadata dict and from its nested discovery."""
+    filtered = filter_dict(d)
+    if filtered is None or not filtered.get("discovery"):
+        return filtered
+    result: Dict[str, Any] = dict(filtered)
+    discovery = filter_dict(cast(Dict[str, Any], result["discovery"]))
+    if discovery:
+        result["discovery"] = discovery
+    else:
+        del result["discovery"]
+    return cast(_M, result)
 
 
 LifecycleStatus = Literal[
@@ -878,8 +890,6 @@ class Artifact(VersionedRecord):
     """Release schedule information for this artifact"""
     metadata: ArtifactMetadata = field(default_factory=ArtifactMetadata)
     """Human-readable metadata"""
-    discovery: Optional["Discovery"] = None
-    """Metadata discovery information"""
     tags: Optional[List[str]] = None
     """List of available tags for this artifact (e.g., container image tags)"""
     versions: Dict[str, "Artifact"] = field(default_factory=dict)
@@ -901,8 +911,6 @@ class Artifact(VersionedRecord):
 
         if not isinstance(self.metadata, ArtifactMetadata):
             self.metadata = ArtifactMetadata(**(self.metadata or {}))
-        if not isinstance(self.discovery, Discovery):
-            self.discovery = Discovery(**(self.discovery or {}))
         if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
         self.instantiates = TypeRefs.urls_fromdict(self.instantiates)
@@ -939,9 +947,7 @@ class Artifact(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
-                v = filter_dict(v)
+                v = filter_metadata(v)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             elif k == "references":
@@ -1022,7 +1028,7 @@ class Component(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_dict(v)
+                v = filter_metadata(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
             elif k == "contains":
@@ -1211,7 +1217,7 @@ class Repository(CloudMapRecord):
             if k == "url":
                 continue
             if k == "metadata":
-                v = filter_dict(v)
+                v = filter_metadata(v)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
             if v:
@@ -1328,8 +1334,6 @@ class Service(VersionedRecord):
     policies: ServicePolicies = field(default_factory=ServicePolicies)
     instantiated_by: TypedUrls = field(default_factory=dict)
     """URLs referencing entries in instantiations with optional type constraints."""
-    discovery: Optional[Discovery] = None
-    """Metadata discovery information (last_checked, sources)"""
     release_schedule: List[ScheduledRelease] = field(default_factory=list)
     """Release schedule information for this service"""
     versions: Dict[str, "Service"] = field(default_factory=dict)
@@ -1344,8 +1348,6 @@ class Service(VersionedRecord):
             self.metadata = ServiceMetadata(**(self.metadata or {}))
         if not isinstance(self.policies, ServicePolicies):
             self.policies = ServicePolicies(**(self.policies or {}))
-        if not isinstance(self.discovery, Discovery):
-            self.discovery = Discovery(**(self.discovery or {}))
         if not isinstance(self.type, TypeRefs):
             self.type = TypeRefs(types=self.type)
         self.release_schedule = [
@@ -1369,10 +1371,8 @@ class Service(VersionedRecord):
             if k == "url":
                 continue  # skip url, save as the key instead
             if k == "metadata":
-                v = filter_dict(v)
+                v = filter_metadata(v)
             elif k == "policies":
-                v = filter_dict(v)
-            elif k == "discovery" and v:
                 v = filter_dict(v)
             elif k == "type" and v:
                 v = v.asdict() if isinstance(v, TypeRefs) else v
@@ -1437,7 +1437,7 @@ class CloudType(CloudMapRecord):
         result = {}
         for k, v in asdict(self).items():
             if k == "metadata":
-                v = filter_dict(v)
+                v = filter_metadata(v)
             if v:  # exclude empty values
                 result[k] = v
         return result

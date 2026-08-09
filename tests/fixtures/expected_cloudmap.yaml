@@ -214,9 +214,9 @@ artifacts:
       cloudmap.artifacts.oci.Image:
     metadata:
       description: Bitnami Secure Image for odoo
-    discovery:
-      sources:
-      - https://hub.docker.com/v2/repositories/bitnami/odoo/
+      discovery:
+        sources:
+        - https://hub.docker.com/v2/repositories/bitnami/odoo/
 services:
   https://example.com/oodo:
     type:

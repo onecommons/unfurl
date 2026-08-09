@@ -241,6 +241,8 @@ def create_oci_artifact(
     )
     artifact_types = TypeRefs()
     artifact_types.add(EntitySchema.OCIImage)
+    if source_urls:
+        metadata.discovery = Discovery(sources=source_urls)
     artifact = Artifact(
         url=purl,
         type=artifact_types,
@@ -248,7 +250,6 @@ def create_oci_artifact(
         tags=tags,
         metadata=metadata,
         instantiated_by=instantiated_by,
-        discovery=Discovery(sources=source_urls) if source_urls else None,
     )
 
     return artifact, instantiation, artifact_fetch

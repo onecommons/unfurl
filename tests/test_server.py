@@ -2217,6 +2217,29 @@ def test_server_cloudmap(server_env):
             primary = read_back.json()[0]["repositories"][existing_key]
             assert primary.get("name") == "renamed-via-post"
 
+            # 1b. A `components` POST + GET round trip. Every layer keeps
+            #     its own list of cloudmap sections and `components` used to
+            #     be missing from several: python rejected the POST with
+            #     "unknown section" and the rust handler collected no write
+            #     ops for it (a silent no-op).
+            component_key = "software.PostgresSchema@example.org"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "components": {
+                        component_key: {"metadata": {"title": "App schema"}}
+                    }
+                },
+            )
+            assert res.status_code == 200, res.text
+            read_back = requests.get(
+                cloudmap_url,
+                params={"kind": "components", "key": component_key},
+            )
+            assert read_back.status_code == 200, read_back.text
+            component = read_back.json()[0]["components"][component_key]
+            assert component["metadata"]["title"] == "App schema", component
+
             # 2. Delete via `unfurl.server.deleted: true`.
             import yaml as _yaml
 

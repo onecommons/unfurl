@@ -638,9 +638,9 @@ artifacts:
       cloudmap.artifacts.oci.Image:
     metadata:
       description: Bitnami Secure Image for odoo
-    discovery:
-      sources:
-      - https://hub.docker.com/v2/repositories/bitnami/odoo/
+      discovery:
+        sources:
+        - https://hub.docker.com/v2/repositories/bitnami/odoo/
 services:
   https://example.com/oodo:
     type:
@@ -1693,11 +1693,11 @@ artifacts:
       homepage_url: https://nginx.org
       documentation_url: https://nginx.org/en/docs/
       thumbnail_url: https://nginx.org/images/nginx-logo.png
-    discovery:
-      last_checked: "2023-09-24T15:30:00Z"
-      sources:
-      - https://ghcr.io/v2/nginx/manifests/latest
-      - https://github.com/nginx/nginx/releases
+      discovery:
+        last_checked: "2023-09-24T15:30:00Z"
+        sources:
+        - https://ghcr.io/v2/nginx/manifests/latest
+        - https://github.com/nginx/nginx/releases
     versions:
       "@sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49":
         digest: sha256:f5da8de13ae2dcce293508c4ccac9b373e66dd49
@@ -1729,16 +1729,16 @@ services:
       documentation_url: https://docs.unfurl.cloud
       thumbnail_url: https://unfurl.cloud/unfurl-logo.svg
       source_url: https://github.com/onecommons/unfurl-cloud
+      discovery:
+        last_checked: "2023-09-24T15:30:00Z"
+        sources:
+        - https://unfurl.cloud/api/v1/metadata
     policies:
       spdx_licenses: MIT
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
     instantiated_by:
       "#/instantiations/2023-09-24T15:31:00Z":
-    discovery:
-      last_checked: "2023-09-24T15:30:00Z"
-      sources:
-      - https://unfurl.cloud/api/v1/metadata
 types:
   Zulip@unfurl.cloud/onecommons/blueprints/zulip:
     kind: Component
@@ -1815,8 +1815,8 @@ types:
 
         assert artifact.metadata.title == "Nginx Web Server"
         assert len(artifact.metadata.platforms) == 2
-        assert artifact.discovery.last_checked == "2023-09-24T15:30:00Z"
-        assert len(artifact.discovery.sources) == 2
+        assert artifact.metadata.discovery.last_checked == "2023-09-24T15:30:00Z"
+        assert len(artifact.metadata.discovery.sources) == 2
 
         # Verify versions loaded correctly
         versions = artifact.versions
@@ -1871,8 +1871,8 @@ types:
         assert service.metadata.title == "Unfurl Cloud"
         assert service.policies.spdx_licenses == "MIT"
         assert len(service.instantiated_by) == 1
-        assert service.discovery.last_checked == "2023-09-24T15:30:00Z"
-        assert len(service.discovery.sources) == 1
+        assert service.metadata.discovery.last_checked == "2023-09-24T15:30:00Z"
+        assert len(service.metadata.discovery.sources) == 1
 
         # Get the deployment instantiation (ignore exact timestamp key)
         deployment_instantiation = None

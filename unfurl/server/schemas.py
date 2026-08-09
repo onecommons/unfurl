@@ -169,7 +169,7 @@ class TypesQuery(ExportBaseQuery):
 
 
 CloudMapKind = Literal[
-    "repositories", "artifacts", "services", "instantiations", "types"
+    "repositories", "artifacts", "services", "instantiations", "components", "types"
 ]
 
 
@@ -368,6 +368,7 @@ class PostCloudmapRequest(BaseModel):
     metadata: Optional[Dict[str, Any]] = Field(default=None)
     repositories: Optional[Dict[str, Any]] = Field(default=None)
     artifacts: Optional[Dict[str, Any]] = Field(default=None)
+    components: Optional[Dict[str, Any]] = Field(default=None)
     services: Optional[Dict[str, Any]] = Field(default=None)
     instantiations: Optional[Dict[str, Any]] = Field(default=None)
     types: Optional[Dict[str, Any]] = Field(default=None)
@@ -535,6 +536,7 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
         for section in (
             "repositories",
             "artifacts",
+            "components",
             "services",
             "instantiations",
             "types",

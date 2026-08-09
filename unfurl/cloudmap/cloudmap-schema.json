@@ -98,6 +98,10 @@
           "type": "string",
           "description": "Date and time on which the resource was created, conforming to RFC 3339.",
           "format": "date-time"
+        },
+        "discovery": {
+          "$ref": "#/definitions/discovery",
+          "description": "How this metadata was discovered."
         }
       }
     },
@@ -350,9 +354,6 @@
                 }
               ]
             },
-            "discovery": {
-              "$ref": "#/definitions/discovery"
-            },
             "versions": {
               "type": "object",
               "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
@@ -467,9 +468,6 @@
           "$ref": "#/definitions/typedURLs",
           "description": "URLs referencing instantiations that created or validated this service."
         },
-        "discovery": {
-          "$ref": "#/definitions/discovery"
-        },
         "release_schedule": {
           "$ref": "#/definitions/release_schedule"
         },
@@ -530,9 +528,6 @@
           "type": "object",
           "description": "Additional information about the instantiation, expected contents depends on the instantiation artifact type.",
           "$ref": "#/definitions/metadata"
-        },
-        "discovery": {
-          "$ref": "#/definitions/discovery"
         },
         "status": {
           "$ref": "#/definitions/lifecycle_status",

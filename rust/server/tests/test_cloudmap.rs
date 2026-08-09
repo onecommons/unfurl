@@ -426,6 +426,68 @@ async fn post_upsert_writes_record() {
 }
 
 #[tokio::test]
+async fn post_and_get_every_section() {
+    // The handler keeps two independent lists of cloudmap sections -- `KIND_TO_PATH`
+    // for reads and the `collect!` calls for writes -- and a section missing from
+    // either fails silently: the POST answers 200 and writes nothing, or the GET
+    // can't map the kind. `components` was missing from both.
+    //
+    // The list below is deliberately *not* derived from the handler's: a test that
+    // iterated over `KIND_TO_PATH` would skip exactly the section that went missing.
+    let cases: Vec<(&str, &str, serde_json::Value)> = vec![
+        (
+            "repositories",
+            "git://example.com/new-repo.git",
+            serde_json::json!({ "path": "example/new-repo" }),
+        ),
+        (
+            "artifacts",
+            "pkg:oci/new-image?repository_url=docker.io/library/new-image",
+            serde_json::json!({ "digest": "sha256:abc" }),
+        ),
+        (
+            "components",
+            "software.PostgresSchema@example.org",
+            serde_json::json!({}),
+        ),
+        (
+            "services",
+            "https://example.com/new-service",
+            serde_json::json!({ "access": "public" }),
+        ),
+        (
+            "instantiations",
+            "https://ci.example.com/runs/42",
+            serde_json::json!({ "revision": "abc123" }),
+        ),
+        ("types", "NewType@example.org", serde_json::json!({})),
+    ];
+
+    let (cm, _tmp) = open_cloudmap_state().await;
+    for (kind, key, extra) in cases {
+        let title = format!("posted-{kind}");
+        let mut record = extra.as_object().cloned().unwrap_or_default();
+        record.insert(
+            "metadata".to_string(),
+            serde_json::json!({ "title": title }),
+        );
+        let body = serde_json::json!({ kind: { key: record } });
+
+        let (status, response) = post_json(router(make_state(cm.clone())), body).await;
+        assert_eq!(status, StatusCode::OK, "POST {kind} failed: {response:?}");
+
+        let uri = format!("/cloudmap?kind={kind}&key={}", urlencoding::encode(key));
+        let (status, got) = get_json(router(make_state(cm.clone())), &uri).await;
+        assert_eq!(status, StatusCode::OK, "GET {kind} failed: {got:?}");
+        assert_eq!(
+            got[0][kind][key]["metadata"]["title"].as_str(),
+            Some(title.as_str()),
+            "{kind}/{key} did not round trip: {got:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn post_creates_new_record_in_default_file() {
     use unfurl_git_sync::SyncedRepo;
 

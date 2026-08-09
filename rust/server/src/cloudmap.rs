@@ -36,6 +36,7 @@ use crate::AppState;
 const KIND_TO_PATH: &[(&str, &str)] = &[
     ("repositories", "/repositories"),
     ("artifacts", "/artifacts"),
+    ("components", "/components"),
     ("services", "/services"),
     ("instantiations", "/instantiations"),
     ("types", "/types"),
@@ -1018,6 +1019,7 @@ async fn apply_writes(
 
     collect!(body.repositories, "repositories", "/repositories");
     collect!(body.artifacts, "artifacts", "/artifacts");
+    collect!(body.components, "components", "/components");
     collect!(body.services, "services", "/services");
     collect!(body.instantiations, "instantiations", "/instantiations");
     collect!(body.types, "types", "/types");

@@ -274,8 +274,8 @@ def test_resolve_image_ref(
     # Test creating artifact
     artifact, instantiation, artifact_fetch = oci.create_oci_artifact(ref)
     assert artifact is not None, f"Failed to create artifact for {image_url}"
-    assert artifact.discovery is not None, f"Expected discovery info for {image_url}"
-    assert len(artifact.discovery.sources) > 0, (
+    assert artifact.metadata.discovery is not None, f"Expected discovery info for {image_url}"
+    assert len(artifact.metadata.discovery.sources) > 0, (
         f"Expected at least one source URL for {image_url}"
     )
 
@@ -303,7 +303,7 @@ def test_resolve_image_ref(
         )
 
     # Verify manifest URL is included (will have the manifest digest, not the tag)
-    assert any("/manifests/" in url for url in artifact.discovery.sources), (
+    assert any("/manifests/" in url for url in artifact.metadata.discovery.sources), (
         f"No manifest URL found in discovery.sources for {image_url}"
     )
 

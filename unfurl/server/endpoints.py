@@ -347,6 +347,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
 _CLOUDMAP_SECTIONS: Tuple[str, ...] = (
     "repositories",
     "artifacts",
+    "components",
     "services",
     "instantiations",
     "types",

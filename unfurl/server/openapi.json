@@ -1630,6 +1630,17 @@
             "description": "Commit message for the local commit; falls back to a generated default.",
             "title": "Commit Msg"
           },
+          "components": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/cloudmap_component"
+            },
+            "description": "Components that are produced or consumed by artifacts and services. Components describe relationships (references, instantiates, dependencies) and are identified by URL or label.",
+            "propertyNames": {
+              "description": "URL or label of the component.",
+              "pattern": "^[^\\s]*$"
+            },
+            "type": "object"
+          },
           "instantiations": {
             "additionalProperties": {
               "$ref": "#/components/schemas/cloudmap_instantiation"
@@ -1775,9 +1786,6 @@
               "digest": {
                 "description": "Cryptographic digest of the artifact.",
                 "type": "string"
-              },
-              "discovery": {
-                "$ref": "#/components/schemas/cloudmap_discovery"
               },
               "immutable": {
                 "description": "Indicates whether the artifact identifier refers to an artifact that will not change.",
@@ -1990,9 +1998,6 @@
             "description": "Cryptographic digest of the document referenced by the instantiation URL.",
             "type": "string"
           },
-          "discovery": {
-            "$ref": "#/components/schemas/cloudmap_discovery"
-          },
           "inputs": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
             "description": "The artifact, instantiation, service, or repository URLs that were consumed or referenced as part of the instantiation process.",
@@ -2077,6 +2082,10 @@
           "description": {
             "description": "Human-readable description.",
             "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/cloudmap_discovery",
+            "description": "How this metadata was discovered."
           },
           "discussion_url": {
             "description": "Link to issue, PR/MR, or discussion about this definition.",
@@ -2341,9 +2350,6 @@
           "connections": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
             "description": "Services this service connects to during operation."
-          },
-          "discovery": {
-            "$ref": "#/components/schemas/cloudmap_discovery"
           },
           "endpoints": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
@@ -2808,6 +2814,7 @@
                     "artifacts",
                     "services",
                     "instantiations",
+                    "components",
                     "types"
                   ],
                   "type": "string"
