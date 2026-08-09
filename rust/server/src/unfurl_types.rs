@@ -1359,8 +1359,7 @@ pub struct PostClearProjectFileCacheRequestQuery {
 }
 /// Request body for ``POST /cloudmap``.
 ///
-/// A CloudMap document portion (``apiVersion`` / ``kind`` / the five
-/// section maps) plus request-only envelope/control fields
+/// A CloudMap document portion plus request-only envelope/control fields
 /// (``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``
 /// / ``private_token`` / ``commit_msg``).
 ///
@@ -1368,10 +1367,6 @@ pub struct PostClearProjectFileCacheRequestQuery {
 /// envelope keys live side-by-side at the top level. The endpoint
 /// splits them apart by name; the JSON-Schema validation only runs on
 /// the cloudmap-document subset.
-///
-/// This is the *typed request body* that ``oas3-gen`` propagates into
-/// the rust ``unfurl_types`` types so the rust handler can use a
-/// single typed extractor instead of hand-rolling a wrapper struct.
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
 pub struct PostCloudmapRequest {
     #[serde(rename = "apiVersion")]
@@ -1380,9 +1375,9 @@ pub struct PostCloudmapRequest {
     pub artifacts: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
     /// When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only — the Python YAML fallback is implicitly atomic.
     pub atomic: Option<bool>,
-    /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
+    /// Path of the cloudmap file inside the repo.
     pub cloudmap_path: Option<String>,
-    /// Whether to commit the write to git. Omitted means each handler's own default: the Python handler commits, the rust one leaves the records staged in-flight. ``false`` writes the file without committing, so a later request can commit it; ``true`` commits, and is allowed with a body that carries no records at all -- the handler then commits whatever is already pending.
+    /// Whether to commit the write to git. If Commit = true is sent with a body that carries no records at all the handler then commits whatever is already pending.
     pub commit: Option<bool>,
     /// Commit message for the local commit; falls back to a generated default.
     pub commit_msg: Option<String>,

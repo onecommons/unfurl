@@ -25,7 +25,14 @@ from git.objects import Commit
 
 from .logs import getLogger, PY_COLORS
 from urllib.parse import urlparse, unquote
-from .util import UnfurlError, assert_not_none, change_cwd, is_relative_to, save_to_file
+from .util import (
+    UnfurlError,
+    assert_not_none,
+    change_cwd,
+    is_relative_to,
+    save_to_file,
+    split_url_fragment,
+)
 from toscaparser.repositories import Repository
 from ruamel.yaml.comments import CommentedMap
 import logging
@@ -136,28 +143,26 @@ def split_git_url_with_commit(url: str) -> Tuple[str, str, str, str]:
     if url.startswith("--"):
         # security: see https://github.com/gitpython-developers/GitPython/issues/1517
         return "", "", "", ""
-    parts = urlparse(url)
+    # a "#" inside a URI template expression is part of the expression, not the
+    # start of the fragment, so don't let urlparse find it
+    giturl, fragment = split_url_fragment(url)
+    parts = urlparse(giturl)
     commit = ""
     if parts.scheme == "git-local":
-        giturl, path, fragment = (
-            parts.scheme + "://" + parts.netloc,
-            parts.path[1:],
-            parts.fragment,
-        )
+        giturl, path = parts.scheme + "://" + parts.netloc, parts.path[1:]
         if fragment:
-            revision, sep, frag_path = parts.fragment.partition(":")
+            revision, sep, frag_path = fragment.partition(":")
             path = os.path.join(path, frag_path)
         else:
             revision = ""
         revision, sep, commit = revision.partition("~")
         return giturl, unquote(path), revision, commit
 
-    if parts.fragment:
+    if fragment:
         # support <ref>~<commit>:<path>
         # e.g. myrepo.git#mybranch, myrepo.git#pull/42/head, myrepo.git#:myfolder, myrepo.git#master:myfolder
-        revision, sep, path = parts.fragment.partition(":")
+        revision, sep, path = fragment.partition(":")
         revision, sep, commit = revision.partition("~")
-        giturl, sep, frag = url.partition("#")
         return giturl, unquote(path), revision, commit
     return url, "", "", ""
 

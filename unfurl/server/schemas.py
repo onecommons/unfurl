@@ -395,7 +395,7 @@ class PostCloudmapRequest(BaseModel):
     commit: Optional[bool] = Field(
         default=None,
         description=(
-            "Whether to commit the write to git."
+            "Whether to commit the write to git. "
             "If Commit = true is sent with a body that carries no records at all the "
             "handler then commits whatever is already pending."
         ),

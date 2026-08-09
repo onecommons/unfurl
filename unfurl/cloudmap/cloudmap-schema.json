@@ -107,8 +107,8 @@
       "description": "Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.",
       "$$target": "#/definitions/typeRef",
       "propertyNames": {
-        "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).",
-        "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$"
+        "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix) or a URI template (doesn't start with an expression).",
+        "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$"
       },
       "additionalProperties": {
         "oneOf": [
@@ -187,8 +187,8 @@
             "type": "object",
             "description": "Nested map for a label key: URLs to type references.",
             "propertyNames": {
-              "description": "URL (starts with a scheme).",
-              "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:"
+              "description": "URL (starts with a scheme) or a URI template expression that can expand into one (starts with \"{\"); i.e. anything that isn't a type name.",
+              "pattern": "^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$)[^\\s]+$"
             },
             "additionalProperties": {
               "oneOf": [

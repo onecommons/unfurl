@@ -1553,7 +1553,7 @@
       },
       "PostCloudmapRequest": {
         "additionalProperties": true,
-        "description": "Request body for ``POST /cloudmap``.\n\nA CloudMap document portion (``apiVersion`` / ``kind`` / the five\nsection maps) plus request-only envelope/control fields\n(``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``\n/ ``private_token`` / ``commit_msg``).\n\nDeclared as a flat object \u2014 the cloudmap section maps and the\nenvelope keys live side-by-side at the top level. The endpoint\nsplits them apart by name; the JSON-Schema validation only runs on\nthe cloudmap-document subset.\n\nThis is the *typed request body* that ``oas3-gen`` propagates into\nthe rust ``unfurl_types`` types so the rust handler can use a\nsingle typed extractor instead of hand-rolling a wrapper struct.",
+        "description": "Request body for ``POST /cloudmap``.\n\nA CloudMap document portion plus request-only envelope/control fields\n(``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``\n/ ``private_token`` / ``commit_msg``).\n\nDeclared as a flat object \u2014 the cloudmap section maps and the\nenvelope keys live side-by-side at the top level. The endpoint\nsplits them apart by name; the JSON-Schema validation only runs on\nthe cloudmap-document subset.",
         "properties": {
           "apiVersion": {
             "anyOf": [
@@ -1601,7 +1601,7 @@
               }
             ],
             "default": null,
-            "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+            "description": "Path of the cloudmap file inside the repo.",
             "title": "Cloudmap Path"
           },
           "commit": {
@@ -1614,7 +1614,7 @@
               }
             ],
             "default": null,
-            "description": "Whether to commit the write to git. Omitted means each handler's own default: the Python handler commits, the rust one leaves the records staged in-flight. ``false`` writes the file without committing, so a later request can commit it; ``true`` commits, and is allowed with a body that carries no records at all -- the handler then commits whatever is already pending.",
+            "description": "Whether to commit the write to git. If Commit = true is sent with a body that carries no records at all the handler then commits whatever is already pending.",
             "title": "Commit"
           },
           "commit_msg": {
@@ -2515,8 +2515,8 @@
         },
         "description": "Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.",
         "propertyNames": {
-          "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).",
-          "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$"
+          "description": "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix) or a URI template (doesn't start with an expression).",
+          "pattern": "^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$"
         },
         "title": "Type Ref",
         "type": "object"
@@ -2546,8 +2546,8 @@
               },
               "description": "Nested map for a label key: URLs to type references.",
               "propertyNames": {
-                "description": "URL (starts with a scheme).",
-                "pattern": "^[A-Za-z][A-Za-z0-9+.-]*:"
+                "description": "URL (starts with a scheme) or a URI template expression that can expand into one (starts with \"{\"); i.e. anything that isn't a type name.",
+                "pattern": "^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$)[^\\s]+$"
               },
               "type": "object"
             }

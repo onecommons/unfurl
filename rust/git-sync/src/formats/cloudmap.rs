@@ -238,8 +238,9 @@ fn strip_git_fragment(url: &str) -> Option<String> {
     if !url.starts_with("git:") {
         return None;
     }
-    let (head, _frag) = url.split_once('#')?;
-    if head.ends_with(".git") {
+    let head = &url[..fragment_start(url)?];
+    // an expression can expand into the ".git" suffix, so leave it alone
+    if head.ends_with(".git") || trailing_template(head).is_some() {
         Some(head.to_string())
     } else {
         Some(format!("{head}.git"))
@@ -247,19 +248,31 @@ fn strip_git_fragment(url: &str) -> Option<String> {
 }
 
 /// A URL starts with a valid URI scheme followed by `:` (RFC 3986 § 3.1:
-/// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`).
-/// Simple test to distinguish global type names from URLs.
-/// This matches the `typedURLs`` propertyNames pattern in `unfurl/cloudmap/cloudmap-schema.json`.
+/// `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`) or with a URI template
+/// expression, which can expand into the scheme.
+/// Simple test to distinguish global type names from URLs; the Python side
+/// makes the same distinction with `is_label` in
+/// `unfurl/tosca_plugins/cloudmap_defs.py` (a key that isn't a label is a URL).
+/// This matches the `typedURLs` propertyNames pattern in `unfurl/cloudmap/cloudmap-schema.json`.
 pub fn is_url(s: &str) -> bool {
-    let Some((scheme, _rest)) = s.split_once(':') else {
-        return false;
-    };
+    // a URI template expands into a url, and can expand into the scheme itself
+    // (e.g. "{+urlvar}"), so a key containing one is a url rather than a label
+    url_scheme(s).is_some() || has_uri_template(s)
+}
+
+/// Port of `url_scheme` in `unfurl/tosca_plugins/cloudmap_defs.py`: the scheme
+/// of `s` (RFC 3986 § 3.1: `ALPHA *( ALPHA / DIGIT / "+" / "-" / "." )`), or
+/// None if it doesn't have one.
+fn url_scheme(s: &str) -> Option<&str> {
+    let (scheme, _rest) = s.split_once(':')?;
     let mut chars = scheme.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() => {}
-        _ => return false,
+        _ => return None,
     }
-    chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    chars
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+        .then_some(scheme)
 }
 
 /// Predicate from `is_label` in `unfurl/tosca_plugins/cloudmap_defs.py`:
@@ -326,6 +339,173 @@ pub(crate) fn escape_pointer_segment(seg: &str) -> String {
     seg.replace('~', "~0").replace('/', "~1")
 }
 
+/// Operators a URI template expression can start with (RFC 6570 § 2.2). The
+/// ones the RFC reserves for future extensions ("=,!@|") aren't valid in a
+/// template, so an expression starting with one has no operator as far as this
+/// is concerned.
+const TEMPLATE_OPERATORS: &str = "+#./;?&";
+/// Operators that set the same part of a url as the operator they are listed for.
+const QUERY_OPERATORS: &[char] = &['?', '&'];
+const FRAGMENT_OPERATORS: &[char] = &['#'];
+
+/// Port of `has_uri_template` in `unfurl/tosca_plugins/cloudmap_defs.py`.
+fn has_uri_template(s: &str) -> bool {
+    match s.find('{') {
+        Some(start) => s[start..].contains('}'),
+        None => false,
+    }
+}
+
+/// Split a URI template expression at the start of `s` into its operator (if
+/// any) and its variable list, e.g. `"{?tag,digest}"` → `(Some('?'), "tag,digest")`.
+///
+/// Ports the `_URI_TEMPLATE_EXPRESSION.match()` call in `join_resource_url`.
+fn leading_template_expression(s: &str) -> Option<(Option<char>, &str)> {
+    let body = s.strip_prefix('{')?;
+    let end = body.find('}')?;
+    let body = &body[..end];
+    match body.chars().next() {
+        Some(operator) if TEMPLATE_OPERATORS.contains(operator) => {
+            Some((Some(operator), &body[operator.len_utf8()..]))
+        }
+        _ => Some((None, body)),
+    }
+}
+
+/// Port of `_split_url_parts` in `unfurl/tosca_plugins/cloudmap_defs.py`:
+/// split `url` into the part before its query, its query and its fragment.
+///
+/// A "?" or "#" inside a URI template expression is part of the expression, not
+/// a delimiter, so [`Url`] can't be used here.
+fn split_url_parts(url: &str) -> (&str, &str, &str) {
+    let fragment_at = fragment_start(url);
+    let end = fragment_at.unwrap_or(url.len());
+    let fragment = fragment_at.map_or("", |i| &url[i + 1..]);
+    let head = &url[..end];
+    match delimiter_start(head, '?') {
+        Some(i) => (&head[..i], &head[i + 1..], fragment),
+        None => (head, "", fragment),
+    }
+}
+
+/// The offset of the "#" that starts `url`'s fragment, if it has one.
+///
+/// Ports `split_url_fragment` in `unfurl/util.py`.
+fn fragment_start(url: &str) -> Option<usize> {
+    delimiter_start(url, '#')
+}
+
+/// The offset of the first `delimiter` in `url` that isn't the operator of a
+/// URI template expression.
+///
+/// An expression's operator is the character after its "{" (`{#var}`,
+/// `{?var}`), so a delimiter there belongs to the expression.
+fn delimiter_start(url: &str, delimiter: char) -> Option<usize> {
+    url.char_indices()
+        .find(|&(i, c)| c == delimiter && !url[..i].ends_with('{'))
+        .map(|(i, _)| i)
+}
+
+/// The offset of a trailing URI template expression in `part` and its operator,
+/// if `part` ends with one.
+fn trailing_template(part: &str) -> Option<(usize, Option<char>)> {
+    let start = part.rfind('{')?;
+    let body = part.strip_suffix('}')?.get(start + 1..)?;
+    if body.contains('{') || body.contains('}') {
+        return None;
+    }
+    let operator = body
+        .chars()
+        .next()
+        .filter(|c| TEMPLATE_OPERATORS.contains(*c));
+    Some((start, operator))
+}
+
+/// Port of `_strip_trailing_template`: the offset of a trailing expression in
+/// `part` whose operator sets the same part of a url, if there is one.
+fn trailing_template_start(part: &str, operators: &[char]) -> Option<usize> {
+    let (start, operator) = trailing_template(part)?;
+    // an expression without an operator doesn't set a part of the url
+    operators.contains(&operator?).then_some(start)
+}
+
+/// Port of `_join_template_url` in `unfurl/tosca_plugins/cloudmap_defs.py`:
+/// merge a version key that starts with a URI template expression into `base_url`.
+///
+/// The expression's operator says which part of the base url the key sets: "?"
+/// and "&" the query, "#" the fragment, and "/", ";" and "." the path. "+"
+/// expands to reserved characters too, so the key can be a whole url and
+/// doesn't say what part of the url it is; such a key is returned unchanged.
+fn join_template_url(base_url: &str, join_url: &str, operator: char, varnames: &str) -> String {
+    if operator == '+' {
+        return join_url.to_string();
+    }
+    let (mut prefix, base_query, base_fragment) = split_url_parts(base_url);
+    let mut query = base_query.to_string();
+    let mut fragment = base_fragment;
+    let mut join_url = join_url.to_string();
+
+    if operator == '#' {
+        fragment = "";
+    } else if matches!(operator, '?' | '&') && !query.is_empty() && !has_uri_template(&query) {
+        // Drop the parameters the expression sets, the way literal keys merge.
+        let names: BTreeSet<&str> = varnames
+            .split(',')
+            .map(|name| name.split(':').next().unwrap_or(name).trim_end_matches('*'))
+            .collect();
+        let kept: Vec<(String, String)> = parse_qsl(&query)
+            .into_iter()
+            .filter(|(key, _)| !names.contains(key.as_str()))
+            .collect();
+        query = urlencode(&kept);
+    }
+
+    // A url has one query and one fragment, so an expression already setting
+    // that part is replaced instead of appended to.
+    if matches!(operator, '?' | '&' | '#') {
+        let same_part = if operator == '#' {
+            FRAGMENT_OPERATORS
+        } else {
+            QUERY_OPERATORS
+        };
+        if !query.is_empty() && operator != '#' {
+            if let Some(start) = trailing_template_start(&query, same_part) {
+                query.truncate(start);
+            }
+        } else if let Some(start) = trailing_template_start(prefix, same_part) {
+            prefix = &prefix[..start];
+        }
+    }
+
+    if matches!(operator, '?' | '&') {
+        // A query string starts with "?" and continues with "&".
+        let wanted = if query.is_empty() { '?' } else { '&' };
+        if operator != wanted {
+            join_url = format!("{{{wanted}{}", &join_url[1 + operator.len_utf8()..]);
+        }
+    }
+
+    let mut joined = String::from(prefix);
+    if matches!(operator, '/' | ';' | '.') {
+        joined.push_str(&join_url); // a path segment, parameter or label
+    }
+    if !query.is_empty() {
+        joined.push('?');
+        joined.push_str(&query);
+    }
+    if matches!(operator, '?' | '&') {
+        joined.push_str(&join_url);
+    }
+    if !fragment.is_empty() {
+        joined.push('#');
+        joined.push_str(fragment);
+    }
+    if operator == '#' {
+        joined.push_str(&join_url);
+    }
+    joined
+}
+
 /// Port of `join_resource_url` in `unfurl/tosca_plugins/cloudmap_defs.py`
 ///
 /// - If `base_url` has no scheme → return `join_url`.
@@ -340,8 +520,19 @@ pub(crate) fn join_resource_url(base_url: &str, join_url: &str) -> String {
     if join_url.is_empty() {
         return join_url.to_string();
     }
+    if url_scheme(base_url).is_none() {
+        // Python's `not url_scheme(base_url)` check.
+        return join_url.to_string();
+    }
+    if let Some((Some(operator), varnames)) = leading_template_expression(join_url) {
+        // The key is a URI template; its operator says what part of the url it
+        // is. `Url` normalises away (and percent-encodes) expressions, so this
+        // is merged textually. (The default operator is percent-encoded so it
+        // expands to a single value, like a bare version key: fall through and
+        // treat it as one.)
+        return join_template_url(base_url, join_url, operator, varnames);
+    }
     let Ok(base) = Url::parse(base_url) else {
-        // Python's `not base.scheme` check.
         return join_url.to_string();
     };
     // Accept join URLs that the Python branch treats literally.
@@ -440,9 +631,10 @@ pub(crate) fn join_resource_url(base_url: &str, join_url: &str) -> String {
 /// into `(repository_url_without_fragment, file_path, revision)`. The
 /// commit suffix is dropped; the file path is percent-decoded.
 fn split_git_url(url: &str) -> (String, String, String) {
-    let Some((head, frag)) = url.split_once('#') else {
+    let Some(at) = fragment_start(url) else {
         return (url.to_string(), String::new(), String::new());
     };
+    let (head, frag) = (&url[..at], &url[at + 1..]);
     let (rev_part, path_part) = match frag.split_once(':') {
         Some((r, p)) => (r.to_string(), p.to_string()),
         None => (frag.to_string(), String::new()),
@@ -557,6 +749,98 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn join_uri_template_version_keys() {
+        // "?" starts a query string, "&" continues one -- either way the
+        // parameters the expression sets replace the base's, like literal
+        // query keys do.
+        let purl = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest";
+        let merged = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo{&tag}";
+        assert_eq!(join_resource_url(purl, "{?tag}"), merged);
+        assert_eq!(join_resource_url(purl, "{&tag}"), merged);
+        assert_eq!(
+            join_resource_url("pkg:oci/name?tag=base1&tag=base2&keep=yes", "{?tag,digest}"),
+            "pkg:oci/name?keep=yes{&tag,digest}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{?tag}"),
+            "https://example.com/app{?tag}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app?a=1#frag", "{?tag}"),
+            "https://example.com/app?a=1{&tag}#frag"
+        );
+        // A url has one query and one fragment, so an expression setting the
+        // same part of the base is replaced, not appended to.
+        assert_eq!(
+            join_resource_url("https://example.com/app{?tag,digest}", "{?tag}"),
+            "https://example.com/app{?tag}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app?a=1{&tag}", "{?tag}"),
+            "https://example.com/app?a=1{&tag}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app{#version}", "{#v2}"),
+            "https://example.com/app{#v2}"
+        );
+        // "#" is the fragment, "/", ";" and "." extend the path.
+        assert_eq!(
+            join_resource_url("https://example.com/app#v1", "{#version}"),
+            "https://example.com/app{#version}"
+        );
+        assert_eq!(
+            join_resource_url("git://x.com/r.git", "{#branch}"),
+            "git://x.com/r.git{#branch}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app?a=1", "{/segment}"),
+            "https://example.com/app{/segment}?a=1"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{;matrix}"),
+            "https://example.com/app{;matrix}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{.label}"),
+            "https://example.com/app{.label}"
+        );
+        // "+" can expand into a whole url, so the key is used as-is.
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{+urlvar}"),
+            "{+urlvar}"
+        );
+        assert_eq!(
+            join_resource_url("git://a.com/x.git", "{+urlvar}"),
+            "{+urlvar}"
+        );
+        // The default operator expands to a single percent-encoded value, so
+        // the key is merged like a bare version key: a git ref for a git url,
+        // else as-is.
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{version}"),
+            "{version}"
+        );
+        assert_eq!(
+            join_resource_url("git://a.com/x.git", "{version}"),
+            "git://a.com/x.git#{version}"
+        );
+        // The operators RFC 6570 reserves aren't valid, so those keys are plain too.
+        assert_eq!(
+            join_resource_url("git://a.com/x.git", "{=var}"),
+            "git://a.com/x.git#{=var}"
+        );
+        assert_eq!(
+            join_resource_url("https://example.com/app", "{,var}"),
+            "{,var}"
+        );
+        // A templated base isn't parsed as a url, so it survives verbatim.
+        assert_eq!(
+            join_resource_url("https://example.com/{v}/app", "{?tag}"),
+            "https://example.com/{v}/app{?tag}"
+        );
+    }
+
+    #[test]
     fn join_at_version() {
         // `("git://x.git", "@v1") → "git://x.git@v1"` per the plan.
         let got = join_resource_url("git://x.git/", "@v1");
@@ -663,6 +947,33 @@ mod tests {
         // a leading ':' or non-alpha scheme start is not a url
         assert!(!is_url(":foo"));
         assert!(!is_url("1abc:foo"));
+        // a URI template can expand into a url (Python's is_label agrees:
+        // these keys aren't labels, so they are urls)
+        assert!(is_url("{+urlvar}"));
+        assert!(is_url("docker.io/{name}"));
+        assert!(is_url("{version}"));
+        assert!(!is_url("v1.0"));
+    }
+
+    #[test]
+    fn git_fragment_ignores_uri_templates() {
+        // a "#" inside an expression is part of the expression, not the fragment
+        let (u, p, r) = split_git_url("git://a.com/x.git{#ref}");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git{#ref}", "", "")
+        );
+        let (u, p, r) = split_git_url("git://a.com/x.git#{+ref}:src/{name}");
+        assert_eq!(
+            (u.as_str(), p.as_str(), r.as_str()),
+            ("git://a.com/x.git", "src/{name}", "{+ref}")
+        );
+        assert_eq!(strip_git_fragment("git://a.com/x.git{#ref}"), None);
+        // an expression can expand into the ".git" suffix, so it isn't added
+        assert_eq!(
+            strip_git_fragment("git://a.com/x{#ref}#v1.0:."),
+            Some("git://a.com/x{#ref}".to_string())
+        );
     }
 
     #[test]

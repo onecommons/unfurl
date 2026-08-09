@@ -1468,6 +1468,166 @@ def test_join_resource_url_replaces_repeated_base_key_with_join_values():
     assert merged == "pkg:oci/name?keep=yes&tag=a&tag=b"
 
 
+def test_join_resource_url_uri_template_version_keys():
+    """A version key that is a URI template sets the url part its operator names."""
+    # "?" starts a query string, "&" continues one -- either way the parameters
+    # the expression sets replace the base's, like literal query keys do
+    purl = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest"
+    merged = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo{&tag}"
+    assert join_resource_url(purl, "{?tag}") == merged
+    assert join_resource_url(purl, "{&tag}") == merged
+    assert (
+        join_resource_url("pkg:oci/name?tag=base1&tag=base2&keep=yes", "{?tag,digest}")
+        == "pkg:oci/name?keep=yes{&tag,digest}"
+    )
+    assert (
+        join_resource_url("https://example.com/app", "{?tag}")
+        == "https://example.com/app{?tag}"
+    )
+    assert (
+        join_resource_url("https://example.com/app?a=1#frag", "{?tag}")
+        == "https://example.com/app?a=1{&tag}#frag"
+    )
+    # a url has one query and one fragment, so an expression setting the same
+    # part of the base is replaced, not appended to
+    assert (
+        join_resource_url("https://example.com/app{?tag,digest}", "{?tag}")
+        == "https://example.com/app{?tag}"
+    )
+    assert (
+        join_resource_url("https://example.com/app?a=1{&tag}", "{?tag}")
+        == "https://example.com/app?a=1{&tag}"
+    )
+    assert (
+        join_resource_url("https://example.com/app{#version}", "{#v2}")
+        == "https://example.com/app{#v2}"
+    )
+    # "#" is the fragment, "/", ";" and "." extend the path
+    assert (
+        join_resource_url("https://example.com/app#v1", "{#version}")
+        == "https://example.com/app{#version}"
+    )
+    assert join_resource_url("git://x.com/r.git", "{#branch}") == (
+        "git://x.com/r.git{#branch}"
+    )
+    assert (
+        join_resource_url("https://example.com/app?a=1", "{/segment}")
+        == "https://example.com/app{/segment}?a=1"
+    )
+    assert (
+        join_resource_url("https://example.com/app", "{;matrix}")
+        == "https://example.com/app{;matrix}"
+    )
+    assert (
+        join_resource_url("https://example.com/app", "{.label}")
+        == "https://example.com/app{.label}"
+    )
+    # "+" can expand into a whole url, so the key is used as-is
+    assert join_resource_url("https://example.com/app", "{+urlvar}") == "{+urlvar}"
+    assert join_resource_url("git://a.com/x.git", "{+urlvar}") == "{+urlvar}"
+    # the default operator expands to a single percent-encoded value, so the key
+    # is merged like a bare version key: a git ref for a git url, else as-is
+    assert join_resource_url("https://example.com/app", "{version}") == "{version}"
+    assert join_resource_url("git://a.com/x.git", "{version}") == (
+        "git://a.com/x.git#{version}"
+    )
+    assert join_resource_url("git://a.com/x.git#:f.yaml", "{version}") == (
+        "git://a.com/x.git#{version}:f.yaml"
+    )
+    # the operators RFC 6570 reserves aren't valid, so those keys are plain too
+    assert join_resource_url("git://a.com/x.git", "{=var}") == "git://a.com/x.git#{=var}"
+    assert join_resource_url("https://example.com/app", "{,var}") == "{,var}"
+
+
+def test_uri_template_artifact_urls():
+    """Artifact keys can be URI templates; an expression isn't a label."""
+    assert Artifact(url="git://a.com/x.git{#ref}").get_repository_url() == (
+        "git://a.com/x.git{#ref}"
+    )
+    # an expression can expand into the ".git" suffix, so it isn't added
+    assert Artifact(url="git://a.com/x{#ref}#v1.0:.").get_repository_url() == (
+        "git://a.com/x{#ref}"
+    )
+    assert Artifact(url="git://a.com/x#v1.0:.").get_repository_url() == (
+        "git://a.com/x.git"
+    )
+    # a template key is not a label, so it is treated as a url (rust's is_url()
+    # makes the same distinction)
+    assert not is_label("{+urlvar}")
+    assert not is_label("docker.io/{name}")
+    assert not is_label("{version}")
+    assert is_label("v1.0")
+
+
+def test_uri_template_record_keys():
+    """URI templates are usable as record keys, including as version keys."""
+    doc = {
+        "apiVersion": API_VERSION,
+        "kind": "CloudMap",
+        "artifacts": {
+            "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest": {
+                "versions": {"{?tag}": {}}
+            },
+            # a template can expand into the whole url, including the scheme
+            "{+urlvar}": {},
+        },
+        "services": {
+            "https://example.com/app": {"versions": {"{#version}": {}}},
+        },
+    }
+    db = CloudMapDB("cloudmap.yaml", contents=doc, validate=False)
+    assert set(db.artifacts) == {
+        "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest",
+        "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo{&tag}",
+        "{+urlvar}",
+    }
+    assert set(db.services) == {
+        "https://example.com/app",
+        "https://example.com/app{#version}",
+    }
+    # and they can be looked up by pseudo-URL
+    assert db.get_artifact("artifact:{+urlvar}") is db.artifacts["{+urlvar}"]
+    version_url = "https://example.com/app{#version}"
+    assert db.get_service(f"service:[{version_url}]") is db.services[version_url]
+
+
+def test_cloudmap_schema_typed_url_keys():
+    """A typedURLs key is a url, a URI template or a type name -- never two of them.
+
+    The nested ``{label: {url: typeRef}}`` form is a ``oneOf`` between a map of
+    type names and a map of urls, so a key matching both patterns invalidates
+    the whole document.
+    """
+    from unfurl.util import UnfurlSchemaError
+
+    def validates(references) -> bool:
+        doc = {
+            "apiVersion": API_VERSION,
+            "kind": "CloudMap",
+            "artifacts": {"pkg:oci/x": {"references": references}},
+        }
+        try:
+            CloudMapDB("cloudmap.yaml", contents=doc, validate=True)
+            return True
+        except UnfurlSchemaError:
+            return False
+
+    for key in (
+        "git://x/r.git",  # a url
+        "pkg:oci/n",
+        "{+urlvar}",  # a URI template, which is a url, not a type name
+        "{?tag}",
+        "software.Nginx",  # a type name
+        "WebApp@unfurl.cloud/onecommons/std:generic",
+    ):
+        assert validates({"the_db": {key: None}}), key
+        assert validates({key: None}), key
+    # a label is only a key of the outer map, and whitespace is never a key
+    assert validates({"the_db": None})
+    assert not validates({"has space": None})
+    assert not validates({"the_db": {"has space": None}})
+
+
 def test_cloudmap_schema_with_artifacts_and_services():
     """Test CloudMapDB validates artifacts and services sections with new schema."""
     import tempfile

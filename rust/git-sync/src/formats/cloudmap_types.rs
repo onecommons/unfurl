@@ -3370,8 +3370,8 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeKind {
 #[doc = "    ]"]
 #[doc = "  },"]
 #[doc = "  \"propertyNames\": {"]
-#[doc = "    \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).\","]
-#[doc = "    \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\\\s]+$\""]
+#[doc = "    \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix) or a URI template (doesn't start with an expression).\","]
+#[doc = "    \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\\\{)[^\\\\s]+$\""]
 #[doc = "  },"]
 #[doc = "  \"$$target\": \"#/definitions/typeRef\""]
 #[doc = "}"]
@@ -3408,15 +3408,15 @@ impl
         Self(value)
     }
 }
-#[doc = "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix)."]
+#[doc = "Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix) or a URI template (doesn't start with an expression)."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix).\","]
+#[doc = "  \"description\": \"Type name (e.g., software.Nginx, capabilities.GitOps). Not a URL (no scheme prefix) or a URI template (doesn't start with an expression).\","]
 #[doc = "  \"type\": \"string\","]
-#[doc = "  \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\\\s]+$\""]
+#[doc = "  \"pattern\": \"^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\\\{)[^\\\\s]+$\""]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
@@ -3439,10 +3439,12 @@ impl ::std::str::FromStr for TypeRefKey {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
             ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$").unwrap()
+                ::regress::Regex::new("^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$").unwrap()
             });
         if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^(?![A-Za-z][A-Za-z0-9+.-]*:)[^\\s]+$\"".into());
+            return Err(
+                "doesn't match pattern \"^(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$\"".into(),
+            );
         }
         Ok(Self(value.to_string()))
     }
@@ -3825,8 +3827,8 @@ impl ::std::convert::TryFrom<::std::string::String> for TypeStatus {
 #[doc = "          ]"]
 #[doc = "        },"]
 #[doc = "        \"propertyNames\": {"]
-#[doc = "          \"description\": \"URL (starts with a scheme).\","]
-#[doc = "          \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "          \"description\": \"URL (starts with a scheme) or a URI template expression that can expand into one (starts with \\\"{\\\"); i.e. anything that isn't a type name.\","]
+#[doc = "          \"pattern\": \"^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\\\{)[^\\\\s]+$)[^\\\\s]+$\""]
 #[doc = "        }"]
 #[doc = "      }"]
 #[doc = "    ]"]
@@ -3958,8 +3960,8 @@ impl<'de> ::serde::Deserialize<'de> for TypedUrLsKey {
 #[doc = "        ]"]
 #[doc = "      },"]
 #[doc = "      \"propertyNames\": {"]
-#[doc = "        \"description\": \"URL (starts with a scheme).\","]
-#[doc = "        \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "        \"description\": \"URL (starts with a scheme) or a URI template expression that can expand into one (starts with \\\"{\\\"); i.e. anything that isn't a type name.\","]
+#[doc = "        \"pattern\": \"^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\\\{)[^\\\\s]+$)[^\\\\s]+$\""]
 #[doc = "      }"]
 #[doc = "    }"]
 #[doc = "  ]"]
@@ -3994,15 +3996,15 @@ impl
         Self::Variant2(value)
     }
 }
-#[doc = "URL (starts with a scheme)."]
+#[doc = "URL (starts with a scheme) or a URI template expression that can expand into one (starts with \"{\"); i.e. anything that isn't a type name."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"URL (starts with a scheme).\","]
+#[doc = "  \"description\": \"URL (starts with a scheme) or a URI template expression that can expand into one (starts with \\\"{\\\"); i.e. anything that isn't a type name.\","]
 #[doc = "  \"type\": \"string\","]
-#[doc = "  \"pattern\": \"^[A-Za-z][A-Za-z0-9+.-]*:\""]
+#[doc = "  \"pattern\": \"^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\\\{)[^\\\\s]+$)[^\\\\s]+$\""]
 #[doc = "}"]
 #[doc = r" ```"]
 #[doc = r" </details>"]
@@ -4025,10 +4027,11 @@ impl ::std::str::FromStr for TypedUrLsValueVariant2Key {
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
             ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^[A-Za-z][A-Za-z0-9+.-]*:").unwrap()
+                ::regress::Regex::new("^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$)[^\\s]+$")
+                    .unwrap()
             });
         if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[A-Za-z][A-Za-z0-9+.-]*:\"".into());
+            return Err ("doesn't match pattern \"^(?!(?![A-Za-z][A-Za-z0-9+.-]*:)(?!\\{)[^\\s]+$)[^\\s]+$\"" . into ()) ;
         }
         Ok(Self(value.to_string()))
     }

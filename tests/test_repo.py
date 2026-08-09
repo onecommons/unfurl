@@ -19,6 +19,7 @@ from git import Repo
 from unfurl.configurator import Configurator, Status
 from toscaparser.common.exception import URLException
 from unfurl.testing import run_cmd
+from unfurl.util import split_url_fragment
 from unfurl.yamlmanifest import YamlManifest
 from .utils import print_config
 
@@ -1015,3 +1016,36 @@ def test_init_commit_author(author_env, tmp_path):
     assert all(a[:2] == ("Ada Lovelace", "ada@example.com") for a in authors[:-2])
     # the initial commit is still tagged, i.e. it wasn't skipped
     assert "INITIAL" in [t.name for t in repo.repo.tags]
+
+
+def test_uri_template_git_urls():
+    """A "#" inside an expression is part of it, not the start of the fragment."""
+    assert split_url_fragment("git://a.com/x.git{#ref}") == (
+        "git://a.com/x.git{#ref}",
+        "",
+    )
+    assert split_url_fragment("git://a.com/x.git#{+ref}:src") == (
+        "git://a.com/x.git",
+        "{+ref}:src",
+    )
+    # unchanged for urls without templates
+    assert split_url_fragment("git://a.com/x.git#v1:src") == (
+        "git://a.com/x.git",
+        "v1:src",
+    )
+    assert split_git_url("git://a.com/x.git{#ref}") == (
+        "git://a.com/x.git{#ref}",
+        "",
+        "",
+    )
+    assert split_git_url("git://a.com/x.git#{+ref}:src/{name}") == (
+        "git://a.com/x.git",
+        "src/{name}",
+        "{+ref}",
+    )
+    assert split_git_url_with_commit("git://a.com/x.git#main~abc123:src") == (
+        "git://a.com/x.git",
+        "src",
+        "main",
+        "abc123",
+    )

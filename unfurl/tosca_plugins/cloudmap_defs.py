@@ -36,6 +36,7 @@ from typing_extensions import Literal, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from unfurl.repo import normalize_git_url, split_git_url, git_url_join
+from unfurl.util import URI_TEMPLATE_EXPRESSION, has_uri_template, split_url_fragment
 from unfurl.tosca_plugins.functions import ContainerImageParts
 
 if TYPE_CHECKING:
@@ -64,11 +65,125 @@ def validate_url(url: str, field_name: str = "URL") -> str:
     return url
 
 
+# the "?" that starts a url's query string (see _URL_FRAGMENT in unfurl/util.py)
+_URL_QUERY = re.compile(r"(?<!\{)\?")
+# an expression at the end of a url part, e.g. the query of "https://x/app{?tag}"
+_TRAILING_URI_TEMPLATE = re.compile(r"\{([+#./;?&])?[^{}]*\}$")
+# a url scheme; matched without urlparse so an expression can't be mistaken for one
+_URL_SCHEME = re.compile(r"[a-zA-Z][a-zA-Z0-9+.\-]*(?=:)")
+# expression operators that set the same part of a url as the key of this dict
+_SAME_URL_PART = {"?": ("?", "&"), "&": ("?", "&"), "#": ("#",)}
+# characters urlencode() shouldn't escape when merging query strings
+_QUERY_SAFE = ":/@{},*"
+
+
+def url_scheme(url: str) -> str:
+    """Return the scheme of ``url``, or "" if it doesn't have one.
+
+    Unlike :func:`urllib.parse.urlparse` this never raises and a leading URI
+    template expression can't be mistaken for a scheme.
+    """
+    match = _URL_SCHEME.match(url)
+    return match.group(0).lower() if match else ""
+
+
+def _split_url_parts(url: str) -> Tuple[str, str, str]:
+    """Split ``url`` into the part before its query, its query and its fragment.
+
+    A "?" or "#" that follows a "{" is the operator of a URI template expression
+    (``{?var}``, ``{#var}``), not a delimiter, so :func:`urllib.parse.urlparse`
+    can't be used here.
+    """
+    head, fragment = split_url_fragment(url)
+    parts = _URL_QUERY.split(head, 1)
+    if len(parts) > 1:
+        return parts[0], parts[1], fragment
+    return head, "", fragment
+
+
+def _strip_trailing_template(part: str, operator: str) -> str:
+    """Remove a trailing expression from ``part`` if it sets the same url part."""
+    trailing = _TRAILING_URI_TEMPLATE.search(part)
+    if trailing and (trailing.group(1) or "") in _SAME_URL_PART[operator]:
+        return part[: trailing.start()]
+    return part
+
+
+def _join_template_url(base_url: str, join_url: str, expression: "re.Match") -> str:
+    """Merge a version key that starts with a URI template expression into ``base_url``.
+
+    The expression's operator says which part of the base url the key sets:
+    "?" and "&" the query, "#" the fragment, and "/", ";" and "." the path.
+
+    Args:
+        base_url: The url of the record the version is a variant of.
+        join_url: The version key, e.g. ``{?tag}``.
+        expression: The leading expression of ``join_url``, already matched.
+
+    Returns:
+        The version's url, or ``join_url`` unchanged if the expression's
+        operator doesn't name a part of the url.
+    """
+    operator = expression.group(1) or ""
+    if operator in ("", "+"):
+        # "+" expands to reserved characters too, so the key can be a whole url,
+        # and the default operator expands to a single percent-encoded value:
+        # neither says what part of the url the key is, so use it as-is
+        return join_url
+    prefix, query, fragment = _split_url_parts(base_url)
+    if operator == "#":
+        fragment = ""
+    elif operator in ("?", "&") and query and not has_uri_template(query):
+        # drop the parameters the expression sets, the way literal keys merge
+        varnames = {
+            name.partition(":")[0].rstrip("*")
+            for name in expression.group(2).split(",")
+        }
+        params = [
+            param
+            for param in parse_qsl(query, keep_blank_values=True)
+            if param[0] not in varnames
+        ]
+        query = urlencode(params, safe=_QUERY_SAFE)
+    if operator in _SAME_URL_PART:
+        # a url has one query and one fragment, so an expression already setting
+        # that part is replaced instead of appended to
+        if query and operator != "#":
+            query = _strip_trailing_template(query, operator)
+        else:
+            prefix = _strip_trailing_template(prefix, operator)
+    if operator in ("?", "&"):
+        # a query string starts with "?" and continues with "&"
+        wanted = "&" if query else "?"
+        if operator != wanted:
+            join_url = "{" + wanted + join_url[2:]
+    parts = [prefix]
+    if operator in ("/", ";", "."):
+        parts.append(join_url)  # a path segment, parameter or label
+    if query:
+        parts.append("?" + query)
+    if operator in ("?", "&"):
+        parts.append(join_url)
+    if fragment:
+        parts.append("#" + fragment)
+    if operator == "#":
+        parts.append(join_url)
+    return "".join(parts)
+
+
 def join_resource_url(base_url: str, join_url: str) -> str:
     assert join_url
-    base = urlparse(base_url)
-    if not base.scheme:
+    if not url_scheme(base_url):
         return join_url  # if base_url is not an absolute URL, just return the join_url
+    expression = URI_TEMPLATE_EXPRESSION.match(
+        join_url
+    )  # starts with a {var} expression
+    if expression and expression.group(1):
+        # the key is a URI template, its operator says what part of the url it is.
+        # (the default operator is percent-encoded so it expands to a single
+        # value, like a bare version key: fall through and treat it as one.)
+        return _join_template_url(base_url, join_url, expression)
+    base = urlparse(base_url)
     join = urlparse(join_url)
     if base.scheme == "git" and not join.scheme:
         base_url, file_path, revision = split_git_url(base_url)
@@ -91,7 +206,7 @@ def join_resource_url(base_url: str, join_url: str) -> str:
             join_keys = {key for key, _value in join_params}
             merged_params = [item for item in base_params if item[0] not in join_keys]
             merged_params.extend(join_params)
-            replace["query"] = urlencode(merged_params, safe=":/@")
+            replace["query"] = urlencode(merged_params, safe=_QUERY_SAFE)
         else:
             replace["query"] = join.query
     if join.path:
@@ -774,10 +889,14 @@ class Artifact(VersionedRecord):
     def __post_init__(self, _parent: Optional["Artifact"] = None):
         # Validate pkg URL
         if self.url:
-            parts = urlparse(self.url)  # just to parse and validate
-            if not parts.scheme:  # migrate old cloudmap format
-                self.url = build_oci_purl(ContainerImageParts.split(self.url))
-            elif parts.scheme not in ["pkg", "git"]:
+            scheme = url_scheme(self.url)
+            if not scheme:
+                # a URI template can expand into the scheme (e.g. "{+urlvar}"),
+                # so leave it alone -- converting it would escape the expression
+                if not has_uri_template(self.url):
+                    # migrate old cloudmap format
+                    self.url = build_oci_purl(ContainerImageParts.split(self.url))
+            elif scheme not in ["pkg", "git"]:
                 raise ValueError(f"Artifact.url must be a pkg URL: {self.url!r}")
 
         if not isinstance(self.metadata, ArtifactMetadata):
@@ -805,8 +924,10 @@ class Artifact(VersionedRecord):
     def get_repository_url(self) -> Optional[str]:
         """If the artifact references a repository, return the git:// URL for that repository."""
         if self.url.startswith("git://"):
-            url = self.url.partition("#")[0]
-            if not url.endswith(".git"):
+            # a "#" inside a URI template expression isn't the fragment
+            url = split_url_fragment(self.url)[0]
+            if not url.endswith(".git") and not _TRAILING_URI_TEMPLATE.search(url):
+                # (an expression can expand into the ".git" suffix)
                 url += ".git"
             return url
         return None

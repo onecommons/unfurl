@@ -76,6 +76,39 @@ API_VERSION = "unfurl/v1.0.0"
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
 
+# a URI template expression (RFC 6570), e.g. "{?tag,digest}" or "{+base}".
+# Only the operators RFC 6570 § 2.2 defines are matched as such; the ones it
+# reserves for future extensions ("=,!@|") are not valid in a template, so an
+# expression starting with one is treated as having no operator.
+URI_TEMPLATE_EXPRESSION = re.compile(r"\{([+#./;?&])?([^{}]*)\}")
+# the "#" that starts a url fragment: an expression's operator is the character
+# after its "{", so a "#" there is part of the expression, not a delimiter
+_URL_FRAGMENT = re.compile(r"(?<!\{)#")
+
+
+def has_uri_template(url: str) -> bool:
+    """Return True if ``url`` contains a URI template expression (RFC 6570)."""
+    return URI_TEMPLATE_EXPRESSION.search(url) is not None
+
+
+def split_url_fragment(url: str) -> Tuple[str, str]:
+    """Split ``url`` into the part before its fragment and the fragment.
+
+    A "#" that follows a "{" is the operator of a URI template expression
+    (``{#var}``), not the start of the fragment, so
+    :func:`urllib.parse.urlparse` can't be used here.
+
+    Args:
+        url: The url to split.
+
+    Returns:
+        ``url`` without its fragment and the fragment, which is "" if ``url``
+        doesn't have one.
+    """
+    parts = _URL_FRAGMENT.split(url, 1)
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
 _package_digest: Optional[str] = None
 
 
