@@ -54,10 +54,6 @@ pub mod error {
 #[doc = "          \"description\": \"Indicates whether the artifact identifier refers to an artifact that will not change.\","]
 #[doc = "          \"type\": \"boolean\""]
 #[doc = "        },"]
-#[doc = "        \"instantiated_by\": {"]
-#[doc = "          \"description\": \"URLs referencing instantiations that created or validated this artifact.\","]
-#[doc = "          \"$ref\": \"#/definitions/typedURLs\""]
-#[doc = "        },"]
 #[doc = "        \"metadata\": {"]
 #[doc = "          \"description\": \"Human-readable metadata about the artifact.\","]
 #[doc = "          \"allOf\": ["]
@@ -143,7 +139,7 @@ pub struct Artifact {
     #[doc = "Indicates whether the artifact identifier refers to an artifact that will not change."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub immutable: ::std::option::Option<bool>,
-    #[doc = "URLs referencing instantiations that created or validated this artifact."]
+    #[doc = "URLs referencing instantiations that created or validated this record."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub instantiated_by: ::std::option::Option<TypedUrLs>,
     #[doc = "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."]
@@ -1107,10 +1103,6 @@ impl<'de> ::serde::Deserialize<'de> for CloudMapSchemaTypesKey {
 #[doc = "          \"description\": \"Human-readable metadata about the service.\","]
 #[doc = "          \"$ref\": \"#/definitions/metadata\""]
 #[doc = "        },"]
-#[doc = "        \"source\": {"]
-#[doc = "          \"description\": \"Repository or artifact URL.\","]
-#[doc = "          \"type\": \"string\""]
-#[doc = "        },"]
 #[doc = "        \"status\": {"]
 #[doc = "          \"description\": \"Lifecycle status of the component.\","]
 #[doc = "          \"$ref\": \"#/definitions/lifecycle_status\""]
@@ -1149,6 +1141,9 @@ pub struct Component {
     #[doc = "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub dependencies: ::std::option::Option<TypedUrLs>,
+    #[doc = "URLs referencing instantiations that created or validated this record."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub instantiated_by: ::std::option::Option<TypedUrLs>,
     #[doc = "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub instantiates: ::std::option::Option<TypedUrLs>,
@@ -1158,9 +1153,6 @@ pub struct Component {
     #[doc = "(Build-time or run-time) Map of URLs of interesting artifacts, repositories or services that this artifact may reference when executed or instantiated."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub references: ::std::option::Option<TypedUrLs>,
-    #[doc = "Repository or artifact URL."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub source: ::std::option::Option<::std::string::String>,
     #[doc = "Lifecycle status of the component."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub status: ::std::option::Option<LifecycleStatus>,
@@ -1183,10 +1175,10 @@ impl ::std::default::Default for Component {
         Self {
             contains: Default::default(),
             dependencies: Default::default(),
+            instantiated_by: Default::default(),
             instantiates: Default::default(),
             metadata: Default::default(),
             references: Default::default(),
-            source: Default::default(),
             status: Default::default(),
             type_: Default::default(),
             versions: Default::default(),
@@ -2124,6 +2116,10 @@ impl ::std::convert::From<f64> for MetadataVersion {
 #[doc = "      \"description\": \"Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional.\","]
 #[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
 #[doc = "    },"]
+#[doc = "    \"instantiated_by\": {"]
+#[doc = "      \"description\": \"URLs referencing instantiations that created or validated this record.\","]
+#[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
+#[doc = "    },"]
 #[doc = "    \"instantiates\": {"]
 #[doc = "      \"description\": \"Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints.\","]
 #[doc = "      \"$ref\": \"#/definitions/typedURLs\""]
@@ -2145,6 +2141,9 @@ pub struct Relationships {
     #[doc = "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub dependencies: ::std::option::Option<TypedUrLs>,
+    #[doc = "URLs referencing instantiations that created or validated this record."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub instantiated_by: ::std::option::Option<TypedUrLs>,
     #[doc = "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub instantiates: ::std::option::Option<TypedUrLs>,
@@ -2157,6 +2156,7 @@ impl ::std::default::Default for Relationships {
         Self {
             contains: Default::default(),
             dependencies: Default::default(),
+            instantiated_by: Default::default(),
             instantiates: Default::default(),
             references: Default::default(),
         }
@@ -3545,6 +3545,9 @@ pub struct TypeRefValue {
     #[doc = "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub dependencies: ::std::option::Option<TypedUrLs>,
+    #[doc = "URLs referencing instantiations that created or validated this record."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub instantiated_by: ::std::option::Option<TypedUrLs>,
     #[doc = "Map of URLs (or labels) of entities (e.g., software package, service image or template, capabilities pipeline, build tools) that this artifact instantiates with optional type constraints."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub instantiates: ::std::option::Option<TypedUrLs>,
@@ -3572,6 +3575,7 @@ impl ::std::default::Default for TypeRefValue {
         Self {
             contains: Default::default(),
             dependencies: Default::default(),
+            instantiated_by: Default::default(),
             instantiates: Default::default(),
             metadata: Default::default(),
             model: Default::default(),

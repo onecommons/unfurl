@@ -181,13 +181,13 @@ pub struct CloudmapComponent {
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
+    pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub references: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
-    /// Repository or artifact URL.
-    pub source: Option<String>,
     pub status: Option<CloudmapLifecycleStatus>,
     /// Type references with optional constraints. Keys are type names, values are either null or objects with constraint properties such as version.
     #[serde(rename = "type")]
@@ -365,6 +365,8 @@ pub struct CloudmapRelationships {
     pub contains: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub dependencies: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
+    /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
+    pub instantiated_by: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.
     pub instantiates: Option<std::collections::HashMap<String, Box<CloudmapTypeRef>>>,
     /// Map of URLs with optional type references. Keys are URLs, values are type references with optional constraints or "metadata". Alternatively, keys can be labels and its value a nested typed URL map.

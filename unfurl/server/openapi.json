@@ -1783,10 +1783,6 @@
                 "description": "Indicates whether the artifact identifier refers to an artifact that will not change.",
                 "type": "boolean"
               },
-              "instantiated_by": {
-                "$ref": "#/components/schemas/cloudmap_typedURLs",
-                "description": "URLs referencing instantiations that created or validated this artifact."
-              },
               "metadata": {
                 "allOf": [
                   {
@@ -1864,10 +1860,6 @@
               "metadata": {
                 "$ref": "#/components/schemas/cloudmap_metadata",
                 "description": "Human-readable metadata about the service."
-              },
-              "source": {
-                "description": "Repository or artifact URL.",
-                "type": "string"
               },
               "status": {
                 "$ref": "#/components/schemas/cloudmap_lifecycle_status",
@@ -2163,6 +2155,10 @@
           "dependencies": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",
             "description": "Build-time or run-time, dependencies the user may provide or configure. if url, it could be service use needs an account on or a default. Software, services, or environment context that the instantiation may depend on. Keys are labels or URLs, values are type constraints of components or capabilities. Non-exhaustive: for example, the artifact type may imply additional requirements or some dependencies might be optional."
+          },
+          "instantiated_by": {
+            "$ref": "#/components/schemas/cloudmap_typedURLs",
+            "description": "URLs referencing instantiations that created or validated this record."
           },
           "instantiates": {
             "$ref": "#/components/schemas/cloudmap_typedURLs",

@@ -689,8 +689,8 @@ class Instantiation(VersionedRecord):
     """
     Build and deployment information for artifacts and services.
 
-    Stored in CloudMapDB.instantiations with URL keys and referenced by
-    Artifact.instantiated_by and Service.instantiated_by.
+    Stored in CloudMapDB.instantiations with URL keys and referenced by the
+    ``instantiated_by`` of an artifact, a component or a service.
     """
 
     url: str = ""
@@ -974,14 +974,12 @@ class Artifact(VersionedRecord):
 class Component(VersionedRecord):
     """
     A component that describes relationships (references, instantiates,
-    dependencies) and is identified by URL or label.
+    dependencies, instantiated_by) and is identified by URL or label.
     """
 
     url: str
     type: TypeRefs = field(default_factory=TypeRefs)
     """Type identifier from types/components with optional version constraints"""
-    source: str = ""
-    """Repository or artifact URL."""
     contains: TypedUrls = field(default_factory=dict)
     """Map of URLs of interesting artifacts that this component embeds or incorporates."""
     references: TypedUrls = field(default_factory=dict)
@@ -990,6 +988,8 @@ class Component(VersionedRecord):
     """Map of URLs (or labels) of entities this component instantiates with optional type constraints."""
     dependencies: TypedUrls = field(default_factory=dict)
     """Software, services, or environment context that this component may depend on. Keys are labels or URLs, values are type constraints of components or capabilities."""
+    instantiated_by: TypedUrls = field(default_factory=dict)
+    """URLs referencing entries in instantiations with optional type constraints."""
     metadata: CommonMetadata = field(default_factory=CommonMetadata)
     """Human-readable metadata"""
     status: Optional[LifecycleStatus] = None
@@ -1001,8 +1001,6 @@ class Component(VersionedRecord):
     def __post_init__(self, _parent: Optional["Component"] = None):
         if self.url:
             self.url = validate_url(self.url, "Component.url")
-        if self.source:
-            self.source = validate_url(self.source, "Component.source")
         if not isinstance(self.metadata, CommonMetadata):
             self.metadata = CommonMetadata(**(self.metadata or {}))
         if not isinstance(self.type, TypeRefs):
@@ -1011,6 +1009,9 @@ class Component(VersionedRecord):
         self.references = TypeRefs.urls_fromdict(self.references)
         self.instantiates = TypeRefs.urls_fromdict(self.instantiates)
         self.dependencies = TypeRefs.urls_fromdict(self.dependencies)
+        if isinstance(self.instantiated_by, list):
+            self.instantiated_by = {url: None for url in self.instantiated_by}
+        self.instantiated_by = TypeRefs.urls_fromdict(self.instantiated_by)
         if self.versions:
             self.versions = self._load_versions()
         self._parent = _parent  # type: ignore  # (don't mark as field to exclude from asdict)
@@ -1031,6 +1032,8 @@ class Component(VersionedRecord):
             elif k == "instantiates":
                 v = TypeRefs.urls_asdict(v)
             elif k == "dependencies":
+                v = TypeRefs.urls_asdict(v)
+            elif k == "instantiated_by":
                 v = TypeRefs.urls_asdict(v)
             elif k == "versions" and v:
                 v = {

@@ -163,11 +163,11 @@ impl DataFormat for CloudMapFormat {
             }
             "components" => {
                 if let Ok(comp) = serde_json::from_value::<ct::Component>(json.clone()) {
-                    push_opt(&mut urls, comp.source);
                     extend_url_keys(&mut urls, comp.contains.as_ref());
                     extend_url_keys(&mut urls, comp.references.as_ref());
                     extend_url_keys(&mut urls, comp.dependencies.as_ref());
                     extend_url_keys(&mut urls, comp.instantiates.as_ref());
+                    extend_url_keys(&mut urls, comp.instantiated_by.as_ref());
                 }
             }
             "instantiations" => {

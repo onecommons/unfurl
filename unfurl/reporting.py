@@ -748,10 +748,6 @@ class CloudMapGraphWalker:
 
         elif kind == "Component":
             assert isinstance(record, Component)
-            if record.source:
-                self.visitor.visit_relationship("source")
-                self._walk_child(record.source, visited)
-                self.visitor.leave_relationship("source")
             if record.contains:
                 self._walk_typed_urls("contains", record.contains, visited)
             if record.references:
@@ -760,6 +756,10 @@ class CloudMapGraphWalker:
                 self._walk_typed_urls("instantiates", record.instantiates, visited)
             if record.dependencies:
                 self._walk_typed_urls("dependencies", record.dependencies, visited)
+            if record.instantiated_by:
+                self._walk_typed_urls(
+                    "instantiated_by", record.instantiated_by, visited
+                )
 
         elif kind == "Type":
             assert isinstance(record, CloudType)
