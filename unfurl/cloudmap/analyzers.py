@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from urllib.parse import parse_qs, quote, unquote, urlparse
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
 from typing_extensions import Literal, Self
 from toscaparser.nodetemplate import NodeTemplate
@@ -20,6 +21,7 @@ from . import (
     get_repository_url,
 )
 from ..graphql import (
+    ResourceType,
     ResourceTypesByName,
     get_deployment_url,
     TypeName,
@@ -274,27 +276,24 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         topology: TopologySpec,
         types: ResourceTypesByName,
         entity_type: StatefulEntityType,
-    ):
-        dep_type_info = None
-        dep_type_dict = cast(
-            Optional[dict],
-            node_type_to_graphql(
-                topology,
-                entity_type,
-                types,
-                True,
-            ),
+    ) -> ResourceType:
+        dep_type_info = node_type_to_graphql(
+            topology,
+            entity_type,
+            types,
+            True,
         )
-        if dep_type_dict:
-            dep_type_dict.pop("__typename", None)
-            dep_type_info = filter_dict(dep_type_dict)
 
         # Fallback to minimal CloudType if type not found in custom_defs
         if not dep_type_info:
-            dep_type_info = {
-                "name": entity_type.global_name,
-                "title": entity_type.local_name,
-            }
+            dep_type_info = ResourceType(
+                __typename="ResourceType",
+                name=entity_type.global_name,
+                title=entity_type.local_name,
+                extends=[],
+                inputsSchema={},
+                requirements=[],
+            )
 
         return dep_type_info
 
@@ -357,7 +356,6 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
             directory: CloudMapView to add instantiation and service to
             artifact: The ensemble artifact
         """
-        from urllib.parse import quote
 
         # Get spec repository for source information
         spec_repo_view = manifest.repositories.get("spec")
@@ -455,7 +453,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
 
 
 def create_cloud_type_from_type_info(
-    type_info: Dict[str, Any], ctx: Optional[AnalyzerContext] = None
+    type_info: ResourceType, ctx: Optional[AnalyzerContext] = None
 ) -> Optional[CloudType]:
     """
     Create a CloudType from type_info dict if it doesn't already exist.
@@ -479,11 +477,15 @@ def create_cloud_type_from_type_info(
     if type_info.get("title"):
         metadata.title = type_info["title"]
 
+    # XXX include properties schema
+    # properties_schema = type_info.get("computedPropertiesSchema", {})
+    # properties_schema.update(type_info.get("inputsSchema", {}))
     return CloudType(
         name=type_name,
         kind="Component",  # XXX inferred from artifact_type
         metadata=metadata,
-        extends=type_info.get("extends", []),
+        # properties=properties_schema,
+        extends=cast(List[str], type_info.get("extends", [])),
     )
 
 
@@ -497,7 +499,7 @@ def create_artifact_from_notable(
     contains: Optional[TypedUrls] = None,
     references: Optional[TypedUrls] = None,
     dependencies: Optional[TypedUrls] = None,
-    type_info: Optional[Dict[str, Any]] = None,
+    type_info: Optional[ResourceType] = None,
     ctx: Optional[AnalyzerContext] = None,
     digest: str = "",
     instantiates_key: str = "",
@@ -699,8 +701,6 @@ class OCIArtifactAnalyzer(URLAnalyzer):
 
     @classmethod
     def init_from_url(cls, url, parsed) -> Optional[Self]:
-        from urllib.parse import parse_qs, unquote, urlparse
-
         # path is e.g. "oci/nginx@sha256:..." or "docker/library/nginx@latest"
         pkg_type, _, name_and_version = parsed.path.partition("/")
         if pkg_type not in ("oci", "docker"):
@@ -762,8 +762,6 @@ class GenericPkgArtifactAnalyzer(URLAnalyzer):
 
     @classmethod
     def init_from_url(cls, url, parsed) -> Optional[Self]:
-        from urllib.parse import unquote
-
         # pkg:<type>/<namespace>/<name>@<version>?<qualifiers>#<subpath>
         _pkg_type, _, name_and_version = parsed.path.partition("/")
         name_part, _, version = name_and_version.partition("@")
