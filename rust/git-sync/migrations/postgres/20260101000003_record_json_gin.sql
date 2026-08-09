@@ -1,0 +1,11 @@
+-- GIN index over each record's whole JSON payload, for the `json_query`
+-- filter in db::record::find (`r.json @? $N::jsonpath`).
+--
+-- `jsonb_path_ops` indexes value paths rather than individual keys: it is
+-- smaller than the default `jsonb_ops` and serves `@>`, `@?` and `@@`, which
+-- is all this filter needs. It does *not* serve the key-existence operators
+-- (`?`, `?|`), so idx_record_type_gin above stays for the `type_names` filter.
+--
+-- Only the operator form is indexable -- `jsonb_path_exists(json, path, vars)`
+-- as a function call plans as a sequential scan.
+CREATE INDEX idx_record_json_gin ON record USING GIN (json jsonb_path_ops);

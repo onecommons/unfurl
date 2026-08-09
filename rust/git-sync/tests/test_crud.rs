@@ -14,7 +14,7 @@ mod common;
 use common::pg_fixture;
 use common::sqlite_fixture;
 use tempfile::TempDir;
-use unfurl_git_sync::{BatchOp, CommitRef, Error, SyncedRepo};
+use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, SyncedRepo};
 
 // ---------------------------------------------------------------------------
 // Test bodies
@@ -458,6 +458,7 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             None,
             Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
+            None,
         )
         .await
         .expect("type filter");
@@ -483,6 +484,7 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
                 "Odoo@unfurl.cloud/onecommons/blueprints/odoo".into(),
                 "no.such.Type".into(),
             ]),
+            None,
         )
         .await
         .expect("multi type filter");
@@ -498,6 +500,7 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             None,
             Some(vec!["no.such.Type".into()]),
+            None,
         )
         .await
         .expect("unknown type");
@@ -505,11 +508,11 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // An empty name list is treated as "no filter", not "match none".
     let all = sync
-        .find_records(None, None, None, false, None, Some(Vec::new()))
+        .find_records(None, None, None, false, None, Some(Vec::new()), None)
         .await
         .expect("empty type list");
     let unfiltered = sync
-        .find_records(None, None, None, false, None, None)
+        .find_records(None, None, None, false, None, None, None)
         .await
         .expect("unfiltered");
     assert_eq!(all.len(), unfiltered.len());
@@ -558,6 +561,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             None,
             None,
+            None,
         )
         .await
         .expect("find_records direct");
@@ -577,6 +581,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             false,
             None,
             None,
+            None,
         )
         .await
         .expect("find_records without alias");
@@ -594,6 +599,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             true,
             None,
             None,
+            None,
         )
         .await
         .expect("find_records via alias");
@@ -607,11 +613,19 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(None, Some(parent_path.into()), None, true, None, None)
+        .find_records(None, Some(parent_path.into()), None, true, None, None, None)
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
-        .find_records(None, Some(parent_path.into()), None, false, None, None)
+        .find_records(
+            None,
+            Some(parent_path.into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("find_records no key, alias=false");
     assert_eq!(
@@ -696,6 +710,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             None,
             Vec::new(),
             None,
+            None,
         )
         .await
         .expect("follow 0");
@@ -714,6 +729,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             10,
             None,
             Vec::new(),
+            None,
             None,
         )
         .await
@@ -784,6 +800,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
             1,
             None,
             Vec::new(),
+            None,
             None,
         )
         .await
@@ -1381,6 +1398,237 @@ crud_test!(
 );
 crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
 crud_test!(find_records_follow_walk, run_find_records_follow_walk);
+async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
+    // A `JsonQuery` is pushed into the SQL WHERE clause. The same predicate has
+    // to mean the same thing on both backends, which is what running this test
+    // under `crud_test!` checks: sqlite uses `json_each`, postgres the `@?`
+    // jsonpath operator (in lax mode, so `[*]` covers arrays and scalars
+    // alike).
+    sync.update_from_working_dir().await.expect("update");
+
+    let find = |tokens: Vec<&str>, value: serde_json::Value| {
+        let q = JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
+            .expect("valid query");
+        async move {
+            sync.find_records(None, None, None, false, None, None, Some(q))
+                .await
+                .expect("json query")
+        }
+    };
+
+    // An array: `metadata/discovery/sources` contains the url.
+    let hits = find(
+        vec!["metadata", "discovery", "sources"],
+        serde_json::json!("https://hub.docker.com/v2/repositories/bitnami/odoo/"),
+    )
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["pkg:oci/odoo?repository_url=docker.io/bitnami/odoo"],
+        "array contains"
+    );
+
+    // A scalar at the same shape of path: `metadata/homepage_url` equals it.
+    let hits = find(
+        vec!["metadata", "homepage_url"],
+        serde_json::json!("https://unfurl.cloud/feb20a/dashboard"),
+    )
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/feb20a/dashboard.git"],
+        "scalar equals"
+    );
+
+    // A member of an object is addressed by putting its key in the path --
+    // `branches` maps a branch name to a sha. Searching the object's *values*
+    // (a `.*` jsonpath) isn't supported: postgres can't serve it from a GIN
+    // index, so neither backend does it.
+    let hits = find(
+        vec!["branches", "main"],
+        serde_json::json!("4551885dfab39991cfdb958cb79fcb6aa282481d"),
+    )
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/feb20a/dashboard.git"],
+        "member addressed by key"
+    );
+    assert!(
+        find(
+            vec!["branches"],
+            serde_json::json!("4551885dfab39991cfdb958cb79fcb6aa282481d"),
+        )
+        .await
+        .is_empty(),
+        "the object itself doesn't match one of its members"
+    );
+
+    // An array of strings.
+    let hits = find(vec!["metadata", "topics"], serde_json::json!("library")).await;
+    assert!(
+        hits.iter()
+            .any(|r| r.key == "git://unfurl.cloud/onecommons/std.git"),
+        "array of topics: {:?}",
+        hits.iter().map(|r| &r.key).collect::<Vec<_>>()
+    );
+
+    // An array *literal* is an exact match rather than a containment test:
+    // same elements, same order. The fixture's std.git has
+    // `metadata/topics: [documentation, library]`.
+    let std_repo = "git://unfurl.cloud/onecommons/std.git";
+    let hits = find(
+        vec!["metadata", "topics"],
+        serde_json::json!(["documentation", "library"]),
+    )
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec![std_repo],
+        "exact array"
+    );
+    // a subset isn't equal...
+    assert!(
+        find(vec!["metadata", "topics"], serde_json::json!(["library"]))
+            .await
+            .is_empty(),
+        "a subset is not an exact match"
+    );
+    // ...nor is the same set in a different order
+    assert!(
+        find(
+            vec!["metadata", "topics"],
+            serde_json::json!(["library", "documentation"]),
+        )
+        .await
+        .is_empty(),
+        "element order matters"
+    );
+    // while a scalar still means "contains"
+    let hits = find(vec!["metadata", "topics"], serde_json::json!("library")).await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec![std_repo],
+        "scalar still means contains"
+    );
+
+    // `^=` (a `StartsWith` query) matches a string prefix, and -- like the
+    // scalar `=` form -- any element of an array at the path.
+    let prefix = |tokens: Vec<&str>, value: &str| {
+        let q = JsonQuery::starts_with(
+            tokens.into_iter().map(str::to_string).collect(),
+            value.to_string(),
+        )
+        .expect("valid prefix query");
+        async move {
+            sync.find_records(None, None, None, false, None, None, Some(q))
+                .await
+                .expect("prefix query")
+        }
+    };
+    let hits = prefix(
+        vec!["metadata", "homepage_url"],
+        "https://unfurl.cloud/feb20a",
+    )
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/feb20a/dashboard.git"],
+        "prefix of a scalar"
+    );
+    let hits = prefix(vec!["metadata", "topics"], "doc").await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec![std_repo],
+        "prefix of an array element"
+    );
+    assert!(
+        prefix(vec!["metadata", "homepage_url"], "https://nope")
+            .await
+            .is_empty(),
+        "a prefix that matches nothing"
+    );
+    // A number never matches a prefix: sqlite's LIKE would coerce it to text
+    // without the clause's `jq.type = 'text'` guard, postgres' `starts with`
+    // is string-only.
+    assert!(
+        prefix(vec!["metadata", "version"], "0.").await.is_empty(),
+        "a number is not a string with that prefix"
+    );
+    // "%" and "_" are literal, not sqlite LIKE wildcards.
+    assert!(
+        prefix(vec!["metadata", "homepage_url"], "https://%")
+            .await
+            .is_empty(),
+        "LIKE metacharacters in the prefix are escaped"
+    );
+
+    // A bare path (no value) is an existence test. Both backends count a
+    // `null` and an empty container as present -- only a path that doesn't
+    // resolve is absent.
+    let exists = |tokens: Vec<&str>| {
+        let q = JsonQuery::exists(tokens.into_iter().map(str::to_string).collect())
+            .expect("valid existence query");
+        async move {
+            sync.find_records(None, None, None, false, None, None, Some(q))
+                .await
+                .expect("existence query")
+        }
+    };
+    assert_eq!(
+        exists(vec!["metadata", "topics"])
+            .await
+            .iter()
+            .map(|r| r.key.as_str())
+            .collect::<Vec<_>>(),
+        vec![std_repo],
+        "only std.git has metadata/topics"
+    );
+    // `contains` holds null-valued members, so the path resolves to a null
+    assert!(
+        !exists(vec!["contains"]).await.is_empty(),
+        "a null-valued member still exists"
+    );
+    assert!(
+        exists(vec!["metadata", "no_such_field"]).await.is_empty(),
+        "a path that doesn't resolve"
+    );
+
+    // An object literal is rejected: postgres compares objects structurally
+    // and sqlite by rendered text, so the backends would disagree.
+    assert!(JsonQuery::new(
+        vec!["metadata".to_string()],
+        serde_json::json!({"title": "x"}),
+    )
+    .is_err());
+
+    // A value that isn't there matches nothing, and neither does a path that
+    // doesn't resolve.
+    assert!(find(
+        vec!["metadata", "homepage_url"],
+        serde_json::json!("https://nope.example.com")
+    )
+    .await
+    .is_empty());
+    assert!(
+        find(vec!["metadata", "nope", "deeper"], serde_json::json!("x"))
+            .await
+            .is_empty()
+    );
+
+    // Types are compared as JSON: the string "1" is not the number 1.
+    let numeric = find(vec!["metadata", "version"], serde_json::json!(1)).await;
+    let stringy = find(vec!["metadata", "version"], serde_json::json!("1")).await;
+    assert_eq!(
+        numeric.len(),
+        0,
+        "fixture has no numeric version 1: {:?}",
+        numeric.iter().map(|r| &r.key).collect::<Vec<_>>()
+    );
+    assert_eq!(stringy.len(), 0);
+}
+
+crud_test!(find_records_json_query, run_find_records_json_query);
 crud_test!(find_records_type_filter, run_find_records_type_filter);
 crud_test!(
     pending_token_distinguishes_concurrent_updates,

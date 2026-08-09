@@ -131,6 +131,119 @@ def _declares_type(record: Any, type_names: Set[str]) -> bool:
     return isinstance(type_ref, dict) and any(k in type_names for k in type_ref)
 
 
+def _json_literal(raw: str) -> Any:
+    """Parse a ``filter`` value the way JSON would, defaulting to a string.
+
+    ``"42"`` (quoted) stays the string ``42`` -- the escape hatch for values
+    that would otherwise be read as a number, a keyword or an array.
+
+    Raises:
+        ValueError: If the value is an object literal (address a member by
+            putting its key in the path instead) or a malformed array.
+    """
+    if len(raw) > 1 and raw.startswith('"') and raw.endswith('"'):
+        return raw[1:-1]
+    if raw.startswith("{"):
+        raise ValueError(
+            "filter value can't be an object: address a member by putting its "
+            "key in the path"
+        )
+    if raw.startswith("["):
+        # an array literal is an exact match; a bad one is an error rather
+        # than a string, which would silently never match
+        try:
+            return json.loads(raw)
+        except ValueError as err:
+            raise ValueError(f"filter value {raw!r} is not valid JSON: {err}") from err
+    if raw in ("true", "false"):
+        return raw == "true"
+    if raw == "null":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        return raw
+
+
+def _parse_json_filter(expr: str) -> Tuple[List[str], Any, str]:
+    """Split a ``filter`` param into JSON Pointer tokens and the value to match.
+
+    Args:
+        expr: ``<json pointer>=<value>``, e.g. ``/metadata/version=1.0``;
+            ``<json pointer>^=<prefix>`` for prefix matching; or a bare
+            ``<json pointer>`` to test that the path exists. A leading "/" is
+            optional; tokens are unescaped per RFC 6901.
+
+    Returns:
+        The pointer's reference tokens, the parsed value, and the operator:
+        ``"eq"``, ``"prefix"`` or ``"exists"``.
+
+    Raises:
+        ValueError: If the filter has an empty path segment.
+    """
+    path, sep, raw = expr.partition("=")
+    path = path.strip()
+    # "^=" is prefix matching; the "^" is at the end of the path half
+    prefix = path.endswith("^")
+    if prefix:
+        path = path[:-1]
+    if not path.startswith("/"):
+        path = "/" + path
+    tokens = [t.replace("~1", "/").replace("~0", "~") for t in path.split("/")[1:]]
+    if not tokens or not all(tokens):
+        raise ValueError(f"filter {expr!r} needs a path of non-empty segments")
+    if not sep:
+        # a bare path: the filter is satisfied when the path resolves
+        return tokens, None, "exists"
+    if prefix:
+        # a prefix is textual, so it is never parsed as JSON -- only unquoted,
+        # so a prefix that looks like a number can be written either way
+        if len(raw) > 1 and raw.startswith('"') and raw.endswith('"'):
+            raw = raw[1:-1]
+        return tokens, raw, "prefix"
+    return tokens, _json_literal(raw), "eq"
+
+
+def _json_filter_matches(
+    record: Any, tokens: List[str], value: Any, op: str = "eq"
+) -> bool:
+    """Whether ``value`` is at ``tokens`` in ``record``.
+
+    Mirrors what the rust path pushes into SQL: a scalar ``value`` matches if
+    the value at the path equals it or is an array containing it, while an
+    array ``value`` is an exact match (same elements, same order). With
+    ``op="prefix"``, a string value at the path -- or any string element of an
+    array there -- has to start with ``value``; with ``op="exists"`` the path
+    just has to resolve. A member of
+    an object is addressed by putting its key in the path, not by searching the
+    object's values -- postgres can't serve that from a GIN index. A path that
+    doesn't resolve never matches.
+    """
+    current: Any = record
+    for token in tokens:
+        if not isinstance(current, dict) or token not in current:
+            return False
+        current = current[token]
+    if op == "exists":
+        # the walk above resolved, so the path is there -- a null or an empty
+        # container counts, only a missing path doesn't
+        return True
+    if op == "prefix":
+        # strings only: a number never matches a prefix, matching postgres'
+        # `starts with` and the sqlite clause's `jq.type = 'text'` guard
+        candidates = current if isinstance(current, list) else [current]
+        return any(isinstance(c, str) and c.startswith(value) for c in candidates)
+    if isinstance(value, list):
+        return current == value
+    if isinstance(current, list):
+        return value in current
+    return current == value
+
+
 # Sentinel distinguishing "pointer didn't resolve" from a legitimate
 # ``None``/``null`` value at the pointed-to location.
 _MISSING = object()
@@ -286,9 +399,29 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     if query.type:
         type_names = _subtype_names(doc.get("types") or {}, query.type)
 
+    # `filter` narrows on the contents of each record: `<json pointer>=<value>`.
+    # The rust fast-path pushes the same test into SQL (`json_each`); here the
+    # document is already in memory, so it runs as a predicate over each record.
+    json_filter: Optional[Tuple[List[str], Any, str]] = None
+    if query.filter:
+        try:
+            json_filter = _parse_json_filter(query.filter)
+        except ValueError as err:
+            return make_response(jsonify(error=str(err)), 400)
+
+    def _matches(record: Any) -> bool:
+        """Whether a record passes the `type` and `query` filters (both optional)."""
+        if type_names is not None and not _declares_type(record, type_names):
+            return False
+        if json_filter is not None and not _json_filter_matches(record, *json_filter):
+            return False
+        return True
+
+    filtered = type_names is not None or json_filter is not None
+
     primary: Dict[str, Any]
     if not kind:
-        if type_names is None:
+        if not filtered:
             primary = doc
         else:
             primary = {}
@@ -296,19 +429,17 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
                 section = doc.get(section_name)
                 if not isinstance(section, dict):
                     continue
-                matches = {
-                    k: v for k, v in section.items() if _declares_type(v, type_names)
-                }
+                matches = {k: v for k, v in section.items() if _matches(v)}
                 if matches:
                     primary[section_name] = matches
     else:
         section = doc.get(kind, {})
         if key is None:
-            if type_names is None:
+            if not filtered:
                 primary = {kind: section}
             else:
                 matches = (
-                    {k: v for k, v in section.items() if _declares_type(v, type_names)}
+                    {k: v for k, v in section.items() if _matches(v)}
                     if isinstance(section, dict)
                     else {}
                 )
@@ -317,9 +448,12 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
             return make_response(
                 jsonify(error=f"key {key!r} not found in {kind!r}"), 404
             )
-        elif type_names is not None and not _declares_type(section[key], type_names):
+        elif not _matches(section[key]):
+            hint = " with matching type" if type_names is not None else ""
+            if json_filter is not None:
+                hint += " matching the filter"
             return make_response(
-                jsonify(error=f"key {key!r} not found in {kind!r} with matching type"),
+                jsonify(error=f"key {key!r} not found in {kind!r}{hint}"),
                 404,
             )
         else:

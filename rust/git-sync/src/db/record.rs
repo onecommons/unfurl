@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 
 use crate::db::Db;
 use crate::error::{Error, Result};
-use crate::model::Record;
+use crate::model::{JsonQuery, QueryOp, Record};
 
 /// `(id, worktree_id, file_path, path, key, commit_id, json_text,
 /// deleted, version)` — the row shape for the SQLite `get_by_id` query.
@@ -323,6 +323,7 @@ pub(crate) async fn find(
     alias: bool,
     since_version: Option<i64>,
     type_names: Option<&[String]>,
+    json_query: Option<&JsonQuery>,
 ) -> Result<Vec<Record>> {
     // The alias OR-clause is a no-op without a key.
     let alias_active = alias && key.is_some();
@@ -340,6 +341,7 @@ pub(crate) async fn find(
                 alias_active,
                 since_version,
                 type_names,
+                json_query,
             )
             .await
         }
@@ -354,6 +356,7 @@ pub(crate) async fn find(
                 alias_active,
                 since_version,
                 type_names,
+                json_query,
             )
             .await
         }
@@ -370,6 +373,7 @@ async fn find_sqlite(
     alias_active: bool,
     since_version: Option<i64>,
     type_names: Option<&[String]>,
+    json_query: Option<&JsonQuery>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
@@ -407,6 +411,72 @@ async fn find_sqlite(
             phs.join(", ")
         ));
     }
+    if let Some(jq) = json_query {
+        // `json_each` unwraps whatever is at the path: one row per element for
+        // an array and a single row for a scalar, so "contains" and "equals"
+        // are the same predicate and the record's shape doesn't have to be
+        // known. Object members are *excluded* (`typeof(jq.key) != 'text'`, an
+        // array's keys being its integer indexes and a scalar's key NULL) to
+        // match postgres, where the equivalent `.*` jsonpath can't use a GIN
+        // index; address a member by putting its key in the query path.
+        // Booleans and null are matched on `type` because sqlite renders them
+        // as 1/0/NULL, which would also equal the numbers 1 and 0.
+        if jq.op == QueryOp::Exists {
+            // `json_type` returns NULL only when the path doesn't resolve; a
+            // JSON null yields the string 'null', so it counts as existing --
+            // same as postgres' bare-path `@?`.
+            sql.push_str(&format!(" AND json_type(r.json, ?{idx}) IS NOT NULL"));
+            idx += 1;
+        } else if jq.op == QueryOp::StartsWith {
+            // `jq.type = 'text'` keeps LIKE from coercing a number to text
+            // (sqlite would match 4200 for the prefix "42"); postgres'
+            // `starts with` is string-only for the same reason.
+            sql.push_str(&format!(
+                " AND EXISTS (SELECT 1 FROM json_each(r.json, ?{idx}) jq \
+                 WHERE jq.type = 'text' AND jq.value LIKE ?{} ESCAPE '\\' \
+                 AND typeof(jq.key) != 'text')",
+                idx + 1
+            ));
+            idx += 2;
+        } else {
+            match &jq.value {
+                // An array literal is an exact match, not a containment test:
+                // compare the whole value at the path. Both sides are minified by
+                // sqlite (`json_extract` renders containers as text, `json()`
+                // normalises the bound literal), so whitespace doesn't matter.
+                serde_json::Value::Array(_) => {
+                    sql.push_str(&format!(
+                        " AND json_extract(r.json, ?{idx}) = json(?{})",
+                        idx + 1
+                    ));
+                    idx += 2;
+                }
+                serde_json::Value::Bool(b) => {
+                    let ty = if *b { "true" } else { "false" };
+                    sql.push_str(&format!(
+                        " AND EXISTS (SELECT 1 FROM json_each(r.json, ?{idx}) jq \
+                     WHERE jq.type = '{ty}' AND typeof(jq.key) != 'text')"
+                    ));
+                    idx += 1;
+                }
+                serde_json::Value::Null => {
+                    sql.push_str(&format!(
+                        " AND EXISTS (SELECT 1 FROM json_each(r.json, ?{idx}) jq \
+                     WHERE jq.type = 'null' AND typeof(jq.key) != 'text')"
+                    ));
+                    idx += 1;
+                }
+                _ => {
+                    sql.push_str(&format!(
+                        " AND EXISTS (SELECT 1 FROM json_each(r.json, ?{idx}) jq \
+                     WHERE jq.value = ?{} AND typeof(jq.key) != 'text')",
+                        idx + 1
+                    ));
+                    idx += 2;
+                }
+            }
+        }
+    }
     if since_version.is_some() {
         sql.push_str(&format!(" AND r.version > ?{idx}"));
         idx += 1;
@@ -429,6 +499,31 @@ async fn find_sqlite(
     if let Some(ts) = type_names {
         for t in ts {
             q = q.bind(t.as_str());
+        }
+    }
+    if let Some(jq) = json_query {
+        q = q.bind(jq.sql_path());
+        if jq.op == QueryOp::Exists {
+            // the path is the whole clause; nothing else to bind
+        } else if jq.op == QueryOp::StartsWith {
+            q = q.bind(jq.like_pattern());
+        } else {
+            match &jq.value {
+                // the `type` clause carries these; no value to bind
+                serde_json::Value::Bool(_) | serde_json::Value::Null => {}
+                // the whole array, rendered as JSON text for `json()`
+                serde_json::Value::Array(_) => q = q.bind(jq.value.to_string()),
+                serde_json::Value::String(s) => q = q.bind(s.clone()),
+                serde_json::Value::Number(n) => {
+                    if let Some(i) = n.as_i64() {
+                        q = q.bind(i);
+                    } else {
+                        q = q.bind(n.as_f64().unwrap_or_default());
+                    }
+                }
+                // arrays/objects can't be compared element-wise; match their text
+                other => q = q.bind(other.to_string()),
+            }
         }
     }
     if let Some(v) = since_version {
@@ -469,6 +564,7 @@ async fn find_pg(
     alias_active: bool,
     since_version: Option<i64>,
     type_names: Option<&[String]>,
+    json_query: Option<&JsonQuery>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
@@ -501,6 +597,30 @@ async fn find_pg(
         sql.push_str(&format!(" AND r.json -> 'type' ?| ${idx}::text[]"));
         idx += 1;
     }
+    if json_query.is_some() {
+        // `@?` is the *operator* form of `jsonb_path_exists`, and unlike the
+        // function call it can be served by a GIN index over `json` (measured:
+        // Bitmap Index Scan vs Seq Scan, and identical plans when no index
+        // exists). It takes no `vars`, so the value is written into the
+        // jsonpath itself — still one bound parameter. SQL/JSON path in `lax`
+        // mode (the default) unwraps arrays and wraps scalars, so `[*]` covers
+        // both.
+        if json_query.is_some_and(|jq| jq.is_exact()) {
+            // Exact array match. `#>` equality is structural but can't use an
+            // index, so it rides behind a containment pre-filter, which can:
+            // every element of an equal array is contained, so the pre-filter
+            // never drops a match.
+            sql.push_str(&format!(
+                " AND r.json @> ${idx}::jsonb AND r.json #> ${}::text[] = ${}::jsonb",
+                idx + 1,
+                idx + 2
+            ));
+            idx += 3;
+        } else {
+            sql.push_str(&format!(" AND r.json @? ${idx}::jsonpath"));
+            idx += 1;
+        }
+    }
     if since_version.is_some() {
         sql.push_str(&format!(" AND r.version > ${idx}"));
         idx += 1;
@@ -532,6 +652,15 @@ async fn find_pg(
     }
     if let Some(ts) = type_names {
         q = q.bind(ts);
+    }
+    if let Some(jq) = json_query {
+        if jq.is_exact() {
+            q = q.bind(jq.containment());
+            q = q.bind(jq.tokens.clone());
+            q = q.bind(jq.value.clone());
+        } else {
+            q = q.bind(jq.jsonpath());
+        }
     }
     if let Some(v) = since_version {
         q = q.bind(v);

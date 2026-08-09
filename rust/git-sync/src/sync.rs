@@ -23,7 +23,9 @@ use crate::db::{self, Db, DbConfig};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
-use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, UpdateStats, WriteOutcome};
+use crate::model::{
+    Applied, BatchOp, BatchOutcome, Failed, JsonQuery, Record, UpdateStats, WriteOutcome,
+};
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
 ///
@@ -378,6 +380,7 @@ impl SyncedRepo {
         alias: bool,
         since_version: Option<i64>,
         type_names: Option<Vec<String>>,
+        json_query: Option<JsonQuery>,
     ) -> Result<Vec<Record>> {
         db::record::find(
             self.db(),
@@ -388,6 +391,7 @@ impl SyncedRepo {
             alias,
             since_version,
             type_names.as_deref(),
+            json_query.as_ref(),
         )
         .await
     }
@@ -436,6 +440,7 @@ impl SyncedRepo {
         since_version: Option<i64>,
         exclude: Vec<i64>,
         type_names: Option<Vec<String>>,
+        json_query: Option<JsonQuery>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
         // Soft cap on the size of a single batched `key IN (...)`
         // query. Each follow batch binds `2 * keys` parameters (the
@@ -455,7 +460,15 @@ impl SyncedRepo {
         }
 
         let initial = self
-            .find_records(file_path, path, key, alias, since_version, type_names)
+            .find_records(
+                file_path,
+                path,
+                key,
+                alias,
+                since_version,
+                type_names,
+                json_query,
+            )
             .await?;
         if follow == 0 || initial.is_empty() {
             return Ok((initial, Vec::new()));

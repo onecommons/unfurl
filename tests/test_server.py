@@ -2115,6 +2115,152 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 404, res.text
 
+            # ----- GET /cloudmap?filter=... (content filter; the rust
+            # fast-path pushes it into SQL, the Python fallback runs the
+            # same predicate over the loaded document — they must agree) -----
+
+            # Each value form gets a positive and a negative case. The
+            # expected records come from the fixture, which happens to carry
+            # every JSON type: a boolean (`private`), a float
+            # (`metadata/version`), nulls (typeRef values), arrays
+            # (`discovery/sources`) and objects (`branches`).
+            def cloudmap_filter(expr):
+                res = requests.get(cloudmap_url, params={"filter": expr})
+                assert res.status_code == 200, res.text
+                primary, followed = res.json()
+                assert followed == {}, primary
+                return primary
+
+            dashboard = "git://unfurl.cloud/feb20a/dashboard.git"
+
+            # a string equals the value at the path
+            hit = cloudmap_filter(
+                "/metadata/homepage_url=https://unfurl.cloud/feb20a/dashboard"
+            )
+            assert list(hit["repositories"]) == [dashboard], hit
+            assert cloudmap_filter("/metadata/homepage_url=https://nope.example.com") == {}
+
+            # an array *contains* the value
+            hit = cloudmap_filter(
+                "/metadata/discovery/sources="
+                "https://hub.docker.com/v2/repositories/bitnami/odoo/"
+            )
+            assert list(hit) == ["artifacts"], hit
+            assert next(iter(hit["artifacts"])).startswith("pkg:oci/odoo"), hit
+            assert (
+                cloudmap_filter(
+                    "/metadata/discovery/sources="
+                    "https://hub.docker.com/v2/repositories/other/"
+                )
+                == {}
+            )
+
+            # a member of an object is addressed by its key in the path;
+            # searching the object's values isn't supported (postgres can't
+            # serve that from a GIN index, so neither backend does it)
+            hit = cloudmap_filter(
+                "/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d"
+            )
+            assert list(hit["repositories"]) == [dashboard], hit
+            assert (
+                cloudmap_filter(
+                    "/branches/main=0000000000000000000000000000000000000000"
+                )
+                == {}
+            )
+            assert (
+                cloudmap_filter("/branches=4551885dfab39991cfdb958cb79fcb6aa282481d")
+                == {}
+            ), "the object itself doesn't match one of its members"
+
+            # `true` / `false` are JSON booleans, not the strings "true"/"false"
+            hit = cloudmap_filter("/private=true")
+            assert list(hit["repositories"]) == [dashboard], hit
+            assert cloudmap_filter("/private=false") == {}
+
+            # `null` matches a null value — a typeRef map's members are null,
+            # so the type name goes in the path
+            hit = cloudmap_filter("/type/cloudmap.artifacts.GitLabPipeline=null")
+            assert len(hit["artifacts"]) == 4, hit
+            assert all(k.endswith(".gitlab-ci.yml") for k in hit["artifacts"]), hit
+            assert cloudmap_filter("/type/cloudmap.artifacts.GitLabPipeline=x") == {}
+            assert cloudmap_filter("/type=null") == {}, "the map isn't null itself"
+
+            # numbers are compared as JSON numbers
+            hit = cloudmap_filter("/metadata/version=0.1")
+            assert len(hit["artifacts"]) == 2, hit
+            assert cloudmap_filter("/metadata/version=0.2") == {}
+
+            # ...so a quoted value doesn't match a number: `"0.1"` is a string
+            assert cloudmap_filter('/metadata/version="0.1"') == {}
+
+            # an array *literal* is an exact match, not a containment test
+            std_repo = "git://unfurl.cloud/onecommons/std.git"
+            hit = cloudmap_filter('/metadata/topics=["documentation","library"]')
+            assert list(hit["repositories"]) == [std_repo], hit
+            # a subset isn't equal, and neither is a different order
+            assert cloudmap_filter('/metadata/topics=["library"]') == {}
+            assert cloudmap_filter('/metadata/topics=["library","documentation"]') == {}
+            # ...while a scalar still means "contains"
+            hit = cloudmap_filter("/metadata/topics=library")
+            assert list(hit["repositories"]) == [std_repo], hit
+
+            # `^=` matches a prefix: of a scalar, or of any element of an array
+            hit = cloudmap_filter(
+                "/metadata/homepage_url^=https://unfurl.cloud/feb20a"
+            )
+            assert list(hit["repositories"]) == [dashboard], hit
+            hit = cloudmap_filter("/metadata/topics^=doc")
+            assert list(hit["repositories"]) == [std_repo], hit
+            assert cloudmap_filter("/metadata/homepage_url^=https://nope") == {}
+            # a number never matches a prefix, and LIKE metacharacters are
+            # literal rather than wildcards
+            assert cloudmap_filter("/metadata/version^=0.") == {}
+            assert cloudmap_filter("/metadata/homepage_url^=https://%") == {}
+
+            # a bare path (no "=") tests that the path exists
+            hit = cloudmap_filter("/metadata/topics")
+            assert list(hit["repositories"]) == [std_repo], hit
+            # a null-valued member still counts as present
+            assert "repositories" in cloudmap_filter("/contains"), "null counts"
+            assert cloudmap_filter("/metadata/no_such_field") == {}
+            assert cloudmap_filter("/nope/deeper") == {}
+
+            # an object literal is rejected, and so is a malformed array
+            for bad in ('/metadata={"title":"x"}', "/metadata/topics=[1,"):
+                res = requests.get(cloudmap_url, params={"filter": bad})
+                assert res.status_code == 400, f"{bad}: {res.text}"
+
+            # a path that doesn't resolve never matches
+            assert cloudmap_filter("/metadata/nope/deeper=anything") == {}
+
+            # `filter` combines with `kind` (both have to match)
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "repositories",
+                    "filter": "/metadata/homepage_url="
+                    "https://unfurl.cloud/feb20a/dashboard",
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert list(res.json()[0]["repositories"]) == [dashboard], res.text
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "artifacts",
+                    "filter": "/metadata/homepage_url="
+                    "https://unfurl.cloud/feb20a/dashboard",
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()[0] == {}, "kind and query must both match"
+
+            # Malformed filter → 400 from both handlers. (A filter with no
+            # "=" isn't malformed any more -- it's an existence test.)
+            res = requests.get(cloudmap_url, params={"filter": "//empty/segment"})
+            assert res.status_code == 400, res.text
+
             # ----- GET /cloudmap?select=... (projection; rust and
             # Python must return byte-identical records since the
             # `unfurl.server.*` annotations are dropped unless
@@ -2227,7 +2373,11 @@ def test_server_cloudmap(server_env):
                 cloudmap_url,
                 json={
                     "components": {
-                        component_key: {"metadata": {"title": "App schema"}}
+                        component_key: {
+                            # `version` is a *string* here, which the query
+                            # assertions below use to pin the quoting rule.
+                            "metadata": {"title": "App schema", "version": "42"}
+                        }
                     }
                 },
             )
@@ -2239,6 +2389,18 @@ def test_server_cloudmap(server_env):
             assert read_back.status_code == 200, read_back.text
             component = read_back.json()[0]["components"][component_key]
             assert component["metadata"]["title"] == "App schema", component
+
+            # A quoted value forces a string comparison, so it matches the
+            # component posted just above; the bare form is the number 42 and
+            # matches nothing.
+            res = requests.get(
+                cloudmap_url, params={"filter": '/metadata/version="42"'}
+            )
+            assert res.status_code == 200, res.text
+            assert list(res.json()[0]["components"]) == [component_key], res.text
+            res = requests.get(cloudmap_url, params={"filter": "/metadata/version=42"})
+            assert res.status_code == 200, res.text
+            assert res.json()[0] == {}, res.text
 
             # 2. Delete via `unfurl.server.deleted: true`.
             import yaml as _yaml

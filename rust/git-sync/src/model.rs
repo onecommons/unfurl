@@ -6,6 +6,7 @@
 //! [`WorkingDir`] (a derived view over the gix repo) and
 //! [`UpdateStats`] (a return value).
 
+use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 
 /// One row of the `worktree` table — a `(origin, branch)` pair the
@@ -52,6 +53,155 @@ pub struct File {
 
 /// One row of the `record` table — a single extracted JSON value.
 ///
+/// A search over a record's JSON contents: the value at `tokens` has to match
+/// `value`.
+///
+/// A scalar `value` matches when the value at the path *is* it or is an array
+/// containing it, so an array and a scalar are searched the same way and no
+/// knowledge of the record's shape is needed. An array `value` instead means
+/// exact equality -- same elements, same order.
+///
+/// To match a member of an object, put the member's key in the path. Object
+/// literals are rejected: postgres compares them structurally while sqlite
+/// compares the rendered text, so the two backends would disagree on key
+/// order. Wildcards in the path aren't supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryOp {
+    /// The value at the path is the query value (or contains it, for an
+    /// array; or equals it exactly, for an array query value).
+    Equals,
+    /// The value at the path is a string starting with the query value -- or
+    /// an array with an element that does. Non-strings never match.
+    StartsWith,
+    /// The path resolves at all. A `null` or an empty array/object counts as
+    /// existing; only a missing path doesn't. The query value is unused.
+    Exists,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct JsonQuery {
+    /// Unescaped JSON-Pointer reference tokens, e.g.
+    /// `["metadata", "discovery", "sources"]`.
+    pub tokens: Vec<String>,
+    /// The value to compare against.
+    pub value: serde_json::Value,
+    /// How to compare it.
+    pub op: QueryOp,
+}
+
+impl JsonQuery {
+    /// The path as SQL/JSON path syntax: `$."metadata"."discovery"."sources"`.
+    ///
+    /// Every token is quoted so that tokens containing "." or " " resolve, and
+    /// tokens are rejected up front (see [`JsonQuery::new`]) if they contain a
+    /// quote or a backslash, which the path syntax has no escape for.
+    pub fn sql_path(&self) -> String {
+        let mut path = String::from("$");
+        for token in &self.tokens {
+            path.push_str(&format!(".\"{token}\""));
+        }
+        path
+    }
+
+    /// The postgres SQL/JSON path for this query, with the value written into
+    /// it: `$."metadata"."version"[*] ? (@ == "1.0")`.
+    ///
+    /// `@?` takes no variables, so the value has to be part of the path. It is
+    /// serialized as JSON, which is also jsonpath literal syntax, so strings
+    /// arrive quoted and escaped and `true` / `null` / numbers stay bare.
+    /// `[*]` is what makes an array and a scalar behave the same: in `lax`
+    /// mode (the default) it unwraps an array and wraps a scalar.
+    pub fn jsonpath(&self) -> String {
+        let literal = serde_json::to_string(&self.value).unwrap_or_else(|_| "null".to_string());
+        match self.op {
+            // A bare path is an existence test. Postgres can't serve it from a
+            // GIN index (the extractor has no value to look up), so this plans
+            // as a sequential scan -- see the 20260101000003 migration.
+            QueryOp::Exists => self.sql_path(),
+            QueryOp::Equals => format!("{}[*] ? (@ == {literal})", self.sql_path()),
+            // `starts with` only applies to strings, so a number or a boolean
+            // at the path never matches -- which is what the sqlite side gets
+            // from its `jq.type = 'text'` guard.
+            QueryOp::StartsWith => {
+                format!("{}[*] ? (@ starts with {literal})", self.sql_path())
+            }
+        }
+    }
+
+    /// The sqlite `LIKE` pattern for a [`QueryOp::StartsWith`] query, with the
+    /// pattern metacharacters in the prefix escaped (the clause pairs this
+    /// with `ESCAPE '\\'`). Unlike jsonpath's `starts with`, `LIKE` would
+    /// otherwise read a "%" or "_" in the prefix as a wildcard.
+    pub fn like_pattern(&self) -> String {
+        let prefix = self.value.as_str().unwrap_or_default();
+        let escaped = prefix
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
+        format!("{escaped}%")
+    }
+
+    /// Whether this query is an exact match on an array rather than the
+    /// "equals or contains" test a scalar gets.
+    pub fn is_exact(&self) -> bool {
+        self.op == QueryOp::Equals && self.value.is_array()
+    }
+
+    /// The value nested under the path, e.g. `{"metadata":{"topics":["a"]}}`.
+    ///
+    /// Used as postgres' `@>` pre-filter for an exact-array query: containment
+    /// is a superset of equality, so it never drops a match, and unlike the
+    /// equality test itself it can be served by the GIN index.
+    pub fn containment(&self) -> serde_json::Value {
+        let mut nested = self.value.clone();
+        for token in self.tokens.iter().rev() {
+            nested = serde_json::json!({ token.as_str(): nested });
+        }
+        nested
+    }
+
+    /// Build a query, rejecting tokens the path syntax can't express.
+    pub fn new(tokens: Vec<String>, value: serde_json::Value) -> Result<Self> {
+        if tokens.is_empty() || tokens.iter().any(|t| t.is_empty()) {
+            return Err(Error::Other(
+                "json query needs a path of non-empty segments".to_string(),
+            ));
+        }
+        if let Some(bad) = tokens.iter().find(|t| t.contains('"') || t.contains('\\')) {
+            return Err(Error::Other(format!(
+                "json query path segment {bad:?} can't contain a quote or backslash"
+            )));
+        }
+        if value.is_object() {
+            return Err(Error::Other(
+                "json query value can't be an object: address a member by putting \
+                 its key in the path"
+                    .to_string(),
+            ));
+        }
+        Ok(Self {
+            tokens,
+            value,
+            op: QueryOp::Equals,
+        })
+    }
+
+    /// An existence query: the path resolves, whatever it holds.
+    pub fn exists(tokens: Vec<String>) -> Result<Self> {
+        let mut query = Self::new(tokens, serde_json::Value::Null)?;
+        query.op = QueryOp::Exists;
+        Ok(query)
+    }
+
+    /// A prefix query: the value at the path is a string starting with
+    /// `prefix`, or an array with an element that does.
+    pub fn starts_with(tokens: Vec<String>, prefix: String) -> Result<Self> {
+        let mut query = Self::new(tokens, serde_json::Value::String(prefix))?;
+        query.op = QueryOp::StartsWith;
+        Ok(query)
+    }
+}
+
 /// Records sit at `obj[path][key]` inside their owning file, where
 /// `path` is the JSON-pointer to the parent map (e.g. `/repositories`)
 /// and `key` is the literal map key. `commit_id == None` indicates an

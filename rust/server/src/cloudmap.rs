@@ -22,7 +22,9 @@ use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use unfurl_git_sync::{BatchOp, CommitRef, DbConfig, FormatRegistry, Record, SyncedRepo};
+use unfurl_git_sync::{
+    BatchOp, CommitRef, DbConfig, FormatRegistry, JsonQuery, Record, SyncedRepo,
+};
 
 use crate::proxy;
 use axum::extract::FromRequest;
@@ -236,6 +238,7 @@ impl CloudMapState {
                     false,
                     None,
                     None,
+                    None,
                 )
                 .await?;
             let mut children: HashMap<String, Vec<String>> = HashMap::new();
@@ -338,6 +341,9 @@ pub async fn handle_cloudmap(
         Err(LocalError::NotFound(msg)) => {
             (StatusCode::NOT_FOUND, Json(json!({"error": msg}))).into_response()
         }
+        Err(LocalError::BadRequest(msg)) => {
+            (StatusCode::BAD_REQUEST, Json(json!({"error": msg}))).into_response()
+        }
         Err(LocalError::Internal(msg)) => {
             tracing::error!("cloudmap handler error: {}", msg);
             (
@@ -351,6 +357,9 @@ pub async fn handle_cloudmap(
 
 enum LocalError {
     NotFound(String),
+    /// A malformed request parameter — 400, the same status the python
+    /// handler answers for an unparseable `query`.
+    BadRequest(String),
     Internal(String),
 }
 
@@ -446,6 +455,14 @@ async fn build_response(
     };
     let type_filtered = type_names.is_some();
 
+    // `filter` narrows on record contents: `<json pointer>=<value>`, pushed
+    // into the SQL WHERE clause so the database does the filtering.
+    let json_filter = match params.filter.as_deref() {
+        Some(f) if !f.trim().is_empty() => Some(parse_json_filter(f)?),
+        _ => None,
+    };
+    let content_filtered = json_filter.is_some();
+
     let (initial, followed_records) = synced
         .find_records_follow(
             file_path.map(str::to_string),
@@ -456,16 +473,18 @@ async fn build_response(
             params.since_version,
             exclude_ids,
             type_names,
+            json_filter,
         )
         .await
         .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;
 
     if let (Some(kind_str), Some(key_str)) = (kind, key) {
         if initial.is_empty() {
-            let hint = if type_filtered {
-                " with matching type"
-            } else {
-                ""
+            let hint = match (type_filtered, content_filtered) {
+                (true, true) => " with matching type matching the filter",
+                (true, false) => " with matching type",
+                (false, true) => " matching the filter",
+                (false, false) => "",
             };
             return Err(LocalError::NotFound(format!(
                 "key {key_str:?} not found in {kind_str:?}{hint}"
@@ -485,6 +504,87 @@ async fn build_response(
     let primary = records_to_document(initial, select_paths.as_deref());
     let followed = records_to_document(followed_records, select_paths.as_deref());
     Ok(vec![primary, followed])
+}
+
+/// Parse the `filter` param: `<json pointer>=<value>`.
+///
+/// Ports `_parse_json_filter` in `unfurl/server/endpoints.py`. The path is a
+/// JSON Pointer (RFC 6901, leading "/" optional); the value is read as JSON --
+/// `true`, `false`, `null` and numbers keep their type, anything else is a
+/// string, and a double-quoted value is always a string.
+fn parse_json_filter(expr: &str) -> Result<JsonQuery, LocalError> {
+    // No "=" at all is an existence test: the path has to resolve, whatever
+    // it holds.
+    let (path, raw) = match expr.split_once('=') {
+        Some((path, raw)) => (path, Some(raw)),
+        None => (expr, None),
+    };
+    let path = path.trim();
+    // `^=` is prefix matching; the "^" sits at the end of the path half once
+    // the query has been split on "=".
+    let (path, prefix) = match path.strip_suffix('^') {
+        Some(head) => (head, true),
+        None => (path, false),
+    };
+    let path = path.strip_prefix('/').unwrap_or(path);
+    let tokens: Vec<String> = path
+        .split('/')
+        .map(|t| t.replace("~1", "/").replace("~0", "~"))
+        .collect();
+    let Some(raw) = raw else {
+        return JsonQuery::exists(tokens)
+            .map_err(|e| LocalError::BadRequest(format!("filter {expr:?}: {e}")));
+    };
+    let built = if prefix {
+        // a prefix is textual, so the value is never parsed as JSON -- only
+        // unquoted, so a prefix that looks like a number can be written either
+        // way
+        let raw = raw
+            .strip_prefix('"')
+            .and_then(|r| r.strip_suffix('"'))
+            .unwrap_or(raw);
+        JsonQuery::starts_with(tokens, raw.to_string())
+    } else {
+        JsonQuery::new(tokens, parse_json_literal(raw)?)
+    };
+    built.map_err(|e| LocalError::BadRequest(format!("filter {expr:?}: {e}")))
+}
+
+/// Read a `filter` value as JSON, defaulting to a string.
+///
+/// An array literal is parsed as JSON (it means an exact match); a malformed
+/// one is an error rather than a string, which would silently never match. An
+/// object literal is rejected -- [`JsonQuery::new`] says why. A value that
+/// would otherwise be read as a number, a keyword or an array can be forced to
+/// a string by quoting it.
+fn parse_json_literal(raw: &str) -> Result<Value, LocalError> {
+    if raw.len() > 1 && raw.starts_with('"') && raw.ends_with('"') {
+        return Ok(Value::String(raw[1..raw.len() - 1].to_string()));
+    }
+    if raw.starts_with('{') {
+        // rejected here rather than by `JsonQuery::new` so the message is the
+        // same whether or not the object parses as JSON
+        return Err(LocalError::BadRequest(
+            "filter value can't be an object: address a member by putting its key \
+             in the path"
+                .to_string(),
+        ));
+    }
+    if raw.starts_with('[') {
+        return serde_json::from_str(raw).map_err(|e| {
+            LocalError::BadRequest(format!("filter value {raw:?} is not valid JSON: {e}"))
+        });
+    }
+    Ok(match raw {
+        "true" => Value::Bool(true),
+        "false" => Value::Bool(false),
+        "null" => Value::Null,
+        _ => raw
+            .parse::<i64>()
+            .map(Value::from)
+            .or_else(|_| raw.parse::<f64>().map(Value::from))
+            .unwrap_or_else(|_| Value::String(raw.to_string())),
+    })
 }
 
 /// A parsed `select` entry: the special `$key` item or a JSON

@@ -253,6 +253,39 @@ class CloudMapDocQuery(CloudMapBaseQuery):
             "``extends`` it, per the ``types`` section of the CloudMap."
         ),
     )
+    filter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Filter on the contents of each record: a JSON Pointer path "
+            "(RFC 6901) with an optional operator and value.\n"
+            "\n"
+            # fenced as `text` so that rustdoc doesn't take the block for a
+            # Rust doctest when this lands in the generated unfurl_types
+            "```text\n"
+            "/metadata/topics=library                       equals, or array-contains\n"
+            '/metadata/topics=["documentation","library"]   exact array match\n'
+            "/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n"
+            "/metadata/discovery                            the path exists\n"
+            "```\n"
+            "\n"
+            "``=`` matches when the value at the path equals the value or "
+            "is an array containing it; an array literal is an exact match "
+            "instead -- same elements, same order -- and an object literal "
+            "is rejected. ``^=`` needs a string at the path, or a string "
+            "element of an array there, that starts with the value; a "
+            "number never matches a prefix. A path with no operator at all "
+            "matches when the path resolves, counting a ``null`` or an "
+            "empty array or object as present.\n"
+            "\n"
+            "Values are read as JSON: ``true``, ``false``, ``null`` and "
+            "numbers keep their type, an array has to be valid JSON "
+            '(``["a","b"]``, not ``[a,b]``), and anything else is a '
+            'string. Wrap a value in double quotes to force a string '
+            '(``="42"``). Wildcards in the path aren\'t supported yet. '
+            "Combines with ``kind``, ``key`` and ``type``: a record has to "
+            "match all of them."
+        ),
+    )
     select: Optional[str] = Field(
         default=None,
         description=(

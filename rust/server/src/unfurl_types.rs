@@ -984,6 +984,19 @@ pub struct GetCloudmapRequestQuery {
     /// Fully-qualified type name; return only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
     #[serde(rename = "type")]
     pub r#type: Option<String>,
+    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.
+    ///
+    /// ```text
+    /// /metadata/topics=library                       equals, or array-contains
+    /// /metadata/topics=["documentation","library"]   exact array match
+    /// /metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)
+    /// /metadata/discovery                            the path exists
+    /// ```
+    ///
+    /// ``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.
+    ///
+    /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with ``kind``, ``key`` and ``type``: a record has to match all of them.
+    pub filter: Option<String>,
     /// Comma-separated list of JSON Pointer paths (RFC 6901, e.g. ``/type,/metadata/title``); when set, each record in the response (both elements of the pair) is reduced to only the selected properties, keeping their nested structure. Paths without a leading ``/`` get one prepended. The special entry ``$key`` adds the record's key to the reduced record under ``"$key"``. Paths that don't resolve are omitted.
     pub select: Option<String>,
 }

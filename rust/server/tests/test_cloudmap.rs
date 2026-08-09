@@ -375,6 +375,97 @@ async fn follow_without_key_returns_empty_dict() {
     );
 }
 
+#[tokio::test]
+async fn get_filter_searches_record_contents() {
+    // `filter=<json pointer>=<value>` is pushed into the SQL WHERE clause
+    // (`json_each`), so the database does the filtering. The same predicate
+    // covers arrays, objects and scalars: no record shape is assumed.
+    let (cm, _tmp) = open_cloudmap_state().await;
+
+    // an array: `metadata/discovery/sources` contains the url
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?filter={}",
+            urlencoding::encode(
+                "/metadata/discovery/sources=https://hub.docker.com/v2/repositories/bitnami/odoo/"
+            )
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let artifacts = body[0]["artifacts"].as_object().expect("artifacts matched");
+    assert_eq!(artifacts.len(), 1, "one artifact should match: {body:?}");
+    assert!(
+        artifacts
+            .keys()
+            .next()
+            .expect("key")
+            .starts_with("pkg:oci/odoo"),
+        "unexpected match: {body:?}"
+    );
+    assert!(
+        body[0].get("repositories").is_none(),
+        "sections without a match are omitted: {body:?}"
+    );
+
+    // a scalar: `metadata/homepage_url` equals the url
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?filter={}",
+            urlencoding::encode("/metadata/homepage_url=https://unfurl.cloud/feb20a/dashboard")
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body[0]["repositories"].as_object().map(|m| m.len()),
+        Some(1),
+        "one repository should match: {body:?}"
+    );
+
+    // combines with `kind`
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&filter={}",
+            urlencoding::encode("/metadata/homepage_url=https://unfurl.cloud/feb20a/dashboard")
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body[0]["repositories"].as_object().map(|m| m.len()),
+        Some(1)
+    );
+
+    // no match -> empty document, not an error
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?filter={}",
+            urlencoding::encode("/metadata/homepage_url=https://nope.example.com")
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body[0].as_object().map(|m| m.is_empty()).unwrap_or(false),
+        "no matches should return an empty document: {body:?}"
+    );
+
+    // malformed filter -> 400. A filter with no "=" is an existence test
+    // rather than an error, so this uses an empty path segment instead.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?filter=//empty/segment").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+}
+
 // ---------------------------------------------------------------------------
 // POST /cloudmap tests
 // ---------------------------------------------------------------------------

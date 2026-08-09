@@ -47,7 +47,9 @@
 //! .await?;
 //!
 //! sync.update_from_working_dir().await?;
-//! let repos = sync.find_records(None, Some("/repositories".into()), None, false, None, None).await?;
+//! let repos = sync
+//!     .find_records(None, Some("/repositories".into()), None, false, None, None, None)
+//!     .await?;
 //! # let _ = repos;
 //! # Ok(())
 //! # }
@@ -75,8 +77,8 @@ pub use format::{DataFormat, FormatRegistry, Order};
 pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
 pub use model::{
-    Alias, Applied, BatchOp, BatchOutcome, Failed, File, Record, UpdateStats, WorkingDir, Worktree,
-    WriteOutcome,
+    Alias, Applied, BatchOp, BatchOutcome, Failed, File, JsonQuery, QueryOp, Record, UpdateStats,
+    WorkingDir, Worktree, WriteOutcome,
 };
 #[doc(inline)]
 pub use sync::{CommitRef, SyncedRepo};
