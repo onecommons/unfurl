@@ -926,8 +926,8 @@ types:
 class TestGithubManager:
     """Unit tests for GithubManager using mock GitHub API objects."""
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_init_github_com(self, mock_auth, mock_github_class):
         """Test GithubManager initialization with github.com."""
         config = {
@@ -945,8 +945,8 @@ class TestGithubManager:
         mock_auth.Token.assert_called_once_with("test_token_123")
         mock_github_class.assert_called_once()
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_init_github_enterprise(self, mock_auth, mock_github_class):
         """Test GithubManager initialization with GitHub Enterprise."""
         config = {
@@ -963,8 +963,8 @@ class TestGithubManager:
         call_kwargs = mock_github_class.call_args[1]
         assert call_kwargs["base_url"] == "https://github.company.com/api/v3"
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_has_repository_github_url(self, mock_auth, mock_github_class):
         """Test has_repository identifies GitHub repos correctly."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -992,8 +992,8 @@ class TestGithubManager:
 
         assert not manager.has_repository(repo2)
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_github_repository_to_repository(self, mock_auth, mock_github_class):
         """Test conversion from PyGithub Repository to cloudmap Repository."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1069,8 +1069,8 @@ class TestGithubManager:
         assert result.branches == {"main": "abc123", "develop": "def456"}
         assert result.tags == {"v1.0.0": "tag123", "v2.0.0": "tag456"}
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_get_owner_user(self, mock_auth, mock_github_class):
         """Test get_owner returns authenticated user."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1088,8 +1088,8 @@ class TestGithubManager:
         assert result == mock_user
         mock_github_instance.get_user.assert_called_once()
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_get_owner_organization(self, mock_auth, mock_github_class):
         """Test get_owner returns organization."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1107,8 +1107,8 @@ class TestGithubManager:
         assert result == mock_org
         mock_github_instance.get_organization.assert_called_once_with("testorg")
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_get_owner_org_not_found(self, mock_auth, mock_github_class):
         """Test get_owner raises error when organization not found."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1124,8 +1124,8 @@ class TestGithubManager:
         manager = GithubManager("test", config)
         assert manager.get_owner("nonexistent") is None
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_github_repository_to_repository_conversion(
         self, mock_auth, mock_github_class
     ):
@@ -1211,8 +1211,8 @@ class TestGithubManager:
         # Verify tags were correctly extracted
         assert result.tags == {"v1.0.0": "tag111aaa222", "v2.0.0": "tag333bbb444"}
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_create_project_organization(self, mock_auth, mock_github_class):
         """Test creating a repository in an organization."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1256,8 +1256,8 @@ class TestGithubManager:
             auto_init=False,
         )
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_create_project_user(self, mock_auth, mock_github_class):
         """Test creating a repository for authenticated user."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1302,8 +1302,8 @@ class TestGithubManager:
             auto_init=False,
         )
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_update_project_metadata(self, mock_auth, mock_github_class):
         """Test updating repository metadata."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1338,8 +1338,8 @@ class TestGithubManager:
         mock_repo.edit.assert_called()  # Called for description and visibility
         mock_repo.replace_topics.assert_called_once_with(["new", "updated"])
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_git_url_with_auth(self, mock_auth, mock_github_class):
         """Test generating authenticated git URL."""
         config = {
@@ -1356,8 +1356,8 @@ class TestGithubManager:
 
         assert result == "https://secret_token@github.com/user/repo.git"
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_canonize_with_canonical_url(self, mock_auth, mock_github_class):
         """Test URL canonization with canonical URL set."""
         config = {
@@ -1373,8 +1373,8 @@ class TestGithubManager:
 
         assert result == "https://canonical.example.com/user/repo.git"
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_canonize_without_canonical_url(self, mock_auth, mock_github_class):
         """Test URL canonization without canonical URL."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}
@@ -1385,8 +1385,8 @@ class TestGithubManager:
 
         assert result == url
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_url_credentials_priority(self, mock_auth, mock_github_class):
         """Test that URL credentials take priority over config credentials."""
         config = {
@@ -1400,8 +1400,8 @@ class TestGithubManager:
         assert manager.user == "urluser"
         assert manager.token == "urltoken"
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_config_credentials_fallback(self, mock_auth, mock_github_class):
         """Test that config credentials are used when URL has none."""
         config = {
@@ -1415,8 +1415,8 @@ class TestGithubManager:
         assert manager.user == "configuser"
         assert manager.token == "configtoken"
 
-    @patch("unfurl.cloudmap.Github")
-    @patch("unfurl.cloudmap.Auth")
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_url_user_only_priority(self, mock_auth, mock_github_class):
         """Test that URL username takes priority even without URL password."""
         config = {
@@ -1434,7 +1434,7 @@ class TestGithubManager:
 class TestGitlabManager:
     """Unit tests for GitlabManager using mock GitLab API objects."""
 
-    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    @patch("unfurl.cloudmap.gitlab.gitlab.Gitlab")
     def test_url_credentials_priority(self, mock_gitlab_class):
         """Test that URL credentials take priority over config credentials."""
         config = {
@@ -1453,7 +1453,7 @@ class TestGitlabManager:
         assert manager.user == "urluser"
         assert manager.token == "urltoken"
 
-    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    @patch("unfurl.cloudmap.gitlab.gitlab.Gitlab")
     def test_config_credentials_fallback(self, mock_gitlab_class):
         """Test that config credentials are used when URL has none."""
         config = {
@@ -1472,7 +1472,7 @@ class TestGitlabManager:
         assert manager.user == "configuser"
         assert manager.token == "configtoken"
 
-    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    @patch("unfurl.cloudmap.gitlab.gitlab.Gitlab")
     def test_url_user_only_priority(self, mock_gitlab_class):
         """Test that URL username takes priority even without URL password."""
         config = {
@@ -1491,7 +1491,7 @@ class TestGitlabManager:
         assert manager.user == "urluser"
         assert manager.token == "configtoken"  # Falls back to config password
 
-    @patch("unfurl.cloudmap.gitlab.Gitlab")
+    @patch("unfurl.cloudmap.gitlab.gitlab.Gitlab")
     def test_no_credentials(self, mock_gitlab_class):
         """Test manager initialization with no credentials at all."""
         config = {

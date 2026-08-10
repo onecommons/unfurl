@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Adam Souzis
+# Copyright (c) 2026 Adam Souzis
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -101,17 +101,17 @@ def find_images_k8s(resources: List[Dict[str, Any]]) -> List[str]:
 
 
 class UnfurlAnalyzer(RepositoryAnalyzer):
-    files = [
+    files = (
         DefaultNames.LocalConfig,
         DefaultNames.EnsembleTemplate,
         DefaultNames.Ensemble,
         "dummy-ensemble.yaml",  # DefaultNames.ServiceTemplate,  # XXX fix unfurl-types hack
-    ]
-    folders = [
+    )
+    folders = (
         DefaultNames.ProjectDirectory,
         DefaultNames.HiddenProjectDirectory,
         DefaultNames.EnsembleDirectory,
-    ]
+    )
 
     def __init__(
         self,
@@ -163,9 +163,12 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                         repo_view.url
                     ):
                         continue
-                    if repo_view.package is None:
-                        if manifest.tosca and manifest.tosca.import_resolver:
-                            manifest.tosca.import_resolver._resolve_repoview(repo_view)
+                    if (
+                        repo_view.package is None
+                        and manifest.tosca
+                        and manifest.tosca.import_resolver
+                    ):
+                        manifest.tosca.import_resolver._resolve_repoview(repo_view)
                     giturl = self._add_repository_reference(repo_view, references)
                     directory.analyze_url(giturl, analyze)
 
@@ -182,13 +185,11 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 typename = type_info.get("name", "")
                 dependencies = self.find_dependencies(node, types)
                 deployment_blueprints = manifest.get_deployment_blueprints()
-                dependencies.update(
-                    {
-                        name: tpl["cloud"]
-                        for name, tpl in deployment_blueprints.items()
-                        if tpl.get("cloud")
-                    }
-                )
+                dependencies.update({
+                    name: tpl["cloud"]
+                    for name, tpl in deployment_blueprints.items()
+                    if tpl.get("cloud")
+                })
                 # Handle container image dependency
                 image = self.find_image_dependency(node)
                 if image:
@@ -210,9 +211,9 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 description=template_description,
                 thumbnail=repo_info.metadata.thumbnail_url,
                 references=references,
-                dependencies=TypeRefs.urls_fromdict(
-                    {name: TypeRefs({v: None}) for name, v in dependencies.items()}
-                ),
+                dependencies=TypeRefs.urls_fromdict({
+                    name: TypeRefs({v: None}) for name, v in dependencies.items()
+                }),
                 type_info=type_info,
                 ctx=directory,
                 digest=self.digest,
@@ -378,8 +379,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
             if fragment:
                 blueprint_path = blueprint_path + "#" + fragment
             instantiation.source = (
-                get_repository_url(spec_repo_view.url)
-                + f"#:{quote(blueprint_path)}"
+                get_repository_url(spec_repo_view.url) + f"#:{quote(blueprint_path)}"
             )
             instantiation.source_revision = spec_repo_view.get_current_commit()
 
@@ -599,13 +599,11 @@ def migrate_old_notable_format(
                     ("", build_oci_purl(ContainerImage.split(ref))): None
                     for ref in notable_dict.pop("artifacts", [])
                 },
-                dependencies=TypeRefs.urls_fromdict(
-                    {
-                        "": TypeRefs(
-                            {v: None for v in notable_dict.pop("dependencies", [])}
-                        )
-                    }
-                ),
+                dependencies=TypeRefs.urls_fromdict({
+                    "": TypeRefs({
+                        v: None for v in notable_dict.pop("dependencies", [])
+                    })
+                }),
                 type_info=type_info,
                 ctx=None,
                 instantiates_key=notable_name,
