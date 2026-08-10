@@ -1781,6 +1781,18 @@
         "$$target": "#/definitions/artifact",
         "allOf": [
           {
+            "properties": {
+              "type": {
+                "$ref": "#/components/schemas/cloudmap_typeRef",
+                "description": "Type identifier from types/artifacts with optional version constraints."
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/cloudmap_relationships"
+          },
+          {
             "additionalProperties": true,
             "properties": {
               "digest": {
@@ -1834,10 +1846,6 @@
                 },
                 "type": "array"
               },
-              "type": {
-                "$ref": "#/components/schemas/cloudmap_typeRef",
-                "description": "Type identifier from types/artifacts with optional version constraints."
-              },
               "versions": {
                 "additionalProperties": {
                   "$ref": "#/components/schemas/cloudmap_artifact"
@@ -1851,9 +1859,6 @@
               }
             },
             "type": "object"
-          },
-          {
-            "$ref": "#/components/schemas/cloudmap_relationships"
           }
         ],
         "title": "Artifact",
@@ -1862,6 +1867,18 @@
       "cloudmap_component": {
         "$$target": "#/definitions/component",
         "allOf": [
+          {
+            "properties": {
+              "type": {
+                "$ref": "#/components/schemas/cloudmap_typeRef",
+                "description": "Type identifier from types/components with optional version constraints."
+              }
+            },
+            "type": "object"
+          },
+          {
+            "$ref": "#/components/schemas/cloudmap_relationships"
+          },
           {
             "additionalProperties": true,
             "properties": {
@@ -1872,10 +1889,6 @@
               "status": {
                 "$ref": "#/components/schemas/cloudmap_lifecycle_status",
                 "description": "Lifecycle status of the component."
-              },
-              "type": {
-                "$ref": "#/components/schemas/cloudmap_typeRef",
-                "description": "Type identifier from types/components with optional version constraints."
               },
               "versions": {
                 "additionalProperties": {
@@ -1890,9 +1903,6 @@
               }
             },
             "type": "object"
-          },
-          {
-            "$ref": "#/components/schemas/cloudmap_relationships"
           }
         ],
         "title": "Component",
@@ -2256,6 +2266,10 @@
               },
               {
                 "properties": {
+                  "ci_variables": {
+                    "description": "CI/CD variables declared by the repository's host, keyed by variable name.",
+                    "type": "object"
+                  },
                   "issues_url": {
                     "description": "URL to the issue tracker for the repository.",
                     "type": "string"
@@ -2434,6 +2448,10 @@
           },
           "model": {
             "description": "URL of artifact or service to use a model for instances of this type.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Fully-qualified name of the type. Repeats the key this type is stored under.",
             "type": "string"
           },
           "properties": {

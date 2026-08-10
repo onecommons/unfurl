@@ -43,6 +43,18 @@ pub mod error {
 #[doc = "    {"]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"properties\": {"]
+#[doc = "        \"type\": {"]
+#[doc = "          \"description\": \"Type identifier from types/artifacts with optional version constraints.\","]
+#[doc = "          \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "        }"]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"$ref\": \"#/definitions/relationships\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"properties\": {"]
 #[doc = "        \"digest\": {"]
 #[doc = "          \"description\": \"Cryptographic digest of the artifact.\","]
 #[doc = "          \"type\": \"string\""]
@@ -94,10 +106,6 @@ pub mod error {
 #[doc = "            \"type\": \"string\""]
 #[doc = "          }"]
 #[doc = "        },"]
-#[doc = "        \"type\": {"]
-#[doc = "          \"description\": \"Type identifier from types/artifacts with optional version constraints.\","]
-#[doc = "          \"$ref\": \"#/definitions/typeRef\""]
-#[doc = "        },"]
 #[doc = "        \"versions\": {"]
 #[doc = "          \"description\": \"Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.\","]
 #[doc = "          \"type\": \"object\","]
@@ -111,9 +119,6 @@ pub mod error {
 #[doc = "        }"]
 #[doc = "      },"]
 #[doc = "      \"additionalProperties\": true"]
-#[doc = "    },"]
-#[doc = "    {"]
-#[doc = "      \"$ref\": \"#/definitions/relationships\""]
 #[doc = "    }"]
 #[doc = "  ],"]
 #[doc = "  \"$$target\": \"#/definitions/artifact\""]
@@ -1097,6 +1102,18 @@ impl<'de> ::serde::Deserialize<'de> for CloudMapSchemaTypesKey {
 #[doc = "    {"]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"properties\": {"]
+#[doc = "        \"type\": {"]
+#[doc = "          \"description\": \"Type identifier from types/components with optional version constraints.\","]
+#[doc = "          \"$ref\": \"#/definitions/typeRef\""]
+#[doc = "        }"]
+#[doc = "      }"]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"$ref\": \"#/definitions/relationships\""]
+#[doc = "    },"]
+#[doc = "    {"]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"properties\": {"]
 #[doc = "        \"metadata\": {"]
 #[doc = "          \"description\": \"Human-readable metadata about the service.\","]
 #[doc = "          \"$ref\": \"#/definitions/metadata\""]
@@ -1104,10 +1121,6 @@ impl<'de> ::serde::Deserialize<'de> for CloudMapSchemaTypesKey {
 #[doc = "        \"status\": {"]
 #[doc = "          \"description\": \"Lifecycle status of the component.\","]
 #[doc = "          \"$ref\": \"#/definitions/lifecycle_status\""]
-#[doc = "        },"]
-#[doc = "        \"type\": {"]
-#[doc = "          \"description\": \"Type identifier from types/components with optional version constraints.\","]
-#[doc = "          \"$ref\": \"#/definitions/typeRef\""]
 #[doc = "        },"]
 #[doc = "        \"versions\": {"]
 #[doc = "          \"description\": \"Components that are variants of this component (for example, different versions or configurations). Each component inherits the metadata of this one unless overridden in its declaration.\","]
@@ -1122,9 +1135,6 @@ impl<'de> ::serde::Deserialize<'de> for CloudMapSchemaTypesKey {
 #[doc = "        }"]
 #[doc = "      },"]
 #[doc = "      \"additionalProperties\": true"]
-#[doc = "    },"]
-#[doc = "    {"]
-#[doc = "      \"$ref\": \"#/definitions/relationships\""]
 #[doc = "    }"]
 #[doc = "  ],"]
 #[doc = "  \"$$target\": \"#/definitions/component\""]
@@ -2368,6 +2378,10 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "        {"]
 #[doc = "          \"type\": \"object\","]
 #[doc = "          \"properties\": {"]
+#[doc = "            \"ci_variables\": {"]
+#[doc = "              \"description\": \"CI/CD variables declared by the repository's host, keyed by variable name.\","]
+#[doc = "              \"type\": \"object\""]
+#[doc = "            },"]
 #[doc = "            \"issues_url\": {"]
 #[doc = "              \"description\": \"URL to the issue tracker for the repository.\","]
 #[doc = "              \"type\": \"string\""]
@@ -2535,6 +2549,10 @@ impl ::std::default::Default for Repository {
 #[doc = "    {"]
 #[doc = "      \"type\": \"object\","]
 #[doc = "      \"properties\": {"]
+#[doc = "        \"ci_variables\": {"]
+#[doc = "          \"description\": \"CI/CD variables declared by the repository's host, keyed by variable name.\","]
+#[doc = "          \"type\": \"object\""]
+#[doc = "        },"]
 #[doc = "        \"issues_url\": {"]
 #[doc = "          \"description\": \"URL to the issue tracker for the repository.\","]
 #[doc = "          \"type\": \"string\""]
@@ -2573,6 +2591,9 @@ impl ::std::default::Default for Repository {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct RepositoryMetadata {
+    #[doc = "CI/CD variables declared by the repository's host, keyed by variable name."]
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub ci_variables: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
     #[doc = "Date and time on which the resource was created, conforming to RFC 3339."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub created: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
@@ -2640,6 +2661,7 @@ pub struct RepositoryMetadata {
 impl ::std::default::Default for RepositoryMetadata {
     fn default() -> Self {
         Self {
+            ci_variables: Default::default(),
             created: Default::default(),
             description: Default::default(),
             discovery: Default::default(),
@@ -3166,6 +3188,10 @@ impl<'de> ::serde::Deserialize<'de> for ServiceVersionsKey {
 #[doc = "      \"description\": \"URL of artifact or service to use a model for instances of this type.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"name\": {"]
+#[doc = "      \"description\": \"Fully-qualified name of the type. Repeats the key this type is stored under.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
 #[doc = "    \"properties\": {"]
 #[doc = "      \"description\": \"JSON Schema describing the properties of instances of this type.\","]
 #[doc = "      \"type\": \"object\""]
@@ -3205,6 +3231,9 @@ pub struct Type {
     #[doc = "URL of artifact or service to use a model for instances of this type."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub model: ::std::option::Option<::std::string::String>,
+    #[doc = "Fully-qualified name of the type. Repeats the key this type is stored under."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub name: ::std::option::Option<::std::string::String>,
     #[doc = "JSON Schema describing the properties of instances of this type."]
     #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
     pub properties: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
@@ -3222,6 +3251,7 @@ impl ::std::default::Default for Type {
             kind: Default::default(),
             metadata: Default::default(),
             model: Default::default(),
+            name: Default::default(),
             properties: Default::default(),
             source: Default::default(),
             status: Default::default(),

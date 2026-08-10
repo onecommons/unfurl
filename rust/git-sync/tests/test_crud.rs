@@ -203,6 +203,128 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
     );
 }
 
+/// Top-level keys of a JSON object, in order.
+fn field_order(value: &serde_json::Value) -> Vec<&str> {
+    value
+        .as_object()
+        .expect("object")
+        .keys()
+        .map(String::as_str)
+        .collect()
+}
+
+/// The field order *inside* a record is authored content, like the
+/// order of the records themselves: a client that rewrites one field
+/// must not reshuffle the rest of the block, or every edit lands in git
+/// as a whole-record diff.
+///
+/// The file is where that order lives, not the database — a record read
+/// back out carries the writing client's order on SQLite and JSONB's
+/// normalised order (by key length, then bytewise) on Postgres. So the
+/// order is asserted on disk, after the write, which is what git sees;
+/// `get_record` is only checked for content. Running under `crud_test!`
+/// is the point: the two backends disagree about what comes out of the
+/// database, and must still agree about what lands in the file.
+async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    let path = "/repositories";
+    let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
+    // As authored in the fixture. Postgres's JSONB ordering would give
+    // name, path, tags, branches, contains, metadata, protocols,
+    // project_url, default_branch — nothing like it, so this record
+    // discriminates the two backends.
+    let authored = [
+        "path",
+        "name",
+        "protocols",
+        "project_url",
+        "metadata",
+        "default_branch",
+        "branches",
+        "tags",
+        "contains",
+    ];
+
+    // 1) The record round-trips through the database intact. Its key
+    //    order at this point is the backend's, not the file's --
+    //    `serde_json::Value` compares objects by content, not order.
+    let mut rec = sync
+        .get_record("cloudmap.yaml", path, key)
+        .await
+        .expect("get")
+        .expect("present");
+    let on_disk: serde_json::Value =
+        serde_saphyr::from_str(&std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).unwrap())
+            .expect("parse fixture");
+    assert_eq!(rec.json, on_disk["repositories"][key], "get_record content");
+
+    // 2) The read-modify-write an editing client actually performs:
+    //    change one field, put the whole record back, save.
+    rec.json["name"] = serde_json::json!("Odoo ERP");
+    sync.update_record(Some("cloudmap.yaml"), path, key, rec.json.clone(), None)
+        .await
+        .expect("update");
+    let written = sync.save_changes().await.expect("save_changes");
+    assert_eq!(written.len(), 1);
+
+    let text = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    let saved: serde_json::Value = serde_saphyr::from_str(&text).expect("parse saved yaml");
+    let saved_rec = &saved["repositories"][key];
+    assert_eq!(saved_rec["name"], "Odoo ERP", "the edit was applied");
+    assert_eq!(
+        field_order(saved_rec),
+        authored,
+        "on-disk after save_changes"
+    );
+}
+
+/// A record the file doesn't already have has no order to preserve, so
+/// it gets the format's canonical one — the same order Python's
+/// `CloudMapDB.save()` writes, both being derived from the schema.
+/// Without it a new record would land in whatever order the database
+/// returned, which differs per backend and matches neither tool.
+async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    // Sent in an order that is neither the schema's nor either
+    // backend's, so this can't pass by accident: JSONB would sort these
+    // to name, path, branches, protocols, default_branch.
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/new.git",
+        serde_json::json!({
+            "branches": {"main": "abc123"},
+            "default_branch": "main",
+            "not_in_the_schema": true,
+            "protocols": ["https"],
+            "name": "new",
+            "path": "example/new",
+        }),
+        None,
+    )
+    .await
+    .expect("create");
+    sync.save_changes().await.expect("save_changes");
+
+    let text = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
+    let saved: serde_json::Value = serde_saphyr::from_str(&text).expect("parse saved yaml");
+    assert_eq!(
+        field_order(&saved["repositories"]["git://example.com/new.git"]),
+        [
+            "path",
+            "name",
+            "protocols",
+            "default_branch",
+            "branches",
+            // Fields the schema doesn't declare keep their arrival
+            // order, after the ones it does.
+            "not_in_the_schema",
+        ],
+    );
+}
+
 async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
     let oid_a = sync
@@ -1385,6 +1507,14 @@ crud_test!(
 crud_test!(
     save_changes_round_trips_to_disk,
     run_save_changes_round_trips_to_disk
+);
+crud_test!(
+    record_field_order_survives_the_db,
+    run_record_field_order_survives_the_db
+);
+crud_test!(
+    new_record_gets_the_canonical_field_order,
+    run_new_record_gets_the_canonical_field_order
 );
 crud_test!(commit_conflict_is_detected, run_commit_conflict_is_detected);
 crud_test!(

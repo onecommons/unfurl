@@ -78,6 +78,15 @@
           "type": "string",
           "description": "Link to issue, PR/MR, or discussion about this definition."
         },
+        "spdx_licenses": {
+          "type": "string",
+          "description": "License(s) as an SPDX License Expression."
+        },
+        "created": {
+          "type": "string",
+          "description": "Date and time on which the resource was created, conforming to RFC 3339.",
+          "format": "date-time"
+        },
         "source_url": {
           "type": "string",
           "description": "Informal pointer to source code. Use when deployment information is not available."
@@ -89,15 +98,6 @@
         "source_revision": {
           "type": "string",
           "description": "Informal pointer to source code revision. Use when deployment information is not available."
-        },
-        "spdx_licenses": {
-          "type": "string",
-          "description": "License(s) as an SPDX License Expression."
-        },
-        "created": {
-          "type": "string",
-          "description": "Date and time on which the resource was created, conforming to RFC 3339.",
-          "format": "date-time"
         },
         "discovery": {
           "$ref": "#/definitions/discovery",
@@ -302,17 +302,18 @@
             "type": {
               "$ref": "#/definitions/typeRef",
               "description": "Type identifier from types/artifacts with optional version constraints."
-            },
+            }
+          }
+        },
+        {
+          "$ref": "#/definitions/relationships"
+        },
+        {
+          "type": "object",
+          "properties": {
             "digest": {
               "type": "string",
               "description": "Cryptographic digest of the artifact."
-            },
-            "tags": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "List of available tags for this artifact (e.g., container image tags)."
             },
             "immutable": {
               "type": "boolean",
@@ -354,6 +355,13 @@
                 }
               ]
             },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "List of available tags for this artifact (e.g., container image tags)."
+            },
             "versions": {
               "type": "object",
               "description": "Artifacts that are variants of this artifact (for example, releases or snapshots). Each artifact inherits the metadata of this one unless overridden in its declaration. Identifiers should share the base ID as this package. If versions share the same digest, the artifact identifier refers to the same physical artifact, such as a tagged container image.",
@@ -367,9 +375,6 @@
             }
           },
           "additionalProperties": true
-        },
-        {
-          "$ref": "#/definitions/relationships"
         }
       ]
     },
@@ -384,7 +389,15 @@
             "type": {
               "$ref": "#/definitions/typeRef",
               "description": "Type identifier from types/components with optional version constraints."
-            },
+            }
+          }
+        },
+        {
+          "$ref": "#/definitions/relationships"
+        },
+        {
+          "type": "object",
+          "properties": {
             "metadata": {
               "description": "Human-readable metadata about the service.",
               "$ref": "#/definitions/metadata"
@@ -406,9 +419,6 @@
             }
           },
           "additionalProperties": true
-        },
-        {
-          "$ref": "#/definitions/relationships"
         }
       ]
     },
@@ -654,22 +664,6 @@
           "type": "string",
           "description": "URL to the repository's project page on the host (e.g., <https://github.com/user/repo>)."
         },
-        "mirror_of": {
-          "type": "string",
-          "description": "URL of the repository that this repository is a mirror of."
-        },
-        "fork_of": {
-          "type": "string",
-          "description": "URL of the repository that this repository was forked from."
-        },
-        "private": {
-          "type": "boolean",
-          "description": "True if the repository is not publicly accessible."
-        },
-        "default_branch": {
-          "type": "string",
-          "description": "Default branch name (e.g., main, master)."
-        },
         "metadata": {
           "description": "Metadata about the repository that isn't stored in the git repository itself but might be provided by the host (e.g., metadata found on the repository's GitHub or GitLab project page).",
           "allOf": [
@@ -686,6 +680,10 @@
                 "issues_url": {
                   "type": "string",
                   "description": "URL to the issue tracker for the repository."
+                },
+                "ci_variables": {
+                  "type": "object",
+                  "description": "CI/CD variables declared by the repository's host, keyed by variable name."
                 },
                 "lastupdate_time": {
                   "type": "string",
@@ -712,6 +710,22 @@
               }
             }
           ]
+        },
+        "mirror_of": {
+          "type": "string",
+          "description": "URL of the repository that this repository is a mirror of."
+        },
+        "fork_of": {
+          "type": "string",
+          "description": "URL of the repository that this repository was forked from."
+        },
+        "private": {
+          "type": "boolean",
+          "description": "True if the repository is not publicly accessible."
+        },
+        "default_branch": {
+          "type": "string",
+          "description": "Default branch name (e.g., main, master)."
         },
         "branches": {
           "type": "object",
@@ -740,6 +754,10 @@
       "$$target": "#/definitions/type",
       "type": "object",
       "properties": {
+        "name": {
+          "type": "string",
+          "description": "Fully-qualified name of the type. Repeats the key this type is stored under."
+        },
         "kind": {
           "type": "string",
           "description": "The kind of the type. One of: Component, Artifact, or Capability.",
@@ -748,6 +766,17 @@
             "Artifact",
             "Capability"
           ]
+        },
+        "source": {
+          "type": "string",
+          "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
+        },
+        "extends": {
+          "type": "array",
+          "description": "List of fully-qualified type names that this type extends.",
+          "items": {
+            "type": "string"
+          }
         },
         "status": {
           "type": "string",
@@ -768,17 +797,6 @@
           "type": "object",
           "$ref": "#/definitions/metadata",
           "description": "Additional metadata about the type."
-        },
-        "source": {
-          "type": "string",
-          "description": "Artifact containing type definition. Include if it cannot be derived from the type name."
-        },
-        "extends": {
-          "type": "array",
-          "description": "List of fully-qualified type names that this type extends.",
-          "items": {
-            "type": "string"
-          }
         },
         "properties": {
           "type": "object",

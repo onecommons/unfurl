@@ -1,0 +1,105 @@
+// AUTO-GENERATED from unfurl/cloudmap/cloudmap-schema.json by build.rs.
+// Do not edit by hand — change the JSON Schema and rebuild.
+//
+// Consumed by `CloudMapFormat::field_order`, which orders the fields of
+// a record that has no counterpart on disk to copy an order from.
+
+/// Record field order per top-level section, as declared in the schema.
+pub const FIELD_ORDER: &[(&str, &[&str])] = &[
+    (
+        "repositories",
+        &[
+            "path",
+            "initial_revision",
+            "name",
+            "service",
+            "protocols",
+            "internal_id",
+            "project_url",
+            "metadata",
+            "mirror_of",
+            "fork_of",
+            "private",
+            "default_branch",
+            "branches",
+            "tags",
+            "contains",
+        ],
+    ),
+    (
+        "artifacts",
+        &[
+            "type",
+            "contains",
+            "references",
+            "instantiates",
+            "dependencies",
+            "instantiated_by",
+            "digest",
+            "immutable",
+            "status",
+            "release_schedule",
+            "metadata",
+            "tags",
+            "versions",
+        ],
+    ),
+    (
+        "components",
+        &[
+            "type",
+            "contains",
+            "references",
+            "instantiates",
+            "dependencies",
+            "instantiated_by",
+            "metadata",
+            "status",
+            "versions",
+        ],
+    ),
+    (
+        "services",
+        &[
+            "type",
+            "access",
+            "endpoints",
+            "connections",
+            "status",
+            "metadata",
+            "policies",
+            "instantiated_by",
+            "release_schedule",
+            "versions",
+        ],
+    ),
+    (
+        "instantiations",
+        &[
+            "type",
+            "digest",
+            "revision",
+            "source",
+            "source_ref",
+            "source_revision",
+            "instantiated",
+            "inputs",
+            "metadata",
+            "status",
+            "versions",
+        ],
+    ),
+    (
+        "types",
+        &[
+            "name",
+            "kind",
+            "source",
+            "extends",
+            "status",
+            "model",
+            "metadata",
+            "properties",
+        ],
+    ),
+];

@@ -222,6 +222,17 @@ impl DataFormat for CloudMapFormat {
             Order::PreserveOrder
         }
     }
+
+    fn field_order(&self, path: &str) -> &[&str] {
+        // Generated from cloudmap-schema.json; see `build.rs`. The
+        // schema declares its properties in the order Python's
+        // `CloudMapDB.save()` emits them, so a record created here and
+        // one written by `unfurl cloudmap` look the same on disk.
+        crate::formats::cloudmap_field_order::FIELD_ORDER
+            .iter()
+            .find(|(section, _)| *section == path)
+            .map_or(&[][..], |(_, fields)| fields)
+    }
 }
 
 /// If `url` starts with `git:` and contains a `#` fragment, return the
@@ -747,6 +758,75 @@ fn set_path_preserving(u: &mut Url, new_path: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Every section this format claims must have a canonical field
+    /// order, or records created through the API land in whatever order
+    /// the database handed back. The generated table is keyed off the
+    /// schema's own section list, so this is what catches a section
+    /// being added to one and not the other.
+    #[test]
+    fn every_section_has_a_field_order() {
+        for section in PATH_PREFIXES {
+            assert!(
+                !CloudMapFormat.field_order(section).is_empty(),
+                "no field order generated for `{section}`"
+            );
+        }
+        assert!(
+            CloudMapFormat.field_order("apiVersion").is_empty(),
+            "envelope keys are not record sections"
+        );
+    }
+
+    /// Pins the generated order against the Python dataclasses, whose
+    /// declaration order is what `CloudMapDB.save()` writes. The Python
+    /// half of this pin is `test_dataclass_field_order_matches_schema`
+    /// in `tests/test_cloudmap.py`; between them the schema, the
+    /// dataclasses and this table can't drift apart.
+    #[test]
+    fn field_order_matches_the_python_dataclasses() {
+        assert_eq!(
+            CloudMapFormat.field_order("repositories"),
+            [
+                "path",
+                "initial_revision",
+                "name",
+                "service",
+                "protocols",
+                "internal_id",
+                "project_url",
+                "metadata",
+                "mirror_of",
+                "fork_of",
+                "private",
+                "default_branch",
+                "branches",
+                "tags",
+                "contains",
+            ]
+        );
+        // `artifact` composes the shared `relationships` block between
+        // its own fields, so the $ref branch sits in the middle of its
+        // `allOf` -- that's what puts `contains` after `type` here.
+        assert_eq!(
+            CloudMapFormat.field_order("artifacts"),
+            [
+                "type",
+                "contains",
+                "references",
+                "instantiates",
+                "dependencies",
+                "instantiated_by",
+                "digest",
+                "immutable",
+                "status",
+                "release_schedule",
+                "metadata",
+                "tags",
+                "versions",
+            ]
+        );
+    }
 
     #[test]
     fn join_uri_template_version_keys() {

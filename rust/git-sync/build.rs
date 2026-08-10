@@ -28,7 +28,7 @@
 
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 /// Default location of the cloudmap JSON Schema, relative to this
@@ -115,16 +115,131 @@ fn main() {
                   #![allow(unused_imports, dead_code, clippy::all)]\n";
     let new_contents = format!("{header}{formatted}");
 
-    // Only overwrite if the contents actually differ — keeps the file's
-    // mtime stable so cargo doesn't trigger downstream rebuilds for no
-    // reason.
-    let needs_write = match fs::read_to_string(&committed) {
-        Ok(existing) => existing != new_contents,
+    write_if_changed(&committed, &new_contents, "src/formats/cloudmap_types.rs");
+
+    // Second pass over the same schema, for the canonical field order.
+    // typify can't supply it: it reads `schemars`' `Map`, a `BTreeMap`,
+    // so declared property order is gone before it sees the document
+    // (which is also why its structs come out alphabetical). Parsing the
+    // text again as a `serde_json::Value` — with `preserve_order` on for
+    // this build script — keeps it.
+    let order_module = manifest_dir.join("src/formats/cloudmap_field_order.rs");
+    let order_contents = rustfmt(&field_order_source(&schema_text));
+    write_if_changed(
+        &order_module,
+        &order_contents,
+        "src/formats/cloudmap_field_order.rs",
+    );
+}
+
+/// Write `contents` to `path` only when they differ from what's there,
+/// so the file's mtime stays put and cargo doesn't rebuild downstream
+/// crates for no reason. `label` names the file in the panic message.
+fn write_if_changed(path: &Path, contents: &str, label: &str) {
+    let needs_write = match fs::read_to_string(path) {
+        Ok(existing) => existing != contents,
         Err(_) => true,
     };
     if needs_write {
-        fs::write(&committed, new_contents).expect("write src/formats/cloudmap_types.rs");
+        fs::write(path, contents).unwrap_or_else(|e| panic!("write {label}: {e}"));
     }
+}
+
+/// Render the `FIELD_ORDER` table: one entry per top-level cloudmap
+/// section, listing that section's record fields in the order the schema
+/// declares them.
+///
+/// Both ends of each entry come from the schema, so neither can drift
+/// from it: the section names are the root object's `properties` whose
+/// `additionalProperties` is a `$ref` (that's what makes a section a map
+/// of records), and the field list is the referenced definition's
+/// properties, with `allOf` branches expanded in the order they appear.
+/// That ordering is load-bearing — `artifact` and `component` position
+/// the shared `relationships` block by placing its `$ref` branch between
+/// their own, so the generated order matches what the Python
+/// dataclasses in `unfurl/tosca_plugins/cloudmap_defs.py` emit.
+fn field_order_source(schema_text: &str) -> String {
+    let root: serde_json::Value =
+        serde_json::from_str(schema_text).expect("parse cloudmap-schema.json as json");
+    let defs = root
+        .get("$defs")
+        .or_else(|| root.get("definitions"))
+        .and_then(|v| v.as_object())
+        .expect("cloudmap-schema.json has definitions");
+
+    let mut entries = String::new();
+    let sections = root
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .expect("cloudmap-schema.json has top-level properties");
+    for (section, node) in sections {
+        // A section is a map of records: `additionalProperties` is the
+        // `$ref` naming the definition each of its values conforms to.
+        let Some(name) = node
+            .get("additionalProperties")
+            .and_then(|v| v.get("$ref"))
+            .and_then(|v| v.as_str())
+            .and_then(|r| r.rsplit('/').next())
+        else {
+            continue;
+        };
+        let Some(definition) = defs.get(name) else {
+            continue;
+        };
+        let fields = schema_properties(definition, defs)
+            .into_iter()
+            .map(|f| format!("{f:?}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        entries.push_str(&format!("    ({section:?}, &[{fields}]),\n"));
+    }
+
+    format!(
+        "// AUTO-GENERATED from unfurl/cloudmap/cloudmap-schema.json by build.rs.\n\
+         // Do not edit by hand — change the JSON Schema and rebuild.\n\
+         //\n\
+         // Consumed by `CloudMapFormat::field_order`, which orders the fields of\n\
+         // a record that has no counterpart on disk to copy an order from.\n\
+         \n\
+         /// Record field order per top-level section, as declared in the schema.\n\
+         pub const FIELD_ORDER: &[(&str, &[&str])] = &[\n{entries}];\n"
+    )
+}
+
+/// Property names of a schema node in declaration order, expanding
+/// `allOf`. A branch that is only a `$ref` contributes the referenced
+/// definition's properties at the position the branch appears in.
+fn schema_properties(
+    node: &serde_json::Value,
+    defs: &serde_json::Map<String, serde_json::Value>,
+) -> Vec<String> {
+    let mut names: Vec<String> = node
+        .get("properties")
+        .and_then(|v| v.as_object())
+        .map(|o| o.keys().cloned().collect())
+        .unwrap_or_default();
+    let branches = node
+        .get("allOf")
+        .and_then(|v| v.as_array())
+        .map(|v| v.as_slice())
+        .unwrap_or_default();
+    for branch in branches {
+        let resolved = match branch.get("$ref").and_then(|v| v.as_str()) {
+            Some(r) if branch.get("properties").is_none() => {
+                match r.rsplit('/').next().and_then(|n| defs.get(n)) {
+                    Some(d) => d,
+                    None => continue,
+                }
+            }
+            _ => branch,
+        };
+        for name in schema_properties(resolved, defs) {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    names
 }
 
 /// Pipe `src` through `rustfmt --emit stdout` (edition 2021) and return

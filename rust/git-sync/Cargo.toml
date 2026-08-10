@@ -54,7 +54,7 @@ regress = "0.10"
 # default profile); see `build.rs` for the fallback when it's missing.
 typify = { version = "0.7", default-features = false }
 schemars = "0.8"
-serde_json = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "fs", "sync"] }

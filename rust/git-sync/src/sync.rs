@@ -853,7 +853,7 @@ impl SyncedRepo {
                 }
             }
         }
-        let touched = apply_pending_records(&mut root, pending);
+        let touched = apply_pending_records(&mut root, pending, format);
         apply_format_ordering(&mut root, format, &touched);
         let bytes = serialize_root(&root, file_path, &ext)?;
 
@@ -958,7 +958,11 @@ fn apply_format_ordering(
 /// Apply every pending record to `root` in order. Returns the list of
 /// top-level section names this batch touched (insertion-order, no
 /// duplicates) so callers can re-sort just those sections.
-fn apply_pending_records(root: &mut serde_json::Value, pending: Vec<Record>) -> Vec<String> {
+fn apply_pending_records(
+    root: &mut serde_json::Value,
+    pending: Vec<Record>,
+    format: Option<&dyn crate::DataFormat>,
+) -> Vec<String> {
     let mut touched: Vec<String> = Vec::new();
     for rec in pending {
         let section_name = rec.path.trim_start_matches('/').to_string();
@@ -970,7 +974,7 @@ fn apply_pending_records(root: &mut serde_json::Value, pending: Vec<Record>) -> 
         if rec.deleted {
             apply_delete(root_obj, &section_name, &rec.key);
         } else {
-            apply_insert(root_obj, &section_name, rec.key, rec.json);
+            apply_insert(root_obj, &section_name, rec.key, rec.json, format);
         }
         if !touched.contains(&section_name) {
             touched.push(section_name);
@@ -1007,6 +1011,7 @@ fn apply_insert(
     section_name: &str,
     key: String,
     json: serde_json::Value,
+    format: Option<&dyn crate::DataFormat>,
 ) {
     let section = root_obj
         .entry(section_name.to_string())
@@ -1014,10 +1019,86 @@ fn apply_insert(
     if !section.is_object() {
         *section = serde_json::Value::Object(serde_json::Map::new());
     }
-    section
-        .as_object_mut()
-        .expect("section is object")
-        .insert(key, json);
+    let section = section.as_object_mut().expect("section is object");
+    let json = match section.get(&key) {
+        Some(previous) => reorder_like(previous, json),
+        // Nothing on disk to copy an order from, so fall back to the
+        // format's canonical one.
+        None => match format {
+            Some(fmt) => order_fields(json, fmt.field_order(section_name)),
+            None => json,
+        },
+    };
+    section.insert(key, json);
+}
+
+/// Emit `json`'s top-level keys in `order`, appending any it doesn't
+/// name in the order they arrived. A non-object, or an empty `order`,
+/// passes through untouched.
+fn order_fields(json: serde_json::Value, order: &[&str]) -> serde_json::Value {
+    let serde_json::Value::Object(mut object) = json else {
+        return json;
+    };
+    if order.is_empty() {
+        return serde_json::Value::Object(object);
+    }
+    let mut out = serde_json::Map::with_capacity(object.len());
+    for key in order {
+        if let Some(value) = object.shift_remove(*key) {
+            out.insert((*key).to_string(), value);
+        }
+    }
+    out.extend(object);
+    serde_json::Value::Object(out)
+}
+
+/// Re-key `next` to follow `previous`'s key order, recursively.
+///
+/// The database is an index of the file, not its author. A record read
+/// back out carries whatever order the backend stored it in — the
+/// writing client's on SQLite, and on Postgres `JSONB`'s normalised
+/// order (keys sorted by length, then bytewise). Neither is the order
+/// the file was written in, so writing a record back verbatim would
+/// rewrite its whole block instead of the field that changed.
+///
+/// Mirroring the on-disk block keeps the diff down to the actual edit,
+/// and does it at every depth: nested objects, maps keyed by data
+/// rather than by schema, and objects nested inside arrays all keep the
+/// order the file already had. Keys `previous` doesn't have are
+/// appended in the order they arrived, so nothing is dropped and
+/// additions still show up in the diff.
+///
+/// A record with no counterpart on disk has nothing to mirror and is
+/// written in the order it arrived; see [`crate::DataFormat`] for the
+/// canonical field order applied to those.
+fn reorder_like(previous: &serde_json::Value, next: serde_json::Value) -> serde_json::Value {
+    use serde_json::Value;
+    match (previous, next) {
+        (Value::Object(previous), Value::Object(mut next)) => {
+            let mut out = serde_json::Map::with_capacity(next.len());
+            for (key, previous_value) in previous {
+                if let Some(value) = next.shift_remove(key) {
+                    out.insert(key.clone(), reorder_like(previous_value, value));
+                }
+            }
+            // Whatever is left is new to the file; keep it in arrival order.
+            out.extend(next);
+            Value::Object(out)
+        }
+        // Arrays keep their element order (both backends preserve it),
+        // but objects *inside* them are subject to the same rewrite, so
+        // pair them up positionally.
+        (Value::Array(previous), Value::Array(next)) => Value::Array(
+            next.into_iter()
+                .enumerate()
+                .map(|(i, value)| match previous.get(i) {
+                    Some(previous_value) => reorder_like(previous_value, value),
+                    None => value,
+                })
+                .collect(),
+        ),
+        (_, next) => next,
+    }
 }
 
 /// Serialize `root` as YAML or JSON depending on `ext`.
@@ -1738,4 +1819,80 @@ fn compute_aliases(
         version: 0,
     };
     fmt.find_alias(&record)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::reorder_like;
+    use serde_json::json;
+
+    /// Top-level keys of a JSON object, in order.
+    fn keys(value: &serde_json::Value) -> Vec<&str> {
+        value
+            .as_object()
+            .expect("object")
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn reorder_like_mirrors_the_previous_key_order() {
+        let previous = json!({"path": "p", "name": "n", "metadata": {"description": "d"}});
+        let next = json!({"metadata": {"description": "d2"}, "name": "n2", "path": "p2"});
+        let out = reorder_like(&previous, next);
+        assert_eq!(keys(&out), ["path", "name", "metadata"]);
+        assert_eq!(out["name"], "n2", "values come from `next`");
+    }
+
+    #[test]
+    fn reorder_like_appends_keys_the_file_lacks() {
+        let previous = json!({"path": "p", "name": "n"});
+        let next = json!({"tags": {}, "name": "n", "branches": {}, "path": "p"});
+        let out = reorder_like(&previous, next);
+        assert_eq!(
+            keys(&out),
+            ["path", "name", "tags", "branches"],
+            "known keys first, new ones in arrival order"
+        );
+    }
+
+    #[test]
+    fn reorder_like_recurses_into_nested_and_data_keyed_maps() {
+        // `metadata` is schema-shaped, `contains` is keyed by data --
+        // mirroring the file covers both without knowing the difference.
+        let previous = json!({
+            "metadata": {"description": "d", "homepage_url": "h", "issues_url": "i"},
+            "contains": {".gitlab-ci.yml": null, "unfurl.yaml": null},
+        });
+        let next = json!({
+            "contains": {"unfurl.yaml": null, ".gitlab-ci.yml": null},
+            "metadata": {"issues_url": "i", "description": "d", "homepage_url": "h2"},
+        });
+        let out = reorder_like(&previous, next);
+        assert_eq!(keys(&out), ["metadata", "contains"]);
+        assert_eq!(
+            keys(&out["metadata"]),
+            ["description", "homepage_url", "issues_url"]
+        );
+        assert_eq!(keys(&out["contains"]), [".gitlab-ci.yml", "unfurl.yaml"]);
+    }
+
+    #[test]
+    fn reorder_like_pairs_array_elements_positionally() {
+        let previous = json!({"release_schedule": [{"version": "1", "date": "d"}]});
+        let next = json!({"release_schedule": [{"date": "d2", "version": "2"}, {"b": 1, "a": 2}]});
+        let out = reorder_like(&previous, next);
+        let items = out["release_schedule"].as_array().expect("array");
+        assert_eq!(keys(&items[0]), ["version", "date"], "paired with previous");
+        assert_eq!(keys(&items[1]), ["b", "a"], "no counterpart, left alone");
+    }
+
+    #[test]
+    fn reorder_like_leaves_mismatched_shapes_alone() {
+        let previous = json!({"a": {"x": 1}});
+        let next = json!({"a": [1, 2]});
+        assert_eq!(reorder_like(&previous, next.clone()), next);
+        assert_eq!(reorder_like(&json!("scalar"), next.clone()), next);
+    }
 }

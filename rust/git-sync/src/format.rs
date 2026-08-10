@@ -101,6 +101,27 @@ pub trait DataFormat: Send + Sync {
     fn get_order(&self, _path: &str) -> Order {
         Order::PreserveOrder
     }
+
+    /// Canonical order for the fields *inside* a record of section
+    /// `path`, or an empty slice to impose none (the default).
+    ///
+    /// Where [`Self::get_order`] governs the order of records within a
+    /// section, this governs the order of a record's own keys. It is
+    /// consulted by [`crate::SyncedRepo::write_file`] only for a record
+    /// the file doesn't already contain: one that does is written in
+    /// the order the file already had it in, which needs no format
+    /// knowledge and preserves whatever the author (or the other tool
+    /// writing these files) chose. A new record has no such order to
+    /// copy, and would otherwise be written in the database's — the
+    /// client's insertion order on SQLite, `JSONB`'s normalised order
+    /// on Postgres.
+    ///
+    /// Only the record's top-level fields are ordered; nested objects
+    /// keep the order they arrived in. `path` is the section name
+    /// without a leading slash, as in [`DataFormat::get_order`].
+    fn field_order(&self, _path: &str) -> &[&str] {
+        &[]
+    }
 }
 
 /// Registry of [`DataFormat`] implementations.

@@ -8,4 +8,5 @@
 //! [`crate::FormatRegistry::register`].
 
 pub mod cloudmap;
+pub mod cloudmap_field_order;
 pub mod cloudmap_types;

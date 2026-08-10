@@ -7,6 +7,9 @@ import git
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    CloudType,
+    CommonMetadata,
+    Component,
     Discovery,
     EntitySchema,
     Instantiation,
@@ -50,6 +53,62 @@ def test_is_label():
     assert not is_label("pkg:oci/nginx")
     assert not is_label("ensemble/ensemble.yaml")
     assert not is_label("CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle")
+
+
+def _schema_properties(node: dict, defs: dict) -> list:
+    """Property names of a schema node in declaration order, expanding ``allOf``.
+
+    A ``$ref`` branch contributes the referenced definition's properties at the
+    position the branch appears in, which is how ``artifact`` and ``component``
+    place the shared ``relationships`` block between their own fields.
+    """
+    names = list(node.get("properties", {}))
+    for branch in node.get("allOf", []):
+        if "$ref" in branch and "properties" not in branch:
+            branch = defs[branch["$ref"].rsplit("/", 1)[-1]]
+        names += [n for n in _schema_properties(branch, defs) if n not in names]
+    return names
+
+
+def test_dataclass_field_order_matches_schema():
+    """The dataclasses and the JSON Schema must declare fields in the same order.
+
+    ``CloudMapDB.save()`` writes each record via ``asdict()``, so the dataclass
+    order is the order records land in on disk. The Rust writer derives its
+    canonical order from the schema instead (``DataFormat::field_order``), so
+    the two agreeing is what keeps a record from being rewritten end to end
+    every time the other tool touches it.
+    """
+    import dataclasses
+    import json
+    from pathlib import Path
+
+    from unfurl.tosca_plugins import cloudmap_defs
+
+    schema = json.loads(
+        (
+            Path(cloudmap_defs.__file__).parents[1] / "cloudmap" / "cloudmap-schema.json"
+        ).read_text()
+    )
+    defs = schema.get("$defs") or schema["definitions"]
+
+    pairs = [
+        (Repository, defs["repository"]),
+        (Artifact, defs["artifact"]),
+        (Component, defs["component"]),
+        (Service, defs["service"]),
+        (Instantiation, defs["instantiation"]),
+        (CloudType, defs["type"]),
+        (CommonMetadata, defs["metadata"]),
+        (Discovery, defs["discovery"]),
+        # metadata subclasses, defined inline where they're used
+        (ArtifactMetadata, defs["artifact"]["allOf"][2]["properties"]["metadata"]),
+        (RepositoryMetadata, defs["repository"]["properties"]["metadata"]),
+    ]
+    for dataclass, node in pairs:
+        # `url` is the record's key, never written into the value.
+        fields = [f.name for f in dataclasses.fields(dataclass) if f.name != "url"]
+        assert fields == _schema_properties(node, defs), dataclass.__name__
 
 
 def test_typed_urls_fromdict_and_asdict():

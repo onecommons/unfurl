@@ -511,6 +511,8 @@ pub struct CloudmapType {
     pub metadata: Option<CloudmapMetadata>,
     /// URL of artifact or service to use a model for instances of this type.
     pub model: Option<String>,
+    /// Fully-qualified name of the type. Repeats the key this type is stored under.
+    pub name: Option<String>,
     /// JSON Schema describing the properties of instances of this type.
     pub properties: Option<serde_json::Value>,
     /// Artifact containing type definition. Include if it cannot be derived from the type name.
