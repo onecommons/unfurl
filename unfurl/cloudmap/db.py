@@ -279,6 +279,14 @@ class CloudMapDB(CloudMapView):
         key = self._get_key(name, "types")
         return self.types.get(key) if key is not None else None
 
+    def get_record(self, section: str, key: str) -> Optional[Any]:
+        """Look up a record by ``(section, key)``.
+
+        Use :py:func:`~unfurl.tosca_plugins.cloudmap_defs.section_of` for the
+        section when you have a record rather than a section name.
+        """
+        return getattr(self, section, {}).get(key)
+
     def add_record(self, record: CloudMapRecord) -> None:
         if isinstance(record, Repository):
             self.repositories[record.url] = record

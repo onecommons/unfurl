@@ -12,6 +12,11 @@ from unfurl.cloudmap import (
     RepositoryHost,
     AnalyzerRegistry,
 )
+from unfurl.cloudmap.provenance import (
+    ProvenanceTrackingContext,
+    discovery_sources,
+    record_discovery_source,
+)
 from unfurl.localenv import LocalEnv
 from unfurl.util import API_VERSION
 from unfurl.cloudmap.analyzers import (
@@ -30,8 +35,10 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     Instantiation,
     PipelineRunAnalyzer,
     Repository,
+    RepositoryAnalyzer,
     Service,
     TypeRefs,
+    URLAnalyzer,
 )
 from tosca import global_state
 UNFURL_TEST_UNFURL_GUI_TOKEN_URL = os.getenv("UNFURL_TEST_UNFURL_GUI_TOKEN_URL")
@@ -1730,9 +1737,8 @@ kind: Project
     assert repo2 is None
 
     # Case 2: git URL with a file path fragment → creates Repository + Artifact
-    result = cm.analyze_url(
-        "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
-    )
+    requested_url = "https://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"
+    result = cm.analyze_url(requested_url)
     # Repository.contains is keyed by (label, url); url is the repo-relative path
     assert result.contains == {
         ("", "modules/Dockerfile"): TypeRefs(
@@ -1745,6 +1751,15 @@ kind: Project
     expected_artifact = Artifact(
         url=artifact_url,
         type=TypeRefs({EntitySchema.ContainerFile: None}),
+        # The analyzed url is recorded because it isn't this record's own key:
+        # github redirects nginxinc/docker-nginx to nginx/docker-nginx, so the
+        # record is keyed under the new name. Recorded in canonical `git://`
+        # form, so the spelling used to request it doesn't matter.
+        metadata=ArtifactMetadata(
+            discovery=Discovery(
+                sources=["git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"]
+            )
+        ),
     )
     assert artifact == expected_artifact
 
@@ -1870,3 +1885,282 @@ def test_analyze_url_generic_purl(tmp_path):
     # # Idempotent
     # pypi_art2 = cm.analyze_url(pypi_url, "no")
     # assert pypi_art2 is pypi_art
+
+
+class _StubURLAnalyzer(URLAnalyzer):
+    """Produces whatever the test set in ``emits`` for the url being analyzed.
+
+    Lets a test change what a source produces between runs, which is what
+    ``analyze_url(..., replace=True)`` is meant to notice.
+    """
+
+    url_schemes = ("stub:",)
+    emits: dict = {}
+
+    def __init__(self, url: str):
+        self.url = url
+
+    @classmethod
+    def init_from_url(cls, url, parsed):
+        return cls(url) if url in cls.emits else None
+
+    def analyze_url(self, directory):
+        primary = None
+        for record in self.emits[self.url]:
+            if isinstance(record, Artifact) and primary is None:
+                primary = record  # returned for the caller to add
+            else:
+                directory.add_record(record)
+        return primary
+
+
+def _stub_cloudmap(tmp_path, emits):
+    _StubURLAnalyzer.emits = emits
+    cm = CloudMap(
+        repo=None,
+        host_branch="main",
+        path=str(tmp_path / "cloudmap.yaml"),
+        skip_analysis=True,
+    )
+    cm.register_url_analyzer(_StubURLAnalyzer)
+    return cm
+
+
+def _sources(record):
+    return discovery_sources(record)
+
+
+def test_analyze_url_records_discovery_source(tmp_path):
+    """Every record an analysis produces is attributed to the analyzed url."""
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:one": [
+                Artifact(url="pkg:generic/main"),
+                CloudType(name="some.Type", kind="Component"),
+                Service(url="https://svc.example.com"),
+            ]
+        },
+    )
+    cm.analyze_url("stub:one")
+    db = cm.directory.db
+
+    for record in (
+        db.artifacts["pkg:generic/main"],
+        db.types["some.Type"],
+        db.services["https://svc.example.com"],
+    ):
+        assert _sources(record) == ["stub:one"], record
+
+
+def test_analyze_url_replace_collects_orphans(tmp_path):
+    """A record the source stops producing is removed; the rest survive."""
+    kept = Artifact(url="pkg:generic/kept")
+    orphan = Artifact(url="pkg:generic/orphan")
+    cm = _stub_cloudmap(tmp_path, {"stub:one": [kept, orphan]})
+    cm.analyze_url("stub:one")
+    db = cm.directory.db
+    assert "pkg:generic/orphan" in db.artifacts
+
+    # the source no longer produces the second artifact
+    _StubURLAnalyzer.emits = {"stub:one": [Artifact(url="pkg:generic/kept")]}
+    cm.analyze_url("stub:one", replace=True)
+
+    assert "pkg:generic/kept" in db.artifacts
+    assert "pkg:generic/orphan" not in db.artifacts, "orphan should be collected"
+
+
+def test_analyze_url_replace_keeps_records_with_other_sources(tmp_path):
+    """A record is only deleted once every source has stopped producing it."""
+    shared = CloudType(name="shared.Type", kind="Component")
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:one": [Artifact(url="pkg:generic/a"), shared],
+            "stub:two": [Artifact(url="pkg:generic/b"), shared],
+        },
+    )
+    cm.analyze_url("stub:one")
+    cm.analyze_url("stub:two")
+    db = cm.directory.db
+    assert _sources(db.types["shared.Type"]) == ["stub:one", "stub:two"]
+
+    # stub:one stops producing the shared type; stub:two still does
+    _StubURLAnalyzer.emits["stub:one"] = [Artifact(url="pkg:generic/a")]
+    cm.analyze_url("stub:one", replace=True)
+
+    assert "shared.Type" in db.types, "still produced by stub:two"
+    assert _sources(db.types["shared.Type"]) == ["stub:two"]
+
+
+def test_analyze_url_replace_does_not_oscillate(tmp_path):
+    """Re-analyzing an unchanged source must not delete anything.
+
+    Analyzers skip re-adding records that already exist, so a record can be
+    still-in-use yet never passed to ``add_record``. If that isn't marked, the
+    sweep deletes it and the next run recreates it -- alternating forever, so
+    this runs three times rather than two.
+    """
+    from unfurl.cloudmap.analyzers import create_cloud_type_from_type_info
+
+    class _GuardedAnalyzer(_StubURLAnalyzer):
+        """Adds a CloudType through the same guard the real analyzers use.
+
+        `create_cloud_type_from_type_info` returns None when the type is
+        already in the cloudmap, so the second run never calls `add_record`
+        for it -- which is exactly the case the sweep must not misread.
+        """
+
+        url_schemes = ("stub:",)
+
+        def analyze_url(self, directory):
+            cloud_type = create_cloud_type_from_type_info(
+                {"name": "dep.Type", "title": "Dep"}, directory
+            )
+            if cloud_type:
+                directory.add_record(cloud_type)
+            return Artifact(url="pkg:generic/a")
+
+    cm = _stub_cloudmap(tmp_path, {"stub:one": []})
+    cm.register_url_analyzer(_GuardedAnalyzer)
+    db = cm.directory.db
+    for run in range(3):
+        cm.analyze_url("stub:one", replace=True)
+        assert "dep.Type" in db.types, f"deleted on run {run + 1}"
+        assert "pkg:generic/a" in db.artifacts, f"deleted on run {run + 1}"
+
+
+def test_analyze_url_replace_skips_sweep_when_analysis_fails(tmp_path):
+    """A failed analysis mustn't be read as 'the source produces nothing'."""
+
+    class _Boom(_StubURLAnalyzer):
+        url_schemes = ("stub:",)
+
+        def analyze_url(self, directory):
+            directory._mark_failed()
+            return None
+
+    cm = _stub_cloudmap(tmp_path, {"stub:one": [Artifact(url="pkg:generic/a")]})
+    cm.analyze_url("stub:one")
+    db = cm.directory.db
+    assert "pkg:generic/a" in db.artifacts
+
+    cm.register_url_analyzer(_Boom)
+    cm.analyze_url("stub:one", replace=True)
+    assert "pkg:generic/a" in db.artifacts, "must not sweep after a failed run"
+
+
+def test_analyze_url_replace_matches_repository_file_sources(tmp_path):
+    """A repository url collects the records of its own files.
+
+    Records produced by analyzing files inside a repository are attributed to
+    ``<repo url>#:<path>``, not the bare repository url, so replacing a
+    repository has to match that prefix -- otherwise deleting a file from the
+    repository would never collect the records it had produced.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    db = cm.directory.db
+    repo_url = "git://example.com/org/repo.git"
+
+    # stand in for a previous run that analyzed two of the repository's files
+    for path, url in (
+        ("kept.yaml", "pkg:generic/from-kept"),
+        ("removed.yaml", "pkg:generic/from-removed"),
+    ):
+        artifact = Artifact(url=url)
+        record_discovery_source(artifact, f"{repo_url}#:{path}")
+        db.add_record(artifact)
+    unrelated = Artifact(url="pkg:generic/unrelated")
+    record_discovery_source(unrelated, "git://example.com/org/other.git#:f.yaml")
+    db.add_record(unrelated)
+
+    ctx = ProvenanceTrackingContext(cm.directory)
+    assert ctx.matches_source(f"{repo_url}#:kept.yaml", repo_url)
+    assert ctx.matches_source(repo_url, repo_url)
+    assert not ctx.matches_source("git://example.com/org/other.git#:f.yaml", repo_url)
+
+    found = ctx.find_by_source(repo_url)
+    assert {key for _kind, key in found} == {
+        "pkg:generic/from-kept",
+        "pkg:generic/from-removed",
+    }, "the repository's own file artifacts, and nothing else"
+
+
+def test_analyzer_failure_marks_the_run_incomplete(tmp_path):
+    """A swallowed analyzer error has to reach the run's error count.
+
+    `Directory.analyze` logs and continues when an analyzer raises, so without
+    this the run looks like "produced nothing" and `--replace` would delete
+    every record attributed to the url.
+    """
+
+    class _Boom(RepositoryAnalyzer):
+        files = ("boom.yaml",)
+
+        def analyze(self, directory, repo_info, root_path):
+            raise RuntimeError("boom")
+
+    cm = _stub_cloudmap(tmp_path, {})
+    repo_info = Repository(url="git://example.com/org/repo.git", path="org/repo")
+    mock_repo = MagicMock()
+    mock_repo.working_dir = str(tmp_path)
+
+    context = ProvenanceTrackingContext(cm.directory)
+    with patch.object(
+        type(cm.directory), "analyze_repo", return_value=[_Boom("", "boom.yaml")]
+    ):
+        with context._tracking_provenance("git://example.com/org/repo.git") as provenance:
+            # the tracking context is what `import_project_url` passes down
+            cm.directory.analyze(repo_info, mock_repo, context)
+
+    assert provenance.errors == 1, "the swallowed exception must be counted"
+
+
+def test_analyze_url_replace_forces_reanalysis(tmp_path):
+    """`replace` overrides analyze="no", which would otherwise short-circuit.
+
+    The dedupe check returns early for a url that's already recorded; that
+    would produce nothing and make every record attributed to it look orphaned.
+    """
+    # a PURL is recorded under the url itself, so the dedupe check sees it
+    url = "pkg:npm/express@4.18.2"
+    cm = _stub_cloudmap(tmp_path, {})
+    db = cm.directory.db
+    cm.analyze_url(url, "no")
+    assert url in db.artifacts
+
+    # analyze="no" returns None here because the record already exists
+    assert cm.analyze_url(url, "no") is None
+    assert cm.analyze_url(url, "no", replace=True) is not None, "forced re-analysis"
+    assert url in db.artifacts, "re-analysis re-emitted it, so it wasn't swept"
+
+
+def test_host_synced_records_are_not_attributed_to_a_url(tmp_path):
+    """Repository host sync writes records directly, so they carry no source.
+
+    Their provenance is the host, not a url that was analyzed, and attributing
+    them would make them candidates for a sweep they never belonged to.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    repo = Repository(url="git://example.com/org/repo.git", path="org/repo")
+    with ProvenanceTrackingContext(cm.directory)._tracking_provenance("stub:one"):
+        cm.directory.db.add_record(repo)  # what the host managers call
+    assert _sources(repo) == []
+
+
+def test_analyze_url_records_a_canonical_source(tmp_path):
+    """The same repository spelled two ways is one discovery source.
+
+    Records are keyed by the canonical `git://` url, so the source has to be
+    canonicalized too -- otherwise `--replace git://...` wouldn't find records
+    added by `--add https://...`, and the sweep would silently collect nothing.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    https_url = "https://gitrepos.org/someorg/somerepo.git#:f.yaml"
+    git_url = "git://gitrepos.org/someorg/somerepo.git#:f.yaml"
+    assert cm._normalize_analyzed_url(https_url)[0] == git_url
+    assert cm._normalize_analyzed_url(git_url)[0] == git_url
+
+    # a non-git url must not be rewritten
+    for url in ("pkg:npm/express@4.18.2", "https://example.com/service"):
+        assert cm._normalize_analyzed_url(url)[0] == url

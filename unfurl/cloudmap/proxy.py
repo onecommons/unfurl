@@ -33,6 +33,7 @@ import requests
 from . import CloudMapDB
 from ..logs import getLogger, UnfurlLogger
 from ..tosca_plugins.cloudmap_defs import (
+    section_of,
     Artifact,
     CloudMapRecord,
     CloudMapView,
@@ -281,13 +282,6 @@ class CloudMapCache(CloudMapDB):
             return
         for half in pair:
             self.ingest_document(half)
-
-    def get_record(self, section: str, key: str) -> Optional[Any]:
-        """Look up a record by ``(section, key)``. Used by the proxy
-        to find a just-posted dataclass so it can stamp the response's
-        OCC tokens onto it.
-        """
-        return getattr(self, section, {}).get(key)
 
 
 DEFAULT_REQUEST_TIMEOUT = 30.0
@@ -613,19 +607,7 @@ class CloudMapProxy(CloudMapView):
     @staticmethod
     def _section_for(record: CloudMapRecord) -> str:
         """Map a record's concrete type to its cloudmap section name."""
-        if isinstance(record, Repository):
-            return "repositories"
-        if isinstance(record, Artifact):
-            return "artifacts"
-        if isinstance(record, Service):
-            return "services"
-        if isinstance(record, Component):
-            return "components"
-        if isinstance(record, Instantiation):
-            return "instantiations"
-        if isinstance(record, CloudType):
-            return "types"
-        raise TypeError(f"unsupported cloudmap record type: {type(record).__name__}")
+        return section_of(record)
 
     def add_record(self, record: CloudMapRecord) -> None:
         # Update the local cache and stage the dict form for the next

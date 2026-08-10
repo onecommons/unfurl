@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 
 from ..logs import getLogger
 from ..tosca_plugins.cloudmap_defs import (
+    AnalyzerContext,
     CommonMetadata,
     EntitySchema,
     HostConfig,
@@ -174,10 +175,14 @@ else:
                 return None
 
         def import_project_url(
-            self, url: str, directory: Directory, download: bool
+            self,
+            url: str,
+            directory: Directory,
+            download: bool,
+            context: Optional[AnalyzerContext] = None,
         ) -> Repository:
             repo = self.github.get_repo(self.extract_project_path(url))
-            return self._import_repository(repo, directory, download)
+            return self._import_repository(repo, directory, download, context)
 
         def github_repository_to_repository(
             self, repo: "GithubRepository"
@@ -293,7 +298,11 @@ else:
             return count
 
         def _import_repository(
-            self, repo: GithubRepository, directory: Directory, download: bool
+            self,
+            repo: GithubRepository,
+            directory: Directory,
+            download: bool,
+            context: Optional[AnalyzerContext] = None,
         ) -> Repository:
             # Convert and add to directory
             repo_info = self.github_repository_to_repository(repo)
@@ -303,7 +312,9 @@ else:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(repo)
-                self._fetch_and_analyze_repo(repo_info, directory, previous, remote_url)
+                self._fetch_and_analyze_repo(
+                    repo_info, directory, previous, remote_url, context
+                )
             self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
             return repo_info
 

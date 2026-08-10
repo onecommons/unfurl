@@ -2202,6 +2202,13 @@ def serve(
     help="Add a record for the given URL to the cloudmap. Repeatable.",
 )
 @click.option(
+    "--replace",
+    multiple=True,
+    metavar="URL",
+    help="Like --add, but also remove records previously discovered from URL "
+    "that it no longer produces. Repeatable.",
+)
+@click.option(
     "--graph",
     default=None,
     metavar="URL",
@@ -2229,6 +2236,7 @@ def cloudmap(
     repository: str = "",
     commit: bool = False,
     add: Tuple[str, ...] = (),
+    replace: Tuple[str, ...] = (),
     analyze: Literal["yes", "no", "save-only", "default"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
@@ -2261,11 +2269,13 @@ def cloudmap(
         return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
-    if not add and not host_name:
-        click.echo("nothing to do (use one of --export, --import, --add, --graph, or --sync)")
+    if not add and not replace and not host_name:
+        click.echo(
+            "nothing to do (use one of --export, --import, --add, --replace, --graph, or --sync)"
+        )
         return
     # get the host first so we know branch to use in the cloud map repository
-    if add:
+    if add or replace:
         host = None
     else:
         host = CloudMap.get_host(
@@ -2284,18 +2294,26 @@ def cloudmap(
         skip_analysis or analyze == "no",
         commit,
     )
-    if add:
+    if add or replace:
         added = []
         failed = []
-        for url in add:
+        # a url given to both is replaced, which is a superset of adding it
+        for url in [u for u in add if u not in replace]:
             r = cloud_map.analyze_url(url, analyze)
+            if r:
+                added.append(r)
+            else:
+                failed.append(url)
+        for url in replace:
+            r = cloud_map.analyze_url(url, analyze, replace=True)
             if r:
                 added.append(r)
             else:
                 failed.append(url)
         if added:
             names = ", ".join(f"{r.__class__.__name__}({r.key})" for r in added)
-            cloud_map.save(f"Added {len(added)} record(s): {names}")
+            verb = "Updated" if replace else "Added"
+            cloud_map.save(f"{verb} {len(added)} record(s): {names}")
         for url in failed:
             click.echo(f"{url} skipped: already added or failed to add record")
         return

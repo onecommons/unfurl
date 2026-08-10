@@ -169,6 +169,10 @@ artifacts:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
@@ -195,20 +199,40 @@ artifacts:
   git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
     type:
       cloudmap.artifacts.Containerfile:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:

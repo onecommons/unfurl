@@ -103,7 +103,7 @@ from ..tosca_plugins.cloudmap_defs import (
 )
 from ..support import ContainerImage, ContainerImageParts
 from ..configurator import Configurator, TaskView
-from ..util import load_class_from_file
+from ..util import load_class_from_file, split_url_fragment
 
 from ..repo import (
     GitRepo,
@@ -118,6 +118,7 @@ from ..util import UnfurlError
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from .db import CloudMapDB
+from .provenance import ProvenanceTrackingContext
 from .github import GithubManager
 from .gitlab import GitlabManager
 from .host import LocalRepositoryHost, RepositoryHost, _LocalGitRepos
@@ -337,6 +338,9 @@ class Directory(_LocalGitRepos, AnalyzerContext):
     def delete_record(self, record: CloudMapRecord) -> None:
         self.db.delete_record(record)
 
+    def get_record(self, section: str, key: str) -> Optional[CloudMapRecord]:
+        return self.db.get_record(section, key)
+
     def get_artifact(self, url: str) -> Optional[Artifact]:
         return self.db.get_artifact(url)
 
@@ -452,11 +456,13 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info: Repository,
         repo: GitRepo,
         previous_contains: TypedUrls,
+        context: Optional[AnalyzerContext] = None,
     ) -> Optional[List[RepositoryAnalyzer]]:
         if self.do_analysis:
             try:
-                return self.analyze(repo_info, repo)
+                return self.analyze(repo_info, repo, context)
             except Exception:
+                (context or self)._mark_failed()
                 # restore previous
                 repo_info.contains = previous_contains
                 self.logger.error(
@@ -466,17 +472,30 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info.contains = previous_contains
         return None
 
-    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryAnalyzer]:
+    def analyze(
+        self,
+        repo_info: Repository,
+        repo: GitRepo,
+        context: Optional[AnalyzerContext] = None,
+    ) -> List[RepositoryAnalyzer]:
+        """Run the analyzers matching this repository's files.
+
+        ``context`` is what analyzers are given and what their records are
+        added through; it defaults to this directory. A caller that is
+        tracking discovery passes its own context so the records produced here
+        are attributed to the url being analyzed.
+        """
         self.logger.verbose("analyzing %s", repo_info.url)
         analyze_queue = self.analyze_repo(repo_info, repo)
         notables = []
+        context = context or self
         for n in analyze_queue:
             try:
-                artifact = n.analyze(self, repo_info, repo.working_dir)
+                artifact = n.analyze(context, repo_info, repo.working_dir)
                 if artifact:
                     # XXX what to do if self.db.get_artifact(artifact.url)?
                     # (currently we want to give this priority for the git digest)
-                    self.db.add_record(artifact)
+                    context.add_record(artifact)
                     url = artifact.metadata.source_url
                     if (
                         url
@@ -485,6 +504,7 @@ class Directory(_LocalGitRepos, AnalyzerContext):
                     ):
                         self.cloudmap.analyze_url(url, "no")
             except Exception:
+                context._mark_failed()
                 self.logger.error(
                     "Unexpected error analyzing notable %s in %s.",
                     n.path,
@@ -1118,6 +1138,7 @@ class CloudMap:
         self,
         url: str,
         analyze: Analyze_Options = "default",
+        replace: bool = False,
     ) -> Optional[CloudMapRecord]:
         """Analyze a URL and add the resulting record to the cloudmap.
 
@@ -1127,36 +1148,98 @@ class CloudMap:
         - Package URLs (pkg:) → Artifact
         - Everything else → try URL analyzers, default to Service if no takers.
 
+        Records added are attributed to ``url`` in their
+        ``metadata.discovery.sources``, so a later run can tell what this URL
+        contributed.
+
         Args:
             url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
             analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
+            replace: Also remove records that were previously discovered from
+                ``url`` but that it no longer produces -- see
+                :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
+                Implies ``analyze="yes"``.
 
         Returns:
             If analyze != "yes" return None if the URL is already in the database,
             otherwise, return the Repository, Artifact, or Service that was added (or None if there was an error).
         """
-        db = self.directory.db
+        url, from_local_path = self._normalize_analyzed_url(url)
+        if replace:
+            # Several paths below short-circuit when a record already exists
+            # (the dedupe check here, and the one in `_add_repository_record`).
+            # Those returns produce nothing, which would make every previously
+            # discovered record look orphaned, so re-analysis has to be forced.
+            analyze = "yes"
+        context = ProvenanceTrackingContext(self.directory)
+        with context._tracking_provenance(url) as provenance:
+            record = self._analyze_url(context, url, analyze, from_local_path)
+        if replace:
+            context.replace_from_source(url, provenance)
+        return record
+
+    def _normalize_analyzed_url(self, url: str) -> Tuple[str, bool]:
+        """Resolve ``url`` to the canonical form recorded as a discovery source.
+
+        A path inside a git repository becomes that repository's ``git://`` URL,
+        as does a git URL written any other way (``https://``, ``git+ssh://``);
+        records are keyed by that canonical form, so the URL they were
+        discovered from has to match it -- otherwise the same repository
+        referred to two ways is recorded as two different sources and
+        ``--replace`` given one spelling wouldn't find records attributed to
+        the other. A bare name with no scheme is treated as a container image
+        and becomes a ``pkg:oci`` PURL. Anything else is returned unchanged.
+
+        Returns:
+            ``(url, from_local_path)``, where ``from_local_path`` marks a path
+            that resolved to a git repository -- known to be a repository, so
+            the caller can skip the URL-analyzer dispatch as before.
+        """
+        if urlparse(url).scheme:
+            if not self._is_git_url(url):
+                return url, False
+            base, fragment = split_url_fragment(url)
+            # `get_repository_url` drops the fragment, which is the part that
+            # says which file in the repository is being analyzed, so put it
+            # back exactly as written.
+            canonical = get_repository_url(base)
+            return canonical + (f"#{fragment}" if fragment else ""), False
+        # No scheme - see if it's a local path inside a git repository
+        repo = os.path.exists(url) and Repo.find_containing_git_repo(url)
+        if repo:
+            self.directory._add_repo(repo)
+            # don't include "." as a path to examine
+            return repo.get_url_with_path(os.path.abspath(url)).rstrip("#:."), True
+        self.logger.info(
+            "URL %s has no scheme and is not a local path; treating as container image name",
+            url,
+        )
+        return build_oci_purl(ContainerImageParts.split(url)), False
+
+    def _analyze_url(
+        self,
+        context: AnalyzerContext,
+        url: str,
+        analyze: Analyze_Options,
+        from_local_path: bool = False,
+    ) -> Optional[CloudMapRecord]:
+        """Dispatch an already-normalized URL to the record type it names.
+
+        Split out of :py:meth:`analyze_url` so provenance tracking can wrap the
+        whole dispatch, including the records analyzers add as side effects.
+        """
         parts = urlparse(url)
 
-        if not parts.scheme:
-            # No scheme - see if it's a local path inside a git repository
-            repo = os.path.exists(url) and Repo.find_containing_git_repo(url)
-            if repo:
-                self.directory._add_repo(repo)
-                # don't include "." as a path to examine
-                url = repo.get_url_with_path(os.path.abspath(url)).rstrip("#:.")
-                return self._add_repository_record(url, analyze)
-            else:
-                self.logger.info(
-                    "URL %s has no scheme and is not a local path; treating as container image name",
-                    url,
-                )
-                url = build_oci_purl(ContainerImageParts.split(url))
+        if from_local_path:
+            # a local path is known to be a repository, so skip the URL analyzers
+            return self._add_repository_record(context, url, analyze)
 
         if analyze != "yes":
             # unless analyze is "yes", don't add a new record if the URL already exists in the database
             existing = (
-                db.get_artifact(url) or db.get_service(url) or db.get_instantiation(url)
+                context.get_artifact(url)
+                or context.get_service(url)
+                or context.get_instantiation(url)
             )
             if existing is not None:
                 return None
@@ -1170,21 +1253,22 @@ class CloudMap:
             analyzer = analyzer_cls.init_from_url(url, parts)
             if analyzer is None:
                 continue
-            record = analyzer.analyze_url(self.directory)
+            record = analyzer.analyze_url(context)
             if record is not None:
-                db.add_record(record)
+                context.add_record(record)
                 return record
 
         if self._is_git_url(url):
-            return self._add_repository_record(url, analyze)
+            return self._add_repository_record(context, url, analyze)
 
         # Everything else → Service record
         service = Service(url=url)
-        db.add_record(service)
+        context.add_record(service)
         return service
 
     def _add_repository_record(
         self,
+        context: AnalyzerContext,
         url: str,
         analyze: Analyze_Options,
     ) -> Optional[Repository]:
@@ -1193,12 +1277,11 @@ class CloudMap:
         repo_url, file_path, revision, commit = split_git_url_with_commit(url)
         canonical_url = get_repository_url(repo_url)
         current_do_analysis = self.directory.do_analysis
-        if file_path:
-            if analyze == "default":
-                # default to analyzing the file if a file path is specified
-                analyze = "yes"
-                # don't analyze the whole repo if a file path is specified, just analyze the file
-                self.directory.do_analysis = False
+        if file_path and analyze == "default":
+            # default to analyzing the file if a file path is specified
+            analyze = "yes"
+            # don't analyze the whole repo if a file path is specified, just analyze the file
+            self.directory.do_analysis = False
         repo_info = db.get_repository(canonical_url)
         if analyze != "yes" and repo_info is not None:
             # if not analyzing, return None if the repository already exists
@@ -1235,6 +1318,9 @@ class CloudMap:
                         repo_url,
                         self.directory,
                         download=download,
+                        # so the records its analyzers produce are attributed
+                        # to the url being analyzed
+                        context=context,
                     )
                 except Exception as e:
                     self.logger.error(
@@ -1266,50 +1352,56 @@ class CloudMap:
                     name=name,
                     protocols=protocols,
                 )
-                db.add_record(repo_info)
 
-        if file_path:
-            if analyze == "yes":
-                local_repo = self.directory.find_repo(repo_info.url, "")
-                if not local_repo:
-                    self.logger.warning(
-                        "Cannot analyze %s because the repository is not cloned locally.",
-                        url,
-                    )
-                    return repo_info
-                root_path = local_repo.working_dir
-                notables = (
-                    root_path
-                    and self.directory.analyzer.analyze_path(file_path, root_path)
-                    or []
+            # A repository host adds the record itself while importing, so
+            # re-add it here to attribute it to the url being analyzed the same
+            # way the fallback above is. Re-adding is a no-op apart from the
+            # provenance: `add_record` replaces by key and the stamp is
+            # idempotent.
+            context.add_record(repo_info)
+
+        if file_path and analyze == "yes":
+            local_repo = self.directory.find_repo(repo_info.url, "")
+            if not local_repo:
+                self.logger.warning(
+                    "Cannot analyze %s because the repository is not cloned locally.",
+                    url,
                 )
-                if notables:
-                    for n in notables:
-                        try:
-                            artifact = n.analyze(self.directory, repo_info, root_path)
-                            if artifact and not db.get_artifact(artifact.url):
-                                db.add_record(artifact)
-                        except Exception:
-                            self.logger.error(
-                                "Unexpected error analyzing %s.",
-                                repo_info.url,
-                                exc_info=True,
-                            )
-                        repo_info.contains[("", n.path)] = (
-                            TypeRefs({n.artifact_type: None})
-                            if n.artifact_type
-                            else None
+                return repo_info
+            root_path = local_repo.working_dir
+            notables = (
+                root_path
+                and self.directory.analyzer.analyze_path(file_path, root_path)
+                or []
+            )
+            if notables:
+                for n in notables:
+                    try:
+                        artifact = n.analyze(context, repo_info, root_path)
+                        # keep an existing record (it has the git digest);
+                        # looking it up marks it as still in use
+                        if artifact and not context.get_artifact(artifact.url):
+                            context.add_record(artifact)
+                    except Exception:
+                        context._mark_failed()
+                        self.logger.error(
+                            "Unexpected error analyzing %s.",
+                            repo_info.url,
+                            exc_info=True,
                         )
-                else:
-                    artifact_url = repo_info.artifact_url(file_path)
-                    if not db.get_artifact(artifact_url):
-                        artifact = Artifact(
-                            url=artifact_url,
-                            type=TypeRefs({EntitySchema.GenericFile: None}),
-                        )
-                        db.add_record(artifact)
-                    if ("", file_path) not in repo_info.contains:
-                        repo_info.contains[("", file_path)] = None
+                    repo_info.contains[("", n.path)] = (
+                        TypeRefs({n.artifact_type: None}) if n.artifact_type else None
+                    )
+            else:
+                artifact_url = repo_info.artifact_url(file_path)
+                if not context.get_artifact(artifact_url):
+                    artifact = Artifact(
+                        url=artifact_url,
+                        type=TypeRefs({EntitySchema.GenericFile: None}),
+                    )
+                    context.add_record(artifact)
+                if ("", file_path) not in repo_info.contains:
+                    repo_info.contains[("", file_path)] = None
 
         # Fetch pipeline runs if a ref or commit was specified in the URL
         if repo_info and (revision or commit):
@@ -1335,8 +1427,9 @@ class CloudMap:
                         context=self.directory,
                         workflow_file=file_path,
                     ):
-                        db.add_record(instantiation)
+                        context.add_record(instantiation)
                 except Exception:
+                    context._mark_failed()
                     self.logger.error(
                         "Failed to fetch pipeline runs for %s",
                         sanitize_url(repo_url),

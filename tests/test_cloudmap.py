@@ -70,6 +70,76 @@ def _schema_properties(node: dict, defs: dict) -> list:
     return names
 
 
+def test_record_discovery_source():
+    """Stamping is idempotent, additive, and merges the record it replaces."""
+    from unfurl.cloudmap.provenance import (
+        discovery_sources,
+        record_discovery_source,
+    )
+
+    artifact = Artifact(url="pkg:oci/x")
+    assert discovery_sources(artifact) == [], "no discovery metadata yet"
+
+    record_discovery_source(artifact, "https://example.com/a")
+    record_discovery_source(artifact, "https://example.com/a")
+    assert discovery_sources(artifact) == ["https://example.com/a"], "idempotent"
+
+    record_discovery_source(artifact, "https://example.com/b")
+    assert discovery_sources(artifact) == [
+        "https://example.com/a",
+        "https://example.com/b",
+    ], "a record can be discovered from several places"
+
+    # An analyzer that rebuilds a record from scratch (create_oci_artifact
+    # assigns a fresh Discovery) must not drop what other analyzers recorded.
+    rebuilt = Artifact(
+        url="pkg:oci/x",
+        metadata=ArtifactMetadata(
+            discovery=Discovery(sources=["https://registry.example.com/v2/x"])
+        ),
+    )
+    record_discovery_source(rebuilt, "https://example.com/a", previous=artifact)
+    assert discovery_sources(rebuilt) == [
+        "https://registry.example.com/v2/x",
+        "https://example.com/a",
+        "https://example.com/b",
+    ]
+
+    # Skipping the source must not skip the merge: an artifact rebuilt from
+    # scratch (create_oci_artifact assigns a fresh Discovery) still has to
+    # keep what other analyzers recorded, or `--replace` could never find it
+    # again.
+    readded = Artifact(
+        url="pkg:oci/x",
+        metadata=ArtifactMetadata(
+            discovery=Discovery(sources=["https://registry.example.com/v2/x"])
+        ),
+    )
+    record_discovery_source(readded, "pkg:oci/x", previous=artifact)
+    assert discovery_sources(readded) == [
+        "https://registry.example.com/v2/x",
+        "https://example.com/a",
+        "https://example.com/b",
+    ], "the record's own url is skipped, the inherited sources are not"
+
+    # A url the record already names isn't worth recording: neither the
+    # record itself nor a file inside it (the repository didn't come *from*
+    # its own file -- it contains it).
+    repository = Repository(url="git://example.com/r.git", path="r")
+    record_discovery_source(repository, "git://example.com/r.git#:f.yaml")
+    record_discovery_source(repository, "git://example.com/r.git")
+    assert discovery_sources(repository) == []
+    assert "metadata" not in repository.asdict()
+
+    # metadata is always coerced to the record's own subclass, so stamping
+    # works the same on every record type.
+    record_discovery_source(repository, "https://example.com/api/r")
+    assert isinstance(repository.metadata, RepositoryMetadata)
+    assert repository.asdict()["metadata"] == {
+        "discovery": {"sources": ["https://example.com/api/r"]}
+    }
+
+
 def test_dataclass_field_order_matches_schema():
     """The dataclasses and the JSON Schema must declare fields in the same order.
 
@@ -652,6 +722,10 @@ artifacts:
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
@@ -678,20 +752,40 @@ artifacts:
   git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
     type:
       cloudmap.artifacts.Containerfile:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/std.git#v1.1.1:.
   git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
+    metadata:
+      discovery:
+        sources:
+        - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:

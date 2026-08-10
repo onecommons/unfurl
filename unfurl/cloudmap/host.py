@@ -32,6 +32,7 @@ from tosca import safe_mode
 from ..logs import getLogger, UnfurlLogger
 from ..repo import GitRepo, is_git_worktree, normalize_git_url, sanitize_url
 from ..tosca_plugins.cloudmap_defs import (
+    AnalyzerContext,
     Instantiation,
     Repository,
     TypeRefStatus,
@@ -214,9 +215,19 @@ class RepositoryHost:
         return False
 
     def import_project_url(
-        self, url: str, directory: Directory, download: bool
+        self,
+        url: str,
+        directory: Directory,
+        download: bool,
+        context: Optional["AnalyzerContext"] = None,
     ) -> Optional[Repository]:
-        """Import a project from the given URL into the directory."""
+        """Import a project from the given URL into the directory.
+
+        ``context`` is the context to run any analysis under; it defaults to
+        ``directory`` itself. :py:meth:`~unfurl.cloudmap.CloudMap.analyze_url`
+        passes a tracking context so the records analysis produces are
+        attributed to the url being analyzed.
+        """
         return None
 
     def extract_project_path(self, url: str) -> str:
@@ -306,6 +317,7 @@ class RepositoryHost:
         directory: Directory,
         previous: Optional[Repository],
         remote_url: str,
+        context: Optional["AnalyzerContext"] = None,
     ) -> None:
         try:
             repo, cloned = self.fetch_repo(remote_url, r, directory)
@@ -317,7 +329,9 @@ class RepositoryHost:
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
-            directory.maybe_analyze(r, repo, previous.contains if previous else {})
+            directory.maybe_analyze(
+                r, repo, previous.contains if previous else {}, context
+            )
 
     def _push_to_host(
         self,

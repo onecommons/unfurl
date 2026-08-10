@@ -1517,6 +1517,25 @@ class CloudMapView(ABC):
         return git_url_join(repo_url, filePath, revision)
 
 
+def section_of(record: "CloudMapRecord") -> str:
+    """The top-level cloudmap section ``record`` belongs in.
+
+    Raises:
+        TypeError: if ``record`` isn't one of the six record types.
+    """
+    for record_type, section in (
+        (Repository, "repositories"),
+        (Artifact, "artifacts"),
+        (Service, "services"),
+        (Component, "components"),
+        (Instantiation, "instantiations"),
+        (CloudType, "types"),
+    ):
+        if isinstance(record, record_type):
+            return section
+    raise TypeError(f"unsupported cloudmap record type: {type(record).__name__}")
+
+
 class AnalyzerContext(CloudMapView):
     """Abstract base class for the cloudmap context analyzers see.
 
@@ -1526,12 +1545,27 @@ class AnalyzerContext(CloudMapView):
     from sandboxed code and are intended for built-in Analyzer classes only.
     """
 
-    logger: "UnfurlLogger"
-    """Logger for emitting diagnostic messages during analysis."""
+    _logger: "UnfurlLogger"
+    _do_analysis: bool = False
 
-    do_analysis: bool
-    """True if cross-referenced URLs should be recursively analyzed (vs. recorded
-    as stubs)."""
+    @property
+    def logger(self) -> "UnfurlLogger":
+        """Logger for emitting diagnostic messages during analysis."""
+        return self._logger
+
+    @logger.setter
+    def logger(self, value: "UnfurlLogger") -> None:
+        self._logger = value
+
+    @property
+    def do_analysis(self) -> bool:
+        """True if cross-referenced URLs should be recursively analyzed (vs.
+        recorded as stubs)."""
+        return self._do_analysis
+
+    @do_analysis.setter
+    def do_analysis(self, value: bool) -> None:
+        self._do_analysis = value
 
     @property
     @abstractmethod
@@ -1540,6 +1574,18 @@ class AnalyzerContext(CloudMapView):
 
         Names with _<name>__<suffix> can not be accessed from sandboxed Notables,
         so this is only accessible to built-in Analyzer classes and not custom Notables loaded in safe mode.
+        """
+
+    def _mark_failed(self) -> None:
+        """Note that an analyzer raised, making this analysis incomplete."""
+
+    @abstractmethod
+    def get_record(self, section: str, key: str) -> Optional["CloudMapRecord"]:
+        """Return the record stored under ``section`` and ``key``, if any.
+
+        Use :py:func:`section_of` to get the section for a record in hand --
+        that's how a caller holding a freshly built record finds the one it
+        would replace, to merge metadata into it for example.
         """
 
     # --- Add records ---

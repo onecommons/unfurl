@@ -22,6 +22,7 @@ from gitlab.v4.objects import Group, Project
 from ..logs import getLogger
 from ..server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from ..tosca_plugins.cloudmap_defs import (
+    AnalyzerContext,
     CommonMetadata,
     EntitySchema,
     HostConfig,
@@ -128,10 +129,14 @@ class GitlabManager(RepositoryHost):
         return count
 
     def import_project_url(
-        self, url: str, directory: Directory, download: bool
+        self,
+        url: str,
+        directory: Directory,
+        download: bool,
+        context: Optional[AnalyzerContext] = None,
     ) -> Repository:
         project = self.gitlab.projects.get(self.extract_project_path(url))
-        return self._import_project(project, directory, download)
+        return self._import_project(project, directory, download, context)
 
     def _import_projects_from_host(
         self, projects: Iterable[RESTObject], directory: Directory
@@ -165,7 +170,11 @@ class GitlabManager(RepositoryHost):
         return count
 
     def _import_project(
-        self, dest_proj: Project, directory: Directory, download: bool
+        self,
+        dest_proj: Project,
+        directory: Directory,
+        download: bool,
+        context: Optional[AnalyzerContext] = None,
     ) -> Repository:
         r = self.gitlab_project_to_repository(dest_proj)
         previous = directory.db.get_repository(r)
@@ -174,7 +183,7 @@ class GitlabManager(RepositoryHost):
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?
             remote_url = self.git_url_with_auth(dest_proj)
-            self._fetch_and_analyze_repo(r, directory, previous, remote_url)
+            self._fetch_and_analyze_repo(r, directory, previous, remote_url, context)
         return r
 
     def _get_projects_from_group(self, group, projects):
