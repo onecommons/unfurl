@@ -1085,7 +1085,10 @@ class EnsembleBuilder:
                 project=current_project,
                 override_environment=self.options.get("use_environment"),
             )
-            cloudmap = CloudMap.get_context(local_env)
+            # only resolving a url, so skip analysis and don't commit
+            cloudmap = CloudMap.from_name(
+                local_env, "cloudmap", "", "", True, False
+            ).directory
             repo_key = cloudmap.resolve_cloudmap_url(self.input_source)
             if repo_key:
                 self.input_source = repo_key

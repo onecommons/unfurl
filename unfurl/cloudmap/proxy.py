@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Iterable,
@@ -44,6 +45,9 @@ from ..tosca_plugins.cloudmap_defs import (
     Service,
 )
 from ..util import UnfurlError
+
+if TYPE_CHECKING:
+    from ..support import ContainerImage
 
 logger = getLogger("unfurl.cloudmap.proxy")
 
@@ -608,6 +612,22 @@ class CloudMapProxy(CloudMapView):
     def _section_for(record: CloudMapRecord) -> str:
         """Map a record's concrete type to its cloudmap section name."""
         return section_of(record)
+
+    # --- Stand in for CloudMapDB ---
+
+    def get_record(self, section: str, key: str) -> Optional[Any]:
+        """Return the cached record under ``(section, key)``, if any."""
+        return self._cache.get_record(section, key)
+
+    def add_image_artifact(self, image: "ContainerImage") -> Artifact:
+        """Add an OCI artifact (and its build instantiation) for ``image``."""
+        from .oci import create_oci_artifact
+
+        artifact, instantiation, _fetch = create_oci_artifact(image)
+        if instantiation:
+            self.add_record(instantiation)
+        self.add_record(artifact)
+        return artifact
 
     def add_record(self, record: CloudMapRecord) -> None:
         # Update the local cache and stage the dict form for the next

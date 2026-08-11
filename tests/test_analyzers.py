@@ -2158,9 +2158,16 @@ def test_analyze_url_records_a_canonical_source(tmp_path):
     cm = _stub_cloudmap(tmp_path, {})
     https_url = "https://gitrepos.org/someorg/somerepo.git#:f.yaml"
     git_url = "git://gitrepos.org/someorg/somerepo.git#:f.yaml"
-    assert cm._normalize_analyzed_url(https_url)[0] == git_url
-    assert cm._normalize_analyzed_url(git_url)[0] == git_url
+    assert cm._canonical_source(https_url) == git_url
+    assert cm._canonical_source(git_url) == git_url
 
     # a non-git url must not be rewritten
     for url in ("pkg:npm/express@4.18.2", "https://example.com/service"):
-        assert cm._normalize_analyzed_url(url)[0] == url
+        assert cm._canonical_source(url) == url
+
+    # ...but the url the record is built from keeps its scheme, which is where
+    # a repository's protocols are inferred from
+    assert (
+        cm._normalize_analyzed_url("git+https://rando.com/org/repo.git")[0]
+        == "git+https://rando.com/org/repo.git"
+    )

@@ -638,3 +638,59 @@ def test_save_refreshes_an_existing_latest_commit() -> None:
     proxy.add_record(Artifact(url="pkg:oci/x", metadata=ArtifactMetadata(title="x")))
     proxy.save()
     assert proxy._cache._latest_commit == "newoid"
+
+
+def test_configured_server_replaces_the_local_cloudmap(tmp_path) -> None:
+    """A configured cloudmap server is used instead of a local clone.
+
+    `CloudMap` puts the proxy where its `CloudMapDB` would go, so everything
+    downstream -- the analyzers, `Directory`, the CLI -- is unchanged; only
+    where the records land differs.
+    """
+    from unfurl.cloudmap import CloudMap
+    from unfurl.cloudmap.db import CloudMapDB
+    from unfurl.localenv import LocalEnv
+
+    (tmp_path / "unfurl.yaml").write_text(
+        "apiVersion: unfurl/v1.0.0\nkind: Project\n"
+        "environments:\n  defaults:\n    cloudmaps:\n      servers:\n"
+        "        cloudmap:\n          url: https://api.example.com/\n"
+    )
+    local_env = LocalEnv(str(tmp_path / "unfurl.yaml"), can_be_empty=True)
+    cloud_map = CloudMap.from_name(
+        local_env, "cloudmap", "", "", True, False, use_server=True
+    )
+
+    assert isinstance(cloud_map.directory.db, CloudMapProxy)
+    assert not isinstance(cloud_map.directory.db, CloudMapDB)
+    assert cloud_map.repo is None, "nothing to clone when the cloudmap is remote"
+    # and the directory is still the analyzer context, unchanged
+    assert cloud_map.directory.get_artifact is not None
+
+    # Syncing with a repository host needs a local clone -- `to_host` merges
+    # the host branch into the source branch and commits -- so it doesn't opt
+    # in, and a configured server is ignored.
+    (tmp_path / "cloudmap.yaml").write_text("apiVersion: unfurl/v1.0.0\nkind: CloudMap\n")
+    syncing = CloudMap.from_name(
+        local_env, str(tmp_path / "cloudmap.yaml"), "", "", True, False
+    )
+    assert isinstance(syncing.directory.db, CloudMapDB)
+
+
+def test_analysis_against_a_server_stages_records() -> None:
+    """Analyzing a url with a server-backed cloudmap stages it for the server."""
+    from unfurl.cloudmap import CloudMap
+
+    session = MagicMock()
+    # every lookup misses, so the analyzer creates the record
+    session.get.return_value = _make_response({})
+    proxy = CloudMapProxy("https://api.example.com/", session=session)
+    cloud_map = CloudMap(None, "", skip_analysis=True, db=proxy)
+
+    # a PURL is analyzed without touching the network
+    record = cloud_map.analyze_url("pkg:npm/express@4.18.2", "no")
+
+    assert record is not None and record.key == "pkg:npm/express@4.18.2"
+    assert proxy.get_record("artifacts", "pkg:npm/express@4.18.2") is record
+    staged = proxy._pending_writes["artifacts"]["pkg:npm/express@4.18.2"]
+    assert staged["metadata"]["title"] == "express", staged

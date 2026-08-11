@@ -2293,19 +2293,19 @@ def cloudmap(
         host.host_branch if host else "",
         skip_analysis or analyze == "no",
         commit,
+        # adding records can go straight to a cloudmap server; syncing with a
+        # repository host can't, since that merges and commits a local clone
+        use_server=bool(add or replace),
     )
     if add or replace:
         added = []
         failed = []
         # a url given to both is replaced, which is a superset of adding it
-        for url in [u for u in add if u not in replace]:
-            r = cloud_map.analyze_url(url, analyze)
-            if r:
-                added.append(r)
-            else:
-                failed.append(url)
-        for url in replace:
-            r = cloud_map.analyze_url(url, analyze, replace=True)
+        for url, replacing in [
+            *((u, False) for u in add if u not in replace),
+            *((u, True) for u in replace),
+        ]:
+            r = cloud_map.analyze_url(url, analyze, replacing)
             if r:
                 added.append(r)
             else:

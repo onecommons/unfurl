@@ -57,6 +57,7 @@ import os
 import os.path
 from typing import (
     TYPE_CHECKING,
+    Any,
     Iterable,
     Iterator,
     Optional,
@@ -290,8 +291,13 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         path=".",
         local_repo_root: str = "",
         skip_analysis=False,
+        db: Optional[CloudMapView] = None,
     ) -> None:
-        self.db = CloudMapDB(path)
+        # `db` is the cloudmap this directory reads and writes. It defaults to
+        # a local document; an upstream cloudmap server is passed in as a
+        # `CloudMapProxy`, which stands in for `CloudMapDB` so nothing else
+        # here has to know the difference.
+        self.db: Any = db if db is not None else CloudMapDB(path)
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         self.cloudmap = cloudmap
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
@@ -329,8 +335,12 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         self,
         url: str,
         analyze: Analyze_Options = "default",
+        replace: bool = False,
     ) -> Optional[CloudMapRecord]:
-        return self.cloudmap.analyze_url(url, analyze)
+        return self.cloudmap.analyze_url(url, analyze, replace)
+
+    def save(self, msg: str) -> bool:
+        return self.cloudmap.save(msg)
 
     def add_record(self, record: CloudMapRecord) -> None:
         self.db.add_record(record)
@@ -534,6 +544,7 @@ class CloudMap:
         commit: bool = False,
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
+        db: Optional[CloudMapView] = None,
     ):
         """Initialize a CloudMap bound to a local cloudmap git checkout.
 
@@ -587,6 +598,7 @@ class CloudMap:
             filepath,
             localrepo_root,
             skip_analysis,
+            db,
         )
 
     def register_url_analyzer(self, cls: Type[URLAnalyzer]) -> None:
@@ -714,58 +726,6 @@ class CloudMap:
         for _prefix, cls in matches:
             yield cls
 
-    @classmethod
-    def get_context(
-        cls,
-        local_env: "LocalEnv",
-        name: str = "cloudmap",
-    ) -> "CloudMapView":
-        # XXX change this to AnalyzerContext and use this for the --add cloudmap cli option
-        env_context = local_env.get_context()
-        environment = env_context.get("cloudmaps", {})
-        # check "servers" first (what to return if server??)
-        server = environment.get("servers", {}).get(name)
-        url = ""
-        if server:
-            server = local_env.map_value(server, env_context.get("variables"))
-            url = server.get("url")
-        else:
-            server = {}
-            if name == "cloudmap":
-                url = ""  # XXX when live: DEFAULT_CLOUDMAP_URL
-            else:
-                parts = urlparse(name)
-                if (
-                    parts.scheme
-                    and not cls._is_git_url(name)
-                    and parts.hostname not in ("github.com", "gitlab.com")
-                ):
-                    url = name
-        if url:
-            from .proxy import CloudMapProxy
-
-            return CloudMapProxy(
-                url,
-                username=server.get("username"),
-                private_token=server.get("password"),
-                timeout=server.get("timeout"),
-                logger=logger,
-            )
-        # no server, use repository instead
-        url, path, revision, repository = cls.get_config(local_env, name)
-        repo, _, _ = local_env.find_or_create_working_dir(url, revision)
-        if not repo:
-            raise UnfurlError(f"couldn't clone {url}")
-        filepath = str(Path(repo.working_dir) / (path or "cloudmap.yaml"))
-        return CloudMap(
-            repo if isinstance(repo, GitRepo) else None,
-            "",
-            revision,
-            "",
-            filepath,  # use absolute path in case repo is not a git repo
-            local_env=local_env,
-        ).directory
-
     @staticmethod
     def _checkout_cloudmap(
         local_env: "LocalEnv",
@@ -825,6 +785,46 @@ class CloudMap:
         return repo, branch
 
     @classmethod
+    def _get_server(
+        cls, local_env: "LocalEnv", name: str, logger=logger
+    ) -> Optional[CloudMapView]:
+        """The upstream cloudmap server configured for ``name``, if any.
+
+        Returns a :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`, which
+        stands in for a local :py:class:`~unfurl.cloudmap.db.CloudMapDB`: the
+        cloudmap lives on the server, so nothing is cloned and records are
+        POSTed rather than committed.
+        """
+        env_context = local_env.get_context()
+        environment = env_context.get("cloudmaps", {})
+        server = environment.get("servers", {}).get(name)
+        url = ""
+        if server:
+            server = local_env.map_value(server, env_context.get("variables"))
+            url = server.get("url")
+        else:
+            server = {}
+            if name != "cloudmap":
+                parts = urlparse(name)
+                if (
+                    parts.scheme
+                    and not cls._is_git_url(name)
+                    and parts.hostname not in ("github.com", "gitlab.com")
+                ):
+                    url = name
+        if not url:
+            return None
+        from .proxy import CloudMapProxy
+
+        return CloudMapProxy(
+            url,
+            username=server.get("username"),
+            private_token=server.get("password"),
+            timeout=server.get("timeout"),
+            logger=logger,
+        )
+
+    @classmethod
     def from_name(
         cls,
         local_env: "LocalEnv",
@@ -834,7 +834,29 @@ class CloudMap:
         skip_analysis: bool,
         commit: bool,
         logger=logger,
+        use_server: bool = False,
     ) -> "CloudMap":
+        """Open the cloudmap named ``name``.
+
+        ``use_server`` opts in to an upstream cloudmap server when one is
+        configured for ``name``: records are POSTed there and nothing is
+        cloned. It is off by default because syncing with a repository host
+        needs a local clone -- :py:meth:`to_host` merges the host branch into
+        the source branch and commits, which only a checkout can do.
+        """
+        proxy = cls._get_server(local_env, name, logger) if use_server else None
+        if proxy is not None:
+            # the cloudmap is on a server: nothing to clone, records are POSTed
+            return CloudMap(
+                None,
+                host_branch,
+                localrepo_root=clone_root or "",
+                skip_analysis=skip_analysis,
+                commit=commit,
+                logger=logger,
+                local_env=local_env,
+                db=proxy,
+            )
         url, path, revision, repository = cls.get_config(local_env, name)
         if not url:
             # create or use cloudmap file in the project repo
@@ -1139,6 +1161,7 @@ class CloudMap:
         url: str,
         analyze: Analyze_Options = "default",
         replace: bool = False,
+        context: Optional[AnalyzerContext] = None,
     ) -> Optional[CloudMapRecord]:
         """Analyze a URL and add the resulting record to the cloudmap.
 
@@ -1159,6 +1182,11 @@ class CloudMap:
                 ``url`` but that it no longer produces -- see
                 :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
                 Implies ``analyze="yes"``.
+            context: Where to record what the analysis produces; defaults to
+                this cloudmap's own document. An upstream cloudmap server
+                passes itself here so records go to the server while the
+                analysis still runs locally (cloning and inspecting the
+                repositories it needs).
 
         Returns:
             If analyze != "yes" return None if the URL is already in the database,
@@ -1171,24 +1199,36 @@ class CloudMap:
             # Those returns produce nothing, which would make every previously
             # discovered record look orphaned, so re-analysis has to be forced.
             analyze = "yes"
-        context = ProvenanceTrackingContext(self.directory)
-        with context._tracking_provenance(url) as provenance:
-            record = self._analyze_url(context, url, analyze, from_local_path)
+        source = self._canonical_source(url)
+        tracked = ProvenanceTrackingContext(context or self.directory)
+        with tracked._tracking_provenance(source) as provenance:
+            record = self._analyze_url(tracked, url, analyze, from_local_path)
         if replace:
-            context.replace_from_source(url, provenance)
+            tracked.replace_from_source(source, provenance)
         return record
+
+    @classmethod
+    def _canonical_source(cls, url: str) -> str:
+        """The form of ``url`` recorded as a discovery source.
+
+        Records are keyed by a repository's canonical ``git://`` URL, so the
+        URL they were discovered from is canonicalized to match.
+        """
+        if not cls._is_git_url(url):
+            return url
+        base, fragment = split_url_fragment(url)
+        return get_repository_url(base) + (f"#{fragment}" if fragment else "")
 
     def _normalize_analyzed_url(self, url: str) -> Tuple[str, bool]:
         """Resolve ``url`` to the canonical form recorded as a discovery source.
 
-        A path inside a git repository becomes that repository's ``git://`` URL,
-        as does a git URL written any other way (``https://``, ``git+ssh://``);
-        records are keyed by that canonical form, so the URL they were
-        discovered from has to match it -- otherwise the same repository
-        referred to two ways is recorded as two different sources and
-        ``--replace`` given one spelling wouldn't find records attributed to
-        the other. A bare name with no scheme is treated as a container image
-        and becomes a ``pkg:oci`` PURL. Anything else is returned unchanged.
+        A path inside a git repository becomes that repository's ``git://`` URL
+        and a bare name with no scheme is treated as a container image and
+        becomes a ``pkg:oci`` PURL. Anything with a scheme is returned
+        unchanged -- records are built from the URL as written, which is where
+        a repository's protocols are inferred from (``git+https`` implies
+        https). See :py:meth:`_canonical_source` for the form recorded as
+        provenance.
 
         Returns:
             ``(url, from_local_path)``, where ``from_local_path`` marks a path
@@ -1196,14 +1236,7 @@ class CloudMap:
             the caller can skip the URL-analyzer dispatch as before.
         """
         if urlparse(url).scheme:
-            if not self._is_git_url(url):
-                return url, False
-            base, fragment = split_url_fragment(url)
-            # `get_repository_url` drops the fragment, which is the part that
-            # says which file in the repository is being analyzed, so put it
-            # back exactly as written.
-            canonical = get_repository_url(base)
-            return canonical + (f"#{fragment}" if fragment else ""), False
+            return url, False
         # No scheme - see if it's a local path inside a git repository
         repo = os.path.exists(url) and Repo.find_containing_git_repo(url)
         if repo:
@@ -1272,7 +1305,6 @@ class CloudMap:
         url: str,
         analyze: Analyze_Options,
     ) -> Optional[Repository]:
-        db = self.directory.db
         host: Optional[RepositoryHost] = None
         repo_url, file_path, revision, commit = split_git_url_with_commit(url)
         canonical_url = get_repository_url(repo_url)
@@ -1282,7 +1314,7 @@ class CloudMap:
             analyze = "yes"
             # don't analyze the whole repo if a file path is specified, just analyze the file
             self.directory.do_analysis = False
-        repo_info = db.get_repository(canonical_url)
+        repo_info = context.get_repository(canonical_url)
         if analyze != "yes" and repo_info is not None:
             # if not analyzing, return None if the repository already exists
             return None
@@ -1509,13 +1541,17 @@ class CloudMap:
         return changed
 
     def save(self, msg: str) -> bool:
-        changed = self.directory.db.save()
-        if not self.directory.db.config.path:
+        db = self.directory.db
+        if not isinstance(db, CloudMapDB):
+            # a server-backed cloudmap: POST the buffered records; the server
+            # owns the repository and makes the commit
+            db.save(msg)
+            return True
+        changed = db.save()
+        if not db.config.path:
             return changed
         if not self.repo or not self.commit:
-            self.logger.info(
-                "saved cloudmap to %s: %s", self.directory.db.config.path, msg
-            )
+            self.logger.info("saved cloudmap to %s: %s", db.config.path, msg)
             return changed
         self.repo.repo.index.add(self.directory.db.config.path)
         if self.repo.is_dirty(False, self.directory.db.config.path):

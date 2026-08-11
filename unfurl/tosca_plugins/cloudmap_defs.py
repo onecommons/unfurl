@@ -1616,10 +1616,19 @@ class AnalyzerContext(CloudMapView):
         self,
         url: str,
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
+        replace: bool = False,
     ) -> Optional["CloudMapRecord"]:
         """Analyze a URL (git repo, pkg: PURL, or service URL) and add the
         resulting record to the cloudmap. Returns the record that was
-        added or already existed."""
+        added or already existed.
+
+        ``replace`` also removes records previously discovered from this URL
+        that it no longer produces.
+        """
+
+    @abstractmethod
+    def save(self, msg: str) -> Any:
+        """Persist the records added so far, describing them with ``msg``."""
 
     @abstractmethod
     def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
