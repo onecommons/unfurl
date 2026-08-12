@@ -21,6 +21,7 @@ jobs:
       UNFURL_TEST_CLOUDMAP_URL: ${{ secrets.UNFURL_TEST_CLOUDMAP_URL }}
       UNFURL_TEST_REDIS_URL: redis://localhost:6379/0
       UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
+      UNFURL_TEST_UNFURL_GUI_TOKEN_URL: ${{ secrets.UNFURL_TEST_UNFURL_GUI_TOKEN_URL }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -107,7 +108,7 @@ jobs:
           export PY_V=py3`python -c "import sys; print(sys.version_info.minor, end='')"`
           tox -c tosca-parser/tox.ini -v -e $PY_V
           if [[ "$PY_V" == "py314" ]]; then
-            tox -e $PY_V -v -- -vv -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-append
+            tox -e $PY_V -v -- -vv -ra -n auto --dist loadfile --cov=unfurl --cov=tosca-package/tosca --cov-report html --cov-append
             # Safety net: combine any subprocess .coverage.<pid> files written by
             # COVERAGE_PROCESS_START-initiated children (multiprocessing.Process
             # in test_server.py) that pytest-cov didn't auto-combine, then
@@ -118,7 +119,7 @@ jobs:
               .tox/$PY_V/bin/coverage report
             fi
           else
-            tox -e $PY_V -v -- -vv -n auto --dist loadfile
+            tox -e $PY_V -v -- -vv -ra -n auto --dist loadfile
           fi
           .tox/$PY_V/bin/mypy unfurl tosca-package --install-types --non-interactive
       - name: Run cargo clippy and cargo test
