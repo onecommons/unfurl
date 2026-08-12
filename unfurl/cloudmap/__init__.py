@@ -56,9 +56,6 @@ import tempfile
 import os
 import os.path
 from typing import (
-    TYPE_CHECKING,
-    Any,
-    Iterable,
     Iterator,
     Optional,
     List,
@@ -67,10 +64,7 @@ from typing import (
     Set,
     Tuple,
     Type,
-    TypeVar,
-    TypedDict,
     cast,
-    Union,
 )
 from typing_extensions import Required, Literal, Protocol
 from urllib.parse import ParseResult, urlparse, quote
@@ -88,10 +82,7 @@ from ..tosca_plugins.cloudmap_defs import (
     URLAnalyzer,
     PipelineRunAnalyzer,
     Artifact,
-    CloudType,
-    Component,
     EntitySchema,
-    Instantiation,
     RepositoryAnalyzer,
     Repository,
     Service,
@@ -100,9 +91,8 @@ from ..tosca_plugins.cloudmap_defs import (
     get_repository_url,
     build_oci_purl,
     AnalyzerContext,
-    CloudMapView,
 )
-from ..support import ContainerImage, ContainerImageParts
+from ..support import ContainerImageParts
 from ..configurator import Configurator, TaskView
 from ..util import load_class_from_file, split_url_fragment
 
@@ -119,6 +109,7 @@ from ..util import UnfurlError
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from .db import CloudMapDB
+from .db import CloudMapStore
 from .provenance import ProvenanceTrackingContext
 from .github import GithubManager
 from .gitlab import GitlabManager
@@ -281,27 +272,38 @@ class AnalyzerRegistry:
 
 Analyze_Options = Literal["yes", "no", "save-only", "default"]
 
+class Directory(_LocalGitRepos):
+    """Drives analysis: clones repositories, runs the analyzers matching their
+    files, and hands the records they produce to :py:attr:`db`.
 
-class Directory(_LocalGitRepos, AnalyzerContext):
+    The records themselves live in the ``db``, which is what analyzers are
+    given -- this class is the local git working area around it.
+    """
+
     DEFAULT_NAME = "cloudmap.yml"
 
     def __init__(
         self,
         cloudmap: "CloudMap",
-        path=".",
+        db: CloudMapStore,
         local_repo_root: str = "",
         skip_analysis=False,
-        db: Optional[CloudMapView] = None,
     ) -> None:
-        # `db` is the cloudmap this directory reads and writes. It defaults to
-        # a local document; an upstream cloudmap server is passed in as a
-        # `CloudMapProxy`, which stands in for `CloudMapDB` so nothing else
-        # here has to know the difference.
-        self.db: Any = db if db is not None else CloudMapDB(path)
+        # `store` is where records live: a local document, or a
+        # `CloudMapProxy` standing in for one when the cloudmap is served by an
+        # upstream server, so nothing here has to know the difference.
+        self.store = db
+        # `context` is what analyzers -- and the repository host code that runs
+        # them -- read and write through. Always the tracking context, never
+        # the store: it attributes records to the url being analyzed, and it
+        # exposes only `AnalyzerContext`, so an analyzer can neither persist
+        # the cloudmap nor reach the `CloudMap` that owns it.
+        self.context = ProvenanceTrackingContext(db)
+        self.context.logger = cloudmap.logger
+        self.context.do_analysis = not skip_analysis
         self.tmp_dir: Optional[tempfile.TemporaryDirectory] = None
         self.cloudmap = cloudmap
         _LocalGitRepos.__init__(self, local_repo_root, cloudmap.logger)
-        self.do_analysis = not skip_analysis
 
         # Start with default Notable classes and add custom analyzers from cloudmap.
         # Only RepositoryAnalyzer subclasses go through RepositoryAnalyzer;
@@ -325,77 +327,22 @@ class Directory(_LocalGitRepos, AnalyzerContext):
                 if isinstance(repo, GitRepo):
                     self._add_repo(repo)
 
-    # --- CloudMapView implementation ---
-
     @property
-    def _local__env(self) -> Optional["LocalEnv"]:
-        return self.cloudmap.local_env
+    def do_analysis(self) -> bool:
+        """Whether cross-referenced urls are analyzed rather than recorded as
+        stubs. Lives on the ``db`` because that's what analyzers read it from."""
+        return self.context.do_analysis
 
-    def analyze_url(
-        self,
-        url: str,
-        analyze: Analyze_Options = "default",
-        replace: bool = False,
-    ) -> Optional[CloudMapRecord]:
-        return self.cloudmap.analyze_url(url, analyze, replace)
-
-    def save(self, msg: str) -> bool:
-        return self.cloudmap.save(msg)
-
-    def add_record(self, record: CloudMapRecord) -> None:
-        self.db.add_record(record)
-
-    def delete_record(self, record: CloudMapRecord) -> None:
-        self.db.delete_record(record)
-
-    def get_record(self, section: str, key: str) -> Optional[CloudMapRecord]:
-        return self.db.get_record(section, key)
-
-    def get_artifact(self, url: str) -> Optional[Artifact]:
-        return self.db.get_artifact(url)
-
-    def find_artifacts(self, type: str = "") -> Iterable[Artifact]:
-        return self.db.find_artifacts(type)
-
-    def find_services(self, type: str = "") -> Iterable[Service]:
-        return self.db.find_services(type)
-
-    def find_components(self, type: str = "") -> Iterable[Component]:
-        return self.db.find_components(type)
-
-    def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
-        return self.db.find_instantiations(type)
-
-    def find_types(self) -> Iterable[CloudType]:
-        return self.db.find_types()
-
-    def find_repositories(self) -> Iterable[Repository]:
-        return self.db.find_repositories()
-
-    def get_service(self, url: str) -> Optional[Service]:
-        return self.db.get_service(url)
-
-    def get_component(self, url: str) -> Optional[Component]:
-        return self.db.get_component(url)
-
-    def get_instantiation(self, url: str) -> Optional[Instantiation]:
-        return self.db.get_instantiation(url)
-
-    def add_image_artifact(self, image: "ContainerImage") -> Artifact:
-        return self.db.add_image_artifact(image)
-
-    def get_type(self, name: str) -> Optional[CloudType]:
-        return self.db.get_type(name)
-
-    def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
-        return self.db.get_repository(r)
+    @do_analysis.setter
+    def do_analysis(self, value: bool) -> None:
+        self.context.do_analysis = value
 
     def find_local_repos_for_host(
         self, host: "RepositoryHost"
     ) -> Iterator[Tuple[git.Remote, GitRepo, Repository]]:
         """for each repo that matches host.host and host.namespace, yield matching remote and Repository"""
         for url, remotes in self.remotes.items():
-            repo_info = self.db.get_repository(url)
+            repo_info = self.context.get_repository(url)
             if repo_info and host.has_repository(repo_info):
                 remote = self._choose_remote(remotes, host.name)
                 working_dir = cast(str, remote.repo.working_tree_dir).rstrip("/")
@@ -466,13 +413,12 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info: Repository,
         repo: GitRepo,
         previous_contains: TypedUrls,
-        context: Optional[AnalyzerContext] = None,
     ) -> Optional[List[RepositoryAnalyzer]]:
         if self.do_analysis:
             try:
-                return self.analyze(repo_info, repo, context)
+                return self.analyze(repo_info, repo)
             except Exception:
-                (context or self)._mark_failed()
+                self.context._mark_failed()
                 # restore previous
                 repo_info.contains = previous_contains
                 self.logger.error(
@@ -482,35 +428,42 @@ class Directory(_LocalGitRepos, AnalyzerContext):
         repo_info.contains = previous_contains
         return None
 
-    def analyze(
-        self,
-        repo_info: Repository,
-        repo: GitRepo,
-        context: Optional[AnalyzerContext] = None,
-    ) -> List[RepositoryAnalyzer]:
+    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryAnalyzer]:
         """Run the analyzers matching this repository's files.
 
-        ``context`` is what analyzers are given and what their records are
-        added through; it defaults to this directory. A caller that is
-        tracking discovery passes its own context so the records produced here
-        are attributed to the url being analyzed.
+        Records are attributed to the repository and to the file that produced
+        them, whether this runs as part of analyzing a url or as part of a
+        repository host sync -- the same files produce the same records either
+        way, so they get the same provenance.
         """
         self.logger.verbose("analyzing %s", repo_info.url)
         analyze_queue = self.analyze_repo(repo_info, repo)
-        notables = []
-        context = context or self
+        with self.context._tracking_provenance(repo_info.url):
+            return self._analyze_notables(repo_info, repo, analyze_queue)
+
+    def _analyze_notables(
+        self,
+        repo_info: Repository,
+        repo: GitRepo,
+        analyze_queue: List[RepositoryAnalyzer],
+    ) -> List[RepositoryAnalyzer]:
+        notables: List[RepositoryAnalyzer] = []
+        context = self.context
         for n in analyze_queue:
             try:
-                artifact = n.analyze(context, repo_info, repo.working_dir)
+                # so a record is discovered from the file that produced it as
+                # well as from the repository the file is in
+                with context._tracking_provenance(repo_info.artifact_url(n.path)):
+                    artifact = n.analyze(context, repo_info, repo.working_dir)
                 if artifact:
-                    # XXX what to do if self.db.get_artifact(artifact.url)?
+                    # XXX what to do if self.context.get_artifact(artifact.url)?
                     # (currently we want to give this priority for the git digest)
                     context.add_record(artifact)
                     url = artifact.metadata.source_url
                     if (
                         url
                         and CloudMap._is_git_url(url)
-                        and not self.db.get_repository(url)
+                        and not self.context.get_repository(url)
                     ):
                         self.cloudmap.analyze_url(url, "no")
             except Exception:
@@ -544,7 +497,7 @@ class CloudMap:
         commit: bool = False,
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
-        db: Optional[CloudMapView] = None,
+        db: Optional[CloudMapStore] = None,
     ):
         """Initialize a CloudMap bound to a local cloudmap git checkout.
 
@@ -558,6 +511,9 @@ class CloudMap:
             commit: Whether to commit changes to the cloudmap repository after syncing.
             logger: Logger used for cloudmap operations.
             local_env: Optional local environment used for context and config.
+            db: The record store this cloudmap reads and writes. Defaults to
+                the local document at ``path``; :py:meth:`_get_server` passes a
+                :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`.
         """
         self.logger = logger
         self.host_branch = host_branch or source_branch
@@ -593,13 +549,12 @@ class CloudMap:
             if issubclass(cls, URLAnalyzer):
                 self.register_url_analyzer(cls)
 
-        self.directory = Directory(
-            self,
-            filepath,
-            localrepo_root,
-            skip_analysis,
-            db,
-        )
+        # built here rather than by the caller: the store keeps a reference to
+        # the cloudmap that owns it, which doesn't exist until now
+        if db is None:
+            db = CloudMapDB(filepath)
+        db.set_cloudmap(self)
+        self.directory = Directory(self, db, localrepo_root, skip_analysis)
 
     def register_url_analyzer(self, cls: Type[URLAnalyzer]) -> None:
         """Register a :class:`URLAnalyzer` subclass for each of its ``url_schemes``."""
@@ -624,7 +579,7 @@ class CloudMap:
                     continue
                 urls.add(norm)
                 # follow the chain when a record exists for the origin url
-                origin = self.directory.get_repository(url)
+                origin = self.directory.context.get_repository(url)
                 if origin is not None and origin is not repo:
                     walk(origin)
 
@@ -641,7 +596,7 @@ class CloudMap:
         :class:`Artifact` record. Returns ``None`` when neither is found."""
         if ("", source) in repository.contains:
             return repository.contains[("", source)]
-        artifact = self.directory.get_artifact(repository.artifact_url(source))
+        artifact = self.directory.context.get_artifact(repository.artifact_url(source))
         if artifact is not None:
             return artifact.type
         return None
@@ -665,7 +620,7 @@ class CloudMap:
             if name in available:
                 continue
             available.add(name)
-            record = self.directory.get_type(name)
+            record = self.directory.context.get_type(name)
             if record is not None:
                 pending.extend(record.extends)
         return any(set(tr.names()) <= available for tr in wanted)
@@ -786,14 +741,22 @@ class CloudMap:
 
     @classmethod
     def _get_server(
-        cls, local_env: "LocalEnv", name: str, logger=logger
-    ) -> Optional[CloudMapView]:
-        """The upstream cloudmap server configured for ``name``, if any.
+        cls,
+        local_env: "LocalEnv",
+        name: str,
+        clone_root: Optional[str] = None,
+        host_branch: str = "",
+        skip_analysis: bool = False,
+        commit: bool = False,
+        logger=logger,
+    ) -> Optional["CloudMap"]:
+        """The cloudmap served by the upstream server configured for ``name``.
 
-        Returns a :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`, which
-        stands in for a local :py:class:`~unfurl.cloudmap.db.CloudMapDB`: the
-        cloudmap lives on the server, so nothing is cloned and records are
-        POSTed rather than committed.
+        Its records are accessed through a :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`
+        standing in for a local :py:class:`~unfurl.cloudmap.db.CloudMapDB`:
+        nothing is cloned and records are POSTed rather than committed.
+
+        Returns None when no server is configured for ``name``.
         """
         env_context = local_env.get_context()
         environment = env_context.get("cloudmaps", {})
@@ -816,12 +779,21 @@ class CloudMap:
             return None
         from .proxy import CloudMapProxy
 
-        return CloudMapProxy(
-            url,
-            username=server.get("username"),
-            private_token=server.get("password"),
-            timeout=server.get("timeout"),
+        return CloudMap(
+            None,  # nothing to clone: the cloudmap is on the server
+            host_branch,
+            localrepo_root=clone_root or "",
+            skip_analysis=skip_analysis,
+            commit=commit,
             logger=logger,
+            local_env=local_env,
+            db=CloudMapProxy(
+                url,
+                username=server.get("username"),
+                private_token=server.get("password"),
+                timeout=server.get("timeout"),
+                logger=logger,
+            ),
         )
 
     @classmethod
@@ -844,19 +816,12 @@ class CloudMap:
         needs a local clone -- :py:meth:`to_host` merges the host branch into
         the source branch and commits, which only a checkout can do.
         """
-        proxy = cls._get_server(local_env, name, logger) if use_server else None
-        if proxy is not None:
-            # the cloudmap is on a server: nothing to clone, records are POSTed
-            return CloudMap(
-                None,
-                host_branch,
-                localrepo_root=clone_root or "",
-                skip_analysis=skip_analysis,
-                commit=commit,
-                logger=logger,
-                local_env=local_env,
-                db=proxy,
+        if use_server:
+            cloudmap = cls._get_server(
+                local_env, name, clone_root, host_branch, skip_analysis, commit, logger
             )
+            if cloudmap is not None:
+                return cloudmap
         url, path, revision, repository = cls.get_config(local_env, name)
         if not url:
             # create or use cloudmap file in the project repo
@@ -1161,7 +1126,6 @@ class CloudMap:
         url: str,
         analyze: Analyze_Options = "default",
         replace: bool = False,
-        context: Optional[AnalyzerContext] = None,
     ) -> Optional[CloudMapRecord]:
         """Analyze a URL and add the resulting record to the cloudmap.
 
@@ -1182,11 +1146,6 @@ class CloudMap:
                 ``url`` but that it no longer produces -- see
                 :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
                 Implies ``analyze="yes"``.
-            context: Where to record what the analysis produces; defaults to
-                this cloudmap's own document. An upstream cloudmap server
-                passes itself here so records go to the server while the
-                analysis still runs locally (cloning and inspecting the
-                repositories it needs).
 
         Returns:
             If analyze != "yes" return None if the URL is already in the database,
@@ -1200,7 +1159,7 @@ class CloudMap:
             # discovered record look orphaned, so re-analysis has to be forced.
             analyze = "yes"
         source = self._canonical_source(url)
-        tracked = ProvenanceTrackingContext(context or self.directory)
+        tracked = self.directory.context
         with tracked._tracking_provenance(source) as provenance:
             record = self._analyze_url(tracked, url, analyze, from_local_path)
         if replace:
@@ -1251,7 +1210,7 @@ class CloudMap:
 
     def _analyze_url(
         self,
-        context: AnalyzerContext,
+        context: ProvenanceTrackingContext,
         url: str,
         analyze: Analyze_Options,
         from_local_path: bool = False,
@@ -1301,7 +1260,7 @@ class CloudMap:
 
     def _add_repository_record(
         self,
-        context: AnalyzerContext,
+        context: ProvenanceTrackingContext,
         url: str,
         analyze: Analyze_Options,
     ) -> Optional[Repository]:
@@ -1350,9 +1309,6 @@ class CloudMap:
                         repo_url,
                         self.directory,
                         download=download,
-                        # so the records its analyzers produce are attributed
-                        # to the url being analyzed
-                        context=context,
                     )
                 except Exception as e:
                     self.logger.error(
@@ -1409,7 +1365,10 @@ class CloudMap:
             if notables:
                 for n in notables:
                     try:
-                        artifact = n.analyze(context, repo_info, root_path)
+                        with context._tracking_provenance(
+                            repo_info.artifact_url(n.path)
+                        ):
+                            artifact = n.analyze(context, repo_info, root_path)
                         # keep an existing record (it has the git digest);
                         # looking it up marks it as still in use
                         if artifact and not context.get_artifact(artifact.url):
@@ -1456,7 +1415,7 @@ class CloudMap:
                         repo_info,
                         ref=revision,
                         commit=commit,
-                        context=self.directory,
+                        directory=self.directory,
                         workflow_file=file_path,
                     ):
                         context.add_record(instantiation)
@@ -1505,11 +1464,17 @@ class CloudMap:
         self, host: RepositoryHost, merge_host: bool, force: bool, sync: bool
     ) -> bool:
         op_name = "sync" if sync else "export"
+        db = self.directory.store
+        # syncing merges branches and commits, so it needs a local clone --
+        # a cloudmap served by an upstream server has no file on disk
+        assert isinstance(db, CloudMapDB), (
+            f"cannot {op_name} a cloudmap served by an upstream server"
+        )
         if self.host_branch != self.source_branch:
             if self.repo:
                 # CloudMap.from_name() switches to host_branch but we want to sync the source branch (e.g. main)
                 self.repo.checkout(self.source_branch)
-            self.directory.db.reload()  # map may have changed, reload the directory
+            db.reload()  # map may have changed, reload the directory
             # make sure local repos matches the cloudmap
             mismatched = self.directory.find_mismatched_repo(host)
             if mismatched:
@@ -1523,7 +1488,7 @@ class CloudMap:
                 self.repo.repo.git.merge(
                     self.host_branch, m=f"merge changes from syncing {self.host_branch}"
                 )
-                self.directory.db.reload()  # map changed, reload the directory
+                db.reload()  # map changed, reload the directory
 
             # for each repository merge the host's default branch (it was already fetched during from_host())
             # into the local repo's default branch
@@ -1541,7 +1506,7 @@ class CloudMap:
         return changed
 
     def save(self, msg: str) -> bool:
-        db = self.directory.db
+        db = self.directory.store
         if not isinstance(db, CloudMapDB):
             # a server-backed cloudmap: POST the buffered records; the server
             # owns the repository and makes the commit
@@ -1553,10 +1518,11 @@ class CloudMap:
         if not self.repo or not self.commit:
             self.logger.info("saved cloudmap to %s: %s", db.config.path, msg)
             return changed
-        self.repo.repo.index.add(self.directory.db.config.path)
-        if self.repo.is_dirty(False, self.directory.db.config.path):
-            assert self.directory.db.config.path
-            self.repo.commit_files([self.directory.db.config.path], msg)
+        path = db.config.path
+        assert path
+        self.repo.repo.index.add([path])
+        if self.repo.is_dirty(False, path):
+            self.repo.commit_files([path], msg)
             self.repo.repo.index.commit(msg)
             self.logger.verbose(f"committed: {msg}")
             return True

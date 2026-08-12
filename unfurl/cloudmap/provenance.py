@@ -19,7 +19,19 @@ reading or writing the document keeps the document's own vocabulary
 """
 
 from contextlib import contextmanager
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union, cast
+from typing import (
+    Any,
+    Dict,
+    Generator,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 from typing_extensions import Literal
 
 from ..logs import UnfurlLogger
@@ -38,7 +50,8 @@ from ..tosca_plugins.cloudmap_defs import (
     section_of,
 )
 from ..localenv import LocalEnv
-from ..repo import split_git_url_with_commit
+from .db import CloudMapStore
+from ..repo import split_git_url_with_commit, sanitize_url
 from ..support import ContainerImage
 
 
@@ -111,10 +124,10 @@ def _source_matches_key(source: str, record: "CloudMapRecord") -> bool:
 
 def record_discovery_source(
     record: "CloudMapRecord",
-    source: str,
+    sources: Union[str, Sequence[str]],
     previous: Optional["CloudMapRecord"] = None,
 ) -> None:
-    """Record ``source`` as one of the URLs this record was discovered from.
+    """Record ``sources`` as URLs this record was discovered from.
 
     Appends to ``record.metadata.discovery.sources``, creating the
     :class:`Discovery` when the record has none. Existing sources are preserved:
@@ -128,18 +141,26 @@ def record_discovery_source(
         record: The record to stamp. Its ``metadata`` is always present (each
             record's ``__post_init__`` coerces it to the right subclass), but
             ``metadata.discovery`` may be ``None``.
-        source: The URL being analyzed. Must be a valid URL:
-            :py:meth:`Discovery.__post_init__` validates it.
+        sources: The URLs being analyzed, outermost first. Analysis nests -- a
+            repository's files are analyzed as part of analyzing the
+            repository -- and every enclosing URL is recorded, so a record can
+            be collected by replacing either the file it came from or the
+            repository that file is in. Each must be a valid URL:
+            :py:meth:`Discovery.__post_init__` validates them.
         previous: The record being replaced, if any. Its sources are merged in
             so provenance survives a rebuild -- analyzers that construct a
             record from scratch (e.g. :py:func:`unfurl.cloudmap.oci.create_oci_artifact`,
             which assigns a fresh ``Discovery``) would otherwise drop the URLs
             that other analyzers had contributed.
     """
-    incoming = discovery_sources(previous) if previous is not None else []
-    # only add source if its different from the record's key
-    if not _source_matches_key(source, record):
-        incoming.append(source)
+    if isinstance(sources, str):
+        sources = [sources]
+    # copy: `discovery_sources` returns the record's own list, and `previous`
+    # is usually the record being re-added -- extending it in place would
+    # duplicate its sources
+    incoming = list(discovery_sources(previous)) if previous is not None else []
+    # only add a source if its different from the record's key
+    incoming.extend(s for s in sources if not _source_matches_key(s, record))
     existing = discovery_sources(record)
     new: List[str] = []
     for url in incoming:
@@ -190,45 +211,50 @@ class ProvenanceTrackingContext(AnalyzerContext):
     still needed" is recorded without the analyzer having to say so.
     """
 
-    def __init__(self, context: AnalyzerContext) -> None:
-        self._context = context
+    def __init__(self, context: CloudMapStore) -> None:
+        # no cloudmap of its own: `analyze_url` and `_local__env` delegate to
+        # the store this wraps, which is the one that has it
+        super().__init__()
+        self.__context = context
         self._sources: List[str] = []
-        self._provenance: Optional[Provenance] = None
+        # One per tracker, shared by every nested block: what a nested
+        # analysis touches counts for the enclosing one too, or the outer
+        # sweep would collect records the run just confirmed are in use.
+        self.provenance = Provenance()
 
     # --- Tracking ---
 
     @contextmanager
-    def _tracking_provenance(self, source: str):
-        """Attribute records added within this block to ``source``.
+    def _tracking_provenance(self, source: str) -> Generator[Provenance, None, None]:
+        """Also attribute records added within this block to ``source``.
 
-        Analysis nests -- an analyzer can call :py:meth:`analyze_url`, which
-        runs more analyzers -- so sources are kept on a stack and
-        :py:meth:`add_record` stamps the innermost: the URL that *directly*
-        produced the record, not the one that transitively led to it.
+        Analysis nests -- analyzing a repository analyzes its files, and an
+        analyzer can analyze another URL -- so sources are kept on a stack and
+        :py:meth:`add_record` stamps *all* of them. A record produced while
+        analyzing a repository's file is discovered from that file and from the
+        repository, so replacing either one can collect it.
 
         Args:
             source: The URL being analyzed.
 
         Yields:
-            The :py:class:`Provenance` tracker for this block.
+            The :py:class:`Provenance` for the analysis in progress. A fresh
+            one is started at the outermost block: this tracker outlives any
+            single analysis, and carrying `touched` across two of them would
+            spare records the later one never confirmed.
         """
-        outer = self._provenance
-        provenance = Provenance()
+        if not self._sources:
+            self.provenance = Provenance()
         self._sources.append(source)
-        self._provenance = provenance
         try:
-            yield provenance
+            yield self.provenance
         finally:
             self._sources.pop()
-            self._provenance = outer
-            if outer is not None:
-                # A nested analysis failing makes the outer one incomplete too.
-                outer.errors += provenance.errors
 
     def _mark_seen(self, record: Optional[CloudMapRecord]) -> None:
         """Note that ``record`` is still in use by the analysis in progress."""
-        if record is not None and self._provenance is not None:
-            self._provenance.touched.add(record_identity(record))
+        if record is not None:
+            self.provenance.touched.add(record_identity(record))
 
     def _mark_failed(self) -> None:
         """Note that an analyzer raised, making this analysis incomplete.
@@ -238,27 +264,26 @@ class ProvenanceTrackingContext(AnalyzerContext):
         :py:meth:`replace_from_source` would delete every record attributed to
         the URL.
         """
-        if self._provenance is not None:
-            self._provenance.errors += 1
+        self.provenance.errors += 1
 
-    # --- Add records ---
+    # --- AnalyzerContext methods: ---
 
     def add_record(self, record: CloudMapRecord) -> None:
-        """Add ``record``, attributing it to the URL being analyzed."""
+        """Add ``record``, attributing it to every URL being analyzed."""
         if self._sources:
             record_discovery_source(
                 record,
-                self._sources[-1],
+                self._sources,
                 # Analyzers may rebuild a record from scratch; merge the
                 # sources of the one being replaced so other analyzers'
                 # provenance isn't dropped.
-                previous=self._context.get_record(section_of(record), record.key),
+                previous=self.__context.get_record(section_of(record), record.key),
             )
         self._mark_seen(record)
-        self._context.add_record(record)
+        self.__context.add_record(record)
 
     def delete_record(self, record: CloudMapRecord) -> None:
-        self._context.delete_record(record)
+        self.__context.delete_record(record)
 
     def add_image_artifact(self, image: ContainerImage) -> Artifact:
         # Not attributed to the url being analyzed: the image's provenance is
@@ -266,7 +291,7 @@ class ProvenanceTrackingContext(AnalyzerContext):
         # records, and whatever referenced it says so in its `references`.
         # Attributing it here would also be unstable -- the artifact is built
         # once, by whichever analyzer reaches it first.
-        return self._context.add_image_artifact(image)
+        return self.__context.add_image_artifact(image)
 
     def analyze_url(
         self,
@@ -274,89 +299,86 @@ class ProvenanceTrackingContext(AnalyzerContext):
         analyze: Literal["yes", "no", "save-only", "default"] = "default",
         replace: bool = False,
     ) -> Optional[CloudMapRecord]:
-        return self._context.analyze_url(url, analyze, replace)
-
-    def save(self, msg: str) -> Any:
-        return self._context.save(msg)
+        return self.__context.analyze_url(url, analyze, replace)
 
     # --- Look up records (marking whatever is found as still in use) ---
 
     def get_record(self, section: str, key: str) -> Optional[CloudMapRecord]:
-        return self._context.get_record(section, key)
+        return self.__context.get_record(section, key)
 
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
-        found = self._context.get_repository(r)
+        found = self.__context.get_repository(r)
         self._mark_seen(found)
         return found
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
-        found = self._context.get_artifact(url)
+        found = self.__context.get_artifact(url)
         self._mark_seen(found)
         return found
 
     def get_service(self, url: str) -> Optional[Service]:
-        found = self._context.get_service(url)
+        found = self.__context.get_service(url)
         self._mark_seen(found)
         return found
 
     def get_component(self, url: str) -> Optional[Component]:
-        found = self._context.get_component(url)
+        found = self.__context.get_component(url)
         self._mark_seen(found)
         return found
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
-        found = self._context.get_instantiation(url)
+        found = self.__context.get_instantiation(url)
         self._mark_seen(found)
         return found
 
     def get_type(self, name: str) -> Optional[CloudType]:
-        found = self._context.get_type(name)
+        found = self.__context.get_type(name)
         self._mark_seen(found)
         return found
 
     # --- Iterate records ---
 
     def find_repositories(self) -> Iterable[Repository]:
-        return self._context.find_repositories()
+        return self.__context.find_repositories()
 
     def find_artifacts(self, type: str = "") -> Iterable[Artifact]:
-        return self._context.find_artifacts(type)
+        return self.__context.find_artifacts(type)
 
     def find_services(self, type: str = "") -> Iterable[Service]:
-        return self._context.find_services(type)
+        return self.__context.find_services(type)
 
     def find_components(self, type: str = "") -> Iterable[Component]:
-        return self._context.find_components(type)
+        return self.__context.find_components(type)
 
     def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
-        return self._context.find_instantiations(type)
+        return self.__context.find_instantiations(type)
 
     def find_types(self) -> Iterable[CloudType]:
-        return self._context.find_types()
+        return self.__context.find_types()
 
     # --- Pass-throughs ---
 
     @property
     def logger(self) -> UnfurlLogger:
-        return self._context.logger
+        return self.__context.logger
 
     @logger.setter
     def logger(self, value: UnfurlLogger) -> None:
-        self._context.logger = value
+        self.__context.logger = value
 
     @property
     def do_analysis(self) -> bool:
         # read through rather than snapshot: analysis can turn it off partway
         # (a url naming one file shouldn't analyze the whole repository)
-        return self._context.do_analysis
+        return self.__context.do_analysis
 
     @do_analysis.setter
     def do_analysis(self, value: bool) -> None:
-        self._context.do_analysis = value
+        self.__context.do_analysis = value
 
     @property
     def _local__env(self) -> Optional[LocalEnv]:
-        return self._context._local__env
+        return self.__context._local__env
 
     # --- Replace records a source no longer produces ---
 
@@ -411,8 +433,6 @@ class ProvenanceTrackingContext(AnalyzerContext):
         that produced nothing, and deleting on that basis would discard records
         that are still valid.
         """
-        from ..repo import sanitize_url
-
         if provenance.errors:
             self.logger.warning(
                 "not replacing records discovered from %s: %s analyzer(s) failed",
@@ -432,7 +452,14 @@ class ProvenanceTrackingContext(AnalyzerContext):
             remaining = [
                 source
                 for source in discovery_sources(record)
-                if not self.matches_source(source, url)
+                # Symmetric, unlike the search above: a record analyzing
+                # `repo#:file.yaml` produced carries `repo` too, and that
+                # claim was made by this same analysis, so replacing the file
+                # drops it as well. A record another file also produces keeps
+                # its own `repo#:other.yaml`, so it still survives.
+                if not (
+                    self.matches_source(source, url) or self.matches_source(url, source)
+                )
             ]
             if remaining:
                 _replace_discovery_sources(record, remaining)

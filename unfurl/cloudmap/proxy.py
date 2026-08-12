@@ -32,6 +32,7 @@ from urllib.parse import parse_qsl, urlparse, urlunparse
 import requests
 
 from . import CloudMapDB
+from .db import CloudMapStore
 from ..logs import getLogger, UnfurlLogger
 from ..tosca_plugins.cloudmap_defs import (
     section_of,
@@ -47,6 +48,7 @@ from ..tosca_plugins.cloudmap_defs import (
 from ..util import UnfurlError
 
 if TYPE_CHECKING:
+    from . import CloudMap
     from ..support import ContainerImage
 
 logger = getLogger("unfurl.cloudmap.proxy")
@@ -291,7 +293,7 @@ class CloudMapCache(CloudMapDB):
 DEFAULT_REQUEST_TIMEOUT = 30.0
 
 
-class CloudMapProxy(CloudMapView):
+class CloudMapProxy(CloudMapStore):
     """:class:`CloudMapView` implementation backed by a remote
     unfurl-server.
 
@@ -698,7 +700,7 @@ class CloudMapProxy(CloudMapView):
 
     def save(
         self,
-        commit_msg: Optional[str] = None,
+        msg: Optional[str] = None,
         *,
         atomic: bool = True,
     ) -> Optional[str]:
@@ -724,8 +726,8 @@ class CloudMapProxy(CloudMapView):
             body["username"] = self._username
         if self._private_token:
             body["private_token"] = self._private_token
-        if commit_msg:
-            body["commit_msg"] = commit_msg
+        if msg:
+            body["commit_msg"] = msg
         # Only include ``atomic`` when overriding the server default (true).
         if not atomic:
             body["atomic"] = False

@@ -36,10 +36,16 @@ from typing_extensions import Literal, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from unfurl.repo import normalize_git_url, split_git_url, git_url_join
-from unfurl.util import URI_TEMPLATE_EXPRESSION, has_uri_template, split_url_fragment
+from unfurl.util import (
+    UnfurlError,
+    URI_TEMPLATE_EXPRESSION,
+    has_uri_template,
+    split_url_fragment,
+)
 from unfurl.tosca_plugins.functions import ContainerImageParts
 
 if TYPE_CHECKING:
+    from unfurl.cloudmap import CloudMap
     from unfurl.localenv import LocalEnv
     from unfurl.support import ContainerImage
     from unfurl.logs import UnfurlLogger
@@ -1536,13 +1542,13 @@ def section_of(record: "CloudMapRecord") -> str:
     raise TypeError(f"unsupported cloudmap record type: {type(record).__name__}")
 
 
-class AnalyzerContext(CloudMapView):
-    """Abstract base class for the cloudmap context analyzers see.
+class CloudMapWriter(CloudMapView):
+    """Read and write cloud map records.
 
-    Exposes the subset of :class:`Directory` / :class:`CloudMapDB` functionality that
-    custom Analyzer subclasses (possibly loaded in safe mode) need to contribute
-    records to the cloudmap. Attributes with a leading underscore are inaccessible
-    from sandboxed code and are intended for built-in Analyzer classes only.
+    Shared by the context analyzers are given (:class:`AnalyzerContext`) and
+    the store the cloud map's owner uses
+    (:class:`unfurl.cloudmap.store.CloudMapStore`). The two differ in what they
+    add on top, not in how records are reached.
     """
 
     _logger: "UnfurlLogger"
@@ -1566,18 +1572,6 @@ class AnalyzerContext(CloudMapView):
     @do_analysis.setter
     def do_analysis(self, value: bool) -> None:
         self._do_analysis = value
-
-    @property
-    @abstractmethod
-    def _local__env(self) -> Optional["LocalEnv"]:
-        """Parent environment for loading nested unfurl projects.
-
-        Names with _<name>__<suffix> can not be accessed from sandboxed Notables,
-        so this is only accessible to built-in Analyzer classes and not custom Notables loaded in safe mode.
-        """
-
-    def _mark_failed(self) -> None:
-        """Note that an analyzer raised, making this analysis incomplete."""
 
     @abstractmethod
     def get_record(self, section: str, key: str) -> Optional["CloudMapRecord"]:
@@ -1612,6 +1606,26 @@ class AnalyzerContext(CloudMapView):
         """
 
     @abstractmethod
+    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
+
+
+class AnalyzerContext(CloudMapWriter):
+    """The cloudmap context analyzers see.
+
+    Exposes what custom Analyzer subclasses (possibly loaded in safe mode) need
+    to contribute records.
+    """
+
+    @property
+    @abstractmethod
+    def _local__env(self) -> Optional["LocalEnv"]:
+        """Parent environment for loading nested unfurl projects.
+
+        Names with _<name>__<suffix> can not be accessed from sandboxed Notables,
+        so this is only accessible to built-in Analyzer classes and not custom Notables loaded in safe mode.
+        """
+
+    @abstractmethod
     def analyze_url(
         self,
         url: str,
@@ -1625,13 +1639,6 @@ class AnalyzerContext(CloudMapView):
         ``replace`` also removes records previously discovered from this URL
         that it no longer produces.
         """
-
-    @abstractmethod
-    def save(self, msg: str) -> Any:
-        """Persist the records added so far, describing them with ``msg``."""
-
-    @abstractmethod
-    def add_image_artifact(self, image: "ContainerImage") -> "Artifact": ...
 
 
 class Analyzer:
@@ -1676,7 +1683,7 @@ class RepositoryAnalyzer(Analyzer):
         return f"{self.__class__.__name__}(folder={self.folder!r}, file={self.file!r}, digest={self.digest!r})"
 
     def analyze(
-        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
+        self, context: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         """Analyze the matched file and return an Artifact for the cloud map.
 
@@ -1691,7 +1698,7 @@ class RepositoryAnalyzer(Analyzer):
         Returns:
             An Artifact instance, or None if analysis determines the file is not relevant.
         """
-        directory.logger.debug("analyzing %s with %s", self.file, self)
+        context.logger.debug("analyzing %s with %s", self.file, self)
         # Create artifact url from repository URL + file path
         artifact_url = repo_info.artifact_url(self.path)
         return Artifact(url=artifact_url, type=TypeRefs({self.artifact_type: None}))
@@ -1762,11 +1769,11 @@ class URLAnalyzer(Analyzer):
         """
         return None
 
-    def analyze_url(self, directory: "AnalyzerContext") -> Optional["VersionedRecord"]:
+    def analyze_url(self, context: "AnalyzerContext") -> Optional["VersionedRecord"]:
         """Produce an Artifact for the URL this analyzer was constructed with.
 
         Subclasses can also write related records (Instantiation, Service,
-        etc.) directly via ``directory.add_*`` methods. The returned
+        etc.) directly via ``context.add_*`` methods. The returned
         :class:`Artifact` is added to the cloudmap by the caller; return
         ``None`` if no artifact should be recorded.
         """

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from unfurl.cloudmap.provenance import ProvenanceTrackingContext
 from unfurl.cloudmap.proxy import (
     CloudMapProxy,
     CloudMapProxyConflict,
@@ -661,11 +662,12 @@ def test_configured_server_replaces_the_local_cloudmap(tmp_path) -> None:
         local_env, "cloudmap", "", "", True, False, use_server=True
     )
 
-    assert isinstance(cloud_map.directory.db, CloudMapProxy)
-    assert not isinstance(cloud_map.directory.db, CloudMapDB)
+    assert isinstance(cloud_map.directory.store, CloudMapProxy)
+    assert not isinstance(cloud_map.directory.store, CloudMapDB)
     assert cloud_map.repo is None, "nothing to clone when the cloudmap is remote"
-    # and the directory is still the analyzer context, unchanged
-    assert cloud_map.directory.get_artifact is not None
+    # analyzers write through a tracking context wrapping it, so their
+    # records are attributed and then go upstream
+    assert isinstance(cloud_map.directory.context, ProvenanceTrackingContext)
 
     # Syncing with a repository host needs a local clone -- `to_host` merges
     # the host branch into the source branch and commits -- so it doesn't opt
@@ -674,7 +676,7 @@ def test_configured_server_replaces_the_local_cloudmap(tmp_path) -> None:
     syncing = CloudMap.from_name(
         local_env, str(tmp_path / "cloudmap.yaml"), "", "", True, False
     )
-    assert isinstance(syncing.directory.db, CloudMapDB)
+    assert isinstance(syncing.directory.store, CloudMapDB)
 
 
 def test_analysis_against_a_server_stages_records() -> None:

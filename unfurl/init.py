@@ -1088,7 +1088,7 @@ class EnsembleBuilder:
             # only resolving a url, so skip analysis and don't commit
             cloudmap = CloudMap.from_name(
                 local_env, "cloudmap", "", "", True, False
-            ).directory
+            ).directory.store
             repo_key = cloudmap.resolve_cloudmap_url(self.input_source)
             if repo_key:
                 self.input_source = repo_key

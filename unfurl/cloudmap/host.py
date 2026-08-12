@@ -32,7 +32,6 @@ from tosca import safe_mode
 from ..logs import getLogger, UnfurlLogger
 from ..repo import GitRepo, is_git_worktree, normalize_git_url, sanitize_url
 from ..tosca_plugins.cloudmap_defs import (
-    AnalyzerContext,
     Instantiation,
     Repository,
     TypeRefStatus,
@@ -219,15 +218,8 @@ class RepositoryHost:
         url: str,
         directory: Directory,
         download: bool,
-        context: Optional["AnalyzerContext"] = None,
     ) -> Optional[Repository]:
-        """Import a project from the given URL into the directory.
-
-        ``context`` is the context to run any analysis under; it defaults to
-        ``directory`` itself. :py:meth:`~unfurl.cloudmap.CloudMap.analyze_url`
-        passes a tracking context so the records analysis produces are
-        attributed to the url being analyzed.
-        """
+        """Import a project from the given URL into the directory."""
         return None
 
     def extract_project_path(self, url: str) -> str:
@@ -317,7 +309,6 @@ class RepositoryHost:
         directory: Directory,
         previous: Optional[Repository],
         remote_url: str,
-        context: Optional["AnalyzerContext"] = None,
     ) -> None:
         try:
             repo, cloned = self.fetch_repo(remote_url, r, directory)
@@ -329,9 +320,7 @@ class RepositoryHost:
         except Exception:
             self.logger.error("Error retrieving content for %s", r.url, exc_info=True)
         else:
-            directory.maybe_analyze(
-                r, repo, previous.contains if previous else {}, context
-            )
+            directory.maybe_analyze(r, repo, previous.contains if previous else {})
 
     def _push_to_host(
         self,
@@ -400,7 +389,7 @@ class RepositoryHost:
         status: Optional[List[str]] = None,
         workflow_file: str = "",
         trigger: Optional[List[str]] = None,
-        context: Optional["Directory"] = None,
+        directory: Optional["Directory"] = None,
     ) -> Iterable[Instantiation]:
         f"""Return pipeline/workflow run Instantiations for the given repository.
 
@@ -423,15 +412,15 @@ class RepositoryHost:
                 (GitLab pipeline ``source`` / GitHub run ``event``). The
                 platform API is used to filter when a single value is given,
                 otherwise filtering is client-side.
-            context: If given, each built Instantiation is passed to a matching
-                :class:`PipelineRunAnalyzer` (looked up via
-                ``context.cloudmap.find_pipeline_analyzers``) for enrichment.
+            directory: If given, each built Instantiation is passed to a
+                matching :class:`PipelineRunAnalyzer` (looked up via
+                ``directory.cloudmap.find_pipeline_analyzers``) for enrichment.
         """
         return []
 
     def _run_pipeline_analyzer(
         self,
-        context: "Directory",
+        directory: "Directory",
         repo_info: "Repository",
         instantiation: Instantiation,
         obj: Any,
@@ -443,18 +432,23 @@ class RepositoryHost:
         platform object ``obj`` is withheld (set to ``None``) when running in
         safe mode, since sandboxed analyzers must not access the API client.
         """
-        analyzer_cls = context.cloudmap.find_pipeline_analyzers(repo_info, source)
+        analyzer_cls = directory.cloudmap.find_pipeline_analyzers(repo_info, source)
         if analyzer_cls is None:
             return
         if safe_mode():
             obj = None  # withhold raw API object from sandboxed analyzers
-        repo = context.find_repo(repo_info.url, "")
+        repo = directory.find_repo(repo_info.url, "")
         root_path = repo.working_dir if repo else ""
         try:
+            # what the analyzer adds is attributed the same way the
+            # Instantiation it is enriching is: pipeline runs are only fetched
+            # while analyzing a url (CloudMap._add_repository_record), so `db`
+            # is the tracking context here.
             analyzer_cls().analyze_pipeline_run(
-                context, repo_info, instantiation, obj, root_path
+                directory.context, repo_info, instantiation, obj, root_path
             )
         except Exception:
+            directory.context._mark_failed()
             self.logger.error(
                 "Pipeline run analyzer failed for %s", repo_info.url, exc_info=True
             )
@@ -506,14 +500,14 @@ class LocalRepositoryHost(RepositoryHost, _LocalGitRepos):
                     repo.pull(remote.name)
                 repository = self.git_to_repository(remote, path)
                 repository.initial_revision = repo.get_initial_revision()
-                previous = directory.db.get_repository(repository)
+                previous = directory.context.get_repository(repository)
                 if previous:
                     # don't replace metadata from remote host
                     if not previous.initial_revision:
                         previous.initial_revision = repository.initial_revision
                     repository = previous
                 else:
-                    directory.db.add_record(repository)
+                    directory.context.add_record(repository)
                 directory.maybe_analyze(
                     repository, repo, previous.contains if previous else {}
                 )

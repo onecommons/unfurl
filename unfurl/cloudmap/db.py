@@ -5,11 +5,20 @@
 :py:class:`CloudMapDB` is a standalone view over one document. It knows nothing
 about repository hosts or the git repository the document lives in — see
 :py:mod:`unfurl.cloudmap` for those.
+
+:py:class:`CloudMapStore` is the interface it shares with
+:py:class:`~unfurl.cloudmap.proxy.CloudMapProxy` — what the cloud map's *owner*
+uses. Deliberately not in ``cloudmap_defs``, which custom analyzers can import:
+this is the interface they must not reach. What they get is a
+:py:class:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext` wrapping a
+store, implementing
+:py:class:`~unfurl.tosca_plugins.cloudmap_defs.AnalyzerContext` and nothing more.
 """
 
 import os
 import os.path
 from typing import (
+    TYPE_CHECKING,
     Any,
     Dict,
     Iterable,
@@ -20,12 +29,15 @@ from typing import (
     Union,
     cast,
 )
+from abc import abstractmethod
+from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, unquote
 
 from ..logs import getLogger
 from ..merge import _json_pointer_unescape
 from ..support import ContainerImage
 from ..tosca_plugins.cloudmap_defs import (
+    CloudMapWriter,
     Artifact,
     ArtifactDict,
     CloudMapRecord,
@@ -41,9 +53,13 @@ from ..tosca_plugins.cloudmap_defs import (
     ServiceDict,
     get_repository_url,
 )
-from ..util import API_VERSION
+from ..util import API_VERSION, UnfurlError
 from ..yamlloader import YamlConfig
 from .oci import create_oci_artifact
+
+if TYPE_CHECKING:
+    from . import CloudMap
+    from ..localenv import LocalEnv
 
 logger = getLogger("unfurl")
 
@@ -117,7 +133,46 @@ def _split_cloudmap_keys(path: str) -> Optional[List[str]]:
     return None  # empty or trailing "/"
 
 
-class CloudMapDB(CloudMapView):
+class CloudMapStore(CloudMapWriter):
+    """A store of cloud map records, belonging to a :py:class:`CloudMap`."""
+
+    __cloudmap: Optional["CloudMap"] = None
+
+    def set_cloudmap(self, cloudmap: "CloudMap") -> None:
+        """Attach this store to the cloud map that owns it.
+
+        Assigned here rather than by the caller because ``__cloudmap`` is
+        name-mangled to this class, so nothing outside it can reach the
+        cloud map through a store.
+        """
+        self.__cloudmap = cloudmap
+
+    @property
+    def _local__env(self) -> Optional["LocalEnv"]:
+        return self.__cloudmap.local_env if self.__cloudmap else None
+
+    def analyze_url(
+        self,
+        url: str,
+        analyze: Literal["yes", "no", "save-only", "default"] = "default",
+        replace: bool = False,
+    ) -> Optional[CloudMapRecord]:
+        """Analysis needs to clone and inspect repositories, so it is the
+        owning cloud map's job; a store that isn't attached to one can only
+        keep records."""
+        if self.__cloudmap is None:
+            raise UnfurlError(
+                f"{type(self).__name__} is not attached to a cloudmap, so it "
+                "cannot analyze urls"
+            )
+        return self.__cloudmap.analyze_url(url, analyze, replace)
+
+    @abstractmethod
+    def save(self, msg: str = "") -> Any:
+        """Persist the records added so far, describing them with ``msg``."""
+
+
+class CloudMapDB(CloudMapStore):
     """
     Loads the cloudmap yaml file
     """
@@ -473,7 +528,9 @@ class CloudMapDB(CloudMapView):
         assert self.config.path
         self._load(self.config.path)
 
-    def save(self) -> bool:
+    def save(self, msg: str = "") -> bool:
+        """Write the document back to its file. ``msg`` is unused -- committing
+        is the caller's job (see :py:meth:`unfurl.cloudmap.CloudMap.save`)."""
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
         changed = False

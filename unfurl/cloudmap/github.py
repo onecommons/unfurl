@@ -16,7 +16,6 @@ from urllib.parse import urlparse
 
 from ..logs import getLogger
 from ..tosca_plugins.cloudmap_defs import (
-    AnalyzerContext,
     CommonMetadata,
     EntitySchema,
     HostConfig,
@@ -179,10 +178,9 @@ else:
             url: str,
             directory: Directory,
             download: bool,
-            context: Optional[AnalyzerContext] = None,
         ) -> Repository:
             repo = self.github.get_repo(self.extract_project_path(url))
-            return self._import_repository(repo, directory, download, context)
+            return self._import_repository(repo, directory, download)
 
         def github_repository_to_repository(
             self, repo: "GithubRepository"
@@ -302,18 +300,17 @@ else:
             repo: GithubRepository,
             directory: Directory,
             download: bool,
-            context: Optional[AnalyzerContext] = None,
         ) -> Repository:
             # Convert and add to directory
             repo_info = self.github_repository_to_repository(repo)
-            previous = directory.db.get_repository(repo_info)
-            directory.db.add_record(repo_info)
+            previous = directory.context.get_repository(repo_info)
+            directory.context.add_record(repo_info)
             if download:
                 # add remote branches to local repository
                 # XXX pull mirror = True and merge all branches not just main?
                 remote_url = self.git_url_with_auth(repo)
                 self._fetch_and_analyze_repo(
-                    repo_info, directory, previous, remote_url, context
+                    repo_info, directory, previous, remote_url
                 )
             self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
             return repo_info
@@ -398,7 +395,7 @@ else:
 
             # Filter repos that belong to this host
             matching_repos = [
-                r for r in directory.db.repositories.values() if self.has_repository(r)
+                r for r in directory.context.find_repositories() if self.has_repository(r)
             ]
             if not matching_repos:
                 self.logger.info("No matching repositories to sync to GitHub")
@@ -473,7 +470,7 @@ else:
             status: Optional[List[str]] = None,
             workflow_file: str = "",
             trigger: Optional[List[str]] = None,
-            context: Optional["Directory"] = None,
+            directory: Optional["Directory"] = None,
         ) -> Iterable[Instantiation]:
             limit = limit or self.DEFAULT_PIPELINE_LIMIT
             project_path = self.extract_project_path(repo_info.url)
@@ -550,9 +547,9 @@ else:
                         discussion_url=discussion_url,
                     ),
                 )
-                if context is not None:
+                if directory is not None:
                     self._run_pipeline_analyzer(
-                        context, repo_info, instantiation, run, run.path
+                        directory, repo_info, instantiation, run, run.path
                     )
                 count += 1
                 yield instantiation

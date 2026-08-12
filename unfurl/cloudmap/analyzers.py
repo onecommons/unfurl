@@ -13,7 +13,6 @@ from toscaparser.elements.statefulentitytype import StatefulEntityType
 
 from . import (
     CloudMapDB,
-    CloudType,
     RepositoryAnalyzer,
     AnalyzerContext,
     Repository,
@@ -33,6 +32,7 @@ from ..support import ContainerImage, Status
 from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    CloudType,
     TypeRefStatus,
     TypeRefConstraint,
     URLAnalyzer,
@@ -123,18 +123,18 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         # XXX set readonly=True after adding representers for AnsibleUnicode etc.
 
     def analyze(
-        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
+        self, context: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
-        logger = directory.logger
+        logger = context.logger
         path = os.path.join(root_path, self.folder, self.file)
         logger.verbose("analyzing %s", path)
         localenv = LocalEnv(
             path,
             can_be_empty=True,
-            parent=directory._local__env,
+            parent=context._local__env,
         )
         artifact: Optional[Artifact] = None
-        analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
+        analyze: Literal["yes", "no"] = "yes" if context.do_analysis else "no"
         if localenv.manifestPath:
             self.artifact_type = self._get_artifacttype(localenv.manifestPath)
             if self.artifact_type != EntitySchema.Ensemble:
@@ -170,7 +170,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                     ):
                         manifest.tosca.import_resolver._resolve_repoview(repo_view)
                     giturl = self._add_repository_reference(repo_view, references)
-                    directory.analyze_url(giturl, analyze)
+                    context.analyze_url(giturl, analyze)
 
             node = self._get_root_node(spec)
             if node:
@@ -194,7 +194,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 image = self.find_image_dependency(node)
                 if image:
                     # XXX directory.add_credentials(image)
-                    image_artifact = directory.add_image_artifact(image)
+                    image_artifact = context.add_image_artifact(image)
                     purl = image_artifact.url
                     references[("", purl)] = None
 
@@ -215,20 +215,20 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                     name: TypeRefs({v: None}) for name, v in dependencies.items()
                 }),
                 type_info=type_info,
-                ctx=directory,
+                ctx=context,
                 digest=self.digest,
                 instantiates_key=node.name if node else "",
             )
 
             # Add CloudType if created
             if cloud_type:
-                directory.add_record(cloud_type)
+                context.add_record(cloud_type)
 
             # Create CloudTypes for dependencies
             if node:
                 for dep_typename in dependencies.values():
                     # Check if type already exists
-                    if directory.get_type(dep_typename) is None:
+                    if context.get_type(dep_typename) is None:
                         # Get type information for dependency type
                         type_def = node.topology.find_type(dep_typename)
                         if type_def:
@@ -237,15 +237,15 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                             )
 
                             dep_cloud_type = create_cloud_type_from_type_info(
-                                dep_type_info, directory
+                                dep_type_info, context
                             )
                             if dep_cloud_type:
-                                directory.add_record(dep_cloud_type)
+                                context.add_record(dep_cloud_type)
 
             # Create Instantiation and Service for Ensemble artifacts
             if self.artifact_type == EntitySchema.Ensemble and typename:
                 self._create_ensemble_instantiation_and_service(
-                    manifest, repo_info, directory, typename, artifact
+                    manifest, repo_info, context, typename, artifact
                 )
         else:
             self.artifact_type = EntitySchema.UnfurlProject
@@ -344,7 +344,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         self,
         manifest: YamlManifest,
         repo_info: Repository,
-        directory: AnalyzerContext,
+        context: AnalyzerContext,
         typename: str,
         artifact: Artifact,
     ) -> None:
@@ -354,13 +354,13 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
         Args:
             manifest: The YamlManifest object for the ensemble
             repo_info: Repository information
-            directory: CloudMapView to add instantiation and service to
+            context: CloudMapView to add instantiation and service to
             artifact: The ensemble artifact
         """
 
         # Get spec repository for source information
         spec_repo_view = manifest.repositories.get("spec")
-        analyze: Literal["yes", "no"] = "yes" if directory.do_analysis else "no"
+        analyze: Literal["yes", "no"] = "yes" if context.do_analysis else "no"
 
         # XXX add inputs from lock section
         instantiation = Instantiation(
@@ -396,12 +396,12 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
                 type=TypeRefs(types={typename: None}),
                 instantiated_by={("", instantiation.url): None},
             )
-            directory.add_record(service)
+            context.add_record(service)
             instantiation.instantiated = {("", deployment_url): None}
 
-        directory.add_record(instantiation)
-        if instantiation.source and not directory.get_artifact(instantiation.source):
-            directory.analyze_url(instantiation.source, analyze)
+        context.add_record(instantiation)
+        if instantiation.source and not context.get_artifact(instantiation.source):
+            context.analyze_url(instantiation.source, analyze)
 
     def _apply_lastjob(
         self,
@@ -637,7 +637,7 @@ class GitHubWorkflowAnalyzer(RepositoryAnalyzer):
     artifact_type = EntitySchema.GitHubWorkflow
 
     def analyze(
-        self, directory: AnalyzerContext, repo_info: Repository, root_path: str
+        self, context: AnalyzerContext, repo_info: Repository, root_path: str
     ) -> Optional[Artifact]:
         # Emit a separate artifact and `contains` entry for each workflow file
         # in .github/workflows.
@@ -657,14 +657,14 @@ class GitHubWorkflowAnalyzer(RepositoryAnalyzer):
                 continue
             rel_path = os.path.join(workflows_rel, entry)
             type_refs = TypeRefs({self.artifact_type: None})
-            directory.add_record(
+            context.add_record(
                 Artifact(
                     url=repo_info.artifact_url(rel_path),
                     type=TypeRefs({self.artifact_type: None}),
                 )
             )
             self.contains[rel_path] = type_refs
-        # artifacts were added above via directory.add_record
+        # artifacts were added above via context.add_record
         return None
 
 
@@ -739,8 +739,8 @@ class OCIArtifactAnalyzer(URLAnalyzer):
         )
         return cls(url, image)
 
-    def analyze_url(self, directory: AnalyzerContext) -> Optional[Artifact]:
-        return directory.add_image_artifact(self.image)
+    def analyze_url(self, context: AnalyzerContext) -> Optional[Artifact]:
+        return context.add_image_artifact(self.image)
 
 
 class GenericPkgArtifactAnalyzer(URLAnalyzer):
@@ -772,7 +772,7 @@ class GenericPkgArtifactAnalyzer(URLAnalyzer):
         )
         return cls(artifact)
 
-    def analyze_url(self, directory: AnalyzerContext) -> Optional[Artifact]:
+    def analyze_url(self, context: AnalyzerContext) -> Optional[Artifact]:
         return self.artifact
 
 

@@ -22,7 +22,6 @@ from gitlab.v4.objects import Group, Project
 from ..logs import getLogger
 from ..server.gui_variables.ufcloud_secrets import yield_ci_variables, set_ci_variables
 from ..tosca_plugins.cloudmap_defs import (
-    AnalyzerContext,
     CommonMetadata,
     EntitySchema,
     HostConfig,
@@ -133,10 +132,9 @@ class GitlabManager(RepositoryHost):
         url: str,
         directory: Directory,
         download: bool,
-        context: Optional[AnalyzerContext] = None,
     ) -> Repository:
         project = self.gitlab.projects.get(self.extract_project_path(url))
-        return self._import_project(project, directory, download, context)
+        return self._import_project(project, directory, download)
 
     def _import_projects_from_host(
         self, projects: Iterable[RESTObject], directory: Directory
@@ -174,16 +172,15 @@ class GitlabManager(RepositoryHost):
         dest_proj: Project,
         directory: Directory,
         download: bool,
-        context: Optional[AnalyzerContext] = None,
     ) -> Repository:
         r = self.gitlab_project_to_repository(dest_proj)
-        previous = directory.db.get_repository(r)
-        directory.db.add_record(r)
+        previous = directory.context.get_repository(r)
+        directory.context.add_record(r)
         if download:
             # add remote branches to local repository
             # XXX pull mirror = True and merge all branches not just main?
             remote_url = self.git_url_with_auth(dest_proj)
-            self._fetch_and_analyze_repo(r, directory, previous, remote_url, context)
+            self._fetch_and_analyze_repo(r, directory, previous, remote_url)
         return r
 
     def _get_projects_from_group(self, group, projects):
@@ -244,7 +241,7 @@ class GitlabManager(RepositoryHost):
         """
         # filter repositories to only ones that match the path
         repositories = [
-            r for r in directory.db.repositories.values() if self.has_repository(r)
+            r for r in directory.context.find_repositories() if self.has_repository(r)
         ]
 
         dest_path = self.path
@@ -478,7 +475,7 @@ class GitlabManager(RepositoryHost):
         status: Optional[List[str]] = None,
         workflow_file: str = "",
         trigger: Optional[List[str]] = None,
-        context: Optional["Directory"] = None,
+        directory: Optional["Directory"] = None,
     ) -> Iterable[Instantiation]:
         limit = limit or self.DEFAULT_PIPELINE_LIMIT
         project_path = self.extract_project_path(repo_info.url)
@@ -563,9 +560,9 @@ class GitlabManager(RepositoryHost):
                     discussion_url=discussion_url,
                 ),
             )
-            if context is not None:
+            if directory is not None:
                 self._run_pipeline_analyzer(
-                    context, repo_info, instantiation, full_pipeline, ci_path
+                    directory, repo_info, instantiation, full_pipeline, ci_path
                 )
             count += 1
             yield instantiation

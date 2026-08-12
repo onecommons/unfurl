@@ -16,6 +16,7 @@ from unfurl.cloudmap.provenance import (
     ProvenanceTrackingContext,
     discovery_sources,
     record_discovery_source,
+    record_identity,
 )
 from unfurl.localenv import LocalEnv
 from unfurl.util import API_VERSION
@@ -755,7 +756,7 @@ class TestPipelineRunAnalyzer:
         cm.custom_analyzers = [cls]
         # no Repository records in the cloudmap -> origin chain isn't extended
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
+        cm.directory.context.get_repository.return_value = None
 
         def repo(url, **kw):
             return Repository(url=url, path="owner/repo", name="repo", **kw)
@@ -821,7 +822,7 @@ class TestPipelineRunAnalyzer:
         )
         records = {"git://github.com/mid/repo.git": mid}
         cm.directory = MagicMock()
-        cm.directory.get_repository.side_effect = lambda url: records.get(url)
+        cm.directory.context.get_repository.side_effect = lambda url: records.get(url)
 
         leaf = Repository(
             url="git://github.com/leaf/repo.git",
@@ -864,7 +865,7 @@ class TestPipelineRunAnalyzer:
             "git://github.com/b/repo.git": b,
         }
         cm.directory = MagicMock()
-        cm.directory.get_repository.side_effect = lambda url: records.get(url)
+        cm.directory.context.get_repository.side_effect = lambda url: records.get(url)
 
         # neither a nor b derive from owner/repo -> None, and no infinite loop
         assert cm.find_pipeline_analyzers(a, ".github/workflows/foo.yaml") is None
@@ -882,9 +883,9 @@ class TestPipelineRunAnalyzer:
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [TypedAnalyzer]
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
-        cm.directory.get_artifact.return_value = None
-        cm.directory.get_type.return_value = None
+        cm.directory.context.get_repository.return_value = None
+        cm.directory.context.get_artifact.return_value = None
+        cm.directory.context.get_type.return_value = None
 
         src = ".github/workflows/foo.yaml"
 
@@ -914,14 +915,14 @@ class TestPipelineRunAnalyzer:
         repo_bare = Repository(
             url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
         )
-        cm.directory.get_artifact.return_value = Artifact(
+        cm.directory.context.get_artifact.return_value = Artifact(
             url=repo_bare.artifact_url(src),
             type=TypeRefs({EntitySchema.GitHubWorkflow: None}),
         )
         assert cm.find_pipeline_analyzers(repo_bare, src) is TypedAnalyzer
 
         # 4. no `contains` entry and no Artifact record -> None
-        cm.directory.get_artifact.return_value = None
+        cm.directory.context.get_artifact.return_value = None
         assert cm.find_pipeline_analyzers(repo_bare, src) is None
 
     def test_find_pipeline_analyzers_source_types_all_required(self):
@@ -938,9 +939,9 @@ class TestPipelineRunAnalyzer:
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [TwoTypeAnalyzer]
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
-        cm.directory.get_artifact.return_value = None
-        cm.directory.get_type.return_value = None
+        cm.directory.context.get_repository.return_value = None
+        cm.directory.context.get_artifact.return_value = None
+        cm.directory.context.get_type.return_value = None
 
         src = ".github/workflows/foo.yaml"
         # only one of the two wanted types present -> not a match
@@ -966,15 +967,15 @@ class TestPipelineRunAnalyzer:
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [BaseAnalyzer]
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
-        cm.directory.get_artifact.return_value = None
+        cm.directory.context.get_repository.return_value = None
+        cm.directory.context.get_artifact.return_value = None
 
         # sub_type -> mid_type -> base_type (transitive extends chain)
         type_records = {
             sub_type: CloudType(name=sub_type, kind="Artifact", extends=[mid_type]),
             mid_type: CloudType(name=mid_type, kind="Artifact", extends=[base_type]),
         }
-        cm.directory.get_type.side_effect = lambda name: type_records.get(name)
+        cm.directory.context.get_type.side_effect = lambda name: type_records.get(name)
 
         src = ".github/workflows/foo.yaml"
         repo = Repository(
@@ -1033,18 +1034,18 @@ class TestPipelineRunAnalyzer:
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [cls]
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
+        cm.directory.context.get_repository.return_value = None
 
-        context = MagicMock()
-        context.cloudmap = cm
-        context._local__env = None  # not safe mode
-        context.find_repo.return_value = None  # not cloned -> root_path ""
+        directory = MagicMock()
+        directory.cloudmap = cm
+        directory._local__env = None  # not safe mode
+        directory.find_repo.return_value = None  # not cloned -> root_path ""
 
         repo_info = Repository(
             url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
         )
         results = list(
-            manager.get_pipeline_runs(repo_info, ref="main", context=context)
+            manager.get_pipeline_runs(repo_info, ref="main", directory=directory)
         )
         assert len(results) == 1
         # analyzer ran with the raw run object and empty root_path
@@ -1063,11 +1064,11 @@ class TestPipelineRunAnalyzer:
         cm = CloudMap.__new__(CloudMap)
         cm.custom_analyzers = [cls]
         cm.directory = MagicMock()
-        cm.directory.get_repository.return_value = None
+        cm.directory.context.get_repository.return_value = None
 
-        context = MagicMock()
-        context.cloudmap = cm
-        context.find_repo.return_value = None
+        directory = MagicMock()
+        directory.cloudmap = cm
+        directory.find_repo.return_value = None
 
         repo_info = Repository(
             url="git://github.com/owner/repo.git", path="owner/repo", name="repo"
@@ -1076,7 +1077,7 @@ class TestPipelineRunAnalyzer:
         saved = global_state.safe_mode
         global_state.safe_mode = True
         try:
-            list(manager.get_pipeline_runs(repo_info, ref="main", context=context))
+            list(manager.get_pipeline_runs(repo_info, ref="main", directory=directory))
         finally:
             global_state.safe_mode = saved
         assert len(calls) == 1
@@ -1124,12 +1125,12 @@ class TestAnalyzeUrlPipelineRuns:
             )
 
         assert isinstance(result, Repository)
-        db = cm.directory.db
+        db = cm.directory.store
         assert "https://example.com/pipelines/1" in db.instantiations
         inst = db.instantiations["https://example.com/pipelines/1"]
         assert EntitySchema.CIRun in inst.type.types
         mock_host.get_pipeline_runs.assert_called_once_with(
-            result, ref="main", commit="", context=cm.directory, workflow_file=""
+            result, ref="main", commit="", directory=cm.directory, workflow_file=""
         )
 
     def test_analyze_url_with_commit_fetches_pipelines(self, tmp_path):
@@ -1283,7 +1284,7 @@ class TestAnalyzeUrlPipelineRuns:
 
         assert isinstance(result, Repository)
         # No instantiations added due to error
-        assert len(cm.directory.db.instantiations) == 0
+        assert len(cm.directory.store.instantiations) == 0
 
 
 # Integration tests
@@ -1442,7 +1443,7 @@ class TestArtifactAnalyzerRegistry:
         assert artifact.metadata.title == "lodash"
         assert artifact.metadata.version == "4.17.21"
         # Persisted in the cloudmap and idempotent on repeat calls.
-        assert cm.directory.db.get_artifact(url) is artifact
+        assert cm.directory.context.get_artifact(url) is artifact
         assert cm.analyze_url(url, "yes") == artifact
 
     def test_generic_pkg_analyzer_omits_empty_metadata(self, tmp_path):
@@ -1507,7 +1508,7 @@ class TestArtifactAnalyzerRegistry:
         artifact = cm.analyze_url(url)
         assert artifact is not None
         assert artifact.url == url
-        assert cm.directory.db.get_artifact(url) is artifact
+        assert cm.directory.context.get_artifact(url) is artifact
 
     def test_init_from_url_decline_falls_through_to_next_analyzer(self, tmp_path):
         """When the most-specific analyzer declines via ``init_from_url``
@@ -1543,7 +1544,7 @@ class TestArtifactAnalyzerRegistry:
         # ...and the generic fallback created an Artifact.
         assert isinstance(record, Artifact)
         assert record.url == url
-        assert cm.directory.db.get_artifact(url) is record
+        assert cm.directory.context.get_artifact(url) is record
 
 
 # ---------------------------------------------------------------------------
@@ -1719,7 +1720,7 @@ kind: Project
         local_env=local_env,
         localrepo_root=str(tmp_path),
     )
-    db = cm.directory.db
+    db = cm.directory.store
 
     # Case 1: plain git URL without file path → creates a Repository
     repo_url = "git://gitrepos.org/someorg/somerepo.git"
@@ -1849,7 +1850,7 @@ def test_analyze_url_generic_purl(tmp_path):
     cm = CloudMap(
         repo=None, host_branch="main", path=str(cloudmap_file), skip_analysis=True
     )
-    db = cm.directory.db
+    db = cm.directory.store
 
     # Simple PURL with name and version
     npm_url = "pkg:npm/express@4.18.2"
@@ -1891,11 +1892,13 @@ class _StubURLAnalyzer(URLAnalyzer):
     """Produces whatever the test set in ``emits`` for the url being analyzed.
 
     Lets a test change what a source produces between runs, which is what
-    ``analyze_url(..., replace=True)`` is meant to notice.
+    ``analyze_url(..., replace=True)`` is meant to notice. ``recurses`` maps a
+    url to the urls its analyzer analyzes in turn, so a test can nest analyses.
     """
 
     url_schemes = ("stub:",)
     emits: dict = {}
+    recurses: dict = {}
 
     def __init__(self, url: str):
         self.url = url
@@ -1911,11 +1914,14 @@ class _StubURLAnalyzer(URLAnalyzer):
                 primary = record  # returned for the caller to add
             else:
                 directory.add_record(record)
+        for url in self.recurses.get(self.url, ()):
+            directory.analyze_url(url)
         return primary
 
 
-def _stub_cloudmap(tmp_path, emits):
+def _stub_cloudmap(tmp_path, emits, recurses=None):
     _StubURLAnalyzer.emits = emits
+    _StubURLAnalyzer.recurses = recurses or {}
     cm = CloudMap(
         repo=None,
         host_branch="main",
@@ -1943,7 +1949,7 @@ def test_analyze_url_records_discovery_source(tmp_path):
         },
     )
     cm.analyze_url("stub:one")
-    db = cm.directory.db
+    db = cm.directory.store
 
     for record in (
         db.artifacts["pkg:generic/main"],
@@ -1953,13 +1959,50 @@ def test_analyze_url_records_discovery_source(tmp_path):
         assert _sources(record) == ["stub:one"], record
 
 
+def test_analyze_url_attributes_nested_analysis_to_every_enclosing_url(tmp_path):
+    """A record is discovered from every url whose analysis led to it.
+
+    Analysis nests: an analyzer can analyze another url, which runs more
+    analyzers. The inner records carry the inner url *and* the outer one, so
+    either can collect them -- if the outer url stops leading here, what it
+    caused is reachable from it.
+    """
+    cm = _stub_cloudmap(
+        tmp_path,
+        {
+            "stub:outer": [Artifact(url="pkg:generic/outer")],
+            "stub:inner": [
+                Artifact(url="pkg:generic/inner"),
+                CloudType(name="inner.Type", kind="Component"),
+            ],
+        },
+        recurses={"stub:outer": ["stub:inner"]},
+    )
+    cm.analyze_url("stub:outer")
+    db = cm.directory.store
+
+    assert _sources(db.artifacts["pkg:generic/outer"]) == ["stub:outer"]
+    for record in (db.artifacts["pkg:generic/inner"], db.types["inner.Type"]):
+        assert _sources(record) == ["stub:outer", "stub:inner"], (
+            f"{record} should be attributed to the url that produced it and "
+            "to the one that led to it, outermost first"
+        )
+
+    # the outer url no longer leads here, but `stub:inner` still claims them,
+    # so they survive with that source alone
+    _StubURLAnalyzer.recurses = {}
+    cm.analyze_url("stub:outer", replace=True)
+    assert _sources(db.artifacts["pkg:generic/inner"]) == ["stub:inner"]
+    assert _sources(db.types["inner.Type"]) == ["stub:inner"]
+
+
 def test_analyze_url_replace_collects_orphans(tmp_path):
     """A record the source stops producing is removed; the rest survive."""
     kept = Artifact(url="pkg:generic/kept")
     orphan = Artifact(url="pkg:generic/orphan")
     cm = _stub_cloudmap(tmp_path, {"stub:one": [kept, orphan]})
     cm.analyze_url("stub:one")
-    db = cm.directory.db
+    db = cm.directory.store
     assert "pkg:generic/orphan" in db.artifacts
 
     # the source no longer produces the second artifact
@@ -1982,7 +2025,7 @@ def test_analyze_url_replace_keeps_records_with_other_sources(tmp_path):
     )
     cm.analyze_url("stub:one")
     cm.analyze_url("stub:two")
-    db = cm.directory.db
+    db = cm.directory.store
     assert _sources(db.types["shared.Type"]) == ["stub:one", "stub:two"]
 
     # stub:one stops producing the shared type; stub:two still does
@@ -2023,7 +2066,7 @@ def test_analyze_url_replace_does_not_oscillate(tmp_path):
 
     cm = _stub_cloudmap(tmp_path, {"stub:one": []})
     cm.register_url_analyzer(_GuardedAnalyzer)
-    db = cm.directory.db
+    db = cm.directory.store
     for run in range(3):
         cm.analyze_url("stub:one", replace=True)
         assert "dep.Type" in db.types, f"deleted on run {run + 1}"
@@ -2042,7 +2085,7 @@ def test_analyze_url_replace_skips_sweep_when_analysis_fails(tmp_path):
 
     cm = _stub_cloudmap(tmp_path, {"stub:one": [Artifact(url="pkg:generic/a")]})
     cm.analyze_url("stub:one")
-    db = cm.directory.db
+    db = cm.directory.store
     assert "pkg:generic/a" in db.artifacts
 
     cm.register_url_analyzer(_Boom)
@@ -2059,7 +2102,7 @@ def test_analyze_url_replace_matches_repository_file_sources(tmp_path):
     repository would never collect the records it had produced.
     """
     cm = _stub_cloudmap(tmp_path, {})
-    db = cm.directory.db
+    db = cm.directory.store
     repo_url = "git://example.com/org/repo.git"
 
     # stand in for a previous run that analyzed two of the repository's files
@@ -2074,7 +2117,7 @@ def test_analyze_url_replace_matches_repository_file_sources(tmp_path):
     record_discovery_source(unrelated, "git://example.com/org/other.git#:f.yaml")
     db.add_record(unrelated)
 
-    ctx = ProvenanceTrackingContext(cm.directory)
+    ctx = ProvenanceTrackingContext(db)
     assert ctx.matches_source(f"{repo_url}#:kept.yaml", repo_url)
     assert ctx.matches_source(repo_url, repo_url)
     assert not ctx.matches_source("git://example.com/org/other.git#:f.yaml", repo_url)
@@ -2105,13 +2148,210 @@ def test_analyzer_failure_marks_the_run_incomplete(tmp_path):
     mock_repo = MagicMock()
     mock_repo.working_dir = str(tmp_path)
 
-    context = ProvenanceTrackingContext(cm.directory)
     with patch.object(
         type(cm.directory), "analyze_repo", return_value=[_Boom("", "boom.yaml")]
     ):
-        with context._tracking_provenance("git://example.com/org/repo.git") as provenance:
-            # the tracking context is what `import_project_url` passes down
-            cm.directory.analyze(repo_info, mock_repo, context)
+        # `analyze_url` installs the tracking context for the analyzers it runs
+        with cm.directory.context._tracking_provenance("git://example.com/org/repo.git") as provenance:
+            cm.directory.analyze(repo_info, mock_repo)
+
+    assert provenance.errors == 1, "the swallowed exception must be counted"
+
+
+class _FileAnalyzer(RepositoryAnalyzer):
+    """Adds whatever the test set in ``emits`` for the file it matched.
+
+    Stands in for a real repository analyzer so a test can change what a file
+    produces between runs -- and delete the file entirely.
+    """
+
+    emits: dict = {}
+
+    def analyze(self, directory, repo_info, root_path):
+        for record in self.emits.get(self.path, ()):
+            directory.add_record(record)
+        return None
+
+
+def _analyze_repo(cm, repo_url, paths, source=None):
+    """Analyze ``paths`` of ``repo_url`` as `analyze_url` would, and sweep.
+
+    ``source`` is the url being replaced -- the repository itself, or one file
+    of it. Returns the Repository record.
+    """
+    repo_info = Repository(url=repo_url, path="org/repo")
+    repo = MagicMock()
+    repo.working_dir = "/nonexistent"
+    analyzers = [_FileAnalyzer(os.path.dirname(p), os.path.basename(p)) for p in paths]
+    with patch.object(type(cm.directory), "analyze_repo", return_value=analyzers):
+        with cm.directory.context._tracking_provenance(source or repo_url) as provenance:
+            cm.directory.analyze(repo_info, repo)
+            cm.directory.context.replace_from_source(source or repo_url, provenance)
+    return repo_info
+
+
+def test_host_sync_analysis_is_attributed(tmp_path):
+    """Analyzing a repository's files attributes records outside `analyze_url` too.
+
+    Repository host sync (`--sync` / `--import`) reaches the same analyzers and
+    produces the same records, so they get the same provenance -- otherwise a
+    record a sync created could never be collected by `--replace`, and the same
+    record would carry different sources depending on which command made it.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    db = cm.directory.store
+    repo_url = "git://example.com/org/repo.git"
+    _FileAnalyzer.emits = {"f.yaml": [Artifact(url="pkg:generic/from-sync")]}
+    repo_info = Repository(url=repo_url, path="org/repo")
+    repo = MagicMock()
+    repo.working_dir = "/nonexistent"
+
+    with patch.object(
+        type(cm.directory), "analyze_repo", return_value=[_FileAnalyzer("", "f.yaml")]
+    ):
+        # what `maybe_analyze` calls during a host sync -- no analyze_url in sight
+        cm.directory.analyze(repo_info, repo)
+
+    assert _sources(db.artifacts["pkg:generic/from-sync"]) == [
+        repo_url,
+        f"{repo_url}#:f.yaml",
+    ], "discovered from the repository and from the file inside it"
+
+
+def test_replace_repository_collects_records_of_a_deleted_file(tmp_path):
+    """(a) A file is deleted from a repository; what it produced goes with it.
+
+    Re-analyzing the repository no longer reaches the file, so the records it
+    contributed are orphaned. They carry the repository url as well as the
+    file's, so a repository-level replace finds and collects them -- while the
+    records of the files that are still there survive.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    db = cm.directory.store
+    repo_url = "git://example.com/org/repo.git"
+    _FileAnalyzer.emits = {
+        "kept.yaml": [Artifact(url="pkg:generic/from-kept")],
+        "removed.yaml": [
+            Artifact(url="pkg:generic/from-removed"),
+            CloudType(name="removed.Type", kind="Component"),
+        ],
+    }
+
+    _analyze_repo(cm, repo_url, ["kept.yaml", "removed.yaml"])
+    assert _sources(db.artifacts["pkg:generic/from-removed"]) == [
+        repo_url,
+        f"{repo_url}#:removed.yaml",
+    ], "discovered from the repository and from the file inside it"
+
+    # removed.yaml is gone from the repository
+    del _FileAnalyzer.emits["removed.yaml"]
+    _analyze_repo(cm, repo_url, ["kept.yaml"])
+
+    assert "pkg:generic/from-kept" in db.artifacts, "the surviving file's record"
+    assert "pkg:generic/from-removed" not in db.artifacts
+    assert "removed.Type" not in db.types, "ancillary records go too"
+
+
+def test_replace_file_collects_its_orphans_only(tmp_path):
+    """(b) One file changes; only what *it* no longer produces is collected.
+
+    Replacing `<repo>#:<path>` drops that file's claim and the repository-level
+    claim it made alongside it, so a record only that file produced is deleted.
+    Records another file produces, and records the repository contributed
+    outside any file, are untouched.
+    """
+    cm = _stub_cloudmap(tmp_path, {})
+    db = cm.directory.store
+    repo_url = "git://example.com/org/repo.git"
+    file_url = f"{repo_url}#:changed.yaml"
+    _FileAnalyzer.emits = {
+        "changed.yaml": [
+            Artifact(url="pkg:generic/kept"),
+            Artifact(url="pkg:generic/orphan"),
+        ],
+        "other.yaml": [Artifact(url="pkg:generic/from-other")],
+    }
+    _analyze_repo(cm, repo_url, ["changed.yaml", "other.yaml"])
+
+    # a record the repository contributed outside any file (e.g. the
+    # Repository record itself): its only source is the bare repository url
+    bystander = Service(url="https://bystander.example.com")
+    record_discovery_source(bystander, repo_url)
+    db.add_record(bystander)
+
+    # changed.yaml no longer produces the second artifact
+    _FileAnalyzer.emits["changed.yaml"] = [Artifact(url="pkg:generic/kept")]
+    _analyze_repo(cm, repo_url, ["changed.yaml"], source=file_url)
+
+    assert "pkg:generic/orphan" not in db.artifacts, "only this file produced it"
+    assert "pkg:generic/kept" in db.artifacts
+    assert "pkg:generic/from-other" in db.artifacts, "another file still produces it"
+    assert "https://bystander.example.com" in db.services, (
+        "a repository-level record isn't collected by replacing one of its files"
+    )
+
+
+def test_pipeline_run_analyzer_records_are_attributed(tmp_path):
+    """A PipelineRunAnalyzer's records get the same source as the run it enriches.
+
+    Pipeline runs are only fetched while analyzing a url
+    (`CloudMap._add_repository_record`), and the Instantiation itself is
+    stamped there. What the analyzer adds alongside it has the same
+    provenance, and -- just as importantly -- what it *looks up* is marked as
+    still in use, so `--replace` doesn't sweep records it is still using.
+    """
+    added = Artifact(url="pkg:generic/from-pipeline")
+    seen = CloudType(name="looked.Up", kind="Component")
+
+    class _Enricher(PipelineRunAnalyzer):
+        repositories = ("git://example.com/org/repo.git",)
+
+        def analyze_pipeline_run(self, context, repo_info, instantiation, obj, root):
+            context.add_record(added)
+            context.get_type("looked.Up")  # an existence check, as analyzers do
+
+    cm = _stub_cloudmap(tmp_path, {})
+    cm.custom_analyzers = [_Enricher]
+    cm.directory.context.add_record(seen)
+    repo_info = Repository(url="git://example.com/org/repo.git", path="org/repo")
+    instantiation = Instantiation(url="https://ci.example.com/runs/1")
+    host = RepositoryHost.__new__(RepositoryHost)
+    host.logger = cm.logger
+
+    with cm.directory.context._tracking_provenance("git://example.com/org/repo.git") as provenance:
+        host._run_pipeline_analyzer(
+            cm.directory, repo_info, instantiation, None, ".github/workflows/ci.yml"
+        )
+
+    assert _sources(added) == ["git://example.com/org/repo.git"]
+    assert record_identity(seen) in provenance.touched, (
+        "a lookup marks the record in use"
+    )
+
+
+def test_pipeline_run_analyzer_failure_marks_the_run_incomplete(tmp_path):
+    """A pipeline analyzer that raises is swallowed, so it has to be counted."""
+
+    class _Boom(PipelineRunAnalyzer):
+        repositories = ("git://example.com/org/repo.git",)
+
+        def analyze_pipeline_run(self, context, repo_info, instantiation, obj, root):
+            raise RuntimeError("boom")
+
+    cm = _stub_cloudmap(tmp_path, {})
+    cm.custom_analyzers = [_Boom]
+    repo_info = Repository(url="git://example.com/org/repo.git", path="org/repo")
+    host = RepositoryHost.__new__(RepositoryHost)
+    host.logger = cm.logger
+
+    with cm.directory.context._tracking_provenance("git://example.com/org/repo.git") as provenance:
+        host._run_pipeline_analyzer(
+            cm.directory,
+            repo_info,
+            Instantiation(url="https://ci.example.com/runs/1"),
+            None,
+            ".github/workflows/ci.yml",
+        )
 
     assert provenance.errors == 1, "the swallowed exception must be counted"
 
@@ -2125,7 +2365,7 @@ def test_analyze_url_replace_forces_reanalysis(tmp_path):
     # a PURL is recorded under the url itself, so the dedupe check sees it
     url = "pkg:npm/express@4.18.2"
     cm = _stub_cloudmap(tmp_path, {})
-    db = cm.directory.db
+    db = cm.directory.store
     cm.analyze_url(url, "no")
     assert url in db.artifacts
 
@@ -2136,15 +2376,16 @@ def test_analyze_url_replace_forces_reanalysis(tmp_path):
 
 
 def test_host_synced_records_are_not_attributed_to_a_url(tmp_path):
-    """Repository host sync writes records directly, so they carry no source.
+    """Repository host sync writes records that carry no source.
 
     Their provenance is the host, not a url that was analyzed, and attributing
-    them would make them candidates for a sweep they never belonged to.
+    them would make them candidates for a sweep they never belonged to. Sync
+    (`--sync`, `CloudMap.from_host`) never runs inside `analyze_url`, so the
+    db it writes through is the plain store rather than a tracking context.
     """
     cm = _stub_cloudmap(tmp_path, {})
     repo = Repository(url="git://example.com/org/repo.git", path="org/repo")
-    with ProvenanceTrackingContext(cm.directory)._tracking_provenance("stub:one"):
-        cm.directory.db.add_record(repo)  # what the host managers call
+    cm.directory.context.add_record(repo)  # what the host managers call
     assert _sources(repo) == []
 
 
@@ -2171,3 +2412,37 @@ def test_analyze_url_records_a_canonical_source(tmp_path):
         cm._normalize_analyzed_url("git+https://rando.com/org/repo.git")[0]
         == "git+https://rando.com/org/repo.git"
     )
+
+
+def test_analyzer_context_exposes_nothing_privileged():
+    """A sandboxed analyzer must not be able to reach the store or the cloudmap.
+
+    Analyzers may come from untrusted repositories and run sandboxed, and the
+    sandbox denies a name only when it starts with "_" *and* contains "__"
+    (`SafeToscaDslNodeTransformer._name_ok`) -- a plain `_private` name is
+    reachable. So the context they are handed must expose no attribute leading
+    to a `CloudMapStore` (which can `save()`) or to the `CloudMap` (which owns
+    the git repositories and the local environment).
+
+    Contributing records -- including deleting them -- is what the interface is
+    for, so those aren't what this guards. It is a loop rather than a checklist
+    so a newly added attribute can't quietly reopen the hole.
+    """
+    from tosca.loader import SafeToscaDslNodeTransformer
+    from unfurl.cloudmap.db import CloudMapDB, CloudMapStore
+
+    name_ok = SafeToscaDslNodeTransformer(None, None, {})._name_ok
+    store = CloudMapDB("", contents=CloudMapDB.make_empty_cloudmap(), validate=False)
+    cm = CloudMap.__new__(CloudMap)
+    store.set_cloudmap(cm)
+    tracked = ProvenanceTrackingContext(store)
+
+    leaks = sorted(
+        name
+        for name in dir(tracked)
+        if name_ok(None, name)
+        and isinstance(getattr(tracked, name, None), (CloudMapStore, CloudMap))
+    )
+    assert not leaks, f"reachable from sandboxed analyzers: {leaks}"
+    # and the capability those would have handed over
+    assert not hasattr(tracked, "save")

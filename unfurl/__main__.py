@@ -2262,10 +2262,10 @@ def cloudmap(
         from .reporting import cloudmap_graph_json, cloudmap_graph_console
 
         if graph_format == "json":
-            result = cloudmap_graph_json(cloud_map.directory.db, graph)
+            result = cloudmap_graph_json(cloud_map.directory.store, graph)
             click.echo(json.dumps(result, indent=2))
         else:
-            cloudmap_graph_console(cloud_map.directory.db, graph)
+            cloudmap_graph_console(cloud_map.directory.store, graph)
         return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
