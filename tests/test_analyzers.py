@@ -19,6 +19,7 @@ from unfurl.cloudmap.provenance import (
     record_identity,
 )
 from unfurl.localenv import LocalEnv
+from unfurl.repo import GitRepo
 from unfurl.util import API_VERSION
 from unfurl.cloudmap.analyzers import (
     GitHubWorkflowAnalyzer,
@@ -2354,6 +2355,43 @@ def test_pipeline_run_analyzer_failure_marks_the_run_incomplete(tmp_path):
         )
 
     assert provenance.errors == 1, "the swallowed exception must be counted"
+
+
+def test_flush_commits_a_local_cloudmap_left_uncommitted(tmp_path):
+    """`save()` without --commit writes the file but leaves it uncommitted.
+
+    A local cloudmap has the same pending state a server-backed one does --
+    the records are persisted, the git commit hasn't happened -- so `flush`
+    has to commit it rather than treat "already written" as "nothing to do".
+    """
+    import git
+
+    repo_dir = tmp_path / "cloudmap"
+    repo_dir.mkdir()
+    gitrepo = git.Repo.init(repo_dir)
+    (repo_dir / "cloudmap.yaml").write_text("apiVersion: unfurl/v1.0.0\nkind: CloudMap\n")
+    gitrepo.index.add(["cloudmap.yaml"])
+    gitrepo.index.commit("initial")
+
+    cm = CloudMap(
+        repo=GitRepo(gitrepo),
+        host_branch="main",
+        path=str(repo_dir / "cloudmap.yaml"),
+        skip_analysis=True,
+        commit=False,  # what `--add` without `--commit` does
+    )
+    cm.register_url_analyzer(_StubURLAnalyzer)
+    _StubURLAnalyzer.emits = {"stub:one": [Artifact(url="pkg:generic/a")]}
+    _StubURLAnalyzer.recurses = {}
+
+    cm.analyze_url("stub:one")
+    cm.save("added a record")
+    assert gitrepo.is_dirty(path="cloudmap.yaml"), "written, not yet committed"
+
+    assert cm.flush("Commit pending cloudmap records") is True
+    assert not gitrepo.is_dirty(path="cloudmap.yaml"), "flush commits it"
+    # and flushing again has nothing left to do
+    assert cm.flush("Commit pending cloudmap records") is False
 
 
 def test_analyze_url_replace_forces_reanalysis(tmp_path):

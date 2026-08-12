@@ -2269,13 +2269,17 @@ def cloudmap(
         return
     # --sync, --import, --export set the name of the repository host
     host_name = sync or options.get("import", "") or options.get("export", "")
-    if not add and not replace and not host_name:
+    # `--commit` on its own commits records an earlier run left staged on a
+    # cloudmap server (see CloudMap.flush)
+    flushing = commit and not add and not replace and not host_name
+    if not add and not replace and not host_name and not flushing:
         click.echo(
-            "nothing to do (use one of --export, --import, --add, --replace, --graph, or --sync)"
+            "nothing to do (use one of --export, --import, --add, --replace, --graph,"
+            " --commit, or --sync)"
         )
         return
     # get the host first so we know branch to use in the cloud map repository
-    if add or replace:
+    if add or replace or flushing:
         host = None
     else:
         host = CloudMap.get_host(
@@ -2295,8 +2299,14 @@ def cloudmap(
         commit,
         # adding records can go straight to a cloudmap server; syncing with a
         # repository host can't, since that merges and commits a local clone
-        use_server=bool(add or replace),
+        use_server=bool(add or replace or flushing),
     )
+    if flushing:
+        if cloud_map.flush("Commit pending cloudmap records"):
+            click.echo("committed pending records")
+        else:
+            click.echo("nothing to commit")
+        return
     if add or replace:
         added = []
         failed = []

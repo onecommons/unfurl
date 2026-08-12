@@ -1505,30 +1505,49 @@ class CloudMap:
             self.repo.repo.git.branch(self.host_branch, f=True)
         return changed
 
-    def save(self, msg: str) -> bool:
+    def flush(self, msg: str) -> bool:
+        """Commit records an earlier ``--commit``-less run left uncommitted.
+
+        :py:meth:`save` persists records without committing them unless asked:
+        a local document is written to its file and left in the working tree,
+        and a server-backed one is POSTed and left staged. Either way this is
+        how a later run commits what is already there.
+        """
         db = self.directory.store
         if not isinstance(db, CloudMapDB):
-            # a server-backed cloudmap: POST the buffered records; the server
-            # owns the repository and makes the commit
-            db.save(msg)
-            return True
-        changed = db.save()
-        if not db.config.path:
-            return changed
-        if not self.repo or not self.commit:
-            self.logger.info("saved cloudmap to %s: %s", db.config.path, msg)
-            return changed
+            return db.save(msg, commit=True) is not None
+        return self._commit_cloudmap(db, msg)
+
+    def _commit_cloudmap(self, db: CloudMapDB, msg: str) -> bool:
+        """Commit the cloudmap file, if the working tree has changes to commit."""
         path = db.config.path
-        assert path
+        if not path or not self.repo:
+            return False
         self.repo.repo.index.add([path])
         if self.repo.is_dirty(False, path):
             self.repo.commit_files([path], msg)
             self.repo.repo.index.commit(msg)
             self.logger.verbose(f"committed: {msg}")
             return True
-        else:
-            self.logger.verbose(f'nothing to commit for "{msg}"')
-            return False
+        self.logger.verbose(f'nothing to commit for "{msg}"')
+        return False
+
+    def save(self, msg: str) -> bool:
+        db = self.directory.store
+        if not isinstance(db, CloudMapDB):
+            # a server-backed cloudmap: POST the buffered records; the server
+            # owns the repository and makes the commit. `commit` mirrors the
+            # local path below -- the records are persisted either way, and
+            # committing them is what `--commit` asks for.
+            return db.save(msg, commit=self.commit) is not None
+        changed = db.save()
+        if not db.config.path:
+            return changed
+        if not self.repo or not self.commit:
+            # written, but left in the working tree -- `flush` commits it later
+            self.logger.info("saved cloudmap to %s: %s", db.config.path, msg)
+            return changed
+        return self._commit_cloudmap(db, msg)
 
 
 class CloudMapConfigurator(Configurator):

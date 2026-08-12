@@ -168,8 +168,14 @@ class CloudMapStore(CloudMapWriter):
         return self.__cloudmap.analyze_url(url, analyze, replace)
 
     @abstractmethod
-    def save(self, msg: str = "") -> Any:
-        """Persist the records added so far, describing them with ``msg``."""
+    def save(self, msg: str = "", commit: bool = True) -> Any:
+        """Persist the records added so far, describing them with ``msg``.
+
+        ``commit`` asks a store whose repository is owned elsewhere -- a
+        server-backed one -- to commit them rather than leave them staged. A
+        local document is committed by its owner (see
+        :py:meth:`unfurl.cloudmap.CloudMap.save`), so it ignores this.
+        """
 
 
 class CloudMapDB(CloudMapStore):
@@ -528,9 +534,10 @@ class CloudMapDB(CloudMapStore):
         assert self.config.path
         self._load(self.config.path)
 
-    def save(self, msg: str = "") -> bool:
-        """Write the document back to its file. ``msg`` is unused -- committing
-        is the caller's job (see :py:meth:`unfurl.cloudmap.CloudMap.save`)."""
+    def save(self, msg: str = "", commit: bool = True) -> bool:
+        """Write the document back to its file. ``msg`` and ``commit`` are
+        unused -- committing is the caller's job (see
+        :py:meth:`unfurl.cloudmap.CloudMap.save`)."""
         # maintain order of repositories so git merge is effective
         # we want to support mirrors
         changed = False

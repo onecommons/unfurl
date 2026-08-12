@@ -701,6 +701,7 @@ class CloudMapProxy(CloudMapStore):
     def save(
         self,
         msg: Optional[str] = None,
+        commit: bool = True,
         *,
         atomic: bool = True,
     ) -> Optional[str]:
@@ -713,10 +714,21 @@ class CloudMapProxy(CloudMapStore):
         If atomic is true, individual record failures, including concurrency conflicts rollback all changes.
         If atomic is false, individual record failures are skipped, the rest commits, and a CloudMapProxyConflict is still raised with details on which records applied and which failed.
 
+        ``commit`` asks the server to commit the records to its clone rather
+        than leave them staged. It is always sent, never omitted: the two
+        server implementations disagree on what an absent key means -- the
+        python handler commits (`endpoints.py`, ``raw.get("commit")`` is None)
+        while the rust one only stages (`cloudmap.rs`,
+        ``body.commit.unwrap_or(false)``) -- so the intent has to be explicit.
+
+        With ``commit`` set and nothing buffered this still POSTs: an empty
+        body means "commit whatever is already staged", which is how records
+        left behind by an earlier ``commit=False`` save get committed.
+
         On *successful* save, the cached payload of every just-posted
         record is updated with concurrency tokens from the response.
         """
-        if not self._pending_writes:
+        if not self._pending_writes and not commit:
             return None
 
         body: Dict[str, Any] = {}
@@ -731,6 +743,7 @@ class CloudMapProxy(CloudMapStore):
         # Only include ``atomic`` when overriding the server default (true).
         if not atomic:
             body["atomic"] = False
+        body["commit"] = commit
         for section, entries in self._pending_writes.items():
             body[section] = entries
 

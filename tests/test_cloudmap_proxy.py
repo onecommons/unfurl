@@ -249,9 +249,38 @@ def test_max_version_tracked_from_records() -> None:
 
 
 def test_save_no_pending_writes_is_noop() -> None:
+    """Nothing buffered and no commit asked for: don't touch the network."""
     proxy, session = _make_proxy()
-    assert proxy.save() is None
+    assert proxy.save(commit=False) is None
     assert session.post.call_count == 0
+
+
+def test_save_with_nothing_pending_still_commits() -> None:
+    """An empty body means "commit whatever is already staged".
+
+    Records POSTed with ``commit=False`` sit in the server's database
+    uncommitted; this is how a later run asks for them to be committed.
+    """
+    proxy, session = _make_proxy(post_returns=[_make_response({"commit": "abc123"})])
+    assert proxy.save("flush") == "abc123"
+    assert session.post.call_count == 1
+    body = session.post.call_args.kwargs["json"]
+    assert body["commit"] is True
+    assert body["commit_msg"] == "flush"
+
+
+def test_save_always_states_its_commit_intent() -> None:
+    """The two server implementations disagree on the default, so it is sent.
+
+    The python handler commits when `commit` is absent; the rust one only
+    stages. Leaving it out means the same request does different things.
+    """
+    url = "pkg:oci/example/image@1.0"
+    for requested in (True, False):
+        proxy, session = _make_proxy(post_returns=[_make_response({"commit": "c"})])
+        proxy.add_record(Artifact(url=url, metadata=ArtifactMetadata(title="x")))
+        proxy.save("msg", commit=requested)
+        assert session.post.call_args.kwargs["json"]["commit"] is requested
 
 
 def test_save_includes_envelope_and_round_trips_occ_for_known_key() -> None:
