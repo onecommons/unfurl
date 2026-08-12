@@ -32,7 +32,7 @@ from typing import (
     Union,
     cast,
 )
-from typing_extensions import Literal, Required, TypedDict, Unpack, Self
+from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack, Self
 from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
 
 from unfurl.repo import normalize_git_url, split_git_url, git_url_join
@@ -1542,6 +1542,26 @@ def section_of(record: "CloudMapRecord") -> str:
     raise TypeError(f"unsupported cloudmap record type: {type(record).__name__}")
 
 
+class AnalyzerLogger(Protocol):
+    """The logging surface a cloudmap context exposes.
+
+    A real :class:`~unfurl.logs.UnfurlLogger` satisfies this structurally, but
+    it is not what analyzers are handed: a `logging.Logger` also reaches
+    ``handlers`` (and through them live file objects), ``root``, ``manager``
+    and ``removeHandler`` -- none of which trip the sandbox's name policy, so a
+    sandboxed analyzer could forge or silence the log that records what it did.
+    :class:`~unfurl.cloudmap.provenance.AnalyzerLogFacade` implements this and
+    nothing else.
+    """
+
+    def trace(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+    def debug(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+    def verbose(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+    def info(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+    def warning(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+    def error(self, msg: str, *args: Any, exc_info: Any = None) -> None: ...
+
+
 class CloudMapWriter(CloudMapView):
     """Read and write cloud map records.
 
@@ -1555,7 +1575,7 @@ class CloudMapWriter(CloudMapView):
     _do_analysis: bool = False
 
     @property
-    def logger(self) -> "UnfurlLogger":
+    def logger(self) -> "AnalyzerLogger":
         """Logger for emitting diagnostic messages during analysis."""
         return self._logger
 

@@ -37,6 +37,7 @@ from typing_extensions import Literal
 from ..logs import UnfurlLogger
 from ..tosca_plugins.cloudmap_defs import (
     AnalyzerContext,
+    AnalyzerLogger,
     Artifact,
     CloudMapRecord,
     CommonMetadata,
@@ -193,6 +194,41 @@ class Provenance:
 
     def __repr__(self) -> str:
         return f"Provenance(touched={len(self.touched)}, errors={self.errors})"
+
+
+class AnalyzerLogFacade:
+    """The only logging surface analyzers get.
+
+    Wraps the real logger so a sandboxed analyzer can emit messages without
+    reaching what a `logging.Logger` otherwise exposes -- ``handlers`` (and the
+    live file objects behind them), ``root``, ``manager``, ``removeHandler``,
+    ``setLevel``. None of those names trip the sandbox's policy, which denies a
+    name only when it starts with "_" *and* contains "__", so an analyzer given
+    the logger itself could forge entries or silence the log that records what
+    it did -- the audit trail for the records it adds and deletes.
+    """
+
+    def __init__(self, logger: UnfurlLogger) -> None:
+        # mangled to _AnalyzerLogFacade__logger, so the sandbox denies it
+        self.__logger = logger
+
+    def trace(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.trace(msg, *args, exc_info=exc_info)
+
+    def debug(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.debug(msg, *args, exc_info=exc_info)
+
+    def verbose(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.verbose(msg, *args, exc_info=exc_info)
+
+    def info(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.info(msg, *args, exc_info=exc_info)
+
+    def warning(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.warning(msg, *args, exc_info=exc_info)
+
+    def error(self, msg: str, *args: Any, exc_info: Any = None) -> None:
+        self.__logger.error(msg, *args, exc_info=exc_info)
 
 
 class ProvenanceTrackingContext(AnalyzerContext):
@@ -359,8 +395,11 @@ class ProvenanceTrackingContext(AnalyzerContext):
     # --- Pass-throughs ---
 
     @property
-    def logger(self) -> UnfurlLogger:
-        return self.__context.logger
+    def logger(self) -> AnalyzerLogger:
+        # a facade, not the store's logger: see `AnalyzerLogFacade`. Built per
+        # access rather than cached, so it can't go stale if the store's logger
+        # is replaced.
+        return AnalyzerLogFacade(cast(UnfurlLogger, self.__context.logger))
 
     @logger.setter
     def logger(self, value: UnfurlLogger) -> None:

@@ -2428,20 +2428,24 @@ def test_analyzer_context_exposes_nothing_privileged():
     for, so those aren't what this guards. It is a loop rather than a checklist
     so a newly added attribute can't quietly reopen the hole.
     """
+    import logging
+
     from tosca.loader import SafeToscaDslNodeTransformer
     from unfurl.cloudmap.db import CloudMapDB, CloudMapStore
 
     name_ok = SafeToscaDslNodeTransformer(None, None, {})._name_ok
     store = CloudMapDB("", contents=CloudMapDB.make_empty_cloudmap(), validate=False)
+    store.logger = logging.getLogger("unfurl")  # or `logger` reads as absent
     cm = CloudMap.__new__(CloudMap)
     store.set_cloudmap(cm)
     tracked = ProvenanceTrackingContext(store)
 
+    # a real logger reaches `handlers` -> live file objects, `root`, `manager`
+    privileged = (CloudMapStore, CloudMap, logging.Logger)
     leaks = sorted(
         name
         for name in dir(tracked)
-        if name_ok(None, name)
-        and isinstance(getattr(tracked, name, None), (CloudMapStore, CloudMap))
+        if name_ok(None, name) and isinstance(getattr(tracked, name, None), privileged)
     )
     assert not leaks, f"reachable from sandboxed analyzers: {leaks}"
     # and the capability those would have handed over
