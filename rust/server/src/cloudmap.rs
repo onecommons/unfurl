@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use unfurl_git_sync::{
-    BatchOp, CommitRef, DbConfig, FormatRegistry, JsonQuery, Record, SyncedRepo,
+    BatchOp, CommitRef, DbConfig, FormatRegistry, JsonQuery, Record, RecordQuery, SyncedRepo,
 };
 
 use crate::proxy;
@@ -265,17 +265,11 @@ impl CloudMapState {
             // one write behind, never stuck.
             let records = self
                 .inner
-                .find_records(
-                    cache_key.clone(),
-                    Some("/types".into()),
-                    None,
-                    false,
-                    None,
-                    None,
-                    None,
-                    None,
-                    None,
-                )
+                .find_records(&RecordQuery {
+                    file_path: cache_key.clone(),
+                    path: Some("/types".into()),
+                    ..Default::default()
+                })
                 .await?;
             let mut children: HashMap<String, Vec<String>> = HashMap::new();
             for r in &records {
@@ -524,12 +518,16 @@ async fn build_response(
     if let Some(limit) = params.limit {
         return paged_response(
             synced,
-            file_path,
-            path,
+            RecordQuery {
+                file_path: file_path.map(str::to_string),
+                path: path.map(str::to_string),
+                since_version: params.since_version,
+                type_names,
+                json_query: json_filter,
+                ..Default::default()
+            },
             key,
-            params,
-            type_names,
-            json_filter,
+            params.page_token.as_deref(),
             select_paths.as_deref(),
             limit,
         )
@@ -538,15 +536,18 @@ async fn build_response(
 
     let (initial, followed_records) = synced
         .find_records_follow(
-            file_path.map(str::to_string),
-            path.map(|s| s.to_string()),
-            key.map(|s| s.to_string()),
-            alias,
+            &RecordQuery {
+                file_path: file_path.map(str::to_string),
+                path: path.map(str::to_string),
+                key: key.map(str::to_string),
+                alias,
+                since_version: params.since_version,
+                type_names,
+                json_query: json_filter,
+                ..Default::default()
+            },
             follow,
-            params.since_version,
             exclude_ids,
-            type_names,
-            json_filter,
         )
         .await
         .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;
@@ -587,15 +588,11 @@ async fn build_response(
 /// needs a starting `key`, and `key` is rejected alongside `limit` because
 /// it selects a single record. `exclude` is likewise ignored — it only ever
 /// narrowed the follow walk.
-#[allow(clippy::too_many_arguments)]
 async fn paged_response(
     synced: &SyncedRepo,
-    file_path: Option<&str>,
-    path: Option<&'static str>,
+    mut query: RecordQuery,
     key: Option<&str>,
-    params: &unfurl_types::GetCloudmapRequestQuery,
-    type_names: Option<Vec<String>>,
-    json_filter: Option<JsonQuery>,
+    page_token: Option<&str>,
     select: Option<&[SelectPath]>,
     limit: i64,
 ) -> Result<Value, LocalError> {
@@ -609,28 +606,17 @@ async fn paged_response(
             "limit cannot be combined with key".to_string(),
         ));
     }
-    let after = params
-        .page_token
-        .as_deref()
+    query.after = page_token
         .filter(|t| !t.is_empty())
         .map(decode_page_token)
         .transpose()?;
-
     // Fetch one extra record: its presence is what says another page
     // exists. Testing `len == limit` instead would end a section whose
     // size is a multiple of `limit` on a token pointing at an empty page.
+    query.limit = Some(limit + 1);
+
     let mut rows = synced
-        .find_records(
-            file_path.map(str::to_string),
-            path.map(|s| s.to_string()),
-            None,
-            false,
-            params.since_version,
-            type_names,
-            json_filter,
-            after,
-            Some(limit + 1),
-        )
+        .find_records(&query)
         .await
         .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
 

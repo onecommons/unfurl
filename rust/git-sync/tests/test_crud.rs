@@ -16,7 +16,7 @@ use common::sqlite_fixture;
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
-use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, SyncedRepo};
+use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, RecordQuery, SyncedRepo};
 
 // ---------------------------------------------------------------------------
 // Test bodies
@@ -575,17 +575,10 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
 
     let pipelines = sync
-        .find_records(
-            None,
-            None,
-            None,
-            false,
-            None,
-            Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            type_names: Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
+            ..Default::default()
+        })
         .await
         .expect("type filter");
     assert_eq!(
@@ -600,20 +593,14 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Multiple names OR together and compose with the `path` filter.
     let multi = sync
-        .find_records(
-            None,
-            Some("/services".into()),
-            None,
-            false,
-            None,
-            Some(vec![
+        .find_records(&RecordQuery {
+            path: Some("/services".into()),
+            type_names: Some(vec![
                 "Odoo@unfurl.cloud/onecommons/blueprints/odoo".into(),
                 "no.such.Type".into(),
             ]),
-            None,
-            None,
-            None,
-        )
+            ..Default::default()
+        })
         .await
         .expect("multi type filter");
     assert_eq!(multi.len(), 1);
@@ -621,38 +608,24 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Unknown name matches nothing.
     let none = sync
-        .find_records(
-            None,
-            None,
-            None,
-            false,
-            None,
-            Some(vec!["no.such.Type".into()]),
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            type_names: Some(vec!["no.such.Type".into()]),
+            ..Default::default()
+        })
         .await
         .expect("unknown type");
     assert!(none.is_empty());
 
     // An empty name list is treated as "no filter", not "match none".
     let all = sync
-        .find_records(
-            None,
-            None,
-            None,
-            false,
-            None,
-            Some(Vec::new()),
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            type_names: Some(Vec::new()),
+            ..Default::default()
+        })
         .await
         .expect("empty type list");
     let unfiltered = sync
-        .find_records(None, None, None, false, None, None, None, None, None)
+        .find_records(&RecordQuery::default())
         .await
         .expect("unfiltered");
     assert_eq!(all.len(), unfiltered.len());
@@ -694,17 +667,11 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Sanity: the parent record exists.
     let direct = sync
-        .find_records(
-            None,
-            Some(parent_path.into()),
-            Some(parent_key.into()),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some(parent_path.into()),
+            key: Some(parent_key.into()),
+            ..Default::default()
+        })
         .await
         .expect("find_records direct");
     assert_eq!(direct.len(), 1, "parent OCI record should be found");
@@ -716,17 +683,11 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // a search for the alias key returns nothing.
     let alias_key = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest";
     let no_alias = sync
-        .find_records(
-            None,
-            Some(parent_path.into()),
-            Some(alias_key.into()),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some(parent_path.into()),
+            key: Some(alias_key.into()),
+            ..Default::default()
+        })
         .await
         .expect("find_records without alias");
     assert!(
@@ -736,17 +697,12 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // With `alias=true`, the same lookup resolves to the parent record.
     let via_alias = sync
-        .find_records(
-            None,
-            Some(parent_path.into()),
-            Some(alias_key.into()),
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some(parent_path.into()),
+            key: Some(alias_key.into()),
+            alias: true,
+            ..Default::default()
+        })
         .await
         .expect("find_records via alias");
     assert_eq!(via_alias.len(), 1, "alias lookup should hit the parent");
@@ -759,31 +715,18 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(
-            None,
-            Some(parent_path.into()),
-            None,
-            true,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some(parent_path.into()),
+            alias: true,
+            ..Default::default()
+        })
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
-        .find_records(
-            None,
-            Some(parent_path.into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some(parent_path.into()),
+            ..Default::default()
+        })
         .await
         .expect("find_records no key, alias=false");
     assert_eq!(
@@ -860,15 +803,13 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // follow=0 → the followed Vec is empty, regardless of edges.
     let (init, follow0) = sync
         .find_records_follow(
-            None,
-            Some(start_path.into()),
-            Some(start_key.into()),
-            false,
+            &RecordQuery {
+                path: Some(start_path.into()),
+                key: Some(start_key.into()),
+                ..Default::default()
+            },
             0,
-            None,
             Vec::new(),
-            None,
-            None,
         )
         .await
         .expect("follow 0");
@@ -880,15 +821,13 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // follow=10 → walk up to 10 reachable records (more than enough).
     let (init, walked) = sync
         .find_records_follow(
-            None,
-            Some(start_path.into()),
-            Some(start_key.into()),
-            false,
+            &RecordQuery {
+                path: Some(start_path.into()),
+                key: Some(start_key.into()),
+                ..Default::default()
+            },
             10,
-            None,
             Vec::new(),
-            None,
-            None,
         )
         .await
         .expect("follow 10");
@@ -951,15 +890,13 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // repository).
     let (_, walked_small) = sync
         .find_records_follow(
-            None,
-            Some(start_path.into()),
-            Some(start_key.into()),
-            false,
+            &RecordQuery {
+                path: Some(start_path.into()),
+                key: Some(start_key.into()),
+                ..Default::default()
+            },
             1,
-            None,
             Vec::new(),
-            None,
-            None,
         )
         .await
         .expect("follow 1");
@@ -1515,17 +1452,10 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
 
     let all = sync
-        .find_records(
-            None,
-            Some("/artifacts".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/artifacts".into()),
+            ..Default::default()
+        })
         .await
         .expect("unpaged");
     assert!(all.len() > 3, "fixture should have several artifacts");
@@ -1536,17 +1466,12 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
     let mut after: Option<(String, String)> = None;
     for _ in 0..100 {
         let page = sync
-            .find_records(
-                None,
-                Some("/artifacts".into()),
-                None,
-                false,
-                None,
-                None,
-                None,
-                after.clone(),
-                Some(3),
-            )
+            .find_records(&RecordQuery {
+                path: Some("/artifacts".into()),
+                after: after.clone(),
+                limit: Some(3),
+                ..Default::default()
+            })
             .await
             .expect("page");
         if page.is_empty() {
@@ -1560,17 +1485,11 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // `limit` alone caps the result and preserves the ordering.
     let capped = sync
-        .find_records(
-            None,
-            Some("/artifacts".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            Some(2),
-        )
+        .find_records(&RecordQuery {
+            path: Some("/artifacts".into()),
+            limit: Some(2),
+            ..Default::default()
+        })
         .await
         .expect("limit");
     assert_eq!(capped.len(), 2);
@@ -1586,17 +1505,11 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
         format!("{}\u{1}gone", expected[0]),
     ));
     let resumed = sync
-        .find_records(
-            None,
-            Some("/artifacts".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            ghost,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/artifacts".into()),
+            after: ghost,
+            ..Default::default()
+        })
         .await
         .expect("ghost cursor");
     assert_eq!(
@@ -1624,17 +1537,10 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
     }
 
     let rows = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            ..Default::default()
+        })
         .await
         .expect("find");
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
@@ -1651,17 +1557,11 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
     // And a cursor lands between them accordingly.
     let after = Some(("/repositories".to_string(), "z-repo".to_string()));
     let rest = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            after,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            after: after,
+            ..Default::default()
+        })
         .await
         .expect("after z");
     assert_eq!(
@@ -1738,9 +1638,12 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
             .expect("valid query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
-                .await
-                .expect("json query")
+            sync.find_records(&RecordQuery {
+                json_query: Some(q),
+                ..Default::default()
+            })
+            .await
+            .expect("json query")
         }
     };
 
@@ -1849,9 +1752,12 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         )
         .expect("valid prefix query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
-                .await
-                .expect("prefix query")
+            sync.find_records(&RecordQuery {
+                json_query: Some(q),
+                ..Default::default()
+            })
+            .await
+            .expect("prefix query")
         }
     };
     let hits = prefix(
@@ -1898,9 +1804,12 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::exists(tokens.into_iter().map(str::to_string).collect())
             .expect("valid existence query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
-                .await
-                .expect("existence query")
+            sync.find_records(&RecordQuery {
+                json_query: Some(q),
+                ..Default::default()
+            })
+            .await
+            .expect("existence query")
         }
     };
     assert_eq!(
@@ -2057,17 +1966,10 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     }
 
     let rows = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            ..Default::default()
+        })
         .await
         .expect("find");
     let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
@@ -2085,17 +1987,11 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     // in the same place here.
     let after = Some(("/repositories".to_string(), "z-repo".to_string()));
     let rest = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            None,
-            false,
-            None,
-            None,
-            None,
-            after,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            after: after,
+            ..Default::default()
+        })
         .await
         .expect("after z");
     assert_eq!(

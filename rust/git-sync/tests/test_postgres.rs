@@ -12,6 +12,7 @@
 mod common;
 
 use common::pg_fixture;
+use unfurl_git_sync::RecordQuery;
 
 #[tokio::test]
 async fn cloudmap_end_to_end_postgres() {
@@ -41,17 +42,11 @@ async fn cloudmap_end_to_end_postgres() {
         .expect("returned");
 
     let after = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            Some("git://example.com/x.git".into()),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            key: Some("git://example.com/x.git".into()),
+            ..Default::default()
+        })
         .await
         .expect("find");
     assert_eq!(after.len(), 1);

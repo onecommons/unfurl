@@ -5,6 +5,7 @@
 mod common;
 
 use common::sqlite_fixture;
+use unfurl_git_sync::RecordQuery;
 
 #[tokio::test]
 async fn cloudmap_end_to_end_sqlite() {
@@ -14,7 +15,7 @@ async fn cloudmap_end_to_end_sqlite() {
     assert!(stats.records_upserted >= 5, "stats: {stats:?}");
 
     let repos = sync
-        .find_records(None, None, None, false, None, None, None, None, None)
+        .find_records(&RecordQuery::default())
         .await
         .expect("find_records");
     assert!(
@@ -53,17 +54,11 @@ async fn cloudmap_end_to_end_sqlite() {
         .expect("commit produced");
 
     let after = sync
-        .find_records(
-            None,
-            Some("/repositories".into()),
-            Some("git://example.com/x.git".into()),
-            false,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            key: Some("git://example.com/x.git".into()),
+            ..Default::default()
+        })
         .await
         .expect("find_records after commit");
     assert_eq!(after.len(), 1);

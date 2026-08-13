@@ -16,6 +16,22 @@
 
 use crate::error::{Error, Result};
 
+/// Which record a write targets: a row's identity within a worktree.
+///
+/// These four travel together through every write path, so grouping them
+/// keeps those signatures readable and makes it impossible to transpose
+/// `path` and `key` at a call site.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RecordId<'a> {
+    pub worktree_id: i64,
+    /// The cloudmap file the record lives in.
+    pub file_path: &'a str,
+    /// The record's section, e.g. `/artifacts`.
+    pub path: &'a str,
+    /// The record's key within that section.
+    pub key: &'a str,
+}
+
 pub mod alias;
 pub mod commit;
 pub mod file;

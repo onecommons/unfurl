@@ -4,9 +4,9 @@
 
 use std::collections::BTreeSet;
 
-use crate::db::Db;
+use crate::db::{Db, RecordId};
 use crate::error::{Error, Result};
-use crate::model::{JsonQuery, QueryOp, Record};
+use crate::model::{QueryOp, Record, RecordQuery};
 
 /// `(id, worktree_id, file_path, path, key, commit_id, json_text,
 /// deleted, version)` — the row shape for the SQLite `get_by_id` query.
@@ -66,14 +66,17 @@ pub(crate) async fn next_version_pool(db: &Db, worktree_id: i64) -> Result<i64> 
 
 pub(crate) async fn upsert(
     db: &Db,
-    worktree_id: i64,
-    file_path: &str,
-    path: &str,
-    key: &str,
+    id: RecordId<'_>,
     json: &serde_json::Value,
     commit_id: Option<&str>,
     version: i64,
 ) -> Result<i64> {
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
     let json_text = serde_json::to_string(json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
@@ -314,75 +317,31 @@ pub(crate) async fn load_pending(
 /// Postgres this uses the `?|` key-existence operator so the GIN
 /// expression index over `(json -> 'type')` applies; on SQLite it
 /// scans with `json_each`.
-pub(crate) async fn find(
-    db: &Db,
-    worktree_id: i64,
-    file_path: Option<&str>,
-    path: Option<&str>,
-    key: Option<&str>,
-    alias: bool,
-    since_version: Option<i64>,
-    type_names: Option<&[String]>,
-    json_query: Option<&JsonQuery>,
-    after: Option<(&str, &str)>,
-    limit: Option<i64>,
-) -> Result<Vec<Record>> {
-    // The alias OR-clause is a no-op without a key.
-    let alias_active = alias && key.is_some();
-    // An empty name list matches nothing under `?|` / `IN ()`; treat it
-    // as "no filter" instead so callers don't have to special-case it.
-    let type_names = type_names.filter(|t| !t.is_empty());
+pub(crate) async fn find(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
     match db {
-        Db::Sqlite(pool) => {
-            find_sqlite(
-                pool,
-                worktree_id,
-                file_path,
-                path,
-                key,
-                alias_active,
-                since_version,
-                type_names,
-                json_query,
-                after,
-                limit,
-            )
-            .await
-        }
+        Db::Sqlite(pool) => find_sqlite(pool, worktree_id, query).await,
         #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            find_pg(
-                pool,
-                worktree_id,
-                file_path,
-                path,
-                key,
-                alias_active,
-                since_version,
-                type_names,
-                json_query,
-                after,
-                limit,
-            )
-            .await
-        }
+        Db::Postgres(pool) => find_pg(pool, worktree_id, query).await,
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn find_sqlite(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     worktree_id: i64,
-    file_path: Option<&str>,
-    path: Option<&str>,
-    key: Option<&str>,
-    alias_active: bool,
-    since_version: Option<i64>,
-    type_names: Option<&[String]>,
-    json_query: Option<&JsonQuery>,
-    after: Option<(&str, &str)>,
-    limit: Option<i64>,
+    query: &RecordQuery,
 ) -> Result<Vec<Record>> {
+    let RecordQuery {
+        file_path,
+        path,
+        key,
+        since_version,
+        json_query,
+        after,
+        limit,
+        ..
+    } = query;
+    let alias_active = query.alias_active();
+    let type_names = query.effective_type_names();
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
          WHERE r.worktree_id = ?1 AND r.deleted = 0",
@@ -582,20 +541,23 @@ async fn find_sqlite(
 }
 
 #[cfg(feature = "postgres")]
-#[allow(clippy::too_many_arguments)]
 async fn find_pg(
     pool: &sqlx::Pool<sqlx::Postgres>,
     worktree_id: i64,
-    file_path: Option<&str>,
-    path: Option<&str>,
-    key: Option<&str>,
-    alias_active: bool,
-    since_version: Option<i64>,
-    type_names: Option<&[String]>,
-    json_query: Option<&JsonQuery>,
-    after: Option<(&str, &str)>,
-    limit: Option<i64>,
+    query: &RecordQuery,
 ) -> Result<Vec<Record>> {
+    let RecordQuery {
+        file_path,
+        path,
+        key,
+        since_version,
+        json_query,
+        after,
+        limit,
+        ..
+    } = query;
+    let alias_active = query.alias_active();
+    let type_names = query.effective_type_names();
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
          WHERE r.worktree_id = $1 AND r.deleted = FALSE",
@@ -635,7 +597,7 @@ async fn find_pg(
         // jsonpath itself — still one bound parameter. SQL/JSON path in `lax`
         // mode (the default) unwraps arrays and wraps scalars, so `[*]` covers
         // both.
-        if json_query.is_some_and(|jq| jq.is_exact()) {
+        if json_query.as_ref().is_some_and(|jq| jq.is_exact()) {
             // Exact array match. `#>` equality is structural but can't use an
             // index, so it rides behind a containment pre-filter, which can:
             // every element of an equal array is contained, so the pre-filter

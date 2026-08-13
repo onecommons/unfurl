@@ -19,12 +19,13 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::db::RecordId;
 use crate::db::{self, Db, DbConfig};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::model::{
-    Applied, BatchOp, BatchOutcome, Failed, JsonQuery, Record, UpdateStats, WriteOutcome,
+    Applied, BatchOp, BatchOutcome, Failed, Record, RecordQuery, UpdateStats, WriteOutcome,
 };
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
@@ -322,10 +323,12 @@ impl SyncedRepo {
             let version = db::record::next_version_pool(self.db(), self.worktree_id()).await?;
             let id = db::record::upsert(
                 self.db(),
-                self.worktree_id(),
-                rel_path,
-                &path,
-                &key,
+                db::RecordId {
+                    worktree_id: self.worktree_id(),
+                    file_path: rel_path,
+                    path: &path,
+                    key: &key,
+                },
                 &child,
                 last_commit_id,
                 version,
@@ -384,32 +387,8 @@ impl SyncedRepo {
     /// `(path, key)` is only unique within one file: a query spanning
     /// several (`file_path = None`) can hold two records with the same
     /// pair, and a page boundary between them keeps just the later one.
-    pub async fn find_records(
-        &self,
-        file_path: Option<String>,
-        path: Option<String>,
-        key: Option<String>,
-        alias: bool,
-        since_version: Option<i64>,
-        type_names: Option<Vec<String>>,
-        json_query: Option<JsonQuery>,
-        after: Option<(String, String)>,
-        limit: Option<i64>,
-    ) -> Result<Vec<Record>> {
-        db::record::find(
-            self.db(),
-            self.worktree_id(),
-            file_path.as_deref(),
-            path.as_deref(),
-            key.as_deref(),
-            alias,
-            since_version,
-            type_names.as_deref(),
-            json_query.as_ref(),
-            after.as_ref().map(|(p, k)| (p.as_str(), k.as_str())),
-            limit,
-        )
-        .await
+    pub async fn find_records(&self, query: &RecordQuery) -> Result<Vec<Record>> {
+        db::record::find(self.db(), self.worktree_id(), query).await
     }
 
     /// Change-detection probe for a section: `(COUNT(*),
@@ -445,18 +424,11 @@ impl SyncedRepo {
     /// those matches without re-applying the type filter, so the
     /// followed set stays a complete neighborhood of the starting
     /// records.
-    #[allow(clippy::too_many_arguments)]
     pub async fn find_records_follow(
         &self,
-        file_path: Option<String>,
-        path: Option<String>,
-        key: Option<String>,
-        alias: bool,
+        query: &RecordQuery,
         follow: u32,
-        since_version: Option<i64>,
         exclude: Vec<i64>,
-        type_names: Option<Vec<String>>,
-        json_query: Option<JsonQuery>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
         // Soft cap on the size of a single batched `key IN (...)`
         // query. Each follow batch binds `2 * keys` parameters (the
@@ -475,22 +447,7 @@ impl SyncedRepo {
             )));
         }
 
-        let initial = self
-            .find_records(
-                file_path,
-                path,
-                key,
-                alias,
-                since_version,
-                type_names,
-                json_query,
-                // A follow walk is never paged: the cursor describes a
-                // position in the ordered primary scan, which says
-                // nothing about where a breadth-first frontier stopped.
-                None,
-                None,
-            )
-            .await?;
+        let initial = self.find_records(query).await?;
         if follow == 0 || initial.is_empty() {
             return Ok((initial, Vec::new()));
         }
@@ -570,7 +527,7 @@ impl SyncedRepo {
                 &key_refs,
                 true,
                 &exclude_ids,
-                since_version,
+                query.since_version,
             )
             .await?;
             batch_keys.clear();
@@ -1316,10 +1273,12 @@ where
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     let id = db::tx::create_record(
         &mut tx,
-        sync.worktree_id(),
-        file_path,
-        path,
-        key,
+        RecordId {
+            worktree_id: sync.worktree_id(),
+            file_path,
+            path,
+            key,
+        },
         &json_text,
         version,
         exp_v,
@@ -1472,10 +1431,12 @@ where
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     let id = db::tx::upsert_record(
         &mut tx,
-        sync.worktree_id(),
-        file_path,
-        path,
-        key,
+        RecordId {
+            worktree_id: sync.worktree_id(),
+            file_path,
+            path,
+            key,
+        },
         &json_text,
         version,
         exp_v,
@@ -1630,10 +1591,12 @@ where
             let (exp_v, exp_c) = occ_binds(expected.as_ref());
             let id = db::tx::upsert_record(
                 tx,
-                sync.worktree_id(),
-                &resolved_fp,
-                &op_path,
-                &op_key,
+                RecordId {
+                    worktree_id: sync.worktree_id(),
+                    file_path: &resolved_fp,
+                    path: &op_path,
+                    key: &op_key,
+                },
                 &json_text,
                 version,
                 exp_v,

@@ -17,6 +17,7 @@
 
 use sqlx::{Database, Encode, Executor, IntoArguments, Type};
 
+use crate::db::RecordId;
 use crate::error::Result;
 
 /// Lookup result from [`lookup_commits`]. Tombstones surface as if
@@ -383,10 +384,7 @@ where
 /// `version` is the new value stamped onto the row.
 pub(crate) async fn create_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    worktree_id: i64,
-    file_path: &str,
-    path: &str,
-    key: &str,
+    id: RecordId<'_>,
     json_text: &str,
     version: i64,
     expected_version: Option<i64>,
@@ -401,6 +399,12 @@ where
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
     let row: Option<(i64,)> = sqlx::query_as(DB::UPSERT_RECORD)
         .bind(worktree_id)
         .bind(file_path)
@@ -475,10 +479,7 @@ where
 /// where overwriting an existing live row is the documented behaviour.
 pub(crate) async fn upsert_record<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    worktree_id: i64,
-    file_path: &str,
-    path: &str,
-    key: &str,
+    id: RecordId<'_>,
     json_text: &str,
     version: i64,
     expected_version: Option<i64>,
@@ -493,12 +494,20 @@ where
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    create_record(
-        tx,
+    let RecordId {
         worktree_id,
         file_path,
         path,
         key,
+    } = id;
+    create_record(
+        tx,
+        RecordId {
+            worktree_id,
+            file_path,
+            path,
+            key,
+        },
         json_text,
         version,
         expected_version,

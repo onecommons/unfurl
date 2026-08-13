@@ -78,6 +78,66 @@ pub enum QueryOp {
     Exists,
 }
 
+/// The filters of a record search, as one value.
+///
+/// Every field is optional and `AND`ed with the rest, so
+/// [`Default::default()`] searches everything and a caller names only what
+/// it wants to narrow:
+///
+/// ```
+/// use unfurl_git_sync::RecordQuery;
+/// let q = RecordQuery {
+///     path: Some("/artifacts".into()),
+///     limit: Some(50),
+///     ..Default::default()
+/// };
+/// ```
+///
+/// Grouping them keeps [`crate::SyncedRepo::find_records`] and the SQL
+/// builders behind it to a readable argument list, and means adding a
+/// filter doesn't ripple through every call site.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RecordQuery {
+    /// Restrict to one cloudmap file; `None` spans every file in the worktree.
+    pub file_path: Option<String>,
+    /// Restrict to one section, e.g. `/artifacts`.
+    pub path: Option<String>,
+    /// Restrict to one record key.
+    pub key: Option<String>,
+    /// Also match a record one of whose [`Alias`] rows carries `key`.
+    /// A no-op without `key`.
+    pub alias: bool,
+    /// Only records whose `version` is greater than this.
+    pub since_version: Option<i64>,
+    /// Only records declaring one of these names as a key of their `type`
+    /// object. Matching is by exact name — expand subtypes first.
+    pub type_names: Option<Vec<String>>,
+    /// Only records whose JSON satisfies this predicate.
+    pub json_query: Option<JsonQuery>,
+    /// Exclusive `(path, key)` lower bound on the byte-wise result order:
+    /// the paging cursor. Being a value rather than a row reference, it
+    /// stays usable after the record it names is deleted.
+    pub after: Option<(String, String)>,
+    /// Cap on how many records come back.
+    pub limit: Option<i64>,
+}
+
+impl RecordQuery {
+    /// Whether the alias OR-clause applies: it is a no-op without a key.
+    pub(crate) fn alias_active(&self) -> bool {
+        self.alias && self.key.is_some()
+    }
+
+    /// The type filter to apply, if any.
+    ///
+    /// An empty name list matches nothing under `?|` / `IN ()`, so it is
+    /// reported as "no filter" instead — callers building a list from a
+    /// subtype expansion don't have to special-case an empty result.
+    pub(crate) fn effective_type_names(&self) -> Option<&[String]> {
+        self.type_names.as_deref().filter(|t| !t.is_empty())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct JsonQuery {
     /// Unescaped JSON-Pointer reference tokens, e.g.
