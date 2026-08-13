@@ -1483,21 +1483,25 @@ class CloudMapView(ABC):
 
     # --- Iterate / search records ---
 
+    # A ``type`` filter matches a record declaring that type *or any type
+    # that (transitively) extends it*, per the ``types`` section. An empty
+    # filter returns every record.
+
     @abstractmethod
     def find_artifacts(self, type: str = "") -> Iterable["Artifact"]:
-        """An empty filter returns all artifacts."""
+        """An empty filter returns all artifacts; otherwise ``type`` and its subtypes."""
 
     @abstractmethod
     def find_services(self, type: str = "") -> Iterable["Service"]:
-        """An empty filter returns all services."""
+        """An empty filter returns all services; otherwise ``type`` and its subtypes."""
 
     @abstractmethod
     def find_components(self, type: str = "") -> Iterable["Component"]:
-        """An empty filter returns all components."""
+        """An empty filter returns all components; otherwise ``type`` and its subtypes."""
 
     @abstractmethod
     def find_instantiations(self, type: str = "") -> Iterable["Instantiation"]:
-        """An empty filter returns all instantiations."""
+        """An empty filter returns all instantiations; otherwise ``type`` and its subtypes."""
 
     @abstractmethod
     def find_types(self) -> Iterable["CloudType"]: ...

@@ -80,7 +80,7 @@ from .schemas import (
     ClearProjectQuery,
     CloudMapDocQuery,
     CloudMapDocument,
-    CloudMapDocumentPair,
+    CloudMapResult,
     CloudMapQuery,
     CloudMapResponse,
     EmptyCacheQuery,

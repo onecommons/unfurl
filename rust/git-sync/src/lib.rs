@@ -48,7 +48,7 @@
 //!
 //! sync.update_from_working_dir().await?;
 //! let repos = sync
-//!     .find_records(None, Some("/repositories".into()), None, false, None, None, None)
+//!     .find_records(None, Some("/repositories".into()), None, false, None, None, None, None, None)
 //!     .await?;
 //! # let _ = repos;
 //! # Ok(())

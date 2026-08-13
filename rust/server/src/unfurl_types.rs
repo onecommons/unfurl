@@ -82,8 +82,6 @@ impl core::str::FromStr for CloudMapDocumentApiVersion {
         }
     }
 }
-/// Two-element array: the queried (and optionally filtered) CloudMap document followed by a CloudMap document of records discovered by following the graph from the filter key (empty dict when ``follow`` is 0 or no key was supplied).
-pub type CloudMapDocumentPair = Vec<CloudMapDocument>;
 /// Pydantic wrapper for :class:`GraphJson`, used by ``@app.output``.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
@@ -137,6 +135,16 @@ pub struct CloudMapResponseTypeRefJson {
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
+}
+/// The queried (and optionally filtered) CloudMap document under ``result``. ``followed`` and ``next_page_token`` appear only when the request asked for what they carry, so their absence is meaningful rather than empty.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudMapResult {
+    /// Records discovered by walking the graph from ``key``. Present only when the request asked to ``follow`` from a ``key``.
+    pub followed: Option<CloudMapDocument>,
+    /// Cursor to pass as ``page_token`` for the next page. Present only on a ``limit`` request that has one -- its absence ends the walk.
+    pub next_page_token: Option<String>,
+    pub result: CloudMapDocument,
 }
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
@@ -954,7 +962,9 @@ impl core::str::FromStr for ExportResponseStatus {
         }
     }
 }
-/// Return a pair ``[document, follow]`` of CloudMap documents. ``document`` is the raw CloudMap (or a subset filtered by ``kind`` / ``key``). ``follow`` contains records reachable from ``key`` when ``follow`` > 0, otherwise it is ``{}``.
+/// Return the CloudMap document under ``result`` — the raw CloudMap, or the subset selected by ``kind`` / ``key`` / ``type`` / ``filter``.
+///
+/// Two further keys appear only when the request asked for what they carry, so a client can tell 'you didn't ask' from 'there is none': ``followed`` holds the records reached by walking the graph, and is present only when ``follow`` > 0 with a ``key``; ``next_page_token`` is the cursor for the next page, and is present only on a ``limit`` request that has one.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct GetCloudmapRequest {
     pub query: GetCloudmapRequestQuery,
@@ -1001,12 +1011,22 @@ pub struct GetCloudmapRequestQuery {
     pub filter: Option<String>,
     /// Comma-separated list of JSON Pointer paths (RFC 6901, e.g. ``/type,/metadata/title``); when set, each record in the response (both elements of the pair) is reduced to only the selected properties, keeping their nested structure. Paths without a leading ``/`` get one prepended. The special entry ``$key`` adds the record's key to the reduced record under ``"$key"``. Paths that don't resolve are omitted.
     pub select: Option<String>,
+    /// Return at most this many records, and change the response from the bare ``[document, follow]`` pair to an envelope:
+    ///
+    /// ```text
+    /// {"records": [document, follow], "next_page_token": "..."}
+    /// ```
+    ///
+    /// ``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.
+    pub limit: Option<i64>,
+    /// Opaque cursor from a previous paged response's ``next_page_token``: resume after the record it names. Only meaningful together with ``limit``. A token stays valid when the record it names is deleted.
+    pub page_token: Option<String>,
 }
 /// Response types for GetCloudmapResponse
 #[derive(Debug, Clone)]
 pub enum GetCloudmapResponse {
-    ///200: Pair: [filtered CloudMap document, followed records]
-    Ok(CloudMapDocumentPair),
+    ///200: The filtered CloudMap document, plus follow/paging keys when requested
+    Ok(CloudMapResult),
     ///422: Validation error
     UnprocessableEntity(ValidationError),
     ///default: Unknown response

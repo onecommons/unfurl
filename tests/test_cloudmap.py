@@ -1916,21 +1916,22 @@ def test_cloudmap_endpoint_full_document(cloudmap_test_client):
     resp = cloudmap_test_client.get("/cloudmap")
     assert resp.status_code == 200
     body = resp.get_json()
-    assert isinstance(body, list)
-    assert len(body) == 2, "response is a [primary, followed] pair"
-    primary, followed = body
+    assert isinstance(body, dict)
+    primary = body["result"]
     assert "repositories" in primary
     assert "artifacts" in primary
-    assert followed == {}
+    # no key was supplied, so nothing was followed and the key is absent
+    assert "followed" not in body
 
 
 def test_cloudmap_endpoint_kind_only(cloudmap_test_client):
     resp = cloudmap_test_client.get("/cloudmap?kind=repositories")
     assert resp.status_code == 200
-    primary, followed = resp.get_json()
+    body = resp.get_json()
+    primary = body["result"]
     assert "repositories" in primary
     assert "artifacts" not in primary
-    assert followed == {}
+    assert "followed" not in body
 
 
 def test_cloudmap_endpoint_kind_and_key(cloudmap_test_client):
@@ -1939,9 +1940,10 @@ def test_cloudmap_endpoint_kind_and_key(cloudmap_test_client):
     key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
     resp = cloudmap_test_client.get(f"/cloudmap?kind=repositories&key={quote(key)}")
     assert resp.status_code == 200
-    primary, followed = resp.get_json()
+    body = resp.get_json()
+    primary = body["result"]
     assert list(primary["repositories"].keys()) == [key]
-    assert followed == {}
+    assert "followed" not in body
 
 
 def test_cloudmap_endpoint_missing_key(cloudmap_test_client):
@@ -1959,7 +1961,8 @@ def test_cloudmap_endpoint_follow_walks_graph(cloudmap_test_client):
         f"/cloudmap?kind=repositories&key={quote(key)}&follow=10"
     )
     assert resp.status_code == 200
-    _primary, followed = resp.get_json()
+    body = resp.get_json()
+    followed = body["followed"]
     assert followed, "follow=10 should reach at least one record"
 
     # Collect every key across every section in the followed dict.
@@ -2000,8 +2003,8 @@ def test_cloudmap_endpoint_follow_caps_record_count(cloudmap_test_client):
         f"/cloudmap?kind=repositories&key={quote(key)}&follow=2"
     )
     assert resp.status_code == 200
-    _primary, followed = resp.get_json()
-    total = sum(len(records) for records in followed.values())
+    body = resp.get_json()
+    total = sum(len(records) for records in body["followed"].values())
     assert total == 2
 
 
@@ -2013,15 +2016,182 @@ def test_cloudmap_endpoint_follow_zero(cloudmap_test_client):
         f"/cloudmap?kind=repositories&key={quote(key)}&follow=0"
     )
     assert resp.status_code == 200
-    _primary, followed = resp.get_json()
-    assert followed == {}
+    body = resp.get_json()
+    assert "followed" not in body
 
 
 def test_cloudmap_endpoint_follow_without_key(cloudmap_test_client):
     resp = cloudmap_test_client.get("/cloudmap?follow=10")
     assert resp.status_code == 200
-    _primary, followed = resp.get_json()
-    assert followed == {}
+    body = resp.get_json()
+    assert "followed" not in body
+
+
+# ---------------------------------------------------------------------------
+# GET /cloudmap paging
+# ---------------------------------------------------------------------------
+
+from urllib.parse import quote
+
+
+def _walk_pages(client, url, page_size):
+    """Page through ``url`` and return the accumulated (section, key) pairs
+    in the order the server returned them, plus the number of requests."""
+    seen = []
+    token = None
+    requests = 0
+    while True:
+        paged = f"{url}&limit={page_size}"
+        if token:
+            paged += f"&page_token={quote(token)}"
+        resp = client.get(paged)
+        requests += 1
+        assert resp.status_code == 200, resp.get_data(as_text=True)
+        body = resp.get_json()
+        assert set(body) <= {"result", "next_page_token"}, (
+            "a paged request is keyless, so it never asks to follow"
+        )
+        for section, entries in body["result"].items():
+            for k in entries:
+                seen.append((section, k))
+        token = body.get("next_page_token")
+        if not token:
+            return seen, requests
+        assert requests < 100, "paging failed to terminate"
+
+
+def test_cloudmap_endpoint_paged_walk_matches_unpaged(cloudmap_test_client):
+    """Pages concatenate to exactly the unpaged section: no gaps, no repeats."""
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    expected = sorted(unpaged["repositories"])
+
+    seen, requests = _walk_pages(cloudmap_test_client, "/cloudmap?kind=repositories", 2)
+    assert requests > 1, "fixture should need several pages at limit=2"
+    assert [s for s, _ in seen] == ["repositories"] * len(seen)
+    keys = [k for _, k in seen]
+    assert keys == sorted(keys), "records come back in key order"
+    assert keys == expected
+
+
+def test_cloudmap_endpoint_paged_full_document(cloudmap_test_client):
+    """Paging the whole document spans sections in path order and drops
+    the envelope keys, which aren't records."""
+    seen, _ = _walk_pages(cloudmap_test_client, "/cloudmap?", 3)
+    sections = [s for s, _ in seen]
+    assert "apiVersion" not in sections and "metadata" not in sections
+    # section order follows "/"-prefixed path order, and each section's
+    # records are contiguous
+    assert sections == sorted(sections, key=lambda s: "/" + s)
+    unpaged = cloudmap_test_client.get("/cloudmap").get_json()["result"]
+    expected = {
+        (section, k)
+        for section, entries in unpaged.items()
+        if isinstance(entries, dict) and section not in ("metadata",)
+        for k in entries
+    }
+    assert set(seen) == expected
+
+
+def test_cloudmap_endpoint_paging_last_page_has_no_token(cloudmap_test_client):
+    """A limit at or above the section size answers in one page."""
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    size = len(unpaged["repositories"])
+    for limit in (size, size + 5):
+        body = cloudmap_test_client.get(
+            f"/cloudmap?kind=repositories&limit={limit}"
+        ).get_json()
+        assert "next_page_token" not in body, f"limit={limit} should be one page"
+        assert len(body["result"]["repositories"]) == size
+
+
+def test_cloudmap_endpoint_paging_empty_result(cloudmap_test_client):
+    """A page with nothing in it is an empty document, not an error."""
+    resp = cloudmap_test_client.get(
+        "/cloudmap?kind=artifacts&type=no.such.Type&limit=5"
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["result"] == {}
+    assert "next_page_token" not in body
+
+
+def test_cloudmap_endpoint_paging_with_type_filter(cloudmap_test_client):
+    """`type` narrows before the page is cut, so a paged walk and an
+    unpaged query return the same records."""
+    url = "/cloudmap?kind=artifacts&type=cloudmap.artifacts.GitLabPipeline"
+    unpaged = cloudmap_test_client.get(url).get_json()["result"]
+    expected = sorted(unpaged.get("artifacts", {}))
+    assert expected, "fixture should have GitLabPipeline artifacts"
+
+    seen, _ = _walk_pages(cloudmap_test_client, url, 1)
+    assert sorted(k for _, k in seen) == expected
+
+
+def test_cloudmap_endpoint_paging_rejects_key(cloudmap_test_client):
+    key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+    resp = cloudmap_test_client.get(
+        f"/cloudmap?kind=repositories&key={quote(key)}&limit=2"
+    )
+    assert resp.status_code == 400
+    assert "limit cannot be combined with key" in resp.get_json()["error"]
+
+
+def test_cloudmap_endpoint_paging_ignores_follow(cloudmap_test_client):
+    """`follow` is already inert without a key, and a paged request is
+    always keyless -- so it is accepted and simply has no effect."""
+    resp = cloudmap_test_client.get("/cloudmap?kind=repositories&limit=2&follow=10")
+    assert resp.status_code == 200
+    assert "followed" not in resp.get_json()
+
+
+def test_cloudmap_endpoint_paging_rejects_bad_limit(cloudmap_test_client):
+    for bad in ("0", "-1"):
+        resp = cloudmap_test_client.get(f"/cloudmap?kind=repositories&limit={bad}")
+        assert resp.status_code == 422, f"limit={bad} should fail schema validation"
+
+
+def test_cloudmap_endpoint_paging_rejects_bad_token(cloudmap_test_client):
+    # no delimiter, empty key, and a section that isn't one -- the last
+    # would otherwise resume from the wrong place in the ordering
+    for bad in ("repositories", quote("repositories/"), "nosuchsection/key"):
+        resp = cloudmap_test_client.get(
+            f"/cloudmap?kind=repositories&limit=2&page_token={bad}"
+        )
+        assert resp.status_code == 400, f"page_token={bad} should be rejected"
+
+
+def test_cloudmap_endpoint_paging_survives_deleted_anchor(cloudmap_test_client):
+    """The cursor is a value, not a row reference: dropping the record it
+    names still resumes at the right place."""
+    from unfurl.server.endpoints import _encode_page_token
+
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    keys = sorted(unpaged["repositories"])
+    assert len(keys) > 2
+    # a token naming a key that was never in the document at all
+    token = _encode_page_token("/repositories", keys[0] + "\x01gone")
+    resp = cloudmap_test_client.get(
+        f"/cloudmap?kind=repositories&limit=50&page_token={quote(token)}"
+    )
+    assert resp.status_code == 200
+    assert sorted(resp.get_json()["result"]["repositories"]) == keys[1:]
+
+
+def test_page_token_round_trips_and_is_stable():
+    """The wire format is pinned: the rust server mints byte-identical
+    tokens, and a walk can cross between the two implementations."""
+    from unfurl.server.endpoints import _decode_page_token, _encode_page_token
+
+    assert _encode_page_token("/artifacts", "pkg:x") == "artifacts/pkg:x"
+    assert _decode_page_token(_encode_page_token("/artifacts", "pkg:x")) == (
+        "/artifacts",
+        "pkg:x",
+    )
+    # non-ASCII keys survive the round trip
+    assert _decode_page_token(_encode_page_token("/types", "é-type")) == (
+        "/types",
+        "é-type",
+    )
 
 
 def test_instantiation_versions():

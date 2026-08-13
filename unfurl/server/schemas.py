@@ -299,6 +299,38 @@ class CloudMapDocQuery(CloudMapBaseQuery):
             "don't resolve are omitted."
         ),
     )
+    limit: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Return at most this many records, and change the response "
+            "from the bare ``[document, follow]`` pair to an envelope:\n"
+            "\n"
+            # fenced as `text` so that rustdoc doesn't take the block for a
+            # Rust doctest when this lands in the generated unfurl_types
+            "```text\n"
+            '{"records": [document, follow], "next_page_token": "..."}\n'
+            "```\n"
+            "\n"
+            "``next_page_token`` is absent on the last page; pass it back as "
+            "``page_token`` to get the next one. Records are ordered by "
+            "section then key, so a walk is stable across writes. Cannot be "
+            "combined with ``key`` (which selects a single record); "
+            "``follow`` and ``exclude`` have no effect on a paged request, "
+            "whose ``follow`` half is always empty. Combines with ``kind``, "
+            "``type``, ``filter`` and ``select``, which all apply before the "
+            "page is cut."
+        ),
+    )
+    page_token: Optional[str] = Field(
+        default=None,
+        description=(
+            "Opaque cursor from a previous paged response's "
+            "``next_page_token``: resume after the record it names. Only "
+            "meaningful together with ``limit``. A token stays valid when "
+            "the record it names is deleted."
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -480,13 +512,11 @@ class PostCloudmapRequest(BaseModel):
         return self
 
 
-class CloudMapDocumentPair(BaseModel):
-    """Placeholder for the ``/cloudmap`` response: a 2-element array of
-    CloudMap documents.
+class CloudMapResult(BaseModel):
+    """Placeholder for the ``GET /cloudmap`` response object.
 
     APIFlask emits an empty stub which :func:`hoist_cloudmap_definitions`
-    replaces with a fixed-length array schema referencing
-    :class:`CloudMapDocument`.
+    replaces with an object schema referencing :class:`CloudMapDocument`.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -521,40 +551,56 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     components = spec.setdefault("components", {})
     schemas = components.setdefault("schemas", {})
     has_doc = "CloudMapDocument" in schemas
-    has_pair = "CloudMapDocumentPair" in schemas
+    has_result = "CloudMapResult" in schemas
     has_post = "PostCloudmapRequest" in schemas
-    if not (has_doc or has_pair or has_post):
+    if not (has_doc or has_result or has_post):
         return spec
     canonical = _load_cloudmap_schema()
     defs = canonical.get("definitions", {})
     for name, definition in defs.items():
         schemas["cloudmap_" + name] = _rewrite_refs_to_components(definition)
     canonical_props = _rewrite_refs_to_components(canonical.get("properties", {}))
-    # ``CloudMapDocumentPair`` $refs ``CloudMapDocument`` so the latter
-    # has to exist whenever the pair does, even if no request body
-    # references it directly (APIFlask only emits stubs for types
-    # listed on @app.input / @app.output).
-    if has_doc or has_pair:
+    # ``CloudMapResult`` $refs ``CloudMapDocument`` so the latter has to
+    # exist whenever the result does, even if no request body references
+    # it directly (APIFlask only emits stubs for types listed on
+    # @app.input / @app.output).
+    if has_doc or has_result:
         schemas["CloudMapDocument"] = {
             "title": canonical.get("title", "CloudMap"),
             "type": canonical.get("type", "object"),
             "properties": canonical_props,
             "required": canonical.get("required", []),
         }
-    if has_pair:
-        schemas["CloudMapDocumentPair"] = {
-            "title": "CloudMap document pair",
+    if has_result:
+        schemas["CloudMapResult"] = {
+            "title": "CloudMap query result",
             "description": (
-                "Two-element array: the queried (and optionally filtered) "
-                "CloudMap document followed by a CloudMap document of "
-                "records discovered by following the graph from the "
-                "filter key (empty dict when ``follow`` is 0 or no key "
-                "was supplied)."
+                "The queried (and optionally filtered) CloudMap document "
+                "under ``result``. ``followed`` and ``next_page_token`` "
+                "appear only when the request asked for what they carry, "
+                "so their absence is meaningful rather than empty."
             ),
-            "type": "array",
-            "items": {"$ref": "#/components/schemas/CloudMapDocument"},
-            "minItems": 2,
-            "maxItems": 2,
+            "type": "object",
+            "properties": {
+                "result": {"$ref": "#/components/schemas/CloudMapDocument"},
+                "followed": {
+                    "allOf": [{"$ref": "#/components/schemas/CloudMapDocument"}],
+                    "description": (
+                        "Records discovered by walking the graph from "
+                        "``key``. Present only when the request asked to "
+                        "``follow`` from a ``key``."
+                    ),
+                },
+                "next_page_token": {
+                    "type": "string",
+                    "description": (
+                        "Cursor to pass as ``page_token`` for the next "
+                        "page. Present only on a ``limit`` request that "
+                        "has one -- its absence ends the walk."
+                    ),
+                },
+            },
+            "required": ["result"],
         }
     if has_post:
         # Replace the loose `Dict[str, Any]` shape Pydantic emits for

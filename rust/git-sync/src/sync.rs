@@ -371,7 +371,19 @@ impl SyncedRepo {
     /// `extends` closure of the `/types` section) to match a type
     /// hierarchy.
     ///
-    /// Results are ordered by `(path, key)` for stable output.
+    /// Results are ordered by `(path, key)`, compared byte-wise, for
+    /// stable output.
+    ///
+    /// `after`, when set, is an *exclusive* lower bound on that
+    /// ordering: only records ordered strictly after the given
+    /// `(path, key)` are returned. `limit` caps how many come back.
+    /// Together they page a scan without an offset, so concurrent
+    /// writes can't make a page skip or repeat a record — and because
+    /// the bound is a value rather than a row reference, deleting the
+    /// record `after` names doesn't strand the walk. Note that
+    /// `(path, key)` is only unique within one file: a query spanning
+    /// several (`file_path = None`) can hold two records with the same
+    /// pair, and a page boundary between them keeps just the later one.
     pub async fn find_records(
         &self,
         file_path: Option<String>,
@@ -381,6 +393,8 @@ impl SyncedRepo {
         since_version: Option<i64>,
         type_names: Option<Vec<String>>,
         json_query: Option<JsonQuery>,
+        after: Option<(String, String)>,
+        limit: Option<i64>,
     ) -> Result<Vec<Record>> {
         db::record::find(
             self.db(),
@@ -392,6 +406,8 @@ impl SyncedRepo {
             since_version,
             type_names.as_deref(),
             json_query.as_ref(),
+            after.as_ref().map(|(p, k)| (p.as_str(), k.as_str())),
+            limit,
         )
         .await
     }
@@ -468,6 +484,11 @@ impl SyncedRepo {
                 since_version,
                 type_names,
                 json_query,
+                // A follow walk is never paged: the cursor describes a
+                // position in the ordered primary scan, which says
+                // nothing about where a breadth-first frontier stopped.
+                None,
+                None,
             )
             .await?;
         if follow == 0 || initial.is_empty() {

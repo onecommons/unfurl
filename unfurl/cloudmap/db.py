@@ -23,7 +23,10 @@ from typing import (
     Dict,
     Iterable,
     List,
+    Mapping,
     Optional,
+    Sequence,
+    Set,
     Tuple,
     Type,
     Union,
@@ -131,6 +134,53 @@ def _split_cloudmap_keys(path: str) -> Optional[List[str]]:
             return keys
         path = rest[1:]  # skip the "/"
     return None  # empty or trailing "/"
+
+
+def extends_children(
+    types: Mapping[str, Union[CloudType, Mapping[str, object]]],
+) -> Dict[str, List[str]]:
+    """Reverse the ``extends`` edges of a ``types`` section: parent -> subtypes.
+
+    Accepts either the :class:`CloudType` instances a :class:`CloudMapDB`
+    holds or the raw dicts of a parsed cloudmap document, so one adjacency
+    serves the local database, the server's in-memory document and the
+    proxy's cache alike.
+
+    ``extends`` lists are often pre-flattened to the full ancestor closure
+    and name the type itself; that self-edge is dropped so the walk
+    terminates.
+    """
+    children: Dict[str, List[str]] = {}
+    for name, record in types.items():
+        if isinstance(record, CloudType):
+            parents: Sequence[str] = record.extends
+        else:
+            raw = record.get("extends")
+            if not isinstance(raw, list):
+                continue
+            parents = [p for p in raw if isinstance(p, str)]
+        for parent in parents:
+            if parent != name:
+                children.setdefault(parent, []).append(name)
+    return children
+
+
+def subtype_closure(children: Mapping[str, Sequence[str]], type_name: str) -> Set[str]:
+    """``type_name`` plus every type that (transitively) extends it.
+
+    ``children`` is the adjacency from :func:`extends_children`.
+    ``type_name`` need not have a type record of its own: an unknown name
+    matches only itself, which is what keeps a type filter working against
+    a document with no ``types`` section.
+    """
+    names = {type_name}
+    queue = [type_name]
+    while queue:
+        for kid in children.get(queue.pop(), ()):
+            if kid not in names:
+                names.add(kid)
+                queue.append(kid)
+    return names
 
 
 class CloudMapStore(CloudMapWriter):
@@ -629,29 +679,45 @@ class CloudMapDB(CloudMapStore):
         self.config.save()
         return changed
 
+    def _subtype_names(self, type: str) -> Set[str]:
+        """``type`` plus every type in this document that extends it.
+
+        Matches what the server's ``type=`` query parameter does, so a
+        record found locally is a record the server would have returned.
+        """
+        return subtype_closure(extends_children(self.types), type)
+
     def find_artifacts(self, type: str = "") -> Iterable[Artifact]:
-        """An empty filter returns all artifacts."""
+        """An empty filter returns all artifacts; otherwise ``type`` and its subtypes."""
         if not type:
             return self.artifacts.values()
-        return (a for a in self.artifacts.values() if type in a.type.types)
+        names = self._subtype_names(type)
+        return (a for a in self.artifacts.values() if not names.isdisjoint(a.type.types))
 
     def find_services(self, type: str = "") -> Iterable[Service]:
-        """An empty filter returns all services."""
+        """An empty filter returns all services; otherwise ``type`` and its subtypes."""
         if not type:
             return self.services.values()
-        return (s for s in self.services.values() if type in s.type.types)
+        names = self._subtype_names(type)
+        return (s for s in self.services.values() if not names.isdisjoint(s.type.types))
 
     def find_components(self, type: str = "") -> Iterable[Component]:
-        """An empty filter returns all components."""
+        """An empty filter returns all components; otherwise ``type`` and its subtypes."""
         if not type:
             return self.components.values()
-        return (c for c in self.components.values() if type in c.type.types)
+        names = self._subtype_names(type)
+        return (
+            c for c in self.components.values() if not names.isdisjoint(c.type.types)
+        )
 
     def find_instantiations(self, type: str = "") -> Iterable[Instantiation]:
-        """An empty filter returns all instantiations."""
+        """An empty filter returns all instantiations; otherwise ``type`` and its subtypes."""
         if not type:
             return self.instantiations.values()
-        return (i for i in self.instantiations.values() if type in i.type.types)
+        names = self._subtype_names(type)
+        return (
+            i for i in self.instantiations.values() if not names.isdisjoint(i.type.types)
+        )
 
     def find_types(self) -> Iterable[CloudType]:
         return self.types.values()

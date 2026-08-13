@@ -22,7 +22,7 @@ use tempfile::TempDir;
 use tower::util::ServiceExt;
 use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
 use unfurl_server::cloudmap::{
-    handle_cloudmap, post_cloudmap_local, post_cloudmap_proxy, CloudMapState,
+    encode_page_token, handle_cloudmap, post_cloudmap_local, post_cloudmap_proxy, CloudMapState,
 };
 use unfurl_server::config::Config;
 use unfurl_server::AppState;
@@ -178,15 +178,13 @@ async fn full_document_returns_all_sections() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap").await;
     assert_eq!(status, StatusCode::OK);
-    let arr = body.as_array().expect("array");
-    assert_eq!(arr.len(), 2, "response is a [primary, followed] pair");
-    let primary = &arr[0];
-    let followed = &arr[1];
-    // Primary must contain the cloudmap-shaped sections present in the fixture.
-    assert!(primary.get("repositories").is_some());
-    assert!(primary.get("artifacts").is_some());
-    // Followed defaults to {} when no key was supplied.
-    assert_eq!(followed, &serde_json::json!({}));
+    let obj = body.as_object().expect("response object");
+    let result = &obj["result"];
+    // The result must contain the cloudmap-shaped sections present in the fixture.
+    assert!(result.get("repositories").is_some());
+    assert!(result.get("artifacts").is_some());
+    // No key was supplied, so nothing was followed and the key is absent.
+    assert!(!obj.contains_key("followed"));
 }
 
 #[tokio::test]
@@ -195,13 +193,16 @@ async fn kind_only_returns_one_section() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?kind=repositories").await;
     assert_eq!(status, StatusCode::OK);
-    let primary = &body[0];
+    let primary = &body["result"];
     assert!(primary.get("repositories").is_some());
     assert!(
         primary.get("artifacts").is_none(),
         "kind=repositories must not include artifacts"
     );
-    assert_eq!(body[1], serde_json::json!({}));
+    assert!(
+        body.get("followed").is_none(),
+        "no follow was requested, so the key is absent"
+    );
 }
 
 #[tokio::test]
@@ -215,11 +216,14 @@ async fn kind_and_key_returns_single_record() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let primary = &body[0];
+    let primary = &body["result"];
     let repos = primary.get("repositories").expect("repositories section");
     assert_eq!(repos.as_object().unwrap().len(), 1);
     assert!(repos.get(key).is_some(), "expected key under repositories");
-    assert_eq!(body[1], serde_json::json!({}));
+    assert!(
+        body.get("followed").is_none(),
+        "no follow was requested, so the key is absent"
+    );
 }
 
 #[tokio::test]
@@ -245,7 +249,7 @@ async fn follow_walks_graph_when_key_supplied() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let followed = &body[1];
+    let followed = &body["followed"];
     let followed_obj = followed.as_object().expect("followed is object");
     assert!(
         !followed_obj.is_empty(),
@@ -302,7 +306,7 @@ async fn records_carry_occ_tokens() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap").await;
     assert_eq!(status, StatusCode::OK);
-    let primary = &body[0];
+    let primary = &body["result"];
     let repos = primary
         .get("repositories")
         .and_then(|v| v.as_object())
@@ -338,7 +342,7 @@ async fn follow_caps_record_count() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let followed = &body[1];
+    let followed = &body["followed"];
     let total: usize = followed
         .as_object()
         .unwrap()
@@ -349,7 +353,7 @@ async fn follow_caps_record_count() {
 }
 
 #[tokio::test]
-async fn follow_zero_returns_empty_dict() {
+async fn follow_zero_omits_followed() {
     let (cm, _tmp) = open_cloudmap_state().await;
     let app = router(make_state(cm));
     let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
@@ -359,19 +363,21 @@ async fn follow_zero_returns_empty_dict() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body[1], serde_json::json!({}), "follow=0 → empty dict");
+    assert!(
+        body.get("followed").is_none(),
+        "follow=0 asks for no walk, so the key is absent"
+    );
 }
 
 #[tokio::test]
-async fn follow_without_key_returns_empty_dict() {
+async fn follow_without_key_omits_followed() {
     let (cm, _tmp) = open_cloudmap_state().await;
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?follow=10").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(
-        body[1],
-        serde_json::json!({}),
-        "follow without key → empty dict"
+    assert!(
+        body.get("followed").is_none(),
+        "a walk needs a starting key, so the key is absent"
     );
 }
 
@@ -395,7 +401,9 @@ async fn get_filter_searches_record_contents() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let artifacts = body[0]["artifacts"].as_object().expect("artifacts matched");
+    let artifacts = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts matched");
     assert_eq!(artifacts.len(), 1, "one artifact should match: {body:?}");
     assert!(
         artifacts
@@ -406,7 +414,7 @@ async fn get_filter_searches_record_contents() {
         "unexpected match: {body:?}"
     );
     assert!(
-        body[0].get("repositories").is_none(),
+        body["result"].get("repositories").is_none(),
         "sections without a match are omitted: {body:?}"
     );
 
@@ -422,7 +430,7 @@ async fn get_filter_searches_record_contents() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        body[0]["repositories"].as_object().map(|m| m.len()),
+        body["result"]["repositories"].as_object().map(|m| m.len()),
         Some(1),
         "one repository should match: {body:?}"
     );
@@ -439,7 +447,7 @@ async fn get_filter_searches_record_contents() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
-        body[0]["repositories"].as_object().map(|m| m.len()),
+        body["result"]["repositories"].as_object().map(|m| m.len()),
         Some(1)
     );
 
@@ -455,7 +463,10 @@ async fn get_filter_searches_record_contents() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        body[0].as_object().map(|m| m.is_empty()).unwrap_or(false),
+        body["result"]
+            .as_object()
+            .map(|m| m.is_empty())
+            .unwrap_or(false),
         "no matches should return an empty document: {body:?}"
     );
 
@@ -476,7 +487,7 @@ async fn read_version(cm: CloudMapState, kind: &str, key: &str) -> i64 {
     let uri = format!("/cloudmap?kind={}&key={}", kind, urlencoding::encode(key));
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    body[0][kind][key]["unfurl.server.version"]
+    body["result"][kind][key]["unfurl.server.version"]
         .as_i64()
         .expect("version present")
 }
@@ -571,7 +582,7 @@ async fn post_and_get_every_section() {
         let (status, got) = get_json(router(make_state(cm.clone())), &uri).await;
         assert_eq!(status, StatusCode::OK, "GET {kind} failed: {got:?}");
         assert_eq!(
-            got[0][kind][key]["metadata"]["title"].as_str(),
+            got["result"][kind][key]["metadata"]["title"].as_str(),
             Some(title.as_str()),
             "{kind}/{key} did not round trip: {got:?}"
         );
@@ -935,7 +946,7 @@ async fn type_filter_matches_declared_type() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?type=cloudmap.artifacts.ci.GitLabPipeline").await;
     assert_eq!(status, StatusCode::OK);
-    let primary = body[0].as_object().expect("primary object");
+    let primary = body["result"].as_object().expect("primary object");
     assert_eq!(
         primary.keys().collect::<Vec<_>>(),
         vec!["artifacts"],
@@ -944,7 +955,10 @@ async fn type_filter_matches_declared_type() {
     let artifacts = primary["artifacts"].as_object().expect("artifacts");
     assert_eq!(artifacts.len(), 4, "keys: {:?}", artifacts.keys());
     assert!(artifacts.keys().all(|k| k.ends_with(".gitlab-ci.yml")));
-    assert_eq!(body[1], serde_json::json!({}));
+    assert!(
+        body.get("followed").is_none(),
+        "no follow was requested, so the key is absent"
+    );
 }
 
 #[tokio::test]
@@ -957,7 +971,7 @@ async fn type_filter_matches_subtypes_via_extends() {
     let t = "SoftwareService@unfurl.cloud/onecommons/std:generic_types";
     let (status, body) = get_json(app, &format!("/cloudmap?type={}", urlencoding::encode(t))).await;
     assert_eq!(status, StatusCode::OK);
-    let primary = body[0].as_object().expect("primary object");
+    let primary = body["result"].as_object().expect("primary object");
     assert_eq!(primary.keys().collect::<Vec<_>>(), vec!["services"]);
     let services = primary["services"].as_object().expect("services");
     assert!(services.contains_key("https://example.com/oodo"));
@@ -973,8 +987,11 @@ async fn type_filter_without_matches_returns_empty_doc() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?type=tosca.relationships.ConnectsTo").await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body[0], serde_json::json!({}));
-    assert_eq!(body[1], serde_json::json!({}));
+    assert_eq!(body["result"], serde_json::json!({}));
+    assert!(
+        body.get("followed").is_none(),
+        "no follow was requested, so the key is absent"
+    );
 }
 
 #[tokio::test]
@@ -990,7 +1007,7 @@ async fn type_filter_with_kind_and_key() {
     );
     let (status, body) = get_json(router(state.clone()), &uri).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body[0]["services"].get(key).is_some());
+    assert!(body["result"]["services"].get(key).is_some());
 
     // Record exists but its type doesn't satisfy the filter → 404.
     let uri = format!(
@@ -1010,7 +1027,10 @@ async fn type_filter_cache_invalidated_when_types_change() {
     // Warm the closure cache.
     let (status, body) = get_json(router(state.clone()), uri).await;
     assert_eq!(status, StatusCode::OK);
-    let before = body[0]["artifacts"].as_object().expect("artifacts").len();
+    let before = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts")
+        .len();
     assert_eq!(before, 2, "fixture has two TypeLibrary artifacts");
 
     // Write a new subtype into /types plus an artifact declaring it.
@@ -1037,7 +1057,7 @@ async fn type_filter_cache_invalidated_when_types_change() {
     // and pick up the record declaring the new subtype.
     let (status, body) = get_json(router(state), uri).await;
     assert_eq!(status, StatusCode::OK);
-    let artifacts = body[0]["artifacts"].as_object().expect("artifacts");
+    let artifacts = body["result"]["artifacts"].as_object().expect("artifacts");
     assert_eq!(artifacts.len(), before + 1, "keys: {:?}", artifacts.keys());
     assert!(artifacts.contains_key("https://example.com/newlib"));
 }
@@ -1052,7 +1072,7 @@ async fn select_projects_records_to_requested_properties() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?kind=artifacts&select=/type,$key").await;
     assert_eq!(status, StatusCode::OK);
-    let artifacts = body[0]["artifacts"].as_object().expect("artifacts");
+    let artifacts = body["result"]["artifacts"].as_object().expect("artifacts");
     assert!(!artifacts.is_empty());
     for (key, record) in artifacts {
         let record = record.as_object().expect("record object");
@@ -1075,7 +1095,7 @@ async fn select_reconstructs_nested_paths_and_drops_missing() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let record = &body[0]["artifacts"][key];
+    let record = &body["result"]["artifacts"][key];
     assert_eq!(
         record,
         &serde_json::json!({"metadata": {"title": "Odoo"}}),
@@ -1094,7 +1114,7 @@ async fn select_applies_to_followed_records_too() {
     );
     let (status, body) = get_json(app, &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let followed = body[1].as_object().expect("followed object");
+    let followed = body["followed"].as_object().expect("followed object");
     assert!(!followed.is_empty(), "follow=10 reaches records");
     for (_section, records) in followed {
         for (k, record) in records.as_object().expect("records") {
@@ -1122,7 +1142,7 @@ async fn select_prefix_dedup_and_bare_paths() {
     );
     let (status, body) = get_json(router(state.clone()), &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let metadata = &body[0]["artifacts"][key]["metadata"];
+    let metadata = &body["result"]["artifacts"][key]["metadata"];
     assert_eq!(metadata["title"], "Odoo");
     assert_eq!(metadata["version"], 0.1, "whole subtree selected");
 
@@ -1132,7 +1152,9 @@ async fn select_prefix_dedup_and_bare_paths() {
     );
     let (status, body) = get_json(router(state), &uri).await;
     assert_eq!(status, StatusCode::OK);
-    let record = body[0]["artifacts"][key].as_object().expect("record");
+    let record = body["result"]["artifacts"][key]
+        .as_object()
+        .expect("record");
     assert!(record["digest"].is_string());
     assert!(record["unfurl.server.version"].is_i64());
     assert_eq!(record.len(), 2, "keys: {:?}", record.keys());
@@ -1185,7 +1207,7 @@ async fn get_without_cloudmap_path_spans_every_file() {
     let app = router(make_state(cm));
     let (status, body) = get_json(app, "/cloudmap?kind=repositories").await;
     assert_eq!(status, StatusCode::OK);
-    let repos = &body[0]["repositories"];
+    let repos = &body["result"]["repositories"];
     assert!(
         repos.get(ALT_KEY).is_some(),
         "unscoped read should include the alt file's record: {repos:?}"
@@ -1206,7 +1228,7 @@ async fn get_with_cloudmap_path_scopes_to_that_file() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let repos = body[0]["repositories"].as_object().expect("object");
+    let repos = body["result"]["repositories"].as_object().expect("object");
     assert_eq!(
         repos.keys().collect::<Vec<_>>(),
         vec![ALT_KEY],
@@ -1222,7 +1244,7 @@ async fn get_with_cloudmap_path_scopes_to_that_file() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(
-        body[0]["repositories"].get(ALT_KEY).is_none(),
+        body["result"]["repositories"].get(ALT_KEY).is_none(),
         "cloudmap.yaml must not report the alt file's record"
     );
 }
@@ -1691,7 +1713,7 @@ async fn post_with_stale_latest_commit_returns_409() {
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(body[0]["repositories"][key]["name"], "occ-ok");
+    assert_eq!(body["result"]["repositories"][key]["name"], "occ-ok");
 }
 
 #[tokio::test]
@@ -1705,4 +1727,225 @@ async fn post_without_latest_commit_skips_the_check() {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{body:?}");
+}
+
+// ---------------------------------------------------------------------------
+// GET /cloudmap paging
+// ---------------------------------------------------------------------------
+
+/// Page through `uri` at `page_size`, returning every `(section, key)` seen
+/// in the order the server produced it, plus the number of requests made.
+async fn walk_pages(
+    cm: CloudMapState,
+    uri: &str,
+    page_size: usize,
+) -> (Vec<(String, String)>, usize) {
+    let mut seen = Vec::new();
+    let mut token: Option<String> = None;
+    let mut requests = 0;
+    loop {
+        let mut paged = format!("{uri}&limit={page_size}");
+        if let Some(t) = &token {
+            paged.push_str(&format!("&page_token={}", urlencoding::encode(t)));
+        }
+        let app = router(make_state(cm.clone()));
+        let (status, body) = get_json(app, &paged).await;
+        requests += 1;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        let env = body.as_object().expect("response object");
+        assert!(
+            !env.contains_key("followed"),
+            "a paged request is keyless, so it never asks to follow"
+        );
+        for (section, entries) in env["result"].as_object().expect("result") {
+            for k in entries.as_object().expect("section").keys() {
+                seen.push((section.clone(), k.clone()));
+            }
+        }
+        token = env
+            .get("next_page_token")
+            .and_then(Value::as_str)
+            .map(str::to_string);
+        if token.is_none() {
+            return (seen, requests);
+        }
+        assert!(requests < 100, "paging failed to terminate");
+    }
+}
+
+#[tokio::test]
+async fn paged_walk_matches_unpaged() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let (_status, body) = get_json(app, "/cloudmap?kind=artifacts").await;
+    let mut expected: Vec<String> = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts")
+        .keys()
+        .cloned()
+        .collect();
+    expected.sort();
+
+    let (seen, requests) = walk_pages(cm, "/cloudmap?kind=artifacts", 2).await;
+    assert!(requests > 1, "fixture should need several pages at limit=2");
+    assert!(seen.iter().all(|(s, _)| s == "artifacts"));
+    let keys: Vec<String> = seen.into_iter().map(|(_, k)| k).collect();
+    let mut sorted = keys.clone();
+    sorted.sort();
+    assert_eq!(keys, sorted, "records come back in key order");
+    assert_eq!(keys, expected, "pages concatenate to the unpaged section");
+}
+
+#[tokio::test]
+async fn paged_last_page_carries_no_token() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let (_status, body) = get_json(app, "/cloudmap?kind=artifacts").await;
+    let size = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts")
+        .len();
+
+    for limit in [size, size + 5] {
+        let app = router(make_state(cm.clone()));
+        let (status, body) =
+            get_json(app, &format!("/cloudmap?kind=artifacts&limit={limit}")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(
+            body.get("next_page_token").is_none(),
+            "limit={limit} should answer in one page: {body:?}"
+        );
+        assert_eq!(
+            body["result"]["artifacts"]
+                .as_object()
+                .expect("artifacts")
+                .len(),
+            size
+        );
+    }
+}
+
+#[tokio::test]
+async fn paged_empty_result_is_an_empty_document() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=artifacts&type=no.such.Type&limit=5").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(body["result"], serde_json::json!({}));
+    assert!(body.get("followed").is_none());
+    assert!(body.get("next_page_token").is_none());
+}
+
+#[tokio::test]
+async fn paged_with_type_filter() {
+    // The type filter narrows before the page is cut.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let uri = "/cloudmap?kind=artifacts&type=cloudmap.artifacts.ci.GitLabPipeline";
+    let (seen, _requests) = walk_pages(cm, uri, 1).await;
+    assert_eq!(
+        seen.len(),
+        4,
+        "fixture has four pipeline artifacts: {seen:?}"
+    );
+    assert!(seen.iter().all(|(_, k)| k.ends_with(".gitlab-ci.yml")));
+}
+
+#[tokio::test]
+async fn paged_survives_a_deleted_anchor() {
+    // The cursor is a value, not a row reference: a key that isn't in the
+    // document still resumes at the right place.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let (_status, body) = get_json(app, "/cloudmap?kind=artifacts").await;
+    let mut keys: Vec<String> = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts")
+        .keys()
+        .cloned()
+        .collect();
+    keys.sort();
+
+    let token = encode_page_token("/artifacts", &format!("{}\u{1}gone", keys[0]));
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=artifacts&limit=50&page_token={}",
+            urlencoding::encode(&token)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut got: Vec<String> = body["result"]["artifacts"]
+        .as_object()
+        .expect("artifacts")
+        .keys()
+        .cloned()
+        .collect();
+    got.sort();
+    assert_eq!(got, keys[1..].to_vec());
+}
+
+#[tokio::test]
+async fn paged_rejects_key_and_bad_parameters() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+
+    let app = router(make_state(cm.clone()));
+    let (status, _body) = get_json(
+        app,
+        "/cloudmap?kind=artifacts&limit=2&key=pkg:oci/example/image",
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a key selects one record, so there is nothing to page"
+    );
+
+    for bad in ["0", "-1"] {
+        let app = router(make_state(cm.clone()));
+        let (status, _body) = get_json(app, &format!("/cloudmap?kind=artifacts&limit={bad}")).await;
+        assert_eq!(
+            status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "limit={bad} violates its schema bound, as it does on the python side"
+        );
+    }
+
+    // no delimiter, empty key, and a section that isn't one -- the last
+    // would otherwise resume from the wrong place in the ordering
+    for bad in ["artifacts", "artifacts/", "nosuchsection/key"] {
+        let app = router(make_state(cm.clone()));
+        let (status, _body) = get_json(
+            app,
+            &format!(
+                "/cloudmap?kind=artifacts&limit=2&page_token={}",
+                urlencoding::encode(bad)
+            ),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "page_token={bad}");
+    }
+}
+
+#[tokio::test]
+async fn paged_ignores_follow() {
+    // `follow` is already inert without a key, and a paged request is always
+    // keyless, so it is accepted and simply has no effect.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=artifacts&limit=2&follow=10").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body.get("followed").is_none(),
+        "follow is inert without a key, so the response omits it"
+    );
+}
+
+#[test]
+fn page_token_wire_format_is_pinned() {
+    // The python handler's `_encode_page_token` produces this same string;
+    // its twin test asserts the identical literal. A client may page across
+    // the two implementations, so the encoding cannot drift.
+    assert_eq!(encode_page_token("/artifacts", "pkg:x"), "artifacts/pkg:x");
 }

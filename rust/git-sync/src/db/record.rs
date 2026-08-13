@@ -324,6 +324,8 @@ pub(crate) async fn find(
     since_version: Option<i64>,
     type_names: Option<&[String]>,
     json_query: Option<&JsonQuery>,
+    after: Option<(&str, &str)>,
+    limit: Option<i64>,
 ) -> Result<Vec<Record>> {
     // The alias OR-clause is a no-op without a key.
     let alias_active = alias && key.is_some();
@@ -342,6 +344,8 @@ pub(crate) async fn find(
                 since_version,
                 type_names,
                 json_query,
+                after,
+                limit,
             )
             .await
         }
@@ -357,6 +361,8 @@ pub(crate) async fn find(
                 since_version,
                 type_names,
                 json_query,
+                after,
+                limit,
             )
             .await
         }
@@ -374,6 +380,8 @@ async fn find_sqlite(
     since_version: Option<i64>,
     type_names: Option<&[String]>,
     json_query: Option<&JsonQuery>,
+    after: Option<(&str, &str)>,
+    limit: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
@@ -481,7 +489,21 @@ async fn find_sqlite(
         sql.push_str(&format!(" AND r.version > ?{idx}"));
         idx += 1;
     }
+    if after.is_some() {
+        // Keyset cursor over the `ORDER BY` below. Row-value comparison
+        // (sqlite >= 3.15) is the whole predicate, so the anchor row
+        // itself need not still exist -- a record deleted between pages
+        // doesn't strand the walk. sqlite's default BINARY collation
+        // compares UTF-8 bytes, which is the ordering the page token
+        // promises and the other two implementations reproduce.
+        sql.push_str(&format!(" AND (r.path, r.key) > (?{idx}, ?{})", idx + 1));
+        idx += 2;
+    }
     sql.push_str(" ORDER BY r.path, r.key");
+    if limit.is_some() {
+        sql.push_str(&format!(" LIMIT ?{idx}"));
+        idx += 1;
+    }
     let _ = idx; // silence unused-assignment lint when the last bind isn't used
 
     let mut q =
@@ -529,6 +551,12 @@ async fn find_sqlite(
     if let Some(v) = since_version {
         q = q.bind(v);
     }
+    if let Some((p, k)) = after {
+        q = q.bind(p).bind(k);
+    }
+    if let Some(n) = limit {
+        q = q.bind(n);
+    }
     let rows = q.fetch_all(pool).await?;
 
     let mut out = Vec::with_capacity(rows.len());
@@ -565,6 +593,8 @@ async fn find_pg(
     since_version: Option<i64>,
     type_names: Option<&[String]>,
     json_query: Option<&JsonQuery>,
+    after: Option<(&str, &str)>,
+    limit: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
         "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
@@ -625,7 +655,24 @@ async fn find_pg(
         sql.push_str(&format!(" AND r.version > ${idx}"));
         idx += 1;
     }
-    sql.push_str(" ORDER BY r.path, r.key");
+    if after.is_some() {
+        // Keyset cursor; see the sqlite arm. `COLLATE "C"` here and on
+        // the `ORDER BY` below pins byte-wise ordering: the database's
+        // default collation is locale-dependent (`en_US.UTF-8` sorts
+        // "é" before "z", byte order after), and a page token minted by
+        // the sqlite or python implementation has to mean the same thing
+        // here or a walk would skip or repeat records.
+        sql.push_str(&format!(
+            " AND (r.path COLLATE \"C\", r.key COLLATE \"C\") > (${idx}, ${})",
+            idx + 1
+        ));
+        idx += 2;
+    }
+    sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\"");
+    if limit.is_some() {
+        sql.push_str(&format!(" LIMIT ${idx}"));
+        idx += 1;
+    }
     let _ = idx;
 
     let mut q = sqlx::query_as::<
@@ -664,6 +711,12 @@ async fn find_pg(
     }
     if let Some(v) = since_version {
         q = q.bind(v);
+    }
+    if let Some((p, k)) = after {
+        q = q.bind(p).bind(k);
+    }
+    if let Some(n) = limit {
+        q = q.bind(n);
     }
     let rows = q.fetch_all(pool).await?;
     Ok(rows

@@ -2109,11 +2109,12 @@ def test_server_cloudmap(server_env):
                 cloudmap_url, params={"type": "cloudmap.artifacts.GitLabPipeline"}
             )
             assert res.status_code == 200, res.text
-            primary, followed = res.json()
+            body = res.json()
+            primary = body["result"]
             assert list(primary) == ["artifacts"]
             assert len(primary["artifacts"]) == 4
             assert all(k.endswith(".gitlab-ci.yml") for k in primary["artifacts"])
-            assert followed == {}
+            assert "followed" not in body
 
             # Subtype match via `extends`: the service declares type
             # `Odoo@…`, whose type record (transitively) extends
@@ -2125,7 +2126,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            primary = res.json()[0]
+            primary = res.json()["result"]
             assert list(primary) == ["services"]
             assert list(primary["services"]) == ["https://example.com/oodo"]
 
@@ -2135,7 +2136,7 @@ def test_server_cloudmap(server_env):
                 cloudmap_url, params={"type": "tosca.relationships.ConnectsTo"}
             )
             assert res.status_code == 200, res.text
-            assert res.json() == [{}, {}]
+            assert res.json() == {"result": {}}
 
             # kind + key + type AND together: matching type (via
             # extends: Odoo@… extends tosca.nodes.Root) → 200 ...
@@ -2149,7 +2150,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert service_key in res.json()[0]["services"]
+            assert service_key in res.json()["result"]["services"]
 
             # ... and a record whose type doesn't satisfy the filter
             # → 404.
@@ -2163,6 +2164,69 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 404, res.text
 
+            # ----- GET /cloudmap?limit=... (paging; the rust fast-path
+            # cuts the page in SQL, the Python fallback slices the loaded
+            # document — the walks must agree, and a page token minted by
+            # one has to be understood by the other) -----
+
+            res = requests.get(cloudmap_url, params={"kind": "artifacts"})
+            assert res.status_code == 200, res.text
+            unpaged = sorted(res.json()["result"]["artifacts"])
+            assert len(unpaged) > 2, "fixture should be worth paging"
+
+            seen: list = []
+            token = None
+            for _ in range(50):
+                params = {"kind": "artifacts", "limit": 2}
+                if token:
+                    params["page_token"] = token
+                res = requests.get(cloudmap_url, params=params)
+                assert res.status_code == 200, res.text
+                body = res.json()
+                assert "followed" not in body, "a paged request is keyless"
+                seen.extend(body["result"].get("artifacts", {}))
+                token = body.get("next_page_token")
+                if not token:
+                    break
+            else:
+                raise AssertionError("paging failed to terminate")
+            assert seen == sorted(seen), "records come back in key order"
+            assert seen == unpaged, "pages concatenate to the unpaged section"
+
+            # A limit at or above the section size is one page, no token.
+            res = requests.get(
+                cloudmap_url, params={"kind": "artifacts", "limit": len(unpaged)}
+            )
+            assert res.status_code == 200, res.text
+            assert "next_page_token" not in res.json()
+
+            # `type` narrows before the page is cut.
+            res = requests.get(
+                cloudmap_url,
+                params={
+                    "kind": "artifacts",
+                    "type": "cloudmap.artifacts.GitLabPipeline",
+                    "limit": 50,
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert len(res.json()["result"]["artifacts"]) == 4
+
+            # Error parity: a key can't be paged, a limit below 1 violates
+            # its schema bound, and a malformed cursor is a bad request.
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "services", "key": service_key, "limit": 2},
+            )
+            assert res.status_code == 400, res.text
+            res = requests.get(cloudmap_url, params={"kind": "artifacts", "limit": 0})
+            assert res.status_code == 422, res.text
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "artifacts", "limit": 2, "page_token": "nosuchsection/key"},
+            )
+            assert res.status_code == 400, res.text
+
             # ----- GET /cloudmap?filter=... (content filter; the rust
             # fast-path pushes it into SQL, the Python fallback runs the
             # same predicate over the loaded document — they must agree) -----
@@ -2175,8 +2239,9 @@ def test_server_cloudmap(server_env):
             def cloudmap_filter(expr):
                 res = requests.get(cloudmap_url, params={"filter": expr})
                 assert res.status_code == 200, res.text
-                primary, followed = res.json()
-                assert followed == {}, primary
+                body = res.json()
+                primary = body["result"]
+                assert "followed" not in body, primary
                 return primary
 
             dashboard = "git://unfurl.cloud/feb20a/dashboard.git"
@@ -2292,7 +2357,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert list(res.json()[0]["repositories"]) == [dashboard], res.text
+            assert list(res.json()["result"]["repositories"]) == [dashboard], res.text
             res = requests.get(
                 cloudmap_url,
                 params={
@@ -2302,7 +2367,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert res.json()[0] == {}, "kind and query must both match"
+            assert res.json()["result"] == {}, "kind and query must both match"
 
             # Malformed filter → 400 from both handlers. (A filter with no
             # "=" isn't malformed any more -- it's an existence test.)
@@ -2325,7 +2390,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert res.json()[0] == {
+            assert res.json()["result"] == {
                 "services": {
                     service_key: {
                         "type": {
@@ -2345,7 +2410,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            primary = res.json()[0]
+            primary = res.json()["result"]
             assert list(primary) == ["artifacts"]
             assert primary["artifacts"] == {
                 k: {"$key": k} for k in primary["artifacts"]
@@ -2366,7 +2431,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert res.json()[0] == {
+            assert res.json()["result"] == {
                 "artifacts": {template_key: {"metadata": {"title": "Odoo"}}}
             }
 
@@ -2401,14 +2466,14 @@ def test_server_cloudmap(server_env):
                 on_disk = Path(cloudmap_path).read_text()
                 assert "renamed-via-post" in on_disk
             # GET-after-upsert: both paths reflect the change. GET
-            # returns ``[primary, followed]``; primary is a
+            # returns ``{"result": ..., "followed": ...}``; result is a
             # CloudMap-shaped doc keyed by section -> key -> record.
             read_back = requests.get(
                 cloudmap_url,
                 params={"kind": "repositories", "key": existing_key},
             )
             assert read_back.status_code == 200, read_back.text
-            primary = read_back.json()[0]["repositories"][existing_key]
+            primary = read_back.json()["result"]["repositories"][existing_key]
             assert primary.get("name") == "renamed-via-post"
 
             # 1b. A `components` POST + GET round trip. Every layer keeps
@@ -2435,7 +2500,7 @@ def test_server_cloudmap(server_env):
                 params={"kind": "components", "key": component_key},
             )
             assert read_back.status_code == 200, read_back.text
-            component = read_back.json()[0]["components"][component_key]
+            component = read_back.json()["result"]["components"][component_key]
             assert component["metadata"]["title"] == "App schema", component
 
             # A quoted value forces a string comparison, so it matches the
@@ -2445,10 +2510,10 @@ def test_server_cloudmap(server_env):
                 cloudmap_url, params={"filter": '/metadata/version="42"'}
             )
             assert res.status_code == 200, res.text
-            assert list(res.json()[0]["components"]) == [component_key], res.text
+            assert list(res.json()["result"]["components"]) == [component_key], res.text
             res = requests.get(cloudmap_url, params={"filter": "/metadata/version=42"})
             assert res.status_code == 200, res.text
-            assert res.json()[0] == {}, res.text
+            assert res.json()["result"] == {}, res.text
 
             # 2. Delete via `unfurl.server.deleted: true`.
             import yaml as _yaml
@@ -2520,14 +2585,14 @@ def test_server_cloudmap(server_env):
                 params={"kind": "repositories", "cloudmap_path": alt_path},
             )
             assert res.status_code == 200, res.text
-            assert list(res.json()[0]["repositories"]) == [alt_key], res.text
+            assert list(res.json()["result"]["repositories"]) == [alt_key], res.text
 
             res = requests.get(
                 cloudmap_url,
                 params={"kind": "repositories", "cloudmap_path": "cloudmap.yaml"},
             )
             assert res.status_code == 200, res.text
-            assert alt_key not in res.json()[0]["repositories"], (
+            assert alt_key not in res.json()["result"]["repositories"], (
                 "the cloudmap.yaml view must not include the alt file"
             )
 
@@ -2551,7 +2616,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert res.json()[0]["repositories"][alt_key]["name"] == "renamed-in-alt"
+            assert res.json()["result"]["repositories"][alt_key]["name"] == "renamed-in-alt"
 
             # /graph honors it too
             res = requests.get(
@@ -2665,7 +2730,7 @@ def test_server_cloudmap(server_env):
                 },
             )
             assert res.status_code == 200, res.text
-            assert res.json()[0]["repositories"][new_url]["name"] == "brand-new"
+            assert res.json()["result"]["repositories"][new_url]["name"] == "brand-new"
         finally:
             _terminate_process(p)
 

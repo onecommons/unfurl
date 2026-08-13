@@ -26,6 +26,7 @@ from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..manifest import relabel_dict
 from ..projectpaths import Folders
+from ..cloudmap.db import extends_children, subtype_closure
 from ..repo import (
     GitRepo,
     Repo,
@@ -40,7 +41,7 @@ from ..yamlloader import yaml
 from .schemas import (
     BatchPatchBody,
     CloudMapDocQuery,
-    CloudMapDocumentPair,
+    CloudMapResult,
     CloudMapQuery,
     CloudMapResponse,
     PatchEnsembleBody,
@@ -101,25 +102,42 @@ def _subtype_names(types_section: Dict[str, Any], type_name: str) -> Set[str]:
     Mirrors the rust server's ``CloudMapState::subtype_names``:
     ``extends`` lists are often pre-flattened (full ancestor closure)
     but the BFS also handles direct-parents-only producers, and
-    ``type_name`` need not have a type record.
+    ``type_name`` need not have a type record. Shares its walk with
+    ``CloudMapDB.find_*`` so the three implementations can't drift.
     """
-    children: Dict[str, List[str]] = {}
-    for name, record in types_section.items():
-        if not isinstance(record, dict):
-            continue
-        for parent in record.get("extends") or ():
-            # Type records commonly list themselves first in
-            # `extends`; skip the self-edge.
-            if isinstance(parent, str) and parent != name:
-                children.setdefault(parent, []).append(name)
-    names = {type_name}
-    queue = [type_name]
-    while queue:
-        for kid in children.get(queue.pop(), ()):
-            if kid not in names:
-                names.add(kid)
-                queue.append(kid)
-    return names
+    return subtype_closure(extends_children(types_section), type_name)
+
+
+def _encode_page_token(path: str, key: str) -> str:
+    """Mint the cursor naming ``(path, key)`` as the last record of a page.
+
+    Just ``<section>/<key>``. Section names are a fixed set and contain no
+    "/", so the first one separates the two halves however many the key
+    itself has; nothing needs escaping because the whole token is
+    URL-encoded as a query parameter anyway. ``path`` is the record path
+    the rust backend stores (``"/artifacts"``), so a token means the same
+    thing whichever server issued it.
+    """
+    return f"{path.lstrip('/')}/{key}"
+
+
+def _decode_page_token(token: str) -> Tuple[str, str]:
+    """Inverse of :func:`_encode_page_token`, returning ``(path, key)``.
+
+    Raises:
+        ValueError: If the token isn't ``<known section>/<non-empty key>``.
+            Checking the section matters: an unrecognised one would
+            otherwise silently resume from the wrong place in the ordering
+            rather than report the bad cursor. The anchor record needn't
+            still exist -- the bound is a value, not a row reference -- so
+            this never rejects a merely stale token.
+    """
+    section, sep, key = token.partition("/")
+    if not sep or not key or section not in _CLOUDMAP_SECTIONS:
+        raise ValueError(
+            f"page_token {token!r} is not a valid cursor: expected <section>/<key>"
+        )
+    return "/" + section, key
 
 
 def _declares_type(record: Any, type_names: Set[str]) -> bool:
@@ -342,17 +360,22 @@ def _project_document(
 @app.doc(
     summary="CloudMap document",
     description=(
-        "Return a pair ``[document, follow]`` of CloudMap documents. "
-        "``document`` is the raw CloudMap (or a subset filtered by "
-        "``kind`` / ``key``). ``follow`` contains records reachable "
-        "from ``key`` when ``follow`` > 0, otherwise it is ``{}``."
+        "Return the CloudMap document under ``result`` — the raw "
+        "CloudMap, or the subset selected by ``kind`` / ``key`` / "
+        "``type`` / ``filter``.\n\n"
+        "Two further keys appear only when the request asked for what "
+        "they carry, so a client can tell 'you didn't ask' from 'there "
+        "is none': ``followed`` holds the records reached by walking "
+        "the graph, and is present only when ``follow`` > 0 with a "
+        "``key``; ``next_page_token`` is the cursor for the next page, "
+        "and is present only on a ``limit`` request that has one."
     ),
     tags=["Export"],
 )
 @app.input(CloudMapDocQuery, location="query", arg_name="query")
 @app.output(
-    CloudMapDocumentPair,
-    description="Pair: [filtered CloudMap document, followed records]",
+    CloudMapResult,
+    description="The filtered CloudMap document, plus follow/paging keys when requested",
 )
 def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
@@ -362,6 +385,21 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     kind = query.kind
     key = query.key
     follow = query.follow
+    limit = query.limit
+    # A key selects a single record, so there is nothing to page through.
+    # `follow` needs no such check: it is already inert without a key (see
+    # `need_db` below), and a paged request is by definition keyless.
+    if limit is not None and key:
+        return make_response(
+            jsonify(error="limit cannot be combined with key"),
+            400,
+        )
+    after: Optional[Tuple[str, str]] = None
+    if query.page_token:
+        try:
+            after = _decode_page_token(query.page_token)
+        except ValueError as page_err:
+            return make_response(jsonify(error=str(page_err)), 400)
     need_db = follow > 0 and bool(key)
     # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
     err, doc, db = load_cloudmap_local(
@@ -467,15 +505,69 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         walk_cloudmap_graph(db, visitor, key or "")
         followed = visitor.result
 
-    # `select` reduces every returned record (both halves of the
-    # pair) to the requested properties.
+    # Cut the page before `select`, so a projection can't change which
+    # records a page holds. `primary` is already narrowed by kind, type
+    # and filter at this point, so paging sees exactly the records an
+    # unpaged request would have returned.
+    next_token: Optional[str] = None
+    if limit is not None:
+        primary, next_token = _page_document(primary, after, limit)
+
+    # `select` reduces every returned record to the requested properties.
     if query.select:
         select_paths = _parse_select(query.select)
         if select_paths:
             primary = _project_document(primary, select_paths)
             followed = _project_document(followed, select_paths)
 
-    return [primary, followed]
+    # `followed` and `next_page_token` are omitted unless the request
+    # asked for what they carry, so a client can tell "you didn't ask"
+    # from "there is none" without inspecting its own query.
+    body: Dict[str, Any] = {"result": primary}
+    if need_db:
+        body["followed"] = followed
+    if next_token is not None:
+        body["next_page_token"] = next_token
+    return body
+
+
+def _page_document(
+    doc: Dict[str, Any], after: Optional[Tuple[str, str]], limit: int
+) -> Tuple[Dict[str, Any], Optional[str]]:
+    """Cut one page out of a CloudMap document.
+
+    Records across all sections are ordered by ``(path, key)`` -- the
+    same byte-wise ordering the rust backend sorts by, ``path`` being
+    ``"/" + section`` -- so a walk is stable and the two server
+    implementations agree on where a page ends. Returns the page as a
+    CloudMap document plus the cursor for the next one, or ``None`` when
+    this was the last.
+
+    Iterating known sections also drops the document's envelope keys
+    (``apiVersion``, ``kind``, ``metadata``), which aren't records and
+    have no place in a page.
+    """
+    entries = sorted(
+        (
+            ("/" + section_name, k, v)
+            for section_name in _CLOUDMAP_SECTIONS
+            if isinstance(doc.get(section_name), dict)
+            for k, v in doc[section_name].items()
+        ),
+        key=lambda entry: (entry[0], entry[1]),
+    )
+    if after is not None:
+        entries = [e for e in entries if (e[0], e[1]) > after]
+    # One extra record is all it takes to know another page exists; without
+    # the probe a section whose size is a multiple of `limit` would end on a
+    # token pointing at an empty page.
+    more = len(entries) > limit
+    entries = entries[:limit]
+    paged: Dict[str, Any] = {}
+    for path, k, v in entries:
+        paged.setdefault(path[1:], {})[k] = v
+    token = _encode_page_token(entries[-1][0], entries[-1][1]) if more else None
+    return paged, token
 
 
 _CLOUDMAP_SECTIONS: Tuple[str, ...] = (

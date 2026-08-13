@@ -68,6 +68,40 @@ fn origin_matches(origin: &str, project_id: &str) -> bool {
     origin == project || origin.ends_with(&format!("/{project}"))
 }
 
+/// Mint the paging cursor naming `(path, key)` as the last record of a page.
+///
+/// Just `<section>/<key>`. Section names are a fixed set and contain no
+/// "/", so the first one separates the two halves however many the key
+/// itself has; nothing needs escaping because the whole token is
+/// URL-encoded as a query parameter anyway. The python handler's
+/// `_encode_page_token` produces the identical string, so a client may
+/// page across the two implementations — which it does whenever this
+/// handler proxies a request to python.
+pub fn encode_page_token(path: &str, key: &str) -> String {
+    format!("{}/{}", path.trim_start_matches('/'), key)
+}
+
+/// Inverse of [`encode_page_token`], returning `(path, key)`.
+///
+/// Checking the section matters: an unrecognised one would otherwise
+/// silently resume from the wrong place in the ordering rather than
+/// report the bad cursor. Rejects only malformed tokens, never merely
+/// stale ones — the cursor is a value rather than a row reference, so the
+/// record it names may have been deleted since it was issued.
+fn decode_page_token(token: &str) -> Result<(String, String), LocalError> {
+    let bad = || {
+        LocalError::BadRequest(format!(
+            "page_token {token:?} is not a valid cursor: expected <section>/<key>"
+        ))
+    };
+    let (section, key) = token.split_once('/').ok_or_else(bad)?;
+    if key.is_empty() {
+        return Err(bad());
+    }
+    let path = path_for_kind(section).ok_or_else(bad)?;
+    Ok((path.to_string(), key.to_string()))
+}
+
 /// Reverse lookup: `record.path` → cloudmap section name.
 fn section_for_path(path: &str) -> Option<&'static str> {
     for (section, p) in KIND_TO_PATH {
@@ -239,6 +273,8 @@ impl CloudMapState {
                     None,
                     None,
                     None,
+                    None,
+                    None,
                 )
                 .await?;
             let mut children: HashMap<String, Vec<String>> = HashMap::new();
@@ -344,6 +380,11 @@ pub async fn handle_cloudmap(
         Err(LocalError::BadRequest(msg)) => {
             (StatusCode::BAD_REQUEST, Json(json!({"error": msg}))).into_response()
         }
+        Err(LocalError::Unprocessable(msg)) => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(json!({"error": msg})),
+        )
+            .into_response(),
         Err(LocalError::Internal(msg)) => {
             tracing::error!("cloudmap handler error: {}", msg);
             (
@@ -360,6 +401,11 @@ enum LocalError {
     /// A malformed request parameter — 400, the same status the python
     /// handler answers for an unparseable `query`.
     BadRequest(String),
+    /// A parameter that violates its declared schema constraint — 422,
+    /// matching what APIFlask returns on the python side. The generated
+    /// query struct carries no range validators, so bounds like
+    /// `limit >= 1` are checked here instead.
+    Unprocessable(String),
     Internal(String),
 }
 
@@ -386,10 +432,14 @@ pub enum ProjectCheck {
 /// returns a bare `{}` for an empty `followed` and we keep wire
 /// parity. So we emit each element as a [`Value::Object`] containing
 /// only the section maps that actually have records.
+///
+/// The response is an object: the document under `result`, plus
+/// `followed` and `next_page_token` only when the request asked for what
+/// they carry.
 async fn build_response(
     cm: &CloudMapState,
     params: &unfurl_types::GetCloudmapRequestQuery,
-) -> Result<Vec<Value>, LocalError> {
+) -> Result<Value, LocalError> {
     let synced = cm.inner.as_ref();
     let kind = params.kind.as_deref();
     let key = params.key.as_deref();
@@ -463,6 +513,29 @@ async fn build_response(
     };
     let content_filtered = json_filter.is_some();
 
+    // `select` reduces every returned record to the requested properties.
+    // Parsed once here; empty / all-blank values mean "no projection".
+    let select_paths: Option<Vec<SelectPath>> = params
+        .select
+        .as_deref()
+        .map(parse_select)
+        .filter(|p| !p.is_empty());
+
+    if let Some(limit) = params.limit {
+        return paged_response(
+            synced,
+            file_path,
+            path,
+            key,
+            params,
+            type_names,
+            json_filter,
+            select_paths.as_deref(),
+            limit,
+        )
+        .await;
+    }
+
     let (initial, followed_records) = synced
         .find_records_follow(
             file_path.map(str::to_string),
@@ -492,18 +565,90 @@ async fn build_response(
         }
     }
 
-    // `select` reduces every returned record (both halves of the
-    // pair) to the requested properties. Parsed once here; empty /
-    // all-blank values mean "no projection".
-    let select_paths: Option<Vec<SelectPath>> = params
-        .select
-        .as_deref()
-        .map(parse_select)
-        .filter(|p| !p.is_empty());
+    let mut body = Map::new();
+    body.insert(
+        "result".to_string(),
+        records_to_document(initial, select_paths.as_deref()),
+    );
+    // Omitted unless the request asked to walk, so a client can tell
+    // "you didn't ask" from "there is none".
+    if follow > 0 {
+        body.insert(
+            "followed".to_string(),
+            records_to_document(followed_records, select_paths.as_deref()),
+        );
+    }
+    Ok(Value::Object(body))
+}
 
-    let primary = records_to_document(initial, select_paths.as_deref());
-    let followed = records_to_document(followed_records, select_paths.as_deref());
-    Ok(vec![primary, followed])
+/// One page of a `limit` request: the ordered scan cut at `limit`.
+///
+/// Never carries a `followed` key. That isn't a special case here: a walk
+/// needs a starting `key`, and `key` is rejected alongside `limit` because
+/// it selects a single record. `exclude` is likewise ignored — it only ever
+/// narrowed the follow walk.
+#[allow(clippy::too_many_arguments)]
+async fn paged_response(
+    synced: &SyncedRepo,
+    file_path: Option<&str>,
+    path: Option<&'static str>,
+    key: Option<&str>,
+    params: &unfurl_types::GetCloudmapRequestQuery,
+    type_names: Option<Vec<String>>,
+    json_filter: Option<JsonQuery>,
+    select: Option<&[SelectPath]>,
+    limit: i64,
+) -> Result<Value, LocalError> {
+    if limit < 1 {
+        return Err(LocalError::Unprocessable(format!(
+            "limit must be at least 1, got {limit}"
+        )));
+    }
+    if key.is_some() {
+        return Err(LocalError::BadRequest(
+            "limit cannot be combined with key".to_string(),
+        ));
+    }
+    let after = params
+        .page_token
+        .as_deref()
+        .filter(|t| !t.is_empty())
+        .map(decode_page_token)
+        .transpose()?;
+
+    // Fetch one extra record: its presence is what says another page
+    // exists. Testing `len == limit` instead would end a section whose
+    // size is a multiple of `limit` on a token pointing at an empty page.
+    let mut rows = synced
+        .find_records(
+            file_path.map(str::to_string),
+            path.map(|s| s.to_string()),
+            None,
+            false,
+            params.since_version,
+            type_names,
+            json_filter,
+            after,
+            Some(limit + 1),
+        )
+        .await
+        .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+
+    let more = rows.len() as i64 > limit;
+    rows.truncate(limit as usize);
+    let next = if more {
+        rows.last().map(|r| encode_page_token(&r.path, &r.key))
+    } else {
+        None
+    };
+
+    let mut body = Map::new();
+    body.insert("result".to_string(), records_to_document(rows, select));
+    // Absent on the last page — that is what ends a client's walk.
+    if let Some(token) = next {
+        body.insert("next_page_token".to_string(), Value::String(token));
+    }
+    Ok(Value::Object(body))
 }
 
 /// Parse the `filter` param: `<json pointer>=<value>`.

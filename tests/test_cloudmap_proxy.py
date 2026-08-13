@@ -69,6 +69,15 @@ def _make_response(payload: Any, *, status: int = 200) -> MagicMock:
     return resp
 
 
+def _response(result: Dict[str, Any], followed: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """The shape ``GET /cloudmap`` answers with: the document under
+    ``result``, and ``followed`` only when the request asked to walk."""
+    body: Dict[str, Any] = {"result": result}
+    if followed is not None:
+        body["followed"] = followed
+    return body
+
+
 def _make_proxy(
     get_returns: Optional[List[MagicMock]] = None,
     post_returns: Optional[List[MagicMock]] = None,
@@ -100,10 +109,9 @@ def _make_proxy(
 def test_get_artifact_fetches_then_caches() -> None:
     """A miss issues one GET; the second call is fully local."""
     url = "pkg:oci/example/image@1.0"
-    fetched_pair = [
+    fetched_pair = _response(
         {"artifacts": {url: _artifact_payload(url, version=5)}},
-        {},
-    ]
+    )
     proxy, session = _make_proxy(get_returns=[_make_response(fetched_pair)])
 
     art = proxy.get_artifact(url)
@@ -130,10 +138,10 @@ def test_get_artifact_populates_followed_records() -> None:
     """Followed records pre-warm the cache for unrelated kinds."""
     art_url = "pkg:oci/example/image@1.0"
     svc_url = "https://example.com/svc"
-    pair = [
+    pair = _response(
         {"artifacts": {art_url: _artifact_payload(art_url, version=5)}},
-        {"services": {svc_url: _service_payload(svc_url, version=7)}},
-    ]
+        followed={"services": {svc_url: _service_payload(svc_url, version=7)}},
+    )
     proxy, session = _make_proxy(get_returns=[_make_response(pair)])
 
     proxy.get_artifact(art_url)
@@ -147,7 +155,7 @@ def test_get_record_by_cloudmap_url() -> None:
     """The endpoint identifies the cloudmap document the proxy mirrors."""
     endpoint = "https://api.example.com/services/unfurl-server/cloudmap"
     svc_url = "https://example.com/svc"
-    pair = [{"services": {svc_url: _service_payload(svc_url, version=7)}}, {}]
+    pair = _response({"services": {svc_url: _service_payload(svc_url, version=7)}})
     proxy, session = _make_proxy(get_returns=[_make_response(pair)])
     assert proxy._cache.path == endpoint
 
@@ -173,10 +181,9 @@ def test_get_returns_none_on_404_and_caches_negative() -> None:
 
 def test_find_artifacts_per_section_fetch_and_iterator() -> None:
     art_url = "pkg:oci/example/image@1.0"
-    pair = [
+    pair = _response(
         {"artifacts": {art_url: _artifact_payload(art_url)}},
-        {},
-    ]
+    )
     proxy, session = _make_proxy(get_returns=[_make_response(pair)])
 
     result = proxy.find_artifacts()
@@ -186,11 +193,12 @@ def test_find_artifacts_per_section_fetch_and_iterator() -> None:
     assert len(items) == 1
     assert isinstance(items[0], Artifact)
 
-    # Verify the request shape: kind=artifacts, no key, no follow.
+    # Verify the request shape: kind=artifacts, no key, no follow, paged.
     call = session.get.call_args
     assert dict(call.kwargs["params"]) == {
         "auth_project": "acme/prod",
         "kind": "artifacts",
+        "limit": "500",
     }
 
     # Second call doesn't refetch.
@@ -199,7 +207,10 @@ def test_find_artifacts_per_section_fetch_and_iterator() -> None:
 
 
 def test_find_filters_by_type() -> None:
-    pair = [
+    """A typed find asks the server for just that type, and still filters
+    locally so a mixed cache (from an earlier full load) can't leak."""
+    types_pair = _response({"types": {}})
+    typed_pair = _response(
         {
             "artifacts": {
                 "pkg:oci/a": {
@@ -212,25 +223,333 @@ def test_find_filters_by_type() -> None:
                 },
             }
         },
-        {},
-    ]
-    proxy, _ = _make_proxy(get_returns=[_make_response(pair)])
+    )
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(types_pair), _make_response(typed_pair)]
+    )
 
     helm = list(proxy.find_artifacts(type="unfurl.artifacts.HelmChart"))
     assert len(helm) == 1
     assert helm[0].url == "pkg:helm/b"
 
+    # The type went to the server rather than being applied only locally.
+    assert session.get.call_count == 2, "the types section, then the artifacts"
+    assert dict(session.get.call_args_list[1].kwargs["params"]) == {
+        "auth_project": "acme/prod",
+        "kind": "artifacts",
+        "type": "unfurl.artifacts.HelmChart",
+        "limit": "500",
+    }
+
+
+def test_find_by_type_loads_types_for_the_subtype_closure() -> None:
+    """The server's ``type=`` matches subtypes, so the proxy must have the
+    ``types`` section before filtering locally -- otherwise the local filter
+    narrows to exact names and drops records the server deliberately sent."""
+    types_pair = _response(
+        {
+            "types": {
+                "ex.Base": {"name": "ex.Base", "kind": "Artifact"},
+                "ex.Derived": {
+                    "name": "ex.Derived",
+                    "kind": "Artifact",
+                    "extends": ["ex.Base"],
+                },
+            }
+        },
+    )
+    typed_pair = _response(
+        {
+            "artifacts": {
+                # declares only the *subtype*: the server sent it because
+                # ex.Derived extends ex.Base
+                "pkg:oci/derived": {
+                    "type": {"ex.Derived": None},
+                    "unfurl.server.version": 3,
+                },
+            }
+        },
+    )
+    proxy, _session = _make_proxy(
+        get_returns=[_make_response(types_pair), _make_response(typed_pair)]
+    )
+
+    found = list(proxy.find_artifacts(type="ex.Base"))
+    assert [a.url for a in found] == ["pkg:oci/derived"]
+
+
+def test_find_by_type_is_cached_per_type() -> None:
+    """A repeat query for the same type is local; a full section load
+    supersedes the typed one."""
+    pair = _response({"artifacts": {}})
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(_response({"types": {}}))] + [_make_response(pair)] * 4
+    )
+
+    list(proxy.find_artifacts(type="ex.A"))
+    calls_after_first = session.get.call_count
+    list(proxy.find_artifacts(type="ex.A"))
+    assert session.get.call_count == calls_after_first, "same type refetched"
+
+    # A different type is a fetch of its own...
+    list(proxy.find_artifacts(type="ex.B"))
+    assert session.get.call_count == calls_after_first + 1
+    # ...but once the whole section is loaded, no type needs the network.
+    list(proxy.find_artifacts())
+    calls_after_full = session.get.call_count
+    list(proxy.find_artifacts(type="ex.A"))
+    list(proxy.find_artifacts(type="ex.C"))
+    assert session.get.call_count == calls_after_full, (
+        "a full section load answers every typed query"
+    )
+
+
+def test_find_pages_through_the_section() -> None:
+    """A paged response is walked to the end, and every page is ingested."""
+    page1 = {
+        "result": {"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=1)}},
+        "next_page_token": "TOKEN1",
+    }
+    page2 = {
+        "result": {"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b", version=2)}},
+    }
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(page1), _make_response(page2)]
+    )
+
+    found = sorted(a.url for a in proxy.find_artifacts())
+    assert found == ["pkg:oci/a", "pkg:oci/b"]
+    assert session.get.call_count == 2
+    # The second request echoes the cursor from the first.
+    first, second = (dict(c.kwargs["params"]) for c in session.get.call_args_list)
+    assert "page_token" not in first
+    assert second["page_token"] == "TOKEN1"
+    # And the section counts as loaded, so a repeat is local.
+    list(proxy.find_artifacts())
+    assert session.get.call_count == 2
+
+
+def _paged(result: Dict[str, Any], token: Optional[str] = None) -> Dict[str, Any]:
+    body: Dict[str, Any] = {"result": result}
+    if token is not None:
+        body["next_page_token"] = token
+    return body
+
+
+def test_exclude_param_is_bounded_by_the_url_budget() -> None:
+    """`exclude` rides in the query string, and the server refuses more
+    than 10000 ids outright. A cache big enough to breach either limit
+    must send a short list, not a broken request."""
+    from unfurl.cloudmap.proxy import _MAX_EXCLUDE_BYTES
+
+    # One page holding far more records than the parameter can carry.
+    big = {
+        f"pkg:oci/a{i}": dict(_artifact_payload(f"pkg:oci/a{i}"), **{
+            "unfurl.server.id": 1_000_000 + i,
+        })
+        for i in range(4000)
+    }
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(_response({"artifacts": big})), _make_response(None, status=404)]
+    )
+    assert len(list(proxy.find_artifacts())) == 4000
+
+    # Now a get_* miss issues a follow fetch carrying `exclude`.
+    proxy.get_service("https://example.com/absent")
+    exclude = dict(session.get.call_args.kwargs["params"])["exclude"]
+    assert len(exclude) <= _MAX_EXCLUDE_BYTES, "would risk a rejected request line"
+    ids = exclude.split(",")
+    assert len(ids) < 10000, "the server errors above 10000 ids"
+    assert all(i.isdigit() for i in ids)
+
+
+def test_find_fetches_pages_on_demand() -> None:
+    """The point of paging: taking one record costs one request, not the
+    whole section."""
+    pages = [
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a")}}, "T1")
+        ),
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b")}}, "T2")
+        ),
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/c": _artifact_payload("pkg:oci/c")}})
+        ),
+    ]
+    proxy, session = _make_proxy(get_returns=pages)
+
+    it = proxy.find_artifacts()
+    assert next(it).url == "pkg:oci/a"
+    assert session.get.call_count == 1, "the first record must not fetch the section"
+    assert next(it).url == "pkg:oci/b"
+    assert session.get.call_count == 2, "the second page is fetched only when needed"
+    assert [a.url for a in it] == ["pkg:oci/c"]
+    assert session.get.call_count == 3
+
+
+def test_abandoned_iteration_resumes_where_it_stopped() -> None:
+    """Clients that read a few records and stop are the common case, so
+    the next walk must not re-request the pages already cached: it
+    replays them locally and asks only for the remainder."""
+    first = _paged({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a")}}, "T1")
+    rest = _paged({"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b")}})
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(first), _make_response(rest)]
+    )
+
+    it = proxy.find_artifacts()
+    assert next(it).url == "pkg:oci/a"
+    del it
+    # Incomplete, so not marked loaded -- but the page it did read is cached
+    # and a cursor records how to continue.
+    assert "artifacts" not in proxy._cache._section_loaded
+    assert proxy._cache._section_cursor[("artifacts", "")] == ("T1", "pkg:oci/a")
+    assert session.get.call_count == 1
+
+    # The next walk yields the whole section for one more request: the
+    # prefix comes from the cache, and only page two is fetched.
+    assert [a.url for a in proxy.find_artifacts()] == ["pkg:oci/a", "pkg:oci/b"]
+    assert session.get.call_count == 2, "page one must not be re-requested"
+    assert dict(session.get.call_args_list[1].kwargs["params"])["page_token"] == "T1"
+
+    # Having completed, the section is loaded and the cursor is spent.
+    assert "artifacts" in proxy._cache._section_loaded
+    assert not proxy._cache._section_cursor
+    list(proxy.find_artifacts())
+    assert session.get.call_count == 2
+
+
+def test_resume_replays_the_cached_prefix_only_once() -> None:
+    """Two abandoned walks in a row still yield each record exactly once
+    when the section is finally drained."""
+    pages = [
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a")}}, "T1")
+        ),
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b")}}, "T2")
+        ),
+        _make_response(
+            _paged({"artifacts": {"pkg:oci/c": _artifact_payload("pkg:oci/c")}})
+        ),
+    ]
+    proxy, session = _make_proxy(get_returns=pages)
+
+    it = proxy.find_artifacts()
+    next(it)
+    del it
+    it = proxy.find_artifacts()
+    assert [next(it).url, next(it).url] == ["pkg:oci/a", "pkg:oci/b"]
+    del it
+
+    assert [a.url for a in proxy.find_artifacts()] == [
+        "pkg:oci/a",
+        "pkg:oci/b",
+        "pkg:oci/c",
+    ]
+    assert session.get.call_count == 3, "each page fetched exactly once"
+
+
+def test_find_yields_locally_added_records() -> None:
+    """A record staged by ``add_record`` was never sent by the server, so
+    yielding page contents alone would silently drop it."""
+    page = _paged({"artifacts": {"pkg:oci/remote": _artifact_payload("pkg:oci/remote")}})
+    proxy, _session = _make_proxy(get_returns=[_make_response(page)])
+
+    local = Artifact(url="pkg:oci/local", metadata=ArtifactMetadata(title="local"))
+    proxy.add_record(local)
+
+    assert sorted(a.url for a in proxy.find_artifacts()) == [
+        "pkg:oci/local",
+        "pkg:oci/remote",
+    ]
+
+
+def test_truncated_walk_is_not_marked_loaded() -> None:
+    """The stuck-token guard stops mid-section; recording that as fully
+    loaded would freeze the truncated view in place."""
+    stuck = _paged({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a")}}, "STUCK")
+    proxy, _session = _make_proxy(get_returns=[_make_response(stuck)] * 4)
+
+    list(proxy.find_artifacts())
+    assert "artifacts" not in proxy._cache._section_loaded
+
+
+def test_find_stops_if_a_server_repeats_a_page_token() -> None:
+    """A cursor names the last record of its own page, so it can't repeat.
+    A server that returns one anyway must not spin the client forever."""
+    page = {
+        "result": {"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=1)}},
+        "next_page_token": "STUCK",
+    }
+    proxy, session = _make_proxy(get_returns=[_make_response(page)] * 10)
+
+    assert [a.url for a in proxy.find_artifacts()] == ["pkg:oci/a"]
+    assert session.get.call_count == 2, "second identical token ends the walk"
+
+
+def test_find_accepts_a_server_predating_the_object_response() -> None:
+    """An older server ignores the unknown ``limit`` and answers with the
+    bare ``[result, followed]`` pair. Both halves still have to land, and
+    the absent cursor ends the walk in one request."""
+    legacy_pair = [
+        {"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=1)}},
+        {"services": {"https://example.com/svc": _service_payload(version=2)}},
+    ]
+    proxy, session = _make_proxy(get_returns=[_make_response(legacy_pair)])
+
+    assert [a.url for a in proxy.find_artifacts()] == ["pkg:oci/a"]
+    assert session.get.call_count == 1
+    # the second half of a legacy pair is the followed document
+    assert proxy._cache.get_service("https://example.com/svc") is not None
+
+
+def test_page_size_zero_disables_paging() -> None:
+    session = MagicMock()
+    session.get.side_effect = [_make_response(_response({"artifacts": {}}))]
+    proxy = CloudMapProxy(
+        "https://api.example.com/services/unfurl-server",
+        session=session,
+        page_size=0,
+    )
+    list(proxy.find_artifacts())
+    assert "limit" not in dict(session.get.call_args.kwargs["params"])
+
+
+def test_refresh_pages_with_a_fixed_since_version() -> None:
+    """Ingesting a page raises ``_max_version``; the walk must keep using
+    the watermark it started from or later pages would skip records."""
+    page1 = {
+        "result": {"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=20)}},
+        "next_page_token": "T",
+    }
+    page2 = {
+        "result": {"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b", version=21)}},
+    }
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(page1), _make_response(page2)]
+    )
+    proxy._cache._max_version = 5
+
+    proxy.refresh()
+
+    versions = [
+        dict(c.kwargs["params"])["since_version"] for c in session.get.call_args_list
+    ]
+    assert versions == ["5", "5"], "the watermark is read once, before the walk"
+    assert proxy._cache._max_version == 21
+
 
 def test_max_version_tracked_from_records() -> None:
-    pair = [
+    pair = _response(
         {
             "artifacts": {
                 "pkg:oci/a": _artifact_payload("pkg:oci/a", version=4),
                 "pkg:oci/b": _artifact_payload("pkg:oci/b", version=11),
             }
         },
-        {},
-    ]
+    )
     proxy, _ = _make_proxy(get_returns=[_make_response(pair)])
 
     list(proxy.find_artifacts())
@@ -288,10 +607,9 @@ def test_save_includes_envelope_and_round_trips_occ_for_known_key() -> None:
     unfurl.server.{version,commit}.
     """
     url = "pkg:oci/example/image@1.0"
-    pair = [
+    pair = _response(
         {"artifacts": {url: _artifact_payload(url, version=5)}},
-        {},
-    ]
+    )
     proxy, session = _make_proxy(
         get_returns=[_make_response(pair)],
         post_returns=[_make_response({"commit": "newoid", "queueid": 6})],
@@ -539,22 +857,20 @@ def test_refresh_uses_since_version() -> None:
     """After ingesting some records, refresh() must pass the highest
     observed version as `since_version`.
     """
-    pair = [
+    pair = _response(
         {
             "artifacts": {
                 "pkg:oci/a": _artifact_payload("pkg:oci/a", version=11),
             }
         },
-        {},
-    ]
-    delta_pair = [
+    )
+    delta_pair = _response(
         {
             "artifacts": {
                 "pkg:oci/b": _artifact_payload("pkg:oci/b", version=12),
             }
         },
-        {},
-    ]
+    )
     proxy, session = _make_proxy(
         get_returns=[
             _make_response(pair),
@@ -569,13 +885,14 @@ def test_refresh_uses_since_version() -> None:
     assert dict(second_call.kwargs["params"]) == {
         "auth_project": "acme/prod",
         "since_version": "11",
+        "limit": "500",
     }
     assert proxy._cache._max_version == 12
 
 
 def test_base_url_query_preserved_on_every_call() -> None:
     """Query params on the base URL ride along on every GET and POST."""
-    pair = [{"artifacts": {}}, {}]
+    pair = _response({"artifacts": {}})
     proxy, session = _make_proxy(
         get_returns=[_make_response(pair)],
         post_returns=[_make_response({"commit": "x", "queueid": 1})],
@@ -619,7 +936,7 @@ def test_base_url_query_preserved_on_every_call() -> None:
 def test_credentials_only_when_both_set() -> None:
     """Header is omitted unless both username and private_token are set."""
     session = MagicMock()
-    session.get.return_value = _make_response([{"artifacts": {}}, {}])
+    session.get.return_value = _make_response(_response({"artifacts": {}}))
     proxy = CloudMapProxy(
         "https://api.example.com/services/unfurl-server?auth_project=acme/prod",
         username="bot",

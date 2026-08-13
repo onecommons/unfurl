@@ -32,7 +32,7 @@ from urllib.parse import parse_qsl, urlparse, urlunparse
 import requests
 
 from . import CloudMapDB
-from .db import CloudMapStore
+from .db import CloudMapStore, extends_children, subtype_closure
 from ..logs import getLogger, UnfurlLogger
 from ..tosca_plugins.cloudmap_defs import (
     section_of,
@@ -129,6 +129,17 @@ def _get_occ_tokens(
     )
 
 
+def _matches(record: Any, names: Optional[Set[str]]) -> bool:
+    """Whether ``record`` satisfies a resolved type filter.
+
+    ``names`` is the subtype closure of the requested type, or ``None``
+    when no type was asked for — in which case every record matches.
+    """
+    if names is None:
+        return True
+    return not names.isdisjoint(record.type.types)
+
+
 def _get_occ_id(record: Any) -> Optional[int]:
     """Read the server-side primary-key id off a record, if known."""
     id_ = getattr(record, _OCC_ID_ATTR, None)
@@ -179,6 +190,13 @@ class CloudMapCache(CloudMapDB):
 
     - ``_section_loaded`` — sections that have been fully enumerated
       (so :meth:`CloudMapProxy.find_*` doesn't refetch).
+    - ``_type_loaded`` — ``(section, type)`` pairs fetched with the
+      server's ``type=`` filter. A fully loaded section supersedes
+      every typed load of it.
+    - ``_section_cursor`` — for a walk that stopped early,
+      ``(section, type) -> (resume token, last key ingested)``. Every
+      record up to that key is already cached, so the next walk replays
+      the prefix locally and asks the server only for the remainder.
     - ``_negative`` — keys that 404'd on the server (negative cache).
     - ``path`` — the url of the cloudmap the server serves (the proxy's
       endpoint), so references that name a cloudmap document can be told
@@ -200,6 +218,8 @@ class CloudMapCache(CloudMapDB):
         # it identifies this document (see CloudMapDB._matches_cloudmap_url).
         super().__init__(path=url, contents=self.make_empty_cloudmap(), validate=False)
         self._section_loaded: Set[str] = set()
+        self._type_loaded: Set[Tuple[str, str]] = set()
+        self._section_cursor: Dict[Tuple[str, str], Tuple[str, str]] = {}
         self._negative: Set[Tuple[str, str]] = set()
         self._max_version: int = 0
         self._latest_commit: Optional[str] = None
@@ -220,10 +240,14 @@ class CloudMapCache(CloudMapDB):
         elif commit and self._latest_commit is None:
             self._latest_commit = commit
 
-    def _hydrate_one(self, section: str, key: str, payload: Dict[str, Any]) -> None:
+    def _hydrate_one(self, section: str, key: str, payload: Dict[str, Any]) -> bool:
         """Construct the dataclass for ``payload``, stash it via the
         inherited ``add_record``, and stamp the per-record OCC tokens
         onto the new instance.
+
+        Returns whether a record was created — ``False`` for a section
+        this client doesn't know, so a caller collecting keys doesn't
+        report one it can't look up.
         """
         # The OCC keys aren't valid dataclass kwargs, so pop them
         # off (capturing the values) before passing the rest to the
@@ -257,7 +281,7 @@ class CloudMapCache(CloudMapDB):
         else:
             # Server may add new sections before the client knows
             # about them — silently ignore.
-            return
+            return False
         self.add_record(record)
 
         _set_occ_tokens(
@@ -266,11 +290,19 @@ class CloudMapCache(CloudMapDB):
             commit if isinstance(commit, str) and commit else None,
             rid if isinstance(rid, int) else None,
         )
+        return True
 
-    def ingest_document(self, doc: Optional[Dict[str, Any]]) -> None:
-        """Merge a CloudMap-shaped dict into the cache."""
+    def ingest_document(
+        self, doc: Optional[Dict[str, Any]]
+    ) -> List[Tuple[str, str]]:
+        """Merge a CloudMap-shaped dict into the cache.
+
+        Returns the ``(section, key)`` pairs it hydrated, in document
+        order, so a paged caller can yield just what this document held.
+        """
+        hydrated: List[Tuple[str, str]] = []
         if not isinstance(doc, dict):
-            return
+            return hydrated
         for section in _SECTIONS:
             entries = doc.get(section)
             if not isinstance(entries, dict):
@@ -279,18 +311,57 @@ class CloudMapCache(CloudMapDB):
                 if not isinstance(payload, dict):
                     continue
                 self._note_tokens(payload)
-                self._hydrate_one(section, key, payload)
+                if self._hydrate_one(section, key, payload):
+                    hydrated.append((section, key))
                 self._negative.discard((section, key))
+        return hydrated
 
-    def ingest_pair(self, pair: Any) -> None:
-        """``GET /cloudmap`` returns ``[primary, followed]`` — merge both."""
-        if not isinstance(pair, list):
-            return
-        for half in pair:
-            self.ingest_document(half)
+    def ingest_response(self, body: Any) -> Tuple[List[Tuple[str, str]], Optional[str]]:
+        """Merge one ``GET /cloudmap`` response.
+
+        Returns the ``(section, key)`` pairs this response actually
+        delivered, and its page cursor — ``None`` when there isn't one,
+        which is what ends a paged walk. The pairs let a caller iterating
+        page by page yield exactly what each page brought, without
+        rescanning a cache that also holds earlier pages.
+
+        The response is ``{"result": <doc>, "followed": <doc>,
+        "next_page_token": <str>}``, the last two present only when the
+        request asked for what they carry.
+
+        A list body is a server predating the object response, which
+        answered ``[result, followed]``; merging both halves keeps such a
+        server usable. ``None`` (a 404, via
+        :meth:`CloudMapProxy._get`) merges nothing.
+        """
+        keys: List[Tuple[str, str]] = []
+        if isinstance(body, dict):
+            keys += self.ingest_document(body.get("result"))
+            keys += self.ingest_document(body.get("followed"))
+            token = body.get("next_page_token")
+            return keys, (token if isinstance(token, str) and token else None)
+        if isinstance(body, list):
+            for half in body:
+                keys += self.ingest_document(half)
+        return keys, None
 
 
 DEFAULT_REQUEST_TIMEOUT = 30.0
+
+# Budget for the serialized `exclude` query parameter. The server
+# refuses more than 10000 ids outright (git-sync's `MAX_EXCLUDE_IDS`),
+# but the binding constraint is the URL: `exclude` rides in the query
+# string, and proxies commonly cap a request line near 8 KB, which a
+# cache of a few thousand records would blow through long before the
+# server ever saw it. Staying well under that leaves room for the rest
+# of the query and keeps the id count far below the server's limit.
+_MAX_EXCLUDE_BYTES = 2000
+
+# Records per request when enumerating a section. Paging keeps a single
+# response bounded on a large cloudmap; the walk is transparent to callers,
+# who see one iterator either way. Pass ``page_size=0`` to fetch each
+# section in one request instead.
+DEFAULT_PAGE_SIZE = 500
 
 
 class CloudMapProxy(CloudMapStore):
@@ -302,10 +373,14 @@ class CloudMapProxy(CloudMapStore):
         on a miss it issues
         ``GET /cloudmap?kind=<section>&key=<url>&follow=<N>`` and
         ingests both the primary record and any followed records.
-      - :meth:`find_X` lazily fetches the section once
-        (``GET /cloudmap?kind=<section>``) and returns an iterator. The
-        endpoint will gain paging soon — the iterator shape lets us
-        thread that through without a public API change.
+      - :meth:`find_X` returns an iterator that walks the endpoint's
+        pages *on demand*: taking one record costs one request, not the
+        whole section, and a consumer that stops early stops paying.
+        Given a ``type`` filter it asks the server for only the matching
+        records (``&type=<name>``). A walk that runs to the end records
+        the ``(section, type)`` pair — or the section itself, when
+        untyped — so a later call is served locally; one abandoned
+        partway records nothing and is re-walked.
 
     Writes:
       - :meth:`add_X` updates the cache and stages the dict form in
@@ -320,6 +395,16 @@ class CloudMapProxy(CloudMapStore):
       - :meth:`refresh` issues
         ``GET /cloudmap?since_version=<self._cache._max_version>`` and
         merges any deltas. Useful for long-lived proxy instances.
+
+    Paging:
+      - Section walks fetch ``page_size`` records per request
+        (:data:`DEFAULT_PAGE_SIZE`; ``0`` disables). A server predating
+        paging ignores the parameter and answers with the whole section,
+        which the same code path handles.
+      - Every record a walk sees stays in the cache, so a *complete*
+        iteration ends up holding the section however it was fetched.
+        Paging bounds each response and the cost of a partial read, not
+        the footprint of reading everything.
     """
 
     def __init__(
@@ -331,6 +416,7 @@ class CloudMapProxy(CloudMapStore):
         follow_depth: int = 1024,
         session: Optional[requests.Session] = None,
         timeout: Optional[float] = None,
+        page_size: int = DEFAULT_PAGE_SIZE,
         logger: UnfurlLogger = logger,
     ) -> None:
         # ``base_url`` may carry query parameters (e.g.
@@ -349,6 +435,7 @@ class CloudMapProxy(CloudMapStore):
         self._follow_depth = follow_depth
         self._session = session or requests.Session()
         self._timeout = timeout if timeout is not None else DEFAULT_REQUEST_TIMEOUT
+        self._page_size = page_size
         self.logger: UnfurlLogger = logger
 
         # In-memory mirror of records observed from the server. The endpoint
@@ -461,12 +548,18 @@ class CloudMapProxy(CloudMapStore):
     # Get-by-key — try cache, fall back to the server
     # -----------------------------------------------------------------
 
-    def _cached_record_ids(self) -> List[int]:
-        """Collect every ``unfurl.server.id`` known to the cache.
+    def _exclude_param(self) -> Optional[str]:
+        """The ``exclude`` value for a follow fetch: ids the cache holds.
 
-        Used for the ``exclude`` query parameter on ``follow`` fetches
-        — the server then skips records the proxy already holds.
-        Records are duplicated under each version's url, so dedupe.
+        The server skips those records during the walk, so it doesn't
+        re-send what the proxy already has. Records are duplicated under
+        each version's url, so dedupe.
+
+        Truncated to :data:`_MAX_EXCLUDE_BYTES`. Excluding is only an
+        optimization — anything not excluded simply comes back and is
+        re-ingested — so a short list costs bandwidth, never
+        correctness, which is what makes truncating the right response
+        to a cache that has outgrown the parameter.
         """
         ids: Set[int] = set()
         for section in _SECTIONS:
@@ -474,7 +567,23 @@ class CloudMapProxy(CloudMapStore):
                 rid = _get_occ_id(record)
                 if rid is not None:
                     ids.add(rid)
-        return sorted(ids)
+        if not ids:
+            return None
+        parts: List[str] = []
+        budget = _MAX_EXCLUDE_BYTES
+        for rid in sorted(ids):
+            token = str(rid)
+            budget -= len(token) + 1  # the separator
+            if budget < 0:
+                self.logger.debug(
+                    "cache holds %d record ids; sending %d in `exclude` "
+                    "(the rest will be re-sent and re-ingested)",
+                    len(ids),
+                    len(parts),
+                )
+                break
+            parts.append(token)
+        return ",".join(parts) or None
 
     def _fetch_by_key(self, section: str, key: str) -> None:
         # the server looks up records by their key, so resolve pseudo-URLs and
@@ -487,18 +596,17 @@ class CloudMapProxy(CloudMapStore):
             return
         if (section, key) in self._cache._negative:
             return
-        cached_ids = self._cached_record_ids()
         params = self._query_params(
             kind=section,
             key=key,
             follow=self._follow_depth,
-            exclude=",".join(str(i) for i in cached_ids) if cached_ids else None,
+            exclude=self._exclude_param(),
         )
         body = self._get(params)
         if body is None:
             self._cache._negative.add((section, key))
             return
-        self._cache.ingest_pair(body)
+        self._cache.ingest_response(body)  # keys unused: this is a point lookup
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
         hit = self._cache.get_artifact(url)
@@ -550,46 +658,209 @@ class CloudMapProxy(CloudMapStore):
     # find_* — per-section fetch, returns an iterator
     # -----------------------------------------------------------------
 
-    def _ensure_section(self, section: str) -> None:
-        """Fetch the named section once; subsequent calls are local.
+    def _pages(
+        self,
+        section: Optional[str] = None,
+        type: Optional[str] = None,
+        since_version: Optional[int] = None,
+        start_token: Optional[str] = None,
+    ) -> Iterator[Tuple[List[Tuple[str, str]], Optional[str], bool]]:
+        """Walk the endpoint's pages, one request at a time.
 
-        Paging hook: when the server gains ``page`` / ``page_token``
-        query params, loop here and pass each page through
-        :meth:`CloudMapCache.ingest_document` before marking the
-        section loaded.
+        Yields ``(keys, resume, complete)`` per page: the
+        ``(section, key)`` pairs that page delivered (already merged into
+        the cache), the cursor that would resume *after* this page, and
+        whether the walk finished — ``complete`` is ``True`` only on the
+        last page of a natural exhaustion, so a caller knows when it may
+        record the section as fully loaded. ``resume`` is ``None`` on any
+        page there is no continuing from.
+
+        ``start_token`` resumes a walk an earlier consumer abandoned.
+
+        Nothing is requested until the consumer asks for a page, which is
+        what makes :meth:`find_artifacts` and friends cost one request
+        rather than the whole section. ``section`` is sent as ``kind``;
+        ``None`` means the whole document (what :meth:`refresh` wants).
+        """
+        token: Optional[str] = start_token
+        while True:
+            params = self._query_params(
+                kind=section,
+                type=type or None,
+                since_version=since_version,
+                limit=self._page_size or None,
+                page_token=token,
+            )
+            keys, next_token = self._cache.ingest_response(self._get(params))
+            if not next_token:
+                yield keys, None, True
+                return
+            if next_token == token:
+                # A cursor names the last record of the page it came with,
+                # so it can never repeat. A server that returns one anyway
+                # would spin this loop forever; stop with what we have —
+                # and report the walk as incomplete, so the caller doesn't
+                # record a truncated section as fully loaded.
+                self.logger.warning(
+                    "GET %s returned the same page_token twice (kind=%s); "
+                    "stopping the walk, results may be incomplete",
+                    self._endpoint,
+                    section,
+                )
+                yield keys, None, False
+                return
+            yield keys, next_token, False
+            token = next_token
+
+    def _mark_loaded(self, section: str, type: str) -> None:
+        """Record that a completed walk covered ``section`` (for ``type``)."""
+        self._cache._section_cursor.pop((section, type), None)
+        if type:
+            self._cache._type_loaded.add((section, type))
+            return
+        self._cache._section_loaded.add(section)
+        # A full load answers every typed question about this section, so
+        # neither a typed mark nor a typed resume point means anything now.
+        self._cache._type_loaded = {
+            pair for pair in self._cache._type_loaded if pair[0] != section
+        }
+        for pair in [p for p in self._cache._section_cursor if p[0] == section]:
+            del self._cache._section_cursor[pair]
+
+    def _ensure_section(self, section: str) -> None:
+        """Fetch the named section in full; subsequent calls are local.
+
+        The eager counterpart to :meth:`_iter_section`, for the callers
+        that need the whole section present before they can do anything
+        with it — the subtype closure, which can't filter page 1 without
+        every ``extends`` edge. Draining the lazy walk rather than
+        duplicating it means this resumes an abandoned one too.
         """
         if section in self._cache._section_loaded:
             return
-        params = self._query_params(kind=section)
-        body = self._get(params)
-        # Body is `[primary, followed]`; with no `key` and `follow=0`,
-        # `followed` is `{}` — `ingest_pair` handles both.
-        self._cache.ingest_pair(body)
-        self._cache._section_loaded.add(section)
+        for _record in self._iter_section(section):
+            pass
+
+    def _iter_section(self, section: str, type: str = "") -> Iterator[Any]:
+        """Yield the records of ``section`` matching ``type``, paging lazily.
+
+        Each page is fetched only when the consumer exhausts the last, so
+        a caller that stops early pays for what it read. Records come
+        from the pages themselves rather than a rescan of the cache,
+        which by page two also holds page one.
+
+        A walk that stopped early leaves a cursor, so the next one
+        replays the prefix it already cached and requests only the pages
+        beyond it. The prefix is served from the cache, so it is as fresh
+        as when it was fetched rather than as fresh as this call.
+
+        Once the walk completes, any record the cache holds that no page
+        delivered is yielded too: records staged locally by
+        :meth:`add_record` but not yet saved, and any pulled in earlier
+        by a ``get_*``. That keeps a full iteration equal to what the old
+        fetch-everything-then-filter did, so an analyzer can add a record
+        and still find it.
+        """
+        cache_section: Dict[str, Any] = getattr(self._cache, section)
+        if section in self._cache._section_loaded or (
+            type and (section, type) in self._cache._type_loaded
+        ):
+            # Everything is already here; no request needed.
+            yield from self._local_matches(
+                cache_section, self._subtype_names(type), set()
+            )
+            return
+
+        # The server's `type=` matches subtypes, so the local filter needs
+        # every `extends` edge before it can judge page one — otherwise it
+        # narrows to exact names and drops records the server deliberately
+        # sent. Loading `types` is itself a (small, complete) walk.
+        if type:
+            self._ensure_section("types")
+
+        # Resolved once: the closure is O(types), and re-deriving it per
+        # record would make a section scan O(records x types).
+        names = self._subtype_names(type)
+        cursor_key = (section, type)
+        yielded: Set[str] = set()
+
+        # Pick up where an abandoned walk stopped. Records are ordered by
+        # key, so everything at or before the cursor's key is already
+        # cached: replay that prefix locally and ask the server only for
+        # the rest. Locally added records in the same range come along,
+        # since they are in the cache too.
+        resume = self._cache._section_cursor.get(cursor_key)
+        start_token: Optional[str] = None
+        if resume is not None:
+            start_token, last_key = resume
+            for key in sorted(k for k in cache_section if k <= last_key):
+                record = cache_section[key]
+                if not _matches(record, names):
+                    continue
+                yielded.add(key)
+                yield record
+
+        complete = False
+        for keys, next_token, complete in self._pages(
+            section, type=type or None, start_token=start_token
+        ):
+            # Record the resume point before handing out the page's
+            # records: they are already cached, so a consumer that stops
+            # midway still leaves a cursor that covers all of them.
+            if next_token:
+                page_keys = [k for got, k in keys if got == section]
+                if page_keys:
+                    self._cache._section_cursor[cursor_key] = (
+                        next_token,
+                        page_keys[-1],
+                    )
+            for got_section, key in keys:
+                if got_section != section or key in yielded:
+                    continue
+                record = cache_section.get(key)
+                if record is None or not _matches(record, names):
+                    continue
+                yielded.add(key)
+                yield record
+        if not complete:
+            # A truncated walk hasn't seen the whole section, so neither
+            # the local sweep nor the loaded mark would be honest.
+            return
+        yield from self._local_matches(cache_section, names, yielded)
+        self._mark_loaded(section, type)
+
+    def _subtype_names(self, type: str) -> Optional[Set[str]]:
+        """``type`` and its subtypes, or ``None`` for "no type filter"."""
+        if not type:
+            return None
+        return subtype_closure(extends_children(self._cache.types), type)
+
+    def _local_matches(
+        self, cache_section: Dict[str, Any], names: Optional[Set[str]], skip: Set[str]
+    ) -> Iterator[Any]:
+        """Records already in the cache, minus those a caller has seen."""
+        for key, record in list(cache_section.items()):
+            if key in skip or not _matches(record, names):
+                continue
+            yield record
 
     def find_artifacts(self, type: str = "") -> Iterator[Artifact]:
-        self._ensure_section("artifacts")
-        yield from self._cache.find_artifacts(type)
+        return self._iter_section("artifacts", type)
 
     def find_services(self, type: str = "") -> Iterator[Service]:
-        self._ensure_section("services")
-        yield from self._cache.find_services(type)
+        return self._iter_section("services", type)
 
     def find_components(self, type: str = "") -> Iterator[Component]:
-        self._ensure_section("components")
-        yield from self._cache.find_components(type)
+        return self._iter_section("components", type)
 
     def find_instantiations(self, type: str = "") -> Iterator[Instantiation]:
-        self._ensure_section("instantiations")
-        yield from self._cache.find_instantiations(type)
+        return self._iter_section("instantiations", type)
 
     def find_types(self) -> Iterator[CloudType]:
-        self._ensure_section("types")
-        yield from self._cache.find_types()
+        return self._iter_section("types")
 
     def find_repositories(self) -> Iterator[Repository]:
-        self._ensure_section("repositories")
-        yield from self._cache.find_repositories()
+        return self._iter_section("repositories")
 
     # -----------------------------------------------------------------
     # add_* — local update + buffered write
@@ -833,6 +1104,11 @@ class CloudMapProxy(CloudMapStore):
         """
         # last_commit is different, any deletes after _max_version won't be observed
         # otherwise can get delete records back
-        params = self._query_params(since_version=self._cache._max_version)
-        body = self._get(params)
-        self._cache.ingest_pair(body)
+        #
+        # Read the watermark once, before the walk: ingesting a page raises
+        # `_max_version`, so recomputing it per page would keep moving the
+        # floor and skip records the later pages were meant to carry.
+        for _keys, _resume, _complete in self._pages(
+            since_version=self._cache._max_version
+        ):
+            pass

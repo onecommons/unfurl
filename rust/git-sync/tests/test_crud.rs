@@ -14,6 +14,8 @@ mod common;
 use common::pg_fixture;
 use common::sqlite_fixture;
 use tempfile::TempDir;
+#[cfg(feature = "postgres")]
+use unfurl_git_sync::DbConfig;
 use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, SyncedRepo};
 
 // ---------------------------------------------------------------------------
@@ -581,6 +583,8 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
             None,
             Some(vec!["cloudmap.artifacts.ci.GitLabPipeline".into()]),
             None,
+            None,
+            None,
         )
         .await
         .expect("type filter");
@@ -607,6 +611,8 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
                 "no.such.Type".into(),
             ]),
             None,
+            None,
+            None,
         )
         .await
         .expect("multi type filter");
@@ -623,6 +629,8 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
             None,
             Some(vec!["no.such.Type".into()]),
             None,
+            None,
+            None,
         )
         .await
         .expect("unknown type");
@@ -630,11 +638,21 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // An empty name list is treated as "no filter", not "match none".
     let all = sync
-        .find_records(None, None, None, false, None, Some(Vec::new()), None)
+        .find_records(
+            None,
+            None,
+            None,
+            false,
+            None,
+            Some(Vec::new()),
+            None,
+            None,
+            None,
+        )
         .await
         .expect("empty type list");
     let unfiltered = sync
-        .find_records(None, None, None, false, None, None, None)
+        .find_records(None, None, None, false, None, None, None, None, None)
         .await
         .expect("unfiltered");
     assert_eq!(all.len(), unfiltered.len());
@@ -684,6 +702,8 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             None,
             None,
             None,
+            None,
+            None,
         )
         .await
         .expect("find_records direct");
@@ -701,6 +721,8 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(parent_path.into()),
             Some(alias_key.into()),
             false,
+            None,
+            None,
             None,
             None,
             None,
@@ -722,6 +744,8 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             None,
             None,
             None,
+            None,
+            None,
         )
         .await
         .expect("find_records via alias");
@@ -735,7 +759,17 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // alias=true is a no-op when key is None — should give the same
     // result as alias=false.
     let any_artifact = sync
-        .find_records(None, Some(parent_path.into()), None, true, None, None, None)
+        .find_records(
+            None,
+            Some(parent_path.into()),
+            None,
+            true,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
         .await
         .expect("find_records no key, alias=true");
     let any_artifact_no_alias = sync
@@ -744,6 +778,8 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
             Some(parent_path.into()),
             None,
             false,
+            None,
+            None,
             None,
             None,
             None,
@@ -1473,6 +1509,168 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
     }
 }
 
+/// Page a whole section with `after` + `limit` and check the walk is
+/// exactly the unpaged result: no record skipped, none seen twice.
+async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    let all = sync
+        .find_records(
+            None,
+            Some("/artifacts".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("unpaged");
+    assert!(all.len() > 3, "fixture should have several artifacts");
+    let expected: Vec<String> = all.iter().map(|r| r.key.clone()).collect();
+
+    // Walk it two at a time, following the cursor.
+    let mut seen: Vec<String> = Vec::new();
+    let mut after: Option<(String, String)> = None;
+    for _ in 0..100 {
+        let page = sync
+            .find_records(
+                None,
+                Some("/artifacts".into()),
+                None,
+                false,
+                None,
+                None,
+                None,
+                after.clone(),
+                Some(3),
+            )
+            .await
+            .expect("page");
+        if page.is_empty() {
+            break;
+        }
+        let last = page.last().expect("non-empty");
+        after = Some((last.path.clone(), last.key.clone()));
+        seen.extend(page.iter().map(|r| r.key.clone()));
+    }
+    assert_eq!(seen, expected, "pages must reassemble the unpaged scan");
+
+    // `limit` alone caps the result and preserves the ordering.
+    let capped = sync
+        .find_records(
+            None,
+            Some("/artifacts".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            Some(2),
+        )
+        .await
+        .expect("limit");
+    assert_eq!(capped.len(), 2);
+    assert_eq!(
+        capped.iter().map(|r| r.key.clone()).collect::<Vec<_>>(),
+        expected[..2].to_vec()
+    );
+
+    // A cursor naming a record that no longer exists still resumes: the
+    // bound is a value, not a row reference.
+    let ghost = Some((
+        "/artifacts".to_string(),
+        format!("{}\u{1}gone", expected[0]),
+    ));
+    let resumed = sync
+        .find_records(
+            None,
+            Some("/artifacts".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            ghost,
+            None,
+        )
+        .await
+        .expect("ghost cursor");
+    assert_eq!(
+        resumed.iter().map(|r| r.key.clone()).collect::<Vec<_>>(),
+        expected[1..].to_vec()
+    );
+}
+
+/// The page cursor promises byte-wise `(path, key)` ordering. Postgres'
+/// default collation is locale-dependent and would sort "e-with-acute"
+/// before "z"; the `COLLATE "C"` in `find_pg` is what keeps a token
+/// minted by sqlite or python meaning the same thing there.
+async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    for key in ["z-repo", "\u{e9}-repo"] {
+        sync.create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({"name": key}),
+            None,
+        )
+        .await
+        .expect("create");
+    }
+
+    let rows = sync
+        .find_records(
+            None,
+            Some("/repositories".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("find");
+    let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+    let z = keys.iter().position(|k| *k == "z-repo").expect("z-repo");
+    let e = keys
+        .iter()
+        .position(|k| *k == "\u{e9}-repo")
+        .expect("e-repo");
+    assert!(
+        z < e,
+        "UTF-8 byte order puts 'z' (0x7a) before 'e-acute' (0xc3a9): {keys:?}"
+    );
+
+    // And a cursor lands between them accordingly.
+    let after = Some(("/repositories".to_string(), "z-repo".to_string()));
+    let rest = sync
+        .find_records(
+            None,
+            Some("/repositories".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            after,
+            None,
+        )
+        .await
+        .expect("after z");
+    assert_eq!(
+        rest.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["\u{e9}-repo"],
+        "resuming after 'z-repo' yields only the byte-greater key"
+    );
+}
+
 macro_rules! crud_test {
     ($name:ident, $body:ident) => {
         mod $name {
@@ -1540,7 +1738,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
             .expect("valid query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q))
+            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
                 .await
                 .expect("json query")
         }
@@ -1651,7 +1849,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         )
         .expect("valid prefix query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q))
+            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
                 .await
                 .expect("prefix query")
         }
@@ -1700,7 +1898,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         let q = JsonQuery::exists(tokens.into_iter().map(str::to_string).collect())
             .expect("valid existence query");
         async move {
-            sync.find_records(None, None, None, false, None, None, Some(q))
+            sync.find_records(None, None, None, false, None, None, Some(q), None, None)
                 .await
                 .expect("existence query")
         }
@@ -1795,3 +1993,117 @@ crud_test!(
     apply_batch_non_atomic_partial,
     run_apply_batch_non_atomic_partial
 );
+crud_test!(find_records_paging, run_find_records_paging);
+crud_test!(
+    find_records_paging_is_byte_ordered,
+    run_find_records_paging_is_byte_ordered
+);
+
+/// The `COLLATE "C"` guard, run against a column that is *not* C-collated.
+///
+/// `run_find_records_paging_is_byte_ordered` above can't catch a missing
+/// `COLLATE "C"` on its own: it only discriminates when the database's
+/// default collation is locale-based, and a test database is usually
+/// created with `C`. So force the adverse condition -- retype the two
+/// ordering columns to a locale collation, under which "e-acute" sorts
+/// *before* "z" -- and check the query still returns byte order.
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn find_records_paging_overrides_a_locale_column_collation() {
+    use sqlx::Executor as _;
+
+    let Some((sync, tmp, scope)) = pg_fixture().await else {
+        eprintln!("skip: UNFURL_TEST_PG_URL not set");
+        return;
+    };
+    sync.update_from_working_dir().await.expect("update");
+
+    let DbConfig::Postgres { url } = scope.db_config() else {
+        unreachable!("pg_fixture yields a postgres config")
+    };
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    // Servers without this locale can't run the check; skip rather than fail.
+    let has_locale: bool = sqlx::query_scalar(
+        "SELECT EXISTS (SELECT 1 FROM pg_collation WHERE collname = 'en_US.UTF-8')",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("collation probe");
+    if !has_locale {
+        eprintln!("skip: server has no en_US.UTF-8 collation");
+        drop(sync);
+        drop(tmp);
+        scope.teardown().await;
+        return;
+    }
+    pool.execute(
+        "ALTER TABLE record \
+         ALTER COLUMN path TYPE text COLLATE \"en_US.UTF-8\", \
+         ALTER COLUMN key TYPE text COLLATE \"en_US.UTF-8\"",
+    )
+    .await
+    .expect("retype columns to a locale collation");
+
+    for key in ["z-repo", "\u{e9}-repo"] {
+        sync.create_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({"name": key}),
+            None,
+        )
+        .await
+        .expect("create");
+    }
+
+    let rows = sync
+        .find_records(
+            None,
+            Some("/repositories".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("find");
+    let keys: Vec<&str> = rows.iter().map(|r| r.key.as_str()).collect();
+    let z = keys.iter().position(|k| *k == "z-repo").expect("z-repo");
+    let e = keys
+        .iter()
+        .position(|k| *k == "\u{e9}-repo")
+        .expect("e-repo");
+    assert!(
+        z < e,
+        "the query must impose byte order even on locale-collated columns: {keys:?}"
+    );
+
+    // And the cursor agrees, so a token minted by sqlite or python resumes
+    // in the same place here.
+    let after = Some(("/repositories".to_string(), "z-repo".to_string()));
+    let rest = sync
+        .find_records(
+            None,
+            Some("/repositories".into()),
+            None,
+            false,
+            None,
+            None,
+            None,
+            after,
+            None,
+        )
+        .await
+        .expect("after z");
+    assert_eq!(
+        rest.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["\u{e9}-repo"]
+    );
+
+    drop(sync);
+    drop(tmp);
+    scope.teardown().await;
+}

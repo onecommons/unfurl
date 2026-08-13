@@ -143,16 +143,6 @@
         "title": "CloudMap Schema",
         "type": "object"
       },
-      "CloudMapDocumentPair": {
-        "description": "Two-element array: the queried (and optionally filtered) CloudMap document followed by a CloudMap document of records discovered by following the graph from the filter key (empty dict when ``follow`` is 0 or no key was supplied).",
-        "items": {
-          "$ref": "#/components/schemas/CloudMapDocument"
-        },
-        "maxItems": 2,
-        "minItems": 2,
-        "title": "CloudMap document pair",
-        "type": "array"
-      },
       "CloudMapResponse": {
         "additionalProperties": true,
         "description": "Pydantic wrapper for :class:`GraphJson`, used by ``@app.output``.",
@@ -291,6 +281,31 @@
           }
         },
         "title": "TypeRefJson",
+        "type": "object"
+      },
+      "CloudMapResult": {
+        "description": "The queried (and optionally filtered) CloudMap document under ``result``. ``followed`` and ``next_page_token`` appear only when the request asked for what they carry, so their absence is meaningful rather than empty.",
+        "properties": {
+          "followed": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CloudMapDocument"
+              }
+            ],
+            "description": "Records discovered by walking the graph from ``key``. Present only when the request asked to ``follow`` from a ``key``."
+          },
+          "next_page_token": {
+            "description": "Cursor to pass as ``page_token`` for the next page. Present only on a ``limit`` request that has one -- its absence ends the walk.",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/CloudMapDocument"
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "title": "CloudMap query result",
         "type": "object"
       },
       "ExportResponse": {
@@ -2728,7 +2743,7 @@
     },
     "/cloudmap": {
       "get": {
-        "description": "Return a pair ``[document, follow]`` of CloudMap documents. ``document`` is the raw CloudMap (or a subset filtered by ``kind`` / ``key``). ``follow`` contains records reachable from ``key`` when ``follow`` > 0, otherwise it is ``{}``.",
+        "description": "Return the CloudMap document under ``result`` \u2014 the raw CloudMap, or the subset selected by ``kind`` / ``key`` / ``type`` / ``filter``.\n\nTwo further keys appear only when the request asked for what they carry, so a client can tell 'you didn't ask' from 'there is none': ``followed`` holds the records reached by walking the graph, and is present only when ``follow`` > 0 with a ``key``; ``next_page_token`` is the cursor for the next page, and is present only on a ``limit`` request that has one.",
         "parameters": [
           {
             "in": "query",
@@ -2964,6 +2979,43 @@
               "description": "Comma-separated list of JSON Pointer paths (RFC 6901, e.g. ``/type,/metadata/title``); when set, each record in the response (both elements of the pair) is reduced to only the selected properties, keeping their nested structure. Paths without a leading ``/`` get one prepended. The special entry ``$key`` adds the record's key to the reduced record under ``\"$key\"``. Paths that don't resolve are omitted.",
               "title": "Select"
             }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Return at most this many records, and change the response from the bare ``[document, follow]`` pair to an envelope:\n\n```text\n{\"records\": [document, follow], \"next_page_token\": \"...\"}\n```\n\n``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.",
+              "title": "Limit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page_token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Opaque cursor from a previous paged response's ``next_page_token``: resume after the record it names. Only meaningful together with ``limit``. A token stays valid when the record it names is deleted.",
+              "title": "Page Token"
+            }
           }
         ],
         "responses": {
@@ -2971,11 +3023,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/CloudMapDocumentPair"
+                  "$ref": "#/components/schemas/CloudMapResult"
                 }
               }
             },
-            "description": "Pair: [filtered CloudMap document, followed records]"
+            "description": "The filtered CloudMap document, plus follow/paging keys when requested"
           },
           "422": {
             "content": {
