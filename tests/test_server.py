@@ -1827,9 +1827,22 @@ def test_gui_branches_dirty_subrepo(create_endpoint):
                 f"expected /{create_endpoint} to advance HEAD, "
                 f"but /branches still reports {after_create['id']}"
             )
-            assert after_create["committed_date"] != initial["committed_date"], (
-                f"expected /{create_endpoint} to advance committed_date, "
-                f"both still {after_create['committed_date']}"
+            # The reported date must belong to the commit /branches reports,
+            # not a stale one cached from before the create. Compared against
+            # git rather than against `initial`: commit timestamps have
+            # one-second resolution, so when both commits land in the same
+            # second their dates are legitimately equal even though HEAD moved.
+            head = GitRepo(Repo(project_root)).repo.head.commit
+            expected_date = datetime.datetime.fromtimestamp(
+                head.committed_date, tz=datetime.timezone.utc
+            )
+            assert (
+                datetime.datetime.fromisoformat(after_create["committed_date"])
+                == expected_date
+            ), (
+                f"/branches reported committed_date "
+                f"{after_create['committed_date']!r} for {after_create['id']}, "
+                f"whose actual date is {expected_date.isoformat()}"
             )
 
             # Modify the new ensemble's ensemble.yaml without committing.

@@ -22,6 +22,8 @@ jobs:
       UNFURL_TEST_REDIS_URL: redis://localhost:6379/0
       UNFURL_TEST_PG_URL: postgres://postgres:postgres@localhost:5432/unfurl_test
       UNFURL_TEST_UNFURL_GUI_TOKEN_URL: ${{ secrets.UNFURL_TEST_UNFURL_GUI_TOKEN_URL }}
+      # GITHUB_TOKEN is auto-provisioned by Actions (no repo secret to configure)
+      UNFURL_TEST_GITHUB_KEY: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:

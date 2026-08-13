@@ -1,4 +1,6 @@
 import json
+import os
+from functools import cache
 import pytest
 from dataclasses import replace
 
@@ -12,6 +14,43 @@ from unfurl.tosca_plugins.cloudmap_defs import (
 )
 from unfurl.tosca_plugins.functions import ContainerImageParts
 from unfurl.support import ContainerImage
+
+UNFURL_TEST_GITHUB_KEY = os.getenv("UNFURL_TEST_GITHUB_KEY")
+
+
+@cache
+def _ghcr_credentials() -> dict:
+    """Credentials for ghcr.io, when a token that actually works is available.
+
+    Anonymous pulls of *public* packages work, which is why these tests need
+    no credentials -- but the anonymous quota is per IP and shared with
+    everything else on a CI runner, so a token is what keeps them off the
+    rate limit. GHCR accepts any username alongside a valid token; Actions
+    provides the one it expects as GITHUB_ACTOR.
+
+    The token is probed once rather than trusted: one without `packages:
+    read` doesn't raise, it just makes `registry_v2_fetch` return nothing, so
+    an under-scoped token would turn these tests from passing-anonymously
+    into failing. Falling back keeps that a non-event.
+    """
+    if not UNFURL_TEST_GITHUB_KEY:
+        return {}
+    credentials = {
+        "username": os.getenv("GITHUB_ACTOR", "x-access-token"),
+        "password": UNFURL_TEST_GITHUB_KEY,
+    }
+    probe = ContainerImage.make("ghcr.io/onecommons/unfurl:v1.1.0-server-cached")
+    assert probe
+    _annotations, platforms, _digest, _fetch = oci.registry_v2_fetch(
+        probe.parts, **credentials
+    )
+    return credentials if platforms else {}
+
+
+def _registry_credentials(image_url: str) -> dict:
+    """Credentials for ``image_url``'s registry, if any are needed and usable."""
+    return _ghcr_credentials() if image_url.startswith("ghcr.io/") else {}
+
 
 artifact_keys = [
     "docker.io/baserow/baserow",
@@ -262,10 +301,13 @@ def test_resolve_image_ref(
     # Test parsing the image reference
     ref = ContainerImage.make(image_url)
     assert ref and ref.parts == expected_ref
+    credentials = _registry_credentials(image_url)
+    ref.username = credentials.get("username")
+    ref.password = credentials.get("password")
 
     # Test fetching from registry
     annotations, platforms, manifest_digest, artifact_fetch = oci.registry_v2_fetch(
-        ref.parts, artifact_fetch="application/vnd.in-toto+json"
+        ref.parts, artifact_fetch="application/vnd.in-toto+json", **credentials
     )
     # print(artifact_fetch.artifact_bytes if artifact_fetch else "no artifact fetch")
     assert platforms

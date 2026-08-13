@@ -1,4 +1,5 @@
 import os
+from typing import Any, Dict
 import tempfile
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -1309,14 +1310,19 @@ def gitlab_repo_info(gitlab_manager):
 
 @pytest.fixture(scope="module")
 def github_manager():
-    """Create a GithubManager with UNFURL_TEST_GITHUB_KEY."""
-    if not UNFURL_TEST_GITHUB_KEY:
+    """Create a GithubManager, authenticated when UNFURL_TEST_GITHUB_KEY is set.
+
+    The skip condition has to match `skip_github_integration`, which lets CI
+    run these without a key: `GithubManager` falls back to unauthenticated
+    access, which is enough for the public repositories they read. When the
+    two disagreed the marker said "run" and this said "skip", so the tests
+    never ran in CI at all -- and without pytest's `-ra` nothing said why.
+    """
+    if not UNFURL_TEST_GITHUB_KEY and not os.getenv("CI"):
         pytest.skip("need UNFURL_TEST_GITHUB_KEY")
-    config = {
-        "url": "https://github.com",
-        "password": UNFURL_TEST_GITHUB_KEY,
-        "type": "github",
-    }
+    config: Dict[str, Any] = {"url": "https://github.com", "type": "github"}
+    if UNFURL_TEST_GITHUB_KEY:
+        config["password"] = UNFURL_TEST_GITHUB_KEY
     return GithubManager("test", config)
 
 
