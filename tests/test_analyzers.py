@@ -1344,9 +1344,14 @@ class TestGitLabPipelineRunsIntegration:
         assert inst.url
 
     def test_gitlab_pipeline_runs_by_commit(self, gitlab_manager, gitlab_repo_info):
+        # the default branch rather than a hardcoded "main": `branches` is
+        # capped at MAX_GIT_REFS in whatever order the API lists them, so on a
+        # project with enough branches any particular name can be missing --
+        # the default one is the only branch guaranteed to be there.
         branches = gitlab_repo_info.branches
-        assert"main" in branches
-        sha = branches["main"]
+        default = gitlab_repo_info.get_default_branch()
+        assert default in branches, f"{default} missing from {sorted(branches)}"
+        sha = branches[default]
         runs = list(
             gitlab_manager.get_pipeline_runs(gitlab_repo_info, commit=sha, limit=5)
         )

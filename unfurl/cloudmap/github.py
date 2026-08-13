@@ -224,10 +224,7 @@ else:
                 if repo.fork and repo.parent
                 else None,
                 private=repo.private,
-                branches={
-                    b.name: b.commit.sha
-                    for b in islice(repo.get_branches(), self.MAX_GIT_REFS)
-                },
+                branches=self._branches(repo),
                 tags={
                     t.name: t.commit.sha
                     for t in islice(repo.get_tags(), self.MAX_GIT_REFS)
@@ -314,6 +311,23 @@ else:
                 )
             self.logger.debug(f"Imported GitHub repo: {repo.full_name}")
             return repo_info
+
+        def _branches(self, repo: GithubRepository) -> Dict[str, str]:
+            """The repository's branches, capped at ``MAX_GIT_REFS``.
+
+            The cap takes whatever the API lists first, so on a repository
+            with enough branches it can drop the default one -- the branch
+            consumers actually need. Fetch that one explicitly when the cap
+            misses it.
+            """
+            branches = {
+                b.name: b.commit.sha
+                for b in islice(repo.get_branches(), self.MAX_GIT_REFS)
+            }
+            default = repo.default_branch
+            if default and default not in branches:
+                branches[default] = repo.get_branch(default).commit.sha
+            return branches
 
         def from_host(self, directory: Directory) -> int:
             """Fetch repositories from GitHub and sync to cloudmap."""

@@ -448,13 +448,7 @@ class GitlabManager(RepositoryHost):
             if forked_from
             else None,
             private=self._get_project_visibility(project) != "public",
-            branches={
-                b.name: b.commit["id"]
-                for b in islice(
-                    project.branches.list(per_page=100, iterator=True),
-                    self.MAX_GIT_REFS,
-                )
-            },
+            branches=self._branches(project),
             tags={
                 t.name: t.commit["id"]
                 for t in islice(
@@ -465,6 +459,27 @@ class GitlabManager(RepositoryHost):
         if self.save_internal:
             repository.internal_id = str(project.get_id())
         return repository
+
+    def _branches(self, project: Project) -> Dict[str, str]:
+        """The project's branches, capped at ``MAX_GIT_REFS``.
+
+        The cap takes whatever the API lists first -- alphabetical order for
+        GitLab -- so on a project with enough branches it can drop the default
+        one, which is the branch consumers actually need (`get_default_branch`,
+        and the sync's `find_mismatched_repo` comparison). Fetch that one
+        explicitly when the cap misses it.
+        """
+        branches = {
+            b.name: b.commit["id"]
+            for b in islice(
+                project.branches.list(per_page=100, iterator=True),
+                self.MAX_GIT_REFS,
+            )
+        }
+        default = project.default_branch
+        if default and default not in branches:
+            branches[default] = project.branches.get(default).commit["id"]
+        return branches
 
     def get_pipeline_runs(
         self,
