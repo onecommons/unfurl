@@ -517,6 +517,56 @@ def test_page_size_zero_disables_paging() -> None:
     assert "limit" not in dict(session.get.call_args.kwargs["params"])
 
 
+def test_refresh_drops_records_the_server_reports_deleted() -> None:
+    """A delete is unobservable to a merge -- the record just stops being
+    sent -- so the server flags it and the cache removes it."""
+    loaded = _response(
+        {
+            "artifacts": {
+                "pkg:oci/keep": _artifact_payload("pkg:oci/keep", version=1),
+                "pkg:oci/gone": _artifact_payload("pkg:oci/gone", version=2),
+            }
+        }
+    )
+    tombstone = _response(
+        {
+            "artifacts": {
+                "pkg:oci/gone": {
+                    "type": {"unfurl.artifacts.OCIImage": None},
+                    "unfurl.server.version": 7,
+                    "unfurl.server.deleted": True,
+                }
+            }
+        }
+    )
+    proxy, _session = _make_proxy(
+        get_returns=[_make_response(loaded), _make_response(tombstone)]
+    )
+
+    assert sorted(a.url for a in proxy.find_artifacts()) == [
+        "pkg:oci/gone",
+        "pkg:oci/keep",
+    ]
+
+    proxy.refresh()
+
+    assert [a.url for a in proxy.find_artifacts()] == ["pkg:oci/keep"]
+    assert "pkg:oci/gone" not in proxy._cache.artifacts
+    # The tombstone still advances the watermark, or it would be re-sent
+    # on every refresh forever.
+    assert proxy._cache._max_version == 7
+
+
+def test_tombstone_for_an_unknown_record_is_harmless() -> None:
+    """A delete for something never cached is a no-op, not an error."""
+    tombstone = _response(
+        {"artifacts": {"pkg:oci/never-seen": {"unfurl.server.deleted": True}}}
+    )
+    proxy, _session = _make_proxy(get_returns=[_make_response(tombstone)])
+    proxy.refresh()
+    assert not proxy._cache.artifacts
+
+
 def test_refresh_pages_with_a_fixed_since_version() -> None:
     """Ingesting a page raises ``_max_version``; the walk must keep using
     the watermark it started from or later pages would skip records."""

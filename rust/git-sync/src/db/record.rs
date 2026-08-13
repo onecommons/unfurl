@@ -343,9 +343,12 @@ async fn find_sqlite(
     let alias_active = query.alias_active();
     let type_names = query.effective_type_names();
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
-         WHERE r.worktree_id = ?1 AND r.deleted = 0",
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version, \
+         r.deleted FROM record r WHERE r.worktree_id = ?1",
     );
+    if !query.include_deleted {
+        sql.push_str(" AND r.deleted = 0");
+    }
     let mut idx: usize = 2;
     if file_path.is_some() {
         sql.push_str(&format!(" AND r.file_path = ?{idx}"));
@@ -465,9 +468,20 @@ async fn find_sqlite(
     }
     let _ = idx; // silence unused-assignment lint when the last bind isn't used
 
-    let mut q =
-        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, i64)>(&sql)
-            .bind(worktree_id);
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            i64,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            i64,
+            i64,
+        ),
+    >(&sql)
+    .bind(worktree_id);
     if let Some(fp) = file_path {
         q = q.bind(fp);
     }
@@ -519,7 +533,7 @@ async fn find_sqlite(
     let rows = q.fetch_all(pool).await?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, file_path, path, key, commit_id, json_text, version) in rows {
+    for (id, file_path, path, key, commit_id, json_text, version, deleted) in rows {
         let json: serde_json::Value =
             serde_json::from_str(&json_text).map_err(|e| Error::Json {
                 path: path.clone(),
@@ -533,7 +547,7 @@ async fn find_sqlite(
             key,
             commit_id,
             json,
-            deleted: false,
+            deleted: deleted != 0,
             version,
         });
     }
@@ -559,9 +573,12 @@ async fn find_pg(
     let alias_active = query.alias_active();
     let type_names = query.effective_type_names();
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
-         WHERE r.worktree_id = $1 AND r.deleted = FALSE",
+        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version, r.deleted \
+         FROM record r WHERE r.worktree_id = $1",
     );
+    if !query.include_deleted {
+        sql.push_str(" AND r.deleted = FALSE");
+    }
     let mut idx: usize = 2;
     if file_path.is_some() {
         sql.push_str(&format!(" AND r.file_path = ${idx}"));
@@ -647,6 +664,7 @@ async fn find_pg(
             Option<String>,
             serde_json::Value,
             i64,
+            bool,
         ),
     >(&sql)
     .bind(worktree_id);
@@ -683,7 +701,7 @@ async fn find_pg(
     let rows = q.fetch_all(pool).await?;
     Ok(rows
         .into_iter()
-        .map(|(id, fp, p, k, cid, json, version)| Record {
+        .map(|(id, fp, p, k, cid, json, version, deleted)| Record {
             id,
             worktree_id,
             file_path: fp,
@@ -691,7 +709,7 @@ async fn find_pg(
             key: k,
             commit_id: cid,
             json,
-            deleted: false,
+            deleted,
             version,
         })
         .collect())

@@ -71,6 +71,10 @@ __all__ = [
 _OCC_VERSION_KEY = "unfurl.server.version"
 _OCC_COMMIT_KEY = "unfurl.server.commit"
 _OCC_ID_KEY = "unfurl.server.id"
+# Set by the server on an incremental read to report a record that was
+# deleted, and by this client to request one — the same flag in both
+# directions.
+_OCC_DELETED_KEY = "unfurl.server.deleted"
 
 # Private attribute names used to stash the per-record OCC tokens on
 # the cached dataclass instances. Stashing them as instance attrs
@@ -246,9 +250,23 @@ class CloudMapCache(CloudMapDB):
         onto the new instance.
 
         Returns whether a record was created — ``False`` for a section
-        this client doesn't know, so a caller collecting keys doesn't
-        report one it can't look up.
+        this client doesn't know, and for a tombstone, so a caller
+        collecting keys doesn't report one it can't look up.
+
+        A tombstone (``unfurl.server.deleted``) removes the record from
+        the cache instead of adding one. Only an incremental read
+        (``since_version``) asks for them: without that, a delete is
+        invisible to a client, because the record simply stops being
+        returned and a merge has no way to notice an absence.
         """
+        if payload.get(_OCC_DELETED_KEY):
+            existing = self.get_record(section, key)
+            if existing is not None:
+                # CloudMapDB's version, which also drops the record's
+                # version variants -- not CloudMapProxy's, which would
+                # stage a delete back to the server.
+                CloudMapDB.delete_record(self, existing)
+            return False
         # The OCC keys aren't valid dataclass kwargs, so pop them
         # off (capturing the values) before passing the rest to the
         # constructor. Work on a fresh copy because some constructors
@@ -921,7 +939,7 @@ class CloudMapProxy(CloudMapStore):
         # delete the same way it does to a write.
         section = self._section_for(record)
         self._cache.delete_record(record)
-        payload: Dict[str, Any] = {"unfurl.server.deleted": True}
+        payload: Dict[str, Any] = {_OCC_DELETED_KEY: True}
         version, commit = _get_occ_tokens(record)
         if version is not None:
             payload[_OCC_VERSION_KEY] = version
@@ -1097,10 +1115,17 @@ class CloudMapProxy(CloudMapStore):
     def refresh(self) -> None:
         """Pull records changed since the last sync into the cache.
 
-        Issues ``GET /cloudmap?since_version=<self._cache._max_version>``.
-        Requires the rust git-sync backend on the server; the Python
-        YAML fallback ignores the parameter and returns the full
-        document.
+        Issues ``GET /cloudmap?since_version=<self._cache._max_version>``,
+        which reports records added or updated since that watermark *and*
+        tombstones for records deleted since it — those are dropped from
+        the cache, so a delete finally propagates. A plain re-read never
+        could: it merges what it is sent, and an absence is not something
+        a merge can observe.
+
+        Requires the rust git-sync backend on the server; the Python YAML
+        fallback ignores the parameter, returning the whole document, so
+        against it a refresh still picks up additions and updates but not
+        deletions.
         """
         # last_commit is different, any deletes after _max_version won't be observed
         # otherwise can get delete records back

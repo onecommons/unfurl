@@ -182,6 +182,15 @@ impl CloudMapState {
         })
     }
 
+    /// The repository this state reads from.
+    ///
+    /// Exposed so callers that already hold a [`CloudMapState`] can drive
+    /// the store directly rather than opening a second handle to the same
+    /// database.
+    pub fn synced(&self) -> &SyncedRepo {
+        &self.inner
+    }
+
     /// Wrap an already-opened [`SyncedRepo`] in a [`CloudMapState`].
     ///
     /// Useful in tests that want to control the working dir, database
@@ -524,6 +533,7 @@ async fn build_response(
                 since_version: params.since_version,
                 type_names,
                 json_query: json_filter,
+                include_deleted: params.since_version.is_some(),
                 ..Default::default()
             },
             key,
@@ -544,6 +554,9 @@ async fn build_response(
                 since_version: params.since_version,
                 type_names,
                 json_query: json_filter,
+                // A client catching up from a watermark needs to learn
+                // what was deleted; one reading a section live does not.
+                include_deleted: params.since_version.is_some(),
                 ..Default::default()
             },
             follow,
@@ -844,7 +857,7 @@ fn records_to_document(records: Vec<Record>, select: Option<&[SelectPath]>) -> V
         let Some(section) = section_for_path(&r.path) else {
             continue;
         };
-        let enriched = annotate_record(r.json, r.id, r.version, r.commit_id);
+        let enriched = annotate_record(r.json, r.id, r.version, r.commit_id, r.deleted);
         let entry = match select {
             Some(paths) => project_record(&enriched, &r.key, paths),
             None => enriched,
@@ -860,7 +873,13 @@ fn records_to_document(records: Vec<Record>, select: Option<&[SelectPath]>) -> V
 
 /// Splice the row's identity + OCC tokens onto its JSON payload.
 /// No-op when the payload isn't a JSON object.
-fn annotate_record(json: Value, id: i64, version: i64, commit_id: Option<String>) -> Value {
+fn annotate_record(
+    json: Value,
+    id: i64,
+    version: i64,
+    commit_id: Option<String>,
+    deleted: bool,
+) -> Value {
     let Value::Object(mut map) = json else {
         return json;
     };
@@ -870,6 +889,12 @@ fn annotate_record(json: Value, id: i64, version: i64, commit_id: Option<String>
         "unfurl.server.commit".to_string(),
         commit_id.map(Value::from).unwrap_or(Value::Null),
     );
+    // Same key a client sends to *request* a delete, so the flag means
+    // "this record is gone" in both directions. Only ever set on an
+    // incremental read, which is the one that asked for tombstones.
+    if deleted {
+        map.insert("unfurl.server.deleted".to_string(), Value::Bool(true));
+    }
     Value::Object(map)
 }
 

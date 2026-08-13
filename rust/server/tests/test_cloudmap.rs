@@ -1949,3 +1949,43 @@ fn page_token_wire_format_is_pinned() {
     // the two implementations, so the encoding cannot drift.
     assert_eq!(encode_page_token("/artifacts", "pkg:x"), "artifacts/pkg:x");
 }
+
+#[tokio::test]
+async fn since_version_reports_deleted_records() {
+    // A delete is invisible to a live read -- the row just stops being
+    // returned -- so an incremental read has to carry a tombstone or a
+    // client can never learn about it.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
+
+    let synced = cm.synced();
+    let watermark = synced
+        .find_records(&unfurl_git_sync::RecordQuery::default())
+        .await
+        .expect("find")
+        .iter()
+        .map(|r| r.version)
+        .max()
+        .expect("records");
+    synced
+        .delete_record(Some("cloudmap.yaml"), "/repositories", key, None)
+        .await
+        .expect("delete");
+
+    // A live read no longer has it...
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["result"]["repositories"].get(key).is_none());
+
+    // ...but catching up from the watermark reports it as gone.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, &format!("/cloudmap?since_version={watermark}")).await;
+    assert_eq!(status, StatusCode::OK);
+    let tomb = &body["result"]["repositories"][key];
+    assert_eq!(
+        tomb["unfurl.server.deleted"],
+        serde_json::json!(true),
+        "the tombstone must be flagged: {body:?}"
+    );
+}

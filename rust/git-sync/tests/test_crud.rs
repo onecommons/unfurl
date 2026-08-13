@@ -1571,6 +1571,68 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
     );
 }
 
+/// A record that was deleted is invisible to a normal search but must be
+/// reachable by a client catching up from a watermark -- otherwise the
+/// delete is unobservable, since the row simply stops being returned.
+async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let key = "doomed";
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        key,
+        serde_json::json!({"name": key}),
+        None,
+    )
+    .await
+    .expect("create");
+
+    let before = sync
+        .find_records(&RecordQuery::default())
+        .await
+        .expect("find")
+        .iter()
+        .map(|r| r.version)
+        .max()
+        .expect("records");
+
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", key, None)
+        .await
+        .expect("delete");
+
+    // The default view hides it, exactly as before.
+    let live = sync
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            ..Default::default()
+        })
+        .await
+        .expect("live");
+    assert!(
+        !live.iter().any(|r| r.key == key),
+        "a deleted record must not appear in a live view"
+    );
+
+    // Catching up from the watermark surfaces it, flagged.
+    let caught_up = sync
+        .find_records(&RecordQuery {
+            since_version: Some(before),
+            include_deleted: true,
+            ..Default::default()
+        })
+        .await
+        .expect("catch up");
+    let tomb = caught_up
+        .iter()
+        .find(|r| r.key == key)
+        .expect("the tombstone should be reported");
+    assert!(tomb.deleted, "and be marked as one: {tomb:?}");
+    assert!(
+        tomb.version > before,
+        "with a version past the watermark, so it is seen exactly once"
+    );
+}
+
 macro_rules! crud_test {
     ($name:ident, $body:ident) => {
         mod $name {
@@ -2003,3 +2065,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     drop(tmp);
     scope.teardown().await;
 }
+crud_test!(
+    find_records_reports_tombstones,
+    run_find_records_reports_tombstones
+);

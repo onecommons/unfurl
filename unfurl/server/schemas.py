@@ -229,9 +229,14 @@ class CloudMapDocQuery(CloudMapBaseQuery):
         default=None,
         description=(
             "When set, return only records whose "
-            "``unfurl.server.version`` is greater than this value. "
+            "``unfurl.server.version`` is greater than this value, "
+            "including records deleted since then -- those come back "
+            "carrying ``unfurl.server.deleted: true`` so a client "
+            "catching up can drop them, which it could not otherwise "
+            "learn (a deleted record simply stops being returned). "
             "Requires the rust git-sync backend; ignored by the "
-            "Python YAML fallback."
+            "Python YAML fallback, which reports neither versions nor "
+            "deletions."
         ),
     )
     exclude: Optional[str] = Field(

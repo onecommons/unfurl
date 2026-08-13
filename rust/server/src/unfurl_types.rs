@@ -989,7 +989,7 @@ pub struct GetCloudmapRequestQuery {
     /// If > 0 and ``key`` is supplied, walk the CloudMap graph starting at ``key`` and return the discovered records in the second element of the response pair. Otherwise the second element is an empty dict.
     #[default(Some(0i64))]
     pub follow: Option<i64>,
-    /// When set, return only records whose ``unfurl.server.version`` is greater than this value. Requires the rust git-sync backend; ignored by the Python YAML fallback.
+    /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.
     pub since_version: Option<i64>,
     /// Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.
     pub exclude: Option<String>,

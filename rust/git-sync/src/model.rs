@@ -120,6 +120,14 @@ pub struct RecordQuery {
     pub after: Option<(String, String)>,
     /// Cap on how many records come back.
     pub limit: Option<i64>,
+    /// Also return tombstones — records deleted since they were written.
+    ///
+    /// Off by default, because a live view of a section has no use for
+    /// them. Pair it with [`Self::since_version`]: a caller catching up
+    /// from a watermark needs to learn that a record *went away*, which
+    /// is otherwise unobservable — its row simply stops being returned.
+    /// Check [`Record::deleted`] to tell a tombstone from a live record.
+    pub include_deleted: bool,
 }
 
 impl RecordQuery {
