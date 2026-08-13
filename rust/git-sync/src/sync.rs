@@ -430,6 +430,25 @@ impl SyncedRepo {
         follow: u32,
         exclude: Vec<i64>,
     ) -> Result<(Vec<Record>, Vec<Record>)> {
+        let initial = self.find_records(query).await?;
+        let followed = self
+            .follow_records(&initial, follow, exclude, query.since_version)
+            .await?;
+        Ok((initial, followed))
+    }
+
+    /// The follow walk of [`Self::find_records_follow`], over records the
+    /// caller already holds.
+    ///
+    /// Returns at most `follow` newly discovered records, alias-resolved,
+    /// never re-emitting anything in `initial` or named by `exclude`.
+    pub async fn follow_records(
+        &self,
+        initial: &[Record],
+        follow: u32,
+        exclude: Vec<i64>,
+        since_version: Option<i64>,
+    ) -> Result<Vec<Record>> {
         // Soft cap on the size of a single batched `key IN (...)`
         // query. Each follow batch binds `2 * keys` parameters (the
         // alias OR-clause re-binds the same set), so 100 keys → 200
@@ -440,16 +459,14 @@ impl SyncedRepo {
 
         if exclude.len() > MAX_EXCLUDE_IDS {
             return Err(Error::Other(format!(
-                "find_records_follow: exclude list too large \
+                "follow_records: exclude list too large \
                  ({} > {MAX_EXCLUDE_IDS}); shrink the caller's cache \
                  or split the walk",
                 exclude.len()
             )));
         }
-
-        let initial = self.find_records(query).await?;
         if follow == 0 || initial.is_empty() {
-            return Ok((initial, Vec::new()));
+            return Ok(Vec::new());
         }
 
         // Memoize file_path → format-name so we don't query `file` once
@@ -466,7 +483,7 @@ impl SyncedRepo {
             .map(|r| (r.path.clone(), r.key.clone()))
             .collect();
         let mut visited_ids: BTreeSet<i64> = exclude.into_iter().collect();
-        for r in &initial {
+        for r in initial {
             visited_ids.insert(r.id);
         }
         let mut queue: std::collections::VecDeque<Record> = initial.iter().cloned().collect();
@@ -527,7 +544,7 @@ impl SyncedRepo {
                 &key_refs,
                 true,
                 &exclude_ids,
-                query.since_version,
+                since_version,
             )
             .await?;
             batch_keys.clear();
@@ -541,11 +558,11 @@ impl SyncedRepo {
                 queue.push_back(r.clone());
                 followed.push(r);
                 if (followed.len() as u32) >= follow {
-                    return Ok((initial, followed));
+                    return Ok(followed);
                 }
             }
         }
-        Ok((initial, followed))
+        Ok(followed)
     }
 
     /// Returns the record at `(file_path, path, key)` within this

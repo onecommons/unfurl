@@ -465,14 +465,14 @@ async fn build_response(
         None => None,
     };
 
-    // Walking only makes sense when we have a starting key.
+    // A walk starts from every record the query selected, so it needs no
+    // key: `find_records_follow` seeds its queue from the whole initial
+    // set. With a key that set is one record; with `kind` / `type` /
+    // `filter` it is their matches, and the walk returns the
+    // neighbourhood of all of them.
+    let follow = params.follow.unwrap_or(0).max(0) as u32;
     // alias=true when filtering by key (so versioned URLs hit their
     // canonical record); alias=false for the full document.
-    let follow = if key.is_some() {
-        params.follow.unwrap_or(0).max(0) as u32
-    } else {
-        0
-    };
     let alias = key.is_some();
 
     // Single DB query for both halves of the response. With follow=0
@@ -525,19 +525,41 @@ async fn build_response(
         .filter(|p| !p.is_empty());
 
     if let Some(limit) = params.limit {
+        if limit < 1 {
+            return Err(LocalError::Unprocessable(format!(
+                "limit must be at least 1, got {limit}"
+            )));
+        }
+        if key.is_some() {
+            return Err(LocalError::BadRequest(
+                "limit cannot be combined with key".to_string(),
+            ));
+        }
+        let query = RecordQuery {
+            file_path: file_path.map(str::to_string),
+            path: path.map(str::to_string),
+            since_version: params.since_version,
+            type_names,
+            json_query: json_filter,
+            include_deleted: params.since_version.is_some(),
+            after: params
+                .page_token
+                .as_deref()
+                .filter(|t| !t.is_empty())
+                .map(decode_page_token)
+                .transpose()?,
+            // Fetch one extra record: its presence is what says another
+            // page exists. Testing `len == limit` instead would end a
+            // section whose size is a multiple of `limit` on a token
+            // pointing at an empty page.
+            limit: Some(limit + 1),
+            ..Default::default()
+        };
         return paged_response(
             synced,
-            RecordQuery {
-                file_path: file_path.map(str::to_string),
-                path: path.map(str::to_string),
-                since_version: params.since_version,
-                type_names,
-                json_query: json_filter,
-                include_deleted: params.since_version.is_some(),
-                ..Default::default()
-            },
-            key,
-            params.page_token.as_deref(),
+            &query,
+            follow,
+            exclude_ids,
             select_paths.as_deref(),
             limit,
         )
@@ -596,44 +618,22 @@ async fn build_response(
 }
 
 /// One page of a `limit` request: the ordered scan cut at `limit`.
-///
-/// Never carries a `followed` key. That isn't a special case here: a walk
-/// needs a starting `key`, and `key` is rejected alongside `limit` because
-/// it selects a single record. `exclude` is likewise ignored — it only ever
-/// narrowed the follow walk.
 async fn paged_response(
     synced: &SyncedRepo,
-    mut query: RecordQuery,
-    key: Option<&str>,
-    page_token: Option<&str>,
+    query: &RecordQuery,
+    follow: u32,
+    exclude_ids: Vec<i64>,
     select: Option<&[SelectPath]>,
     limit: i64,
 ) -> Result<Value, LocalError> {
-    if limit < 1 {
-        return Err(LocalError::Unprocessable(format!(
-            "limit must be at least 1, got {limit}"
-        )));
-    }
-    if key.is_some() {
-        return Err(LocalError::BadRequest(
-            "limit cannot be combined with key".to_string(),
-        ));
-    }
-    query.after = page_token
-        .filter(|t| !t.is_empty())
-        .map(decode_page_token)
-        .transpose()?;
-    // Fetch one extra record: its presence is what says another page
-    // exists. Testing `len == limit` instead would end a section whose
-    // size is a multiple of `limit` on a token pointing at an empty page.
-    query.limit = Some(limit + 1);
-
     let mut rows = synced
-        .find_records(&query)
+        .find_records(query)
         .await
         .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
 
     let more = rows.len() as i64 > limit;
+    // Cut the page *before* walking, or the probe record -- which belongs to
+    // the next page -- would contribute its neighbours to this one.
     rows.truncate(limit as usize);
     let next = if more {
         rows.last().map(|r| encode_page_token(&r.path, &r.key))
@@ -641,8 +641,26 @@ async fn paged_response(
         None
     };
 
+    let followed = if follow > 0 {
+        synced
+            .follow_records(&rows, follow, exclude_ids, query.since_version)
+            .await
+            .map_err(|e| LocalError::Internal(format!("follow_records: {e}")))?
+    } else {
+        Vec::new()
+    };
+
     let mut body = Map::new();
     body.insert("result".to_string(), records_to_document(rows, select));
+    // Each page carries its own neighbourhood, capped at `follow` -- the same
+    // per-response bound `limit` puts on the page itself. A record reachable
+    // from two pages is reported on both unless the caller excludes it.
+    if follow > 0 {
+        body.insert(
+            "followed".to_string(),
+            records_to_document(followed, select),
+        );
+    }
     // Absent on the last page — that is what ends a client's walk.
     if let Some(token) = next {
         body.insert("next_page_token".to_string(), Value::String(token));

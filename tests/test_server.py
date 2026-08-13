@@ -2164,6 +2164,59 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 404, res.text
 
+            # ----- GET /cloudmap?follow=... without a key (both servers
+            # walk outward from every record the query selected) -----
+
+            res = requests.get(
+                cloudmap_url, params={"kind": "repositories", "follow": 100}
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            roots = set(body["result"]["repositories"])
+            assert roots, "fixture should have repositories to walk from"
+            followed = body["followed"]
+            assert followed, "repositories reference records in other sections"
+            assert set(followed) - {"repositories"}, (
+                f"the walk should leave the starting section: {list(followed)}"
+            )
+            # roots are already in `result`; they are not repeated
+            assert not (set(followed.get("repositories", {})) & roots)
+
+            # the cap counts records, not roots
+            res = requests.get(
+                cloudmap_url, params={"kind": "repositories", "follow": 3}
+            )
+            assert res.status_code == 200, res.text
+            capped = res.json()["followed"]
+            assert sum(len(v) for v in capped.values()) == 3, capped
+
+            # a paged walk starts from that page's records, capped per page
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "limit": 2, "follow": 10},
+            )
+            assert res.status_code == 200, res.text
+            paged = res.json()
+            assert len(paged["result"]["repositories"]) == 2
+            assert paged["followed"], "the page references other records"
+            assert sum(len(v) for v in paged["followed"].values()) <= 10
+
+            # a one-record page walks exactly what that record reaches --
+            # not what the limit+1 probe record reaches
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "limit": 1, "follow": 100},
+            )
+            assert res.status_code == 200, res.text
+            one = res.json()
+            only_key = next(iter(one["result"]["repositories"]))
+            res = requests.get(
+                cloudmap_url,
+                params={"kind": "repositories", "key": only_key, "follow": 100},
+            )
+            assert res.status_code == 200, res.text
+            assert _canonical(one["followed"]) == _canonical(res.json()["followed"])
+
             # ----- GET /cloudmap?limit=... (paging; the rust fast-path
             # cuts the page in SQL, the Python fallback slices the loaded
             # document — the walks must agree, and a page token minted by

@@ -2885,7 +2885,7 @@
             "required": false,
             "schema": {
               "default": 0,
-              "description": "If > 0 and ``key`` is supplied, walk the CloudMap graph starting at ``key`` and return the discovered records in the second element of the response pair. Otherwise the second element is an empty dict.",
+              "description": "If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.",
               "title": "Follow",
               "type": "integer"
             }

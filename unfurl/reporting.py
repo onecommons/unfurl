@@ -584,23 +584,17 @@ class CloudMapGraphWalker:
         return record.name if isinstance(record, CloudType) else record.url
 
     def walk(self, start_url: str = "") -> None:
-        """Walk the graph, optionally starting from a specific URL."""
+        """Walk the graph, optionally starting from a specific URL.
+
+        With a url this is :meth:`walk_from` over that one record; without
+        one it enumerates the whole document instead, which is a different
+        traversal rather than a walk from every record.
+        """
         if start_url:
-            all_found = self._find_all_records(start_url)
-            if not all_found:
-                self.visitor.not_found(start_url)
-                return
-            visited: set = {start_url}
-            for kind, record in all_found:
-                if self.visitor.visit_record(
-                    kind, start_url, record, type_refs=_merge_typerefs(record)
-                ):
-                    break
-                self._walk_edges(record, kind, visited)
-                self.visitor.leave_record(kind, start_url, record)
+            self.walk_from([start_url])
         else:
             self.visitor.start_graph("CloudMap")
-            visited = set()
+            visited: set = set()
             sections: List[Tuple[str, str, Iterable[Any]]] = [
                 ("Repositories", "Repository", self.view.find_repositories()),
                 ("Artifacts", "Artifact", self.view.find_artifacts()),
@@ -634,6 +628,32 @@ class CloudMapGraphWalker:
                     self._walk_edges(record, kind, visited)
                     self.visitor.leave_record(kind, key, record)
             self.visitor.end_graph(empty=not visited)
+
+    def walk_from(self, start_urls: Sequence[str]) -> None:
+        """Walk outward from every url in ``start_urls``, sharing one visit set.
+
+        The multi-root form of :meth:`walk`, for a caller that has already
+        selected a set of records and wants their neighbourhood — where
+        :meth:`walk` with no url instead enumerates the whole document.
+
+        Every root is marked visited before the walk starts, so an edge
+        leading back into the starting set isn't reported as a discovery:
+        the caller already holds those records. A root that resolves to
+        nothing is reported through :meth:`CloudMapGraphVisitor.not_found`.
+        """
+        visited: set = set(start_urls)
+        for url in start_urls:
+            found = self._find_all_records(url)
+            if not found:
+                self.visitor.not_found(url)
+                continue
+            for kind, record in found:
+                if self.visitor.visit_record(
+                    kind, url, record, type_refs=_merge_typerefs(record)
+                ):
+                    return
+                self._walk_edges(record, kind, visited)
+                self.visitor.leave_record(kind, url, record)
 
     def _find_all_records(
         self, url: str, type_refs: Optional[TypeRefs] = None
@@ -832,6 +852,18 @@ def walk_cloudmap_graph(
 ) -> None:
     """Walk the CloudMap graph calling visitor methods for each record and edge."""
     CloudMapGraphWalker(view, visitor).walk(start_url)
+
+
+def walk_cloudmap_graph_from(
+    view: "CloudMapView",
+    visitor: CloudMapGraphVisitor,
+    start_urls: Iterable[str],
+) -> None:
+    """Walk the CloudMap graph outward from several records at once.
+
+    See :meth:`CloudMapGraphWalker.walk_from`.
+    """
+    CloudMapGraphWalker(view, visitor).walk_from(list(start_urls))
 
 
 class RichTreeVisitor(CloudMapGraphVisitor):
@@ -1168,7 +1200,8 @@ class CollectVisitor(CloudMapGraphVisitor):
     ``types``) and stored as ``record.asdict()`` payloads keyed by URL.
 
     Args:
-        start_key: URL of the starting record; never re-emitted.
+        roots: URLs the walk started from; never re-emitted, because the
+            caller already has them in the primary half of its response.
         limit: Maximum number of records to collect. Once reached,
             subsequent ``visit_record`` calls become no-ops.
         exclude: Optional set of record primary-key ids
@@ -1181,11 +1214,11 @@ class CollectVisitor(CloudMapGraphVisitor):
 
     def __init__(
         self,
-        start_key: Optional[str],
+        roots: Set[str],
         limit: int,
         exclude: Optional[Set[int]] = None,
     ) -> None:
-        self.start_key = start_key
+        self.roots = roots
         self.limit = limit
         self.exclude = exclude or set()
         self.result: Dict[str, Dict[str, Any]] = {}
@@ -1203,7 +1236,7 @@ class CollectVisitor(CloudMapGraphVisitor):
     ) -> bool:
         if len(self._seen) >= self.limit:
             return True
-        if seen or url == self.start_key:
+        if seen or url in self.roots:
             return False
         # Skip records the caller already holds. The id attr is only
         # set on records hydrated by `CloudMapCache._hydrate_one`

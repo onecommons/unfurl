@@ -986,7 +986,7 @@ pub struct GetCloudmapRequestQuery {
     pub kind: Option<String>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
     pub key: Option<String>,
-    /// If > 0 and ``key`` is supplied, walk the CloudMap graph starting at ``key`` and return the discovered records in the second element of the response pair. Otherwise the second element is an empty dict.
+    /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.
     #[default(Some(0i64))]
     pub follow: Option<i64>,
     /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.

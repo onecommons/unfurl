@@ -2020,11 +2020,52 @@ def test_cloudmap_endpoint_follow_zero(cloudmap_test_client):
     assert "followed" not in body
 
 
-def test_cloudmap_endpoint_follow_without_key(cloudmap_test_client):
+def test_cloudmap_endpoint_follow_without_key_walks_from_the_matches(
+    cloudmap_test_client,
+):
+    """A walk needs no key: it starts from every record the query selected,
+    so a filtered query returns its neighbourhood."""
+    resp = cloudmap_test_client.get("/cloudmap?kind=repositories&follow=100")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    roots = set(body["result"]["repositories"])
+    assert roots, "fixture should have repositories to walk from"
+
+    followed = body["followed"]
+    assert followed, "the repositories reference records in other sections"
+    # The roots are already in `result`; `followed` is what they reach.
+    assert "repositories" not in followed or not (
+        set(followed["repositories"]) & roots
+    )
+    assert set(followed) - {"repositories"}, (
+        f"should reach other sections: {list(followed)}"
+    )
+
+
+def test_cloudmap_endpoint_follow_caps_a_keyless_walk(cloudmap_test_client):
+    resp = cloudmap_test_client.get("/cloudmap?kind=repositories&follow=3")
+    assert resp.status_code == 200
+    followed = resp.get_json()["followed"]
+    total = sum(len(records) for records in followed.values())
+    assert total == 3
+
+
+def test_cloudmap_endpoint_follow_reports_edge_derived_keys(cloudmap_test_client):
+    """Even with every record as a root, a walk still discovers entries:
+    an edge names a record by a url the section doesn't key it under --
+    a derived artifact url, a type-qualified repository name -- so what
+    comes back under ``followed`` is keyed the way the edge referred to it."""
     resp = cloudmap_test_client.get("/cloudmap?follow=10")
     assert resp.status_code == 200
     body = resp.get_json()
-    assert "followed" not in body
+    followed = body["followed"]
+    assert followed, "edges name records by urls that are not section keys"
+    total = sum(len(records) for records in followed.values())
+    assert total <= 10, "follow caps the walk"
+    # None of them repeats a key already in the result.
+    for section_name, records in followed.items():
+        roots = set(body["result"].get(section_name, {}))
+        assert not (set(records) & roots), section_name
 
 
 # ---------------------------------------------------------------------------
@@ -2136,12 +2177,28 @@ def test_cloudmap_endpoint_paging_rejects_key(cloudmap_test_client):
     assert "limit cannot be combined with key" in resp.get_json()["error"]
 
 
-def test_cloudmap_endpoint_paging_ignores_follow(cloudmap_test_client):
-    """`follow` is already inert without a key, and a paged request is
-    always keyless -- so it is accepted and simply has no effect."""
+def test_cloudmap_endpoint_paging_follows_from_the_page(cloudmap_test_client):
+    """A paged walk starts from that page's records -- never from one the
+    page doesn't contain -- and the cap applies per page."""
     resp = cloudmap_test_client.get("/cloudmap?kind=repositories&limit=2&follow=10")
     assert resp.status_code == 200
-    assert "followed" not in resp.get_json()
+    body = resp.get_json()
+    page = set(body["result"]["repositories"])
+    assert len(page) == 2
+    followed = body["followed"]
+    assert followed, "the page's repositories reference other records"
+    assert sum(len(v) for v in followed.values()) <= 10
+
+    # The neighbourhood belongs to this page: walking the same two records
+    # unpaged gives the same followed set.
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories&follow=10")
+    assert unpaged.status_code == 200
+    # (different roots, so only assert the page's own walk is self-consistent)
+    again = cloudmap_test_client.get(
+        "/cloudmap?kind=repositories&limit=2&follow=10"
+    ).get_json()
+    assert again["followed"] == followed
+    assert set(again["result"]["repositories"]) == page
 
 
 def test_cloudmap_endpoint_paging_rejects_bad_limit(cloudmap_test_client):

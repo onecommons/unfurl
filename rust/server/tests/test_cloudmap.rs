@@ -370,15 +370,43 @@ async fn follow_zero_omits_followed() {
 }
 
 #[tokio::test]
-async fn follow_without_key_omits_followed() {
+async fn follow_without_key_walks_from_the_matches() {
+    // A walk needs no starting key: it seeds from every record the query
+    // selected, so a filtered query returns its neighbourhood.
     let (cm, _tmp) = open_cloudmap_state().await;
     let app = router(make_state(cm));
-    let (status, body) = get_json(app, "/cloudmap?follow=10").await;
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories&follow=100").await;
     assert_eq!(status, StatusCode::OK);
+    let roots = body["result"]["repositories"]
+        .as_object()
+        .expect("repositories");
+    assert!(!roots.is_empty(), "fixture should have roots to walk from");
+
+    let followed = body["followed"].as_object().expect("followed");
     assert!(
-        body.get("followed").is_none(),
-        "a walk needs a starting key, so the key is absent"
+        !followed.is_empty(),
+        "the repositories reference records in other sections: {body:?}"
     );
+    let reached: Vec<&String> = followed.keys().collect();
+    assert!(
+        reached.iter().any(|s| *s != "repositories"),
+        "should reach other sections: {reached:?}"
+    );
+}
+
+#[tokio::test]
+async fn follow_caps_a_keyless_walk() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories&follow=3").await;
+    assert_eq!(status, StatusCode::OK);
+    let total: usize = body["followed"]
+        .as_object()
+        .expect("followed")
+        .values()
+        .map(|sec| sec.as_object().map(|m| m.len()).unwrap_or(0))
+        .sum();
+    assert_eq!(total, 3, "follow caps the walk regardless of root count");
 }
 
 #[tokio::test]
@@ -1929,16 +1957,61 @@ async fn paged_rejects_key_and_bad_parameters() {
 }
 
 #[tokio::test]
-async fn paged_ignores_follow() {
-    // `follow` is already inert without a key, and a paged request is always
-    // keyless, so it is accepted and simply has no effect.
+async fn paged_follows_from_the_page() {
+    // A paged walk starts from that page's records -- never from the probe
+    // record, which belongs to the next page -- and the cap is per page.
     let (cm, _tmp) = open_cloudmap_state().await;
-    let app = router(make_state(cm));
-    let (status, body) = get_json(app, "/cloudmap?kind=artifacts&limit=2&follow=10").await;
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(app, "/cloudmap?kind=repositories&limit=2&follow=10").await;
     assert_eq!(status, StatusCode::OK);
-    assert!(
-        body.get("followed").is_none(),
-        "follow is inert without a key, so the response omits it"
+    let page = body["result"]["repositories"]
+        .as_object()
+        .expect("repositories");
+    assert_eq!(page.len(), 2);
+    let followed = body["followed"].as_object().expect("followed");
+    assert!(!followed.is_empty(), "the page references other records");
+    let total: usize = followed
+        .values()
+        .map(|sec| sec.as_object().map(|m| m.len()).unwrap_or(0))
+        .sum();
+    assert!(total <= 10, "the cap applies per page");
+
+    // Walking the same page again is deterministic.
+    let app = router(make_state(cm));
+    let (_status, again) = get_json(app, "/cloudmap?kind=repositories&limit=2&follow=10").await;
+    assert_eq!(again["followed"], body["followed"]);
+    assert_eq!(again["result"], body["result"]);
+}
+
+#[tokio::test]
+async fn paged_follow_excludes_the_probe_records_neighbours() {
+    // The page is cut before the walk. Fetching one record with follow must
+    // not report anything reachable only from the *second* record, which the
+    // limit+1 probe fetched but the page does not contain.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm.clone()));
+    let (_s, one) = get_json(app, "/cloudmap?kind=repositories&limit=1&follow=100").await;
+    let first_key = one["result"]["repositories"]
+        .as_object()
+        .expect("repositories")
+        .keys()
+        .next()
+        .expect("one record")
+        .clone();
+
+    // The same single record addressed by key walks to the same neighbourhood.
+    let app = router(make_state(cm));
+    let (_s, by_key) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&key={}&follow=100",
+            urlencoding::encode(&first_key)
+        ),
+    )
+    .await;
+    assert_eq!(
+        one["followed"], by_key["followed"],
+        "a one-record page must walk exactly what that record reaches"
     );
 }
 

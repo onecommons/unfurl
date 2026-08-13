@@ -387,8 +387,6 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     follow = query.follow
     limit = query.limit
     # A key selects a single record, so there is nothing to page through.
-    # `follow` needs no such check: it is already inert without a key (see
-    # `need_db` below), and a paged request is by definition keyless.
     if limit is not None and key:
         return make_response(
             jsonify(error="limit cannot be combined with key"),
@@ -400,7 +398,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
             after = _decode_page_token(query.page_token)
         except ValueError as page_err:
             return make_response(jsonify(error=str(page_err)), 400)
-    need_db = follow > 0 and bool(key)
+    need_db = follow > 0
     # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
     err, doc, db = load_cloudmap_local(
         project_id,
@@ -497,21 +495,40 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         else:
             primary = {kind: {key: section[key]}}
 
-    followed: Dict[str, Any] = {}
-    if db is not None:
-        from ..reporting import CollectVisitor, walk_cloudmap_graph
-
-        visitor = CollectVisitor(key, follow, exclude=exclude_ids)
-        walk_cloudmap_graph(db, visitor, key or "")
-        followed = visitor.result
-
-    # Cut the page before `select`, so a projection can't change which
-    # records a page holds. `primary` is already narrowed by kind, type
-    # and filter at this point, so paging sees exactly the records an
-    # unpaged request would have returned.
+    # Cut the page before both the walk and `select`: the walk starts from
+    # the records being returned, so a page must not report neighbours of a
+    # record it doesn't contain, and a projection must not change which
+    # records the page holds. `primary` is already narrowed by kind, type
+    # and filter here, so paging sees exactly what an unpaged request would.
     next_token: Optional[str] = None
     if limit is not None:
         primary, next_token = _page_document(primary, after, limit)
+
+    followed: Dict[str, Any] = {}
+    if db is not None:
+        from ..reporting import (
+            CollectVisitor,
+            walk_cloudmap_graph,
+            walk_cloudmap_graph_from,
+        )
+
+        if key:
+            visitor = CollectVisitor({key}, follow, exclude=exclude_ids)
+            walk_cloudmap_graph(db, visitor, key)
+        else:
+            # Every record being returned is a root, so the walk yields their
+            # neighbourhood -- e.g. `kind=artifacts&type=X&follow=10` gives
+            # those artifacts plus the repositories they came from. On a paged
+            # request the roots are that page
+            roots = [
+                record_key
+                for section_name in _CLOUDMAP_SECTIONS
+                if isinstance(primary.get(section_name), dict)
+                for record_key in primary[section_name]
+            ]
+            visitor = CollectVisitor(set(roots), follow, exclude=exclude_ids)
+            walk_cloudmap_graph_from(db, visitor, roots)
+        followed = visitor.result
 
     # `select` reduces every returned record to the requested properties.
     if query.select:
