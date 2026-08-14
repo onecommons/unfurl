@@ -92,6 +92,18 @@ def get_head_for_webpack(index_path: str) -> str:
         """
 
 
+def notfound_page(public_files_dir: str) -> Response:
+    """The web application's 404 page, served with a 404 status.
+
+    send_from_directory() would send it as a 200, leaving the browser -- and
+    anything scripted against these routes -- with no signal that the request
+    failed: the page says 404 but the response claims success.
+    """
+    response = make_response(send_from_directory(public_files_dir, "404.html"))
+    response.status_code = 404
+    return response
+
+
 def serve_document(
     path, localenv: LocalEnv, webpack_origin: str, public_files_dir: str
 ):
@@ -119,7 +131,7 @@ def serve_document(
     repo = _get_repo(projectPath, localenv)
 
     if not repo:
-        return send_from_directory(public_files_dir, "404.html")
+        return notfound_page(public_files_dir)
     format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
@@ -353,7 +365,7 @@ def create_routes(localenv: LocalEnv):
     @app.route("/.well-known/<path:path>")
     def notfound_response(path):
         # 404 page is not currently a template, but could become one
-        return send_from_directory(public_files_dir, "404.html")
+        return notfound_page(public_files_dir)
 
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
