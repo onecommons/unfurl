@@ -1,4 +1,5 @@
 import datetime
+import html as html_module
 import json
 import os
 from pprint import pformat
@@ -8,6 +9,7 @@ import threading
 import time
 import traceback
 import unittest
+import unittest.mock
 import urllib.request
 from functools import partial
 from multiprocessing import Process, set_start_method, get_context, Queue
@@ -729,6 +731,64 @@ def test_server_version(runner: Process):
 def test_gui_release():
     assert re.match(gui.release_url_pattern, gui.RELEASE_URL).group(1) == gui.TAG
     assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
+
+
+def _parse_cloudmap_attr(html: str) -> str:
+    """Return div#chart's data-cloudmap the way a browser's dataset would."""
+    match = re.search(r'<div id="chart"[^>]*\bdata-cloudmap="([^"]*)"', html)
+    assert match, f"no data-cloudmap on div#chart in: {html!r}"
+    return html_module.unescape(match.group(1))
+
+
+def test_gui_cloud_page_cloudmap_url():
+    """The /cloud page is rewritten to fetch types from this server.
+
+    The page bundle reads ``data-cloudmap`` off ``div#chart`` while it
+    initializes, so the attribute has to be in the markup the server sends --
+    nothing added to the document afterwards would be early enough.
+    """
+    # the source page (pretty printed) and the minified build spell the div
+    # identically; both have to keep working.
+    for markup in (
+        '<div id="chart">\n      <div id="map-controls"></div>\n    </div>',
+        '<div id="chart"><div id="map-controls"></div></div>',
+    ):
+        rendered = gui.render_cloud_page(markup)
+        assert _parse_cloudmap_attr(rendered) == gui.CLOUDMAP_URL
+        # nothing but the attribute changed
+        assert re.sub(r' data-cloudmap="[^"]*"', "", rendered) == markup
+
+    # unrecognized markup is passed through rather than silently mangled
+    assert gui.render_cloud_page("<div id=chart>") == "<div id=chart>"
+
+    with unittest.mock.patch.dict(
+        os.environ, {"UNFURL_GUI_CLOUDMAP_URL": "/cloudmap/facets?x=1&y=2"}
+    ):
+        rendered = gui.render_cloud_page('<div id="chart"></div>')
+    assert _parse_cloudmap_attr(rendered) == "/cloudmap/facets?x=1&y=2"
+
+
+@pytest.mark.skipif(
+    not os.getenv("UNFURL_GUI_DIR"), reason="requires a local unfurl-gui checkout"
+)
+def test_gui_cloud_page_matches_unfurl_gui():
+    """The div#chart marker is a contract with unfurl-gui, not a local constant.
+
+    render_cloud_page keys off markup that lives in the other repo, so a
+    hand-written fixture here would only ever agree with itself. Check the real
+    page instead when a checkout is available.
+    """
+    ufgui_dir = os.getenv("UNFURL_GUI_DIR", "")
+    found = False
+    for subdir in ("public", "dist"):
+        path = os.path.join(ufgui_dir, subdir, gui.CLOUD_PAGE)
+        if not os.path.isfile(path):
+            continue
+        found = True
+        with open(path) as f:
+            rendered = gui.render_cloud_page(f.read())
+        assert _parse_cloudmap_attr(rendered) == gui.CLOUDMAP_URL, subdir
+    assert found, f"no {gui.CLOUD_PAGE} under {ufgui_dir}"
 
 
 def test_server_authentication(runner: Process):

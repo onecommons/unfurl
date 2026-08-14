@@ -24,6 +24,7 @@ from .gui_variables import set_variables, yield_variables
 
 from flask import request, Response, jsonify, send_from_directory, make_response
 from jinja2 import Environment, FileSystemLoader
+from markupsafe import escape
 import requests
 import re
 from urllib.parse import urlparse
@@ -34,6 +35,14 @@ TAG = "v0.1.0-alpha.2"
 RELEASE_URL = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
 DIST_DIR = ".cache/unfurl_gui"
 TAG_FILE = "dist/RELEASE.txt"
+
+CLOUD_PAGE = "public_cloud.html"
+# Where the cloud map page fetches its data from. Relative to this server, which
+# in gui mode is the origin the page itself was served from.
+CLOUDMAP_URL = (
+    "/types?auth_project=onecommons%2Fstd"
+    "&cloudmap=onecommons/cloudmap&file=dummy-ensemble.yaml"
+)
 
 __doc__ = f"""
 Running ``unfurl serve --gui /path/to/your/project`` will start Unfurl's built-in web server (at http://127.0.0.1:8081 by default, see :cli:`unfurl serve<unfurl-serve>` for more options).
@@ -46,7 +55,7 @@ If that directory is missing or the web application version there isn't compatib
 You can set an alternative download URL with the ``UNFURL_GUI_DIST_URL`` environment variable or set it to "skip" to skip downloading a release. If a version tag is embedded in that URL then the local download needs to exactly match that version otherwise a semantic version compatibility check is made.
 You can also set an alternative download location with the ``UNFURL_GUI_DIST_DIR`` environment variable.
 
-For development, you can instead set the ``UNFURL_GUI_DIR`` environment variable to point 
+For development, you can instead set the ``UNFURL_GUI_DIR`` environment variable to point
 to your local clone of the `unfurl-gui <https://github.com/onecommons/unfurl-gui>`_ repository.
 You'll need to either build the release distribution with  ``yarn build`` or run ``yarn serve`` there and set the ``UNFURL_GUI_WEBPACK_ORIGIN`` environment variable to its URL.
 """
@@ -90,6 +99,30 @@ def get_head_for_webpack(index_path: str) -> str:
           <script defer src="/js/project.js"></script>
         </head>
         """
+
+
+def render_cloud_page(html: str) -> str:
+    """Point the cloud map page at this server's ``/types`` endpoint.
+
+    ``div#chart``'s ``data-cloudmap`` attribute is the hook gitlab fills in
+    server-side when it renders ``public_cloud/index.html.haml``; here the page
+    is a static build artifact so we do the same substitution on its markup.
+    It has to happen server-side: the page bundle reads the attribute while it
+    initializes, before any script we could add to the document would run.
+    """
+    cloudmap_url = os.getenv("UNFURL_GUI_CLOUDMAP_URL", CLOUDMAP_URL)
+    marker = '<div id="chart">'
+    if marker not in html:
+        logger.warning(
+            "Could not find '%s' in %s, the cloud map will fall back to its "
+            "built-in URL and most likely fail to load.",
+            marker,
+            CLOUD_PAGE,
+        )
+        return html
+    return html.replace(
+        marker, f'<div id="chart" data-cloudmap="{escape(cloudmap_url)}">', 1
+    )
 
 
 def notfound_page(public_files_dir: str) -> Response:
@@ -456,6 +489,23 @@ def create_routes(localenv: LocalEnv):
             if os.path.exists(full_path):
                 return send_from_directory(repo.working_dir, file)
         return notfound_response(project_path)
+
+    @app.route("/cloud", strict_slashes=False)
+    def public_cloud():
+        if webpack_origin:
+            response = proxy_request(urllib.parse.urljoin(webpack_origin, CLOUD_PAGE))
+            response.set_data(render_cloud_page(response.get_data(as_text=True)))
+            return response
+
+        html_path = os.path.join(public_files_dir, CLOUD_PAGE)
+        if not os.path.isfile(html_path):
+            logger.error(
+                "%s not found, this unfurl-gui distribution predates the cloud map page.",
+                html_path,
+            )
+            return notfound_response("cloud")
+        with open(html_path) as f:
+            return render_cloud_page(f.read())
 
     @app.route("/", defaults={"path": ""})
     @app.route("/<path:path>")
