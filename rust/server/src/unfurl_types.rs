@@ -962,6 +962,110 @@ impl core::str::FromStr for ExportResponseStatus {
         }
     }
 }
+/// Response body for ``GET /cloudmap/facets``.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct FacetsResult {
+    /// One entry per distinct group value: array elements, object keys, or the scalar itself at the ``group_by`` path. Keys are strings; a non-string value appears as its canonical JSON text (minified, object keys sorted), so structured keys parse back to JSON. Empty when no selected record has the path.
+    pub groups: std::collections::HashMap<String, FacetsResultFacetGroup>,
+    /// Names the dimensions of a ``/cloudmap/facets`` result, echoing
+    /// the request parameters that produced it in normalized form.
+    pub meta: FacetsResultFacetsMeta,
+    /// Distinct records matched by the selection parameters, whether or not they produced a group value. The denominator for the counts in ``groups``, which may overlap and need not sum to it.
+    pub total: i64,
+}
+/// One group in a ``/cloudmap/facets`` response.
+#[serde_with::skip_serializing_none]
+#[derive(
+    Debug, Clone, PartialEq, Serialize, Deserialize, validator::Validate, oas3_gen_support::Default,
+)]
+pub struct FacetsResultFacetGroup {
+    /// Number of distinct selected records whose ``group_by`` path yielded this group's key. Independent of any facet columns.
+    #[validate(range(min = 0i64))]
+    pub count: i64,
+    /// Omitted when the request had no ``facet`` parameters. Aligned by index with ``meta.facets``: the i-th map is the i-th column's breakdown for this group, mapping facet value to distinct-record count -- present for every requested column, even when empty. Composite-column keys are the canonical JSON array of the member values in path order. Counts need not sum to ``count``: a record carrying several values is counted under each, and a record with none contributes to ``count`` only.
+    pub facets: Option<Vec<std::collections::HashMap<String, i64>>>,
+}
+/// Names the dimensions of a ``/cloudmap/facets`` result, echoing
+/// the request parameters that produced it in normalized form.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+#[serde(default)]
+pub struct FacetsResultFacetsMeta {
+    /// One entry per facet column, in request order: the normalized member paths of that column. A simple facet is a one-element entry; a comma-composed facet lists each member. Empty when the request did not facet.
+    pub facets: Option<Vec<Vec<String>>>,
+    /// Normalized JSON Pointer of the grouping path -- what the keys of ``groups`` are values of.
+    pub group_by: String,
+    /// True when subtype-closure rollup was actually applied: a ``type`` column was present and ``subtypes`` was not disabled. Group and facet buckets then overlap up the type hierarchy instead of partitioning the records.
+    #[default(Some(false))]
+    pub subtypes: Option<bool>,
+}
+/// Count the selected records grouped by the value at ``group_by``, with an optional per-group breakdown for each ``facet`` column. Record selection (``kind`` / ``type`` / ``filter``) works exactly as on ``GET /cloudmap``; the response carries counts only, no records.
+#[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
+pub struct GetCloudmapFacetsRequest {
+    #[validate(nested)]
+    pub query: GetCloudmapFacetsRequestQuery,
+}
+impl GetCloudmapFacetsRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+pub struct GetCloudmapFacetsRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+    /// Commit hash used to validate the cache entry
+    pub latest_commit: Option<String>,
+    /// Git branch name
+    pub branch: Option<String>,
+    /// Setting this enables asynchronous writes
+    pub queueid: Option<i64>,
+    /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
+    pub cloudmap_path: Option<String>,
+    /// Top-level CloudMap section to select records from; if omitted every section is considered.
+    pub kind: Option<String>,
+    /// Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
+    #[serde(rename = "type")]
+    pub r#type: Option<String>,
+    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.
+    ///
+    /// ```text
+    /// /metadata/topics=library                       equals, or array-contains
+    /// /metadata/topics=["documentation","library"]   exact array match
+    /// /metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)
+    /// /metadata/discovery                            the path exists
+    /// ```
+    ///
+    /// ``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.
+    ///
+    /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
+    pub filter: Option<String>,
+    /// JSON Pointer path (RFC 6901) to group the selected records by; a path without a leading ``/`` gets one prepended. The value found at the path becomes the group: each element of an array, each key of an object, or the scalar itself. A record without the path lands in no group (but still counts toward ``total``).
+    #[validate(length(min = 1u64))]
+    pub group_by: String,
+    /// Repeatable: each occurrence adds one facet column, a value-to-count breakdown within every group. A comma-separated list of paths in a single occurrence composes one column keyed by the tuple of values, counting their per-record combinations -- pairing is per record, not per array element, so to correlate fields of the same array element, facet on their parent (the whole element becomes the value) rather than on the fields separately. A record missing any of a column's paths is absent from that column.
+    pub facet: Option<Vec<String>>,
+    /// When true (the default), a column whose path is exactly ``type`` also counts each record under every ancestor of its declared types, per the ``types`` section's ``extends`` graph -- so a base type's bucket includes its subtypes' records, mirroring what the ``type`` selection parameter would match. Buckets then overlap and do not sum to the record count. Pass false to count exact declared names only. Has no effect on other paths.
+    #[default(Some(true))]
+    pub subtypes: Option<bool>,
+}
+/// Response types for GetCloudmapFacetsResponse
+#[derive(Debug, Clone)]
+pub enum GetCloudmapFacetsResponse {
+    ///200: Group and facet counts for the selected records
+    Ok(FacetsResult),
+    ///422: Validation error
+    UnprocessableEntity(ValidationError),
+    ///default: Unknown response
+    Unknown,
+}
+impl IntoResponse for GetCloudmapFacetsResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
+            Self::UnprocessableEntity(data) => {
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
+            }
+            Self::Unknown => http::StatusCode::OK.into_response(),
+        }
+    }
+}
 /// Return the CloudMap document under ``result`` — the raw CloudMap, or the subset selected by ``kind`` / ``key`` / ``type`` / ``filter``.
 ///
 /// Two further keys appear only when the request asked for what they carry, so a client can tell 'you didn't ask' from 'there is none': ``followed`` holds the records reached by walking the graph, and is present only when ``follow`` > 0 with a ``key``; ``next_page_token`` is the cursor for the next page, and is present only on a ``limit`` request that has one.
@@ -982,18 +1086,9 @@ pub struct GetCloudmapRequestQuery {
     pub queueid: Option<i64>,
     /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
     pub cloudmap_path: Option<String>,
-    /// Top-level CloudMap section to return; if omitted the full document is returned.
+    /// Top-level CloudMap section to select records from; if omitted every section is considered.
     pub kind: Option<String>,
-    /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
-    pub key: Option<String>,
-    /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.
-    #[default(Some(0i64))]
-    pub follow: Option<i64>,
-    /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.
-    pub since_version: Option<i64>,
-    /// Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.
-    pub exclude: Option<String>,
-    /// Fully-qualified type name; return only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
+    /// Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
     #[serde(rename = "type")]
     pub r#type: Option<String>,
     /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.
@@ -1007,17 +1102,20 @@ pub struct GetCloudmapRequestQuery {
     ///
     /// ``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.
     ///
-    /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with ``kind``, ``key`` and ``type``: a record has to match all of them.
+    /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
     pub filter: Option<String>,
+    /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
+    pub key: Option<String>,
+    /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.
+    #[default(Some(0i64))]
+    pub follow: Option<i64>,
+    /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.
+    pub since_version: Option<i64>,
+    /// Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.
+    pub exclude: Option<String>,
     /// Comma-separated list of JSON Pointer paths (RFC 6901, e.g. ``/type,/metadata/title``); when set, each record in the response (both elements of the pair) is reduced to only the selected properties, keeping their nested structure. Paths without a leading ``/`` get one prepended. The special entry ``$key`` adds the record's key to the reduced record under ``"$key"``. Paths that don't resolve are omitted.
     pub select: Option<String>,
-    /// Return at most this many records, and change the response from the bare ``[document, follow]`` pair to an envelope:
-    ///
-    /// ```text
-    /// {"records": [document, follow], "next_page_token": "..."}
-    /// ```
-    ///
-    /// ``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.
+    /// Return at most this many records, delivered under ``result`` with a ``next_page_token`` key alongside when more remain. ``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.
     pub limit: Option<i64>,
     /// Opaque cursor from a previous paged response's ``next_page_token``: resume after the record it names. Only meaningful together with ``limit``. A token stays valid when the record it names is deleted.
     pub page_token: Option<String>,

@@ -13,7 +13,14 @@ from functools import lru_cache
 from typing import Any, Dict, List, Optional, Union
 from typing_extensions import Literal, TypedDict
 
-from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_serializer,
+    model_validator,
+)
 
 from ..graphql import (
     ApplicationBlueprint as ApplicationBlueprintType,
@@ -199,16 +206,64 @@ class CloudMapQuery(CloudMapBaseQuery):
     )
 
 
-class CloudMapDocQuery(CloudMapBaseQuery):
-    """Query parameters for /cloudmap (raw document) endpoint."""
+class CloudMapSelectionQuery(CloudMapBaseQuery):
+    """Record-selection parameters shared by the ``/cloudmap`` and
+    ``/cloudmap/facets`` endpoints.
+    """
 
     kind: Optional[CloudMapKind] = Field(
         default=None,
         description=(
-            "Top-level CloudMap section to return; if omitted the full "
-            "document is returned."
+            "Top-level CloudMap section to select records from; if "
+            "omitted every section is considered."
         ),
     )
+    type: Optional[str] = Field(
+        default=None,
+        description=(
+            "Fully-qualified type name; select only records whose "
+            "``type`` declares this type or a type that (transitively) "
+            "``extends`` it, per the ``types`` section of the CloudMap."
+        ),
+    )
+    filter: Optional[str] = Field(
+        default=None,
+        description=(
+            "Filter on the contents of each record: a JSON Pointer path "
+            "(RFC 6901) with an optional operator and value.\n"
+            "\n"
+            # fenced as `text` so that rustdoc doesn't take the block for a
+            # Rust doctest when this lands in the generated unfurl_types
+            "```text\n"
+            "/metadata/topics=library                       equals, or array-contains\n"
+            '/metadata/topics=["documentation","library"]   exact array match\n'
+            "/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n"
+            "/metadata/discovery                            the path exists\n"
+            "```\n"
+            "\n"
+            "``=`` matches when the value at the path equals the value or "
+            "is an array containing it; an array literal is an exact match "
+            "instead -- same elements, same order -- and an object literal "
+            "is rejected. ``^=`` needs a string at the path, or a string "
+            "element of an array there, that starts with the value; a "
+            "number never matches a prefix. A path with no operator at all "
+            "matches when the path resolves, counting a ``null`` or an "
+            "empty array or object as present.\n"
+            "\n"
+            "Values are read as JSON: ``true``, ``false``, ``null`` and "
+            "numbers keep their type, an array has to be valid JSON "
+            '(``["a","b"]``, not ``[a,b]``), and anything else is a '
+            'string. Wrap a value in double quotes to force a string '
+            '(``="42"``). Wildcards in the path aren\'t supported yet. '
+            "Combines with the other selection parameters: a record has "
+            "to match all of them."
+        ),
+    )
+
+
+class CloudMapDocQuery(CloudMapSelectionQuery):
+    """Query parameters for /cloudmap (raw document) endpoint."""
+
     key: Optional[str] = Field(
         default=None,
         description=(
@@ -252,47 +307,6 @@ class CloudMapDocQuery(CloudMapBaseQuery):
             "ignored by the Python YAML fallback."
         ),
     )
-    type: Optional[str] = Field(
-        default=None,
-        description=(
-            "Fully-qualified type name; return only records whose "
-            "``type`` declares this type or a type that (transitively) "
-            "``extends`` it, per the ``types`` section of the CloudMap."
-        ),
-    )
-    filter: Optional[str] = Field(
-        default=None,
-        description=(
-            "Filter on the contents of each record: a JSON Pointer path "
-            "(RFC 6901) with an optional operator and value.\n"
-            "\n"
-            # fenced as `text` so that rustdoc doesn't take the block for a
-            # Rust doctest when this lands in the generated unfurl_types
-            "```text\n"
-            "/metadata/topics=library                       equals, or array-contains\n"
-            '/metadata/topics=["documentation","library"]   exact array match\n'
-            "/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n"
-            "/metadata/discovery                            the path exists\n"
-            "```\n"
-            "\n"
-            "``=`` matches when the value at the path equals the value or "
-            "is an array containing it; an array literal is an exact match "
-            "instead -- same elements, same order -- and an object literal "
-            "is rejected. ``^=`` needs a string at the path, or a string "
-            "element of an array there, that starts with the value; a "
-            "number never matches a prefix. A path with no operator at all "
-            "matches when the path resolves, counting a ``null`` or an "
-            "empty array or object as present.\n"
-            "\n"
-            "Values are read as JSON: ``true``, ``false``, ``null`` and "
-            "numbers keep their type, an array has to be valid JSON "
-            '(``["a","b"]``, not ``[a,b]``), and anything else is a '
-            'string. Wrap a value in double quotes to force a string '
-            '(``="42"``). Wildcards in the path aren\'t supported yet. '
-            "Combines with ``kind``, ``key`` and ``type``: a record has to "
-            "match all of them."
-        ),
-    )
     select: Optional[str] = Field(
         default=None,
         description=(
@@ -310,15 +324,8 @@ class CloudMapDocQuery(CloudMapBaseQuery):
         default=None,
         ge=1,
         description=(
-            "Return at most this many records, and change the response "
-            "from the bare ``[document, follow]`` pair to an envelope:\n"
-            "\n"
-            # fenced as `text` so that rustdoc doesn't take the block for a
-            # Rust doctest when this lands in the generated unfurl_types
-            "```text\n"
-            '{"records": [document, follow], "next_page_token": "..."}\n'
-            "```\n"
-            "\n"
+            "Return at most this many records, delivered under ``result`` "
+            "with a ``next_page_token`` key alongside when more remain. "
             "``next_page_token`` is absent on the last page; pass it back as "
             "``page_token`` to get the next one. Records are ordered by "
             "section then key, so a walk is stable across writes. Cannot be "
@@ -336,6 +343,143 @@ class CloudMapDocQuery(CloudMapBaseQuery):
             "``next_page_token``: resume after the record it names. Only "
             "meaningful together with ``limit``. A token stays valid when "
             "the record it names is deleted."
+        ),
+    )
+
+
+class FacetsQuery(CloudMapSelectionQuery):
+    """Query parameters for the ``/cloudmap/facets`` endpoint."""
+
+    group_by: str = Field(
+        description=(
+            "JSON Pointer path (RFC 6901) to group the selected records "
+            "by; a path without a leading ``/`` gets one prepended. The "
+            "value found at the path becomes the group: each element of "
+            "an array, each key of an object, or the scalar itself. A "
+            "record without the path lands in no group (but still counts "
+            "toward ``total``)."
+        ),
+    )
+    facet: Optional[List[str]] = Field(
+        default=None,
+        description=(
+            "Repeatable: each occurrence adds one facet column, a "
+            "value-to-count breakdown within every group. A "
+            "comma-separated list of paths in a single occurrence "
+            "composes one column keyed by the tuple of values, counting "
+            "their per-record combinations -- pairing is per record, not "
+            "per array element, so to correlate fields of the same "
+            "array element, facet on their parent (the whole element "
+            "becomes the value) rather than on the fields separately. A "
+            "record missing any of a column's paths is absent from that "
+            "column."
+        ),
+    )
+    subtypes: bool = Field(
+        default=True,
+        description=(
+            "When true (the default), a column whose path is exactly "
+            "``type`` also counts each record under every ancestor of "
+            "its declared types, per the ``types`` section's "
+            "``extends`` graph -- so a base type's bucket includes its "
+            "subtypes' records, mirroring what the ``type`` selection "
+            "parameter would match. Buckets then overlap and do not sum "
+            "to the record count. Pass false to count exact declared "
+            "names only. Has no effect on other paths."
+        ),
+    )
+
+    @field_validator("facet", mode="before")
+    @classmethod
+    def _coerce_single_facet(cls, value: object) -> object:
+        # APIFlask's pydantic adapter binds query params via
+        # ``request.args.to_dict()``, which yields a single *string* for
+        # a repeated key -- rejected by ``List[str]`` before the handler
+        # runs. Accept it here so validation passes; the handler reads
+        # the real, repeatable values via ``request.args.getlist``.
+        if isinstance(value, str):
+            return [value]
+        return value
+
+
+class FacetsMeta(BaseModel):
+    """Names the dimensions of a ``/cloudmap/facets`` result, echoing
+    the request parameters that produced it in normalized form."""
+
+    group_by: str = Field(
+        description=(
+            "Normalized JSON Pointer of the grouping path -- what the "
+            "keys of ``groups`` are values of."
+        ),
+    )
+    facets: List[List[str]] = Field(
+        default_factory=list,
+        description=(
+            "One entry per facet column, in request order: the "
+            "normalized member paths of that column. A simple facet is "
+            "a one-element entry; a comma-composed facet lists each "
+            "member. Empty when the request did not facet."
+        ),
+    )
+    subtypes: bool = Field(
+        default=False,
+        description=(
+            "True when subtype-closure rollup was actually applied: a "
+            "``type`` column was present and ``subtypes`` was not "
+            "disabled. Group and facet buckets then overlap up the type "
+            "hierarchy instead of partitioning the records."
+        ),
+    )
+
+
+class FacetGroup(BaseModel):
+    """One group in a ``/cloudmap/facets`` response."""
+
+    count: int = Field(
+        ge=0,
+        description=(
+            "Number of distinct selected records whose ``group_by`` "
+            "path yielded this group's key. Independent of any facet "
+            "columns."
+        ),
+    )
+    facets: Optional[List[Dict[str, int]]] = Field(
+        default=None,
+        description=(
+            "Omitted when the request had no ``facet`` parameters. "
+            "Aligned by index with ``meta.facets``: the i-th map is the "
+            "i-th column's breakdown for this group, mapping facet "
+            "value to distinct-record count -- present for every "
+            "requested column, even when empty. Composite-column keys "
+            "are the canonical JSON array of the member values in path "
+            "order. Counts need not sum to ``count``: a record carrying "
+            "several values is counted under each, and a record with "
+            "none contributes to ``count`` only."
+        ),
+    )
+
+
+class FacetsResult(BaseModel):
+    """Response body for ``GET /cloudmap/facets``."""
+
+    meta: FacetsMeta
+    total: int = Field(
+        ge=0,
+        description=(
+            "Distinct records matched by the selection parameters, "
+            "whether or not they produced a group value. The "
+            "denominator for the counts in ``groups``, which may "
+            "overlap and need not sum to it."
+        ),
+    )
+    groups: Dict[str, FacetGroup] = Field(
+        description=(
+            "One entry per distinct group value: array elements, object "
+            "keys, or the scalar itself at the ``group_by`` path. Keys "
+            "are strings; a non-string value appears as its canonical "
+            "JSON text (minified, object keys sorted), so structured "
+            "keys parse back to JSON. Empty when no selected record has "
+            "the path."
         ),
     )
 

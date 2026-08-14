@@ -22,7 +22,8 @@ use tempfile::TempDir;
 use tower::util::ServiceExt;
 use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
 use unfurl_server::cloudmap::{
-    encode_page_token, handle_cloudmap, post_cloudmap_local, post_cloudmap_proxy, CloudMapState,
+    encode_page_token, handle_cloudmap, handle_cloudmap_facets, post_cloudmap_local,
+    post_cloudmap_proxy, CloudMapState,
 };
 use unfurl_server::config::Config;
 use unfurl_server::AppState;
@@ -112,6 +113,7 @@ fn router(state: AppState) -> Router {
     };
     Router::new()
         .route("/cloudmap", cloudmap_route)
+        .route("/cloudmap/facets", get(handle_cloudmap_facets))
         .with_state(state)
 }
 
@@ -2060,5 +2062,247 @@ async fn since_version_reports_deleted_records() {
         tomb["unfurl.server.deleted"],
         serde_json::json!(true),
         "the tombstone must be flagged: {body:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// GET /cloudmap/facets
+// ---------------------------------------------------------------------------
+
+/// Seed a small, controlled dataset for the facet tests on top of the
+/// fixture: a two-level type hierarchy in `/types` and artifacts
+/// carrying topics arrays (with a duplicate element), platform objects
+/// in *both* key orders, and one record with none of it.
+async fn seed_facet_records(cm: CloudMapState) {
+    let body = serde_json::json!({
+        "types": {
+            "FacetBase": {"name": "FacetBase", "extends": ["FacetBase"]},
+            "FacetDerived": {"name": "FacetDerived",
+                             "extends": ["FacetDerived", "FacetBase"]},
+        },
+        "artifacts": {
+            "facet:a1": {"type": {"FacetDerived": {}},
+                "metadata": {"topics": ["db", "web"],
+                "platforms": [{"os": "linux", "architecture": "amd64"},
+                              {"os": "windows", "architecture": "arm64"}]}},
+            "facet:a2": {"type": {"FacetBase": {}},
+                "metadata": {"topics": ["db", "db"]}},
+            "facet:a3": {"type": {"FacetDerived": {}},
+                "metadata": {"topics": ["web"],
+                "platforms": [{"architecture": "amd64", "os": "linux"}]}},
+            "facet:a4": {"metadata": {"name": "quiet"}},
+        }
+    });
+    let app = router(make_state(cm));
+    let (status, _) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK, "seeding must succeed");
+}
+
+/// How many records a `/cloudmap` response holds across its sections.
+fn count_records(result: &Value) -> usize {
+    result
+        .as_object()
+        .map(|sections| {
+            sections
+                .values()
+                .filter_map(Value::as_object)
+                .map(|records| records.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
+#[tokio::test]
+async fn facets_group_by_topics() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    seed_facet_records(cm.clone()).await;
+
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/topics",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["meta"]["group_by"], "/metadata/topics");
+    assert_eq!(body["meta"]["facets"], serde_json::json!([]));
+    assert_eq!(
+        body["meta"]["subtypes"], false,
+        "no type column, so no rollup was applied"
+    );
+    // 11 fixture artifacts + 4 seeded.
+    assert_eq!(body["total"], 15);
+    assert_eq!(
+        body["groups"],
+        serde_json::json!({
+            "db":  {"count": 2},
+            "web": {"count": 2},
+        }),
+        "a2's duplicate 'db' counts once; no `facets` key without facet columns"
+    );
+}
+
+#[tokio::test]
+async fn facets_subtypes_invariant_matches_type_filter() {
+    // The whole point of the rollup: for every type name, the
+    // `group_by=type` bucket equals what `?type=T` selects.
+    let (cm, _tmp) = open_cloudmap_state().await;
+    seed_facet_records(cm.clone()).await;
+
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(app, "/cloudmap/facets?kind=artifacts&group_by=type").await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["meta"]["subtypes"], true);
+    let groups = body["groups"].as_object().expect("groups object");
+    assert!(
+        groups.contains_key("FacetBase"),
+        "rollup must surface the base type: {groups:?}"
+    );
+    for (type_name, entry) in groups {
+        let app = router(make_state(cm.clone()));
+        let uri = format!(
+            "/cloudmap?kind=artifacts&type={}",
+            urlencoding::encode(type_name)
+        );
+        let (status, selected) = get_json(app, &uri).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(
+            entry["count"].as_u64().expect("count") as usize,
+            count_records(&selected["result"]),
+            "bucket for {type_name:?} must count exactly what ?type= selects"
+        );
+    }
+
+    // subtypes=false counts exact declared names only: the base type's
+    // bucket shrinks to its own record.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        "/cloudmap/facets?kind=artifacts&group_by=type&subtypes=false",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["meta"]["subtypes"], false);
+    assert_eq!(body["groups"]["FacetBase"]["count"], 1);
+    assert_eq!(body["groups"]["FacetDerived"]["count"], 2);
+}
+
+#[tokio::test]
+async fn facets_repeated_and_composite_columns() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    seed_facet_records(cm.clone()).await;
+
+    // Two columns: a composite (type × platforms) and a simple one --
+    // the repeated `facet=` spelling the extractor must support.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/topics\
+         &facet=type,metadata/platforms&facet=type&subtypes=false",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["meta"]["facets"],
+        serde_json::json!([["/type", "/metadata/platforms"], ["/type"]])
+    );
+    let linux = r#"["FacetDerived",{"architecture":"amd64","os":"linux"}]"#;
+    let windows = r#"["FacetDerived",{"architecture":"arm64","os":"windows"}]"#;
+    assert_eq!(
+        body["groups"]["web"],
+        serde_json::json!({
+            "count": 2,
+            "facets": [
+                // composite cells: canonical JSON arrays; a1's and a3's
+                // differently-spelled platforms merge into one bucket
+                {linux: 2, windows: 1},
+                {"FacetDerived": 2},
+            ],
+        }),
+        "{body:?}"
+    );
+    assert_eq!(
+        body["groups"]["db"],
+        serde_json::json!({
+            "count": 2,
+            "facets": [
+                // a2 has no platforms, so only a1 reaches the composite
+                {linux: 1, windows: 1},
+                {"FacetBase": 1, "FacetDerived": 1},
+            ],
+        }),
+        "{body:?}"
+    );
+}
+
+#[tokio::test]
+async fn facets_error_statuses() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+
+    // Missing required group_by: schema-level, 422 like APIFlask.
+    let app = router(make_state(cm.clone()));
+    let (status, _) = get_json(app, "/cloudmap/facets?kind=artifacts").await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+
+    // Empty path segment: semantic, 400.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(app, "/cloudmap/facets?group_by=metadata//topics").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+
+    // Bad facet member path: 400 too.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(app, "/cloudmap/facets?group_by=type&facet=a//b").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body:?}");
+
+    // Unknown kind: 404, same as GET /cloudmap.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap/facets?kind=nope&group_by=type").await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body:?}");
+}
+
+#[tokio::test]
+async fn facets_missing_group_path_yields_empty_groups() {
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let app = router(make_state(cm));
+    let (status, body) = get_json(app, "/cloudmap/facets?group_by=no/such/path").await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["groups"], serde_json::json!({}));
+    assert!(
+        body["total"].as_i64().expect("total") > 0,
+        "records without the path still count toward total"
+    );
+}
+
+#[tokio::test]
+async fn facets_non_ascii_canonical_keys() {
+    // Canonical keys carry non-ASCII characters raw. The python test
+    // test_cloudmap_facets_non_ascii_canonical_keys asserts this same
+    // literal, which is what pins the two implementations to one
+    // spelling (python's json.dumps would otherwise escape it to
+    // "café").
+    let (cm, _tmp) = open_cloudmap_state().await;
+    let body = serde_json::json!({
+        "artifacts": {
+            "facet:unicode": {
+                "type": {"FacetBase": {}},
+                "metadata": {"platforms": [{"os": "linux", "variant": "café"}]},
+            }
+        }
+    });
+    let app = router(make_state(cm.clone()));
+    let (status, _) = post_json(app, body).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/platforms",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["groups"],
+        serde_json::json!({r#"{"os":"linux","variant":"café"}"#: {"count": 1}}),
+        "{body:?}"
     );
 }

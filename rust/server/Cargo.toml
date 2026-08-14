@@ -50,6 +50,7 @@ unfurl-git-sync = { path = "../git-sync", default-features = false }
 oas3-gen-support = "0.25"
 serde_with = "3"
 validator = { version = "0.20", features = ["derive"] }
+axum-extra = { version = "0.12", features = ["query"] }
 
 [dev-dependencies]
 serde-saphyr = "0.0.25"

@@ -1633,6 +1633,235 @@ async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) 
     );
 }
 
+/// Facet aggregation: extraction rule (array elements / object keys /
+/// scalars), distinct-record counting, composite columns, rollup
+/// remapping, and composition with the shared record filters. The same
+/// body runs on both backends; object-valued cells are compared after
+/// canonicalize-and-merge because sqlite legitimately splits them by
+/// stored key order (the documented approximation the server merges).
+async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
+    use std::collections::BTreeMap;
+    use unfurl_git_sync::{canonical_facet_key, FacetColumnRow, FacetPath, FacetSpec};
+
+    sync.update_from_working_dir().await.expect("update");
+
+    // A path outside the fixture's sections keeps the counts hermetic.
+    for (key, json) in [
+        // two topics; two platform objects; one declared type
+        (
+            "a1",
+            serde_json::json!({"type": {"Derived": {}},
+                "metadata": {"topics": ["db", "web"],
+                "platforms": [{"os": "linux", "architecture": "amd64"},
+                              {"os": "windows", "architecture": "arm64"}]}}),
+        ),
+        // duplicate array element: must still count once per bucket
+        (
+            "a2",
+            serde_json::json!({"type": {"Base": {}},
+                "metadata": {"topics": ["db", "db"]}}),
+        ),
+        // two declared types; platform spelled in the *other* key order
+        (
+            "a3",
+            serde_json::json!({"type": {"Derived": {}, "Other": {}},
+                "metadata": {"topics": ["web"],
+                "platforms": [{"architecture": "amd64", "os": "linux"}]}}),
+        ),
+        // no topics, no type: counts toward total only
+        ("a4", serde_json::json!({"metadata": {"name": "quiet"}})),
+        // declared type with no rollup pairs: falls back to itself
+        ("a5", serde_json::json!({"type": {"Unknown": {}}})),
+        // scalar and boolean facet values exercise the non-container arms
+        ("a6", serde_json::json!({"flag": true, "level": 3})),
+    ] {
+        sync.create_record(Some("cloudmap.yaml"), "/facettest", key, json, None)
+            .await
+            .expect("create facet record");
+    }
+
+    let query = RecordQuery {
+        path: Some("/facettest".into()),
+        ..Default::default()
+    };
+    let path = |tokens: &[&str], rollup: bool| {
+        FacetPath::new(tokens.iter().map(|t| t.to_string()).collect(), rollup)
+            .expect("valid facet path")
+    };
+    // Canonicalize-and-merge, summing counts -- exact here because no
+    // record spells the same value two ways.
+    fn group_counts(rows: &[(serde_json::Value, i64)]) -> BTreeMap<String, i64> {
+        let mut out = BTreeMap::new();
+        for (value, n) in rows {
+            *out.entry(canonical_facet_key(value)).or_insert(0) += n;
+        }
+        out
+    }
+    fn cell_counts(rows: &[FacetColumnRow]) -> BTreeMap<(String, Vec<String>), i64> {
+        let mut out = BTreeMap::new();
+        for row in rows {
+            let key = (
+                canonical_facet_key(&row.group),
+                row.members.iter().map(canonical_facet_key).collect(),
+            );
+            *out.entry(key).or_insert(0) += row.count;
+        }
+        out
+    }
+    let expect = |pairs: &[(&str, i64)]| -> BTreeMap<String, i64> {
+        pairs.iter().map(|(k, n)| (k.to_string(), *n)).collect()
+    };
+
+    // 1. Group over an array path: elements fan out, duplicates count once.
+    let spec = FacetSpec {
+        group: path(&["metadata", "topics"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(rows.total, 6, "every record counts toward total");
+    assert_eq!(rows.columns, Vec::<Vec<FacetColumnRow>>::new());
+    assert_eq!(
+        group_counts(&rows.groups),
+        expect(&[("db", 2), ("web", 2)]),
+        "a2's duplicate 'db' must not double-count"
+    );
+
+    // 2. Group over the `type` map: keys are the facet values.
+    let spec = FacetSpec {
+        group: path(&["type"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(
+        group_counts(&rows.groups),
+        expect(&[("Base", 1), ("Derived", 2), ("Other", 1), ("Unknown", 1)])
+    );
+
+    // 3. Scalar and boolean group values.
+    let spec = FacetSpec {
+        group: path(&["flag"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(group_counts(&rows.groups), expect(&[("true", 1)]));
+    let spec = FacetSpec {
+        group: path(&["level"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(group_counts(&rows.groups), expect(&[("3", 1)]));
+
+    // 4. Rollup: Derived counts under Base too (self-pairs included);
+    //    Unknown has no pairs and falls back to itself.
+    let rollup_pairs = vec![
+        ("Derived".to_string(), "Derived".to_string()),
+        ("Derived".to_string(), "Base".to_string()),
+        ("Base".to_string(), "Base".to_string()),
+        ("Other".to_string(), "Other".to_string()),
+    ];
+    let spec = FacetSpec {
+        group: path(&["type"], true),
+        columns: vec![],
+        rollup_pairs: rollup_pairs.clone(),
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(
+        group_counts(&rows.groups),
+        expect(&[("Base", 3), ("Derived", 2), ("Other", 1), ("Unknown", 1)]),
+        "Base's bucket = its own record plus both Derived records"
+    );
+
+    // 5. Facet column with rollup on the member: per-topic type
+    //    breakdown, rolled up.
+    let spec = FacetSpec {
+        group: path(&["metadata", "topics"], false),
+        columns: vec![vec![path(&["type"], true)]],
+        rollup_pairs: rollup_pairs.clone(),
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(group_counts(&rows.groups), expect(&[("db", 2), ("web", 2)]));
+    let cells = cell_counts(&rows.columns[0]);
+    let cell = |g: &str, vs: &[&str]| (g.to_string(), vs.iter().map(|v| v.to_string()).collect());
+    assert_eq!(
+        cells,
+        [
+            (cell("db", &["Base"]), 2),
+            (cell("db", &["Derived"]), 1),
+            (cell("web", &["Base"]), 2),
+            (cell("web", &["Derived"]), 2),
+            (cell("web", &["Other"]), 1),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>()
+    );
+
+    // 6. Composite column: per-record cross product of type × platform;
+    //    a record missing either member is absent from the column, and
+    //    the two platform spellings land in one bucket after
+    //    canonicalization (pg merges them in SQL, sqlite in the merge).
+    let spec = FacetSpec {
+        group: path(&["metadata", "topics"], false),
+        columns: vec![vec![
+            path(&["type"], false),
+            path(&["metadata", "platforms"], false),
+        ]],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    let cells = cell_counts(&rows.columns[0]);
+    let linux = r#"{"architecture":"amd64","os":"linux"}"#;
+    let windows = r#"{"architecture":"arm64","os":"windows"}"#;
+    assert_eq!(
+        cells,
+        [
+            (cell("db", &["Derived", linux]), 1),
+            (cell("db", &["Derived", windows]), 1),
+            (cell("web", &["Derived", linux]), 2),
+            (cell("web", &["Derived", windows]), 1),
+            (cell("web", &["Other", linux]), 1),
+        ]
+        .into_iter()
+        .collect::<BTreeMap<_, _>>(),
+        "web×Derived×linux reaches 2 via a1 and a3's shuffled spelling"
+    );
+
+    // 7. The shared filters compose: a json_query narrows total, groups
+    //    and columns alike.
+    let narrowed = RecordQuery {
+        path: Some("/facettest".into()),
+        json_query: Some(
+            JsonQuery::new(
+                vec!["metadata".into(), "topics".into()],
+                serde_json::json!("db"),
+            )
+            .expect("query"),
+        ),
+        ..Default::default()
+    };
+    let spec = FacetSpec {
+        group: path(&["metadata", "topics"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&narrowed, &spec).await.expect("facet");
+    assert_eq!(rows.total, 2, "only a1 and a2 match the filter");
+    assert_eq!(group_counts(&rows.groups), expect(&[("db", 2), ("web", 1)]));
+
+    // 8. A path no record has: empty groups, full total.
+    let spec = FacetSpec {
+        group: path(&["nowhere"], false),
+        columns: vec![],
+        rollup_pairs: vec![],
+    };
+    let rows = sync.facet_records(&query, &spec).await.expect("facet");
+    assert_eq!(rows.total, 6);
+    assert!(rows.groups.is_empty());
+}
+
 macro_rules! crud_test {
     ($name:ident, $body:ident) => {
         mod $name {
@@ -1688,6 +1917,7 @@ crud_test!(
 );
 crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
 crud_test!(find_records_follow_walk, run_find_records_follow_walk);
+crud_test!(facet_records, run_facet_records);
 async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
     // A `JsonQuery` is pushed into the SQL WHERE clause. The same predicate has
     // to mean the same thing on both backends, which is what running this test

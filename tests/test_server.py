@@ -2488,6 +2488,118 @@ def test_server_cloudmap(server_env):
                 "artifacts": {template_key: {"metadata": {"title": "Odoo"}}}
             }
 
+            # ----- GET /cloudmap/facets (grouped counts; the rust
+            # fast-path aggregates in SQL, the Python fallback folds the
+            # loaded document — every count must agree with what the
+            # same server's /cloudmap selects) -----
+            facets_url = f"http://{HOST}:{port}/cloudmap/facets"
+
+            # The rollup invariant, self-calibrating: each type bucket
+            # (subtypes default on) equals the record count ?type= selects.
+            res = requests.get(
+                facets_url, params={"kind": "artifacts", "group_by": "type"}
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["meta"] == {
+                "group_by": "/type",
+                "facets": [],
+                "subtypes": True,
+            }
+            for type_name, entry in body["groups"].items():
+                sel = requests.get(
+                    cloudmap_url, params={"kind": "artifacts", "type": type_name}
+                )
+                assert sel.status_code == 200, sel.text
+                selected = sel.json()["result"]
+                count = sum(
+                    len(records)
+                    for records in selected.values()
+                    if isinstance(records, dict)
+                )
+                assert entry["count"] == count, (
+                    f"bucket for {type_name!r} must count what ?type= selects"
+                )
+
+            # subtypes=false counts exact declared names — calibrate
+            # against the artifact records themselves.
+            res = requests.get(cloudmap_url, params={"kind": "artifacts"})
+            assert res.status_code == 200, res.text
+            artifacts = res.json()["result"]["artifacts"]
+            declared: dict = {}
+            for record in artifacts.values():
+                type_ref = record.get("type")
+                if isinstance(type_ref, dict):
+                    for name in type_ref:
+                        declared[name] = declared.get(name, 0) + 1
+            res = requests.get(
+                facets_url,
+                params={
+                    "kind": "artifacts",
+                    "group_by": "type",
+                    "subtypes": "false",
+                },
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["meta"]["subtypes"] is False
+            assert body["total"] == len(artifacts)
+            assert {g: e["count"] for g, e in body["groups"].items()} == declared
+
+            # Repeated `facet=` params (one composite, one simple): the
+            # spelling both servers must accept — the rust side through
+            # its repeated-key extractor, the Python side through
+            # getlist. A single-member "composite" equals the simple
+            # column, which pins the two column forms to each other.
+            res = requests.get(
+                facets_url,
+                params=[
+                    ("kind", "artifacts"),
+                    ("group_by", "type"),
+                    ("facet", "type,type"),
+                    ("facet", "type"),
+                    ("subtypes", "false"),
+                ],
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["meta"]["facets"] == [["/type", "/type"], ["/type"]]
+            for group_key, entry in body["groups"].items():
+                composite, simple = entry["facets"]
+                assert simple == {group_key: entry["count"]}, entry
+                assert composite == {
+                    json.dumps(
+                        [group_key, group_key],
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    ): entry["count"]
+                }, entry
+
+            # A literal, for cross-variant byte-parity: exactly one
+            # repository is private. Scoped to the primary file because
+            # an unscoped request means "every indexed file" to the rust
+            # fast-path, which also sees zz-alt-cloudmap.yaml's
+            # repository (see the /graph request above).
+            res = requests.get(
+                facets_url,
+                params={
+                    "kind": "repositories",
+                    "group_by": "private",
+                    "cloudmap_path": "cloudmap.yaml",
+                },
+            )
+            assert res.status_code == 200, res.text
+            body = res.json()
+            assert body["groups"] == {"true": {"count": 1}}
+            assert body["total"] == 4
+
+            # Error parity: a missing group_by violates the schema (422);
+            # an empty path segment is a bad request (400).
+            res = requests.get(facets_url, params={"kind": "artifacts"})
+            assert res.status_code == 422, res.text
+            res = requests.get(facets_url, params={"group_by": "a//b"})
+            assert res.status_code == 400, res.text
+
             # ----- POST /cloudmap end-to-end -----
             cloudmap_path = os.path.abspath("cloudmap.yaml")
 

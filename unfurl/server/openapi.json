@@ -1240,6 +1240,102 @@
         "title": "Status",
         "type": "integer"
       },
+      "FacetsResult": {
+        "description": "Response body for ``GET /cloudmap/facets``.",
+        "properties": {
+          "groups": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/FacetsResult.FacetGroup"
+            },
+            "description": "One entry per distinct group value: array elements, object keys, or the scalar itself at the ``group_by`` path. Keys are strings; a non-string value appears as its canonical JSON text (minified, object keys sorted), so structured keys parse back to JSON. Empty when no selected record has the path.",
+            "title": "Groups",
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/FacetsResult.FacetsMeta"
+          },
+          "total": {
+            "description": "Distinct records matched by the selection parameters, whether or not they produced a group value. The denominator for the counts in ``groups``, which may overlap and need not sum to it.",
+            "minimum": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "meta",
+          "total",
+          "groups"
+        ],
+        "title": "FacetsResult",
+        "type": "object"
+      },
+      "FacetsResult.FacetGroup": {
+        "description": "One group in a ``/cloudmap/facets`` response.",
+        "properties": {
+          "count": {
+            "description": "Number of distinct selected records whose ``group_by`` path yielded this group's key. Independent of any facet columns.",
+            "minimum": 0,
+            "title": "Count",
+            "type": "integer"
+          },
+          "facets": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Omitted when the request had no ``facet`` parameters. Aligned by index with ``meta.facets``: the i-th map is the i-th column's breakdown for this group, mapping facet value to distinct-record count -- present for every requested column, even when empty. Composite-column keys are the canonical JSON array of the member values in path order. Counts need not sum to ``count``: a record carrying several values is counted under each, and a record with none contributes to ``count`` only.",
+            "title": "Facets"
+          }
+        },
+        "required": [
+          "count"
+        ],
+        "title": "FacetGroup",
+        "type": "object"
+      },
+      "FacetsResult.FacetsMeta": {
+        "description": "Names the dimensions of a ``/cloudmap/facets`` result, echoing\nthe request parameters that produced it in normalized form.",
+        "properties": {
+          "facets": {
+            "description": "One entry per facet column, in request order: the normalized member paths of that column. A simple facet is a one-element entry; a comma-composed facet lists each member. Empty when the request did not facet.",
+            "items": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "title": "Facets",
+            "type": "array"
+          },
+          "group_by": {
+            "description": "Normalized JSON Pointer of the grouping path -- what the keys of ``groups`` are values of.",
+            "title": "Group By",
+            "type": "string"
+          },
+          "subtypes": {
+            "default": false,
+            "description": "True when subtype-closure rollup was actually applied: a ``type`` column was present and ``subtypes`` was not disabled. Group and facet buckets then overlap up the type hierarchy instead of partitioning the records.",
+            "title": "Subtypes",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "group_by"
+        ],
+        "title": "FacetsMeta",
+        "type": "object"
+      },
       "HTTPError": {
         "properties": {
           "detail": {
@@ -2857,8 +2953,44 @@
                 }
               ],
               "default": null,
-              "description": "Top-level CloudMap section to return; if omitted the full document is returned.",
+              "description": "Top-level CloudMap section to select records from; if omitted every section is considered.",
               "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.",
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.\n\n```text\n/metadata/topics=library                       equals, or array-contains\n/metadata/topics=[\"documentation\",\"library\"]   exact array match\n/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n/metadata/discovery                            the path exists\n```\n\n``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.\n\nValues are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``[\"a\",\"b\"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``=\"42\"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.",
+              "title": "Filter"
             }
           },
           {
@@ -2928,42 +3060,6 @@
           },
           {
             "in": "query",
-            "name": "type",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Fully-qualified type name; return only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.",
-              "title": "Type"
-            }
-          },
-          {
-            "in": "query",
-            "name": "filter",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.\n\n```text\n/metadata/topics=library                       equals, or array-contains\n/metadata/topics=[\"documentation\",\"library\"]   exact array match\n/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n/metadata/discovery                            the path exists\n```\n\n``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.\n\nValues are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``[\"a\",\"b\"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``=\"42\"``). Wildcards in the path aren't supported yet. Combines with ``kind``, ``key`` and ``type``: a record has to match all of them.",
-              "title": "Filter"
-            }
-          },
-          {
-            "in": "query",
             "name": "select",
             "required": false,
             "schema": {
@@ -2995,7 +3091,7 @@
                 }
               ],
               "default": null,
-              "description": "Return at most this many records, and change the response from the bare ``[document, follow]`` pair to an envelope:\n\n```text\n{\"records\": [document, follow], \"next_page_token\": \"...\"}\n```\n\n``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.",
+              "description": "Return at most this many records, delivered under ``result`` with a ``next_page_token`` key alongside when more remain. ``next_page_token`` is absent on the last page; pass it back as ``page_token`` to get the next one. Records are ordered by section then key, so a walk is stable across writes. Cannot be combined with ``key`` (which selects a single record); ``follow`` and ``exclude`` have no effect on a paged request, whose ``follow`` half is always empty. Combines with ``kind``, ``type``, ``filter`` and ``select``, which all apply before the page is cut.",
               "title": "Limit"
             }
           },
@@ -3099,6 +3195,233 @@
           }
         },
         "summary": "Modify the CloudMap document",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/cloudmap/facets": {
+      "get": {
+        "description": "Count the selected records grouped by the value at ``group_by``, with an optional per-group breakdown for each ``facet`` column. Record selection (``kind`` / ``type`` / ``filter``) works exactly as on ``GET /cloudmap``; the response carries counts only, no records.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "latest_commit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Commit hash used to validate the cache entry",
+              "title": "Latest Commit"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Git branch name",
+              "title": "Branch"
+            }
+          },
+          {
+            "in": "query",
+            "name": "queueid",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Setting this enables asynchronous writes",
+              "title": "Queueid"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cloudmap_path",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.",
+              "title": "Cloudmap Path"
+            }
+          },
+          {
+            "in": "query",
+            "name": "kind",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "repositories",
+                    "artifacts",
+                    "services",
+                    "instantiations",
+                    "components",
+                    "types"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Top-level CloudMap section to select records from; if omitted every section is considered.",
+              "title": "Kind"
+            }
+          },
+          {
+            "in": "query",
+            "name": "type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.",
+              "title": "Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "filter",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.\n\n```text\n/metadata/topics=library                       equals, or array-contains\n/metadata/topics=[\"documentation\",\"library\"]   exact array match\n/metadata/homepage_url^=https://unfurl.cloud/  prefix (strings only)\n/metadata/discovery                            the path exists\n```\n\n``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.\n\nValues are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``[\"a\",\"b\"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``=\"42\"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.",
+              "title": "Filter"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": true,
+            "schema": {
+              "description": "JSON Pointer path (RFC 6901) to group the selected records by; a path without a leading ``/`` gets one prepended. The value found at the path becomes the group: each element of an array, each key of an object, or the scalar itself. A record without the path lands in no group (but still counts toward ``total``).",
+              "title": "Group By",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "facet",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Repeatable: each occurrence adds one facet column, a value-to-count breakdown within every group. A comma-separated list of paths in a single occurrence composes one column keyed by the tuple of values, counting their per-record combinations -- pairing is per record, not per array element, so to correlate fields of the same array element, facet on their parent (the whole element becomes the value) rather than on the fields separately. A record missing any of a column's paths is absent from that column.",
+              "title": "Facet"
+            }
+          },
+          {
+            "in": "query",
+            "name": "subtypes",
+            "required": false,
+            "schema": {
+              "default": true,
+              "description": "When true (the default), a column whose path is exactly ``type`` also counts each record under every ancestor of its declared types, per the ``types`` section's ``extends`` graph -- so a base type's bucket includes its subtypes' records, mirroring what the ``type`` selection parameter would match. Buckets then overlap and do not sum to the record count. Pass false to count exact declared names only. Has no effect on other paths.",
+              "title": "Subtypes",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FacetsResult"
+                }
+              }
+            },
+            "description": "Group and facet counts for the selected records"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "CloudMap facet counts",
         "tags": [
           "Export"
         ]

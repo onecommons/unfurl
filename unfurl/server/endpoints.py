@@ -8,8 +8,9 @@ import gc
 import json
 import os
 import re
+from itertools import product
 from base64 import b64decode
-from typing import Any, Dict, List, Optional, Set, Tuple, cast
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, cast
 
 from flask import Response, current_app, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
@@ -44,6 +45,8 @@ from .schemas import (
     CloudMapResult,
     CloudMapQuery,
     CloudMapResponse,
+    FacetsQuery,
+    FacetsResult,
     PatchEnsembleBody,
     PatchEnvironmentBody,
     PatchResponse,
@@ -149,6 +152,28 @@ def _declares_type(record: Any, type_names: Set[str]) -> bool:
     return isinstance(type_ref, dict) and any(k in type_names for k in type_ref)
 
 
+def _pointer_tokens(path: str) -> List[str]:
+    """Parse a JSON Pointer (RFC 6901) into unescaped reference tokens.
+
+    A leading ``/`` is optional.
+
+    Raises:
+        ValueError: If the path is empty or has an empty segment.
+    """
+    if not path.startswith("/"):
+        path = "/" + path
+    tokens = [t.replace("~1", "/").replace("~0", "~") for t in path.split("/")[1:]]
+    if not tokens or not all(tokens):
+        raise ValueError(f"path {path!r} needs non-empty segments")
+    return tokens
+
+
+def _pointer_text(tokens: List[str]) -> str:
+    """Render reference tokens back to normalized JSON Pointer text,
+    re-escaping per RFC 6901 -- the inverse of :func:`_pointer_tokens`."""
+    return "/" + "/".join(t.replace("~", "~0").replace("/", "~1") for t in tokens)
+
+
 def _json_literal(raw: str) -> Any:
     """Parse a ``filter`` value the way JSON would, defaulting to a string.
 
@@ -209,11 +234,12 @@ def _parse_json_filter(expr: str) -> Tuple[List[str], Any, str]:
     prefix = path.endswith("^")
     if prefix:
         path = path[:-1]
-    if not path.startswith("/"):
-        path = "/" + path
-    tokens = [t.replace("~1", "/").replace("~0", "~") for t in path.split("/")[1:]]
-    if not tokens or not all(tokens):
-        raise ValueError(f"filter {expr!r} needs a path of non-empty segments")
+    try:
+        tokens = _pointer_tokens(path)
+    except ValueError:
+        raise ValueError(
+            f"filter {expr!r} needs a path of non-empty segments"
+        ) from None
     if not sep:
         # a bare path: the filter is satisfied when the path resolves
         return tokens, None, "exists"
@@ -260,6 +286,60 @@ def _json_filter_matches(
     if isinstance(current, list):
         return value in current
     return current == value
+
+
+def _record_matcher(
+    doc: Dict[str, Any], type_name: Optional[str], filter_expr: Optional[str]
+) -> Optional[Callable[[Any], bool]]:
+    """Build the record predicate for the shared selection parameters.
+
+    One construction serves ``/cloudmap`` and ``/cloudmap/facets`` so the
+    ``type`` and ``filter`` semantics (and any future extension of them)
+    can't drift between the endpoints. Returns ``None`` when neither
+    parameter is set -- "no filtering", which callers can use to keep
+    their unfiltered fast paths.
+
+    Raises:
+        ValueError: If ``filter_expr`` doesn't parse (callers return it
+            as a 400).
+    """
+    type_names: Optional[Set[str]] = None
+    if type_name:
+        type_names = _subtype_names(doc.get("types") or {}, type_name)
+    json_filter: Optional[Tuple[List[str], Any, str]] = None
+    if filter_expr:
+        json_filter = _parse_json_filter(filter_expr)
+    if type_names is None and json_filter is None:
+        return None
+
+    def _matches(record: Any) -> bool:
+        if type_names is not None and not _declares_type(record, type_names):
+            return False
+        if json_filter is not None and not _json_filter_matches(record, *json_filter):
+            return False
+        return True
+
+    return _matches
+
+
+def _selected_records(
+    doc: Dict[str, Any],
+    kind: Optional[str],
+    matcher: Optional[Callable[[Any], bool]],
+) -> Iterator[Tuple[str, str, Any]]:
+    """Yield ``(section, key, record)`` for every record selected by
+    ``kind`` and a :func:`_record_matcher` predicate, in canonical
+    section order. The iteration also skips the document's envelope
+    keys (``apiVersion``, ``kind``, ``metadata``), which aren't
+    records."""
+    sections = (kind,) if kind else _CLOUDMAP_SECTIONS
+    for section_name in sections:
+        section = doc.get(section_name)
+        if not isinstance(section, dict):
+            continue
+        for record_key, record in section.items():
+            if matcher is None or matcher(record):
+                yield section_name, record_key, record
 
 
 # Sentinel distinguishing "pointer didn't resolve" from a legitimate
@@ -426,34 +506,19 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
         except ValueError:
             pass
 
-    # `type` expands to the requested name plus all of its
-    # (transitive) subtypes per the `types` section, then restricts
-    # results to records declaring one of those names — mirroring the
-    # rust fast-path's semantics (filtered responses contain only the
-    # sections with matches; the follow walk stays unfiltered).
-    type_names: Optional[Set[str]] = None
-    if query.type:
-        type_names = _subtype_names(doc.get("types") or {}, query.type)
-
-    # `filter` narrows on the contents of each record: `<json pointer>=<value>`.
-    # The rust fast-path pushes the same test into SQL (`json_each`); here the
-    # document is already in memory, so it runs as a predicate over each record.
-    json_filter: Optional[Tuple[List[str], Any, str]] = None
-    if query.filter:
-        try:
-            json_filter = _parse_json_filter(query.filter)
-        except ValueError as err:
-            return make_response(jsonify(error=str(err)), 400)
+    # `type` and `filter` narrow on each record's contents; the predicate
+    # construction is shared with /cloudmap/facets (`_record_matcher`), so
+    # their semantics can't drift between the two endpoints.
+    try:
+        matcher = _record_matcher(doc, query.type, query.filter)
+    except ValueError as err:
+        return make_response(jsonify(error=str(err)), 400)
 
     def _matches(record: Any) -> bool:
-        """Whether a record passes the `type` and `query` filters (both optional)."""
-        if type_names is not None and not _declares_type(record, type_names):
-            return False
-        if json_filter is not None and not _json_filter_matches(record, *json_filter):
-            return False
-        return True
+        """Whether a record passes the `type` and `filter` params (both optional)."""
+        return matcher is None or matcher(record)
 
-    filtered = type_names is not None or json_filter is not None
+    filtered = matcher is not None
 
     primary: Dict[str, Any]
     if not kind:
@@ -485,8 +550,8 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
                 jsonify(error=f"key {key!r} not found in {kind!r}"), 404
             )
         elif not _matches(section[key]):
-            hint = " with matching type" if type_names is not None else ""
-            if json_filter is not None:
+            hint = " with matching type" if query.type else ""
+            if query.filter:
                 hint += " matching the filter"
             return make_response(
                 jsonify(error=f"key {key!r} not found in {kind!r}{hint}"),
@@ -605,6 +670,218 @@ _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
     "commit_msg",
     "atomic",
 )
+
+
+def _facet_values(record: Any, tokens: List[str]) -> List[Any]:
+    """The values at ``tokens`` per the facet extraction rule: the
+    elements of an array, the keys of an object, or the scalar itself;
+    empty when the path doesn't resolve. One level -- container values
+    inside an array element stay whole."""
+    node: Any = record
+    for token in tokens:
+        if not isinstance(node, dict) or token not in node:
+            return []
+        node = node[token]
+    if isinstance(node, list):
+        return list(node)
+    if isinstance(node, dict):
+        return list(node)
+    return [node]
+
+
+def _type_ancestors(types_section: Dict[str, Any], type_name: str) -> Set[str]:
+    """``type_name`` plus every ancestor reachable through the ``types``
+    section's ``extends`` lists -- the up-walk mirror of
+    :func:`_subtype_names`, used to roll a declared type's count into its
+    base types' buckets. A name without a type record is just itself."""
+    out = {type_name}
+    queue = [type_name]
+    while queue:
+        record = types_section.get(queue.pop())
+        extends = record.get("extends") if isinstance(record, dict) else None
+        if not isinstance(extends, list):
+            continue
+        for parent in extends:
+            if isinstance(parent, str) and parent not in out:
+                out.add(parent)
+                queue.append(parent)
+    return out
+
+
+def _canonical_facet_key(value: Any) -> str:
+    """Render a facet value as a response key: strings stay bare, any
+    other value becomes its canonical JSON text (minified, object keys
+    sorted, non-ASCII raw) so structured keys parse back to JSON and
+    every server implementation produces the same spelling.
+    ``ensure_ascii=False`` is load-bearing: the default would spell
+    "café" as ``caf\\u00e9`` where the rust server emits raw UTF-8, and
+    code-point-sorted keys equal rust's byte-sorted keys only because
+    UTF-8 byte order is code-point order."""
+    if isinstance(value, str):
+        return value
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+@app.get("/cloudmap/facets")
+@app.doc(
+    summary="CloudMap facet counts",
+    description=(
+        "Count the selected records grouped by the value at ``group_by``, "
+        "with an optional per-group breakdown for each ``facet`` column. "
+        "Record selection (``kind`` / ``type`` / ``filter``) works exactly "
+        "as on ``GET /cloudmap``; the response carries counts only, no "
+        "records."
+    ),
+    tags=["Export"],
+)
+@app.input(FacetsQuery, location="query", arg_name="query")
+@app.output(FacetsResult, description="Group and facet counts for the selected records")
+def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
+    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
+
+    project_id = _cloudmap_project_id(request)
+    branch = query.branch or CLOUDMAP_BRANCH
+    try:
+        group_tokens = _pointer_tokens(query.group_by)
+    except ValueError as parse_err:
+        return make_response(jsonify(error=f"group_by: {parse_err}"), 400)
+
+    # Repeated `facet=` params are read straight from the request:
+    # APIFlask's pydantic adapter binds query params via
+    # `request.args.to_dict()`, which keeps only the FIRST value of a
+    # repeated key, so the model's `facet` field documents the parameter
+    # but can't carry it.
+    columns: List[List[List[str]]] = []
+    for raw in request.args.getlist("facet"):
+        try:
+            members = [
+                _pointer_tokens(part.strip()) for part in raw.split(",") if part.strip()
+            ]
+        except ValueError as parse_err:
+            return make_response(jsonify(error=f"facet {raw!r}: {parse_err}"), 400)
+        if members:
+            columns.append(members)
+
+    err, doc, _db = load_cloudmap_local(
+        project_id,
+        branch=branch,
+        file_name=query.cloudmap_path or CLOUDMAP_PATH,
+        latest_commit=query.latest_commit,
+        create_db=False,
+    )
+    if doc is None:
+        if isinstance(err, Response):
+            return err
+        return make_response(jsonify(error=str(err)), 500)
+
+    try:
+        matcher = _record_matcher(doc, query.type, query.filter)
+    except ValueError as parse_err:
+        return make_response(jsonify(error=str(parse_err)), 400)
+
+    types_section = doc.get("types") or {}
+    # The subtypes rollup applies to every column whose path is exactly
+    # `type` -- the group or any facet member -- and is inert elsewhere.
+    group_rollup = query.subtypes and group_tokens == ["type"]
+    member_rollup = [
+        [query.subtypes and tokens == ["type"] for tokens in members]
+        for members in columns
+    ]
+    rollup_applied = group_rollup or any(any(flags) for flags in member_rollup)
+
+    ancestors: Dict[str, Set[str]] = {}
+
+    def _expand_types(values: List[Any]) -> List[Any]:
+        """Replace each declared type name with itself plus its ancestors."""
+        out: List[Any] = []
+        for value in values:
+            if isinstance(value, str):
+                if value not in ancestors:
+                    ancestors[value] = _type_ancestors(types_section, value)
+                out.extend(ancestors[value])
+            else:
+                out.append(value)
+        return out
+
+    # Every cell holds a set of (section, key) record identities -- the
+    # in-memory analogue of the SQL COUNT(DISTINCT r.id), so a record
+    # with duplicate values still counts once per bucket.
+    total = 0
+    group_ids: Dict[str, Set[Tuple[str, str]]] = {}
+    facet_ids: Dict[str, List[Dict[str, Set[Tuple[str, str]]]]] = {}
+
+    for section_name, record_key, record in _selected_records(doc, query.kind, matcher):
+        rid = (section_name, record_key)
+        total += 1
+        group_values = _facet_values(record, group_tokens)
+        if group_rollup:
+            group_values = _expand_types(group_values)
+        group_keys = {_canonical_facet_key(v) for v in group_values}
+        if not group_keys:
+            continue
+        for gkey in group_keys:
+            group_ids.setdefault(gkey, set()).add(rid)
+            if columns and gkey not in facet_ids:
+                facet_ids[gkey] = [{} for _ in columns]
+        for index, members in enumerate(columns):
+            member_values: List[List[Any]] = []
+            missing = False
+            for tokens, rollup in zip(members, member_rollup[index]):
+                values = _facet_values(record, tokens)
+                if rollup:
+                    values = _expand_types(values)
+                if not values:
+                    # a record missing any member path is absent from
+                    # this column
+                    missing = True
+                    break
+                member_values.append(values)
+            if missing:
+                continue
+            if len(member_values) == 1:
+                cell_keys = {_canonical_facet_key(v) for v in member_values[0]}
+            else:
+                # composite column: the per-record cross product of the
+                # member values, keyed by the canonical JSON array
+                # (ensure_ascii=False: see _canonical_facet_key)
+                cell_keys = {
+                    json.dumps(
+                        list(combo),
+                        sort_keys=True,
+                        separators=(",", ":"),
+                        ensure_ascii=False,
+                    )
+                    for combo in product(*member_values)
+                }
+            for gkey in group_keys:
+                cells = facet_ids[gkey][index]
+                for cell_key in cell_keys:
+                    cells.setdefault(cell_key, set()).add(rid)
+
+    groups_body: Dict[str, Any] = {}
+    for gkey in sorted(group_ids):
+        entry: Dict[str, Any] = {"count": len(group_ids[gkey])}
+        if columns:
+            entry["facets"] = [
+                {ck: len(ids) for ck, ids in sorted(cells.items())}
+                for cells in facet_ids[gkey]
+            ]
+        groups_body[gkey] = entry
+    body = {
+        "meta": {
+            "group_by": _pointer_text(group_tokens),
+            "facets": [
+                [_pointer_text(member) for member in members] for members in columns
+            ],
+            "subtypes": rollup_applied,
+        },
+        "total": total,
+        "groups": groups_body,
+    }
+    # Return a Response: APIFlask passes it through untouched, so the
+    # optional `facets` key stays omitted (output serialization through
+    # the model would re-add it as null).
+    return jsonify(body)
 
 
 @app.post("/cloudmap")

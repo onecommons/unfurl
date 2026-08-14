@@ -157,6 +157,34 @@ pub struct JsonQuery {
     pub op: QueryOp,
 }
 
+/// Reject reference tokens the SQL path syntax can't express: empties,
+/// and tokens containing a quote or backslash, which `$."…"` paths have
+/// no escape for. Shared by [`JsonQuery::new`] and [`FacetPath::new`].
+fn validate_path_tokens(tokens: &[String]) -> Result<()> {
+    if tokens.is_empty() || tokens.iter().any(|t| t.is_empty()) {
+        return Err(Error::Other(
+            "json query needs a path of non-empty segments".to_string(),
+        ));
+    }
+    if let Some(bad) = tokens.iter().find(|t| t.contains('"') || t.contains('\\')) {
+        return Err(Error::Other(format!(
+            "json query path segment {bad:?} can't contain a quote or backslash"
+        )));
+    }
+    Ok(())
+}
+
+/// Reference tokens as SQL/JSON path syntax:
+/// `$."metadata"."discovery"."sources"`. Every token is quoted so that
+/// tokens containing "." or " " resolve; see [`validate_path_tokens`].
+fn sql_path_from(tokens: &[String]) -> String {
+    let mut path = String::from("$");
+    for token in tokens {
+        path.push_str(&format!(".\"{token}\""));
+    }
+    path
+}
+
 impl JsonQuery {
     /// The path as SQL/JSON path syntax: `$."metadata"."discovery"."sources"`.
     ///
@@ -164,11 +192,7 @@ impl JsonQuery {
     /// tokens are rejected up front (see [`JsonQuery::new`]) if they contain a
     /// quote or a backslash, which the path syntax has no escape for.
     pub fn sql_path(&self) -> String {
-        let mut path = String::from("$");
-        for token in &self.tokens {
-            path.push_str(&format!(".\"{token}\""));
-        }
-        path
+        sql_path_from(&self.tokens)
     }
 
     /// The postgres SQL/JSON path for this query, with the value written into
@@ -230,16 +254,7 @@ impl JsonQuery {
 
     /// Build a query, rejecting tokens the path syntax can't express.
     pub fn new(tokens: Vec<String>, value: serde_json::Value) -> Result<Self> {
-        if tokens.is_empty() || tokens.iter().any(|t| t.is_empty()) {
-            return Err(Error::Other(
-                "json query needs a path of non-empty segments".to_string(),
-            ));
-        }
-        if let Some(bad) = tokens.iter().find(|t| t.contains('"') || t.contains('\\')) {
-            return Err(Error::Other(format!(
-                "json query path segment {bad:?} can't contain a quote or backslash"
-            )));
-        }
+        validate_path_tokens(&tokens)?;
         if value.is_object() {
             return Err(Error::Other(
                 "json query value can't be an object: address a member by putting \
@@ -268,6 +283,136 @@ impl JsonQuery {
         query.op = QueryOp::StartsWith;
         Ok(query)
     }
+}
+
+/// One extraction path of a facet aggregation (see
+/// [`crate::SyncedRepo::facet_records`]).
+///
+/// The value at the path is unwrapped one level, the same way the
+/// `json_query` filter reads a path: an array contributes each element,
+/// an object contributes each *key*, a scalar contributes itself, and a
+/// record without the path contributes nothing.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FacetPath {
+    /// Unescaped JSON-Pointer reference tokens, e.g. `["metadata", "topics"]`.
+    pub tokens: Vec<String>,
+    /// Remap each extracted value through [`FacetSpec::rollup_pairs`]:
+    /// a value with pairs counts under every bucket its pairs name
+    /// (include a self-pair to keep it counting as itself); a value
+    /// with no pairs counts as itself.
+    pub rollup: bool,
+}
+
+impl FacetPath {
+    /// Build a path, rejecting tokens the SQL path syntax can't express
+    /// (the same rule as [`JsonQuery::new`]).
+    pub fn new(tokens: Vec<String>, rollup: bool) -> Result<Self> {
+        validate_path_tokens(&tokens)?;
+        Ok(Self { tokens, rollup })
+    }
+
+    /// The path as SQL/JSON path syntax (see [`JsonQuery::sql_path`]).
+    pub(crate) fn sql_path(&self) -> String {
+        sql_path_from(&self.tokens)
+    }
+}
+
+/// The dimensions of a facet aggregation: one grouping path, any number
+/// of facet columns -- each one or more member paths, a multi-member
+/// column counting the per-record combinations of its members' values
+/// -- and the rollup mapping applied where a path opts in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FacetSpec {
+    /// The path records are grouped by.
+    pub group: FacetPath,
+    /// The facet columns, each a list of member paths.
+    pub columns: Vec<Vec<FacetPath>>,
+    /// `(member, bucket)` pairs consulted by paths with
+    /// [`FacetPath::rollup`] set: an extracted value equal to `member`
+    /// counts under `bucket` instead of itself, once per pair naming
+    /// it. Callers wanting a member to also count as itself must
+    /// include the self-pair. The caller supplies the pairs as data --
+    /// e.g. a type-inheritance closure -- so the aggregation itself
+    /// stays format-agnostic.
+    pub rollup_pairs: Vec<(String, String)>,
+}
+
+/// Render a JSON value as canonical text: minified, object keys sorted
+/// byte-wise at every depth. Two spellings of the same value -- e.g.
+/// `{"os":…,"architecture":…}` and its reversal -- render identically,
+/// which is what lets facet callers merge sqlite's stored-key-order
+/// buckets and what makes response keys parse back to the same JSON on
+/// every backend. (This crate's `serde_json` has `preserve_order` on,
+/// so plain `to_string` would keep whatever order the value carried.)
+pub fn canonical_json_text(value: &serde_json::Value) -> String {
+    fn write(value: &serde_json::Value, out: &mut String) {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                out.push('{');
+                for (i, key) in keys.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::Value::String((*key).clone()).to_string());
+                    out.push(':');
+                    write(&map[key.as_str()], out);
+                }
+                out.push('}');
+            }
+            serde_json::Value::Array(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    write(item, out);
+                }
+                out.push(']');
+            }
+            scalar => out.push_str(&scalar.to_string()),
+        }
+    }
+    let mut out = String::new();
+    write(value, &mut out);
+    out
+}
+
+/// Render one facet value as a response key: strings stay bare, any
+/// other value becomes its [`canonical_json_text`] -- so structured
+/// keys parse back to JSON and every server implementation produces
+/// the same spelling.
+pub fn canonical_facet_key(value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::String(s) => s.clone(),
+        other => canonical_json_text(other),
+    }
+}
+
+/// One row of a facet column: a (group value, member values)
+/// combination and its distinct-record count.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FacetColumnRow {
+    /// The (possibly rolled-up) group value this combination fell under.
+    pub group: serde_json::Value,
+    /// One extracted value per member path, in column order.
+    pub members: Vec<serde_json::Value>,
+    /// Distinct records contributing this combination.
+    pub count: i64,
+}
+
+/// The raw rows of a facet aggregation, values as extracted -- no
+/// canonicalization or key rendering; that is the caller's business.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct FacetRows {
+    /// Records matching the query's filters, whether or not they
+    /// produced a group value.
+    pub total: i64,
+    /// Distinct-record count per group value.
+    pub groups: Vec<(serde_json::Value, i64)>,
+    /// Per facet column, in [`FacetSpec::columns`] order.
+    pub columns: Vec<Vec<FacetColumnRow>>,
 }
 
 /// Records sit at `obj[path][key]` inside their owning file, where

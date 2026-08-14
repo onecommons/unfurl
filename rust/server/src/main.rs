@@ -178,6 +178,9 @@ async fn main() {
         .route("/export", get(routes::handle_export))
         .route("/types", get(routes::handle_types))
         .route("/cloudmap", cloudmap_route)
+        // Facet counts over the same records; the handler proxies
+        // itself when no cloudmap repo is configured.
+        .route("/cloudmap/facets", get(cloudmap::handle_cloudmap_facets))
         // Write endpoints queued to Redis. Follow the openapi spec: Two typed wrappers around
         // `handle_write` validate the request body against its
         // OpenAPI request schema and declare `Json<PatchResponse>`

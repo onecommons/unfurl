@@ -2742,6 +2742,203 @@ def test_cloudmap_graph_json(tmp_path):
     assert full == expected_full
 
 
+# ---------------------------------------------------------------------------
+# GET /cloudmap/facets — mirrors the Rust integration tests in
+# rust/server/tests/test_cloudmap.rs (facets_*), on the same fixture
+# plus the same seeded records, so the two servers' expectations stay in
+# lock-step.
+# ---------------------------------------------------------------------------
+
+
+def _facet_seeds():
+    """The controlled dataset the facet tests add on top of the fixture —
+    keep in lock-step with ``seed_facet_records`` in
+    rust/server/tests/test_cloudmap.rs."""
+    types = {
+        "FacetBase": {"name": "FacetBase", "extends": ["FacetBase"]},
+        "FacetDerived": {
+            "name": "FacetDerived",
+            "extends": ["FacetDerived", "FacetBase"],
+        },
+    }
+    artifacts = {
+        "facet:a1": {
+            "type": {"FacetDerived": {}},
+            "metadata": {
+                "topics": ["db", "web"],
+                "platforms": [
+                    {"os": "linux", "architecture": "amd64"},
+                    {"os": "windows", "architecture": "arm64"},
+                ],
+            },
+        },
+        "facet:a2": {
+            "type": {"FacetBase": {}},
+            "metadata": {"topics": ["db", "db"]},
+        },
+        "facet:a3": {
+            "type": {"FacetDerived": {}},
+            "metadata": {
+                "topics": ["web"],
+                # same platform as a1's first, spelled in the other key
+                # order: must land in the same canonical bucket
+                "platforms": [{"architecture": "amd64", "os": "linux"}],
+            },
+        },
+        "facet:a4": {"metadata": {"name": "quiet"}},
+    }
+    return types, artifacts
+
+
+@pytest.fixture
+def facet_test_client():
+    """`cloudmap_test_client` with the facet seed records injected."""
+    from unfurl.server.serve import app
+
+    cloudmap_doc = _load_cloudmap_fixture()
+    types, artifacts = _facet_seeds()
+    cloudmap_doc.setdefault("types", {}).update(types)
+    cloudmap_doc.setdefault("artifacts", {}).update(artifacts)
+    with patch("unfurl.server.cache.load_yaml_from_cache") as mock_load_yaml:
+        mock_load_yaml.return_value = (None, cloudmap_doc)
+        with app.test_client() as client:
+            yield client
+
+
+def test_cloudmap_facets_group_by_topics(facet_test_client):
+    resp = facet_test_client.get("/cloudmap/facets?kind=artifacts&group_by=metadata/topics")
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["meta"] == {
+        "group_by": "/metadata/topics",
+        "facets": [],
+        "subtypes": False,  # no type column, so no rollup was applied
+    }
+    # 11 fixture artifacts + 4 seeded
+    assert body["total"] == 15
+    # a2's duplicate "db" counts once; no `facets` key without facet columns
+    assert body["groups"] == {"db": {"count": 2}, "web": {"count": 2}}
+
+
+def test_cloudmap_facets_subtypes_invariant(facet_test_client):
+    # The rollup invariant: every type's bucket equals what ?type=T selects.
+    resp = facet_test_client.get("/cloudmap/facets?kind=artifacts&group_by=type")
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["meta"]["subtypes"] is True
+    groups = body["groups"]
+    assert "FacetBase" in groups, groups
+    from urllib.parse import quote
+
+    for type_name, entry in groups.items():
+        selected = facet_test_client.get(
+            f"/cloudmap?kind=artifacts&type={quote(type_name)}"
+        )
+        assert selected.status_code == 200
+        result = selected.get_json()["result"]
+        count = sum(
+            len(records) for records in result.values() if isinstance(records, dict)
+        )
+        assert entry["count"] == count, (
+            f"bucket for {type_name!r} must count exactly what ?type= selects"
+        )
+
+    # subtypes=false counts exact declared names only
+    resp = facet_test_client.get(
+        "/cloudmap/facets?kind=artifacts&group_by=type&subtypes=false"
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["meta"]["subtypes"] is False
+    assert body["groups"]["FacetBase"]["count"] == 1
+    assert body["groups"]["FacetDerived"]["count"] == 2
+
+
+def test_cloudmap_facets_repeated_and_composite(facet_test_client):
+    # Two columns — a composite (type × platforms) and a simple one — via
+    # the repeated `facet=` spelling. This is also the guard for the
+    # getlist workaround: APIFlask's pydantic adapter binds only the
+    # FIRST value of a repeated query key, so if the handler ever reads
+    # the bound model instead of request.args.getlist, the second
+    # column vanishes and the meta assertion fails.
+    resp = facet_test_client.get(
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/topics"
+        "&facet=type,metadata/platforms&facet=type&subtypes=false"
+    )
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    assert body["meta"]["facets"] == [["/type", "/metadata/platforms"], ["/type"]]
+    linux = '["FacetDerived",{"architecture":"amd64","os":"linux"}]'
+    windows = '["FacetDerived",{"architecture":"arm64","os":"windows"}]'
+    # a1's and a3's differently-spelled platforms merge into one
+    # canonical bucket; a2 (no platforms) is absent from the composite
+    # column but present in the simple one
+    assert body["groups"]["web"] == {
+        "count": 2,
+        "facets": [{linux: 2, windows: 1}, {"FacetDerived": 2}],
+    }
+    assert body["groups"]["db"] == {
+        "count": 2,
+        "facets": [{linux: 1, windows: 1}, {"FacetBase": 1, "FacetDerived": 1}],
+    }
+
+
+def test_cloudmap_facets_error_statuses(facet_test_client):
+    # Missing required group_by: schema-level, 422 from APIFlask.
+    resp = facet_test_client.get("/cloudmap/facets?kind=artifacts")
+    assert resp.status_code == 422
+
+    # Empty path segment: semantic, 400.
+    resp = facet_test_client.get("/cloudmap/facets?group_by=metadata//topics")
+    assert resp.status_code == 400
+
+    # Bad facet member path: 400 too.
+    resp = facet_test_client.get("/cloudmap/facets?group_by=type&facet=a//b")
+    assert resp.status_code == 400
+
+    # Unknown kind: 422 here (the pydantic Literal rejects it), where the
+    # rust handler 404s — the same pre-existing divergence GET /cloudmap
+    # has, so the two endpoints at least fail alike per server.
+    resp = facet_test_client.get("/cloudmap/facets?kind=nope&group_by=type")
+    assert resp.status_code == 422
+
+
+def test_cloudmap_facets_non_ascii_canonical_keys():
+    # Canonical keys must carry non-ASCII characters raw, not as \uXXXX
+    # escapes: json.dumps defaults to ensure_ascii=True, which would
+    # spell this key "café" while the rust server emits "café" —
+    # the same literal asserted in facets_non_ascii_canonical_keys in
+    # rust/server/tests/test_cloudmap.rs, which is what pins the two
+    # implementations to one spelling.
+    from unfurl.server.serve import app
+
+    doc = _load_cloudmap_fixture()
+    doc.setdefault("artifacts", {})["facet:unicode"] = {
+        "type": {"FacetBase": {}},
+        "metadata": {"platforms": [{"os": "linux", "variant": "café"}]},
+    }
+    with patch("unfurl.server.cache.load_yaml_from_cache") as mock_load_yaml:
+        mock_load_yaml.return_value = (None, doc)
+        with app.test_client() as client:
+            resp = client.get(
+                "/cloudmap/facets?kind=artifacts&group_by=metadata/platforms"
+            )
+            assert resp.status_code == 200, resp.get_json()
+            body = resp.get_json()
+            assert body["groups"] == {
+                '{"os":"linux","variant":"café"}': {"count": 1}
+            }
+
+
+def test_cloudmap_facets_missing_group_path(facet_test_client):
+    resp = facet_test_client.get("/cloudmap/facets?group_by=no/such/path")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["groups"] == {}
+    # records without the path still count toward total
+    assert body["total"] > 0
+
+
 if __name__ == "__main__":
     """Update this file in-place.
 

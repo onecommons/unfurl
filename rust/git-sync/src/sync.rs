@@ -391,6 +391,24 @@ impl SyncedRepo {
         db::record::find(self.db(), self.worktree_id(), query).await
     }
 
+    /// Facet aggregation over the records matching `query`: distinct
+    /// records counted per value at `spec.group`, plus a breakdown per
+    /// facet column -- see [`crate::FacetSpec`].
+    ///
+    /// Shares [`Self::find_records`]'s filters (`path`, `type_names`,
+    /// `json_query`, …); `after` / `limit` are ignored, an aggregation
+    /// having nothing to page. Values come back as extracted -- key
+    /// rendering, canonicalization and merging of spelling variants
+    /// (sqlite groups object values by their stored key order) are the
+    /// caller's business.
+    pub async fn facet_records(
+        &self,
+        query: &RecordQuery,
+        spec: &crate::model::FacetSpec,
+    ) -> Result<crate::model::FacetRows> {
+        db::record::facet(self.db(), self.worktree_id(), query, spec).await
+    }
+
     /// Change-detection probe for a section: `(COUNT(*),
     /// MAX(version))` over every row (tombstones included) whose
     /// `record.path` equals `path`.

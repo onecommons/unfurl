@@ -758,6 +758,38 @@ where
     }
 }
 
+/// [`ValidatedQuery`] backed by [`axum_extra::extract::Query`], whose
+/// `serde_html_form` deserializer collects *repeated* query keys into
+/// `Vec` fields — `serde_urlencoded`, behind [`axum::extract::Query`],
+/// errors on them. Use it for handlers with repeatable parameters
+/// (e.g. `facet=` on `GET /cloudmap/facets`); it is a separate type
+/// rather than a swap inside [`ValidatedQuery`] so the extraction
+/// semantics of every existing endpoint stay untouched. Same 422
+/// mapping as [`ValidatedQuery`].
+pub struct ValidatedRepeatedQuery<T>(pub T);
+
+impl<T, S> axum::extract::FromRequestParts<S> for ValidatedRepeatedQuery<T>
+where
+    T: serde::de::DeserializeOwned + Send,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        match axum_extra::extract::Query::<T>::from_request_parts(parts, state).await {
+            Ok(axum_extra::extract::Query(value)) => Ok(Self(value)),
+            Err(rej) => Err((
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(json!({"message": rej.to_string()})),
+            )
+                .into_response()),
+        }
+    }
+}
+
 /// Drop-in replacement for [`axum::Json`] as a body extractor that
 /// maps a deserialization failure to **422 Unprocessable Entity**
 /// (matching APIFlask's convention on the Python backend) instead of
