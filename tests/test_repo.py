@@ -1049,3 +1049,70 @@ def test_uri_template_git_urls():
         "main",
         "abc123",
     )
+
+
+SELF_REFERENCING_ENSEMBLE = """
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    repositories:
+      bar:
+        url: https://example.com/foo/bar.git
+        revision: main
+    imports:
+      - file: types.yaml
+        repository: bar
+    topology_template:
+      node_templates:
+        n1:
+          type: My.Node
+"""
+
+SELF_REFERENCING_TYPES = """
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  My.Node:
+    derived_from: tosca.nodes.Root
+"""
+
+
+def test_repository_referencing_its_own_repo(tmp_path):
+    """A repository can name the repo the ensemble already lives in.
+
+    The Python DSL emits exactly that for a cross-module import whenever the
+    module was loaded through a repository, so the generated YAML imports from
+    the repository it is already inside. That has to resolve without cloning:
+    when the ensemble isn't in an Unfurl project -- how the server exports a
+    standalone repository -- there is nowhere to clone to.
+    """
+    repo_dir = tmp_path / "myrepo"
+    repo_dir.mkdir()
+    (repo_dir / "types.yaml").write_text(SELF_REFERENCING_TYPES)
+    (repo_dir / "ensemble.yaml").write_text(SELF_REFERENCING_ENSEMBLE)
+    repo = Repo.init(repo_dir)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "test")
+    repo.create_remote("origin", "https://example.com/foo/bar.git")
+    repo.git.add(A=True)
+    repo.git.commit("-m", "init")
+
+    # UNFURL_SEARCH_ROOT confines the search for unfurl.yaml to the repository,
+    # so the ensemble has no project -- the same shape the server's export
+    # builds in _make_readonly_localenv().
+    local_env = LocalEnv(
+        str(repo_dir / "ensemble.yaml"),
+        homePath="",
+        overrides={"UNFURL_SEARCH_ROOT": str(repo_dir)},
+    )
+    # no project and no home project means nowhere to clone to
+    assert local_env.project is None
+    assert local_env.homeProject is None
+    manifest = local_env.get_manifest(skip_validation=True)
+
+    resolved = manifest.repositories["bar"].repo
+    assert resolved, "repository 'bar' was not resolved to the containing repo"
+    assert os.path.normpath(resolved.working_dir) == os.path.normpath(str(repo_dir))
+    # the import actually loaded
+    assert "My.Node" in manifest.tosca.template.topology_template.custom_defs

@@ -843,6 +843,13 @@ class ProxiedRepo(Repo):
     def find_remote_url(
         self, *, url: Optional[str] = None, host: Optional[str] = None
     ) -> Optional[str]:
+        """The origin url recorded for this package, if *url* or *host* names it.
+
+        A proxied package was downloaded rather than cloned, so it has no git
+        remotes to search: the single "Origin" url from ``.proxied/info.json``
+        stands in for them. Matching is otherwise as `Repo.find_remote_url`
+        describes, and *host* likewise wins if both arguments are given.
+        """
         if url:
             url = normalize_git_url_hard(url)
         else:

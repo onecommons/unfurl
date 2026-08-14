@@ -34,6 +34,7 @@ from .util import (
     split_url_fragment,
 )
 from toscaparser.repositories import Repository
+from toscaparser.imports import normalize_path
 from ruamel.yaml.comments import CommentedMap
 import logging
 
@@ -250,7 +251,7 @@ class Repo(abc.ABC):
 
     @staticmethod
     def find_containing_repo(
-        rootDir, gitDir=".git", stop_at: str = ""
+        rootDir: str, gitDir=".git", stop_at: str = ""
     ) -> Optional["Repo"]:
         """
         Walk parents looking for a git or proxied repository.
@@ -267,6 +268,23 @@ class Repo(abc.ABC):
             if repo:
                 return repo
             current = os.path.dirname(current)
+        return None
+
+    @staticmethod
+    def find_containing_repo_with_url(
+        path: str, url: str, gitDir=".git", stop_at: str = ""
+    ) -> Optional["Repo"]:
+        """
+        Like ``find_containing_repo`` but also checks that the repo has a git remote that matches the url or that the url is a local path that matches the repo's working dir.
+        """
+        repo = Repo.find_containing_repo(path, gitDir, stop_at)
+        # if repo has a git remote that matches the url or the url is a local path that matches the repo's working dir
+        if repo and (
+            repo.find_remote_url(url=url)
+            or normalize_path(url.partition("#")[0]).rstrip("/")
+            == repo.working_dir.rstrip("/")
+        ):
+            return repo
         return None
 
     @staticmethod
@@ -382,7 +400,17 @@ class Repo(abc.ABC):
     def resolve_rev_spec(self, revision) -> Optional[str]: ...
 
     @abc.abstractmethod
-    def find_remote_url(self, *, url=None, host=None) -> Optional[str]: ...
+    def find_remote_url(self, *, url=None, host=None) -> Optional[str]:
+        """This repository's remote url for *url* or *host*, or None if it has none.
+
+        Answers "is this repository a clone of that url -- or of anything on
+        that host?". The url returned is the one the repository has configured,
+        which can be spelled differently to the one asked about: comparison
+        ignores whatever doesn't change which repository is named (scheme,
+        credentials, a ".git" suffix, a trailing slash, a "#fragment").
+
+        Pass *url* or *host*; passing neither is a programming error.
+        """
 
     @abc.abstractmethod
     def clone(self, newPath: str) -> "Repo": ...
@@ -1098,12 +1126,29 @@ class GitRepo(Repo):
             return None
 
     def find_remote_url(self, *, url=None, host=None) -> Optional[str]:
+        """The configured url of the remote `find_remote` matches, or None.
+
+        The url comes from the remote, so it is this repository's own spelling
+        of it rather than the one that was asked about.
+        """
         remote = self.find_remote(url=url, host=host)
         if remote:
             return remote.url
         return None
 
     def find_remote(self, *, url=None, host=None) -> Optional[git.Remote]:
+        """The first configured remote matching *url* or *host*, or None.
+
+        Matching a url ignores everything that doesn't change which repository
+        it names -- scheme, credentials, a ".git" suffix, a trailing slash, a
+        "#fragment" -- so ``https://example.com/foo/bar.git`` matches a remote
+        spelled ``git@example.com:foo/bar``. Matching a host compares hostnames
+        only, finding any remote on that server whatever the repository.
+
+        Pass *url* or *host*; passing neither is a programming error, and
+        *host* wins if both are given. Remotes are searched in the order git
+        lists them, which does not necessarily start with "origin".
+        """
         if url:
             url = normalize_git_url_hard(url)
         else:

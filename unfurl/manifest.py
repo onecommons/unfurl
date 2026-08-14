@@ -836,18 +836,28 @@ class Manifest(AttributeManager):
         if not url:
             raise UnfurlError(f"invalid git URL {repo_view.url}")
         if not self.localEnv:  # can happen in unit tests
-            repo: Optional[Repo] = Repo.find_containing_repo(base)
-            if repo and (
-                repo.find_remote_url(url=url)
-                or toscaparser.imports.normalize_path(url.partition("#")[0]).rstrip("/")
-                == repo.working_dir.rstrip("/")
-            ):
+            repo = Repo.find_containing_repo_with_url(
+                self.path or "", url
+            ) or Repo.find_containing_repo_with_url(base, url)
+            if repo:
                 return repo, None
             else:
                 logger.warning(
                     "Can't resolve repository %s because there's no localenv.", url
                 )
                 return None, None
+        if not self.localEnv.project and self.path:
+            # This can happen when the server exports a
+            # repository that isn't an Unfurl project (e.g onecommons/std)
+            # but the localenv will already be in that repository
+            repo = Repo.find_containing_repo_with_url(self.path, url)
+            if repo:
+                logger.debug(
+                    "resolved %s repository without an unfurl project to: %s",
+                    url,
+                    repo.working_dir,
+                )
+                return repo, None
         repo, _, created = self.localEnv.find_or_create_working_dir(
             url, repo_view.revision_tag, base, package=repo_view.package or None
         )
