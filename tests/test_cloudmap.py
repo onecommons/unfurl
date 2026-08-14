@@ -2903,6 +2903,52 @@ def test_cloudmap_facets_error_statuses(facet_test_client):
     assert resp.status_code == 422
 
 
+def test_cloudmap_endpoint_repeated_filters(cloudmap_test_client):
+    # `filter=` repeats: every occurrence must match. This is also the
+    # getlist guard for get_cloudmap — the pydantic adapter binds only
+    # the first value of a repeated key, so if the handler read the
+    # bound model the second filter would be dropped and the exclusion
+    # case below would wrongly return the dashboard repo.
+    from urllib.parse import quote
+
+    both = (
+        "/cloudmap?filter=" + quote("/private=true")
+        + "&filter=" + quote("/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d")
+    )
+    resp = cloudmap_test_client.get(both)
+    assert resp.status_code == 200
+    assert list(resp.get_json()["result"]["repositories"]) == [
+        "git://unfurl.cloud/feb20a/dashboard.git"
+    ]
+
+    # Each filter matches a record on its own, but no record matches both.
+    exclusive = (
+        "/cloudmap?filter=" + quote("/private=true")
+        + "&filter="
+        + quote("/metadata/homepage_url=https://unfurl.cloud/onecommons/blueprints/odoo")
+    )
+    resp = cloudmap_test_client.get(exclusive)
+    assert resp.status_code == 200
+    assert resp.get_json()["result"] == {}
+
+
+def test_cloudmap_facets_repeated_filters(facet_test_client):
+    # The facets handler has its own getlist call; the same exclusion
+    # shape guards it.
+    from urllib.parse import quote
+
+    resp = facet_test_client.get(
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/topics"
+        + "&filter=" + quote("/metadata/topics=db")
+        + "&filter=" + quote("/metadata/topics=web")
+    )
+    assert resp.status_code == 200, resp.get_json()
+    body = resp.get_json()
+    # only a1 carries both topics; its other values still fan out
+    assert body["total"] == 1
+    assert body["groups"] == {"db": {"count": 1}, "web": {"count": 1}}
+
+
 def test_cloudmap_facets_non_ascii_canonical_keys():
     # Canonical keys must carry non-ASCII characters raw, not as \uXXXX
     # escapes: json.dumps defaults to ensure_ascii=True, which would

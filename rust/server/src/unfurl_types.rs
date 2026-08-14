@@ -1023,7 +1023,7 @@ pub struct GetCloudmapFacetsRequestQuery {
     /// Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
     #[serde(rename = "type")]
     pub r#type: Option<String>,
-    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.
+    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value. Repeatable: (they AND together),
     ///
     /// ```text
     /// /metadata/topics=library                       equals, or array-contains
@@ -1035,7 +1035,7 @@ pub struct GetCloudmapFacetsRequestQuery {
     /// ``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.
     ///
     /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
-    pub filter: Option<String>,
+    pub filter: Option<Vec<String>>,
     /// JSON Pointer path (RFC 6901) to group the selected records by; a path without a leading ``/`` gets one prepended. The value found at the path becomes the group: each element of an array, each key of an object, or the scalar itself. A record without the path lands in no group (but still counts toward ``total``).
     #[validate(length(min = 1u64))]
     pub group_by: String,
@@ -1091,7 +1091,7 @@ pub struct GetCloudmapRequestQuery {
     /// Fully-qualified type name; select only records whose ``type`` declares this type or a type that (transitively) ``extends`` it, per the ``types`` section of the CloudMap.
     #[serde(rename = "type")]
     pub r#type: Option<String>,
-    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value.
+    /// Filter on the contents of each record: a JSON Pointer path (RFC 6901) with an optional operator and value. Repeatable: (they AND together),
     ///
     /// ```text
     /// /metadata/topics=library                       equals, or array-contains
@@ -1103,7 +1103,7 @@ pub struct GetCloudmapRequestQuery {
     /// ``=`` matches when the value at the path equals the value or is an array containing it; an array literal is an exact match instead -- same elements, same order -- and an object literal is rejected. ``^=`` needs a string at the path, or a string element of an array there, that starts with the value; a number never matches a prefix. A path with no operator at all matches when the path resolves, counting a ``null`` or an empty array or object as present.
     ///
     /// Values are read as JSON: ``true``, ``false``, ``null`` and numbers keep their type, an array has to be valid JSON (``["a","b"]``, not ``[a,b]``), and anything else is a string. Wrap a value in double quotes to force a string (``="42"``). Wildcards in the path aren't supported yet. Combines with the other selection parameters: a record has to match all of them.
-    pub filter: Option<String>,
+    pub filter: Option<Vec<String>>,
     /// Record key (URL) within the selected ``kind`` section; ignored when ``kind`` is omitted.
     pub key: Option<String>,
     /// If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.

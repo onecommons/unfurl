@@ -226,11 +226,12 @@ class CloudMapSelectionQuery(CloudMapBaseQuery):
             "``extends`` it, per the ``types`` section of the CloudMap."
         ),
     )
-    filter: Optional[str] = Field(
+    filter: Optional[List[str]] = Field(
         default=None,
         description=(
             "Filter on the contents of each record: a JSON Pointer path "
-            "(RFC 6901) with an optional operator and value.\n"
+            "(RFC 6901) with an optional operator and value. Repeatable: "
+            "(they AND together),\n"
             "\n"
             # fenced as `text` so that rustdoc doesn't take the block for a
             # Rust doctest when this lands in the generated unfurl_types
@@ -253,12 +254,24 @@ class CloudMapSelectionQuery(CloudMapBaseQuery):
             "Values are read as JSON: ``true``, ``false``, ``null`` and "
             "numbers keep their type, an array has to be valid JSON "
             '(``["a","b"]``, not ``[a,b]``), and anything else is a '
-            'string. Wrap a value in double quotes to force a string '
+            "string. Wrap a value in double quotes to force a string "
             '(``="42"``). Wildcards in the path aren\'t supported yet. '
             "Combines with the other selection parameters: a record has "
             "to match all of them."
         ),
     )
+
+    @field_validator("filter", mode="before")
+    @classmethod
+    def _coerce_single_filter(cls, value: object) -> object:
+        # APIFlask's pydantic adapter binds query params via
+        # ``request.args.to_dict()``, which yields a single *string* for
+        # a repeated key -- rejected by ``List[str]`` before the handler
+        # runs. Accept it here so validation passes; the handlers read
+        # the real, repeatable values via ``request.args.getlist``.
+        if isinstance(value, str):
+            return [value]
+        return value
 
 
 class CloudMapDocQuery(CloudMapSelectionQuery):

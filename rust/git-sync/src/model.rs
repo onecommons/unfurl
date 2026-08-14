@@ -112,8 +112,11 @@ pub struct RecordQuery {
     /// Only records declaring one of these names as a key of their `type`
     /// object. Matching is by exact name — expand subtypes first.
     pub type_names: Option<Vec<String>>,
-    /// Only records whose JSON satisfies this predicate.
-    pub json_query: Option<JsonQuery>,
+    /// Only records whose JSON satisfies *every* one of these
+    /// predicates (ANDed; empty means no content filter). Each
+    /// predicate is applied independently — two filters may be
+    /// satisfied by different elements of the same array.
+    pub json_queries: Vec<JsonQuery>,
     /// Exclusive `(path, key)` lower bound on the byte-wise result order:
     /// the paging cursor. Being a value rather than a row reference, it
     /// stays usable after the record it names is deleted.

@@ -1833,13 +1833,11 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     //    and columns alike.
     let narrowed = RecordQuery {
         path: Some("/facettest".into()),
-        json_query: Some(
-            JsonQuery::new(
-                vec!["metadata".into(), "topics".into()],
-                serde_json::json!("db"),
-            )
-            .expect("query"),
-        ),
+        json_queries: vec![JsonQuery::new(
+            vec!["metadata".into(), "topics".into()],
+            serde_json::json!("db"),
+        )
+        .expect("query")],
         ..Default::default()
     };
     let spec = FacetSpec {
@@ -1931,7 +1929,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
             .expect("valid query");
         async move {
             sync.find_records(&RecordQuery {
-                json_query: Some(q),
+                json_queries: vec![q],
                 ..Default::default()
             })
             .await
@@ -2045,7 +2043,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("valid prefix query");
         async move {
             sync.find_records(&RecordQuery {
-                json_query: Some(q),
+                json_queries: vec![q],
                 ..Default::default()
             })
             .await
@@ -2097,7 +2095,7 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
             .expect("valid existence query");
         async move {
             sync.find_records(&RecordQuery {
-                json_query: Some(q),
+                json_queries: vec![q],
                 ..Default::default()
             })
             .await
@@ -2155,6 +2153,53 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
         numeric.iter().map(|r| &r.key).collect::<Vec<_>>()
     );
     assert_eq!(stringy.len(), 0);
+
+    // Multiple queries AND together — every one must match. The
+    // discriminating case: two filters that each match a record on
+    // their own but never the same record must yield nothing (an OR,
+    // or applying only the first clause, would return records).
+    let find_all = |queries: Vec<(Vec<&str>, serde_json::Value)>| {
+        let qs: Vec<JsonQuery> = queries
+            .into_iter()
+            .map(|(tokens, value)| {
+                JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
+                    .expect("valid query")
+            })
+            .collect();
+        async move {
+            sync.find_records(&RecordQuery {
+                json_queries: qs,
+                ..Default::default()
+            })
+            .await
+            .expect("anded queries")
+        }
+    };
+    let hits = find_all(vec![
+        (vec!["private"], serde_json::json!(true)),
+        (
+            vec!["branches", "main"],
+            serde_json::json!("4551885dfab39991cfdb958cb79fcb6aa282481d"),
+        ),
+    ])
+    .await;
+    assert_eq!(
+        hits.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/feb20a/dashboard.git"],
+        "both filters hold for the dashboard repo"
+    );
+    assert!(
+        find_all(vec![
+            (vec!["private"], serde_json::json!(true)),
+            (
+                vec!["metadata", "homepage_url"],
+                serde_json::json!("https://unfurl.cloud/onecommons/blueprints/odoo"),
+            ),
+        ])
+        .await
+        .is_empty(),
+        "each filter matches a record, but no record matches both"
+    );
 }
 
 crud_test!(find_records_json_query, run_find_records_json_query);

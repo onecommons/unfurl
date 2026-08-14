@@ -378,7 +378,7 @@ fn push_filter_sql_sqlite(sql: &mut String, query: &RecordQuery, idx: &mut usize
             phs.join(", ")
         ));
     }
-    if let Some(jq) = &query.json_query {
+    for jq in &query.json_queries {
         // `json_each` unwraps whatever is at the path: one row per element for
         // an array and a single row for a scalar, so "contains" and "equals"
         // are the same predicate and the record's shape doesn't have to be
@@ -471,7 +471,7 @@ fn add_filter_args_sqlite<'q>(
             args.add(t.as_str()).map_err(arg_err)?;
         }
     }
-    if let Some(jq) = &query.json_query {
+    for jq in &query.json_queries {
         args.add(jq.sql_path()).map_err(arg_err)?;
         if jq.op == QueryOp::Exists {
             // the path is the whole clause; nothing else to bind
@@ -616,7 +616,7 @@ fn push_filter_sql_pg(sql: &mut String, query: &RecordQuery, idx: &mut usize) {
         sql.push_str(&format!(" AND r.json -> 'type' ?| ${idx}::text[]"));
         *idx += 1;
     }
-    if let Some(jq) = &query.json_query {
+    for jq in &query.json_queries {
         // `@?` is the *operator* form of `jsonb_path_exists`, and unlike the
         // function call it can be served by a GIN index over `json` (measured:
         // Bitmap Index Scan vs Seq Scan, and identical plans when no index
@@ -663,7 +663,7 @@ fn add_filter_args_pg(args: &mut sqlx::postgres::PgArguments, query: &RecordQuer
     if let Some(ts) = query.effective_type_names() {
         args.add(ts).map_err(arg_err)?;
     }
-    if let Some(jq) = &query.json_query {
+    for jq in &query.json_queries {
         if jq.is_exact() {
             args.add(jq.containment()).map_err(arg_err)?;
             args.add(jq.tokens.clone()).map_err(arg_err)?;

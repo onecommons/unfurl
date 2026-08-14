@@ -13,8 +13,11 @@
 #     build.rs; manual tests would just rot on regeneration. Skip it.
 #   - build.rs scripts run at compile time, not from tests — their CRAP
 #     score is meaningless.
-#   - test_*: test functions themselves — CRAP measures risk of untested
-#     production code, so tests reporting as "uncovered" is noise.
+#   - tests/**: integration-test files never appear in cargo llvm-cov's
+#     report at all, so every function in them scores as 0%-covered
+#     ("missing" is pessimistic by default) no matter how often it runs.
+#     CRAP measures risk of untested production code; test code is exempt.
+#   - test_*: unit-test functions inside src files, same reasoning.
 #   - dump_*: debug/diagnostic dumpers tend to be branchy and lightly
 #     exercised; they're not on a real risk surface.
 #
@@ -89,6 +92,7 @@ cargo crap \
     --exclude '**/unfurl_types.rs' \
     --exclude '**/cloudmap_types.rs' \
     --exclude '**/build.rs' \
+    --exclude 'tests/**' \
     --allow 'test_*' \
     --allow 'dump_*' \
     "$@"
