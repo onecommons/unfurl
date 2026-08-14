@@ -3281,3 +3281,46 @@ def test_get_project_id_does_not_abort(monkeypatch):
     # a server started on a local path is exempt
     monkeypatch.setenv("UNFURL_SERVE_PATH", ".")
     assert server.get_project_id_or_abort(request) == ""
+
+def test_get_default_branch_local_project(tmp_path, monkeypatch):
+    """A local project's branch comes from its checkout, not the remote's tags.
+
+    A local project is exported from its working directory as-is, so the latest
+    remote tag isn't what's being served -- and a developer's clone can be
+    shallow, in which case that tag isn't a revision the repo can resolve at
+    all. `git rev-list <tag>` then fails and `CacheEntry.set_cache` gives up,
+    which silently disables caching for the whole project.
+    """
+    repo_dir = tmp_path / "std"
+    repo_dir.mkdir()
+    repo = Repo.init(repo_dir)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "test")
+    (repo_dir / "dummy-ensemble.yaml").write_text("{}\n")
+    repo.git.add(A=True)
+    repo.git.commit("-m", "init")
+    repo.git.tag("v1.0.3")
+
+    def _no_remote_tags(*args, **kw):
+        raise AssertionError("must not check remote tags for a local project")
+
+    monkeypatch.setattr(server, "set_version_from_remote_tags", _no_remote_tags)
+    monkeypatch.setitem(
+        server.app.config, "UNFURL_LOCAL_PROJECTS", {"onecommons/std": str(repo_dir)}
+    )
+
+    on_a_branch = repo.active_branch.name
+    assert server.get_local_branch("onecommons/std") == on_a_branch
+    assert server.get_latest_tag_or_default_branch("onecommons/std") == on_a_branch
+
+    # A shallow clone of a tag lands on a detached HEAD. Report "HEAD" rather
+    # than the tag: every repo can resolve HEAD, but a clone that was made
+    # without a tag (or before it existed) can't resolve the tag name.
+    repo.git.checkout("v1.0.3")
+    assert server.get_local_branch("onecommons/std") == "HEAD"
+    assert server.get_latest_tag_or_default_branch("onecommons/std") == "HEAD"
+    assert repo.git.rev_list("--max-count=1", "HEAD", "--", "dummy-ensemble.yaml")
+
+    # projects that aren't local still go through remote tag resolution
+    assert server.get_local_branch("onecommons/unfurl-types") == ""

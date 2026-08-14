@@ -76,26 +76,15 @@ from ..graphql import (
     project_id_from_urlresult,
 )
 from .schemas import (
-    BatchPatchBody,
     ClearProjectQuery,
-    CloudMapDocQuery,
-    CloudMapDocument,
-    CloudMapResult,
-    CloudMapQuery,
-    CloudMapResponse,
     EmptyCacheQuery,
     ExportQuery,
     ExportResponse,
-    PatchEnvironmentBody,
-    PatchEnsembleBody,
-    PatchResponse,
     PopulateCacheQuery,
     TypesQuery,
     EXPORT_RESPONSES,
-    PATCH_RESPONSES,
     hoist_cloudmap_definitions,
 )
-from ..manifest import relabel_dict
 from ..packages import Package, get_package_from_url, ProxiedRepo
 
 from ..projectpaths import rmtree, Folders
@@ -104,10 +93,7 @@ from ..repo import (
     GitRepo,
     Repo,
     RepoView,
-    add_user_to_url,
     normalize_git_url,
-    normalize_git_url_hard,
-    sanitize_url,
 )
 from ..util import (
     UnfurlError,
@@ -1518,15 +1504,37 @@ def export(query: ExportQuery) -> ResponseReturnValue:
     return _export(request, requested_format, deployment_path, False)
 
 
-def get_default_branch(
+def get_local_branch(project_id: str) -> str:
+    """The branch a local project is actually exported at, or "" if it isn't one."""
+    local_dir = _get_local_project_dir(project_id)
+    if not local_dir:
+        return ""
+    repo = Repo.find_containing_repo(local_dir)
+    branch = repo.active_branch if isinstance(repo, GitRepo) else ""
+    # a detached HEAD (e.g. a tag checkout) has no branch name of its own
+    # and treat ProxiedRepo as detached too
+    return branch or "HEAD"
+
+
+def get_latest_tag_or_default_branch(
     project_id: str,
-    branch: Optional[str] = "(MISSING)",
+    missing: bool = False,
     args: Optional[Dict[str, Any]] = None,
 ) -> str:
+    """If project is a package, attempt to retrieve the latest version tag, otherwise fallback to "main".
+    Local projects will always use the local branch instead of checking remote tags."""
+    local_branch = get_local_branch(project_id)
+    if local_branch:
+        logger.debug(
+            "using %s for local project %s instead of checking remote tags",
+            local_branch,
+            project_id,
+        )
+        return local_branch
     project_url = get_project_url(project_id)
     package = get_package_from_url(project_url)
     if package:
-        package.missing = branch == "(MISSING)"
+        package.missing = missing  # find_latest_semver_from_repo needs this info
         set_version_from_remote_tags(package, args)
         branch = package.revision_tag or DEFAULT_BRANCH
     else:
@@ -1557,9 +1565,7 @@ def _export(
         file_path = "dummy-ensemble.yaml"
     else:
         file_path = _get_filepath(requested_format, deployment_path)
-    branch = request.args.get("branch")
-    if branch == "HEAD":
-        branch = ""
+    branch = request.args.get("branch") or ""
     args: Dict[str, Any] = dict(request.args)
     if request.headers.get("X-Git-Credentials"):
         args["username"], args["password"] = (
@@ -1568,9 +1574,9 @@ def _export(
     if project_id and not project_id.startswith("local:"):
         args["root_url"] = get_canonical_url(project_id)
         if not branch or branch == "(MISSING)":
-            branch = get_default_branch(project_id, branch, args)
-    elif not branch:
-        branch = ""
+            branch = get_latest_tag_or_default_branch(
+                project_id, branch == "(MISSING)", args
+            )
     args["include_all"] = include_all
     if include_all:
         extra = "+types"
