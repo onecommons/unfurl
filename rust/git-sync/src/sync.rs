@@ -396,7 +396,7 @@ impl SyncedRepo {
     /// facet column -- see [`crate::FacetSpec`].
     ///
     /// Shares [`Self::find_records`]'s filters (`path`, `type_names`,
-    /// `json_query`, …); `after` / `limit` are ignored, an aggregation
+    /// `json_queries`, …); `after` / `limit` are ignored, an aggregation
     /// having nothing to page. Values come back as extracted -- key
     /// rendering, canonicalization and merging of spelling variants
     /// (sqlite groups object values by their stored key order) are the

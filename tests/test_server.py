@@ -2344,6 +2344,31 @@ def test_server_cloudmap(server_env):
             assert list(hit["repositories"]) == [dashboard], hit
             assert cloudmap_filter("/private=false") == {}
 
+            # `filter` repeats: every occurrence must match (ANDed in the
+            # rust fast-path's SQL, ANDed predicates in the Python fold).
+            res = requests.get(
+                cloudmap_url,
+                params=[
+                    ("filter", "/private=true"),
+                    ("filter", "/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d"),
+                ],
+            )
+            assert res.status_code == 200, res.text
+            assert list(res.json()["result"]["repositories"]) == [dashboard]
+            # each filter matches a record on its own, but none matches both
+            res = requests.get(
+                cloudmap_url,
+                params=[
+                    ("filter", "/private=true"),
+                    (
+                        "filter",
+                        "/metadata/homepage_url=https://unfurl.cloud/onecommons/blueprints/odoo",
+                    ),
+                ],
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["result"] == {}
+
             # `null` matches a null value — a typeRef map's members are null,
             # so the type name goes in the path
             hit = cloudmap_filter("/type/cloudmap.artifacts.GitLabPipeline=null")

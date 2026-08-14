@@ -399,7 +399,7 @@ fn rollup_pairs_from(children: &HashMap<String, Vec<String>>) -> Vec<(String, St
 /// proxies to the Python backend.
 pub async fn handle_cloudmap(
     State(state): State<AppState>,
-    ValidatedQuery(params): ValidatedQuery<unfurl_types::GetCloudmapRequestQuery>,
+    ValidatedRepeatedQuery(params): ValidatedRepeatedQuery<unfurl_types::GetCloudmapRequestQuery>,
     req: Request<axum::body::Body>,
 ) -> Response {
     let Some(cm) = state.cloudmap.clone() else {
@@ -571,7 +571,7 @@ struct Selection {
     file_path: Option<String>,
     path: Option<&'static str>,
     type_names: Option<Vec<String>>,
-    json_filter: Option<JsonQuery>,
+    json_filters: Vec<JsonQuery>,
 }
 
 impl Selection {
@@ -579,7 +579,7 @@ impl Selection {
         cm: &CloudMapState,
         kind: Option<&str>,
         type_param: Option<&str>,
-        filter: Option<&str>,
+        filters: &[String],
         cloudmap_path: Option<&str>,
     ) -> Result<Self, LocalError> {
         // Scope the read to one cloudmap file when the request names one;
@@ -611,17 +611,19 @@ impl Selection {
 
         // `filter` narrows on record contents: `<json pointer>=<value>`,
         // pushed into the SQL WHERE clause so the database does the
-        // filtering.
-        let json_filter = match filter {
-            Some(f) if !f.trim().is_empty() => Some(parse_json_filter(f)?),
-            _ => None,
-        };
+        // filtering. Repeatable — every occurrence must match (the
+        // clauses AND together); blank occurrences are dropped.
+        let json_filters: Vec<JsonQuery> = filters
+            .iter()
+            .filter(|f| !f.trim().is_empty())
+            .map(|f| parse_json_filter(f))
+            .collect::<Result<_, _>>()?;
 
         Ok(Self {
             file_path: file_path.map(str::to_string),
             path,
             type_names,
-            json_filter,
+            json_filters,
         })
     }
 
@@ -632,7 +634,7 @@ impl Selection {
             file_path: self.file_path,
             path: self.path.map(str::to_string),
             type_names: self.type_names,
-            json_query: self.json_filter,
+            json_queries: self.json_filters,
             ..Default::default()
         }
     }
@@ -649,7 +651,7 @@ async fn build_response(
         cm,
         kind,
         params.r#type.as_deref(),
-        params.filter.as_deref(),
+        params.filter.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
     )
     .await?;
@@ -684,7 +686,7 @@ async fn build_response(
         .unwrap_or_default();
 
     let type_filtered = selection.type_names.is_some();
-    let content_filtered = selection.json_filter.is_some();
+    let content_filtered = !selection.json_filters.is_empty();
 
     // `select` reduces every returned record to the requested properties.
     // Parsed once here; empty / all-blank values mean "no projection".
@@ -870,7 +872,7 @@ async fn build_facets_response(
         cm,
         params.kind.as_deref(),
         params.r#type.as_deref(),
-        params.filter.as_deref(),
+        params.filter.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
     )
     .await?;

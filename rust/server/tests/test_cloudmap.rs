@@ -2306,3 +2306,65 @@ async fn facets_non_ascii_canonical_keys() {
         "{body:?}"
     );
 }
+
+#[tokio::test]
+async fn repeated_filters_and_together() {
+    // `filter=` repeats: every occurrence must match (the clauses AND in
+    // SQL). Extraction goes through the repeated-key extractor, so this
+    // also guards the serde_html_form swap on GET /cloudmap.
+    let (cm, _tmp) = open_cloudmap_state().await;
+
+    // Both filters hold for the dashboard repo.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?filter={}&filter={}",
+            urlencoding::encode("/private=true"),
+            urlencoding::encode("/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let repos = body["result"]["repositories"]
+        .as_object()
+        .expect("repositories matched");
+    assert_eq!(
+        repos.keys().collect::<Vec<_>>(),
+        vec!["git://unfurl.cloud/feb20a/dashboard.git"],
+        "{body:?}"
+    );
+
+    // The discriminating case: each filter matches a record on its own,
+    // but no record matches both — an OR (or applying only the first
+    // occurrence) would return records.
+    let app = router(make_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?filter={}&filter={}",
+            urlencoding::encode("/private=true"),
+            urlencoding::encode(
+                "/metadata/homepage_url=https://unfurl.cloud/onecommons/blueprints/odoo"
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["result"], serde_json::json!({}), "{body:?}");
+
+    // The same repetition narrows a facet aggregation.
+    let app = router(make_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap/facets?kind=repositories&group_by=private&filter={}&filter={}",
+            urlencoding::encode("/private=true"),
+            urlencoding::encode("/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d"),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["total"], 1, "{body:?}");
+    assert_eq!(body["groups"], serde_json::json!({"true": {"count": 1}}));
+}

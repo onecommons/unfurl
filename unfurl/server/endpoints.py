@@ -289,35 +289,38 @@ def _json_filter_matches(
 
 
 def _record_matcher(
-    doc: Dict[str, Any], type_name: Optional[str], filter_expr: Optional[str]
+    doc: Dict[str, Any], type_name: Optional[str], filter_exprs: List[str]
 ) -> Optional[Callable[[Any], bool]]:
     """Build the record predicate for the shared selection parameters.
 
     One construction serves ``/cloudmap`` and ``/cloudmap/facets`` so the
     ``type`` and ``filter`` semantics (and any future extension of them)
-    can't drift between the endpoints. Returns ``None`` when neither
-    parameter is set -- "no filtering", which callers can use to keep
-    their unfiltered fast paths.
+    can't drift between the endpoints. ``filter`` repeats: every
+    expression must match, each independently (two filters may be
+    satisfied by different elements of the same array) -- mirroring the
+    ANDed SQL clauses the rust fast-path emits. Returns ``None`` when
+    nothing filters, which callers can use to keep their unfiltered
+    fast paths.
 
     Raises:
-        ValueError: If ``filter_expr`` doesn't parse (callers return it
-            as a 400).
+        ValueError: If a filter expression doesn't parse (callers
+            return it as a 400).
     """
     type_names: Optional[Set[str]] = None
     if type_name:
         type_names = _subtype_names(doc.get("types") or {}, type_name)
-    json_filter: Optional[Tuple[List[str], Any, str]] = None
-    if filter_expr:
-        json_filter = _parse_json_filter(filter_expr)
-    if type_names is None and json_filter is None:
+    json_filters: List[Tuple[List[str], Any, str]] = [
+        _parse_json_filter(expr) for expr in filter_exprs if expr.strip()
+    ]
+    if type_names is None and not json_filters:
         return None
 
     def _matches(record: Any) -> bool:
         if type_names is not None and not _declares_type(record, type_names):
             return False
-        if json_filter is not None and not _json_filter_matches(record, *json_filter):
-            return False
-        return True
+        return all(
+            _json_filter_matches(record, *json_filter) for json_filter in json_filters
+        )
 
     return _matches
 
@@ -508,9 +511,12 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
 
     # `type` and `filter` narrow on each record's contents; the predicate
     # construction is shared with /cloudmap/facets (`_record_matcher`), so
-    # their semantics can't drift between the two endpoints.
+    # their semantics can't drift between the two endpoints. `filter`
+    # repeats (every occurrence must match), read via getlist -- the
+    # pydantic adapter binds only the first value of a repeated key.
+    filter_params = request.args.getlist("filter")
     try:
-        matcher = _record_matcher(doc, query.type, query.filter)
+        matcher = _record_matcher(doc, query.type, filter_params)
     except ValueError as err:
         return make_response(jsonify(error=str(err)), 400)
 
@@ -551,7 +557,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
             )
         elif not _matches(section[key]):
             hint = " with matching type" if query.type else ""
-            if query.filter:
+            if filter_params:
                 hint += " matching the filter"
             return make_response(
                 jsonify(error=f"key {key!r} not found in {kind!r}{hint}"),
@@ -775,7 +781,8 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
         return make_response(jsonify(error=str(err)), 500)
 
     try:
-        matcher = _record_matcher(doc, query.type, query.filter)
+        # `filter` repeats like `facet` does; getlist for the same reason.
+        matcher = _record_matcher(doc, query.type, request.args.getlist("filter"))
     except ValueError as parse_err:
         return make_response(jsonify(error=str(parse_err)), 400)
 
