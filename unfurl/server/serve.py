@@ -611,13 +611,26 @@ class CacheItemDependency:
         return False  # we're up-to-date!
 
 
-def set_version_from_remote_tags(package: Package, args: Optional[dict]):
-    from .cache import get_remote_tags_cached
+def set_version_from_remote_tags(package: Package, args: Optional[dict]) -> str:
+    """Set ``package``'s version from its remote tags.
+
+    Returns the repository's default branch when the lookup learned it,
+    otherwise "". The same ``ls-remote`` reports both, so this costs nothing
+    beyond the tag query the package already needs.
+    """
+    from .cache import get_remote_refs_cached
+
+    default_branch = ""
 
     def get_remote_tags(url, pattern):
-        return get_remote_tags_cached(url, pattern, args)
+        nonlocal default_branch
+        refs = get_remote_refs_cached(url, pattern, args)
+        if not default_branch:
+            default_branch = refs.default_branch
+        return refs.tags
 
     package.set_version_from_repo(get_remote_tags)
+    return default_branch
 
 
 CacheItemDependencies = Dict[str, CacheItemDependency]
@@ -1024,7 +1037,7 @@ class CacheEntry:
                 value = CacheValue(*items[: len(CacheValue._fields)])
             except TypeError:
                 logger.debug(
-                    "discarding cache entry %s with unexpected shape: %s",
+                    "discarding cache entry %s with unexpected shape",
                     prefixed_key,
                     exc_info=True,
                 )
@@ -1544,9 +1557,19 @@ def get_latest_tag_or_default_branch(
     project_id: str,
     missing: bool = False,
     args: Optional[Dict[str, Any]] = None,
-) -> str:
-    """If project is a package, attempt to retrieve the latest version tag, otherwise fallback to "main".
-    Local projects will always use the local branch instead of checking remote tags."""
+) -> Tuple[str, str]:
+    """Returns ``(branch, default_branch)``.
+
+    ``branch`` is what to export at: a package's latest version tag if it has
+    one, otherwise the repository's default branch, falling back to "main".
+    Local projects always use the local branch instead of checking the remote.
+
+    ``default_branch`` is the branch the remote's HEAD points at, or "" when
+    this didn't determine it: a local project (no remote is consulted), or a
+    remote advertising no symbolic HEAD.
+    """
+    from .cache import get_remote_refs_cached
+
     local_branch = get_local_branch(project_id)
     if local_branch:
         logger.debug(
@@ -1554,20 +1577,27 @@ def get_latest_tag_or_default_branch(
             local_branch,
             project_id,
         )
-        return local_branch
+        return local_branch, ""
     project_url = get_project_url(project_id)
     package = get_package_from_url(project_url)
+    default_branch = ""
+    branch = ""
     if package:
         package.missing = missing  # find_latest_semver_from_repo needs this info
-        set_version_from_remote_tags(package, args)
-        branch = package.revision_tag or DEFAULT_BRANCH
-    else:
-        logger.debug(
-            f"{project_url} is not a package url, skipping retrieving remote version tags."
-        )
-        branch = DEFAULT_BRANCH
+        default_branch = set_version_from_remote_tags(package, args)
+        branch = package.revision_tag
+    if not branch:
+        # no version tag pins what to export, so the default branch decides it.
+        # The package proxy serves tags only, so a tag lookup that went through
+        # it didn't learn one -- ask git rather than guess DEFAULT_BRANCH.
+        if not default_branch:
+            # one ls-remote, cached for CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT
+            default_branch = get_remote_refs_cached(
+                project_url, "*", args, need_default_branch=True
+            ).default_branch
+        branch = default_branch or DEFAULT_BRANCH
 
-    return branch
+    return branch, default_branch
 
 
 def _export(
@@ -1595,10 +1625,12 @@ def _export(
         args["username"], args["password"] = (
             b64decode(request.headers["X-Git-Credentials"]).decode().split(":", 1)
         )
+    # the repository's default branch, when resolving the branch determined it
+    default_branch = ""
     if project_id and not project_id.startswith("local:"):
         args["root_url"] = get_canonical_url(project_id)
         if not branch or branch == "(MISSING)":
-            branch = get_latest_tag_or_default_branch(
+            branch, default_branch = get_latest_tag_or_default_branch(
                 project_id, branch == "(MISSING)", args
             )
     args["include_all"] = include_all
@@ -1689,6 +1721,10 @@ def _export(
                     cache_entry.cache_key(),
                     latest_commit,
                 )
+            if branch:
+                json_summary["branch"] = branch
+            if default_branch:
+                json_summary["default_branch"] = default_branch
             response = json_response(
                 json_summary, request.args.get("pretty"), sort_keys=False
             )
@@ -1926,7 +1962,9 @@ def _localenv_from_cache(
         # update_deployment appending to localConfig.ensembles) are visible to
         # readers that consult the closure directly (gui.py:/branches).
         project = gui_local_env.project
-        if project and project_id.rstrip("/") == "local:" + project.projectRoot.rstrip("/"):
+        if project and project_id.rstrip("/") == "local:" + project.projectRoot.rstrip(
+            "/"
+        ):
             return None, gui_local_env, None
 
     # we want to make cloning a repo cache work to prevent concurrent cloning

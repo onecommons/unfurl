@@ -1047,6 +1047,19 @@ class ExportResponse(BaseModel):
         default=None,
         description="Latest commit hash observed by the export; clients can use this for cache validation",
     )
+    branch: Optional[str] = Field(
+        default=None,
+        description="Branch, or version tag, the export was made from",
+    )
+    default_branch: Optional[str] = Field(
+        default=None,
+        description=(
+            "The repository's default branch, present only when the request "
+            "determined it: absent for a local project, for a tag list served "
+            "by the package proxy, and for a remote that advertises no "
+            "symbolic HEAD."
+        ),
+    )
     queueid: Optional[int] = Field(
         default=None,
         description=("Monotonic version assigned to this uncommitted write operation."),

@@ -649,6 +649,10 @@ pub struct ExportResponse {
     /// Map of type name → ResourceType object (TOSCA node type)
     #[serde(rename = "ResourceType")]
     pub resource_type: Option<std::collections::HashMap<String, ExportResponseResourceType>>,
+    /// Branch, or version tag, the export was made from
+    pub branch: Option<String>,
+    /// The repository's default branch, present only when the request determined it: absent for a local project, for a tag list served by the package proxy, and for a remote that advertises no symbolic HEAD.
+    pub default_branch: Option<String>,
     /// Embedded deployment exports (present when include_all_deployments=true)
     pub deployments: Option<ExportResponseDeployments>,
     /// Latest commit hash observed by the export; clients can use this for cache validation

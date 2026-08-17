@@ -420,6 +420,32 @@
             "description": "Map of type name \u2192 ResourceType object (TOSCA node type)",
             "title": "Resourcetype"
           },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Branch, or version tag, the export was made from",
+            "title": "Branch"
+          },
+          "default_branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The repository's default branch, present only when the request determined it: absent for a local project, for a tag list served by the package proxy, and for a remote that advertises no symbolic HEAD.",
+            "title": "Default Branch"
+          },
           "deployments": {
             "anyOf": [
               {

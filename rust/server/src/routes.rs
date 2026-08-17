@@ -165,6 +165,7 @@ async fn handle_cached_get(
     req: Request,
     key: Option<String>,
     latest_commit: Option<String>,
+    branch: Option<String>,
 ) -> CacheOutcome {
     match key {
         // Nothing to look up: the request names no project, or no particular
@@ -202,7 +203,9 @@ async fn handle_cached_get(
                         json_val.clone(),
                     ) {
                         Ok(mut typed) => {
+                            // we don't know the `default_branch`, so we don't set it here.
                             typed.latest_commit = latest_commit;
+                            typed.branch = branch;
                             CacheOutcome::Typed(Box::new(typed), etag)
                         }
                         Err(e) => {
@@ -298,7 +301,8 @@ pub async fn handle_export(
         .await);
     }
     let key = export_cache_key(&state.config.cache_key_prefix, &params);
-    match handle_cached_get(state, req, key, latest_commit).await {
+    let branch = params.branch.clone();
+    match handle_cached_get(state, req, key, latest_commit, branch).await {
         CacheOutcome::Typed(typed, etag) => Err(with_etag(Json(*typed).into_response(), &etag)),
         CacheOutcome::NotModified => Err(StatusCode::NOT_MODIFIED.into_response()),
         CacheOutcome::RawJson(val, etag) => Err(with_etag(Json(val).into_response(), &etag)),
@@ -484,7 +488,8 @@ pub async fn handle_types(
         (params.latest_commit.clone(), req)
     };
     let key = types_cache_key(&state.config.cache_key_prefix, &params);
-    match handle_cached_get(state, req, key, latest_commit).await {
+    let branch = params.branch.clone();
+    match handle_cached_get(state, req, key, latest_commit, branch).await {
         CacheOutcome::Typed(typed, etag) => {
             // The typed enum's `IntoResponse` impl handles status +
             // body. We still want the `Etag` header on the wire, so

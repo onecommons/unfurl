@@ -37,11 +37,12 @@ from .serve import (
 )
 
 from ..repo import (
+    RemoteRefs,
     RepoView,
     add_user_to_url,
     normalize_git_url_hard,
     split_git_url,
-    get_remote_tags,
+    get_remote_refs,
 )
 from ..yamlloader import (
     ImportResolver_Context,
@@ -287,36 +288,63 @@ def get_working_dir(project_id, branch, file_name, root_entry=None, latest_commi
     return cache_entry.get_or_set(cache, _work, latest_commit, _validate)
 
 
-def get_remote_tags_cached(url, pattern, args) -> List[str]:
+def get_remote_refs_cached(
+    url, pattern, args, need_default_branch: bool = False
+) -> RemoteRefs:
+    """The repository's tags and default branch, from one ``ls-remote``.
+
+    Cached as a plain ``(tags, default_branch)`` tuple rather than as a
+    :class:`RemoteRefs`, so the entry doesn't name that class -- see
+    :meth:`CacheEntry.get_cache` for why that matters. The key is
+    ``refs:`` rather than the ``tags:`` the previous format used: entries
+    written by that format were a bare tag list, and giving the new shape its
+    own key lets them expire on their own instead of needing to be told apart.
+
+    ``default_branch`` is ``""`` when it wasn't determined -- the tags came
+    from the package proxy (which reports no symbolic HEAD), or the remote
+    advertised none. Pass ``need_default_branch`` when the caller wants that
+    answer and not just the tags: the proxy is then skipped (it can't give one)
+    and a cached entry that has no default branch is re-queried, so the answer
+    costs an ``ls-remote`` rather than being unknowable. The proxy answers for
+    any public repository, so without this the default branch is almost never
+    determined.
+    """
     key = normalize_git_url_hard(url)
-    tags = None
+    cache_key = f"refs:{key}:{pattern}"
     cache = get_cache()
     if cache is not None:
-        tags = cast(Optional[List[str]], cache.get("tags:" + key + ":" + pattern))
-    if tags is not None:
-        return tags
-    else:
-        private = False
-        base_url = current_app.config["UNFURL_CLOUD_SERVER"] and normalize_git_url_hard(
-            current_app.config["UNFURL_CLOUD_SERVER"]
+        cached = cast(Optional[Tuple[List[str], str]], cache.get(cache_key))
+        if cached is not None:
+            cached_refs = RemoteRefs(*cached)
+            if cached_refs.default_branch or not need_default_branch:
+                return cached_refs
+            # a proxy-served entry can't answer this, so fall through to git
+            # and replace it with what ls-remote reports
+    private = False
+    base_url = current_app.config["UNFURL_CLOUD_SERVER"] and normalize_git_url_hard(
+        current_app.config["UNFURL_CLOUD_SERVER"]
+    )
+    if args and base_url and key.startswith(base_url):
+        # repository on this server, apply credentials if present
+        username, password = (
+            args.get("username"),
+            args.get("private_token", args.get("password")),
         )
-        if args and base_url and key.startswith(base_url):
-            # repository on this server, apply credentials if present
-            username, password = (
-                args.get("username"),
-                args.get("private_token", args.get("password")),
-            )
-            if username and password:
-                private = True
-                url = add_user_to_url(url, username, password)
-        if not private:
-            tags = get_tags_from_proxy(url, pattern)
-        if tags is None:
-            tags = get_remote_tags(url, pattern)
-        timeout = current_app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
-        if cache:
-            cache.set("tags:" + key + ":" + pattern, tags, timeout)
-        return tags
+        if username and password:
+            private = True
+            url = add_user_to_url(url, username, password)
+    refs = None
+    if not private and not need_default_branch:
+        # the proxy serves a tag list only, so the default branch stays unknown
+        proxy_tags = get_tags_from_proxy(url, pattern)
+        if proxy_tags is not None:
+            refs = RemoteRefs(proxy_tags, "")
+    if refs is None:
+        refs = get_remote_refs(url, pattern)
+    timeout = current_app.config["CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT"]
+    if cache:
+        cache.set(cache_key, tuple(refs), timeout)
+    return refs
 
 
 class ServerCacheResolver(SimpleCacheResolver):
@@ -359,7 +387,8 @@ class ServerCacheResolver(SimpleCacheResolver):
                     return None
             if self.local_env.find_repo(url):
                 return None
-        return get_remote_tags_cached(url, pattern, self.args)
+        # only the tags matter here, so let the package proxy answer if it can
+        return get_remote_refs_cached(url, pattern, self.args).tags
 
     @property
     def use_local_cache(self) -> bool:

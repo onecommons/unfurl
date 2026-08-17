@@ -1059,6 +1059,14 @@ def test_server_export_remote(server_env):
                             _strip_sourceinfo(res.json()) == expected
                         )  # , f"{pformat(res.json(), depth=2, compact=True)}\n != \n{pformat(expected, depth=2, compact=True)}"
 
+                        # `_strip_sourceinfo` returns None, so the comparison
+                        # above says nothing about the response keys: assert
+                        # the branch it exported at explicitly. `default_branch`
+                        # isn't set here -- the request named a branch, so
+                        # nothing had to resolve one (see the request below).
+                        assert res.json()["branch"] == "main"
+                        assert "default_branch" not in res.json()
+
                         # Verify Python actually stored the cache entry in Redis.
                         if use_rust and UNFURL_TEST_REDIS_URL:
                             import redis as _redis_mod
@@ -1230,6 +1238,24 @@ def test_server_export_remote(server_env):
             # Save Redis cache entries as fixtures for Rust unit tests.
             if use_rust:
                 _save_rust_fixtures(extra_env.get("CACHE_KEY_PREFIX", ""))
+
+            # A request that names no branch makes the server resolve one, and
+            # report both what it picked and the remote's default branch (the
+            # `ls-remote` symref). That's the only path that sets
+            # `default_branch`, and the rust server can't key a request without
+            # a branch, so this response comes from python on every variant.
+            # Runs last: it caches under the same key the fixtures came from.
+            res = requests.get(
+                f"http://{HOST}:{port}/export",
+                params={
+                    "auth_project": "onecommons/project-templates/dashboard",
+                    "format": "environments",
+                },
+            )
+            assert res.status_code == 200, res.text
+            resolved = res.json()
+            assert resolved["default_branch"] == "main", resolved.get("default_branch")
+            assert resolved["branch"] == "main", resolved.get("branch")
         finally:
             _terminate_process(p)
             # Print Python server logs so they appear in CI output.
@@ -1243,6 +1269,58 @@ def test_server_export_remote(server_env):
             #     os.unlink(py_log_file)
             if rust_log_file and os.path.exists(rust_log_file):
                 os.unlink(rust_log_file)
+
+
+def test_remote_refs_cached_as_plain_tuple(monkeypatch):
+    """``get_remote_refs_cached`` stores ``(tags, default_branch)`` as a plain
+    tuple and rebuilds a RemoteRefs from it, without a second ls-remote.
+
+    Storing the NamedTuple itself would record ``unfurl.repo.RemoteRefs`` as
+    the class to reconstruct, so moving or renaming it would make warm entries
+    unreadable -- the same reason ``CacheValue`` is stored as a tuple. The
+    cache here is a stand-in, so what's checked is the type handed to it, not
+    the bytes the real serializer would produce.
+    """
+    from unfurl.repo import RemoteRefs
+    from unfurl.server import cache as server_cache
+
+    stored = {}
+
+    class _Cache:
+        def get(self, key):
+            return stored.get(key)
+
+        def set(self, key, value, timeout=None):
+            stored[key] = value
+
+    monkeypatch.setattr(server_cache, "get_cache", lambda: _Cache())
+    monkeypatch.setattr(server_cache, "get_tags_from_proxy", lambda *a, **kw: None)
+    monkeypatch.setattr(
+        server_cache,
+        "get_remote_refs",
+        lambda url, pattern: RemoteRefs(["v1.0"], "main"),
+    )
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "")
+    monkeypatch.setitem(server.app.config, "CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT", 300)
+
+    url = "https://unfurl.cloud/onecommons/std.git"
+    with server.app.app_context():
+        refs = server_cache.get_remote_refs_cached(url, "*", None)
+        assert refs == RemoteRefs(["v1.0"], "main")
+
+        (cached,) = stored.values()
+        assert type(cached) is tuple, cached  # not a RemoteRefs subclass
+        assert cached == (["v1.0"], "main")
+
+        # served from the cache next time, reconstructed as RemoteRefs
+        monkeypatch.setattr(
+            server_cache,
+            "get_remote_refs",
+            lambda url, pattern: pytest.fail("should have hit the cache"),
+        )
+        again = server_cache.get_remote_refs_cached(url, "*", None)
+        assert isinstance(again, RemoteRefs)
+        assert again.default_branch == "main"
 
 
 def test_default_branch(tmp_path):
@@ -1990,12 +2068,13 @@ def _start_gui_server(project_dir, name=""):
         raise
 
 
-def _branches_commit(port: int, project_root: str) -> dict:
-    """Fetch the /branches commit dict for `project_root` (an absolute path).
+def _branches_entry(port: int, project_root: str) -> dict:
+    """Fetch the single /branches entry for `project_root` (an absolute path).
 
-    Asserts the response carries `id`, `committed_date` and `created_at`
+    Asserts its commit carries `id`, `committed_date` and `created_at`
     (gui.py:branches sets all three; both date fields derive from the same
-    `repo.revision_time`, so they must match). Returns the commit dict.
+    `repo.revision_time`, so they must match). Returns the whole entry, so a
+    caller can also look at `name` and `default`.
     """
     # The Flask route uses <path:project_path> so the colon in `local:` must
     # be URL-encoded; the absolute path's slashes can pass through as-is.
@@ -2007,7 +2086,8 @@ def _branches_commit(port: int, project_root: str) -> dict:
     assert res.status_code == 200, res.text
     branches = res.json()
     assert branches, f"empty /branches response: {res.text}"
-    commit = branches[0]["commit"]
+    entry = branches[0]
+    commit = entry["commit"]
     assert commit.get("id"), f"missing commit.id: {commit}"
     assert commit.get("committed_date"), f"missing committed_date: {commit}"
     assert commit.get("created_at"), f"missing created_at: {commit}"
@@ -2017,7 +2097,12 @@ def _branches_commit(port: int, project_root: str) -> dict:
     )
     # ISO 8601: parseable by datetime.fromisoformat (3.7+).
     datetime.datetime.fromisoformat(commit["committed_date"])
-    return commit
+    return entry
+
+
+def _branches_commit(port: int, project_root: str) -> dict:
+    """The /branches commit dict for `project_root` (an absolute path)."""
+    return _branches_entry(port, project_root)["commit"]
 
 
 @pytest.mark.parametrize("create_endpoint", ["create_ensemble", "create_provider"])
@@ -2044,14 +2129,26 @@ def test_gui_branches_dirty_subrepo(create_endpoint):
             outer_repo = GitRepo(Repo(project_root))
             last_commit = outer_repo.revision
             assert last_commit
+            # `unfurl init` makes a repo with no remote, which records no
+            # default branch, so give it the origin/HEAD a clone would have:
+            # /branches reports `default` from it. The remote is never
+            # contacted -- gui mode doesn't push (`_commit_and_push`).
+            outer_repo.repo.git.remote("add", "origin", "https://example.com/ufsv.git")
+            outer_repo.repo.git.symbolic_ref(
+                "refs/remotes/origin/HEAD",
+                f"refs/remotes/origin/{outer_repo.active_branch}",
+            )
 
             p, port = _start_gui_server(project_root, name=create_endpoint)
 
             # Sanity: initial /branches returns the clean SHA.
-            initial = _branches_commit(port, project_root)
+            initial_entry = _branches_entry(port, project_root)
+            initial = initial_entry["commit"]
             assert initial["id"] == last_commit, (
                 f"expected {last_commit}, got {initial['id']}"
             )
+            # the branch it reports is the one origin/HEAD points at
+            assert initial_entry["default"] is True, initial_entry
 
             # POST to the create endpoint to spawn a new sub-ensemble subrepo.
             deployment_path = (
@@ -3579,14 +3676,18 @@ def test_get_default_branch_local_project(tmp_path, monkeypatch):
 
     on_a_branch = repo.active_branch.name
     assert server.get_local_branch("onecommons/std") == on_a_branch
-    assert server.get_latest_tag_or_default_branch("onecommons/std") == on_a_branch
+    # a local project reports no default branch: no remote is consulted
+    assert server.get_latest_tag_or_default_branch("onecommons/std") == (
+        on_a_branch,
+        "",
+    )
 
     # A shallow clone of a tag lands on a detached HEAD. Report "HEAD" rather
     # than the tag: every repo can resolve HEAD, but a clone that was made
     # without a tag (or before it existed) can't resolve the tag name.
     repo.git.checkout("v1.0.3")
     assert server.get_local_branch("onecommons/std") == "HEAD"
-    assert server.get_latest_tag_or_default_branch("onecommons/std") == "HEAD"
+    assert server.get_latest_tag_or_default_branch("onecommons/std") == ("HEAD", "")
     assert repo.git.rev_list("--max-count=1", "HEAD", "--", "dummy-ensemble.yaml")
 
     # projects that aren't local still go through remote tag resolution

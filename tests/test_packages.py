@@ -17,7 +17,7 @@ from unfurl.packages import (
     find_canonical,
     package_id_to_url,
 )
-from unfurl.repo import Repo, get_remote_tags
+from unfurl.repo import Repo, get_remote_refs, get_remote_tags
 from unfurl.util import UnfurlError, taketwo
 from unfurl.yamlmanifest import YamlManifest
 from unfurl.yamlloader import get_tags_from_proxy
@@ -202,6 +202,16 @@ def test_package_id_from_url():
 
 
 SAVE_TMP = os.getenv("UNFURL_TEST_TMPDIR")
+
+
+def test_remote_refs():
+    # the tags and the default branch come back from one ls-remote: `--tags`
+    # would filter HEAD (and so the symref) out of the response, so the tags
+    # are requested by ref pattern instead.
+    refs = get_remote_refs("https://gitlab.com/onecommons/std.git", "v*")
+    assert refs.tags, refs
+    assert all(tag.startswith("v") for tag in refs.tags), refs.tags
+    assert refs.default_branch == "main", refs.default_branch
 
 
 def test_remote_tags():

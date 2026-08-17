@@ -12,6 +12,7 @@ from typing import (
     Any,
     Dict,
     List,
+    NamedTuple,
     Optional,
     Tuple,
     Union,
@@ -194,26 +195,67 @@ def memoized_remote_tags(url: str, pattern: str = "*") -> List[str]:
     return get_remote_tags(url, pattern)
 
 
+class RemoteRefs(NamedTuple):
+    """What one ``git ls-remote`` call tells us about a remote repository."""
+
+    tags: List[str]
+    """Tag names matching the requested pattern, version-sorted descending."""
+
+    default_branch: str
+    """The branch the remote's HEAD points at, or "" if it advertised no
+    symref. Empty is "unknown", never a guess -- a caller that needs a
+    fallback has to choose one itself."""
+
+
 # git fetch <remote> 'refs/tags/*:refs/tags/*' if our clones are shallow
-def get_remote_tags(url: str, pattern: str = "*") -> List[str]:
-    # return order descending: [v1.0.0, v0.1.0]
+def get_remote_refs(url: str, pattern: str = "*") -> RemoteRefs:
+    """Query ``url`` for its tags and its default branch in a single request.
+
+    The default branch is the target of the remote's symbolic HEAD, which
+    GitHub and GitLab both advertise. It comes back on the same connection as
+    the tags: passing ``--tags`` would filter HEAD out of the response (it
+    keeps only ``refs/tags/*``), so the tag filter goes in as a ref pattern
+    instead and ``HEAD`` rides along as a second one.
+    """
+    # tags are returned in descending order: [v1.0.0, v0.1.0]
     # https://github.com/gitpython-developers/GitPython/issues/1071
     # https://myshittycode.com/2020/10/02/git-querying-tags-without-cloning-the-repository/
     # -v:refname is version sort in reverse order
     # -c versionsort.suffix=- ensures 1.0.0-XXXXXX comes before 1.0.0.
     blob = git.cmd.Git()(c="versionsort.suffix=-").ls_remote(
-        url, pattern, sort="-v:refname", tags=True
+        url, f"refs/tags/{pattern}", "HEAD", symref=True, sort="-v:refname"
     )
-    # len("b90df3d12413db22d051db1f7c7286cdd2f00b66\trefs/tags/") == 51
-    # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
-    tags = [line[51:] for line in blob.split("\n") if line and not line.endswith("^{}")]
+    tags: List[str] = []
+    default_branch = ""
+    for line in blob.splitlines():
+        # each line is "<oid>\t<refname>", or "ref: <target>\t<refname>" for
+        # the symref HEAD that --symref adds ahead of HEAD's own oid line
+        value, sep, ref = line.partition("\t")
+        # filter out ^{} references (see https://stackoverflow.com/questions/12938972/what-does-mean-in-git)
+        if not sep or ref.endswith("^{}"):
+            continue
+        if ref == "HEAD":
+            # absent unless the remote advertised a symbolic HEAD; a remote
+            # that doesn't leaves the default branch unknown.
+            if value.startswith("ref: "):
+                target = value[len("ref: ") :]
+                if target.startswith("refs/heads/"):
+                    target = target[len("refs/heads/") :]
+                default_branch = target
+        elif ref.startswith("refs/tags/"):
+            tags.append(ref[len("refs/tags/") :])
     logger.debug(
-        "got %s remote tags with pattern %s from %s",
+        "got %s remote tags with pattern %s and default branch %s from %s",
         len(tags),
         pattern,
+        default_branch or "(unknown)",
         sanitize_url(url),
     )
-    return tags
+    return RemoteRefs(tags, default_branch)
+
+
+def get_remote_tags(url: str, pattern: str = "*") -> List[str]:
+    return get_remote_refs(url, pattern).tags
 
 
 class _ProgressPrinter(git.RemoteProgress):
