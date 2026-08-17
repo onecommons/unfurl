@@ -837,7 +837,10 @@ class PatchEnvironmentBody(BaseModel):
     patch: List[Dict[str, Any]] = Field(
         description="List of patch operations describing the changes to apply"
     )
-    branch: str = Field(default="main", description="Target branch")
+    branch: str = Field(
+        description="Branch to write to. Required: a write is rejected rather "
+        "than applied to ``main``, which needn't be the branch the client read."
+    )
     latest_commit: Optional[str] = Field(
         default=None,
         description="Latest known commit hash for optimistic concurrency checks",
@@ -895,7 +898,10 @@ class BatchPatchBody(BaseModel):
         default=None,
         description="Latest known commit hash for optimistic concurrency checks",
     )
-    branch: str = Field(default="main", description="Target branch")
+    branch: str = Field(
+        description="Branch the batch writes to. Required, as on the requests "
+        "it batches -- each of those must name it too."
+    )
     requests: List[Dict[str, Any]] = Field(
         description="Ordered list of original requests, each with 'endpoint' key and the original body fields"
     )

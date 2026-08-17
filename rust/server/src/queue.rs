@@ -272,11 +272,14 @@ pub async fn has_pending_writes(
         .await?;
     for raw in items {
         if let Ok(item) = serde_json::from_str::<QueueItem>(&raw) {
+            // `handle_write` rejects a body with no branch, so only an item
+            // queued before that check can lack one. Treat it as its own
+            // (empty) branch rather than claiming it belongs to `main`.
             let item_branch = item
                 .body
                 .get("branch")
                 .and_then(|v| v.as_str())
-                .unwrap_or("main");
+                .unwrap_or_default();
             if item_branch == branch {
                 return Ok(true);
             }
@@ -409,10 +412,13 @@ fn consolidate(
         let body = &item.body;
         let key = PartitionKey {
             project_id: project_id.to_string(),
+            // as in `has_pending_for_branch`: a body without a branch predates
+            // the check in `handle_write`, and python rejects it rather than
+            // applying it to `main`, so don't relabel it as `main` here either
             branch: body
                 .get("branch")
                 .and_then(|v| v.as_str())
-                .unwrap_or("main")
+                .unwrap_or_default()
                 .to_string(),
         };
 

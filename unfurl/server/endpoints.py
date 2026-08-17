@@ -60,7 +60,6 @@ from .schemas import (
 # resolve them.
 from .serve import (
     CacheEntry,
-    DEFAULT_BRANCH,
     UNFURL_SERVER_DEBUG_PATCH,
     _get_filepath,
     _get_project_repo,
@@ -1116,6 +1115,38 @@ def _get_body(request) -> dict:
     return body
 
 
+def _branch_from_body(body: dict) -> Tuple[Optional[Response], str]:
+    """The branch a write applies to, or an error response if it named none.
+
+    A write has to say where it goes. Defaulting to `main` meant a request that
+    left `branch` out -- or sent it empty -- committed to whatever `main` is,
+    which needn't be the branch the client read: `GET /export` resolves an
+    unnamed branch from the remote's advertised default and reports it back, so
+    the two can legitimately differ. Rejecting is safe for real clients: the GUI
+    already refuses to build a write without a branch, and the Rust proxy
+    rejects one before queueing it.
+    """
+    branch = (body.get("branch") or "").strip()
+    if not branch:
+        return create_error_response(
+            "BAD_REQUEST", "'branch' is required and cannot be empty"
+        ), ""
+    return None, branch
+
+
+def _is_error_response(result: ResponseReturnValue) -> bool:
+    """Whether a `_patch_*` helper reported failure rather than a patch result.
+
+    Both outcomes are Flask responses, so the type alone doesn't say: a tuple is
+    always an error, and a `Response` is one when its status says so. Testing
+    only for a tuple let `create_provider` and `batch_patch` continue after a
+    failed patch and report success to the client.
+    """
+    if isinstance(result, tuple):
+        return True
+    return isinstance(result, Response) and result.status_code >= 400
+
+
 @app.post("/delete_deployment")
 @app.doc(
     summary="Delete a deployment",
@@ -1181,7 +1212,9 @@ def create_provider(
     body = _get_body(request)
     project_id = get_project_id_or_abort(request)
     latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch", DEFAULT_BRANCH)
+    branch_err, branch = _branch_from_body(body)
+    if branch_err:
+        return branch_err
     err, readonly_localEnv = localenv_from_cache_checked(
         assert_not_none(get_cache()),
         project_id,
@@ -1197,11 +1230,11 @@ def create_provider(
     # we issue a single push at the end so the client's resulting
     # commit is visible upstream.
     env_result = _patch_environment(body, project_id, readonly_localEnv)
-    if isinstance(env_result, tuple):
-        return env_result  # error response
+    if _is_error_response(env_result):
+        return env_result
     ensemble_result = _patch_ensemble(body, True, project_id, readonly_localEnv)
-    if isinstance(ensemble_result, tuple):
-        return ensemble_result  # error response
+    if _is_error_response(ensemble_result):
+        return ensemble_result
     assert readonly_localEnv and readonly_localEnv.project
     repo = readonly_localEnv.project.project_repoview.gitrepo
     assert repo
@@ -1509,7 +1542,16 @@ def batch_patch(
     project_id = get_project_id_or_abort(request)
     batch_requests = body.get("requests", [])
     latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch", DEFAULT_BRANCH)
+    branch_err, branch = _branch_from_body(body)
+    if branch_err:
+        return branch_err
+    # Check every request before applying any: each carries the body it was
+    # queued with, and a batch that failed part way through would leave the
+    # earlier requests committed with no way for the client to learn which.
+    for req in batch_requests:
+        branch_err, _ = _branch_from_body(req)
+        if branch_err:
+            return branch_err
     logger.info(
         "batch_patch: project=%s branch=%s requests=%d",
         project_id,
@@ -1543,8 +1585,8 @@ def batch_patch(
             "delete_deployment",
         ):
             result = _patch_environment(req_body, project_id, batched=readonly_localEnv)
-            if isinstance(result, tuple):
-                return result  # error response
+            if _is_error_response(result):
+                return result
         if create or endpoint == "update_ensemble":
             result = _patch_ensemble(
                 req_body,
@@ -1552,8 +1594,8 @@ def batch_patch(
                 project_id,
                 batched=readonly_localEnv,
             )
-            if isinstance(result, tuple):
-                return result  # error response
+            if _is_error_response(result):
+                return result
     # Get the repo via the same parent-aware fresh LocalEnv that
     # `_patch_environment` uses internally, so projects with a separate
     # ensemble subrepo report the *parent* project's HEAD here (which is
@@ -1682,7 +1724,9 @@ def _patch_environment(
     patch = body.get("patch")
     assert isinstance(patch, list)
     latest_commit = body.get("latest_commit") or ""
-    branch = body.get("branch", DEFAULT_BRANCH)
+    branch_err, branch = _branch_from_body(body)
+    if branch_err:
+        return branch_err
     if batched:
         readonly_localEnv: Optional[LocalEnv] = batched
     else:
@@ -1857,7 +1901,9 @@ def _patch_ensemble(
                 "BAD_REQUEST",
                 f'Cannot create deployment with reserved name: "{invalid}"',
             )
-    branch = body.get("branch", DEFAULT_BRANCH)
+    branch_err, branch = _branch_from_body(body)
+    if branch_err:
+        return branch_err
     existing_repo = _get_project_repo(project_id, branch, body)
 
     username = body.get("username")

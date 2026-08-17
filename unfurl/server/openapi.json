@@ -6,8 +6,7 @@
         "description": "JSON body for /batch_patch -- used by the Rust proxy to forward\na batch of write requests that share the same branch and latest_commit.\n\nThe ``requests`` list preserves the original submission order so the\nPython backend can apply each operation sequentially before pushing once.",
         "properties": {
           "branch": {
-            "default": "main",
-            "description": "Target branch",
+            "description": "Branch the batch writes to. Required, as on the requests it batches -- each of those must name it too.",
             "title": "Branch",
             "type": "string"
           },
@@ -48,6 +47,7 @@
           }
         },
         "required": [
+          "branch",
           "requests"
         ],
         "title": "BatchPatchBody",
@@ -1391,8 +1391,7 @@
             "title": "Blueprint Url"
           },
           "branch": {
-            "default": "main",
-            "description": "Target branch",
+            "description": "Branch to write to. Required: a write is rejected rather than applied to ``main``, which needn't be the branch the client read.",
             "title": "Branch",
             "type": "string"
           },
@@ -1524,7 +1523,8 @@
           }
         },
         "required": [
-          "patch"
+          "patch",
+          "branch"
         ],
         "title": "PatchEnsembleBody",
         "type": "object"
@@ -1534,8 +1534,7 @@
         "description": "JSON body for /delete_deployment, /update_environment, and /delete_environment.",
         "properties": {
           "branch": {
-            "default": "main",
-            "description": "Target branch",
+            "description": "Branch to write to. Required: a write is rejected rather than applied to ``main``, which needn't be the branch the client read.",
             "title": "Branch",
             "type": "string"
           },
@@ -1615,7 +1614,8 @@
           }
         },
         "required": [
-          "patch"
+          "patch",
+          "branch"
         ],
         "title": "PatchEnvironmentBody",
         "type": "object"

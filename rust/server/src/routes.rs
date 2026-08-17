@@ -569,6 +569,26 @@ async fn handle_write(
             .into_response();
     }
 
+    // ...and which branch it goes to. Python rejects a write that names none
+    // rather than committing to `main`, so check it here too: a queued write is
+    // answered before it is applied, and the client would never see that error.
+    if body
+        .get("branch")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .is_empty()
+    {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": "BAD_REQUEST",
+                "message": "missing or empty branch",
+            })),
+        )
+            .into_response();
+    }
+
     // Use the Redis queue only when Redis is available AND the request body
     // contains a non-null "queueid" field.  When queueid is absent the
     // write request is proxied synchronously to the Python backend.
@@ -657,10 +677,8 @@ async fn handle_write(
     // would let the two writes commit against the same parent commit
     // and clobber each other.
     if let Some(ref redis) = state.redis {
-        let branch = body
-            .get("branch")
-            .and_then(|v| v.as_str())
-            .unwrap_or("main");
+        // non-empty: validated above, so there is no default to fall back on
+        let branch = body.get("branch").and_then(|v| v.as_str()).unwrap_or("");
         let mut conn = redis.clone();
         match queue::has_pending_writes(&mut conn, &state.config, &project_id, branch).await {
             Ok(true) => {

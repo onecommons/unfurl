@@ -595,12 +595,14 @@ def _dump_server_logs(p, label=""):
                 print(f"=== end {name} server log ===\n")
 
 
-def _post_write(url, json_body, server_env, queueid=0):
+def _post_write(url, json_body, server_env, queueid=0, branch="main"):
     """POST a write request, adding queueid for queue-rust variant.
 
     `queueid` is sent as an integer to match the `i64` declared in the
     OpenAPI schema (PatchEnsembleBody / PatchEnvironmentBody).
     """
+    if "branch" not in json_body:
+        json_body = {**json_body, "branch": branch}
     if server_env == "queue-rust":
         json_body = {**json_body, "queueid": int(queueid)}
     return requests.post(url, json=json_body)
@@ -1690,8 +1692,9 @@ def test_server_update_deployment(server_env):
             res = requests.post(
                 f"http://{HOST}:{port}/clear_project_file_cache?auth_project=remote",
             )
-            # 'remote:main::localenv', 'remote:pull:...', 'remote:main:ensemble/ensemble.yaml:deployment'
-            assert res.content == b"3"  # 3 keys deleted
+            # Two keys are cleared: 'remote:pull:server/public/remote/main'
+            # and 'remote:main:ensemble/ensemble.yaml:localenv'.
+            assert res.content == b"2", res.content
             assert res.status_code == 200
 
         finally:
@@ -1831,11 +1834,31 @@ def test_update_environment(server_env):
             bad_patch = [{"name": "tasks", "__typename": "DeploymentEnvironment"}]
             res = requests.post(
                 f"http://{HOST}:{port}/update_environment?auth_project=remote",
-                json={"patch": bad_patch, "latest_commit": new_commit},
+                json={
+                    "patch": bad_patch,
+                    "latest_commit": new_commit,
+                    "branch": "main",
+                },
             )
             assert res.status_code == 400
             assert res.json()["code"] == "BAD_REQUEST"
             assert "reserved" in res.json()["message"]
+
+            # Error: a write that names no branch, rejected rather than applied
+            # to `main`. Sent through `_post_write` so the queue-rust variant
+            # carries a queueid and takes the rust proxy's queue path: that is
+            # the case the proxy has to reject itself, because a queued write is
+            # answered before python ever sees it, so a later rejection would
+            # reach nobody. (Without a queueid the write is proxied and python
+            # answers.) The two servers spell the payload differently ("code"
+            # vs "error"), so match on the message.
+            res = _post_write(
+                f"http://{HOST}:{port}/update_environment?auth_project=remote",
+                {"patch": [], "latest_commit": new_commit, "branch": ""},
+                server_env,
+            )
+            assert res.status_code == 400, res.text
+            assert "branch" in res.text, res.text
         finally:
             _dump_server_logs(p, "update-env")
             if p:
@@ -2160,6 +2183,8 @@ def test_gui_branches_dirty_subrepo(create_endpoint):
                 "patch": [],
                 "deployment_path": deployment_path,
                 "latest_commit": last_commit,
+                # a write has to say which branch it applies to
+                "branch": outer_repo.active_branch,
             }
             if create_endpoint == "create_provider":
                 body["environment"] = "test-env"
@@ -3585,6 +3610,72 @@ def test_missing_auth_project_rejected(monkeypatch, path):
     assert res.status_code == 400, res.get_data(as_text=True)
     assert res.json["code"] == "BAD_REQUEST"
     assert "auth_project" in res.json["message"]
+
+
+@pytest.mark.parametrize(
+    "path,body",
+    [
+        # goes through _patch_ensemble
+        ("/update_ensemble", {"patch": [], "latest_commit": "abc123"}),
+        # ... and _patch_environment
+        ("/update_environment", {"patch": [], "latest_commit": "abc123"}),
+        # the batch the rust worker forwards
+        (
+            "/batch_patch",
+            {
+                "latest_commit": "abc123",
+                "requests": [{"endpoint": "update_ensemble", "patch": []}],
+            },
+        ),
+    ],
+)
+def test_write_requires_branch(monkeypatch, path, body):
+    """A write that names no branch is rejected, not applied to `main`.
+
+    `main` needn't be the branch the client read: `GET /export` resolves an
+    unnamed branch from the remote's advertised default and reports it back, so
+    a write that omits one could land somewhere the client never looked.
+
+    An absent `branch` fails schema validation (the field is required); an empty
+    or blank one deserializes fine, so the handlers check it themselves. Neither
+    reaches the repository -- `me/proj` doesn't exist, so a clone attempt or a
+    500 would mean the check ran too late.
+    """
+    client = _missing_auth_project_client(monkeypatch)
+    url = f"{path}?auth_project=me/proj"
+
+    assert client.post(url, json=body).status_code == 422
+
+    for empty in ("", "   "):
+        res = client.post(url, json={**body, "branch": empty})
+        assert res.status_code == 400, res.get_data(as_text=True)
+        assert res.json["code"] == "BAD_REQUEST"
+        assert "branch" in res.json["message"]
+
+
+def test_batch_patch_checks_every_request_branch(monkeypatch):
+    """One branchless request rejects the whole batch, before any of it applies.
+
+    Each queued request carries the body it was submitted with, and the rust
+    worker groups them by branch -- so a batch's own `branch` says nothing about
+    what the requests in it named. Applying the good ones first and then failing
+    would commit changes the client is told nothing about.
+    """
+    client = _missing_auth_project_client(monkeypatch)
+    res = client.post(
+        "/batch_patch?auth_project=me/proj",
+        json={
+            "branch": "main",
+            "latest_commit": "abc123",
+            "requests": [
+                {"endpoint": "update_ensemble", "patch": [], "branch": "main"},
+                {"endpoint": "update_ensemble", "patch": []},  # named none
+            ],
+        },
+    )
+    assert res.status_code == 400, res.get_data(as_text=True)
+    assert res.json["code"] == "BAD_REQUEST"
+    assert "branch" in res.json["message"]
 
 
 def test_cloudmap_project_id_resolution(monkeypatch):

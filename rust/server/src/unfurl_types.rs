@@ -14,12 +14,11 @@ pub enum ArrayKind {
 ///
 /// The ``requests`` list preserves the original submission order so the
 /// Python backend can apply each operation sequentially before pushing once.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 pub struct BatchPatchBody {
-    /// Target branch
-    #[default(Some("main".to_string()))]
-    pub branch: Option<String>,
+    /// Branch the batch writes to. Required, as on the requests it batches -- each of those must name it too.
+    #[validate(length(min = 1u64))]
+    pub branch: String,
     /// Latest known commit hash for optimistic concurrency checks
     pub latest_commit: Option<String>,
     /// Internal version counter, external clients should omit this field
@@ -1347,14 +1346,13 @@ pub struct HTTPError {
 /// JSON body for /create_ensemble, /update_ensemble, and /create_provider.
 ///
 /// Extends PatchEnvironmentBody with ensemble-specific fields.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 pub struct PatchEnsembleBody {
     /// Remote blueprint URL to clone when creating an ensemble
     pub blueprint_url: Option<String>,
-    /// Target branch
-    #[default(Some("main".to_string()))]
-    pub branch: Option<String>,
+    /// Branch to write to. Required: a write is rejected rather than applied to ``main``, which needn't be the branch the client read.
+    #[validate(length(min = 1u64))]
+    pub branch: String,
     /// URL for cloud variables used for vault secret encryption
     pub cloud_vars_url: Option<String>,
     /// Git commit message
@@ -1380,12 +1378,11 @@ pub struct PatchEnsembleBody {
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// JSON body for /delete_deployment, /update_environment, and /delete_environment.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
-#[serde(default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 pub struct PatchEnvironmentBody {
-    /// Target branch
-    #[default(Some("main".to_string()))]
-    pub branch: Option<String>,
+    /// Branch to write to. Required: a write is rejected rather than applied to ``main``, which needn't be the branch the client read.
+    #[validate(length(min = 1u64))]
+    pub branch: String,
     /// Git commit message
     pub commit_msg: Option<String>,
     /// Latest known commit hash for optimistic concurrency checks
@@ -1433,6 +1430,7 @@ pub struct PatchResponseAppliedRecord {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostBatchPatchRequest {
     pub query: PostBatchPatchRequestQuery,
+    #[validate(nested)]
     pub body: Option<BatchPatchBody>,
 }
 impl PostBatchPatchRequest {}
@@ -1575,6 +1573,7 @@ impl IntoResponse for PostCloudmapResponse {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCreateEnsembleRequest {
     pub query: PostCreateEnsembleRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostCreateEnsembleRequest {}
@@ -1587,6 +1586,7 @@ pub struct PostCreateEnsembleRequestQuery {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCreateProviderRequest {
     pub query: PostCreateProviderRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostCreateProviderRequest {}
@@ -1599,6 +1599,7 @@ pub struct PostCreateProviderRequestQuery {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostDeleteDeploymentRequest {
     pub query: PostDeleteDeploymentRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostDeleteDeploymentRequest {}
@@ -1611,6 +1612,7 @@ pub struct PostDeleteDeploymentRequestQuery {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostDeleteEnvironmentRequest {
     pub query: PostDeleteEnvironmentRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostDeleteEnvironmentRequest {}
@@ -1682,6 +1684,7 @@ pub struct PostPopulateCacheRequestQuery {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostUpdateEnsembleRequest {
     pub query: PostUpdateEnsembleRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnsembleBody>,
 }
 impl PostUpdateEnsembleRequest {}
@@ -1694,6 +1697,7 @@ pub struct PostUpdateEnsembleRequestQuery {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostUpdateEnvironmentRequest {
     pub query: PostUpdateEnvironmentRequestQuery,
+    #[validate(nested)]
     pub body: Option<PatchEnvironmentBody>,
 }
 impl PostUpdateEnvironmentRequest {}
