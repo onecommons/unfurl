@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 import glob
 import os
-from typing import Any, Iterator, List, Literal, Optional, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Union
 import shutil
 import tarfile
 import urllib.request
@@ -464,18 +464,19 @@ def create_routes(localenv: LocalEnv):
                             commit_id += "-dirty"
                             break
         logger.debug("/branches %s -> %s", project_path, commit_id)
-        return jsonify(
-            [
-                {
-                    "name": branch,
-                    "commit": {
-                        "id": commit_id,
-                        "committed_date": committed_date,
-                        "created_at": committed_date,
-                    },
-                }
-            ]
-        )
+        entry: Dict[str, Any] = {
+            "name": branch,
+            "commit": {
+                "id": commit_id,
+                "committed_date": committed_date,
+                "created_at": committed_date,
+            },
+        }
+        # only stated when known to be the default: `default_branch` is ""
+        # for a clone that records no origin/HEAD (see GitRepo.default_branch)
+        if branch and isinstance(repo, GitRepo) and repo.default_branch == branch:
+            entry["default"] = True
+        return jsonify([entry])
 
     @app.route("/api/v4/<api>")
     def unsupported_api(api):

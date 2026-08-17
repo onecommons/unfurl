@@ -1018,6 +1018,9 @@ def make_actor(
 
 
 class GitRepo(Repo):
+    _default_branch: Optional[str] = None
+    # (class attribute so we can restore old pickled instances without a default branch)
+
     def __init__(self, gitrepo: git.Repo):
         self.repo = gitrepo
         self.url = self.working_dir or str(gitrepo.git_dir)
@@ -1106,6 +1109,37 @@ class GitRepo(Repo):
         except Exception:
             # no head or detached
             return ""
+
+    @property
+    def default_branch(self) -> str:
+        """The repository's default branch, or "" when this clone records none.
+
+        Read from ``refs/remotes/origin/HEAD``, the symref ``git clone`` writes
+        from the default branch the remote advertises (GitPython has no
+        default-branch accessor of its own; this is
+        ``origin.refs.HEAD.ref.remote_head``, or the first remote's when the
+        repository has no ``origin`` -- see ``remote``). A clone can lack it
+        entirely --
+        ``--bare``/``--mirror``, ``init`` + ``fetch`` before git 2.48,
+        ``--single-branch`` of a non-default branch -- and it is not refreshed
+        when the remote renames its default, so "" means "not recorded here",
+        not "the remote has none". A symref left pointing at a
+        deleted branch still reports that name, which is what the remote last
+        advertised.
+
+        A repository with no remote at all returns "".
+        """
+        if self._default_branch is not None:
+            return self._default_branch
+        remote = self.remote
+        if not remote:
+            return ""  # don't set _default_branch, so we try again next time
+        try:
+            self._default_branch = remote.refs.HEAD.ref.remote_head
+        except AttributeError:
+            # this clone has no <remote>/HEAD ref
+            self._default_branch = ""
+        return self._default_branch
 
     @property
     def current_tag(self) -> str:

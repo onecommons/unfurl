@@ -1245,6 +1245,61 @@ def test_server_export_remote(server_env):
                 os.unlink(rust_log_file)
 
 
+def test_default_branch(tmp_path):
+    """GitRepo.default_branch reads origin/HEAD, and says "" when there is none.
+
+    /branches only claims ``default: True`` when this matches the branch it
+    reports, so the distinction between "not recorded" and "not the default"
+    matters.
+    """
+
+    def _repo(name) -> GitRepo:
+        path = tmp_path / name
+        path.mkdir()
+        repo = Repo.init(path)
+        (path / "f.txt").write_text("x\n")
+        repo.git.add(A=True)
+        repo.git.commit("-m", "init")
+        return GitRepo(repo)
+
+    # no remote: nothing advertised a default, so it stays unknown rather than
+    # assuming the one branch that exists locally is it
+    solo = _repo("solo")
+    assert solo.active_branch  # not the reason the next line is ""
+    assert solo.default_branch == ""
+
+    # "" from a repository with no remote isn't cached, so adding one later
+    # (e.g. `unfurl init` then pushing the project somewhere) is picked up
+    solo.repo.git.remote("add", "origin", "https://unfurl.cloud/onecommons/std.git")
+    solo.repo.git.symbolic_ref(
+        "refs/remotes/origin/HEAD", f"refs/remotes/origin/{solo.active_branch}"
+    )
+    assert solo.default_branch == solo.active_branch
+
+    # a remote whose advertised HEAD the clone recorded. A dangling symref is
+    # legal and is what `git clone` leaves behind; `git remote set-head -a`
+    # would need the network.
+    cloned = _repo("cloned")
+    cloned.repo.git.remote("add", "origin", "https://unfurl.cloud/onecommons/std.git")
+    on_a_branch = cloned.active_branch
+    cloned.repo.git.symbolic_ref(
+        "refs/remotes/origin/HEAD", f"refs/remotes/origin/{on_a_branch}"
+    )
+    assert cloned.default_branch == on_a_branch
+
+    # a remote that never recorded one, e.g. an `init` + `fetch` checkout
+    no_head = _repo("no-origin-head")
+    no_head.repo.git.remote("add", "origin", "https://unfurl.cloud/onecommons/std.git")
+    assert no_head.default_branch == ""
+
+    # cached: the answer survives the symref being rewritten underneath it
+    cloned.repo.git.symbolic_ref(
+        "refs/remotes/origin/HEAD", "refs/remotes/origin/something-else"
+    )
+    assert cloned.default_branch == on_a_branch
+    assert GitRepo(cloned.repo).default_branch == "something-else"
+
+
 def test_cache_value_shape_tolerance():
     """A cache entry is stored as a plain tuple and read back through CacheValue.
 
