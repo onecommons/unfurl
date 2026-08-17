@@ -919,6 +919,13 @@ class BatchPatchBody(BaseModel):
 class ErrorResponse(BaseModel):
     """Error response returned by all endpoints on failure."""
 
+    # Both servers report failures in this shape, and it is what the spec
+    # declares for every error status: it is wired in as APIFlask's
+    # ``HTTP_ERROR_SCHEMA`` and ``VALIDATION_ERROR_SCHEMA``, so APIFlask's own
+    # errors (a validation failure, an `abort`) use this rather than
+    # APIFlask's ``detail``/``message`` shape -- see ``error_response`` in
+    # ``serve.py``.
+
     code: str = Field(
         description="Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)"
     )
@@ -926,6 +933,12 @@ class ErrorResponse(BaseModel):
     details: Optional[str] = Field(
         default=None,
         description="Full exception traceback, included when an unexpected error occurs",
+    )
+    fields: Optional[Dict[str, Dict[str, List[str]]]] = Field(
+        default=None,
+        description="Per-field validation errors, keyed by request location "
+        "(``json``, ``query``, ...) then by field name. Only set when the "
+        "request failed validation.",
     )
 
 

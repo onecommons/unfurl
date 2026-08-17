@@ -1905,7 +1905,8 @@ async fn post_with_stale_latest_commit_returns_409() {
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{body:?}");
-    let msg = body["error"].as_str().unwrap_or_default();
+    let msg = body["message"].as_str().unwrap_or_default();
+    assert_eq!(body["code"], "CONFLICT", "{body:?}");
     assert!(msg.contains("latest_commit"), "{body:?}");
     assert!(
         msg.contains(&head),

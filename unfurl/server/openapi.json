@@ -1363,14 +1363,59 @@
         "type": "object"
       },
       "HTTPError": {
+        "description": "Error response returned by all endpoints on failure.",
         "properties": {
-          "detail": {
-            "type": "object"
+          "code": {
+            "description": "Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Full exception traceback, included when an unexpected error occurs",
+            "title": "Details"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.",
+            "title": "Fields"
           },
           "message": {
+            "description": "Human-readable error message",
+            "title": "Message",
             "type": "string"
           }
         },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorResponse",
         "type": "object"
       },
       "PatchEnsembleBody": {
@@ -1904,27 +1949,59 @@
         "type": "object"
       },
       "ValidationError": {
+        "description": "Error response returned by all endpoints on failure.",
         "properties": {
-          "detail": {
-            "properties": {
-              "<location>": {
-                "properties": {
-                  "<field_name>": {
+          "code": {
+            "description": "Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)",
+            "title": "Code",
+            "type": "string"
+          },
+          "details": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Full exception traceback, included when an unexpected error occurs",
+            "title": "Details"
+          },
+          "fields": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "additionalProperties": {
                     "items": {
                       "type": "string"
                     },
                     "type": "array"
-                  }
+                  },
+                  "type": "object"
                 },
                 "type": "object"
+              },
+              {
+                "type": "null"
               }
-            },
-            "type": "object"
+            ],
+            "default": null,
+            "description": "Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.",
+            "title": "Fields"
           },
           "message": {
+            "description": "Human-readable error message",
+            "title": "Message",
             "type": "string"
           }
         },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorResponse",
         "type": "object"
       },
       "cloudmap_artifact": {

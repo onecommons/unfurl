@@ -1850,15 +1850,16 @@ def test_update_environment(server_env):
             # the case the proxy has to reject itself, because a queued write is
             # answered before python ever sees it, so a later rejection would
             # reach nobody. (Without a queueid the write is proxied and python
-            # answers.) The two servers spell the payload differently ("code"
-            # vs "error"), so match on the message.
+            # answers.) Both servers report errors as `ErrorResponse`, so the
+            # same assertions hold whichever one answered.
             res = _post_write(
                 f"http://{HOST}:{port}/update_environment?auth_project=remote",
                 {"patch": [], "latest_commit": new_commit, "branch": ""},
                 server_env,
             )
             assert res.status_code == 400, res.text
-            assert "branch" in res.text, res.text
+            assert res.json()["code"] == "BAD_REQUEST", res.text
+            assert "branch" in res.json()["message"], res.text
         finally:
             _dump_server_logs(p, "update-env")
             if p:
@@ -3676,6 +3677,43 @@ def test_batch_patch_checks_every_request_branch(monkeypatch):
     assert res.status_code == 400, res.get_data(as_text=True)
     assert res.json["code"] == "BAD_REQUEST"
     assert "branch" in res.json["message"]
+
+
+def test_errors_report_code_and_message(monkeypatch):
+    """Every error is an `ErrorResponse`, including the ones APIFlask raises.
+
+    A validation failure and an unrouted request are answered by APIFlask, not
+    by a handler, so they used to arrive in its own `detail`/`message` shape --
+    a second spelling next to `create_error_response`'s `code`/`message` (and
+    the rust proxy's `error`/`message`, a third), with the spec documenting only
+    APIFlask's. `error_response` converts them and
+    `HTTP_ERROR_SCHEMA`/`VALIDATION_ERROR_SCHEMA` make the spec say so.
+    """
+    client = _missing_auth_project_client(monkeypatch)
+
+    # raised by a handler
+    res = client.get("/export?format=environments")
+    assert res.status_code == 400
+    assert res.json == {
+        "code": "BAD_REQUEST",
+        "message": "Missing required query parameter 'auth_project'",
+    }
+
+    # raised by APIFlask: a body that fails validation. The per-field errors
+    # travel in `fields`, which is where the schema says to look for them.
+    res = client.post(
+        "/update_ensemble?auth_project=me/proj",
+        json={"patch": [], "latest_commit": "abc123"},
+    )
+    assert res.status_code == 422
+    assert res.json["code"] == "VALIDATION_ERROR", res.json
+    assert list(res.json["fields"]) == ["json"], res.json
+    assert "branch" in res.json["fields"]["json"], res.json
+
+    # raised by flask: no such route. No `fields`, rather than an empty one.
+    res = client.get("/no-such-endpoint")
+    assert res.status_code == 404
+    assert res.json == {"code": "NOT_FOUND", "message": "Not Found"}
 
 
 def test_cloudmap_project_id_resolution(monkeypatch):

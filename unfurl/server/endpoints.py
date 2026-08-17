@@ -470,16 +470,13 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     limit = query.limit
     # A key selects a single record, so there is nothing to page through.
     if limit is not None and key:
-        return make_response(
-            jsonify(error="limit cannot be combined with key"),
-            400,
-        )
+        return create_error_response("BAD_REQUEST", "limit cannot be combined with key")
     after: Optional[Tuple[str, str]] = None
     if query.page_token:
         try:
             after = _decode_page_token(query.page_token)
         except ValueError as page_err:
-            return make_response(jsonify(error=str(page_err)), 400)
+            return create_error_response("BAD_REQUEST", str(page_err))
     need_db = follow > 0
     # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
     err, doc, db = load_cloudmap_local(
@@ -492,7 +489,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     if doc is None:
         if isinstance(err, Response):
             return err
-        return make_response(jsonify(error=str(err)), 500)
+        return create_error_response("INTERNAL_ERROR", str(err))
 
     # `exclude` is a CSV of record primary-key ids the caller already
     # holds (matches the rust handler's contract). Non-numeric tokens
@@ -517,7 +514,7 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     try:
         matcher = _record_matcher(doc, query.type, filter_params)
     except ValueError as err:
-        return make_response(jsonify(error=str(err)), 400)
+        return create_error_response("BAD_REQUEST", str(err))
 
     def _matches(record: Any) -> bool:
         """Whether a record passes the `type` and `filter` params (both optional)."""
@@ -551,16 +548,15 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
                 )
                 primary = {kind: matches} if matches else {}
         elif not isinstance(section, dict) or key not in section:
-            return make_response(
-                jsonify(error=f"key {key!r} not found in {kind!r}"), 404
+            return create_error_response(
+                "NOT_FOUND", f"key {key!r} not found in {kind!r}"
             )
         elif not _matches(section[key]):
             hint = " with matching type" if query.type else ""
             if filter_params:
                 hint += " matching the filter"
-            return make_response(
-                jsonify(error=f"key {key!r} not found in {kind!r}{hint}"),
-                404,
+            return create_error_response(
+                "NOT_FOUND", f"key {key!r} not found in {kind!r}{hint}"
             )
         else:
             primary = {kind: {key: section[key]}}
@@ -750,7 +746,7 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
     try:
         group_tokens = _pointer_tokens(query.group_by)
     except ValueError as parse_err:
-        return make_response(jsonify(error=f"group_by: {parse_err}"), 400)
+        return create_error_response("BAD_REQUEST", f"group_by: {parse_err}")
 
     # Repeated `facet=` params are read straight from the request:
     # APIFlask's pydantic adapter binds query params via
@@ -764,7 +760,7 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
                 _pointer_tokens(part.strip()) for part in raw.split(",") if part.strip()
             ]
         except ValueError as parse_err:
-            return make_response(jsonify(error=f"facet {raw!r}: {parse_err}"), 400)
+            return create_error_response("BAD_REQUEST", f"facet {raw!r}: {parse_err}")
         if members:
             columns.append(members)
 
@@ -778,13 +774,13 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
     if doc is None:
         if isinstance(err, Response):
             return err
-        return make_response(jsonify(error=str(err)), 500)
+        return create_error_response("INTERNAL_ERROR", str(err))
 
     try:
         # `filter` repeats like `facet` does; getlist for the same reason.
         matcher = _record_matcher(doc, query.type, request.args.getlist("filter"))
     except ValueError as parse_err:
-        return make_response(jsonify(error=str(parse_err)), 400)
+        return create_error_response("BAD_REQUEST", str(parse_err))
 
     types_section = doc.get("types") or {}
     # The subtypes rollup applies to every column whose path is exactly
@@ -944,11 +940,10 @@ def post_cloudmap(
         if section in _CLOUDMAP_ENVELOPE_KEYS:
             continue
         if section not in _CLOUDMAP_SECTIONS:
-            return make_response(jsonify(error=f"unknown section {section!r}"), 400)
+            return create_error_response("BAD_REQUEST", f"unknown section {section!r}")
         if not isinstance(entries, dict):
-            return make_response(
-                jsonify(error=f"section {section!r} must be a JSON object"),
-                400,
+            return create_error_response(
+                "BAD_REQUEST", f"section {section!r} must be a JSON object"
             )
         body_sections[section] = entries
 
@@ -960,7 +955,9 @@ def post_cloudmap(
     cache_entry._set_project_repo()
     repo = cache_entry.checked_repo
     if not isinstance(repo, GitRepo):
-        return make_response(jsonify(error="cloudmap repository not available"), 500)
+        return create_error_response(
+            "INTERNAL_ERROR", "cloudmap repository not available"
+        )
     full_path = os.path.join(repo.working_dir, cloudmap_path)
     starting_revision = repo.revision
 
@@ -971,24 +968,20 @@ def post_cloudmap(
         if doc is None:
             if isinstance(err, Response):
                 return err
-            return make_response(jsonify(error=str(err)), 500)
+            return create_error_response("INTERNAL_ERROR", str(err))
         if not isinstance(doc, dict):
-            return make_response(
-                jsonify(error=f"{cloudmap_path} is not a YAML mapping"), 500
+            return create_error_response(
+                "INTERNAL_ERROR", f"{cloudmap_path} is not a YAML mapping"
             )
     else:
         # Missing file -- start a new cloudmap rather than failing.
         logger.info("creating new cloudmap at %s", cloudmap_path)
         doc = dict(apiVersion=API_VERSION, kind="CloudMap")
     if starting_revision and latest_commit and starting_revision != latest_commit:
-        return make_response(
-            jsonify(
-                error=(
-                    f"cloudmap has changed since latest_commit {latest_commit}, "
-                    f"current revision is {starting_revision}"
-                )
-            ),
-            409,
+        return create_error_response(
+            "CONFLICT",
+            f"cloudmap has changed since latest_commit {latest_commit}, "
+            f"current revision is {starting_revision}",
         )
 
     # Apply the body to `doc`. A record with `unfurl.server.deleted:
@@ -1001,11 +994,8 @@ def post_cloudmap(
         section_doc: Dict[str, Any] = doc.setdefault(section, {})
         for key, value in entries.items():
             if not isinstance(value, dict):
-                return make_response(
-                    jsonify(
-                        error=f"{section}.{key}: value must be a JSON object",
-                    ),
-                    400,
+                return create_error_response(
+                    "BAD_REQUEST", f"{section}.{key}: value must be a JSON object"
                 )
             payload = dict(value)
             if payload.pop("unfurl.server.deleted", False):
@@ -1028,8 +1018,8 @@ def post_cloudmap(
             with open(full_path, "w") as f:
                 yaml.dump(doc, f)
         except OSError as e:
-            return make_response(
-                jsonify(error=f"could not write {cloudmap_path}: {e}"), 500
+            return create_error_response(
+                "INTERNAL_ERROR", f"could not write {cloudmap_path}: {e}"
             )
     elif not (commit_requested and repo.is_dirty(True, full_path)):
         # Nothing to write. A body with no records is still meaningful when the
@@ -1083,11 +1073,12 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
     if db is None:
         if isinstance(err, Response):
             return err
-        return make_response(jsonify(error=str(err)), 500)
+        return create_error_response("INTERNAL_ERROR", str(err))
     url = request.args.get("url") or ""
     result = cloudmap_graph_json(db, url)
     if "error" in result:
-        return make_response(jsonify(result), 404)
+        # a record the graph couldn't find is reported as that key alone
+        return create_error_response("NOT_FOUND", str(result["error"]))
     return result
 
 

@@ -524,7 +524,7 @@ async fn serve_or_proxy(
             tracing::error!("cloudmap worktree lookup failed: {}", e);
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("worktree: {e}")})),
+                Json(json!({"code": "INTERNAL_ERROR", "message": format!("worktree: {e}")})),
             )
                 .into_response())
         }
@@ -574,22 +574,26 @@ pub async fn handle_cloudmap_facets(
 /// answer with — one mapping so the two endpoints can't drift.
 fn local_error_response(err: LocalError) -> Response {
     match err {
-        LocalError::NotFound(msg) => {
-            (StatusCode::NOT_FOUND, Json(json!({"error": msg}))).into_response()
-        }
-        LocalError::BadRequest(msg) => {
-            (StatusCode::BAD_REQUEST, Json(json!({"error": msg}))).into_response()
-        }
+        LocalError::NotFound(msg) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"code": "NOT_FOUND", "message": msg})),
+        )
+            .into_response(),
+        LocalError::BadRequest(msg) => (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"code": "BAD_REQUEST", "message": msg})),
+        )
+            .into_response(),
         LocalError::Unprocessable(msg) => (
             StatusCode::UNPROCESSABLE_ENTITY,
-            Json(json!({"error": msg})),
+            Json(json!({"code": "VALIDATION_ERROR", "message": msg})),
         )
             .into_response(),
         LocalError::Internal(msg) => {
             tracing::error!("cloudmap handler error: {}", msg);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": msg})),
+                Json(json!({"code": "INTERNAL_ERROR", "message": msg})),
             )
                 .into_response()
         }
@@ -1481,7 +1485,7 @@ pub async fn post_cloudmap_local(
             tracing::error!("cloudmap worktree lookup failed: {}", e);
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("worktree: {e}")})),
+                Json(json!({"code": "INTERNAL_ERROR", "message": format!("worktree: {e}")})),
             )
                 .into_response();
         }
@@ -1549,7 +1553,8 @@ async fn post_cloudmap_apply(
             return Err(ApiError {
                 status: StatusCode::CONFLICT,
                 body: json!({
-                    "error": format!(
+                    "code": "CONFLICT",
+                    "message": format!(
                         "cloudmap has changed since latest_commit {expected}, \
                          current revision is {actual}"
                     )
@@ -1620,7 +1625,7 @@ impl From<WriteError> for ApiError {
         match err {
             WriteError::BadRequest(msg) => Self {
                 status: StatusCode::BAD_REQUEST,
-                body: json!({"error": msg}),
+                body: json!({"code": "BAD_REQUEST", "message": msg}),
             },
             WriteError::Conflict {
                 section,
@@ -1631,6 +1636,8 @@ impl From<WriteError> for ApiError {
             } => Self {
                 status: StatusCode::CONFLICT,
                 body: json!({
+                    "code": "CONFLICT",
+                    "message": "a record changed since latest_commit",
                     "error": "conflict",
                     "section": section,
                     "key": key,
@@ -1658,7 +1665,7 @@ impl From<WriteError> for ApiError {
                 tracing::error!("post_cloudmap error: {}", msg);
                 Self {
                     status: StatusCode::INTERNAL_SERVER_ERROR,
-                    body: json!({"error": msg}),
+                    body: json!({"code": "INTERNAL_ERROR", "message": msg}),
                 }
             }
         }

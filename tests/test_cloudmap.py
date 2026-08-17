@@ -2174,7 +2174,24 @@ def test_cloudmap_endpoint_paging_rejects_key(cloudmap_test_client):
         f"/cloudmap?kind=repositories&key={quote(key)}&limit=2"
     )
     assert resp.status_code == 400
-    assert "limit cannot be combined with key" in resp.get_json()["error"]
+    body = resp.get_json()
+    assert body["code"] == "BAD_REQUEST", body
+    assert "limit cannot be combined with key" in body["message"]
+
+
+def test_graph_endpoint_reports_a_missing_record(cloudmap_test_client):
+    """/graph answers a URL it can't find with a `NOT_FOUND` ErrorResponse.
+
+    `cloudmap_graph_json` reports a missing record by returning a document whose
+    only key is `error`, which used to be served as the response body as-is --
+    a shape found nowhere else and in no schema.
+    """
+    resp = cloudmap_test_client.get("/graph?url=nonexistent://url")
+    assert resp.status_code == 404, resp.get_data(as_text=True)
+    body = resp.get_json()
+    assert body["code"] == "NOT_FOUND", body
+    assert "Record not found" in body["message"], body
+    assert "error" not in body, body
 
 
 def test_cloudmap_endpoint_paging_follows_from_the_page(cloudmap_test_client):

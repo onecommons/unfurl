@@ -444,7 +444,7 @@ fn rewrite_uri_for_resolved_commit(uri: &axum::http::Uri, new_commit: &str) -> a
 /// hammering the proxy.
 fn queue_retry_response() -> Response {
     let body = Json(json!({
-        "error": "RETRY",
+        "code": "RETRY",
         "message": "queued update not yet committed",
     }));
     (
@@ -562,7 +562,7 @@ async fn handle_write(
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": "BAD_REQUEST",
+                "code": "BAD_REQUEST",
                 "message": "missing or empty latest_commit",
             })),
         )
@@ -582,7 +582,7 @@ async fn handle_write(
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
-                "error": "BAD_REQUEST",
+                "code": "BAD_REQUEST",
                 "message": "missing or empty branch",
             })),
         )
@@ -623,7 +623,7 @@ async fn handle_write(
                     );
                     return (
                         StatusCode::CONFLICT,
-                        Json(json!({"error": "CONFLICT", "message": "stale queueid"})),
+                        Json(json!({"code": "CONFLICT", "message": "stale queueid"})),
                     )
                         .into_response();
                 }
@@ -690,7 +690,7 @@ async fn handle_write(
                 return (
                     StatusCode::CONFLICT,
                     Json(json!({
-                        "error": "CONFLICT",
+                        "code": "CONFLICT",
                         "message": "pending batched writes for this project/branch",
                     })),
                 )
@@ -772,7 +772,7 @@ fn validate_body<T: serde::de::DeserializeOwned>(
         .map_err(|e| {
             (
                 StatusCode::UNPROCESSABLE_ENTITY,
-                Json(json!({"error": "validation_error", "detail": e.to_string()})),
+                Json(json!({"code": "VALIDATION_ERROR", "message": e.to_string()})),
             )
                 .into_response()
         })

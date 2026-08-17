@@ -50,7 +50,8 @@ from typing_extensions import Literal
 from urllib.parse import urljoin, urlparse, urlsplit, urlunsplit
 from base64 import b64decode
 
-from apiflask import APIFlask
+from apiflask import APIFlask, HTTPError
+from apiflask.helpers import get_reason_phrase
 from flask import (
     Request,
     Response,
@@ -78,6 +79,7 @@ from ..graphql import (
 from .schemas import (
     ClearProjectQuery,
     EmptyCacheQuery,
+    ErrorResponse,
     ExportQuery,
     ExportResponse,
     PopulateCacheQuery,
@@ -2160,28 +2162,94 @@ def _fetch_working_dir(
     return clone_location
 
 
+# The error codes this server reports, and the status each is sent with.
+# `ERROR_STATUS_CODES` inverts it for errors raised by Flask or APIFlask rather
+# than by a handler, which arrive with a status and no code of their own; where
+# several codes share a status the first one listed is the one reported.
+ERROR_CODES: Dict[str, int] = {
+    "BAD_REQUEST": 400,
+    "UNAUTHORIZED": 401,
+    "FORBIDDEN": 403,
+    "NOT_FOUND": 404,
+    "CONFLICT": 409,
+    "VALIDATION_ERROR": 422,
+    "INTERNAL_ERROR": 500,
+    "BAD_REPOSITORY": 500,
+}
+ERROR_STATUS_CODES: Dict[int, str] = {}
+for _code, _status in ERROR_CODES.items():
+    ERROR_STATUS_CODES.setdefault(_status, _code)
+
+
 def create_error_response(
     code: str, message: str, err: Optional[Exception] = None
 ) -> Response:
-    http_code = 400  # Default to BAD_REQUEST
-    if code == "BAD_REQUEST":
-        http_code = 400
-    elif code == "UNAUTHORIZED":
-        http_code = 401
-    elif code == "FORBIDDEN":
-        http_code = 403
-    elif code == "NOT_FOUND":
-        http_code = 404
-    elif code in ["INTERNAL_ERROR", "BAD_REPOSITORY"]:
-        http_code = 500
-    elif code == "CONFLICT":
-        http_code = 409
+    http_code = ERROR_CODES.get(code, 400)  # default to BAD_REQUEST
     response = {"code": code, "message": message}
     if err:
         response["details"] = "".join(
             traceback.TracebackException.from_exception(err).format()
         )
     return make_response(jsonify(response), http_code)
+
+
+def _validation_fields(detail: object) -> Optional[Dict[str, Dict[str, List[str]]]]:
+    """``detail`` as per-field validation errors, or None if it isn't that shape.
+
+    APIFlask reports a validation failure as ``{location: {field: [messages]}}``.
+    An ``abort(detail=...)`` can carry anything, so the shape is checked rather
+    than assumed -- raising out of an error handler would replace the error the
+    client should be seeing.
+    """
+    if not isinstance(detail, dict):
+        return None
+    fields: Dict[str, Dict[str, List[str]]] = {}
+    for location, errors in detail.items():
+        if not isinstance(location, str) or not isinstance(errors, dict):
+            return None
+        by_field: Dict[str, List[str]] = {}
+        for name, messages in errors.items():
+            if not isinstance(name, str) or not isinstance(messages, list):
+                return None
+            by_field[name] = [str(message) for message in messages]
+        fields[location] = by_field
+    return fields
+
+
+# Report the errors Flask and APIFlask raise themselves -- a validation failure,
+# an `abort`, a bare HTTP exception -- in the same shape the handlers use, and
+# declare that shape in the spec. Without this the server answered in APIFlask's
+# own `detail`/`message` default, a second spelling alongside
+# `create_error_response`'s `code`/`message` that the spec then documented for
+# every error status.
+_ERROR_RESPONSE_SCHEMA = ErrorResponse.model_json_schema()
+app.config["HTTP_ERROR_SCHEMA"] = _ERROR_RESPONSE_SCHEMA
+app.config["VALIDATION_ERROR_SCHEMA"] = _ERROR_RESPONSE_SCHEMA
+
+
+@app.error_processor
+def error_response(error: HTTPError) -> Response:
+    # `or None` so an error carrying an empty detail (a plain 404) doesn't
+    # report an empty `fields` object
+    fields = _validation_fields(error.detail) or None
+    details = None
+    if fields is None and error.detail:
+        # no declared shape for this one, so report it as text
+        details = str(error.detail)
+    payload = ErrorResponse(
+        # `message` is only None before HTTPError.__init__ fills it in from the
+        # status code, so this falls back the same way it does
+        code=ERROR_STATUS_CODES.get(error.status_code, f"HTTP_{error.status_code}"),
+        message=error.message or get_reason_phrase(error.status_code, "Unknown error"),
+        details=details,
+        fields=fields,
+    )
+    response = make_response(
+        jsonify(payload.model_dump(exclude_none=True)), error.status_code
+    )
+    if error.headers:
+        response.headers.extend(error.headers)
+    return response
 
 
 def enter_safe_mode():

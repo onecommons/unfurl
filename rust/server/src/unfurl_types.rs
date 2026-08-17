@@ -1337,11 +1337,19 @@ impl IntoResponse for GetTypesResponse {
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct GetVersionRequest {}
 impl GetVersionRequest {}
+/// Error response returned by all endpoints on failure.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct HTTPError {
-    pub detail: Option<serde_json::Value>,
-    pub message: Option<String>,
+    /// Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)
+    pub code: String,
+    /// Full exception traceback, included when an unexpected error occurs
+    pub details: Option<String>,
+    /// Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.
+    pub fields:
+        Option<std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>>,
+    /// Human-readable error message
+    pub message: String,
 }
 /// JSON body for /create_ensemble, /update_ensemble, and /create_provider.
 ///
@@ -1706,21 +1714,17 @@ pub struct PostUpdateEnvironmentRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
 }
+/// Error response returned by all endpoints on failure.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct ValidationError {
-    pub detail: Option<ValidationErrorDetail>,
-    pub message: Option<String>,
-}
-#[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
-pub struct ValidationErrorDetail {
-    #[serde(rename = "<location>")]
-    pub location: Option<ValidationErrorDetaillocation>,
-}
-#[serde_with::skip_serializing_none]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
-pub struct ValidationErrorDetaillocation {
-    #[serde(rename = "<field_name>")]
-    pub field_name: Option<Vec<String>>,
+    /// Error code (e.g. BAD_REQUEST, UNAUTHORIZED, INTERNAL_ERROR)
+    pub code: String,
+    /// Full exception traceback, included when an unexpected error occurs
+    pub details: Option<String>,
+    /// Per-field validation errors, keyed by request location (``json``, ``query``, ...) then by field name. Only set when the request failed validation.
+    pub fields:
+        Option<std::collections::HashMap<String, std::collections::HashMap<String, Vec<String>>>>,
+    /// Human-readable error message
+    pub message: String,
 }
