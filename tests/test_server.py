@@ -13,6 +13,7 @@ import unittest.mock
 import urllib.request
 from functools import partial
 from multiprocessing import Process, set_start_method, get_context, Queue
+from typing import Optional
 
 import requests
 from click.testing import CliRunner
@@ -245,12 +246,66 @@ def _next_port():
     return _server_port
 
 
+_TIMESTAMP_FLOOR = 1_000_000_000.0  # 2001-09-09, below any plausible `created`
+
+
+def _entry_ops_without_created(data: bytes) -> Optional[list]:
+    """A stored cache entry's opcode stream, with its `created` value masked.
+
+    `CacheValue.created` is wall clock, so two entries holding the same
+    document still differ in those 8 bytes. It is the stream's last float --
+    `queueid`, an int, is the only field after it -- so masking that one
+    argument leaves a representation that changes only when the document does.
+
+    Returns None when the entry can't be read that way: unreadable bytes, or a
+    last float that isn't a timestamp (so the field order this relies on has
+    changed). Callers then treat the entry as new rather than assume it matches.
+
+    `pickletools.genops` walks the opcodes without running them, so nothing
+    here reconstructs the stored value.
+    """
+    import pickletools
+
+    body = data[1:] if data[:1] == b"!" else data  # redis serializer prefix
+    try:
+        ops = [(op.name, arg) for op, arg, _pos in pickletools.genops(body)]
+    except Exception:
+        return None
+    floats = [i for i, (_name, arg) in enumerate(ops) if isinstance(arg, float)]
+    if not floats:
+        return None
+    created_at = floats[-1]
+    if ops[created_at][1] < _TIMESTAMP_FLOOR:
+        return None
+    ops[created_at] = (ops[created_at][0], None)
+    return ops
+
+
+def _fixture_is_current(dest: str, value: bytes) -> bool:
+    """Whether `dest` already holds `value`, ignoring its `created` timestamp.
+
+    Every run of a redis-enabled test produces a new `created`, so writing
+    unconditionally would leave the fixtures permanently modified in git even
+    when the cached documents are identical.
+    """
+    if not os.path.exists(dest):
+        return False
+    with open(dest, "rb") as f:
+        stored = f.read()
+    if stored == value:
+        return True
+    ops = _entry_ops_without_created(value)
+    return ops is not None and ops == _entry_ops_without_created(stored)
+
+
 def _save_rust_fixtures(cache_prefix: str = "") -> None:
-    """Dump cached deployment and blueprint pickle values from Redis to
+    """Dump the cached deployment and blueprint values from Redis to
     rust/server/tests/fixtures/ so the Rust unit tests can use them.
 
     Requires UNFURL_TEST_REDIS_URL to be set.  Silently returns if Redis
-    is not configured or the expected keys are not found.
+    is not configured or the expected keys are not found. A fixture that
+    already matches what Redis holds is left alone -- see
+    `_fixture_is_current`.
     """
     if not UNFURL_TEST_REDIS_URL:
         return
@@ -281,6 +336,9 @@ def _save_rust_fixtures(cache_prefix: str = "") -> None:
                 value = r.get(key)
                 if value:
                     dest = os.path.join(fixtures_dir, filename)
+                    if _fixture_is_current(dest, value):
+                        print(f"_save_rust_fixtures: {key_str} unchanged, kept {dest}")
+                        continue
                     with open(dest, "wb") as f:
                         f.write(value)
                     print(f"_save_rust_fixtures: saved {key_str} -> {dest}")
@@ -1185,6 +1243,85 @@ def test_server_export_remote(server_env):
             #     os.unlink(py_log_file)
             if rust_log_file and os.path.exists(rust_log_file):
                 os.unlink(rust_log_file)
+
+
+def test_cache_value_shape_tolerance():
+    """A cache entry is stored as a plain tuple and read back through CacheValue.
+
+    Entries written by a different revision of the code therefore have to be
+    tolerated: an extra trailing field is dropped, and anything that can't be
+    turned into a CacheValue is a miss rather than an exception. ``cachelib``
+    only converts ``PickleError``, so a class it can't import raises
+    ``AttributeError`` and a wrong shape ``TypeError`` -- neither reaches the
+    caller as ``None`` on its own.
+    """
+
+    class _Cache:
+        """Stands in for flask-caching; ``get_cache`` only calls ``get``."""
+
+        def __init__(self, value):
+            self._value = value
+
+        def get(self, key):
+            if isinstance(self._value, Exception):
+                raise self._value
+            return self._value
+
+    entry = server.CacheEntry("proj", "main", "f.yaml", "deployment")
+    stored = ("payload", "abc123", "def456", {}, 1700000000, 1786000000.0, 0)
+
+    value, _stale = entry.get_cache(_Cache(stored), "def456")
+    assert entry.hit and value is not None
+    assert value.value == "payload"
+    assert value.created == 1786000000.0
+
+    # an entry from a newer revision carrying a field this one doesn't know
+    value, _stale = entry.get_cache(_Cache(stored + ("from the future",)), "def456")
+    assert entry.hit and value is not None
+    assert value.queueid == 0
+
+    # too few fields, and an entry naming a class this revision can't import
+    for bad in (
+        ("payload", "abc123", "def456", {}),
+        AttributeError("module has no attribute 'CacheItemDependency'"),
+    ):
+        value, stale = entry.get_cache(_Cache(bad), "def456")
+        assert value is None, bad
+        assert stale is None, bad
+        assert not entry.hit, bad
+
+
+def test_fixture_is_current(tmp_path):
+    """The rust fixtures are rewritten only when the cached document changed.
+
+    `CacheValue.created` is set from the clock, so every redis-enabled run of
+    `test_server_export_remote` stores different bytes for the same document.
+    Comparing bytes would rewrite the fixtures each run and leave them showing
+    as modified in git forever.
+    """
+    import pickle
+
+    def entry(doc, created) -> bytes:
+        # what `_save_rust_fixtures` copies out of redis: a CacheValue's fields
+        # behind the "!" the redis serializer prefixes
+        fields = (doc, "abc123", "abc123", {}, created, 0)
+        return b"!" + pickle.dumps(fields, protocol=5)
+
+    now = 1786969954.348405
+    dest = tmp_path / "blueprint.pkl"
+    # nothing saved yet
+    assert not _fixture_is_current(str(dest), entry({"a": 1}, now))
+
+    dest.write_bytes(entry({"a": 1}, now))
+    # same document, later run
+    assert _fixture_is_current(str(dest), entry({"a": 1}, now + 46.2))
+    # the document itself changed
+    assert not _fixture_is_current(str(dest), entry({"a": 2}, now))
+    # a last float that isn't a timestamp means the field order this relies on
+    # changed, so don't claim the fixture is current
+    assert not _fixture_is_current(str(dest), entry({"a": 1}, 0.5))
+    # unreadable bytes are new, not a match
+    assert not _fixture_is_current(str(dest), b"!not an entry")
 
 
 def test_populate_cache(runner: Process):

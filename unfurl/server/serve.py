@@ -648,6 +648,7 @@ class CacheValue(NamedTuple):
     latest_commit: str
     deps: CacheItemDependencies
     last_commit_date: int
+    created: float  # time.time() when the value was cached
     # set if front end patches a cached value in-place:
     queueid: int = 0  # > 1 when the value hasn't been committed yet
 
@@ -722,6 +723,7 @@ class CacheEntry:
     latest_commit is None: value may be stale, pull and recompute or return depending stale_pull_age
     latest_commit is git sha: value guarenteed fresh as of latest_commit or recompute, pulls if latest_commit is missing from repo
     """
+
     project_id: str
     branch: Optional[str]
     file_path: str  # relative to project root
@@ -937,6 +939,7 @@ class CacheEntry:
             latest_commit or self.last_commit or "",
             self._deps,
             self.last_commit_date,
+            time.time(),
         )
         logger.info(
             "setting cache with %s with %s deps %s",
@@ -946,7 +949,7 @@ class CacheEntry:
         )
         cache.set(
             full_key,
-            self.value,
+            tuple(self.value),
             timeout=directives.timeout,
         )
         return self.last_commit or ""
@@ -1004,8 +1007,27 @@ class CacheEntry:
         else:
             prefixed_key = full_key
 
-        # note: if CacheValue's definition changes then cache.get() will return None because it catches PickleError exceptions
-        value = cast(Optional[CacheValue], cache.get(full_key))
+        # entry should be a plain tuple
+        try:
+            items = cache.get(full_key)
+        except Exception:
+            # cachelib only catches PickleError, but an unresolvable class raises AttributeError
+            logger.debug(
+                "discarding unreadable cache entry %s", prefixed_key, exc_info=True
+            )
+            items = None
+        value: Optional[CacheValue] = None
+        if items is not None:
+            # Extra trailing fields (an entry written by a *newer* revision)
+            # are dropped; missing ones come from the defaults declared above.
+            try:
+                value = CacheValue(*items[: len(CacheValue._fields)])
+            except TypeError:
+                logger.debug(
+                    "discarding cache entry %s with unexpected shape: %s",
+                    prefixed_key,
+                    exc_info=True,
+                )
         self.value = value
         if value is None:
             logger.info("cache miss for %s", prefixed_key)
@@ -1018,6 +1040,7 @@ class CacheEntry:
             cached_latest_commit,
             self._deps,
             cached_last_commit_date,
+            created,
             queueid,
         ) = value
         if latest_commit == cached_latest_commit:
@@ -1086,10 +1109,11 @@ class CacheEntry:
                     latest_commit or cached_latest_commit,
                     self._deps,
                     self.last_commit_date,
+                    created,
                 )
                 cache.set(
                     full_key,
-                    value,
+                    tuple(value),
                 )
                 self.value = value
                 logger.info("cache hit for %s, updated %s", prefixed_key, latest_commit)
