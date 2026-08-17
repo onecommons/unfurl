@@ -962,6 +962,11 @@ def test_server_export_remote(server_env):
                             "auth_project": project_id,
                             "latest_commit": last_commit,  # enable caching but just get the latest in the cache
                             "format": export_format,
+                            # the rust server only builds a cache key for a
+                            # request that names its branch -- without one it
+                            # proxies rather than guess which branch an entry
+                            # belongs to (`export_cache_key` in routes.rs).
+                            "branch": "main",
                         },
                         headers={
                             "If-None-Match": etag,
@@ -1020,6 +1025,7 @@ def test_server_export_remote(server_env):
                                 "auth_project": project_id,
                                 "latest_commit": last_commit,
                                 "format": export_format,
+                                "branch": "main",  # see the miss request above
                             },
                             headers={
                                 "If-None-Match": etag,
@@ -2802,6 +2808,15 @@ def test_server_cloudmap(server_env):
             #    Pydantic's `extra="allow"` + manual section check).
             res = requests.post(cloudmap_url, json={"flarp": {}})
             assert res.status_code == 400, res.text
+
+            # 3b. ...but `branch` is an envelope key, not a section. Both
+            #     handlers accept it: Python resolves the clone with it,
+            #     and the rust local handler routes on it (a write naming
+            #     a branch other than the one its worktree is checked out
+            #     on is proxied). An envelope-only body is a no-op, so
+            #     this asserts acceptance without writing anything.
+            res = requests.post(cloudmap_url, json={"branch": repo.active_branch})
+            assert res.status_code == 200, res.text
 
             # 4. Schema-violating record → 422. The repository schema
             #    requires `protocols` to be an array of strings.

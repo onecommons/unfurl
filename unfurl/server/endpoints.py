@@ -667,6 +667,7 @@ _CLOUDMAP_SECTIONS: Tuple[str, ...] = (
     "types",
 )
 _CLOUDMAP_ENVELOPE_KEYS: Tuple[str, ...] = (
+    "branch",
     "latest_commit",
     "cloudmap_path",
     "commit",

@@ -69,6 +69,24 @@ fn origin_matches(origin: &str, project_id: &str) -> bool {
     origin == project || origin.ends_with(&format!("/{project}"))
 }
 
+/// Whether a request's `branch` names the branch the configured worktree is
+/// checked out on.
+///
+/// `worktree.branch` holds the short name (`main`, from
+/// `gix::Head::referent_name().shorten()`), but a client may spell the
+/// request either way, so a `refs/heads/` prefix is stripped from both
+/// before comparing. A detached HEAD records the literal `"HEAD"`, which
+/// matches no branch name — such a checkout answers only requests that name
+/// no particular branch, which [`CloudMapState::project_check`] filters out
+/// before calling this.
+fn branch_matches(worktree_branch: &str, requested: &str) -> bool {
+    fn short(s: &str) -> &str {
+        let s = s.trim();
+        s.strip_prefix("refs/heads/").unwrap_or(s)
+    }
+    short(worktree_branch) == short(requested)
+}
+
 /// Mint the paging cursor naming `(path, key)` as the last record of a page.
 ///
 /// Just `<section>/<key>`. Section names are a fixed set and contain no
@@ -217,28 +235,55 @@ impl CloudMapState {
         self.inner.commit_repository(message).await
     }
 
-    /// Decide whether a request's `auth_project` may be served from the one
-    /// repository this handler is configured with.
+    /// Decide whether a request's `auth_project` and `branch` may be served
+    /// from the one working tree this handler is configured with.
     ///
-    /// The fast-path serves a single `cloudmap_repo`, so a request for a
-    /// different project must not be answered from it, and a request naming no
-    /// project has nothing to attribute the write to.
+    /// The fast-path serves a single `cloudmap_repo` checked out on a single
+    /// branch, so a request for a different project — or for a ref other than
+    /// the one checked out — must not be answered from it, and a request
+    /// naming no project has nothing to attribute the write to. Both
+    /// mismatches route to python, which resolves any `(project, branch)` pair
+    /// through its clone cache.
     ///
-    /// `dev_mode` (see [`crate::config::Config::dev_mode`]) skips both checks:
+    /// A request naming **no** branch — or naming `HEAD`, which the cache keys
+    /// in [`crate::routes`] read the same way — keeps being served from the
+    /// working tree whatever it is checked out on. That deliberately differs
+    /// from python's `branch or CLOUDMAP_BRANCH` default: reading an absent
+    /// `branch` as `main` here would proxy every request whenever the
+    /// configured `cloudmap_repo` sits on some other branch, which is the case
+    /// the fast-path exists for.
+    ///
+    /// `dev_mode` (see [`crate::config::Config::dev_mode`]) skips every check:
     /// the server was started on one checkout and its clients aren't expected
     /// to name it. That's a deliberate switch rather than something inferred
     /// from the origin, because a local checkout can have a remote too.
+    ///
+    /// Both gates read the same `worktree` row, so this costs one query.
     pub async fn project_check(
         &self,
         project_id: Option<&str>,
+        branch: Option<&str>,
         dev_mode: bool,
     ) -> Result<ProjectCheck, unfurl_git_sync::Error> {
         if dev_mode {
             return Ok(ProjectCheck::Serve);
         }
-        let origin = self.inner.get_worktree().await?.origin;
+        let worktree = self.inner.get_worktree().await?;
+        // Checked before the project so that a request naming a branch but no
+        // project (which would otherwise be `Missing`, i.e. served) is routed
+        // on the branch it asked for rather than answered from the wrong ref.
+        // `HEAD` names no particular branch — `crate::routes`'s cache keys read
+        // it as "the default branch" — so it is served like an absent one.
+        if let Some(b) = branch
+            .map(str::trim)
+            .filter(|b| !b.is_empty() && *b != "HEAD")
+        {
+            if !branch_matches(&worktree.branch, b) {
+                return Ok(ProjectCheck::OtherBranch);
+            }
+        }
         Ok(match project_id.filter(|p| !p.is_empty()) {
-            Some(p) if origin_matches(&origin, p) => ProjectCheck::Serve,
+            Some(p) if origin_matches(&worktree.origin, p) => ProjectCheck::Serve,
             Some(_) => ProjectCheck::OtherProject,
             None => ProjectCheck::Missing,
         })
@@ -411,7 +456,15 @@ pub async fn handle_cloudmap(
         )
         .await;
     };
-    if let Err(answered) = serve_or_proxy(&state, &cm, params.auth_project.as_deref(), req).await {
+    if let Err(answered) = serve_or_proxy(
+        &state,
+        &cm,
+        params.auth_project.as_deref(),
+        params.branch.as_deref(),
+        req,
+    )
+    .await
+    {
         return answered;
     }
 
@@ -421,10 +474,11 @@ pub async fn handle_cloudmap(
     }
 }
 
-/// The project gate shared by the cloudmap read handlers: a request
-/// naming a different project must not be answered from the one
-/// repository this handler serves; hand it to python, which routes per
-/// project. A request naming none keeps the previous behaviour (reads
+/// The routing gate shared by the cloudmap read handlers: a request
+/// naming a different project — or a branch other than the one checked
+/// out — must not be answered from the one working tree this handler
+/// serves; hand it to python, which routes per project and resolves any
+/// branch. A request naming neither keeps the previous behaviour (reads
 /// resolve to the configured repo, as they always have). `Ok(())`
 /// means serve locally; `Err` carries the already-built response
 /// (proxied or errored).
@@ -432,10 +486,11 @@ async fn serve_or_proxy(
     state: &AppState,
     cm: &CloudMapState,
     auth_project: Option<&str>,
+    branch: Option<&str>,
     req: Request<axum::body::Body>,
 ) -> Result<(), Response> {
     match cm
-        .project_check(auth_project, state.config.dev_mode())
+        .project_check(auth_project, branch, state.config.dev_mode())
         .await
     {
         Ok(ProjectCheck::Serve) | Ok(ProjectCheck::Missing) => Ok(()),
@@ -443,6 +498,19 @@ async fn serve_or_proxy(
             tracing::debug!(
                 "auth_project {:?} is not the configured cloudmap repo; proxying",
                 auth_project
+            );
+            Err(proxy::forward(
+                &state.client,
+                &state.config.backend_url(),
+                req,
+                state.config.max_body_bytes,
+            )
+            .await)
+        }
+        Ok(ProjectCheck::OtherBranch) => {
+            tracing::debug!(
+                "branch {:?} is not the branch the cloudmap worktree is on; proxying",
+                branch
             );
             Err(proxy::forward(
                 &state.client,
@@ -484,7 +552,15 @@ pub async fn handle_cloudmap_facets(
         )
         .await;
     };
-    if let Err(answered) = serve_or_proxy(&state, &cm, params.auth_project.as_deref(), req).await {
+    if let Err(answered) = serve_or_proxy(
+        &state,
+        &cm,
+        params.auth_project.as_deref(),
+        params.branch.as_deref(),
+        req,
+    )
+    .await
+    {
         return answered;
     }
 
@@ -541,6 +617,10 @@ pub enum ProjectCheck {
     /// The request named a different project — python routes per project, so
     /// it should be proxied there.
     OtherProject,
+    /// The request named a branch other than the one the configured working
+    /// tree is checked out on — python resolves any branch through its clone
+    /// cache, so it should be proxied there.
+    OtherBranch,
     /// The request named no project and the configured repository has a
     /// remote, so there is nothing to attribute the request to.
     Missing,
@@ -1324,11 +1404,40 @@ pub async fn post_cloudmap_local(
         .as_ref()
         .expect("post_cloudmap_local registered without CloudMapState");
 
+    // The gate reads the `branch` the body names, and a request it decides to
+    // proxy has to be forwarded with that same body — so read the body to
+    // bytes once here and rebuild the request from them on whichever path
+    // runs. `ValidatedJson` buffers the whole body anyway, so this reads
+    // nothing extra.
+    let (parts, body) = req.into_parts();
+    let bytes = match axum::body::to_bytes(body, state.config.max_body_bytes).await {
+        Ok(b) => b,
+        Err(e) => {
+            // Same status `proxy::forward` answers when it can't read a body.
+            tracing::error!("failed to read request body: {}", e);
+            return (StatusCode::BAD_REQUEST, "bad request").into_response();
+        }
+    };
+    // Only the branch is taken, and from the raw JSON rather than the typed
+    // body: a request bound elsewhere must be proxied whatever shape its body
+    // is in, so validating it here would answer 422 for a body that is
+    // python's to judge. A body that isn't JSON at all names no branch and is
+    // left to `ValidatedJson` below to reject.
+    let branch = serde_json::from_slice::<Value>(&bytes)
+        .ok()
+        .and_then(|v| v.get("branch")?.as_str().map(str::to_string));
+
     // Writes must name the project they target, the same as the python handler
     // (`get_project_id_or_abort`) -- this handler serves one repository and
-    // would otherwise apply an unattributed write to it.
+    // would otherwise apply an unattributed write to it. A write naming
+    // another branch is routed like a read for one: this worktree can only
+    // write to the branch it is checked out on.
     match cm
-        .project_check(params.auth_project.as_deref(), state.config.dev_mode())
+        .project_check(
+            params.auth_project.as_deref(),
+            branch.as_deref(),
+            state.config.dev_mode(),
+        )
         .await
     {
         Ok(ProjectCheck::Serve) => {}
@@ -1350,7 +1459,20 @@ pub async fn post_cloudmap_local(
             return proxy::forward(
                 &state.client,
                 &state.config.backend_url(),
-                req,
+                Request::from_parts(parts, axum::body::Body::from(bytes)),
+                state.config.max_body_bytes,
+            )
+            .await;
+        }
+        Ok(ProjectCheck::OtherBranch) => {
+            tracing::debug!(
+                "branch {:?} is not the branch the cloudmap worktree is on; proxying",
+                branch
+            );
+            return proxy::forward(
+                &state.client,
+                &state.config.backend_url(),
+                Request::from_parts(parts, axum::body::Body::from(bytes)),
                 state.config.max_body_bytes,
             )
             .await;
@@ -1365,7 +1487,8 @@ pub async fn post_cloudmap_local(
         }
     }
 
-    // Only now consume the body: proxying above needs the request intact.
+    // Validate only what this handler is going to apply itself.
+    let req = Request::from_parts(parts, axum::body::Body::from(bytes));
     let body =
         match ValidatedJson::<unfurl_types::PostCloudmapRequest>::from_request(req, &state).await {
             Ok(ValidatedJson(body)) => body,
@@ -1755,7 +1878,29 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
 
 #[cfg(test)]
 mod tests {
-    use super::origin_matches;
+    use super::{branch_matches, origin_matches};
+
+    #[test]
+    fn branch_matches_either_spelling() {
+        assert!(branch_matches("main", "main"));
+        // A client may send the full ref; the worktree row holds the short name.
+        assert!(branch_matches("main", "refs/heads/main"));
+        assert!(branch_matches("refs/heads/main", "main"));
+        assert!(branch_matches("feature/x", "feature/x"));
+        // Surrounding whitespace comes from the query string, not the ref.
+        assert!(branch_matches("main", " main "));
+    }
+
+    #[test]
+    fn branch_rejects_other_refs() {
+        assert!(!branch_matches("main", "master"));
+        assert!(!branch_matches("main", "refs/heads/other"));
+        // Not a prefix match: a longer name that starts the same is a different
+        // branch.
+        assert!(!branch_matches("main", "maintenance"));
+        // A detached HEAD records "HEAD" and so matches no branch name.
+        assert!(!branch_matches("HEAD", "main"));
+    }
 
     #[test]
     fn origin_matches_project_path_suffix() {

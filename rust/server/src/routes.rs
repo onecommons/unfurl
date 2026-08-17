@@ -32,16 +32,29 @@ use crate::AppState;
 // Cache-aware GET handlers
 // ---------------------------------------------------------------------------
 
+/// A query parameter's value, or `None` when it isn't set to one.
+fn non_empty(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|v| !v.is_empty())
+}
+
 /// Build the Redis cache key for a `/export` request from its typed
-/// query.
-fn export_cache_key(prefix: &str, params: &unfurl_types::GetExportRequestQuery) -> String {
-    let project_id = params.auth_project.as_deref().unwrap_or("");
-    // Python resolves missing/HEAD branch to the repo's default branch (typically "main").
-    // Use "main" here to match the key Python stores.
-    let branch = match params.branch.as_deref() {
-        Some("HEAD") | None => "main",
-        Some(b) => b,
-    };
+/// query, or `None` when the request doesn't name what the key is made of.
+///
+/// Python derives its key from `(project_id, branch, file_path, format)`,
+/// and — see `_export` in `unfurl/server/serve.py` — puts the branch the
+/// request asked for into it **verbatim**, `HEAD` included. It resolves a
+/// branch only when the request names none, and then not necessarily to
+/// `main`: `get_latest_tag_or_default_branch` can return a package's
+/// latest version tag, or a local project's checked-out branch.
+///
+/// So there is nothing to guess with. A named branch is keyed as given;
+/// a request that names none can't be keyed at all, and `None` sends it
+/// to Python to resolve and consult its own cache under the right key.
+/// Same for a request with no `auth_project`: no project to scope an
+/// entry to.
+fn export_cache_key(prefix: &str, params: &unfurl_types::GetExportRequestQuery) -> Option<String> {
+    let project_id = non_empty(params.auth_project.as_deref())?;
+    let branch = non_empty(params.branch.as_deref())?;
     let format = params.format.as_ref();
     let deployment_path = params.deployment_path.as_deref();
 
@@ -70,26 +83,24 @@ fn export_cache_key(prefix: &str, params: &unfurl_types::GetExportRequestQuery) 
         _ => "deployment".to_string(),
     };
 
-    format!(
+    Some(format!(
         "{}{}:{}:{}:{}",
         prefix, project_id, branch, file_path, key_suffix
-    )
+    ))
 }
 
 /// Build the Redis cache key for a `/types` request from its typed
-/// query.
-fn types_cache_key(prefix: &str, params: &unfurl_types::GetTypesRequestQuery) -> String {
-    let project_id = params.auth_project.as_deref().unwrap_or("");
-    let branch = match params.branch.as_deref() {
-        Some("HEAD") | None => "main",
-        Some(b) => b,
-    };
+/// query, or `None` when the request names no project or no branch —
+/// see [`export_cache_key`] for why those aren't guessed at.
+fn types_cache_key(prefix: &str, params: &unfurl_types::GetTypesRequestQuery) -> Option<String> {
+    let project_id = non_empty(params.auth_project.as_deref())?;
+    let branch = non_empty(params.branch.as_deref())?;
     let file = params.file.as_deref().unwrap_or("dummy-ensemble.yaml");
 
-    format!(
+    Some(format!(
         "{}{}:{}:{}:blueprint+types",
         prefix, project_id, branch, file
-    )
+    ))
 }
 
 /// Parse query string into a HashMap.
@@ -130,9 +141,15 @@ enum CacheOutcome {
 
 /// Shared logic for cache-aware GET handlers.
 ///
-/// Tries the Redis cache with `key`; on a hit, honours `If-None-Match` (→ 304)
-/// or returns 200 with the cached body and an `Etag` header.  On a miss (or
-/// when Redis is not configured) falls through to the Python backend.
+/// `key` is what [`export_cache_key`] or [`types_cache_key`] made of this
+/// request, and is [`None`] when the request named no project or no branch
+/// — nothing to look up without guessing. Handling that here keeps the one
+/// thing to do about it (proxy) in a single place.
+///
+/// Tries the Redis cache with that key; on a hit, honours `If-None-Match`
+/// (→ 304) or returns 200 with the cached body and an `Etag` header.  On a
+/// miss (or when Redis is not configured, or there is no key) falls through
+/// to the Python backend.
 ///
 /// On a cache hit we attempt to deserialize the stored payload into the
 /// strict [`unfurl_types::ExportResponse`] type so the wire response is
@@ -146,52 +163,62 @@ enum CacheOutcome {
 async fn handle_cached_get(
     state: AppState,
     req: Request,
-    key: String,
+    key: Option<String>,
     latest_commit: Option<String>,
 ) -> CacheOutcome {
-    if let Some(ref redis) = state.redis {
-        let mut conn = redis.clone();
-        if let Some((json_val, etag)) = cache::try_cache(
-            &mut conn,
-            &key,
-            latest_commit.as_deref(),
-            state.config.redis_timeout_secs,
-            &state.config.package_digest,
-        )
-        .await
-        {
-            // Return 304 Not Modified if the client already has this version.
-            let if_none_match = req
-                .headers()
-                .get(header::IF_NONE_MATCH)
-                .and_then(|v| v.to_str().ok());
-            if if_none_match == Some(etag.as_str()) {
-                tracing::info!("cache hit, etag matched: {}", key);
-                return CacheOutcome::NotModified;
-            }
-            tracing::info!(
-                "cache hit {} if_none_match={:?} setting etag={}",
-                key,
-                if_none_match,
-                etag
-            );
-            return match serde_json::from_value::<unfurl_types::ExportResponse>(json_val.clone()) {
-                Ok(mut typed) => {
-                    typed.latest_commit = latest_commit;
-                    CacheOutcome::Typed(Box::new(typed), etag)
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        "cache hit {key}: typed ExportResponse deserialize failed \
-                         ({e}); falling back to raw JSON passthrough"
+    match key {
+        // Nothing to look up: the request names no project, or no particular
+        // branch, so every candidate key would be a guess. Python resolves
+        // both and consults its own cache.
+        None => tracing::debug!("request carries no cache key, proxying to backend"),
+        Some(key) => {
+            if let Some(ref redis) = state.redis {
+                let mut conn = redis.clone();
+                if let Some((json_val, etag)) = cache::try_cache(
+                    &mut conn,
+                    &key,
+                    latest_commit.as_deref(),
+                    state.config.redis_timeout_secs,
+                    &state.config.package_digest,
+                )
+                .await
+                {
+                    // Return 304 Not Modified if the client already has this version.
+                    let if_none_match = req
+                        .headers()
+                        .get(header::IF_NONE_MATCH)
+                        .and_then(|v| v.to_str().ok());
+                    if if_none_match == Some(etag.as_str()) {
+                        tracing::info!("cache hit, etag matched: {}", key);
+                        return CacheOutcome::NotModified;
+                    }
+                    tracing::info!(
+                        "cache hit {} if_none_match={:?} setting etag={}",
+                        key,
+                        if_none_match,
+                        etag
                     );
-                    CacheOutcome::RawJson(json_val, etag)
+                    return match serde_json::from_value::<unfurl_types::ExportResponse>(
+                        json_val.clone(),
+                    ) {
+                        Ok(mut typed) => {
+                            typed.latest_commit = latest_commit;
+                            CacheOutcome::Typed(Box::new(typed), etag)
+                        }
+                        Err(e) => {
+                            tracing::debug!(
+                                "cache hit {key}: typed ExportResponse deserialize failed \
+                                 ({e}); falling back to raw JSON passthrough"
+                            );
+                            CacheOutcome::RawJson(json_val, etag)
+                        }
+                    };
                 }
-            };
+                tracing::info!("cache miss, proxying to backend: {}", key);
+            } else {
+                tracing::debug!("no Redis configured, skipping cache for: {}", key);
+            }
         }
-        tracing::info!("cache miss, proxying to backend: {}", key);
-    } else {
-        tracing::debug!("no Redis configured, skipping cache for: {}", key);
     }
     CacheOutcome::Proxied(
         proxy::forward(
@@ -855,6 +882,93 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    fn export_query(
+        auth_project: Option<&str>,
+        branch: Option<&str>,
+    ) -> unfurl_types::GetExportRequestQuery {
+        unfurl_types::GetExportRequestQuery {
+            auth_project: auth_project.map(str::to_string),
+            branch: branch.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    fn types_query(
+        auth_project: Option<&str>,
+        branch: Option<&str>,
+    ) -> unfurl_types::GetTypesRequestQuery {
+        unfurl_types::GetTypesRequestQuery {
+            auth_project: auth_project.map(str::to_string),
+            branch: branch.map(str::to_string),
+            // `ValidatedQuery` deserializes an absent parameter to `None`;
+            // the schema default that `Default::default()` fills in (`""`)
+            // is not what a real request without `file` produces.
+            file: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn cache_keys_match_the_key_python_stores() {
+        // The point of building the key here is to read entries Python
+        // wrote, so the spelling is a shared contract: prefix, project,
+        // branch, file path, suffix.
+        assert_eq!(
+            export_cache_key("test::", &export_query(Some("acme/prod"), Some("main"))).as_deref(),
+            Some("test::acme/prod:main:ensemble/ensemble.yaml:deployment")
+        );
+        assert_eq!(
+            types_cache_key("test::", &types_query(Some("acme/prod"), Some("dev"))).as_deref(),
+            Some("test::acme/prod:dev:dummy-ensemble.yaml:blueprint+types")
+        );
+    }
+
+    #[test]
+    fn head_is_keyed_verbatim() {
+        // Python keys a requested branch verbatim, so `HEAD` reads exactly
+        // the entry Python wrote for the same request. The mapping this
+        // replaced (`HEAD` -> `main`) read a different branch's entry.
+        assert_eq!(
+            export_cache_key("test::", &export_query(Some("acme/prod"), Some("HEAD"))).as_deref(),
+            Some("test::acme/prod:HEAD:ensemble/ensemble.yaml:deployment")
+        );
+    }
+
+    #[test]
+    fn cache_key_is_none_without_a_named_branch() {
+        // No branch at all is the case that can't be keyed: Python resolves
+        // it to the repository's default branch -- or a package's latest
+        // version tag -- neither of which is knowable here.
+        for branch in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                export_cache_key("test::", &export_query(Some("acme/prod"), branch)),
+                None,
+                "branch {branch:?}"
+            );
+            assert_eq!(
+                types_cache_key("test::", &types_query(Some("acme/prod"), branch)),
+                None,
+                "branch {branch:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn cache_key_is_none_without_a_named_project() {
+        for project in [None, Some(""), Some("  ")] {
+            assert_eq!(
+                export_cache_key("test::", &export_query(project, Some("main"))),
+                None,
+                "auth_project {project:?}"
+            );
+            assert_eq!(
+                types_cache_key("test::", &types_query(project, Some("main"))),
+                None,
+                "auth_project {project:?}"
+            );
+        }
     }
 
     #[test]

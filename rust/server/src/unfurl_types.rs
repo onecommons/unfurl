@@ -1014,8 +1014,6 @@ pub struct GetCloudmapFacetsRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// Setting this enables asynchronous writes
-    pub queueid: Option<i64>,
     /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
     pub cloudmap_path: Option<String>,
     /// Top-level CloudMap section to select records from; if omitted every section is considered.
@@ -1082,8 +1080,6 @@ pub struct GetCloudmapRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// Setting this enables asynchronous writes
-    pub queueid: Option<i64>,
     /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
     pub cloudmap_path: Option<String>,
     /// Top-level CloudMap section to select records from; if omitted every section is considered.
@@ -1225,8 +1221,6 @@ pub struct GetGraphRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// Setting this enables asynchronous writes
-    pub queueid: Option<i64>,
     /// Path of the cloudmap file inside the repo; defaults to ``cloudmap.yaml``.
     pub cloudmap_path: Option<String>,
     /// Optional artifact or instantiation URL to filter the graph to
@@ -1506,6 +1500,8 @@ pub struct PostCloudmapRequest {
     pub artifacts: Option<std::collections::HashMap<String, Box<CloudmapArtifact>>>,
     /// When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only — the Python YAML fallback is implicitly atomic.
     pub atomic: Option<bool>,
+    /// Branch to write to; defaults to ``main``.
+    pub branch: Option<String>,
     /// Path of the cloudmap file inside the repo.
     pub cloudmap_path: Option<String>,
     /// Whether to commit the write to git. If Commit = true is sent with a body that carries no records at all the handler then commits whatever is already pending.
@@ -1670,8 +1666,6 @@ pub struct PostPopulateCacheRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// Setting this enables asynchronous writes
-    pub queueid: Option<i64>,
     /// File path relative to the project root
     #[validate(length(min = 1u64))]
     pub path: String,

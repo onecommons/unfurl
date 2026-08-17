@@ -122,15 +122,15 @@ class ProjectQuery(ProjectAuthQuery):
         default=None, description="Commit hash used to validate the cache entry"
     )
     branch: Optional[str] = Field(default=None, description="Git branch name")
-    queueid: Optional[int] = Field(
-        default=None,
-        description="Setting this enables asynchronous writes",
-    )
 
 
 class ExportBaseQuery(ProjectQuery):
     """Shared query parameters for /export and /types."""
 
+    queueid: Optional[int] = Field(
+        default=None,
+        description="Setting this enables asynchronous writes",
+    )
     pretty: bool = Field(default=False, description="Pretty-print the JSON response")
     username: Optional[str] = Field(
         default=None,
@@ -512,6 +512,7 @@ def _load_cloudmap_schema() -> Dict[str, Any]:
 
 
 _CLOUDMAP_REQUEST_ENVELOPE_KEYS = frozenset([
+    "branch",
     "latest_commit",
     "cloudmap_path",
     "commit",
@@ -617,6 +618,10 @@ class PostCloudmapRequest(BaseModel):
     latest_commit: Optional[str] = Field(
         default=None,
         description="Last commit oid the client observed. Forwarded to git-level OCC checks.",
+    )
+    branch: Optional[str] = Field(
+        default=None,
+        description="Branch to write to; defaults to ``main``.",
     )
     cloudmap_path: Optional[str] = Field(
         default=None,

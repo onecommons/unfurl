@@ -1695,6 +1695,186 @@ async fn dev_mode_serves_a_remote_backed_repo_without_auth_project() {
     assert_eq!(status, StatusCode::OK, "{body:?}");
 }
 
+// ---------------------------------------------------------------------------
+// branch scoping
+// ---------------------------------------------------------------------------
+
+/// The branch the fixture repo landed on. `gix::init` follows the machine's
+/// `init.defaultBranch`, so the tests derive the name rather than assuming
+/// `main` — otherwise they'd pass or fail with the runner's git config.
+async fn worktree_branch(cm: &CloudMapState) -> String {
+    cm.synced()
+        .get_worktree()
+        .await
+        .expect("worktree row")
+        .branch
+}
+
+#[tokio::test]
+async fn branch_naming_the_checked_out_ref_is_served_locally() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    let branch = worktree_branch(&cm).await;
+
+    let app = router(make_strict_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!("/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}&branch={branch}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(body["result"].get("repositories").is_some(), "{body:?}");
+
+    // The full ref names the same branch.
+    let app = router(make_strict_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}&branch={}",
+            urlencoding::encode(&format!("refs/heads/{branch}"))
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+}
+
+#[tokio::test]
+async fn requests_for_another_branch_are_proxied() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    // As in `requests_for_another_project_are_proxied`: no python backend runs
+    // here, so the 502 is how we observe the handler declined to answer from
+    // its own working tree — which is checked out on one branch only.
+    let app = router(make_strict_state(cm.clone()));
+    let (status, _body) = get_json(
+        app,
+        &format!("/cloudmap?auth_project={REMOTE_PROJECT}&branch=some-other-branch"),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "a read for another branch must go to python, not the local worktree"
+    );
+
+    // Selection on /cloudmap/facets is documented to work exactly as on
+    // /cloudmap, so it routes the same way.
+    let app = router(make_strict_state(cm.clone()));
+    let (status, _body) = get_json(
+        app,
+        &format!(
+            "/cloudmap/facets?group_by=type&auth_project={REMOTE_PROJECT}&branch=some-other-branch"
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "facets must route on branch the same way /cloudmap does"
+    );
+
+    // A branch mismatch is decided before the project check, so a request that
+    // names no project doesn't get served from the wrong ref either.
+    let app = router(make_strict_state(cm));
+    let (status, _body) = get_json(app, "/cloudmap?branch=some-other-branch").await;
+    assert_eq!(status, StatusCode::BAD_GATEWAY, "{status:?}");
+}
+
+#[tokio::test]
+async fn no_branch_serves_the_checked_out_ref() {
+    // Naming no branch keeps reading the configured working tree whatever it
+    // is on — deliberately unlike python's `branch or "main"` default, which
+    // would proxy every request for a repo checked out elsewhere.
+    let (cm, _tmp) = open_state_with_remote().await;
+    let app = router(make_strict_state(cm.clone()));
+    let (status, body) = get_json(
+        app,
+        &format!("/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(body["result"].get("repositories").is_some(), "{body:?}");
+
+    // `HEAD` names no particular branch either — the reading `routes.rs` gives
+    // it when building cache keys — so it is served, not proxied.
+    let app = router(make_strict_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!("/cloudmap?kind=repositories&auth_project={REMOTE_PROJECT}&branch=HEAD"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(body["result"].get("repositories").is_some(), "{body:?}");
+}
+
+#[tokio::test]
+async fn post_naming_the_checked_out_branch_is_served_locally() {
+    // `branch` is an envelope key of the write body, so it reaches the routing
+    // gate rather than being rejected as an unknown section.
+    let (cm, _tmp) = open_state_with_remote().await;
+    let branch = worktree_branch(&cm).await;
+    let app = router(make_strict_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, body) = post_json_as(
+        app,
+        serde_json::json!({
+            "branch": branch,
+            "repositories": { key: { "name": "branch-scoped-write" } },
+        }),
+        Some(REMOTE_PROJECT),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+}
+
+#[tokio::test]
+async fn post_for_another_branch_is_proxied() {
+    let (cm, _tmp) = open_state_with_remote().await;
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let app = router(make_strict_state(cm.clone()));
+    let (status, _body) = post_json_as(
+        app,
+        serde_json::json!({
+            "branch": "some-other-branch",
+            "repositories": { key: { "name": "must-not-land" } },
+        }),
+        Some(REMOTE_PROJECT),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_GATEWAY,
+        "a write for another branch must go to python, not this worktree"
+    );
+
+    // The gate runs before anything is applied, so the record is untouched --
+    // this worktree can only write to the branch it is checked out on.
+    let app = router(make_strict_state(cm));
+    let (status, body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&key={}&auth_project={REMOTE_PROJECT}",
+            urlencoding::encode(key)
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_ne!(
+        body["result"]["repositories"][key]["name"], "must-not-land",
+        "the proxied write must not have landed locally"
+    );
+}
+
+#[tokio::test]
+async fn dev_mode_ignores_a_branch_mismatch() {
+    // Same rationale as the auth_project case: in dev mode there is only the
+    // one checkout to serve, and its clients aren't expected to name it.
+    let (cm, _tmp) = open_state_with_remote().await;
+    let app = router(make_state(cm)); // default_config() => dev_mode
+    let (status, body) =
+        get_json(app, "/cloudmap?kind=repositories&branch=some-other-branch").await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(body["result"].get("repositories").is_some(), "{body:?}");
+}
+
 #[tokio::test]
 async fn post_with_stale_latest_commit_returns_409() {
     let (cm, _synced, tmp) = open_two_file_state().await;

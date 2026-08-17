@@ -1702,6 +1702,19 @@
             "description": "When ``true`` (default), the batch is all-or-nothing: any per-record OCC failure rolls everything back. When ``false``, per-record failures are skipped and the rest of the batch commits; the 409 body lists ``applied`` and ``failed`` arrays. Honoured by the rust local handler only \u2014 the Python YAML fallback is implicitly atomic.",
             "title": "Atomic"
           },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Branch to write to; defaults to ``main``.",
+            "title": "Branch"
+          },
           "cloudmap_path": {
             "anyOf": [
               {
@@ -2897,24 +2910,6 @@
           },
           {
             "in": "query",
-            "name": "queueid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Setting this enables asynchronous writes",
-              "title": "Queueid"
-            }
-          },
-          {
-            "in": "query",
             "name": "cloudmap_path",
             "required": false,
             "schema": {
@@ -3259,24 +3254,6 @@
               "default": null,
               "description": "Git branch name",
               "title": "Branch"
-            }
-          },
-          {
-            "in": "query",
-            "name": "queueid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Setting this enables asynchronous writes",
-              "title": "Queueid"
             }
           },
           {
@@ -4188,24 +4165,6 @@
           },
           {
             "in": "query",
-            "name": "queueid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Setting this enables asynchronous writes",
-              "title": "Queueid"
-            }
-          },
-          {
-            "in": "query",
             "name": "cloudmap_path",
             "required": false,
             "schema": {
@@ -4343,24 +4302,6 @@
               "default": null,
               "description": "Git branch name",
               "title": "Branch"
-            }
-          },
-          {
-            "in": "query",
-            "name": "queueid",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Setting this enables asynchronous writes",
-              "title": "Queueid"
             }
           },
           {
