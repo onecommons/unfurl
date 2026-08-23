@@ -1559,7 +1559,7 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
     let rest = sync
         .find_records(&RecordQuery {
             path: Some("/repositories".into()),
-            after: after,
+            after,
             ..Default::default()
         })
         .await
@@ -2326,7 +2326,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     let rest = sync
         .find_records(&RecordQuery {
             path: Some("/repositories".into()),
-            after: after,
+            after,
             ..Default::default()
         })
         .await
@@ -2343,4 +2343,46 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
 crud_test!(
     find_records_reports_tombstones,
     run_find_records_reports_tombstones
+);
+
+async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
+    let stats = sync.update_from_working_dir().await.expect("update");
+    assert!(stats.records_upserted >= 5, "stats: {stats:?}");
+    assert_eq!(stats.records_deleted, 0, "stats: {stats:?}");
+
+    // Remove one repository from the file on disk and re-sync: the
+    // vanished record must be hard-deleted, everything else kept.
+    let removed_key = "git://unfurl.cloud/feb20a/dashboard.git";
+    let kept_key = "git://unfurl.cloud/onecommons/std.git";
+    let cloudmap_path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&cloudmap_path).expect("read cloudmap");
+    let mut value: serde_json::Value = serde_saphyr::from_str(&text).expect("parse yaml");
+    value
+        .get_mut("repositories")
+        .and_then(|v| v.as_object_mut())
+        .expect("repositories section")
+        .remove(removed_key)
+        .expect("fixture contains the repository");
+    std::fs::write(
+        &cloudmap_path,
+        serde_saphyr::to_string(&value).expect("emit yaml"),
+    )
+    .expect("write cloudmap");
+
+    let stats = sync.update_from_working_dir().await.expect("re-sync");
+    assert_eq!(stats.records_deleted, 1, "stats: {stats:?}");
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", removed_key)
+        .await
+        .expect("get removed")
+        .is_none());
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", kept_key)
+        .await
+        .expect("get kept")
+        .is_some());
+}
+crud_test!(
+    resync_deletes_missing_records,
+    run_resync_deletes_missing_records
 );

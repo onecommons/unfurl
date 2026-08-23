@@ -4,7 +4,7 @@
 //!
 //! [`Db`] is a dialect-tagged enum that wraps either a SQLite or a
 //! Postgres connection pool. Submodules ([`worktree`], [`mod@file`],
-//! [`record`], [`alias`], [`commit`], [`tx`]) hold the SQL helpers
+//! [`record`], [`commit`], [`tx`]) hold the SQL helpers
 //! used by [`crate::sync`]; sync code only sees these high-level
 //! functions, never raw `sqlx::query` invocations.
 //!
@@ -32,7 +32,6 @@ pub(crate) struct RecordId<'a> {
     pub key: &'a str,
 }
 
-pub mod alias;
 pub mod commit;
 pub mod file;
 pub mod record;

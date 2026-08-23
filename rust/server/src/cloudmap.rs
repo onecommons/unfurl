@@ -1741,6 +1741,9 @@ async fn apply_writes(
     // would be confusing if derived in two places.
     let mut sections: Vec<&'static str> = Vec::new();
 
+    // a helper function generic over each section type would be have to look something like:
+    // fn collect<T: Serialize>(field: Option<HashMap<String, T>>, section: &'static str, path: &'static str, file_path: Option<&str>, ops: &mut Vec<BatchOp>, sections: &mut Vec<&'static str>) -> Result<(), WriteError>
+    // so a local macro is simpler and avoids the type gymnastics.
     macro_rules! collect {
         ($field:expr, $section:literal, $path:literal) => {
             if let Some(records) = $field {

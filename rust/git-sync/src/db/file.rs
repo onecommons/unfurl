@@ -10,49 +10,6 @@ type FileRowSqlite = (i64, String, String, Option<String>);
 #[cfg(feature = "postgres")]
 type FileRowPg = (i64, String, String, Option<String>);
 
-pub(crate) async fn upsert(
-    db: &Db,
-    worktree_id: i64,
-    path: &str,
-    format: &str,
-    commit_id: Option<&str>,
-) -> Result<()> {
-    match db {
-        Db::Sqlite(pool) => {
-            sqlx::query(
-                "INSERT INTO file (worktree_id, path, format, commit_id) \
-                 VALUES (?1, ?2, ?3, ?4) \
-                 ON CONFLICT(worktree_id, path) DO UPDATE SET \
-                   format = excluded.format, \
-                   commit_id = excluded.commit_id",
-            )
-            .bind(worktree_id)
-            .bind(path)
-            .bind(format)
-            .bind(commit_id)
-            .execute(pool)
-            .await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query(
-                "INSERT INTO file (worktree_id, path, format, commit_id) \
-                 VALUES ($1, $2, $3, $4) \
-                 ON CONFLICT(worktree_id, path) DO UPDATE SET \
-                   format = EXCLUDED.format, \
-                   commit_id = EXCLUDED.commit_id",
-            )
-            .bind(worktree_id)
-            .bind(path)
-            .bind(format)
-            .bind(commit_id)
-            .execute(pool)
-            .await?;
-        }
-    }
-    Ok(())
-}
-
 pub(crate) async fn get(
     db: &Db,
     worktree_id: i64,

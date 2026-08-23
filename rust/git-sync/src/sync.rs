@@ -264,7 +264,6 @@ impl SyncedRepo {
             stats.files_updated += 1;
             self.upsert_file_and_records(
                 &p.tf.rel_path,
-                &p.format_name,
                 last_commit_id,
                 &p.value,
                 format,
@@ -285,78 +284,45 @@ impl SyncedRepo {
         Ok(stats)
     }
 
+    /// Sync one parsed file into the DB: upsert the file row, upsert
+    /// every record found in it, and delete records that vanished —
+    /// all inside a single SQL transaction (see
+    /// [`upsert_file_and_records_inner`]).
     async fn upsert_file_and_records(
         &self,
         rel_path: &str,
-        format_name: &str,
         last_commit_id: Option<&str>,
         value: &serde_json::Value,
         format: &dyn crate::format::DataFormat,
         stats: &mut UpdateStats,
     ) -> Result<()> {
-        // Upsert file row.
-        db::file::upsert(
-            self.db(),
-            self.worktree_id(),
-            rel_path,
-            format_name,
-            last_commit_id,
-        )
-        .await?;
-
-        // Collect new (path, key) set so we can delete records that disappeared.
-        let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
-        let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
-        for prefix in format.path_prefixes() {
-            let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
-                continue;
-            };
-            for (key, child) in section {
-                let path = format!("/{prefix}");
-                let key = key.clone();
-                new_keys.insert((path.clone(), key.clone()));
-                to_upsert.push((path, key, child.clone()));
+        match self.db() {
+            Db::Sqlite(pool) => {
+                upsert_file_and_records_inner(
+                    self,
+                    pool,
+                    rel_path,
+                    last_commit_id,
+                    value,
+                    format,
+                    stats,
+                )
+                .await
+            }
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => {
+                upsert_file_and_records_inner(
+                    self,
+                    pool,
+                    rel_path,
+                    last_commit_id,
+                    value,
+                    format,
+                    stats,
+                )
+                .await
             }
         }
-
-        for (path, key, child) in to_upsert {
-            let version = db::record::next_version_pool(self.db(), self.worktree_id()).await?;
-            let id = db::record::upsert(
-                self.db(),
-                db::RecordId {
-                    worktree_id: self.worktree_id(),
-                    file_path: rel_path,
-                    path: &path,
-                    key: &key,
-                },
-                &child,
-                last_commit_id,
-                version,
-            )
-            .await?;
-            stats.records_upserted += 1;
-
-            // Aliases.
-            let record = Record {
-                id,
-                worktree_id: self.worktree_id(),
-                file_path: rel_path.to_string(),
-                path: path.clone(),
-                key: key.clone(),
-                commit_id: last_commit_id.map(|s| s.to_string()),
-                json: child,
-                deleted: false,
-                version,
-            };
-            db::alias::replace(self.db(), id, &format.find_alias(&record)).await?;
-        }
-
-        // Delete records that used to be in the file but are gone now.
-        let removed =
-            db::record::delete_missing(self.db(), self.worktree_id(), rel_path, &new_keys).await?;
-        stats.records_deleted += removed;
-
-        Ok(())
     }
 
     /// Search records by optional `file_path` / `path` / `key` filters.
@@ -1806,6 +1772,113 @@ where
         .to_string();
     db::tx::ensure_file(tx, sync.worktree_id(), file_path, &format).await?;
     Ok(Some(format))
+}
+
+/// Transactional body of [`SyncedRepo::upsert_file_and_records`]: one
+/// SQL transaction per file covering the file-row upsert, every record
+/// upsert (each stamped with a version drawn *inside* the tx), and the
+/// trailing delete of records that vanished from the file.
+///
+/// Drawing versions inside the transaction holds the worktree-row lock
+/// from the first draw to the commit, so a version becomes visible at
+/// exactly the commit that stamps it — a re-sync can no longer surface
+/// a lower version after a CRUD batch committed a higher one, which
+/// would let a `list_changes` cursor skip records. It also makes each
+/// file's sync atomic: a crash mid-file rolls back to the previous
+/// state instead of leaving a half-synced file.
+///
+/// Lock ordering matches [`apply_one_in_tx`]: file row first, then the
+/// worktree counter row. Writing the file row first also means the
+/// SQLite transaction takes the write lock immediately, sidestepping
+/// the deferred-upgrade `SQLITE_BUSY_SNAPSHOT` hazard.
+async fn upsert_file_and_records_inner<DB>(
+    sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
+    rel_path: &str,
+    last_commit_id: Option<&str>,
+    value: &serde_json::Value,
+    format: &dyn crate::format::DataFormat,
+    stats: &mut UpdateStats,
+) -> Result<()>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String, String): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    let mut tx = pool.begin().await?;
+
+    // Upsert file row.
+    db::tx::upsert_file(
+        &mut tx,
+        sync.worktree_id(),
+        rel_path,
+        format.name(),
+        last_commit_id,
+    )
+    .await?;
+
+    // Collect new (path, key) set so we can delete records that disappeared.
+    let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
+    for prefix in format.path_prefixes() {
+        let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for (key, child) in section {
+            let path = format!("/{prefix}");
+            let key = key.clone();
+            new_keys.insert((path.clone(), key.clone()));
+            to_upsert.push((path, key, child.clone()));
+        }
+    }
+
+    for (path, key, child) in to_upsert {
+        let json_text = serde_json::to_string(&child).map_err(|e| Error::Json {
+            path: path.clone(),
+            source: e,
+        })?;
+        let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+        let id = db::tx::sync_upsert_record(
+            &mut tx,
+            RecordId {
+                worktree_id: sync.worktree_id(),
+                file_path: rel_path,
+                path: &path,
+                key: &key,
+            },
+            &json_text,
+            last_commit_id,
+            version,
+        )
+        .await?;
+        stats.records_upserted += 1;
+
+        // Aliases.
+        let record = Record {
+            id,
+            worktree_id: sync.worktree_id(),
+            file_path: rel_path.to_string(),
+            path: path.clone(),
+            key: key.clone(),
+            commit_id: last_commit_id.map(|s| s.to_string()),
+            json: child,
+            deleted: false,
+            version,
+        };
+        db::tx::replace_aliases(&mut tx, id, &format.find_alias(&record)).await?;
+    }
+
+    // Delete records that used to be in the file but are gone now.
+    let removed = db::tx::delete_missing(&mut tx, sync.worktree_id(), rel_path, &new_keys).await?;
+    stats.records_deleted += removed;
+
+    tx.commit().await?;
+    Ok(())
 }
 
 fn compute_aliases(

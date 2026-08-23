@@ -15,6 +15,8 @@
 //!
 //! `sqlx::Any` is intentionally avoided (see `db::Db` for context).
 
+use std::collections::BTreeSet;
+
 use sqlx::{Database, Encode, Executor, IntoArguments, Type};
 
 use crate::db::RecordId;
@@ -88,6 +90,22 @@ pub(crate) trait Dialect: Database {
     /// `UPDATE record SET deleted = 1/TRUE, commit_id = NULL,
     /// version = ? WHERE id = ?`.
     const TOMBSTONE_RECORD: &'static str;
+    /// `INSERT INTO file (...) … ON CONFLICT DO UPDATE` — full upsert
+    /// that overwrites `format` and `commit_id`. Used by the from-disk
+    /// re-sync path, where the scanned file is the source of truth
+    /// (unlike [`Dialect::INSERT_FILE`], which leaves an existing row
+    /// untouched).
+    const UPSERT_FILE: &'static str;
+    /// Re-sync record upsert: like [`Dialect::UPSERT_RECORD`] but
+    /// `commit_id` comes from a bind (the file's last commit, possibly
+    /// NULL) instead of being forced to NULL, and there is no OCC
+    /// predicate — the working tree is the source of truth.
+    const SYNC_UPSERT_RECORD: &'static str;
+    /// `SELECT path, key FROM record WHERE worktree_id = ? AND file_path = ?`.
+    const LIST_FILE_RECORD_KEYS: &'static str;
+    /// `DELETE FROM record … RETURNING id` — single-row hard delete
+    /// keyed by `(worktree_id, file_path, path, key)`.
+    const DELETE_RECORD_BY_KEY: &'static str;
 }
 
 impl Dialect for sqlx::Sqlite {
@@ -141,6 +159,25 @@ impl Dialect for sqlx::Sqlite {
            AND (?3 IS NULL OR version <= ?3) \
            AND (?4 IS NULL OR commit_id = ?4) \
          RETURNING id";
+    const UPSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
+         VALUES (?1, ?2, ?3, ?4) \
+         ON CONFLICT(worktree_id, path) DO UPDATE SET \
+           format = excluded.format, \
+           commit_id = excluded.commit_id";
+    const SYNC_UPSERT_RECORD: &'static str =
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+         VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, 0, ?7) \
+         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+           json = excluded.json, \
+           commit_id = excluded.commit_id, \
+           deleted = 0, \
+           version = excluded.version \
+         RETURNING id";
+    const LIST_FILE_RECORD_KEYS: &'static str =
+        "SELECT path, key FROM record WHERE worktree_id = ?1 AND file_path = ?2";
+    const DELETE_RECORD_BY_KEY: &'static str =
+        "DELETE FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
+         AND path = ?3 AND key = ?4 RETURNING id";
 }
 
 #[cfg(feature = "postgres")]
@@ -189,6 +226,25 @@ impl Dialect for sqlx::Postgres {
            AND ($3::BIGINT IS NULL OR version <= $3) \
            AND ($4::TEXT IS NULL OR commit_id = $4) \
          RETURNING id";
+    const UPSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
+         VALUES ($1, $2, $3, $4) \
+         ON CONFLICT(worktree_id, path) DO UPDATE SET \
+           format = EXCLUDED.format, \
+           commit_id = EXCLUDED.commit_id";
+    const SYNC_UPSERT_RECORD: &'static str =
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, FALSE, $7) \
+         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+           json = EXCLUDED.json, \
+           commit_id = EXCLUDED.commit_id, \
+           deleted = FALSE, \
+           version = EXCLUDED.version \
+         RETURNING id";
+    const LIST_FILE_RECORD_KEYS: &'static str =
+        "SELECT path, key FROM record WHERE worktree_id = $1 AND file_path = $2";
+    const DELETE_RECORD_BY_KEY: &'static str =
+        "DELETE FROM record WHERE worktree_id = $1 AND file_path = $2 \
+         AND path = $3 AND key = $4 RETURNING id";
 }
 
 // ---------------------------------------------------------------------------
@@ -337,6 +393,34 @@ where
         .bind(worktree_id)
         .bind(file_path)
         .bind(format)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Full file-row upsert for the from-disk re-sync: overwrites `format`
+/// and `commit_id`, the scanned working tree being the source of
+/// truth. Contrast [`ensure_file`], which registers a row only when
+/// missing.
+pub(crate) async fn upsert_file<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+    format: &str,
+    commit_id: Option<&str>,
+) -> Result<()>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+{
+    sqlx::query(DB::UPSERT_FILE)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(format)
+        .bind(commit_id)
         .execute(&mut **tx)
         .await?;
     Ok(())
@@ -516,6 +600,45 @@ where
     .await
 }
 
+/// Re-sync record upsert: INSERT-or-overwrite, clearing any tombstone.
+/// Unlike [`upsert_record`] the row's `commit_id` is set from the
+/// `commit_id` bind (the file's resolved last commit, `None` when the
+/// file is dirty) rather than forced to NULL, and no OCC predicate
+/// applies — the working tree is the source of truth on this path.
+pub(crate) async fn sync_upsert_record<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: RecordId<'_>,
+    json_text: &str,
+    commit_id: Option<&str>,
+    version: i64,
+) -> Result<i64>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
+    let row: (i64,) = sqlx::query_as(DB::SYNC_UPSERT_RECORD)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(path)
+        .bind(key)
+        .bind(json_text)
+        .bind(commit_id)
+        .bind(version)
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(row.0)
+}
+
 /// Tombstone the record and drop its aliases. We never hard-delete here;
 /// `commit_repository` is the only path that purges tombstones once
 /// they've been written to disk. `version` is stamped onto the row so
@@ -559,6 +682,49 @@ where
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// Hard-delete every record of `file_path` whose `(path, key)` isn't
+/// in `keep`; returns how many went away. Re-sync counterpart of the
+/// tombstoning [`delete_record`]: rows vanish because the file no
+/// longer contains them, so there is no pending edit to preserve.
+/// Per-row deletes keep the SQL simple — file record counts are small.
+/// The `RETURNING id` + `fetch_all` count avoids needing a portable
+/// `rows_affected()` bound (see the [`Dialect::UPDATE_RECORD`] note).
+pub(crate) async fn delete_missing<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+    keep: &BTreeSet<(String, String)>,
+) -> Result<usize>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+    (String, String): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let rows: Vec<(String, String)> = sqlx::query_as(DB::LIST_FILE_RECORD_KEYS)
+        .bind(worktree_id)
+        .bind(file_path)
+        .fetch_all(&mut **tx)
+        .await?;
+    let mut removed = 0usize;
+    for pk in rows {
+        if keep.contains(&pk) {
+            continue;
+        }
+        let deleted: Vec<(i64,)> = sqlx::query_as(DB::DELETE_RECORD_BY_KEY)
+            .bind(worktree_id)
+            .bind(file_path)
+            .bind(pk.0.as_str())
+            .bind(pk.1.as_str())
+            .fetch_all(&mut **tx)
+            .await?;
+        removed += deleted.len();
+    }
+    Ok(removed)
 }
 
 /// Reconstruct a [`crate::CommitRef`] from the (expected_version,
