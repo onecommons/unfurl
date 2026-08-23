@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use unfurl_git_sync::{
     canonical_facet_key, canonical_json_text, BatchOp, CommitRef, DbConfig, FacetPath, FacetSpec,
-    FormatRegistry, JsonQuery, Record, RecordQuery, SyncedRepo,
+    FormatRegistry, JsonQuery, Record, RecordQuery, SyncedRepo, TxnMeta,
 };
 
 use crate::proxy;
@@ -1491,6 +1491,16 @@ pub async fn post_cloudmap_local(
         }
     }
 
+    // Who to attribute the write to, from the header python's
+    // `_get_author` documents. Read before `parts` is consumed by the
+    // rebuild below; the value is stored verbatim ("Name <email>", a
+    // bare name, or a bare email — python doesn't constrain it either).
+    let author = parts
+        .headers
+        .get("x-unfurl-user")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+
     // Validate only what this handler is going to apply itself.
     let req = Request::from_parts(parts, axum::body::Body::from(bytes));
     let body =
@@ -1498,7 +1508,7 @@ pub async fn post_cloudmap_local(
             Ok(ValidatedJson(body)) => body,
             Err(rejection) => return rejection,
         };
-    match post_cloudmap_apply(cm, body).await {
+    match post_cloudmap_apply(cm, body, author).await {
         Ok(response) => response.into_response(),
         Err(err) => err.into_response(),
     }
@@ -1509,6 +1519,7 @@ pub async fn post_cloudmap_local(
 async fn post_cloudmap_apply(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
+    author: Option<String>,
 ) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
     // Reject unknown top-level keys (sections or envelope) the same
     // way the Python handler does — they end up in the typed
@@ -1563,7 +1574,17 @@ async fn post_cloudmap_apply(
         }
     }
 
-    let result = apply_writes(cm, body, atomic).await?;
+    // Attribute the batch in git-sync's `txn` table. One git commit
+    // carries every batch staged since the last one, so without this the
+    // author and per-request message of all but the committing request
+    // would be lost; `commit_repository` reports the rows back in the
+    // commit-message body.
+    let meta = TxnMeta {
+        author,
+        message: Some(commit_msg.clone()),
+    };
+
+    let result = apply_writes(cm, body, atomic, meta).await?;
     // A body carrying no records is legitimate here — it means "commit whatever
     // is already staged". `commit_repository` is itself a no-op returning None
     // when nothing is dirty, so there's no separate emptiness check to make.
@@ -1717,6 +1738,7 @@ async fn apply_writes(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
     atomic: bool,
+    meta: TxnMeta,
 ) -> Result<WriteOutcome, WriteError> {
     let synced = cm.inner.as_ref();
 
@@ -1777,7 +1799,7 @@ async fn apply_writes(
     }
 
     let outcome = synced
-        .apply_batch(ops, atomic)
+        .apply_batch(ops, atomic, Some(meta))
         .await
         .map_err(|e| WriteError::Internal(format!("apply_batch: {e}")))?;
 

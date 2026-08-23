@@ -16,7 +16,7 @@ use common::sqlite_fixture;
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
-use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, RecordQuery, SyncedRepo};
+use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, RecordQuery, SyncedRepo, TxnMeta};
 
 // ---------------------------------------------------------------------------
 // Test bodies
@@ -1292,7 +1292,10 @@ async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
             expected: None,
         },
     ];
-    let outcome = sync.apply_batch(ops, true).await.expect("apply_batch");
+    let outcome = sync
+        .apply_batch(ops, true, None)
+        .await
+        .expect("apply_batch");
     assert!(outcome.failed.is_empty(), "failed: {:?}", outcome.failed);
     assert_eq!(outcome.applied.len(), 2);
     assert!(outcome.last_version.is_some());
@@ -1322,6 +1325,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
                 expected: None,
             }],
             true,
+            None,
         )
         .await
         .expect("first");
@@ -1358,7 +1362,10 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
             expected: Some(CommitRef::Pending(v1)),
         },
     ];
-    let outcome = sync.apply_batch(ops, true).await.expect("apply_batch");
+    let outcome = sync
+        .apply_batch(ops, true, None)
+        .await
+        .expect("apply_batch");
     assert!(outcome.applied.is_empty(), "atomic rollback expected");
     assert_eq!(outcome.failed.len(), 1);
     assert_eq!(outcome.failed[0].key, "tracked");
@@ -1384,6 +1391,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
                 expected: None,
             }],
             true,
+            None,
         )
         .await
         .expect("first");
@@ -1422,7 +1430,10 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
             expected: None,
         },
     ];
-    let outcome = sync.apply_batch(ops, false).await.expect("apply_batch");
+    let outcome = sync
+        .apply_batch(ops, false, None)
+        .await
+        .expect("apply_batch");
     assert_eq!(outcome.applied.len(), 2, "{:?}", outcome.applied);
     assert_eq!(outcome.failed.len(), 1);
     assert_eq!(outcome.failed[0].key, "tracked");
@@ -2385,4 +2396,218 @@ async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
 crud_test!(
     resync_deletes_missing_records,
     run_resync_deletes_missing_records
+);
+
+// ---------------------------------------------------------------------------
+// txn audit table
+// ---------------------------------------------------------------------------
+
+/// The commit message body of HEAD, as `git log` renders it.
+fn head_commit_body(dir: &std::path::Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%B"])
+        .current_dir(dir)
+        .output()
+        .expect("git log");
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// A batch upsert into `/repositories`, no OCC token.
+fn upsert_op(key: &str) -> BatchOp {
+    BatchOp::Upsert {
+        file_path: Some("cloudmap.yaml".into()),
+        path: "/repositories".into(),
+        key: key.into(),
+        json: serde_json::json!({"name": key}),
+        expected: None,
+    }
+}
+
+async fn run_apply_batch_records_txn_and_rolls_it_up(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    const AUTHOR: &str = "Adam Souzis <adam@souzis.com>";
+    const MESSAGE_A: &str = "Recover from tuple patterns with inline element types";
+    // Two lines, and no author — both are optional parts of an entry.
+    const MESSAGE_B: &str = "Add the staging dashboard\nreviewed offline";
+
+    let first = sync
+        .apply_batch(
+            vec![upsert_op("txn-a"), upsert_op("txn-b")],
+            true,
+            Some(TxnMeta {
+                author: Some(AUTHOR.into()),
+                message: Some(MESSAGE_A.into()),
+            }),
+        )
+        .await
+        .expect("first batch");
+    assert_eq!(first.applied.len(), 2, "{:?}", first.failed);
+
+    let second = sync
+        .apply_batch(
+            vec![upsert_op("txn-c")],
+            true,
+            Some(TxnMeta {
+                author: None,
+                message: Some(MESSAGE_B.into()),
+            }),
+        )
+        .await
+        .expect("second batch");
+    assert_eq!(second.applied.len(), 1, "{:?}", second.failed);
+
+    // One row per batch, carrying the version range that batch stamped.
+    let txns = sync.list_transactions().await.expect("list_transactions");
+    assert_eq!(txns.len(), 2, "{txns:?}");
+    assert_eq!(txns[0].first_version, first.applied[0].outcome.version);
+    assert_eq!(txns[0].last_version, first.last_version.expect("last"));
+    assert_eq!(txns[0].author.as_deref(), Some(AUTHOR));
+    assert_eq!(txns[0].message.as_deref(), Some(MESSAGE_A));
+    assert!(txns[0].commit_id.is_none(), "outstanding until committed");
+    assert_eq!(txns[1].first_version, second.applied[0].outcome.version);
+    assert_eq!(txns[1].last_version, txns[1].first_version, "one-op batch");
+    assert_eq!(txns[1].author, None);
+    assert!(
+        txns[0].last_version < txns[1].first_version,
+        "ranges must be disjoint and ordered: {txns:?}"
+    );
+
+    let dates: Vec<String> = txns
+        .iter()
+        .map(|t| {
+            chrono::DateTime::parse_from_rfc3339(&t.created_at)
+                .unwrap_or_else(|e| panic!("created_at {:?} is not RFC 3339: {e}", t.created_at))
+                .format("%a %b %e %H:%M:%S %Y %z")
+                .to_string()
+        })
+        .collect();
+
+    let oid = sync
+        .commit_repository("subject line")
+        .await
+        .expect("commit")
+        .expect("something was dirty");
+
+    let body = head_commit_body(tmp.path());
+    assert!(
+        body.starts_with("subject line\n\nRollup of 2 git-sync transactions:\n\n"),
+        "{body}"
+    );
+    // Authored, multi-version entry: `<first>-<last> on <worktree>`.
+    assert!(
+        body.contains(&format!(
+            " - {}-{} on {} {} {AUTHOR}:\n     {MESSAGE_A}\n",
+            txns[0].first_version, txns[0].last_version, txns[0].worktree_id, dates[0],
+        )),
+        "{body}"
+    );
+    // Author-less entry: no trailing author after the date, and a
+    // collapsed single-version range. Every message line is indented.
+    assert!(
+        body.contains(&format!(
+            " - {} on {} {}:\n     Add the staging dashboard\n     reviewed offline\n",
+            txns[1].first_version, txns[1].worktree_id, dates[1],
+        )),
+        "{body}"
+    );
+
+    // Both rows now name the commit that carried their writes.
+    let txns = sync.list_transactions().await.expect("list_transactions");
+    assert_eq!(txns.len(), 2, "roll-forward must not delete rows");
+    for txn in &txns {
+        assert_eq!(txn.commit_id.as_deref(), Some(oid.as_str()), "{txn:?}");
+    }
+}
+
+async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    // `None` opts out of the audit trail entirely.
+    let staged = sync
+        .apply_batch(vec![upsert_op("tracked")], true, None)
+        .await
+        .expect("staging batch");
+    assert!(sync
+        .list_transactions()
+        .await
+        .expect("list_transactions")
+        .is_empty());
+    let v1 = staged.applied[0].outcome.version;
+
+    // A batch that rolls back records nothing either, meta or not: the
+    // insert rides the same transaction as the writes it describes.
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "tracked",
+        serde_json::json!({"name": "v2"}),
+        None,
+    )
+    .await
+    .expect("out-of-band update makes the token below stale");
+    let outcome = sync
+        .apply_batch(
+            vec![
+                upsert_op("fresh"),
+                BatchOp::Upsert {
+                    file_path: Some("cloudmap.yaml".into()),
+                    path: "/repositories".into(),
+                    key: "tracked".into(),
+                    json: serde_json::json!({"name": "stomp"}),
+                    expected: Some(CommitRef::Pending(v1)),
+                },
+            ],
+            true,
+            Some(TxnMeta {
+                author: Some("someone".into()),
+                message: Some("doomed".into()),
+            }),
+        )
+        .await
+        .expect("conflicting batch");
+    assert!(outcome.applied.is_empty(), "atomic rollback expected");
+    assert_eq!(outcome.failed.len(), 1);
+    assert!(
+        sync.list_transactions()
+            .await
+            .expect("list_transactions")
+            .is_empty(),
+        "a rolled-back batch must leave no audit row"
+    );
+}
+
+async fn run_commit_without_txns_keeps_the_bare_message(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // Single-op CRUD writes never record a txn, so this commit has
+    // nothing to roll up and its message is passed through untouched.
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "no-rollup",
+        serde_json::json!({"name": "no-rollup"}),
+        None,
+    )
+    .await
+    .expect("upsert");
+
+    sync.commit_repository("just the subject")
+        .await
+        .expect("commit")
+        .expect("something was dirty");
+    assert_eq!(head_commit_body(tmp.path()).trim_end(), "just the subject");
+}
+
+crud_test!(
+    apply_batch_records_txn_and_rolls_it_up,
+    run_apply_batch_records_txn_and_rolls_it_up
+);
+crud_test!(
+    apply_batch_without_meta_records_no_txn,
+    run_apply_batch_without_meta_records_no_txn
+);
+crud_test!(
+    commit_without_txns_keeps_the_bare_message,
+    run_commit_without_txns_keeps_the_bare_message
 );

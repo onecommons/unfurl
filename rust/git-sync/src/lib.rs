@@ -81,7 +81,7 @@ pub use formats::cloudmap::CloudMapFormat;
 pub use model::{
     canonical_facet_key, canonical_json_text, Alias, Applied, BatchOp, BatchOutcome,
     FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File, JsonQuery, QueryOp, Record,
-    RecordQuery, UpdateStats, WorkingDir, Worktree, WriteOutcome,
+    RecordQuery, Txn, TxnMeta, UpdateStats, WorkingDir, Worktree, WriteOutcome,
 };
 #[doc(inline)]
 pub use sync::{CommitRef, SyncedRepo};

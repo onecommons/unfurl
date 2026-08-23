@@ -458,6 +458,50 @@ pub struct Record {
     pub version: i64,
 }
 
+/// Attribution for a batch write: who asked for it and why.
+///
+/// Passed to [`crate::SyncedRepo::apply_batch`] to opt that batch into
+/// the `txn` audit table. Both fields are optional — a caller that knows
+/// neither can still pass `TxnMeta::default()` to get a row recording
+/// just the version range and timestamp.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TxnMeta {
+    /// Free-form author string, e.g. `Name <email>`. Stored verbatim.
+    pub author: Option<String>,
+    /// The caller's description of the batch. Reproduced in the body of
+    /// the git commit message that carries these writes.
+    pub message: Option<String>,
+}
+
+/// One row of the `txn` table — the audit trail of a batch write.
+///
+/// Written by [`crate::SyncedRepo::apply_batch`] when given a
+/// [`TxnMeta`], read back by [`crate::SyncedRepo::list_transactions`],
+/// and reported in the commit-message body by
+/// [`crate::SyncedRepo::commit_repository`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Txn {
+    /// Auto-assigned primary key.
+    pub id: i64,
+    /// Foreign key into [`Worktree`].
+    pub worktree_id: i64,
+    /// Lowest [`Record::version`] the batch stamped.
+    pub first_version: i64,
+    /// Highest [`Record::version`] the batch stamped. Equal to
+    /// `first_version` for a one-op batch.
+    pub last_version: i64,
+    /// Author as supplied in [`TxnMeta::author`].
+    pub author: Option<String>,
+    /// Message as supplied in [`TxnMeta::message`].
+    pub message: Option<String>,
+    /// RFC 3339 timestamp with the local offset, taken when the batch
+    /// was applied.
+    pub created_at: String,
+    /// Commit oid that carried this batch's writes to git, or `None`
+    /// while the batch is still outstanding.
+    pub commit_id: Option<String>,
+}
+
 /// One row of the `alias` table — an alternate `(path, key)` lookup
 /// pointing at a record.
 ///

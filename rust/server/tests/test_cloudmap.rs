@@ -141,14 +141,29 @@ async fn post_json(app: Router, body: Value) -> (StatusCode, Value) {
 }
 
 async fn post_json_as(app: Router, body: Value, auth_project: Option<&str>) -> (StatusCode, Value) {
+    post_json_with_headers(app, body, auth_project, &[]).await
+}
+
+/// [`post_json_as`] plus arbitrary request headers, for the ones the
+/// handler reads off the request itself (`X-Unfurl-User`).
+async fn post_json_with_headers(
+    app: Router,
+    body: Value,
+    auth_project: Option<&str>,
+    headers: &[(&str, &str)],
+) -> (StatusCode, Value) {
     let uri = match auth_project {
         Some(p) => format!("/cloudmap?auth_project={}", urlencoding::encode(p)),
         None => "/cloudmap".to_string(),
     };
-    let req = Request::builder()
+    let mut builder = Request::builder()
         .method("POST")
         .uri(uri)
-        .header("content-type", "application/json")
+        .header("content-type", "application/json");
+    for (name, value) in headers {
+        builder = builder.header(*name, *value);
+    }
+    let req = builder
         .body(Body::from(serde_json::to_vec(&body).unwrap()))
         .unwrap();
     let resp = app.oneshot(req).await.expect("handler");
@@ -1495,6 +1510,103 @@ async fn post_with_commit_flag_commits() {
     // The change reached the file on disk, too.
     let on_disk = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
     assert!(on_disk.contains("committed-by-handler"), "{on_disk}");
+}
+
+/// The commit message body (everything after the subject) of HEAD.
+fn head_commit_body(dir: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%b"])
+        .current_dir(dir)
+        .output()
+        .expect("git log");
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+#[tokio::test]
+async fn commit_body_attributes_the_write_to_the_x_unfurl_user_header() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (status, response) = post_json_with_headers(
+        app,
+        serde_json::json!({
+            "commit": true,
+            "commit_msg": "Recover from tuple patterns",
+            "repositories": { key: { "name": "attributed" } },
+        }),
+        Some("onecommons/cloudmap"),
+        &[("X-Unfurl-User", "Adam Souzis <adam@souzis.com>")],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+
+    let body = head_commit_body(tmp.path());
+    assert!(
+        body.starts_with("Rollup of 1 git-sync transaction:\n"),
+        "{body}"
+    );
+    assert!(body.contains("Adam Souzis <adam@souzis.com>:\n"), "{body}");
+    // `commit_msg` is both the subject and this batch's own message.
+    assert!(
+        body.contains("\n     Recover from tuple patterns\n"),
+        "{body}"
+    );
+}
+
+#[tokio::test]
+async fn commit_body_rolls_up_every_staged_writers_attribution() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let std_key = "git://unfurl.cloud/onecommons/std.git";
+    let other_key = "git://unfurl.cloud/feb20a/dashboard.git";
+
+    // Two staged writes by different people, on distinct keys; neither
+    // commits. Without the audit table only the third request's message
+    // would survive into the commit.
+    for (author, key, name, msg) in [
+        (
+            "Ada <ada@example.com>",
+            std_key,
+            "by-ada",
+            Some("Point std at the new branch"),
+        ),
+        // No `commit_msg` — the handler's default is recorded instead.
+        ("bob@example.com", other_key, "by-bob", None),
+    ] {
+        let mut body = serde_json::json!({
+            "repositories": { key: { "name": name } },
+        });
+        if let Some(msg) = msg {
+            body["commit_msg"] = serde_json::json!(msg);
+        }
+        let app = router(make_state(cm.clone()));
+        let (status, response) = post_json_with_headers(
+            app,
+            body,
+            Some("onecommons/cloudmap"),
+            &[("X-Unfurl-User", author)],
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{response:?}");
+    }
+
+    // A bare `commit: true` carries both staged batches into one commit.
+    let app = router(make_state(cm));
+    let (status, response) = post_json(app, serde_json::json!({ "commit": true })).await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+
+    let body = head_commit_body(tmp.path());
+    assert!(
+        body.starts_with("Rollup of 2 git-sync transactions:\n"),
+        "{body}"
+    );
+    assert!(body.contains("Ada <ada@example.com>:\n"), "{body}");
+    assert!(
+        body.contains("\n     Point std at the new branch\n"),
+        "{body}"
+    );
+    assert!(body.contains("bob@example.com:\n"), "{body}");
+    assert!(body.contains("\n     Update cloudmap\n"), "{body}");
 }
 
 #[tokio::test]

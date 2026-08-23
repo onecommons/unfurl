@@ -25,7 +25,8 @@ use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::model::{
-    Applied, BatchOp, BatchOutcome, Failed, Record, RecordQuery, UpdateStats, WriteOutcome,
+    Applied, BatchOp, BatchOutcome, Failed, Record, RecordQuery, Txn, TxnMeta, UpdateStats,
+    WriteOutcome,
 };
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
@@ -757,12 +758,32 @@ impl SyncedRepo {
     ///
     /// Other (non-CRUD) errors — I/O, malformed JSON, SQL backend
     /// failures — always abort and propagate as `Err`.
-    pub async fn apply_batch(&self, ops: Vec<BatchOp>, atomic: bool) -> Result<BatchOutcome> {
+    ///
+    /// `meta` opts the batch into the `txn` audit table: a row naming
+    /// the author, the message, and the version range this batch
+    /// stamped is inserted in the same transaction, so it lands only if
+    /// the batch does. A batch that applied nothing (empty, or fully
+    /// rolled back) records no row. [`Self::commit_repository`] later
+    /// reports these rows in the body of the git commit message. Pass
+    /// `None` to write without an audit trail.
+    pub async fn apply_batch(
+        &self,
+        ops: Vec<BatchOp>,
+        atomic: bool,
+        meta: Option<TxnMeta>,
+    ) -> Result<BatchOutcome> {
         match self.db() {
-            Db::Sqlite(pool) => apply_batch_inner(self, pool, ops, atomic).await,
+            Db::Sqlite(pool) => apply_batch_inner(self, pool, ops, atomic, meta).await,
             #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => apply_batch_inner(self, pool, ops, atomic).await,
+            Db::Postgres(pool) => apply_batch_inner(self, pool, ops, atomic, meta).await,
         }
+    }
+
+    /// Every `txn` audit row of this worktree, oldest version range
+    /// first — both outstanding batches and ones already carried into a
+    /// commit (distinguished by [`Txn::commit_id`]).
+    pub async fn list_transactions(&self) -> Result<Vec<Txn>> {
+        db::commit::list_all(self.db(), self.worktree_id()).await
     }
 
     /// Persist every in-flight record edit to disk.
@@ -854,6 +875,13 @@ impl SyncedRepo {
     /// `worktree` row in a single transaction. Tombstones for the
     /// committed paths are purged at the same time.
     ///
+    /// When outstanding `txn` audit rows exist (batches applied with a
+    /// [`TxnMeta`] since the last commit), a "Rollup of N git-sync
+    /// transactions" section listing them is appended to `message` —
+    /// one commit carries many batches, so this is where their
+    /// individual authors and messages survive. Those rows are stamped
+    /// with the new oid alongside the records.
+    ///
     /// Returns the new commit oid as a hex string, or `None` when
     /// there was nothing to commit (no in-flight records).
     ///
@@ -873,9 +901,14 @@ impl SyncedRepo {
         }
         let _written = self.save_changes().await?;
 
+        // Read the audit rows before roll_forward stamps them: this
+        // commit is the one that carries their writes.
+        let txns = db::commit::list_outstanding(self.db(), self.worktree_id()).await?;
+        let message = build_commit_message(message, &txns);
+
         // Create the commit using gix.
         let repo = self.repo()?;
-        let oid = git::commit_paths(&repo, &dirty, message)?;
+        let oid = git::commit_paths(&repo, &dirty, &message)?;
         let oid_str = oid.to_string();
 
         // Roll the commit id into the dirty rows in a single transaction.
@@ -883,6 +916,63 @@ impl SyncedRepo {
 
         Ok(Some(oid_str))
     }
+}
+
+/// `subject` with a rollup section describing `txns` appended, or
+/// `subject` unchanged when there are none.
+///
+/// A single git commit carries every batch applied since the last one,
+/// so the per-batch author and message would otherwise be lost. The
+/// section renders as:
+///
+/// ```text
+/// Rollup of 2 git-sync transactions:
+///
+///  - 45-66 on 1 Thu Jul 23 13:10:21 2026 -0700 Author Name <author@emails.org>:
+///      A commit message for the first batch
+///  - 67 on 1 Thu Jul 23 13:11:02 2026 -0700:
+///      Another commit message
+/// ```
+///
+/// — where `45-66` is the [`Txn`] version range (collapsed to one
+/// number when the batch stamped a single version) and `1` is the
+/// worktree id. The author is omitted when unknown, as are the indented
+/// message lines when the batch carried no message.
+fn build_commit_message(subject: &str, txns: &[Txn]) -> String {
+    if txns.is_empty() {
+        return subject.to_string();
+    }
+    let plural = if txns.len() == 1 { "" } else { "s" };
+    let mut out = format!(
+        "{subject}\n\nRollup of {} git-sync transaction{plural}:\n\n",
+        txns.len()
+    );
+    for txn in txns {
+        let range = if txn.first_version == txn.last_version {
+            txn.first_version.to_string()
+        } else {
+            format!("{}-{}", txn.first_version, txn.last_version)
+        };
+        // Never fail a commit over a timestamp: an unparseable stamp is
+        // reported as stored.
+        let date = chrono::DateTime::parse_from_rfc3339(&txn.created_at)
+            .map(|dt| dt.format("%a %b %e %H:%M:%S %Y %z").to_string())
+            .unwrap_or_else(|_| txn.created_at.clone());
+        let author = match &txn.author {
+            Some(a) => format!(" {a}"),
+            None => String::new(),
+        };
+        out.push_str(&format!(
+            " - {range} on {} {date}{author}:\n",
+            txn.worktree_id
+        ));
+        if let Some(message) = &txn.message {
+            for line in message.lines() {
+                out.push_str(&format!("     {line}\n"));
+            }
+        }
+    }
+    out
 }
 
 /// Lower-cased extension of `file_path`, or empty when there isn't one.
@@ -1676,6 +1766,7 @@ async fn apply_batch_inner<DB>(
     pool: &sqlx::Pool<DB>,
     ops: Vec<BatchOp>,
     atomic: bool,
+    meta: Option<TxnMeta>,
 ) -> Result<BatchOutcome>
 where
     DB: db::tx::Dialect,
@@ -1730,6 +1821,26 @@ where
                 return Err(other);
             }
         }
+    }
+    // Audit row last, inside the same transaction: it lands only if the
+    // writes it describes do. A batch that applied nothing has no
+    // version range to record, so it gets no row.
+    if let (Some(meta), Some(first), Some(last)) = (
+        meta,
+        outcome.applied.first().map(|a| a.outcome.version),
+        outcome.last_version,
+    ) {
+        let created_at = chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+        db::tx::insert_txn(
+            &mut tx,
+            sync.worktree_id(),
+            first,
+            last,
+            meta.author.as_deref(),
+            meta.message.as_deref(),
+            &created_at,
+        )
+        .await?;
     }
     tx.commit().await?;
     Ok(outcome)

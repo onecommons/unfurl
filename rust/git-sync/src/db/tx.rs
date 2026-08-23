@@ -106,6 +106,10 @@ pub(crate) trait Dialect: Database {
     /// `DELETE FROM record … RETURNING id` — single-row hard delete
     /// keyed by `(worktree_id, file_path, path, key)`.
     const DELETE_RECORD_BY_KEY: &'static str;
+    /// `INSERT INTO txn (...)` — audit row for one batch write.
+    /// `commit_id` is left NULL (outstanding) for
+    /// `db::commit::roll_forward` to stamp.
+    const INSERT_TXN: &'static str;
 }
 
 impl Dialect for sqlx::Sqlite {
@@ -178,6 +182,9 @@ impl Dialect for sqlx::Sqlite {
     const DELETE_RECORD_BY_KEY: &'static str =
         "DELETE FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
          AND path = ?3 AND key = ?4 RETURNING id";
+    const INSERT_TXN: &'static str =
+        "INSERT INTO txn (worktree_id, first_version, last_version, author, message, created_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
 }
 
 #[cfg(feature = "postgres")]
@@ -245,6 +252,12 @@ impl Dialect for sqlx::Postgres {
     const DELETE_RECORD_BY_KEY: &'static str =
         "DELETE FROM record WHERE worktree_id = $1 AND file_path = $2 \
          AND path = $3 AND key = $4 RETURNING id";
+    // No `::TEXT` casts on the nullable binds: an INSERT into named
+    // columns gives postgres the target type, unlike the WHERE-position
+    // NULLs above.
+    const INSERT_TXN: &'static str =
+        "INSERT INTO txn (worktree_id, first_version, last_version, author, message, created_at) \
+         VALUES ($1, $2, $3, $4, $5, $6)";
 }
 
 // ---------------------------------------------------------------------------
@@ -421,6 +434,45 @@ where
         .bind(file_path)
         .bind(format)
         .bind(commit_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Record one batch write in the `txn` audit table.
+///
+/// Call inside the batch's own transaction, after its last record write
+/// and before the commit, so the row lands only if the batch does.
+/// `first_version..=last_version` is the inclusive range of
+/// `record.version` stamps the batch drew; ranges recorded by concurrent
+/// batches never interleave, because the first [`next_version`] draw
+/// holds the worktree row lock until the transaction commits.
+///
+/// `commit_id` starts NULL — [`crate::db::commit::roll_forward`] stamps
+/// it when the batch's writes reach a git commit.
+pub(crate) async fn insert_txn<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    first_version: i64,
+    last_version: i64,
+    author: Option<&str>,
+    message: Option<&str>,
+    created_at: &str,
+) -> Result<()>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+{
+    sqlx::query(DB::INSERT_TXN)
+        .bind(worktree_id)
+        .bind(first_version)
+        .bind(last_version)
+        .bind(author)
+        .bind(message)
+        .bind(created_at)
         .execute(&mut **tx)
         .await?;
     Ok(())
