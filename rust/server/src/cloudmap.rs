@@ -482,6 +482,11 @@ pub async fn handle_cloudmap(
 /// resolve to the configured repo, as they always have). `Ok(())`
 /// means serve locally; `Err` carries the already-built response
 /// (proxied or errored).
+// axum's `Response` is ~128 bytes, so `Result<_, Response>` trips
+// `result_large_err`. Boxing it would obscure the signature without
+// changing wire behaviour — the same call `routes.rs` makes at module
+// scope for its handlers.
+#[allow(clippy::result_large_err)]
 async fn serve_or_proxy(
     state: &AppState,
     cm: &CloudMapState,
