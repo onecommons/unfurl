@@ -1546,12 +1546,24 @@ async fn commit_body_attributes_the_write_to_the_x_unfurl_user_header() {
         body.starts_with("Rollup of 1 git-sync transaction:\n"),
         "{body}"
     );
-    assert!(body.contains("Adam Souzis <adam@souzis.com>:\n"), "{body}");
+    assert!(body.contains("Adam Souzis <adam@souzis.com>\n"), "{body}");
     // `commit_msg` is both the subject and this batch's own message.
     assert!(
-        body.contains("\n     Recover from tuple patterns\n"),
+        body.contains("\n   | Recover from tuple patterns\n"),
         "{body}"
     );
+    // And the header value reaches the audit trail intact, not just the
+    // prose: `%b` drops the subject, so restore one to parse.
+    let rollup = unfurl_git_sync::parse_commit_rollup(&format!("x\n\n{body}"))
+        .expect("parses")
+        .expect("a git-sync commit");
+    assert_eq!(rollup.txns.len(), 1, "{body}");
+    assert_eq!(
+        rollup.txns[0].author.as_deref(),
+        Some("Adam Souzis <adam@souzis.com>")
+    );
+    assert_eq!(rollup.txns[0].records.len(), 1, "{body}");
+    assert_eq!(rollup.txns[0].records[0].path, "/repositories", "{body}");
 }
 
 #[tokio::test]
@@ -1600,13 +1612,27 @@ async fn commit_body_rolls_up_every_staged_writers_attribution() {
         body.starts_with("Rollup of 2 git-sync transactions:\n"),
         "{body}"
     );
-    assert!(body.contains("Ada <ada@example.com>:\n"), "{body}");
+    assert!(body.contains("Ada <ada@example.com>\n"), "{body}");
     assert!(
-        body.contains("\n     Point std at the new branch\n"),
+        body.contains("\n   | Point std at the new branch\n"),
         "{body}"
     );
-    assert!(body.contains("bob@example.com:\n"), "{body}");
-    assert!(body.contains("\n     Update cloudmap\n"), "{body}");
+    assert!(body.contains("bob@example.com\n"), "{body}");
+    assert!(body.contains("\n   | Update cloudmap\n"), "{body}");
+    // The handler's writes are attributed to each author's own batch.
+    let rollup = unfurl_git_sync::parse_commit_rollup(&format!("x\n\n{body}"))
+        .expect("parses")
+        .expect("a git-sync commit");
+    assert_eq!(rollup.txns.len(), 2, "{body}");
+    assert_eq!(
+        rollup.txns[0].author.as_deref(),
+        Some("Ada <ada@example.com>")
+    );
+    assert_eq!(rollup.txns[1].author.as_deref(), Some("bob@example.com"));
+    for txn in &rollup.txns {
+        assert_eq!(txn.records.len(), 1, "one record each: {body}");
+        assert!(!txn.records[0].deleted, "{body}");
+    }
 }
 
 #[tokio::test]

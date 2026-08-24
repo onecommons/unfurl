@@ -33,6 +33,68 @@ type FullRecordRowPg = (
     i64,
 );
 
+/// Records whose current `version` falls in `first..=last`, in version
+/// order, tombstones included.
+///
+/// Used at commit time to work out which records a batch contributed to
+/// the commit being made. Versions are drawn from a strictly increasing
+/// per-worktree counter, so a range from this commit's batches can only
+/// match rows this commit is carrying — no `commit_id IS NULL` filter is
+/// needed to scope it.
+///
+/// A row whose version has moved past the range (a later batch rewrote
+/// it) is deliberately absent; the caller reports the shortfall rather
+/// than attributing the record to whoever wrote it last. Tombstones are
+/// included because a delete is a contribution too, and this runs before
+/// [`crate::db::commit::roll_forward`] purges them.
+///
+/// The `deleted` column is cast to INTEGER so both dialects decode into
+/// the same row tuple (see [`crate::db::tx`]).
+pub(crate) async fn list_by_version_range(
+    db: &Db,
+    worktree_id: i64,
+    first: i64,
+    last: i64,
+) -> Result<Vec<crate::model::TxnRecord>> {
+    let rows: Vec<(String, String, i64, i64)> = match db {
+        Db::Sqlite(pool) => {
+            sqlx::query_as(
+                "SELECT path, key, version, CASE WHEN deleted THEN 1 ELSE 0 END \
+                 FROM record WHERE worktree_id = ?1 AND version >= ?2 AND version <= ?3 \
+                 ORDER BY version",
+            )
+            .bind(worktree_id)
+            .bind(first)
+            .bind(last)
+            .fetch_all(pool)
+            .await?
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query_as(
+                "SELECT path, key, version, \
+                        CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END \
+                 FROM record WHERE worktree_id = $1 AND version >= $2 AND version <= $3 \
+                 ORDER BY version",
+            )
+            .bind(worktree_id)
+            .bind(first)
+            .bind(last)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows
+        .into_iter()
+        .map(|(path, key, version, deleted)| crate::model::TxnRecord {
+            path,
+            key,
+            version,
+            deleted: deleted != 0,
+        })
+        .collect())
+}
+
 pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<String>> {
     // A file is dirty when it has at least one record row with
     // commit_id IS NULL — either an in-flight update / upsert (json

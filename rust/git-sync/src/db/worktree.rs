@@ -101,6 +101,33 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
     })
 }
 
+/// The next value [`crate::db::tx::next_version`] will hand out — one
+/// past the highest version stamped so far.
+///
+/// Read (not drawn) at commit time so the commit message can record the
+/// counter's high-water mark. It is a snapshot: a concurrent batch may
+/// draw again before the commit lands, which is fine — the value only
+/// has to cover the writes this commit carries, and the next commit's
+/// trailer covers the rest.
+pub(crate) async fn next_version(db: &Db, worktree_id: i64) -> Result<i64> {
+    let row: (i64,) = match db {
+        Db::Sqlite(pool) => {
+            sqlx::query_as("SELECT next_version FROM worktree WHERE id = ?1")
+                .bind(worktree_id)
+                .fetch_one(pool)
+                .await?
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query_as("SELECT next_version FROM worktree WHERE id = $1")
+                .bind(worktree_id)
+                .fetch_one(pool)
+                .await?
+        }
+    };
+    Ok(row.0)
+}
+
 /// Auto-pick `worktree.default_file_path` if not already set.
 ///
 /// Run once at the end of [`crate::SyncedRepo::update_from_working_dir`].

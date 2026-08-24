@@ -2399,10 +2399,10 @@ crud_test!(
 );
 
 // ---------------------------------------------------------------------------
-// txn audit table
+// txn audit table and the commit-message rollup
 // ---------------------------------------------------------------------------
 
-/// The commit message body of HEAD, as `git log` renders it.
+/// HEAD's full commit message.
 fn head_commit_body(dir: &std::path::Path) -> String {
     let out = std::process::Command::new("git")
         .args(["log", "-1", "--format=%B"])
@@ -2411,6 +2411,27 @@ fn head_commit_body(dir: &std::path::Path) -> String {
         .expect("git log");
     assert!(out.status.success(), "{out:?}");
     String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// The value of a trailer on HEAD, **as git itself parses it**.
+///
+/// Asserting on the raw message text would pass even if the trailer
+/// block were malformed -- a missing blank line makes git read the whole
+/// thing as prose while a substring check happily still matches. Going
+/// through `%(trailers:key=...)` is what proves the block is well-formed.
+fn head_trailer(dir: &std::path::Path, key: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args([
+            "log",
+            "-1",
+            &format!("--format=%(trailers:key={key},valueonly)"),
+        ])
+        .current_dir(dir)
+        .output()
+        .expect("git log");
+    assert!(out.status.success(), "{out:?}");
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 /// A batch upsert into `/repositories`, no OCC token.
@@ -2424,13 +2445,25 @@ fn upsert_op(key: &str) -> BatchOp {
     }
 }
 
-async fn run_apply_batch_records_txn_and_rolls_it_up(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+fn delete_op(key: &str) -> BatchOp {
+    BatchOp::Delete {
+        file_path: Some("cloudmap.yaml".into()),
+        path: "/repositories".into(),
+        key: key.into(),
+        expected: None,
+    }
+}
 
-    const AUTHOR: &str = "Adam Souzis <adam@souzis.com>";
-    const MESSAGE_A: &str = "Recover from tuple patterns with inline element types";
-    // Two lines, and no author — both are optional parts of an entry.
-    const MESSAGE_B: &str = "Add the staging dashboard\nreviewed offline";
+const AUTHOR: &str = "Ada Lovelace <ada@example.com>";
+const MESSAGE_A: &str = "Point std at the new branch";
+// Two paragraphs: the blank line is the case a plain indent would lose
+// to trailing-whitespace stripping.
+const MESSAGE_B: &str = "Retire the legacy mirror\n\nSuperseded by the dashboard entry.";
+
+async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // Exists in the fixture, so it can be deleted below.
+    let doomed = "git://unfurl.cloud/feb20a/dashboard.git";
 
     let first = sync
         .apply_batch(
@@ -2445,9 +2478,11 @@ async fn run_apply_batch_records_txn_and_rolls_it_up(sync: &SyncedRepo, tmp: &Te
         .expect("first batch");
     assert_eq!(first.applied.len(), 2, "{:?}", first.failed);
 
+    // Rewrites txn-a -- so the first batch's write of it is superseded
+    // and shows up as a shortfall rather than as a record line.
     let second = sync
         .apply_batch(
-            vec![upsert_op("txn-c")],
+            vec![upsert_op("txn-a"), delete_op(doomed)],
             true,
             Some(TxnMeta {
                 author: None,
@@ -2456,69 +2491,214 @@ async fn run_apply_batch_records_txn_and_rolls_it_up(sync: &SyncedRepo, tmp: &Te
         )
         .await
         .expect("second batch");
-    assert_eq!(second.applied.len(), 1, "{:?}", second.failed);
-
-    // One row per batch, carrying the version range that batch stamped.
-    let txns = sync.list_transactions().await.expect("list_transactions");
-    assert_eq!(txns.len(), 2, "{txns:?}");
-    assert_eq!(txns[0].first_version, first.applied[0].outcome.version);
-    assert_eq!(txns[0].last_version, first.last_version.expect("last"));
-    assert_eq!(txns[0].author.as_deref(), Some(AUTHOR));
-    assert_eq!(txns[0].message.as_deref(), Some(MESSAGE_A));
-    assert!(txns[0].commit_id.is_none(), "outstanding until committed");
-    assert_eq!(txns[1].first_version, second.applied[0].outcome.version);
-    assert_eq!(txns[1].last_version, txns[1].first_version, "one-op batch");
-    assert_eq!(txns[1].author, None);
+    assert_eq!(second.applied.len(), 2, "{:?}", second.failed);
     assert!(
-        txns[0].last_version < txns[1].first_version,
-        "ranges must be disjoint and ordered: {txns:?}"
+        second.applied.iter().any(|a| a.deleted && a.key == doomed),
+        "the delete must be reported as one: {:?}",
+        second.applied
+    );
+    assert!(
+        second
+            .applied
+            .iter()
+            .any(|a| !a.deleted && a.key == "txn-a"),
+        "...and the upsert must not be: {:?}",
+        second.applied
     );
 
-    let dates: Vec<String> = txns
-        .iter()
-        .map(|t| {
-            chrono::DateTime::parse_from_rfc3339(&t.created_at)
-                .unwrap_or_else(|e| panic!("created_at {:?} is not RFC 3339: {e}", t.created_at))
-                .format("%a %b %e %H:%M:%S %Y %z")
-                .to_string()
-        })
-        .collect();
+    let rows = sync.list_transactions().await.expect("list_transactions");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    let wd = sync.get_working_dir().await.expect("get_working_dir");
 
     let oid = sync
-        .commit_repository("subject line")
+        .commit_repository("Update cloudmap")
         .await
         .expect("commit")
         .expect("something was dirty");
 
     let body = head_commit_body(tmp.path());
+
+    // --- the parse-back contract -------------------------------------
+    // The message is the only machine-readable copy, so the crate's own
+    // parser is the assertion that matters: a format change that breaks
+    // reconstruction fails here even if the prose still looks right.
+    let parsed = unfurl_git_sync::parse_commit_rollup(&body)
+        .expect("parses")
+        .expect("is a git-sync commit");
+    assert_eq!(parsed.txns.len(), 2, "{body}");
+    assert!(parsed.origin.is_some(), "{body}");
     assert!(
-        body.starts_with("subject line\n\nRollup of 2 git-sync transactions:\n\n"),
+        parsed.next_version > rows[1].last_version,
+        "counter must cover every version this commit carried: {parsed:?}"
+    );
+
+    let a = &parsed.txns[0];
+    assert_eq!(a.first_version, rows[0].first_version);
+    assert_eq!(a.last_version, rows[0].last_version);
+    assert_eq!(a.branch, wd.branch);
+    // Verbatim, not a re-rendered date -- this has to round-trip exactly.
+    assert_eq!(a.created_at, rows[0].created_at);
+    assert_eq!(a.author.as_deref(), Some(AUTHOR));
+    assert_eq!(a.message.as_deref(), Some(MESSAGE_A));
+    // txn-a was rewritten by the second batch, so only txn-b still
+    // carries a version of this one -- and the difference is reported
+    // rather than silently dropped.
+    assert_eq!(
+        a.records.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        vec!["txn-b"],
         "{body}"
     );
-    // Authored, multi-version entry: `<first>-<last> on <worktree>`.
+    assert_eq!(a.unaccounted(), 1, "{body}");
+
+    let b = &parsed.txns[1];
+    assert_eq!(b.author, None, "an absent author round-trips as absent");
+    assert_eq!(b.message.as_deref(), Some(MESSAGE_B), "blank line survives");
+    assert_eq!(b.unaccounted(), 0, "{body}");
+    let deleted: Vec<&str> = b
+        .records
+        .iter()
+        .filter(|r| r.deleted)
+        .map(|r| r.key.as_str())
+        .collect();
+    assert_eq!(deleted, vec![doomed], "the delete is flagged: {body}");
     assert!(
-        body.contains(&format!(
-            " - {}-{} on {} {} {AUTHOR}:\n     {MESSAGE_A}\n",
-            txns[0].first_version, txns[0].last_version, txns[0].worktree_id, dates[0],
-        )),
-        "{body}"
-    );
-    // Author-less entry: no trailing author after the date, and a
-    // collapsed single-version range. Every message line is indented.
-    assert!(
-        body.contains(&format!(
-            " - {} on {} {}:\n     Add the staging dashboard\n     reviewed offline\n",
-            txns[1].first_version, txns[1].worktree_id, dates[1],
-        )),
+        b.records.iter().any(|r| !r.deleted && r.key == "txn-a"),
         "{body}"
     );
 
-    // Both rows now name the commit that carried their writes.
-    let txns = sync.list_transactions().await.expect("list_transactions");
-    assert_eq!(txns.len(), 2, "roll-forward must not delete rows");
-    for txn in &txns {
-        assert_eq!(txn.commit_id.as_deref(), Some(oid.as_str()), "{txn:?}");
+    // --- the human-readable half -------------------------------------
+    assert!(
+        body.starts_with("Update cloudmap\n\nRollup of 2 git-sync transactions:\n\n"),
+        "{body}"
+    );
+    assert!(
+        body.contains(&format!(
+            " - {}-{} on {} {} {AUTHOR}\n   | {MESSAGE_A}\n",
+            rows[0].first_version, rows[0].last_version, wd.branch, rows[0].created_at,
+        )),
+        "{body}"
+    );
+    // A blank message line is a bare marker, never trailing whitespace.
+    assert!(body.contains("\n   |\n"), "{body}");
+    assert!(!body.contains("   \n"), "no whitespace-only lines: {body}");
+    assert!(
+        body.contains(&format!(
+            "   * {} D \"/repositories\" \"{doomed}\"\n",
+            b.records.iter().find(|r| r.deleted).unwrap().version
+        )),
+        "{body}"
+    );
+    assert!(
+        body.contains("   ! 1 of 2 writes superseded later in this commit, or rolled back\n"),
+        "{body}"
+    );
+
+    // --- trailers, as git parses them --------------------------------
+    assert_eq!(
+        head_trailer(tmp.path(), "Git-Sync-Txns").as_deref(),
+        Some("2"),
+        "{body}"
+    );
+    assert!(
+        head_trailer(tmp.path(), "Git-Sync-Origin").is_some(),
+        "{body}"
+    );
+    assert_eq!(
+        head_trailer(tmp.path(), "Git-Sync-Next-Version")
+            .expect("counter trailer")
+            .parse::<i64>()
+            .expect("an integer"),
+        parsed.next_version,
+        "git and the crate parser must agree: {body}"
+    );
+
+    // Rows survive the commit, stamped with the oid that carried them.
+    let rows = sync.list_transactions().await.expect("list_transactions");
+    assert_eq!(rows.len(), 2, "roll-forward must not delete rows");
+    for row in &rows {
+        assert_eq!(row.commit_id.as_deref(), Some(oid.as_str()), "{row:?}");
     }
+}
+
+async fn run_keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // A key with a space and a quote: bare whitespace-splitting would
+    // corrupt this, and there is no second copy to fall back on.
+    let awkward = "git://example.com/a repo \"quoted\".git";
+    sync.apply_batch(
+        vec![upsert_op(awkward)],
+        true,
+        Some(TxnMeta {
+            author: Some("Ada: the first <ada@example.com>".into()),
+            message: Some("Handle an awkward key".into()),
+        }),
+    )
+    .await
+    .expect("batch");
+
+    sync.commit_repository("Update cloudmap")
+        .await
+        .expect("commit")
+        .expect("dirty");
+
+    let body = head_commit_body(tmp.path());
+    let parsed = unfurl_git_sync::parse_commit_rollup(&body)
+        .expect("parses")
+        .expect("is a git-sync commit");
+    assert_eq!(parsed.txns[0].records.len(), 1, "{body}");
+    assert_eq!(parsed.txns[0].records[0].key, awkward, "{body}");
+    assert_eq!(parsed.txns[0].records[0].path, "/repositories", "{body}");
+    // The author is the remainder of the header line, so a colon in it
+    // is not a delimiter.
+    assert_eq!(
+        parsed.txns[0].author.as_deref(),
+        Some("Ada: the first <ada@example.com>"),
+        "{body}"
+    );
+}
+
+async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // Single-op CRUD writes never record a txn, so this commit has
+    // nothing to roll up -- but it still drew a version.
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "no-rollup",
+        serde_json::json!({"name": "no-rollup"}),
+        None,
+    )
+    .await
+    .expect("upsert");
+
+    sync.commit_repository("just the subject")
+        .await
+        .expect("commit")
+        .expect("something was dirty");
+
+    let body = head_commit_body(tmp.path());
+    assert!(!body.contains("Rollup of"), "nothing to roll up: {body}");
+    assert_eq!(
+        head_trailer(tmp.path(), "Git-Sync-Txns").as_deref(),
+        Some("0"),
+        "always emitted, so a dropped trailer is detectable: {body}"
+    );
+
+    let parsed = unfurl_git_sync::parse_commit_rollup(&body)
+        .expect("parses")
+        .expect("still a git-sync commit");
+    assert!(parsed.txns.is_empty(), "{parsed:?}");
+    let version = sync
+        .get_record("cloudmap.yaml", "/repositories", "no-rollup")
+        .await
+        .expect("get")
+        .expect("found")
+        .version;
+    assert!(
+        parsed.next_version > version,
+        "counter {} must cover the un-rolled-up write at {version}",
+        parsed.next_version
+    );
 }
 
 async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
@@ -2578,36 +2758,67 @@ async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &T
     );
 }
 
-async fn run_commit_without_txns_keeps_the_bare_message(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
-    // Single-op CRUD writes never record a txn, so this commit has
-    // nothing to roll up and its message is passed through untouched.
-    sync.upsert_record(
-        Some("cloudmap.yaml"),
-        "/repositories",
-        "no-rollup",
-        serde_json::json!({"name": "no-rollup"}),
-        None,
-    )
-    .await
-    .expect("upsert");
-
-    sync.commit_repository("just the subject")
-        .await
-        .expect("commit")
-        .expect("something was dirty");
-    assert_eq!(head_commit_body(tmp.path()).trim_end(), "just the subject");
-}
-
 crud_test!(
-    apply_batch_records_txn_and_rolls_it_up,
-    run_apply_batch_records_txn_and_rolls_it_up
+    rollup_round_trips_through_the_commit_message,
+    run_rollup_round_trips_through_the_commit_message
+);
+crud_test!(
+    keys_needing_quoting_round_trip,
+    run_keys_needing_quoting_round_trip
+);
+crud_test!(
+    commit_without_txns_still_records_the_counter,
+    run_commit_without_txns_still_records_the_counter
 );
 crud_test!(
     apply_batch_without_meta_records_no_txn,
     run_apply_batch_without_meta_records_no_txn
 );
-crud_test!(
-    commit_without_txns_keeps_the_bare_message,
-    run_commit_without_txns_keeps_the_bare_message
-);
+
+// Parser rejection cases. These need no database, so they run once.
+
+#[test]
+fn parse_ignores_a_message_that_is_not_from_git_sync() {
+    assert!(
+        unfurl_git_sync::parse_commit_rollup("Just a commit\n\nWith a body.\n")
+            .expect("not an error")
+            .is_none()
+    );
+    // Rollup-looking prose with no trailers is still not a git-sync
+    // commit -- someone writing *about* the format.
+    let decoy = "Document the format\n\nRollup of 2 git-sync transactions:\n\n - 45-66 on main x\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(decoy)
+        .expect("not an error")
+        .is_none());
+}
+
+#[test]
+fn parse_rejects_a_message_it_cannot_trust() {
+    // Announces itself, then contradicts itself: a squash merge of two
+    // git-sync commits looks like this. Reporting "no batches" here
+    // would lose history silently, so it must be an error.
+    let mismatch = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
+                    - 5 on main 2026-08-23T19:46:56-07:00 Ada\n\n\
+                    Git-Sync-Txns: 2\nGit-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(mismatch).is_err());
+
+    // The counter trailer without the count trailer.
+    let no_count = "Subject\n\nGit-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(no_count).is_err());
+
+    // An unrecognized record flag. The set is documented as closed, so
+    // this must be an error rather than a guess -- a parser that fell
+    // back to "not a delete" would resurrect deleted records.
+    let bad_flag = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
+                    - 5 on main 2026-08-23T19:46:56-07:00 Ada\n   \
+                    * 5 X \"/repositories\" \"key\"\n\n\
+                    Git-Sync-Txns: 1\nGit-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(bad_flag).is_err());
+
+    // A record line that lost its closing quote.
+    let truncated = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
+                     - 5 on main 2026-08-23T19:46:56-07:00 Ada\n   \
+                     * 5 M \"/repositories\" \"unterminated\n\n\
+                     Git-Sync-Txns: 1\nGit-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(truncated).is_err());
+}

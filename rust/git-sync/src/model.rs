@@ -502,6 +502,100 @@ pub struct Txn {
     pub commit_id: Option<String>,
 }
 
+/// One record still carrying a version a batch drew.
+///
+/// Worked out at commit time by matching `record.version` against the
+/// batch's range, so it lists what the batch contributed to *this
+/// commit* -- a write that a later batch in the same commit overwrote
+/// is not here, and is reported as a shortfall instead (see
+/// [`RollupTxn::unaccounted`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TxnRecord {
+    /// Parent JSON-pointer, e.g. `/repositories`.
+    pub path: String,
+    /// Record key within that section.
+    pub key: String,
+    /// The version the batch stamped on the row.
+    pub version: i64,
+    /// Whether the row is a tombstone -- the op was a delete.
+    pub deleted: bool,
+}
+
+/// A commit message's rollup -- built by
+/// [`crate::SyncedRepo::commit_repository`] on the way out and returned
+/// by [`crate::parse_commit_rollup`] on the way back in.
+///
+/// The commit message itself is the machine-readable form; there is no
+/// separate encoded copy. See
+/// [`crate::SyncedRepo::commit_repository`] for the grammar.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CommitRollup {
+    /// [`Worktree::origin`] of the worktree that made these writes,
+    /// from the `Git-Sync-Origin` trailer. `None` when that trailer is
+    /// absent.
+    ///
+    /// With `branch` on each entry it identifies the version namespace
+    /// the ranges belong to — not decoration: one database can host
+    /// several worktrees, each with its own counter, and merging a
+    /// branch brings its rollup commits into another branch's history,
+    /// so a rebuild has to filter rather than assume every rollup it
+    /// walks past is its own.
+    pub origin: Option<String>,
+    /// The `Git-Sync-Next-Version` trailer: the worktree's version
+    /// counter as of this commit. Present on every git-sync commit,
+    /// which is what makes the message recognisable as parseable.
+    pub next_version: i64,
+    /// The batches this commit carries, oldest version range first.
+    /// Empty when the commit carried no batch writes.
+    pub txns: Vec<RollupTxn>,
+}
+
+/// One batch within a [`CommitRollup`] — a [`Txn`] minus the columns
+/// that are local to the database that wrote it (`id`, `worktree_id`)
+/// or already implied by the commit carrying it (`commit_id`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RollupTxn {
+    /// Lowest version the batch drew.
+    pub first_version: i64,
+    /// Highest version the batch drew. This is the *draw* range, so it
+    /// can exceed what [`RollupTxn::records`] accounts for: an op that
+    /// failed its optimistic-concurrency check after drawing leaves a
+    /// number belonging to no record.
+    pub last_version: i64,
+    /// [`Worktree::branch`] the writes were made on.
+    pub branch: String,
+    /// RFC 3339 timestamp, verbatim from [`Txn::created_at`].
+    pub created_at: String,
+    /// Author as supplied in [`TxnMeta::author`].
+    pub author: Option<String>,
+    /// Message as supplied in [`TxnMeta::message`].
+    pub message: Option<String>,
+    /// The records still carrying a version from this batch, in version
+    /// order.
+    pub records: Vec<TxnRecord>,
+}
+
+impl RollupTxn {
+    /// Versions this batch drew that no record in [`Self::records`]
+    /// accounts for.
+    ///
+    /// Two things land here and they cannot be told apart after the
+    /// fact: a write a later batch in the same commit overwrote, and an
+    /// op that drew a version and then failed its optimistic-concurrency
+    /// check. (Only a non-atomic batch can do the latter -- an atomic
+    /// one rolls back whole and records no row at all.)
+    ///
+    /// It is reported rather than ignored because the alternative is a
+    /// lie: an upsert replaces the entire record, so a client that read
+    /// an earlier value and sent it back carries those edits into the
+    /// surviving one. Listing only the last writer would credit them
+    /// with work that is partly someone else's. This says "something of
+    /// this batch is not visible here" without pretending to know what.
+    pub fn unaccounted(&self) -> i64 {
+        (self.last_version - self.first_version + 1) - self.records.len() as i64
+    }
+}
+
 /// One row of the `alias` table — an alternate `(path, key)` lookup
 /// pointing at a record.
 ///
@@ -627,6 +721,10 @@ pub struct Applied {
     pub key: String,
     /// `(id, version)` stamped on the row.
     pub outcome: WriteOutcome,
+    /// Whether the op was a [`BatchOp::Delete`]. A delete tombstones the
+    /// row rather than removing it, so the two outcomes are otherwise
+    /// indistinguishable to a caller reading this list.
+    pub deleted: bool,
 }
 
 /// A single [`BatchOp`] that did not land.
