@@ -13,6 +13,7 @@ from unfurl.repo import (
     make_actor,
     RepoView,
     normalize_git_url,
+    normalize_git_url_hard,
     GitRepo,
 )
 from git import Repo
@@ -1116,3 +1117,51 @@ def test_repository_referencing_its_own_repo(tmp_path):
     assert os.path.normpath(resolved.working_dir) == os.path.normpath(str(repo_dir))
     # the import actually loaded
     assert "My.Node" in manifest.tosca.template.topology_template.custom_defs
+
+
+@pytest.mark.parametrize(
+    "url,expected",
+    [
+        # Every spelling of one repository folds to one identity. This is
+        # what makes it usable as a key: the same repo cloned over https by
+        # one user and ssh by another must not read as two.
+        ("https://unfurl.cloud/onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        ("https://unfurl.cloud/onecommons/cloudmap", "unfurl.cloud/onecommons/cloudmap"),
+        ("https://unfurl.cloud/onecommons/cloudmap/", "unfurl.cloud/onecommons/cloudmap"),
+        ("ssh://git@unfurl.cloud/onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        # scp-style, which git accepts and no URL parser handles natively
+        ("git@unfurl.cloud:onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        ("git://unfurl.cloud/onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        # credentials are dropped, so a URL with a token in it still matches
+        (
+            "https://user:pass@unfurl.cloud/onecommons/cloudmap.git",
+            "unfurl.cloud/onecommons/cloudmap",
+        ),
+        ("https://unfurl.cloud/onecommons/cloudmap.git#main:sub/dir", "unfurl.cloud/onecommons/cloudmap"),
+        # a non-default port distinguishes hosts and is kept
+        ("https://unfurl.cloud:8443/onecommons/cloudmap.git", "unfurl.cloud:8443/onecommons/cloudmap"),
+        # DNS is case-insensitive, so the host folds...
+        ("https://UNFURL.cloud/onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        ("HTTPS://UNFURL.CLOUD/onecommons/cloudmap.git", "unfurl.cloud/onecommons/cloudmap"),
+        # ...but the path does not: a case-sensitive backend can serve
+        # these as different repositories, and merging two repos under one
+        # identity is worse than failing to merge one.
+        ("https://unfurl.cloud/OneCommons/CloudMap.git", "unfurl.cloud/OneCommons/CloudMap"),
+        # local paths pass through
+        ("/tmp/local/repo", "/tmp/local/repo"),
+        ("file:///tmp/local/repo", "/tmp/local/repo"),
+        ("", ""),
+    ],
+)
+def test_normalize_git_url_hard(url, expected):
+    assert normalize_git_url_hard(url) == expected
+    # Idempotent: feeding the result back in must not change it, or a
+    # value normalized twice would stop matching one normalized once.
+    assert normalize_git_url_hard(normalize_git_url_hard(url)) == expected
+
+
+def test_normalize_git_url_case_folding_scope():
+    # hard=1 keeps the user name (case-sensitive) while still folding the host.
+    assert normalize_git_url("https://User:pw@HOST/a/b.git", hard=1) == "https://User@host/a/b.git"
+    # hard=0 is untouched -- callers using it want the URL as given.
+    assert normalize_git_url("https://HOST/A/b.git") == "https://HOST/A/b.git"

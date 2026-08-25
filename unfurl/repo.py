@@ -92,6 +92,7 @@ def normalize_git_url(url: str, hard: int = 0):
         # remove password and .git
         parts = urlparse(url)
         user, sep, host = parts.netloc.rpartition("@")
+        host = host.lower()  # normalize host to lowercase (but not the path)
         if sep and hard == 1:
             netloc = f"{user.partition(':')[0]}@{host}"
         else:  # hard >= 2

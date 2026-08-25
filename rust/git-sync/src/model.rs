@@ -19,8 +19,24 @@ use serde::{Deserialize, Serialize};
 pub struct Worktree {
     /// Auto-assigned primary key.
     pub id: i64,
-    /// Remote URL with scheme stripped (or the working-tree path when
-    /// no remote is configured).
+    /// Stable identity of the repository, as
+    /// [`crate::git::normalize_git_url_hard`] renders it — scheme,
+    /// credentials, `.git` suffix and fragment removed, host lower-cased,
+    /// e.g. `unfurl.cloud/onecommons/cloudmap`. Falls back to the
+    /// working-tree path when no remote is configured, and to an empty
+    /// string when there is neither (a bare repo without a remote).
+    ///
+    /// Normalized so that the same repository cloned over https by one
+    /// user and ssh by another is one worktree rather than two, which
+    /// matters because everything else — records, versions, the audit
+    /// trail — hangs off this row. The same function backs python's
+    /// repository identity, so the two agree.
+    ///
+    /// Note it is *one* remote's URL, not a chosen one:
+    /// `gix::Repository::remote_names` returns a sorted set, so a
+    /// repository with several remotes yields whichever name sorts first
+    /// — not necessarily `origin`. A caller needing a specific identity
+    /// has to supply it rather than let it be derived.
     pub origin: String,
     /// Short branch name, e.g. `main`.
     pub branch: String,
@@ -540,6 +556,11 @@ pub struct CommitRollup {
     /// branch brings its rollup commits into another branch's history,
     /// so a rebuild has to filter rather than assume every rollup it
     /// walks past is its own.
+    ///
+    /// It is [`Worktree::origin`], so it arrives already normalized by
+    /// [`crate::git::normalize_git_url_hard`] and an equality test is
+    /// sound — the same repository spelled `ssh://` in one commit and
+    /// `https://` in another still compares equal.
     pub origin: Option<String>,
     /// The `Git-Sync-Next-Version` trailer: the worktree's version
     /// counter as of this commit. Present on every git-sync commit,

@@ -2822,3 +2822,94 @@ fn parse_rejects_a_message_it_cannot_trust() {
                      Git-Sync-Txns: 1\nGit-Sync-Next-Version: 9\n";
     assert!(unfurl_git_sync::parse_commit_rollup(truncated).is_err());
 }
+
+// ---------------------------------------------------------------------------
+// origin normalization
+// ---------------------------------------------------------------------------
+//
+// These need two `SyncedRepo` handles sharing one database, so they use a
+// file-backed sqlite rather than the `:memory:` fixture, and run once
+// instead of through `crud_test!`.
+
+fn git(dir: &std::path::Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+}
+
+/// A repo seeded with the cloudmap fixture plus a sqlite file beside it.
+async fn file_backed_fixture() -> (TempDir, String) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    common::init_repo_with_fixture(tmp.path()).await;
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    (tmp, db)
+}
+
+async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
+    SyncedRepo::open(
+        dir,
+        unfurl_git_sync::DbConfig::Sqlite { url: db.into() },
+        unfurl_git_sync::FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo")
+}
+
+/// One repository reached two ways is one worktree, not two.
+#[tokio::test]
+async fn url_spellings_resolve_to_one_worktree() {
+    let (tmp, db) = file_backed_fixture().await;
+    git(
+        tmp.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://unfurl.cloud/onecommons/cloudmap.git",
+        ],
+    );
+
+    let https = open_at(tmp.path(), &db).await;
+    https.update_from_working_dir().await.expect("sync");
+    https
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "shared",
+            serde_json::json!({"name": "shared"}),
+            None,
+        )
+        .await
+        .expect("write");
+    drop(https);
+
+    // The same person switching their remote to ssh for key auth is the
+    // everyday trigger: it must not strand the records or restart the
+    // version counter.
+    git(
+        tmp.path(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "ssh://git@unfurl.cloud/onecommons/cloudmap.git",
+        ],
+    );
+    let ssh = open_at(tmp.path(), &db).await;
+    let found = ssh
+        .get_record("cloudmap.yaml", "/repositories", "shared")
+        .await
+        .expect("get")
+        .expect("the https handle's write belongs to this worktree too");
+    assert_eq!(found.json["name"], "shared");
+
+    let rows: Vec<(i64, String)> = sqlx::query_as("SELECT id, origin FROM worktree ORDER BY id")
+        .fetch_all(&sqlx::SqlitePool::connect(&db).await.expect("connect"))
+        .await
+        .expect("query");
+    assert_eq!(rows.len(), 1, "one repository, one row: {rows:?}");
+    assert_eq!(rows[0].1, "unfurl.cloud/onecommons/cloudmap");
+}

@@ -1941,6 +1941,18 @@ mod tests {
 
     #[test]
     fn origin_matches_project_path_suffix() {
+        // The shape `git::worktree_meta` actually produces: the remote's
+        // fetch URL verbatim, scheme and suffix included. Nothing strips
+        // it, so the suffix branch below is what carries a real origin.
+        assert!(origin_matches(
+            "https://unfurl.cloud/onecommons/cloudmap.git",
+            "onecommons/cloudmap"
+        ));
+        assert!(origin_matches(
+            "ssh://git@unfurl.cloud/onecommons/cloudmap.git",
+            "onecommons/cloudmap"
+        ));
+
         let origin = "unfurl.cloud/onecommons/cloudmap.git";
         assert!(origin_matches(origin, "onecommons/cloudmap"));
         // `.git` optional on either side, leading/trailing slashes ignored.

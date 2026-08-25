@@ -22,8 +22,167 @@ pub fn open_repo(path: &Path) -> Result<gix::Repository> {
     gix::open(path).map_err(git_err)
 }
 
+/// Reduce a git URL to a stable identity for the repository it names.
+///
+/// Port of `normalize_git_url_hard` in `unfurl/repo.py` — that is,
+/// `normalize_git_url(url, hard=3)` with the scheme and any fragment
+/// stripped. The two implementations must agree: python keys its server
+/// cache and repository identity on this, and a repository that reads as
+/// two identities gets two of everything downstream.
+///
+/// Every spelling of one repository collapses to `host[:port]/path`:
+///
+/// ```
+/// use unfurl_git_sync::git::normalize_git_url_hard as n;
+/// let id = "unfurl.cloud/onecommons/cloudmap";
+/// assert_eq!(n("https://unfurl.cloud/onecommons/cloudmap.git"), id);
+/// assert_eq!(n("ssh://git@unfurl.cloud/onecommons/cloudmap.git"), id);
+/// assert_eq!(n("git@unfurl.cloud:onecommons/cloudmap.git"), id);
+/// assert_eq!(n("https://user:tok@unfurl.cloud/onecommons/cloudmap/"), id);
+/// ```
+///
+/// So the scheme, any credentials, a trailing `/`, a `.git` suffix and a
+/// `#revision:path` fragment are all dropped, scp-style syntax is
+/// understood, and a non-default port is kept because it distinguishes
+/// hosts. The host folds to lower case (DNS is case-insensitive) but the
+/// **path does not**: forges preserve path case, and a case-sensitive
+/// backend can serve `/Foo/bar` and `/foo/bar` as different
+/// repositories — merging two repositories under one identity is a worse
+/// failure than not merging one.
+///
+/// The result is idempotent, so a value normalized twice still matches
+/// one normalized once.
+pub fn normalize_git_url_hard(url: &str) -> String {
+    // `git-local://<digest>[:<rest>]` identifies a repo by commit digest;
+    // python truncates the netloc there and moves everything else into a
+    // fragment, which the fragment strip then discards.
+    if let Some(rest) = url.strip_prefix("git-local://") {
+        let netloc = rest.split(['/', '?', '#']).next().unwrap_or("");
+        return netloc.split(':').next().unwrap_or("").to_string();
+    }
+
+    // Absolute and home-relative paths become `file://` URLs, and python
+    // returns them before the `hard` processing runs — so only the scheme
+    // strip below applies to them.
+    if !url.contains("://") {
+        if let Some(path) = url
+            .strip_prefix('~')
+            .map(|rest| format!("{}{rest}", home_dir()))
+            .or_else(|| url.starts_with('/').then(|| url.to_string()))
+            .or_else(|| {
+                url.strip_prefix("file:")
+                    .map(|rest| rest.replacen('~', &home_dir(), 1))
+            })
+        {
+            return lexical_abspath(&path);
+        }
+        // scp-style `user@host:path` is git syntax no URL parser accepts.
+        if url.contains('@') {
+            return normalize_parsed(&format!("ssh://{}", url.replacen(':', "/", 1)));
+        }
+    }
+    normalize_parsed(url)
+}
+
+/// The `hard = 3` body of python's `normalize_git_url`, followed by its
+/// scheme and fragment strip. Split out because the scp branch above
+/// re-enters it after rewriting the URL.
+fn normalize_parsed(url: &str) -> String {
+    // Mirrors `urlparse`: a scheme is `alpha *( alnum / "+" / "-" / "." )`
+    // followed by ":", and a netloc exists only when "//" follows it.
+    let (scheme, rest) = match url.find(':') {
+        Some(i)
+            if i > 0
+                && url[..i].starts_with(|c: char| c.is_ascii_alphabetic())
+                && url[..i]
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')) =>
+        {
+            (Some(&url[..i]), &url[i + 1..])
+        }
+        _ => (None, url),
+    };
+    let (netloc, remainder) = match rest.strip_prefix("//") {
+        Some(after) => {
+            let end = after.find(['/', '?', '#']).unwrap_or(after.len());
+            (Some(&after[..end]), &after[end..])
+        }
+        None => (None, rest),
+    };
+
+    let (before_frag, _) = split_once_at(remainder, '#');
+    let (path, query) = split_once_at(before_frag, '?');
+
+    // Drop a trailing "/" then a ".git", in that order — `a/b.git/`
+    // normalizes the same as `a/b.git`.
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path);
+
+    let mut out = match netloc {
+        // Credentials are identity-irrelevant and often secret.
+        Some(netloc) => match netloc.rsplit_once('@') {
+            Some((_, host)) => host.to_ascii_lowercase(),
+            None => netloc.to_ascii_lowercase(),
+        },
+        // No netloc: python's `geturl()` keeps `scheme:path`, and the
+        // scheme strip below finds no "://" to cut.
+        None => match scheme {
+            Some(scheme) => format!("{scheme}:"),
+            None => String::new(),
+        },
+    };
+    out.push_str(path);
+    if let Some(query) = query {
+        out.push('?');
+        out.push_str(query);
+    }
+    out
+}
+
+/// `(before, after)` around the first `sep`; `after` is `None` when absent.
+fn split_once_at(s: &str, sep: char) -> (&str, Option<&str>) {
+    match s.split_once(sep) {
+        Some((a, b)) => (a, Some(b)),
+        None => (s, None),
+    }
+}
+
+fn home_dir() -> String {
+    std::env::var("HOME").unwrap_or_default()
+}
+
+/// Python's `os.path.abspath`: make absolute against the current
+/// directory, then resolve `.` and `..` textually. Deliberately does not
+/// touch the filesystem, so it does not follow symlinks either.
+fn lexical_abspath(path: &str) -> String {
+    let joined = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        format!("{}/{path}", cwd.to_string_lossy())
+    };
+    let mut parts: Vec<&str> = Vec::new();
+    for segment in joined.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    format!("/{}", parts.join("/"))
+}
+
 /// Resolve `(origin, branch, head_oid)` for a freshly-opened repo. Falls
-/// back to the working-dir path when no `origin` remote is configured.
+/// back to the working-dir path when no remote is configured.
+///
+/// The origin is run through [`normalize_git_url_hard`], so the same
+/// repository cloned over https by one user and ssh by another resolves
+/// to one identity instead of two. `remote_names` returns a sorted set,
+/// so a repository with several remotes yields whichever name sorts
+/// first — a caller needing a specific one has to say so rather than
+/// let it be guessed here.
 pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
     let origin = repo
         .remote_names()
@@ -34,6 +193,7 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
             Some(url.to_bstring().to_string())
         })
         .or_else(|| repo.work_dir().map(|p| p.to_string_lossy().to_string()))
+        .map(|raw| normalize_git_url_hard(&raw))
         .unwrap_or_default();
 
     let branch = match repo.head().map_err(git_err)?.referent_name() {
@@ -354,4 +514,85 @@ pub fn init_with_files(
     }
     let paths: Vec<String> = files.iter().map(|(p, _)| p.clone()).collect();
     commit_paths(&repo, &paths, message)
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    use super::normalize_git_url_hard as n;
+
+    /// Every expected value here was produced by running python's
+    /// `unfurl.repo.normalize_git_url_hard` on the input. The two
+    /// implementations key the same things, so they have to agree
+    /// character for character -- regenerate with:
+    ///
+    /// ```text
+    /// python -c "from unfurl.repo import normalize_git_url_hard as n; print(n(URL))"
+    /// ```
+    #[test]
+    fn matches_python() {
+        const ID: &str = "unfurl.cloud/onecommons/cloudmap";
+        for (url, expected) in [
+            ("https://unfurl.cloud/onecommons/cloudmap.git", ID),
+            ("https://unfurl.cloud/onecommons/cloudmap", ID),
+            ("https://unfurl.cloud/onecommons/cloudmap/", ID),
+            ("ssh://git@unfurl.cloud/onecommons/cloudmap.git", ID),
+            ("git@unfurl.cloud:onecommons/cloudmap.git", ID),
+            ("git://unfurl.cloud/onecommons/cloudmap.git", ID),
+            ("https://user:pass@unfurl.cloud/onecommons/cloudmap.git", ID),
+            (
+                "https://unfurl.cloud/onecommons/cloudmap.git#main:sub/dir",
+                ID,
+            ),
+            // DNS is case-insensitive, so the host folds...
+            ("https://UNFURL.cloud/onecommons/cloudmap.git", ID),
+            ("HTTPS://UNFURL.CLOUD/onecommons/cloudmap.git", ID),
+            // ...the path does not: two repositories merged under one
+            // identity is worse than one that fails to merge.
+            (
+                "https://unfurl.cloud/OneCommons/CloudMap.git",
+                "unfurl.cloud/OneCommons/CloudMap",
+            ),
+            // a non-default port distinguishes hosts, so it is kept
+            (
+                "https://unfurl.cloud:8443/onecommons/cloudmap.git",
+                "unfurl.cloud:8443/onecommons/cloudmap",
+            ),
+            ("https://host/p.git?x=1", "host/p?x=1"),
+            ("host:project.git", "host:project"),
+            ("ssh://git@host:2222/p.git", "host:2222/p"),
+            ("https://host/", "host"),
+            ("https://host", "host"),
+            ("git@host:~user/p.git", "host/~user/p"),
+            ("git@Host:a/b/c.git", "host/a/b/c"),
+            ("git-local://0123abcd:project/p", "0123abcd"),
+            ("./relative/path", "./relative/path"),
+            ("/tmp/local/repo", "/tmp/local/repo"),
+            ("file:///tmp/local/repo", "/tmp/local/repo"),
+            ("", ""),
+        ] {
+            assert_eq!(n(url), expected, "normalizing {url:?}");
+        }
+    }
+
+    #[test]
+    fn is_idempotent() {
+        // A value normalized twice has to match one normalized once, or
+        // an origin read back out of the database would stop matching.
+        for url in [
+            "https://unfurl.cloud/onecommons/cloudmap.git",
+            "git@unfurl.cloud:onecommons/cloudmap.git",
+            "https://unfurl.cloud:8443/onecommons/cloudmap.git",
+            "/tmp/local/repo",
+            "",
+        ] {
+            let once = n(url);
+            assert_eq!(n(&once), once, "not idempotent for {url:?}");
+        }
+    }
+
+    #[test]
+    fn absolute_paths_are_resolved_textually() {
+        assert_eq!(n("/tmp/a/../b"), "/tmp/b");
+        assert_eq!(n("/tmp//a/./b/"), "/tmp/a/b");
+    }
 }

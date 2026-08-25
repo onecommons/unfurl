@@ -5,6 +5,14 @@
 use crate::db::Db;
 use crate::error::Result;
 
+/// Find or create the row for `(origin, branch)`.
+///
+/// `origin` must already be [`crate::git::normalize_git_url_hard`]
+/// output — the match is an exact string compare, so a raw URL would
+/// create a second row for a repository that already has one, splitting
+/// its records and its version counter. Callers derive it via
+/// [`crate::git::worktree_meta`] rather than passing a remote URL
+/// through.
 pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
     match db {
         Db::Sqlite(pool) => {
