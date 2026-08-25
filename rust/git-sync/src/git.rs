@@ -251,11 +251,19 @@ pub struct TrackedFile {
     pub head_blob_oid: gix::ObjectId,
 }
 
-/// Compute the blob OID gix would record for the bytes currently in
-/// `abs_path`.
-pub fn blob_oid_for_disk_file(repo: &gix::Repository, abs_path: &Path) -> Result<gix::ObjectId> {
-    let bytes = std::fs::read(abs_path)?;
-    Ok(repo.write_blob(&bytes).map_err(git_err)?.detach())
+/// The blob OID git would record for `bytes`.
+///
+/// Takes the bytes rather than a path so the caller hashes exactly what
+/// it read: hashing a second read of the same file would let the content
+/// change in between, yielding an OID that describes bytes nobody
+/// parsed — precisely wrong for an OID recording *which* content a
+/// database's rows came from.
+///
+/// A pure hash, unlike `Repository::write_blob`, which stores a loose
+/// object as a side effect. Answering "has this file changed?" should
+/// not leave unreferenced objects behind.
+pub fn blob_oid_for_bytes(repo: &gix::Repository, bytes: &[u8]) -> gix::ObjectId {
+    gix::objs::compute_hash(repo.object_hash(), gix::object::Kind::Blob, bytes)
 }
 
 /// Stage `paths` (relative to the work dir) and create a commit on HEAD

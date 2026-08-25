@@ -235,7 +235,10 @@ impl SyncedRepo {
             };
             let format_name = format.name().to_string();
 
-            let disk_blob = git::blob_oid_for_disk_file(&repo, &tf.abs_path)?;
+            // Hash the bytes just parsed, not a second read of the file:
+            // the two could differ, and then `clean` would describe
+            // content that never reached the database.
+            let disk_blob = git::blob_oid_for_bytes(&repo, &bytes);
             let clean = disk_blob == tf.head_blob_oid;
             if clean {
                 clean_paths.push(tf.rel_path.clone());

@@ -3495,3 +3495,82 @@ async fn a_broken_dot_json_reports_the_json_error() {
         "expected the strict parser's error, got {err:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// blob hashing
+// ---------------------------------------------------------------------------
+
+/// The OID matches what git itself computes, and hashing does not write
+/// an object.
+#[tokio::test]
+async fn hashing_a_blob_matches_git_and_writes_nothing() {
+    let (tmp, db) = file_backed_fixture().await;
+    // Content that exists nowhere in the repository's history, so if the
+    // sync stores it while hashing, `cat-file -e` will find it.
+    let novel = "kind: NotACloudMap\nunique: never-committed-anywhere\n";
+    std::fs::write(tmp.path().join("scratch.yaml"), novel).expect("write");
+    git(tmp.path(), &["add", "scratch.yaml"]);
+
+    let expected = std::process::Command::new("git")
+        .args(["hash-object", "-t", "blob", "--stdin"])
+        .current_dir(tmp.path())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut c| {
+            use std::io::Write as _;
+            c.stdin
+                .as_mut()
+                .expect("stdin")
+                .write_all(novel.as_bytes())?;
+            c.wait_with_output()
+        })
+        .expect("git hash-object");
+    let expected = String::from_utf8_lossy(&expected.stdout).trim().to_string();
+
+    let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
+    let got = unfurl_git_sync::git::blob_oid_for_bytes(&repo, novel.as_bytes());
+    assert_eq!(got.to_string(), expected, "must agree with git's own hash");
+
+    // Hashing is pure: the object must not have been stored. `git add`
+    // above does store it, so check against a *second* content that was
+    // never staged.
+    let unstaged = b"kind: NotACloudMap\nunique: never-staged-either\n";
+    let oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, unstaged);
+    let out = std::process::Command::new("git")
+        .args(["cat-file", "-e", &oid.to_string()])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git cat-file");
+    assert!(
+        !out.status.success(),
+        "hashing must not store the object; {oid} exists in the odb"
+    );
+
+    // And a sync of a dirty file leaves no stray object behind either.
+    let dirty = "apiVersion: unfurl/v1alpha1\nkind: CloudMap\nrepositories:\n  \
+                 git://example.com/dirty.git: {name: dirty}\n";
+    std::fs::write(tmp.path().join("cloudmap.yaml"), dirty).expect("write");
+    let sync = open_at(tmp.path(), &db).await;
+    sync.update_from_working_dir().await.expect("sync");
+    let dirty_oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, dirty.as_bytes());
+    let out = std::process::Command::new("git")
+        .args(["cat-file", "-e", &dirty_oid.to_string()])
+        .current_dir(tmp.path())
+        .output()
+        .expect("git cat-file");
+    assert!(
+        !out.status.success(),
+        "a sync must not store the blobs it hashes; {dirty_oid} was written"
+    );
+    // The dirty file's records still landed, so the sync did its job.
+    assert!(sync
+        .get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://example.com/dirty.git"
+        )
+        .await
+        .expect("get")
+        .is_some());
+}
