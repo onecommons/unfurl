@@ -3296,3 +3296,202 @@ async fn a_fork_records_its_family_in_the_rollup() {
         "this is the case origin alone cannot decide: {body}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// json5 / jsonc
+// ---------------------------------------------------------------------------
+
+/// A cloudmap written as JSON5 -- comments, trailing commas, unquoted
+/// keys, single quotes -- is read, and a write to it produces a file
+/// that still parses.
+#[tokio::test]
+async fn json5_and_jsonc_round_trip() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    // JSONC is JSON plus comments and trailing commas; JSON5 adds the
+    // unquoted keys and single quotes. One parser covers both, so each
+    // file leans on the part of the syntax its extension implies.
+    let jsonc = br#"{
+  // which cloudmap this is
+  "apiVersion": "unfurl/v1alpha1",
+  "kind": "CloudMap",
+  "repositories": {
+    "git://example.com/from-jsonc.git": {
+      "name": "from-jsonc", /* trailing comma next */
+      "path": "in/jsonc",
+    },
+  },
+}"#;
+    let json5 = br#"{
+  apiVersion: 'unfurl/v1alpha1',
+  kind: 'CloudMap',
+  repositories: {
+    'git://example.com/from-json5.git': { name: 'from-json5', path: 'in/json5' },
+  },
+}"#;
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[
+            ("a.jsonc".to_string(), jsonc.to_vec()),
+            ("b.json5".to_string(), json5.to_vec()),
+        ],
+        "initial",
+    )
+    .expect("init repo");
+
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    let sync = open_at(tmp.path(), &db).await;
+    sync.update_from_working_dir().await.expect("sync");
+
+    for (file, key) in [
+        ("a.jsonc", "git://example.com/from-jsonc.git"),
+        ("b.json5", "git://example.com/from-json5.git"),
+    ] {
+        let rec = sync
+            .get_record(file, "/repositories", key)
+            .await
+            .expect("get")
+            .unwrap_or_else(|| panic!("{file} should have been read"));
+        assert_eq!(rec.json["path"], format!("in/{}", &file[2..]));
+    }
+
+    // Writing back produces something that parses again -- which is the
+    // point, since the emitted syntax is plain JSON rather than the
+    // JSON5 that came in.
+    sync.upsert_record(
+        Some("b.json5"),
+        "/repositories",
+        "git://example.com/added.git",
+        serde_json::json!({"name": "added"}),
+        None,
+    )
+    .await
+    .expect("write");
+    sync.save_changes().await.expect("save");
+
+    let text = std::fs::read_to_string(tmp.path().join("b.json5")).expect("read");
+    let reparsed: serde_json::Value = json5::from_str(&text).expect("still valid json5");
+    assert!(
+        reparsed["repositories"]
+            .get("git://example.com/added.git")
+            .is_some(),
+        "{text}"
+    );
+    // Strict JSON too, so a `.jsonc`/`.json5` file stays readable by a
+    // plain JSON parser after a rewrite.
+    serde_json::from_str::<serde_json::Value>(&text).expect("also valid json");
+
+    // Re-reading sees the write, so the extension still resolves.
+    let sync = open_at(tmp.path(), &db).await;
+    sync.update_from_working_dir().await.expect("resync");
+    assert!(sync
+        .get_record("b.json5", "/repositories", "git://example.com/added.git")
+        .await
+        .expect("get")
+        .is_some());
+}
+
+/// Comments do not survive a rewrite -- the document round-trips through
+/// a `serde_json::Value`, which cannot hold them. Pinned so the loss is
+/// a known property rather than a surprise.
+#[tokio::test]
+async fn a_rewrite_drops_comments() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let jsonc = br#"{
+  // this comment cannot survive
+  "apiVersion": "unfurl/v1alpha1",
+  "kind": "CloudMap",
+  "repositories": {"git://example.com/x.git": {"name": "x"}}
+}"#;
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("c.jsonc".to_string(), jsonc.to_vec())],
+        "initial",
+    )
+    .expect("init repo");
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    let sync = open_at(tmp.path(), &db).await;
+    sync.update_from_working_dir().await.expect("sync");
+    sync.upsert_record(
+        Some("c.jsonc"),
+        "/repositories",
+        "git://example.com/x.git",
+        serde_json::json!({"name": "changed"}),
+        None,
+    )
+    .await
+    .expect("write");
+    sync.save_changes().await.expect("save");
+
+    let text = std::fs::read_to_string(tmp.path().join("c.jsonc")).expect("read");
+    assert!(
+        !text.contains("cannot survive"),
+        "comments are dropped, same as for yaml: {text}"
+    );
+    assert!(text.contains("changed"), "{text}");
+}
+
+/// A plain `.json` file with comments and a trailing comma is read --
+/// most JSON-with-comments in the wild has a `.json` extension -- and
+/// the sync reports that it needed the lenient parser.
+#[tokio::test]
+async fn a_dot_json_file_may_use_json5_syntax_and_says_so() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let commented = br#"{
+  // a plain .json with a comment, as tsconfig.json and friends have
+  "apiVersion": "unfurl/v1alpha1",
+  "kind": "CloudMap",
+  "repositories": {
+    "git://example.com/loose.git": {"name": "loose"},
+  }
+}"#;
+    let strict = br#"{"apiVersion": "unfurl/v1alpha1", "kind": "CloudMap",
+  "repositories": {"git://example.com/strict.git": {"name": "strict"}}}"#;
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[
+            ("loose.json".to_string(), commented.to_vec()),
+            ("strict.json".to_string(), strict.to_vec()),
+        ],
+        "initial",
+    )
+    .expect("init repo");
+
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    let sync = open_at(tmp.path(), &db).await;
+    let stats = sync.update_from_working_dir().await.expect("sync");
+
+    assert!(sync
+        .get_record("loose.json", "/repositories", "git://example.com/loose.git")
+        .await
+        .expect("get")
+        .is_some());
+    // Only the one that needed it is counted -- the strict file must not
+    // be reported as lenient, or the signal says nothing.
+    assert_eq!(
+        stats.files_needing_json5, 1,
+        "exactly the commented file: {stats:?}"
+    );
+}
+
+/// A `.json` that is broken rather than merely lenient reports the JSON
+/// error, not a JSON5 one about a file nobody meant to be JSON5.
+#[tokio::test]
+async fn a_broken_dot_json_reports_the_json_error() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("bad.json".to_string(), b"{\"kind\": ".to_vec())],
+        "initial",
+    )
+    .expect("init repo");
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    let sync = open_at(tmp.path(), &db).await;
+    let err = sync
+        .update_from_working_dir()
+        .await
+        .expect_err("a truncated document cannot parse either way");
+    assert!(
+        matches!(err, unfurl_git_sync::Error::Json { .. }),
+        "expected the strict parser's error, got {err:?}"
+    );
+}

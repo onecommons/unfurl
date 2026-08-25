@@ -786,6 +786,13 @@ pub struct UpdateStats {
     pub records_upserted: usize,
     /// Records hard-deleted because they disappeared from disk.
     pub records_deleted: usize,
+    /// Files that parsed only as JSON5 — a comment, a trailing comma, an
+    /// unquoted key — rather than as strict JSON.
+    ///
+    /// They are read fine. It is the *write* side that makes this worth
+    /// reporting: a rewrite emits strict JSON, so the first change to a
+    /// record in such a file normalizes it and drops its comments.
+    pub files_needing_json5: usize,
 }
 
 /// One operation in a batch passed to

@@ -208,34 +208,27 @@ impl SyncedRepo {
         for tf in &tracked {
             stats.files_seen += 1;
 
-            let ext = match tf.rel_path.rsplit_once('.') {
-                Some((_, ext)) => ext.to_ascii_lowercase(),
-                None => continue,
-            };
-            if !matches!(ext.as_str(), "yaml" | "yml" | "json") {
+            let Some(syntax) = Syntax::for_extension(&extract_ext(&tf.rel_path)) else {
                 continue;
-            }
+            };
 
             let bytes = match std::fs::read(&tf.abs_path) {
                 Ok(b) => b,
                 Err(_) => continue,
             };
-            let text = match std::str::from_utf8(&bytes) {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
 
-            let value: serde_json::Value = if ext == "json" {
-                serde_json::from_str(text).map_err(|e| Error::Json {
-                    path: tf.rel_path.clone(),
-                    source: e,
-                })?
-            } else {
-                serde_saphyr::from_str(text).map_err(|e| Error::Yaml {
-                    path: tf.rel_path.clone(),
-                    message: e.to_string(),
-                })?
-            };
+            let parsed = syntax.parse(&tf.rel_path, &bytes)?;
+            if parsed.extended {
+                // A rewrite emits strict JSON, so this file will lose its
+                // comments and be reflowed the first time a record in it
+                // changes.
+                stats.files_needing_json5 += 1;
+                tracing::warn!(
+                    file = %tf.rel_path,
+                    "file needs json5 syntax; a rewrite will emit strict json and drop comments"
+                );
+            }
+            let value = parsed.value;
 
             let Some(format) = self.formats().detect(&value) else {
                 continue;
@@ -883,10 +876,11 @@ impl SyncedRepo {
             .find_map(|rec| self.formats().for_path(&rec.path));
 
         let abs = self.inner.repo_path.join(file_path);
-        let ext = extract_ext(file_path);
+        let syntax = Syntax::for_extension(&extract_ext(file_path))
+            .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
 
         let existed = abs.exists();
-        let mut root = load_root(&abs, file_path, &ext)?;
+        let mut root = load_root(&abs, file_path, syntax)?;
         if !existed {
             // Brand-new document
             if let (Some(fmt), Some(root_obj)) = (format, root.as_object_mut()) {
@@ -899,7 +893,7 @@ impl SyncedRepo {
         }
         let touched = apply_pending_records(&mut root, pending, format);
         apply_format_ordering(&mut root, format, &touched);
-        let bytes = serialize_root(&root, file_path, &ext)?;
+        let bytes = syntax.serialize(&root, file_path)?;
 
         if let Ok(existing) = std::fs::read(&abs) {
             if existing == bytes {
@@ -1386,9 +1380,9 @@ fn extract_ext(file_path: &str) -> String {
 /// Load the on-disk document at `abs` as a `serde_json::Value` and
 /// guarantee it's an object. A missing file yields an empty object;
 /// a non-object root is replaced with one.
-fn load_root(abs: &Path, file_path: &str, ext: &str) -> Result<serde_json::Value> {
+fn load_root(abs: &Path, file_path: &str, syntax: Syntax) -> Result<serde_json::Value> {
     let mut root: serde_json::Value = match std::fs::read(abs) {
-        Ok(bytes) => parse_bytes_for_extension(file_path, ext, &bytes)?,
+        Ok(bytes) => syntax.parse(file_path, &bytes)?.value,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             serde_json::Value::Object(serde_json::Map::new())
         }
@@ -1571,23 +1565,6 @@ fn reorder_like(previous: &serde_json::Value, next: serde_json::Value) -> serde_
 }
 
 /// Serialize `root` as YAML or JSON depending on `ext`.
-fn serialize_root(root: &serde_json::Value, file_path: &str, ext: &str) -> Result<Vec<u8>> {
-    match ext {
-        "yaml" | "yml" => {
-            let s = serde_saphyr::to_string(root).map_err(|e| Error::Yaml {
-                path: file_path.to_string(),
-                message: e.to_string(),
-            })?;
-            Ok(crate::util::elide_explicit_nulls(&s).into_bytes())
-        }
-        "json" => serde_json::to_vec_pretty(root).map_err(|e| Error::Json {
-            path: file_path.to_string(),
-            source: e,
-        }),
-        other => Err(Error::Other(format!("unsupported extension: {other}"))),
-    }
-}
-
 /// Atomic-replace `abs` with `bytes` via a tempfile in the same
 /// directory. Creates the parent directory if needed.
 fn atomic_write(abs: &Path, bytes: &[u8]) -> Result<()> {
@@ -1600,29 +1577,127 @@ fn atomic_write(abs: &Path, bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Parse `bytes` as YAML or JSON depending on the file extension and
-/// convert the result into a `serde_json::Value`. The crate enables
-/// `serde_json/preserve_order`, so the resulting value's object keys
-/// retain on-disk ordering.
-fn parse_bytes_for_extension(
-    file_path: &str,
-    ext: &str,
-    bytes: &[u8],
-) -> Result<serde_json::Value> {
-    match ext {
-        "yaml" | "yml" => {
-            let text = std::str::from_utf8(bytes)
-                .map_err(|e| Error::Other(format!("{file_path}: file is not valid utf-8: {e}")))?;
-            serde_saphyr::from_str(text).map_err(|e| Error::Yaml {
-                path: file_path.to_string(),
-                message: e.to_string(),
-            })
+/// The concrete syntax of a tracked file, chosen by its extension.
+///
+/// One authority for both halves of the round trip. The read scan and
+/// the write path used to decide separately, and the scan's "anything
+/// that isn't json is yaml" fallback meant a new extension added to only
+/// one of them would be silently misparsed rather than rejected.
+///
+/// Which *schema* a file holds is a separate question, answered after
+/// parsing by [`crate::DataFormat`] inspecting the value.
+/// A parsed document, and whether reading it needed more than strict
+/// JSON.
+pub(crate) struct Parsed {
+    pub(crate) value: serde_json::Value,
+    /// The file used JSON5 syntax — a comment, a trailing comma, an
+    /// unquoted key — that strict JSON rejects.
+    ///
+    /// Worth surfacing because a rewrite emits strict JSON, so this says
+    /// the file is about to be normalized and its comments dropped.
+    /// Always false for YAML, where the question does not arise.
+    pub(crate) extended: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Syntax {
+    Yaml,
+    Json,
+    /// JSON5, which also covers JSONC — comments and trailing commas are
+    /// the whole of JSONC, and JSON5 is a superset of it.
+    Json5,
+}
+
+impl Syntax {
+    /// `None` for an extension this crate does not read, which is how
+    /// the scan skips a file rather than guessing at its syntax.
+    pub(crate) fn for_extension(ext: &str) -> Option<Self> {
+        match ext {
+            "yaml" | "yml" => Some(Self::Yaml),
+            // `.json` reads leniently too. Most JSON-with-comments in
+            // the wild lives in a plain `.json` -- VS Code settings,
+            // tsconfig -- so rejecting those would miss the common case
+            // while accepting the rarer explicit spellings.
+            "json" => Some(Self::Json),
+            "json5" | "jsonc" => Some(Self::Json5),
+            _ => None,
         }
-        "json" => serde_json::from_slice(bytes).map_err(|e| Error::Json {
-            path: file_path.to_string(),
-            source: e,
-        }),
-        other => Err(Error::Other(format!("unsupported extension: {other}"))),
+    }
+
+    /// Parse to a `serde_json::Value`. The crate enables
+    /// `serde_json/preserve_order`, so object keys keep their on-disk
+    /// ordering whichever syntax they came from.
+    ///
+    /// Both JSON dialects try the strict parser first and fall back to
+    /// JSON5, which is a strict superset — so success on the first
+    /// attempt *is* the answer to "was this strict JSON", reported as
+    /// [`Parsed::extended`]. There is no other way to know: a
+    /// `serde_json::Value` retains no trace of quoting style, trailing
+    /// commas or comments, and the json5 crate exposes nothing about
+    /// what syntax it consumed.
+    ///
+    /// Which parser's error is reported when both fail depends on what
+    /// the file claimed to be. A broken `.json` deserves the JSON error;
+    /// a JSON5 message about a file nobody meant to be JSON5 would point
+    /// at the wrong thing.
+    pub(crate) fn parse(self, file_path: &str, bytes: &[u8]) -> Result<Parsed> {
+        let text = || {
+            std::str::from_utf8(bytes)
+                .map_err(|e| Error::Other(format!("{file_path}: file is not valid utf-8: {e}")))
+        };
+        match self {
+            Self::Yaml => Ok(Parsed {
+                value: serde_saphyr::from_str(text()?).map_err(|e| Error::Yaml {
+                    path: file_path.to_string(),
+                    message: e.to_string(),
+                })?,
+                extended: false,
+            }),
+            Self::Json | Self::Json5 => match serde_json::from_slice(bytes) {
+                Ok(value) => Ok(Parsed {
+                    value,
+                    extended: false,
+                }),
+                Err(strict) => match (json5::from_str(text()?), self) {
+                    (Ok(value), _) => Ok(Parsed {
+                        value,
+                        extended: true,
+                    }),
+                    (Err(_), Self::Json) => Err(Error::Json {
+                        path: file_path.to_string(),
+                        source: strict,
+                    }),
+                    (Err(loose), _) => {
+                        Err(Error::Other(format!("{file_path}: invalid json5: {loose}")))
+                    }
+                },
+            },
+        }
+    }
+
+    /// Render a value back out.
+    ///
+    /// JSON5 and JSONC are written as pretty JSON, which is valid in
+    /// both: json5's own serializer emits everything on one line, and a
+    /// file a person maintains should not be reflowed into one. The
+    /// rewrite is lossy for either in the same way it already is for
+    /// YAML — the document round-trips through a `serde_json::Value`,
+    /// which holds no comments, so comments anywhere in the file are
+    /// dropped when any record in it changes.
+    pub(crate) fn serialize(self, root: &serde_json::Value, file_path: &str) -> Result<Vec<u8>> {
+        match self {
+            Self::Yaml => {
+                let s = serde_saphyr::to_string(root).map_err(|e| Error::Yaml {
+                    path: file_path.to_string(),
+                    message: e.to_string(),
+                })?;
+                Ok(crate::util::elide_explicit_nulls(&s).into_bytes())
+            }
+            Self::Json | Self::Json5 => serde_json::to_vec_pretty(root).map_err(|e| Error::Json {
+                path: file_path.to_string(),
+                source: e,
+            }),
+        }
     }
 }
 
