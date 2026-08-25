@@ -337,12 +337,16 @@ class CloudMapDocQuery(CloudMapSelectionQuery):
         default=None,
         ge=1,
         description=(
-            "Return at most this many records, delivered under ``result`` "
+            "Return about this many records, delivered under ``result`` "
             "with a ``next_page_token`` key alongside when more remain. "
-            "``next_page_token`` is absent on the last page; pass it back as "
-            "``page_token`` to get the next one. Records are ordered by "
-            "section then key, so a walk is stable across writes. Cannot be "
-            "combined with ``key`` (which selects a single record); "
+            "Pass it back as "
+            "``page_token`` to get the next one. ``next_page_token`` is absent on the last page, "
+            "its presence says whether a walk is finished. "
+            "Records are ordered by section then key, so a walk is stable "
+            "across writes. A page never splits one ``(section, key)``: "
+            "where several records share one, the page can exceed ``limit`` "
+            "to take them all. "
+            "Cannot be combined with ``key`` (which selects a single record); "
             "``follow`` and ``exclude`` have no effect on a paged request, "
             "whose ``follow`` half is always empty. Combines with ``kind``, "
             "``type``, ``filter`` and ``select``, which all apply before the "

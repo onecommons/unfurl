@@ -133,12 +133,27 @@ pub struct RecordQuery {
     /// predicate is applied independently — two filters may be
     /// satisfied by different elements of the same array.
     pub json_queries: Vec<JsonQuery>,
-    /// Exclusive `(path, key)` lower bound on the byte-wise result order:
-    /// the paging cursor. Being a value rather than a row reference, it
-    /// stays usable after the record it names is deleted.
-    pub after: Option<(String, String)>,
+    /// Exclusive lower bound on the result order: the paging cursor.
+    /// Being a value rather than a row reference, it stays usable after
+    /// the record it names is deleted.
+    pub after: Option<Cursor>,
     /// Cap on how many records come back.
     pub limit: Option<i64>,
+    /// Never end a page part-way through a `(path, key)`: when `limit`
+    /// would cut between two records sharing one, carry on to the end of
+    /// that group even though the page then exceeds `limit`.
+    ///
+    /// Needed by any caller that collapses or merges records sharing a
+    /// `(path, key)` — the cloudmap document model does, since a response
+    /// is `{section: {key: value}}`. Such a caller has to see a whole
+    /// group at once to decide what it becomes, and a group split across
+    /// two pages is decided twice, from half the information each time.
+    ///
+    /// It also lets the cursor stay coarse. Resuming after `(path, key)`
+    /// is only correct if the page ended on a group boundary; otherwise
+    /// the remainder of a split group is never asked for again, and
+    /// vanishes with no error.
+    pub whole_groups: bool,
     /// Also return tombstones — records deleted since they were written.
     ///
     /// Off by default, because a live view of a section has no use for
@@ -147,6 +162,66 @@ pub struct RecordQuery {
     /// is otherwise unobservable — its row simply stops being returned.
     /// Check [`Record::deleted`] to tell a tombstone from a live record.
     pub include_deleted: bool,
+}
+
+/// Where a page of [`crate::SyncedRepo::find_records`] resumes.
+///
+/// Results are ordered by `(path, key, file_path, worktree_id)` — a
+/// total order, because that is the `record` table's unique index
+/// rearranged. Keyset paging needs one: with a partial order, ties break
+/// however the query planner feels and two runs can disagree about which
+/// row a cursor sits after.
+///
+/// The cursor may be *coarser* than that order, and the right coarseness
+/// depends on what the caller treats as one record:
+///
+/// - `path` and `key` alone resume after every row sharing them. This
+///   suits the cloudmap document model, where a response is
+///   `{section: {key: value}}` and two records sharing a key cannot both
+///   be represented — so a finer cursor would resume mid-group and hand
+///   back a record the client already has.
+/// - Adding `file_path` distinguishes the two records two files may
+///   legitimately hold at the same `(path, key)`.
+/// - Adding `worktree_id` as well distinguishes one logical record seen
+///   in two worktrees — an upstream and a per-user draft, say — which a
+///   caller merging them wants to see both halves of.
+///
+/// Components apply as a prefix: `worktree_id` is ignored without
+/// `file_path`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Cursor {
+    /// Parent JSON-pointer of the last record on the previous page.
+    pub path: String,
+    /// Its record key.
+    pub key: String,
+    /// Its file, to resume within a `(path, key)` shared by two files.
+    pub file_path: Option<String>,
+    /// Its worktree, to resume within a `(path, key, file_path)` present
+    /// in more than one.
+    pub worktree_id: Option<i64>,
+}
+
+impl Cursor {
+    /// Resume after `(path, key)` regardless of file or worktree.
+    pub fn new(path: impl Into<String>, key: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            key: key.into(),
+            file_path: None,
+            worktree_id: None,
+        }
+    }
+
+    /// The ordering columns this cursor constrains, as a prefix of the
+    /// `ORDER BY`. Shared by both dialects so the comparison and the
+    /// bind list cannot disagree about how many values there are.
+    pub(crate) fn columns(&self) -> &'static [&'static str] {
+        match (&self.file_path, self.worktree_id) {
+            (Some(_), Some(_)) => &["r.path", "r.key", "r.file_path", "r.worktree_id"],
+            (Some(_), None) => &["r.path", "r.key", "r.file_path"],
+            _ => &["r.path", "r.key"],
+        }
+    }
 }
 
 impl RecordQuery {

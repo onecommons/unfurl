@@ -107,7 +107,7 @@ pub fn encode_page_token(path: &str, key: &str) -> String {
 /// report the bad cursor. Rejects only malformed tokens, never merely
 /// stale ones — the cursor is a value rather than a row reference, so the
 /// record it names may have been deleted since it was issued.
-fn decode_page_token(token: &str) -> Result<(String, String), LocalError> {
+fn decode_page_token(token: &str) -> Result<unfurl_git_sync::Cursor, LocalError> {
     let bad = || {
         LocalError::BadRequest(format!(
             "page_token {token:?} is not a valid cursor: expected <section>/<key>"
@@ -118,7 +118,13 @@ fn decode_page_token(token: &str) -> Result<(String, String), LocalError> {
         return Err(bad());
     }
     let path = path_for_kind(section).ok_or_else(bad)?;
-    Ok((path.to_string(), key.to_string()))
+    // `(path, key)` only, deliberately. A response is
+    // `{section: {key: value}}`, so two records sharing a key cannot both
+    // appear in it -- a cursor naming a file or a worktree would resume
+    // inside such a group and repeat whichever half the client already
+    // has. It is also the granularity python's token can express, and the
+    // two implementations mint interchangeable tokens.
+    Ok(unfurl_git_sync::Cursor::new(path, key))
 }
 
 /// Reverse lookup: `record.path` → cloudmap section name.
@@ -813,6 +819,11 @@ async fn build_response(
         // section whose size is a multiple of `limit` on a token
         // pointing at an empty page.
         query.limit = Some(limit + 1);
+        // The token names a `(path, key)`, so a page must end on one:
+        // otherwise resuming past it drops whatever else shared it. This
+        // can make a page longer than `limit`; `next_page_token` rather
+        // than page length is what says whether more remain.
+        query.whole_groups = true;
         return paged_response(
             synced,
             &query,
@@ -862,6 +873,33 @@ async fn build_response(
 }
 
 /// One page of a `limit` request: the ordered scan cut at `limit`.
+/// How many of `rows` to keep so the page ends between `(path, key)`
+/// groups rather than inside one.
+///
+/// Starts at `limit` and walks back to the start of the group that
+/// straddles it. When that consumes the whole page — one group longer
+/// than `limit` — the group is returned entire instead, exceeding
+/// `limit`: the alternative is an empty page and a cursor that never
+/// advances.
+fn page_boundary(rows: &[Record], limit: usize) -> usize {
+    let same = |a: &Record, b: &Record| a.path == b.path && a.key == b.key;
+    let mut cut = rows.len().min(limit);
+    if cut == rows.len() {
+        return cut;
+    }
+    while cut > 0 && same(&rows[cut], &rows[cut - 1]) {
+        cut -= 1;
+    }
+    if cut == 0 {
+        cut = rows
+            .iter()
+            .take_while(|r| same(r, &rows[0]))
+            .count()
+            .min(rows.len());
+    }
+    cut
+}
+
 async fn paged_response(
     synced: &SyncedRepo,
     query: &RecordQuery,
@@ -875,10 +913,37 @@ async fn paged_response(
         .await
         .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
 
-    let more = rows.len() as i64 > limit;
+    // Cut on a `(path, key)` boundary. The token names one, so resuming
+    // past it drops anything else that shared it -- and a group split
+    // across two pages would be collapsed into `result` twice, from half
+    // the records each time.
+    let cut = page_boundary(&rows, limit as usize);
+    let mut more = rows.len() > cut;
     // Cut the page *before* walking, or the probe record -- which belongs to
     // the next page -- would contribute its neighbours to this one.
-    rows.truncate(limit as usize);
+    rows.truncate(cut);
+    if !more {
+        // A group wider than `limit` swallows the spare record fetched to
+        // detect a next page, so "nothing left over" stops meaning "nothing
+        // left". Ask directly rather than end the walk on a guess -- this
+        // runs on the last page of a walk and on an oversized group, not on
+        // every page.
+        if let Some(last) = rows.last() {
+            let probe = synced
+                .find_records(&RecordQuery {
+                    after: Some(unfurl_git_sync::Cursor::new(
+                        last.path.clone(),
+                        last.key.clone(),
+                    )),
+                    limit: Some(1),
+                    whole_groups: false,
+                    ..query.clone()
+                })
+                .await
+                .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+            more = !probe.is_empty();
+        }
+    }
     let next = if more {
         rows.last().map(|r| encode_page_token(&r.path, &r.key))
     } else {

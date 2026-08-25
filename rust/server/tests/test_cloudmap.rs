@@ -2687,3 +2687,67 @@ async fn repeated_filters_and_together() {
     assert_eq!(body["total"], 1, "{body:?}");
     assert_eq!(body["groups"], serde_json::json!({"true": {"count": 1}}));
 }
+
+/// Paging with `limit=1` over a key held by two files must still reach
+/// every later record: the page that carries the pair exceeds the limit,
+/// and the walk has to continue past it.
+#[tokio::test]
+async fn paging_over_a_duplicated_key_reaches_the_tail() {
+    let (cm, synced, _tmp) = open_two_file_state().await;
+    let dup = "git://example.com/two-files.git";
+    for file in ["cloudmap.yaml", ALT_FILE] {
+        synced
+            .upsert_record(
+                Some(file),
+                "/repositories",
+                dup,
+                serde_json::json!({"name": file}),
+                None,
+            )
+            .await
+            .expect("write");
+    }
+    let expected: Vec<String> = synced
+        .find_records(&unfurl_git_sync::RecordQuery {
+            path: Some("/repositories".into()),
+            ..Default::default()
+        })
+        .await
+        .expect("all")
+        .into_iter()
+        .map(|r| r.key)
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let mut seen: Vec<String> = Vec::new();
+    let mut token: Option<String> = None;
+    for _ in 0..50 {
+        let uri = match &token {
+            Some(t) => format!(
+                "/cloudmap?kind=repositories&limit=1&page_token={}",
+                urlencoding::encode(t)
+            ),
+            None => "/cloudmap?kind=repositories&limit=1".to_string(),
+        };
+        let app = router(make_state(cm.clone()));
+        let (status, body) = get_json(app, &uri).await;
+        assert_eq!(status, StatusCode::OK, "{body:?}");
+        if let Some(repos) = body["result"]
+            .get("repositories")
+            .and_then(Value::as_object)
+        {
+            seen.extend(repos.keys().cloned());
+        }
+        match body.get("next_page_token").and_then(Value::as_str) {
+            Some(t) => token = Some(t.to_string()),
+            None => break,
+        }
+    }
+    seen.sort();
+    seen.dedup();
+    assert_eq!(
+        seen, expected,
+        "the walk must reach every key, not stop at the duplicated one"
+    );
+}

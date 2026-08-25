@@ -80,8 +80,8 @@ pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
 pub use model::{
     canonical_facet_key, canonical_json_text, Alias, Applied, BatchOp, BatchOutcome, CommitRollup,
-    FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File, JsonQuery, QueryOp, Record,
-    RecordQuery, RollupTxn, Txn, TxnMeta, TxnRecord, UpdateStats, WorkingDir, Worktree,
+    Cursor, FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File, JsonQuery, QueryOp,
+    Record, RecordQuery, RollupTxn, Txn, TxnMeta, TxnRecord, UpdateStats, WorkingDir, Worktree,
     WriteOutcome,
 };
 #[doc(inline)]

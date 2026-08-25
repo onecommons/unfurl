@@ -355,7 +355,39 @@ impl SyncedRepo {
     /// several (`file_path = None`) can hold two records with the same
     /// pair, and a page boundary between them keeps just the later one.
     pub async fn find_records(&self, query: &RecordQuery) -> Result<Vec<Record>> {
-        db::record::find(self.db(), self.worktree_id(), query).await
+        let mut rows = db::record::find(self.db(), self.worktree_id(), query).await?;
+        // A page that stopped exactly on `limit` may have cut a
+        // `(path, key)` group in half; ask for the remainder. The
+        // follow-up returns nothing when the boundary was already clean,
+        // so this costs one bounded query on a full page and nothing on
+        // a short one.
+        if query.whole_groups && query.limit.is_some_and(|n| rows.len() as i64 == n) {
+            if let Some(last) = rows.last().cloned() {
+                let rest = db::record::find(
+                    self.db(),
+                    self.worktree_id(),
+                    &RecordQuery {
+                        path: Some(last.path.clone()),
+                        key: Some(last.key.clone()),
+                        // Exact key: an alias OR-clause would widen this
+                        // past the group being completed.
+                        alias: false,
+                        after: Some(crate::model::Cursor {
+                            path: last.path.clone(),
+                            key: last.key.clone(),
+                            file_path: Some(last.file_path.clone()),
+                            worktree_id: Some(last.worktree_id),
+                        }),
+                        limit: None,
+                        whole_groups: false,
+                        ..query.clone()
+                    },
+                )
+                .await?;
+                rows.extend(rest);
+            }
+        }
+        Ok(rows)
     }
 
     /// Facet aggregation over the records matching `query`: distinct

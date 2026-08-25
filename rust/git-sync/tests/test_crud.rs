@@ -1474,7 +1474,7 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Walk it two at a time, following the cursor.
     let mut seen: Vec<String> = Vec::new();
-    let mut after: Option<(String, String)> = None;
+    let mut after: Option<unfurl_git_sync::Cursor> = None;
     for _ in 0..100 {
         let page = sync
             .find_records(&RecordQuery {
@@ -1489,7 +1489,12 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
             break;
         }
         let last = page.last().expect("non-empty");
-        after = Some((last.path.clone(), last.key.clone()));
+        after = Some(unfurl_git_sync::Cursor {
+            path: last.path.clone(),
+            key: last.key.clone(),
+            file_path: Some(last.file_path.clone()),
+            worktree_id: Some(last.worktree_id),
+        });
         seen.extend(page.iter().map(|r| r.key.clone()));
     }
     assert_eq!(seen, expected, "pages must reassemble the unpaged scan");
@@ -1511,8 +1516,8 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // A cursor naming a record that no longer exists still resumes: the
     // bound is a value, not a row reference.
-    let ghost = Some((
-        "/artifacts".to_string(),
+    let ghost = Some(unfurl_git_sync::Cursor::new(
+        "/artifacts",
         format!("{}\u{1}gone", expected[0]),
     ));
     let resumed = sync
@@ -1566,7 +1571,7 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
     );
 
     // And a cursor lands between them accordingly.
-    let after = Some(("/repositories".to_string(), "z-repo".to_string()));
+    let after = Some(unfurl_git_sync::Cursor::new("/repositories", "z-repo"));
     let rest = sync
         .find_records(&RecordQuery {
             path: Some("/repositories".into()),
@@ -2333,7 +2338,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
 
     // And the cursor agrees, so a token minted by sqlite or python resumes
     // in the same place here.
-    let after = Some(("/repositories".to_string(), "z-repo".to_string()));
+    let after = Some(unfurl_git_sync::Cursor::new("/repositories", "z-repo"));
     let rest = sync
         .find_records(&RecordQuery {
             path: Some("/repositories".into()),
@@ -2913,3 +2918,147 @@ async fn url_spellings_resolve_to_one_worktree() {
     assert_eq!(rows.len(), 1, "one repository, one row: {rows:?}");
     assert_eq!(rows[0].1, "unfurl.cloud/onecommons/cloudmap");
 }
+
+/// Two files holding the same `(path, key)` are two records, and paging
+/// must return both.
+async fn run_paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // The same key in two files. The unique index is per
+    // (worktree, file, path, key), so this is legal storage even though
+    // the cloudmap document model would collapse the pair.
+    let dup = "git://example.com/same-key.git";
+    for file in ["cloudmap.yaml", "second.yaml"] {
+        sync.upsert_record(
+            Some(file),
+            "/repositories",
+            dup,
+            serde_json::json!({"name": file}),
+            None,
+        )
+        .await
+        .expect("write");
+    }
+
+    // Walk one at a time, so a page boundary lands inside the pair --
+    // the case a `(path, key)` cursor silently skips.
+    let mut seen: Vec<(String, String)> = Vec::new();
+    let mut after: Option<unfurl_git_sync::Cursor> = None;
+    for _ in 0..50 {
+        let page = sync
+            .find_records(&RecordQuery {
+                path: Some("/repositories".into()),
+                after: after.clone(),
+                limit: Some(1),
+                ..Default::default()
+            })
+            .await
+            .expect("page");
+        let Some(last) = page.last() else { break };
+        after = Some(unfurl_git_sync::Cursor {
+            path: last.path.clone(),
+            key: last.key.clone(),
+            file_path: Some(last.file_path.clone()),
+            worktree_id: Some(last.worktree_id),
+        });
+        seen.extend(page.iter().map(|r| (r.file_path.clone(), r.key.clone())));
+    }
+
+    let both: Vec<&(String, String)> = seen.iter().filter(|(_, k)| k == dup).collect();
+    assert_eq!(
+        both.len(),
+        2,
+        "both files' records must survive the walk, got {both:?}"
+    );
+    assert!(both.iter().any(|(f, _)| f == "cloudmap.yaml"), "{both:?}");
+    assert!(both.iter().any(|(f, _)| f == "second.yaml"), "{both:?}");
+
+    // ...and no record is returned twice.
+    let mut sorted = seen.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), seen.len(), "a record repeated: {seen:?}");
+}
+
+crud_test!(
+    paging_spans_duplicate_keys_across_files,
+    run_paging_spans_duplicate_keys_across_files
+);
+
+/// With `whole_groups`, a coarse `(path, key)` cursor walks losslessly:
+/// the page overshoots `limit` rather than splitting a group, so
+/// resuming past that `(path, key)` can never skip a straggler.
+async fn run_whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let dup = "git://example.com/same-key.git";
+    for file in ["cloudmap.yaml", "second.yaml"] {
+        sync.upsert_record(
+            Some(file),
+            "/repositories",
+            dup,
+            serde_json::json!({"name": file}),
+            None,
+        )
+        .await
+        .expect("write");
+    }
+
+    // limit = 1, so every page boundary lands inside the duplicated pair.
+    let mut seen: Vec<(String, String)> = Vec::new();
+    let mut after: Option<unfurl_git_sync::Cursor> = None;
+    let mut overshot = false;
+    for _ in 0..50 {
+        let page = sync
+            .find_records(&RecordQuery {
+                path: Some("/repositories".into()),
+                after: after.clone(),
+                limit: Some(1),
+                whole_groups: true,
+                ..Default::default()
+            })
+            .await
+            .expect("page");
+        let Some(last) = page.last() else { break };
+        if page.len() > 1 {
+            overshot = true;
+        }
+        // Deliberately coarse -- the granularity the cloudmap document
+        // model and the server's page token can express.
+        after = Some(unfurl_git_sync::Cursor::new(
+            last.path.clone(),
+            last.key.clone(),
+        ));
+        seen.extend(page.iter().map(|r| (r.file_path.clone(), r.key.clone())));
+    }
+
+    assert!(
+        overshot,
+        "the duplicated pair must arrive as one page over the limit: {seen:?}"
+    );
+    let both: Vec<&(String, String)> = seen.iter().filter(|(_, k)| k == dup).collect();
+    assert_eq!(
+        both.len(),
+        2,
+        "no half of the group may be dropped: {both:?}"
+    );
+    let mut sorted = seen.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(sorted.len(), seen.len(), "a record repeated: {seen:?}");
+
+    // Without it, the same walk silently loses one -- the behaviour this
+    // flag exists to avoid.
+    let lossy = sync
+        .find_records(&RecordQuery {
+            path: Some("/repositories".into()),
+            limit: Some(1),
+            ..Default::default()
+        })
+        .await
+        .expect("page");
+    assert_eq!(lossy.len(), 1, "limit is a hard cap without whole_groups");
+}
+
+crud_test!(
+    whole_groups_keeps_a_coarse_cursor_lossless,
+    run_whole_groups_keeps_a_coarse_cursor_lossless
+);

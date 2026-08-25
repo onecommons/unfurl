@@ -414,13 +414,26 @@ async fn find_sqlite(
         // Keyset cursor over the `ORDER BY` below. Row-value comparison
         // (sqlite >= 3.15) is the whole predicate, so the anchor row
         // itself need not still exist -- a record deleted between pages
-        // doesn't strand the walk. sqlite's default BINARY collation
+        // doesn't strand the walk. `file_path` is in the tuple because
+        // the unique index is per (worktree, file, path, key): two files
+        // may hold the same (path, key), and without the tiebreak a page
+        // ending on the first would resume past the second, dropping it
+        // silently. sqlite's default BINARY collation
         // compares UTF-8 bytes, which is the ordering the page token
         // promises and the other two implementations reproduce.
-        sql.push_str(&format!(" AND (r.path, r.key) > (?{idx}, ?{})", idx + 1));
-        idx += 2;
+        let cols = after.as_ref().expect("checked").columns();
+        let binds: Vec<String> = (0..cols.len()).map(|i| format!("?{}", idx + i)).collect();
+        sql.push_str(&format!(
+            " AND ({}) > ({})",
+            cols.join(", "),
+            binds.join(", ")
+        ));
+        idx += cols.len();
     }
-    sql.push_str(" ORDER BY r.path, r.key");
+    // Total order, whatever the cursor constrains: this is the unique
+    // index rearranged, so no two rows tie and a page boundary always
+    // falls in a well-defined place.
+    sql.push_str(" ORDER BY r.path, r.key, r.file_path, r.worktree_id");
     if limit.is_some() {
         sql.push_str(&format!(" LIMIT ?{idx}"));
         idx += 1;
@@ -430,9 +443,17 @@ async fn find_sqlite(
     let mut args = sqlx::sqlite::SqliteArguments::default();
     args.add(worktree_id).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
-    if let Some((p, k)) = after {
-        args.add(p.as_str()).map_err(arg_err)?;
-        args.add(k.as_str()).map_err(arg_err)?;
+    if let Some(c) = after {
+        args.add(c.path.as_str()).map_err(arg_err)?;
+        args.add(c.key.as_str()).map_err(arg_err)?;
+        if c.columns().len() > 2 {
+            args.add(c.file_path.as_deref().unwrap_or_default())
+                .map_err(arg_err)?;
+        }
+        if c.columns().len() > 3 {
+            args.add(c.worktree_id.unwrap_or_default())
+                .map_err(arg_err)?;
+        }
     }
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
@@ -594,13 +615,31 @@ async fn find_pg(
         // "é" before "z", byte order after), and a page token minted by
         // the sqlite or python implementation has to mean the same thing
         // here or a walk would skip or repeat records.
+        let cols = after.as_ref().expect("checked").columns();
+        // `COLLATE "C"` on the text columns only -- worktree_id is a
+        // BIGINT and collating it is an error.
+        let compared: Vec<String> = cols
+            .iter()
+            .map(|c| {
+                if *c == "r.worktree_id" {
+                    (*c).to_string()
+                } else {
+                    format!("{c} COLLATE \"C\"")
+                }
+            })
+            .collect();
+        let binds: Vec<String> = (0..cols.len()).map(|i| format!("${}", idx + i)).collect();
         sql.push_str(&format!(
-            " AND (r.path COLLATE \"C\", r.key COLLATE \"C\") > (${idx}, ${})",
-            idx + 1
+            " AND ({}) > ({})",
+            compared.join(", "),
+            binds.join(", ")
         ));
-        idx += 2;
+        idx += cols.len();
     }
-    sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\"");
+    sql.push_str(
+        " ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
+         r.file_path COLLATE \"C\", r.worktree_id",
+    );
     if limit.is_some() {
         sql.push_str(&format!(" LIMIT ${idx}"));
         idx += 1;
@@ -610,9 +649,17 @@ async fn find_pg(
     let mut args = sqlx::postgres::PgArguments::default();
     args.add(worktree_id).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
-    if let Some((p, k)) = after {
-        args.add(p.as_str()).map_err(arg_err)?;
-        args.add(k.as_str()).map_err(arg_err)?;
+    if let Some(c) = after {
+        args.add(c.path.as_str()).map_err(arg_err)?;
+        args.add(c.key.as_str()).map_err(arg_err)?;
+        if c.columns().len() > 2 {
+            args.add(c.file_path.as_deref().unwrap_or_default())
+                .map_err(arg_err)?;
+        }
+        if c.columns().len() > 3 {
+            args.add(c.worktree_id.unwrap_or_default())
+                .map_err(arg_err)?;
+        }
     }
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
