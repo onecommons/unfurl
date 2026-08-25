@@ -2532,6 +2532,9 @@ async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tm
         .expect("is a git-sync commit");
     assert_eq!(parsed.txns.len(), 2, "{body}");
     assert!(parsed.origin.is_some(), "{body}");
+    // Own family here, so the two agree -- the fork case is covered by
+    // `a_fork_records_its_family_in_the_rollup`.
+    assert_eq!(parsed.family, parsed.origin, "{body}");
     assert!(
         parsed.next_version > rows[1].last_version,
         "counter must cover every version this commit carried: {parsed:?}"
@@ -2600,7 +2603,7 @@ async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tm
 
     // --- trailers, as git parses them --------------------------------
     assert_eq!(
-        head_trailer(tmp.path(), "Git-Sync-Txns").as_deref(),
+        head_trailer(tmp.path(), "Git-Sync-Txn-Count").as_deref(),
         Some("2"),
         "{body}"
     );
@@ -2684,7 +2687,7 @@ async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tm
     let body = head_commit_body(tmp.path());
     assert!(!body.contains("Rollup of"), "nothing to roll up: {body}");
     assert_eq!(
-        head_trailer(tmp.path(), "Git-Sync-Txns").as_deref(),
+        head_trailer(tmp.path(), "Git-Sync-Txn-Count").as_deref(),
         Some("0"),
         "always emitted, so a dropped trailer is detectable: {body}"
     );
@@ -2804,7 +2807,7 @@ fn parse_rejects_a_message_it_cannot_trust() {
     // would lose history silently, so it must be an error.
     let mismatch = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
                     - 5 on main 2026-08-23T19:46:56-07:00 Ada\n\n\
-                    Git-Sync-Txns: 2\nGit-Sync-Next-Version: 9\n";
+                    Git-Sync-Txn-Count: 2\nGit-Sync-Next-Version: 9\n";
     assert!(unfurl_git_sync::parse_commit_rollup(mismatch).is_err());
 
     // The counter trailer without the count trailer.
@@ -2817,14 +2820,14 @@ fn parse_rejects_a_message_it_cannot_trust() {
     let bad_flag = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
                     - 5 on main 2026-08-23T19:46:56-07:00 Ada\n   \
                     * 5 X \"/repositories\" \"key\"\n\n\
-                    Git-Sync-Txns: 1\nGit-Sync-Next-Version: 9\n";
+                    Git-Sync-Txn-Count: 1\nGit-Sync-Next-Version: 9\n";
     assert!(unfurl_git_sync::parse_commit_rollup(bad_flag).is_err());
 
     // A record line that lost its closing quote.
     let truncated = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
                      - 5 on main 2026-08-23T19:46:56-07:00 Ada\n   \
                      * 5 M \"/repositories\" \"unterminated\n\n\
-                     Git-Sync-Txns: 1\nGit-Sync-Next-Version: 9\n";
+                     Git-Sync-Txn-Count: 1\nGit-Sync-Next-Version: 9\n";
     assert!(unfurl_git_sync::parse_commit_rollup(truncated).is_err());
 }
 
@@ -3062,3 +3065,234 @@ crud_test!(
     whole_groups_keeps_a_coarse_cursor_lossless,
     run_whole_groups_keeps_a_coarse_cursor_lossless
 );
+
+// ---------------------------------------------------------------------------
+// shared version sequence
+// ---------------------------------------------------------------------------
+
+/// Worktrees in one family draw from one sequence, so a version means
+/// the same row wherever it turns up.
+///
+/// A fork or draft has no constructor yet, so the family link is made
+/// directly. What is under test is the resolution and the draw, not how
+/// a member comes to exist.
+#[tokio::test]
+async fn a_family_shares_one_version_sequence() {
+    let (tmp, db) = file_backed_fixture().await;
+    git(
+        tmp.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://unfurl.cloud/onecommons/cloudmap.git",
+        ],
+    );
+    let upstream = open_at(tmp.path(), &db).await;
+    upstream.update_from_working_dir().await.expect("sync");
+    let first = upstream
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "upstream-write",
+            serde_json::json!({"name": "u"}),
+            None,
+        )
+        .await
+        .expect("write")
+        .version;
+
+    // A second checkout of the same repo under a different remote spelling
+    // would be the same worktree, so use a distinct one and adopt it into
+    // the first's family, the way a fork would be.
+    let (tmp2, _) = file_backed_fixture().await;
+    git(
+        tmp2.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://unfurl.cloud/someone/cloudmap-fork.git",
+        ],
+    );
+    let fork = open_at(tmp2.path(), &db).await;
+    let pool = sqlx::SqlitePool::connect(&db).await.expect("connect");
+    sqlx::query(
+        "UPDATE worktree SET family_id = (SELECT COALESCE(family_id, id) FROM worktree \
+         WHERE origin = 'unfurl.cloud/onecommons/cloudmap') \
+         WHERE origin = 'unfurl.cloud/someone/cloudmap-fork'",
+    )
+    .execute(&pool)
+    .await
+    .expect("join the family");
+
+    // Re-open so the cached family is re-resolved.
+    drop(fork);
+    let fork = open_at(tmp2.path(), &db).await;
+    fork.update_from_working_dir().await.expect("sync");
+    let forked = fork
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "fork-write",
+            serde_json::json!({"name": "f"}),
+            None,
+        )
+        .await
+        .expect("write")
+        .version;
+
+    assert!(
+        forked > first,
+        "the fork must continue the family's sequence, not restart: \
+         upstream stamped {first}, fork stamped {forked}"
+    );
+
+    // And the upstream carries on above the fork rather than reissuing.
+    let after = upstream
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "upstream-again",
+            serde_json::json!({"name": "u2"}),
+            None,
+        )
+        .await
+        .expect("write")
+        .version;
+    assert!(
+        after > forked,
+        "a version must never be handed out twice in a family: \
+         fork stamped {forked}, upstream then stamped {after}"
+    );
+
+    // One sequence row backs both.
+    let seqs: Vec<(i64,)> = sqlx::query_as("SELECT worktree_id FROM version_seq ORDER BY 1")
+        .fetch_all(&pool)
+        .await
+        .expect("query");
+    assert_eq!(seqs.len(), 2, "one per family root, forks reuse: {seqs:?}");
+}
+
+/// A batch takes its versions in one contiguous block.
+async fn run_batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let outcome = sync
+        .apply_batch(
+            vec![upsert_op("a"), upsert_op("b"), upsert_op("c")],
+            true,
+            None,
+        )
+        .await
+        .expect("batch");
+    let versions: Vec<i64> = outcome.applied.iter().map(|a| a.outcome.version).collect();
+    assert_eq!(versions.len(), 3);
+    for pair in versions.windows(2) {
+        assert_eq!(
+            pair[1],
+            pair[0] + 1,
+            "a batch's range must be gapless so the rollup can name it: {versions:?}"
+        );
+    }
+
+    // And the batch must *consume* the range it numbered within, not
+    // just count off it: a block draw that advanced the counter by less
+    // than it handed out would reissue these to the next writer.
+    let after = sync
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "after-batch",
+            serde_json::json!({"name": "after"}),
+            None,
+        )
+        .await
+        .expect("write")
+        .version;
+    assert!(
+        after > *versions.last().expect("non-empty"),
+        "the next write must land past the batch: batch took {versions:?}, then {after}"
+    );
+}
+
+crud_test!(
+    batch_allocates_a_contiguous_range,
+    run_batch_allocates_a_contiguous_range
+);
+
+/// A fork's commits name the upstream as their family, so a reader can
+/// tell its ranges came from the sequence it is reconstructing even
+/// though the origin differs.
+#[tokio::test]
+async fn a_fork_records_its_family_in_the_rollup() {
+    let (tmp, db) = file_backed_fixture().await;
+    git(
+        tmp.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://unfurl.cloud/onecommons/cloudmap.git",
+        ],
+    );
+    let upstream = open_at(tmp.path(), &db).await;
+    upstream.update_from_working_dir().await.expect("sync");
+
+    let (tmp2, _) = file_backed_fixture().await;
+    git(
+        tmp2.path(),
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://unfurl.cloud/someone/cloudmap-fork.git",
+        ],
+    );
+    let fork = open_at(tmp2.path(), &db).await;
+    drop(fork);
+    let pool = sqlx::SqlitePool::connect(&db).await.expect("connect");
+    sqlx::query(
+        "UPDATE worktree SET family_id = (SELECT COALESCE(family_id, id) FROM worktree \
+         WHERE origin = 'unfurl.cloud/onecommons/cloudmap') \
+         WHERE origin = 'unfurl.cloud/someone/cloudmap-fork'",
+    )
+    .execute(&pool)
+    .await
+    .expect("join the family");
+
+    let fork = open_at(tmp2.path(), &db).await;
+    fork.update_from_working_dir().await.expect("sync");
+    fork.apply_batch(
+        vec![upsert_op("from-the-fork")],
+        true,
+        Some(TxnMeta {
+            author: Some("Ada <ada@example.com>".into()),
+            message: Some("Edit on a fork".into()),
+        }),
+    )
+    .await
+    .expect("batch");
+    fork.commit_repository("Update cloudmap")
+        .await
+        .expect("commit")
+        .expect("dirty");
+
+    let body = head_commit_body(tmp2.path());
+    let parsed = unfurl_git_sync::parse_commit_rollup(&body)
+        .expect("parses")
+        .expect("a git-sync commit");
+    assert_eq!(
+        parsed.origin.as_deref(),
+        Some("unfurl.cloud/someone/cloudmap-fork"),
+        "origin names the writer: {body}"
+    );
+    assert_eq!(
+        parsed.family.as_deref(),
+        Some("unfurl.cloud/onecommons/cloudmap"),
+        "family names the sequence, which is the upstream's: {body}"
+    );
+    assert_ne!(
+        parsed.family, parsed.origin,
+        "this is the case origin alone cannot decide: {body}"
+    );
+}

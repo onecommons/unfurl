@@ -79,6 +79,10 @@ struct SyncedRepoInner {
     repo_path: PathBuf,
     formats: FormatRegistry,
     worktree_id: i64,
+    /// Root of this worktree's version family — see
+    /// [`db::worktree::family_id`]. Resolved once at open because every
+    /// write draws from it.
+    family_id: i64,
 }
 
 impl SyncedRepo {
@@ -111,6 +115,7 @@ impl SyncedRepo {
         drop(repo);
 
         let worktree_id = db::worktree::upsert(&db, &meta.origin, &meta.branch).await?;
+        let family_id = db::worktree::family_id(&db, worktree_id).await?;
 
         Ok(Self {
             inner: Arc::new(SyncedRepoInner {
@@ -118,6 +123,7 @@ impl SyncedRepo {
                 repo_path,
                 formats,
                 worktree_id,
+                family_id,
             }),
         })
     }
@@ -128,6 +134,12 @@ impl SyncedRepo {
 
     fn worktree_id(&self) -> i64 {
         self.inner.worktree_id
+    }
+
+    /// Root worktree of the version family this one draws from: itself,
+    /// or the upstream it was forked from.
+    fn family_id(&self) -> i64 {
+        self.inner.family_id
     }
 
     fn db(&self) -> &Db {
@@ -958,8 +970,17 @@ impl SyncedRepo {
                 records,
             });
         }
+        // The family root's origin identifies the version sequence these
+        // ranges came from; skip the lookup when this worktree is its own
+        // family, which is the usual case.
+        let family = if self.family_id() == self.worktree_id() {
+            worktree.origin.clone()
+        } else {
+            db::worktree::get(self.db(), self.family_id()).await?.origin
+        };
         let rollup = CommitRollup {
             origin: Some(worktree.origin.clone()),
+            family: Some(family),
             next_version: db::worktree::next_version(self.db(), self.worktree_id()).await?,
             txns: entries,
         };
@@ -1042,7 +1063,10 @@ fn build_commit_message(subject: &str, rollup: &CommitRollup) -> String {
     if let Some(origin) = &rollup.origin {
         out.push_str(&format!("Git-Sync-Origin: {}\n", one_line(origin)));
     }
-    out.push_str(&format!("Git-Sync-Txns: {}\n", rollup.txns.len()));
+    if let Some(family) = &rollup.family {
+        out.push_str(&format!("Git-Sync-Family: {}\n", one_line(family)));
+    }
+    out.push_str(&format!("Git-Sync-Txn-Count: {}\n", rollup.txns.len()));
     out.push_str(&format!("Git-Sync-Next-Version: {}\n", rollup.next_version));
     out
 }
@@ -1084,8 +1108,9 @@ fn one_line(value: &str) -> String {
 ///    * 23 M "/repositories" "git://unfurl.cloud/onecommons/std.git"
 ///    * 24 D "/repositories" "git://example.com/legacy.git"
 ///
-/// Git-Sync-Origin: https://unfurl.cloud/onecommons/cloudmap.git
-/// Git-Sync-Txns: 2
+/// Git-Sync-Origin: unfurl.cloud/someone/cloudmap-fork
+/// Git-Sync-Family: unfurl.cloud/onecommons/cloudmap
+/// Git-Sync-Txn-Count: 2
 /// Git-Sync-Next-Version: 25
 /// ```
 ///
@@ -1126,15 +1151,24 @@ fn one_line(value: &str) -> String {
 /// `Token: value` lines only — so `git interpret-trailers` and
 /// `--format=%(trailers)` read it:
 ///
-/// - `Git-Sync-Origin` is the worktree origin. It is not in the prose
-///   because every batch in a rollup belongs to the same worktree, and
-///   a reader of the log is already in the repository it names.
-/// - `Git-Sync-Txns` is the entry count, always emitted, `0` included.
+/// - `Git-Sync-Origin` is the worktree origin — who made these writes.
+///   It is not in the prose because every batch in a rollup belongs to
+///   the same worktree, and a reader of the log is already in the
+///   repository it names.
+/// - `Git-Sync-Family` is the origin of the worktree the version
+///   sequence belongs to: itself, or the upstream it was forked from.
+///   A reader reconstructing that sequence keeps the rollups whose
+///   family matches and ignores the rest — origin cannot decide it,
+///   since a fork's history holds upstream rollups drawn from the same
+///   counter under a different origin.
+/// - `Git-Sync-Txn-Count` is how many entries the rollup has — a count,
+///   not an identifier — always emitted, `0` included.
 ///   It is what makes a rollup section trustworthy: prose that merely
 ///   looks like one (a commit *about* this format, say) is ignored when
 ///   the count disagrees, and a dropped trailer becomes a hard parse
 ///   error instead of silently reading as "no batches".
-/// - `Git-Sync-Next-Version` is the worktree's version counter, written
+/// - `Git-Sync-Next-Version` is the version counter of the worktree's
+///   family — the upstream it and its forks share — written
 ///   on *every* commit, batches or not: single-record CRUD writes and
 ///   re-syncs draw versions too, so a rebuild seeding its counter from
 ///   the rollup ranges alone would re-issue numbers the old database had
@@ -1148,7 +1182,7 @@ fn one_line(value: &str) -> String {
 /// Returns `Ok(None)` for a message that is not a git-sync commit at
 /// all (no `Git-Sync-Next-Version` trailer). Returns `Err` for one that
 /// announces itself and then does not parse — a truncated entry, a
-/// mangled trailer, an entry count that disagrees with `Git-Sync-Txns`
+/// mangled trailer, an entry count that disagrees with `Git-Sync-Txn-Count`
 /// (which is what a squash merge of two git-sync commits looks like).
 /// The distinction matters: silently reporting "no batches" for a
 /// damaged message would lose history without anyone noticing.
@@ -1167,6 +1201,7 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
         None => return Ok(None),
     };
     let mut origin = None;
+    let mut family = None;
     let mut next_version = None;
     let mut declared = None;
     for line in &lines[trailer_start..] {
@@ -1175,8 +1210,9 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
         };
         match token {
             "Git-Sync-Origin" => origin = Some(value.to_string()),
+            "Git-Sync-Family" => family = Some(value.to_string()),
             "Git-Sync-Next-Version" => next_version = value.parse::<i64>().ok(),
-            "Git-Sync-Txns" => declared = value.parse::<usize>().ok(),
+            "Git-Sync-Txn-Count" => declared = value.parse::<usize>().ok(),
             _ => {}
         }
     }
@@ -1185,12 +1221,14 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
     };
     let declared = declared.ok_or_else(|| {
         Error::Other(
-            "git-sync commit message has Git-Sync-Next-Version but no Git-Sync-Txns".to_string(),
+            "git-sync commit message has Git-Sync-Next-Version but no Git-Sync-Txn-Count"
+                .to_string(),
         )
     })?;
     if declared == 0 {
         return Ok(Some(CommitRollup {
             origin,
+            family,
             next_version,
             txns: Vec::new(),
         }));
@@ -1242,6 +1280,7 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
     }
     Ok(Some(CommitRollup {
         origin,
+        family,
         next_version,
         txns,
     }))
@@ -1721,7 +1760,7 @@ where
             false,
         )?;
     }
-    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     let id = db::tx::create_record(
         &mut tx,
@@ -1807,7 +1846,7 @@ where
             true,
         )?;
     }
-    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     db::tx::update_record(&mut tx, id, &json_text, version, exp_v, exp_c).await?;
     let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
@@ -1879,7 +1918,7 @@ where
         )?;
     }
     let format_owner = ensure_file_registered(sync, &mut tx, file_path, path).await?;
-    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     let id = db::tx::upsert_record(
         &mut tx,
@@ -1960,7 +1999,7 @@ where
             true,
         )?;
     }
-    let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+    let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
     tx.commit().await?;
@@ -1978,6 +2017,7 @@ async fn apply_one_in_tx<DB>(
     sync: &SyncedRepo,
     tx: &mut sqlx::Transaction<'_, DB>,
     op: BatchOp,
+    version: i64,
 ) -> Result<WriteOutcome>
 where
     DB: db::tx::Dialect,
@@ -2039,7 +2079,6 @@ where
                 )?;
             }
             let format_owner = ensure_file_registered(sync, tx, &resolved_fp, &op_path).await?;
-            let version = db::tx::next_version(tx, sync.worktree_id()).await?;
             let (exp_v, exp_c) = occ_binds(expected.as_ref());
             let id = db::tx::upsert_record(
                 tx,
@@ -2109,7 +2148,6 @@ where
                     true,
                 )?;
             }
-            let version = db::tx::next_version(tx, sync.worktree_id()).await?;
             let (exp_v, exp_c) = occ_binds(expected.as_ref());
             db::tx::delete_record(tx, id, version, exp_v, exp_c).await?;
             Ok(WriteOutcome { id, version })
@@ -2143,13 +2181,24 @@ where
 {
     let mut outcome = BatchOutcome::default();
     let mut tx = pool.begin().await?;
+    // One draw for the batch rather than one per op. The family's
+    // counter row is locked until this transaction commits, so drawing
+    // per op would hold it for the whole batch and stall every other
+    // writer in the family behind a large import. The cost is that an op
+    // which fails still consumes its slot, leaving a gap -- reported by
+    // `RollupTxn::unaccounted` rather than hidden.
+    let base = if ops.is_empty() {
+        0
+    } else {
+        db::tx::next_version(&mut tx, sync.family_id(), ops.len() as i64).await?
+    };
     for (index, op) in ops.into_iter().enumerate() {
         let path = op.path().to_string();
         let key = op.key().to_string();
         // Read before `op` moves into the call: a delete tombstones the
         // row, so nothing downstream can tell it from a write.
         let deleted = matches!(op, BatchOp::Delete { .. });
-        match apply_one_in_tx(sync, &mut tx, op).await {
+        match apply_one_in_tx(sync, &mut tx, op, base + index as i64).await {
             Ok(write) => {
                 let v = write.version;
                 if outcome.last_version.map_or(true, |cur| v > cur) {
@@ -2318,7 +2367,7 @@ where
             path: path.clone(),
             source: e,
         })?;
-        let version = db::tx::next_version(&mut tx, sync.worktree_id()).await?;
+        let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
         let id = db::tx::sync_upsert_record(
             &mut tx,
             RecordId {

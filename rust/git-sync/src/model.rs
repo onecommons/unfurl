@@ -541,7 +541,15 @@ pub struct Record {
     /// [`crate::SyncedRepo::find_records`] hide tombstones; only
     /// [`crate::SyncedRepo::get_record_by_id`] returns them.
     pub deleted: bool,
-    /// Monotonic per-worktree version. Bumped on every CRUD write and
+    /// Monotonic version, drawn from the counter shared by this
+    /// worktree's family — the upstream it was forked from, together
+    /// with that upstream's other forks and drafts. Family-wide rather
+    /// than per-worktree because a read can merge a draft's edits over
+    /// the upstream they came from, and this doubles as both an
+    /// optimistic-concurrency token and a cursor: from independent
+    /// counters, one number would name two different rows.
+    ///
+    /// Bumped on every CRUD write and
     /// preserved across commit roll-forward, so it doubles as both the
     /// optimistic-concurrency token (see
     /// [`crate::CommitRef::Pending`]) and a cursor for
@@ -625,18 +633,39 @@ pub struct CommitRollup {
     /// from the `Git-Sync-Origin` trailer. `None` when that trailer is
     /// absent.
     ///
-    /// With `branch` on each entry it identifies the version namespace
-    /// the ranges belong to — not decoration: one database can host
-    /// several worktrees, each with its own counter, and merging a
-    /// branch brings its rollup commits into another branch's history,
-    /// so a rebuild has to filter rather than assume every rollup it
-    /// walks past is its own.
+    /// With `branch` on each entry it says which worktree made these
+    /// writes — not decoration: merging a branch brings its rollup
+    /// commits into another branch's history, so a reader walking a log
+    /// sees rollups it did not make.
+    ///
+    /// It is *not* sufficient to decide whether the ranges are usable.
+    /// Versions are drawn per family — an upstream together with its
+    /// forks and drafts — so a fork's history contains upstream rollups
+    /// whose origin differs but whose ranges are the same sequence and
+    /// are perfectly usable, while a merge from an unrelated repository
+    /// carries ranges that are not. Nothing in the message distinguishes
+    /// those two cases today; a rebuild that cares needs the family
+    /// recorded as well.
     ///
     /// It is [`Worktree::origin`], so it arrives already normalized by
     /// [`crate::git::normalize_git_url_hard`] and an equality test is
     /// sound — the same repository spelled `ssh://` in one commit and
     /// `https://` in another still compares equal.
     pub origin: Option<String>,
+    /// [`Worktree::origin`] of the family's root — the upstream this
+    /// worktree and its sibling forks and drafts all draw versions from
+    /// — read from the `Git-Sync-Family` trailer. `None` when that
+    /// trailer is absent.
+    ///
+    /// This, not [`Self::origin`], is what says whether the ranges in a
+    /// rollup belong to the sequence a reader is reconstructing. A
+    /// fork's history contains upstream rollups written under a
+    /// different origin but drawn from the same counter, and a merge
+    /// from an unrelated repository carries rollups drawn from a
+    /// different one; only the family tells them apart. It is the root's
+    /// origin rather than its row id because a row id means nothing
+    /// outside the database that assigned it.
+    pub family: Option<String>,
     /// The `Git-Sync-Next-Version` trailer: the worktree's version
     /// counter as of this commit. Present on every git-sync commit,
     /// which is what makes the message recognisable as parseable.
@@ -677,9 +706,11 @@ impl RollupTxn {
     ///
     /// Two things land here and they cannot be told apart after the
     /// fact: a write a later batch in the same commit overwrote, and an
-    /// op that drew a version and then failed its optimistic-concurrency
-    /// check. (Only a non-atomic batch can do the latter -- an atomic
-    /// one rolls back whole and records no row at all.)
+    /// op that was allocated a version and then failed. A batch reserves
+    /// its whole range up front, so *any* failed op leaves a gap, not
+    /// only one rejected after a version was drawn for it. (Only a
+    /// non-atomic batch can do that -- an atomic one rolls back whole
+    /// and records no row at all.)
     ///
     /// It is reported rather than ignored because the alternative is a
     /// lie: an upsert replaces the entire record, so a client that read

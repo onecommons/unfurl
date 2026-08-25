@@ -32,6 +32,17 @@ pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
             .bind(branch)
             .fetch_one(pool)
             .await?;
+            // A worktree created on its own is its own family. A fork or
+            // draft is pointed at its parent's family instead, by
+            // whatever creates it.
+            sqlx::query("INSERT INTO version_seq (worktree_id) VALUES (?1)")
+                .bind(row.0)
+                .execute(pool)
+                .await?;
+            sqlx::query("UPDATE worktree SET family_id = ?1 WHERE id = ?1")
+                .bind(row.0)
+                .execute(pool)
+                .await?;
             Ok(row.0)
         }
         #[cfg(feature = "postgres")]
@@ -52,6 +63,14 @@ pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
             .bind(branch)
             .fetch_one(pool)
             .await?;
+            sqlx::query("INSERT INTO version_seq (worktree_id) VALUES ($1)")
+                .bind(row.0)
+                .execute(pool)
+                .await?;
+            sqlx::query("UPDATE worktree SET family_id = $1 WHERE id = $1")
+                .bind(row.0)
+                .execute(pool)
+                .await?;
             Ok(row.0)
         }
     }
@@ -109,6 +128,32 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
     })
 }
 
+/// The root worktree of `worktree_id`'s family: the upstream it and its
+/// sibling forks and drafts all draw versions from.
+///
+/// `COALESCE(family_id, id)` — a worktree with no family recorded is its
+/// own, so a row that predates the column, or one written by a path that
+/// forgot to set it, still resolves to a usable sequence rather than to
+/// NULL.
+pub(crate) async fn family_id(db: &Db, worktree_id: i64) -> Result<i64> {
+    let row: (i64,) = match db {
+        Db::Sqlite(pool) => {
+            sqlx::query_as("SELECT COALESCE(family_id, id) FROM worktree WHERE id = ?1")
+                .bind(worktree_id)
+                .fetch_one(pool)
+                .await?
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query_as("SELECT COALESCE(family_id, id) FROM worktree WHERE id = $1")
+                .bind(worktree_id)
+                .fetch_one(pool)
+                .await?
+        }
+    };
+    Ok(row.0)
+}
+
 /// The next value [`crate::db::tx::next_version`] will hand out — one
 /// past the highest version stamped so far.
 ///
@@ -120,17 +165,23 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
 pub(crate) async fn next_version(db: &Db, worktree_id: i64) -> Result<i64> {
     let row: (i64,) = match db {
         Db::Sqlite(pool) => {
-            sqlx::query_as("SELECT next_version FROM worktree WHERE id = ?1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
+            sqlx::query_as(
+                "SELECT s.next_version FROM version_seq s JOIN worktree w \
+                 ON s.worktree_id = COALESCE(w.family_id, w.id) WHERE w.id = ?1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            sqlx::query_as("SELECT next_version FROM worktree WHERE id = $1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
+            sqlx::query_as(
+                "SELECT s.next_version FROM version_seq s JOIN worktree w \
+                 ON s.worktree_id = COALESCE(w.family_id, w.id) WHERE w.id = $1",
+            )
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?
         }
     };
     Ok(row.0)

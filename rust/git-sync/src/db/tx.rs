@@ -61,10 +61,18 @@ pub(crate) type LookupRow = (
 // ---------------------------------------------------------------------------
 
 pub(crate) trait Dialect: Database {
-    /// `UPDATE worktree SET next_version = next_version + 1
-    /// WHERE id = ? RETURNING next_version - 1`. Used to pull a fresh,
-    /// monotonic version stamp inside the same transaction as the
-    /// record write.
+    /// `UPDATE version_seq SET next_version = next_version + ?2
+    /// WHERE worktree_id = ?1 RETURNING next_version - ?2`. Draws `?2`
+    /// consecutive version stamps inside the same transaction as the
+    /// record write, returning the first.
+    ///
+    /// Bound to the *family* root, not the worktree, so an upstream and
+    /// its forks and drafts share one sequence — a version has to mean
+    /// the same thing everywhere it can turn up in one response. Drawing
+    /// a whole batch in a single statement rather than one at a time
+    /// keeps the row lock held for a statement instead of the length of
+    /// the batch, which is what stops a large import blocking every
+    /// other writer in the family.
     const NEXT_VERSION: &'static str;
     /// Joined SELECT for the conflict-check, with `deleted` cast to INTEGER.
     const LOOKUP_COMMITS: &'static str;
@@ -113,8 +121,8 @@ pub(crate) trait Dialect: Database {
 }
 
 impl Dialect for sqlx::Sqlite {
-    const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
-         WHERE id = ?1 RETURNING next_version - 1";
+    const NEXT_VERSION: &'static str = "UPDATE version_seq SET next_version = next_version + ?2 \
+         WHERE worktree_id = ?1 RETURNING next_version - ?2";
     const LOOKUP_COMMITS: &'static str =
         "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1 ELSE 0 END, r.version, \
                 r.file_path, w.default_file_path \
@@ -189,8 +197,8 @@ impl Dialect for sqlx::Sqlite {
 
 #[cfg(feature = "postgres")]
 impl Dialect for sqlx::Postgres {
-    const NEXT_VERSION: &'static str = "UPDATE worktree SET next_version = next_version + 1 \
-         WHERE id = $1 RETURNING next_version - 1";
+    const NEXT_VERSION: &'static str = "UPDATE version_seq SET next_version = next_version + $2 \
+         WHERE worktree_id = $1 RETURNING next_version - $2";
     const LOOKUP_COMMITS: &'static str =
         "SELECT r.id, r.commit_id, CASE WHEN r.deleted THEN 1::BIGINT ELSE 0::BIGINT END, r.version, \
                 r.file_path, w.default_file_path \
@@ -342,12 +350,19 @@ where
     })
 }
 
-/// Atomically increment `worktree.next_version` and return the value
-/// that should be stamped on the record being written. Call this once
-/// per CRUD write inside the same transaction as the record mutation.
+/// Draw `count` consecutive version stamps from the family's sequence
+/// and return the first, inside the same transaction as the record
+/// mutation.
+///
+/// `family_id` is the family's root worktree (see
+/// [`crate::db::worktree::family_id`]), not the worktree being written
+/// to. A batch draws its whole range in one call: the row lock that
+/// makes a range contiguous is then held for one statement rather than
+/// for every write in the batch.
 pub(crate) async fn next_version<DB: Dialect>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    worktree_id: i64,
+    family_id: i64,
+    count: i64,
 ) -> Result<i64>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -356,7 +371,8 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
     let row: (i64,) = sqlx::query_as(DB::NEXT_VERSION)
-        .bind(worktree_id)
+        .bind(family_id)
+        .bind(count)
         .fetch_one(&mut **tx)
         .await?;
     Ok(row.0)

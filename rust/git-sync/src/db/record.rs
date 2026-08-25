@@ -38,7 +38,7 @@ type FullRecordRowPg = (
 ///
 /// Used at commit time to work out which records a batch contributed to
 /// the commit being made. Versions are drawn from a strictly increasing
-/// per-worktree counter, so a range from this commit's batches can only
+/// per-family counter, so a range from this commit's batches can only
 /// match rows this commit is carrying — no `commit_id IS NULL` filter is
 /// needed to scope it.
 ///
