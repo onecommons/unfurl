@@ -2383,7 +2383,7 @@ where
         match apply_one_in_tx(sync, &mut tx, op, base + index as i64).await {
             Ok(write) => {
                 let v = write.version;
-                if outcome.last_version.map_or(true, |cur| v > cur) {
+                if outcome.last_version.is_none_or(|cur| v > cur) {
                     outcome.last_version = Some(v);
                 }
                 outcome.applied.push(Applied {

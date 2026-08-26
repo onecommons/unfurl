@@ -2,7 +2,8 @@
 name = "tosca-solver"
 version = "0.1.1"
 edition = "2021"
-rust-version = "1.70"
+# Set by `indexmap`, the deepest MSRV in this crate's tree.
+rust-version = "1.82"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"
 description = "Build a TOSCA topology from a set of TOSCA types and requirements."

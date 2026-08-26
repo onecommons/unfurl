@@ -2,8 +2,8 @@
 name = "unfurl-server"
 version = "0.1.0"
 edition = "2021"
-# Inherited from `unfurl-git-sync`, which `saphyr` holds at 1.85.
-rust-version = "1.85"
+# Set by `oas3-gen-support`, the deepest MSRV in this crate's tree.
+rust-version = "1.89"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"
 description = "Rust HTTP proxy server for unfurl"

@@ -2,7 +2,8 @@
 name = "unfurl-merge"
 version = "0.1.0"
 edition = "2021"
-# Set by `saphyr`, the deepest MSRV in this crate's tree.
+# Set by `saphyr` and `hashbrown`, the deepest MSRVs in this crate's
+# tree.
 rust-version = "1.85"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"

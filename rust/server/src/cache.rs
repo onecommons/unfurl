@@ -191,7 +191,7 @@ fn compute_etag(last_commit: &str, package_digest: &str) -> String {
         let hex = hex.trim_start_matches("0x");
         // Left-pad to even length so chunks(2) works cleanly.
         let padded;
-        let hex = if hex.len() % 2 != 0 {
+        let hex = if !hex.len().is_multiple_of(2) {
             padded = format!("0{}", hex);
             padded.as_str()
         } else {

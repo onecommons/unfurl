@@ -2,8 +2,10 @@
 name = "unfurl-git-sync"
 version = "0.1.0"
 edition = "2021"
-# Set by `saphyr`, the deepest MSRV in this crate's tree.
-rust-version = "1.85"
+# Set by `home`, which `gix` pulls in -- the deepest MSRV in this
+# crate's tree. Nothing enforces this; it is measured with
+# `cargo metadata` over the non-dev dependency closure.
+rust-version = "1.88"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"
 description = "Sync JSON/YAML data tracked in a git repository with SQLite or Postgres."
