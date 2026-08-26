@@ -67,6 +67,7 @@ pub mod formats;
 pub mod git;
 pub mod model;
 pub mod sync;
+mod template;
 mod util;
 
 #[doc(inline)]

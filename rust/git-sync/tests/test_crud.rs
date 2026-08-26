@@ -3753,3 +3753,91 @@ crud_test!(save_reports_each_file, run_save_reports_each_file);
 fn save_outcome_types_are_public() {
     fn _takes(_: unfurl_git_sync::SaveOutcome, _: unfurl_git_sync::SaveFailure) {}
 }
+
+// ---------------------------------------------------------------------------
+// comment preservation
+// ---------------------------------------------------------------------------
+
+/// A write keeps the comments it did not touch.
+async fn run_a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) {
+    let path = tmp.path().join("cloudmap.yaml");
+    let original = std::fs::read_to_string(&path).expect("read");
+    // Comments in the three places people put them: above the document,
+    // above a section, and inside one.
+    let commented = format!(
+        "# what this cloudmap is for\n{}",
+        original
+            .replacen("repositories:", "# the repos we track\nrepositories:", 1)
+            .replacen("artifacts:", "# and the artifacts\nartifacts:", 1)
+    );
+    std::fs::write(&path, &commented).expect("write");
+
+    sync.update_from_working_dir().await.expect("update");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/added.git",
+        serde_json::json!({"name": "added"}),
+        None,
+    )
+    .await
+    .expect("write");
+    sync.save_changes().await.expect("save");
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        after.starts_with("# what this cloudmap is for\n"),
+        "header comment lost:\n{after}"
+    );
+    assert!(after.contains("# the repos we track\n"), "{after}");
+    assert!(
+        after.contains("# and the artifacts\n"),
+        "a comment about an untouched section lost:\n{after}"
+    );
+    // ...and the write itself landed, in a document that still parses.
+    let parsed: serde_json::Value = serde_saphyr::from_str(&after).expect("valid yaml");
+    assert_eq!(
+        parsed["repositories"]["git://example.com/added.git"]["name"],
+        "added"
+    );
+    assert_eq!(parsed["kind"], "CloudMap");
+}
+
+/// Rewriting a section drops the comments *inside* it -- the records it
+/// annotates are re-sorted, so there is nowhere to put them back. Pinned
+/// so the boundary of what survives is stated rather than assumed.
+async fn run_comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &TempDir) {
+    let path = tmp.path().join("cloudmap.yaml");
+    let original = std::fs::read_to_string(&path).expect("read");
+    let commented = original.replacen(
+        "  git://unfurl.cloud/onecommons/std.git:",
+        "  # a note about std\n  git://unfurl.cloud/onecommons/std.git:",
+        1,
+    );
+    assert_ne!(commented, original, "fixture should contain that key");
+    std::fs::write(&path, &commented).expect("write");
+
+    sync.update_from_working_dir().await.expect("update");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/added.git",
+        serde_json::json!({"name": "added"}),
+        None,
+    )
+    .await
+    .expect("write");
+    sync.save_changes().await.expect("save");
+
+    let after = std::fs::read_to_string(&path).expect("read");
+    assert!(!after.contains("a note about std"), "{after}");
+}
+
+crud_test!(
+    a_write_keeps_comments_elsewhere,
+    run_a_write_keeps_comments_elsewhere
+);
+crud_test!(
+    comments_inside_a_rewritten_section_are_lost,
+    run_comments_inside_a_rewritten_section_are_lost
+);

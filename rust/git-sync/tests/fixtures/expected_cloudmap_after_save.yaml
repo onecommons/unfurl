@@ -84,26 +84,26 @@ repositories:
       dummy-ensemble.yaml:
         cloudmap.artifacts.tosca.TypeLibrary:
 artifacts:
-  "git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml":
+  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.ci.GitLabPipeline:
-  "git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml":
+  git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     references:
-      "git://unfurl.cloud/onecommons/std.git#v1.1.1:.":
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
         cloudmap.artifacts.unfurl.Package:
           version: 1.1.1
     digest: git:tree:5fe07694589fe54e2fb60f250e793db684bbeb95
-  "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml":
+  git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
         version: 0.1
     references:
-      "git://unfurl.cloud/onecommons/std.git#v1.1.1:.":
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
         cloudmap.artifacts.unfurl.Package:
           version: 1.1.1
-      "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest":
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
@@ -117,18 +117,18 @@ artifacts:
     metadata:
       title: Odoo
       version: 0.1
-  "git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml":
+  git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.ci.GitLabPipeline:
-  "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template":
+  git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
         version: 0.1
     references:
-      "git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.":
+      git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.:
         cloudmap.artifacts.unfurl.Package:
           version: 0.7.7
-      "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest":
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     instantiates:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     dependencies:
@@ -142,24 +142,24 @@ artifacts:
     metadata:
       title: Odoo
       version: 0.1
-  "git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile":
+  git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
     type:
       cloudmap.artifacts.Containerfile:
-  "git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml":
+  git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.ci.GitLabPipeline:
-  "git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml":
+  git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:38db686f4aa92b52bafa9cb484f6ee976c33029a
-  "git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml":
+  git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.ci.GitLabPipeline:
-  "git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml":
+  git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
     digest: git:blob:ff067b4f5c851a1aacca2c1db96ae04ef30c881d
-  "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo":
+  pkg:oci/odoo?repository_url=docker.io/bitnami/odoo:
     type:
       cloudmap.artifacts.oci.Image:
     metadata:
@@ -177,25 +177,25 @@ artifacts:
         metadata:
           version: latest
 services:
-  "https://example.com/oodo":
+  https://example.com/oodo:
     type:
       Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     instantiated_by:
-      "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml":
+      git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
 instantiations:
-  "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml":
+  git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
     revision: 4551885dfab39991cfdb958cb79fcb6aa282481d
-    source: "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template"
+    source: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
     source_revision: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
     instantiated:
-      "https://example.com/oodo":
+      https://example.com/oodo:
     inputs:
-      "git://unfurl.cloud/onecommons/std.git#v1.1.1:.":
+      git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
         cloudmap.artifacts.unfurl.Package:
           version: 1.1.1
-      "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest":
+      pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     name: Odoo@unfurl.cloud/onecommons/blueprints/odoo

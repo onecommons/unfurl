@@ -923,6 +923,7 @@ impl SyncedRepo {
         self.check_source_unchanged(file_path, &abs).await?;
 
         let existed = abs.exists();
+        let source = std::fs::read_to_string(&abs).ok();
         let mut root = load_root(&abs, file_path, syntax)?;
         if !existed {
             // Brand-new document
@@ -937,6 +938,12 @@ impl SyncedRepo {
         let touched = apply_pending_records(&mut root, pending, format);
         apply_format_ordering(&mut root, format, &touched);
         let bytes = syntax.serialize(&root, file_path)?;
+        // Re-emitting the whole document is correct but drops every
+        // comment in it. Where the shape allows, keep the original bytes
+        // and swap in only the sections that changed.
+        let bytes = source
+            .and_then(|src| splice_touched_sections(&src, &bytes, &touched))
+            .unwrap_or(bytes);
 
         if let Ok(existing) = std::fs::read(&abs) {
             if existing == bytes {
@@ -1429,6 +1436,41 @@ fn parse_record_line(rest: &str) -> Result<TxnRecord> {
         version,
         deleted,
     })
+}
+
+/// Rebuild `rendered` as the original `src` with only `touched`
+/// sections replaced, so comments and formatting elsewhere survive.
+///
+/// `None` whenever that cannot be done confidently -- either document
+/// failing to split into sections, a touched section missing from one of
+/// them, or the result not matching what the caller was going to write.
+/// Every one of those falls back to `rendered`, which is what the crate
+/// did before this existed.
+///
+/// The last check is the important one. It compares the spliced document
+/// against the intended one *as parsed values*, so a splice that lands
+/// wrongly -- for any reason, including ones not anticipated here -- is
+/// discarded rather than written. That is what makes this safe to
+/// attempt at all: being wrong costs a comment, never a document.
+fn splice_touched_sections(src: &str, rendered: &[u8], touched: &[String]) -> Option<Vec<u8>> {
+    let rendered = std::str::from_utf8(rendered).ok()?;
+    let original = crate::template::Template::parse(src)?;
+    let updated = crate::template::Template::parse(rendered)?;
+
+    let mut replacements = std::collections::HashMap::new();
+    for name in touched {
+        let from = updated.section(name)?;
+        original.section(name)?;
+        replacements.insert(
+            name.as_str(),
+            crate::template::dedent_block(updated.body(from), from.indent),
+        );
+    }
+    let spliced = original.render(&replacements);
+
+    let want: serde_json::Value = serde_saphyr::from_str(rendered).ok()?;
+    let got: serde_json::Value = serde_saphyr::from_str(&spliced).ok()?;
+    (got == want).then(|| spliced.into_bytes())
 }
 
 /// Lower-cased extension of `file_path`, or empty when there isn't one.

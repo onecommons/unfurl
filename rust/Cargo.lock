@@ -4441,6 +4441,7 @@ dependencies = [
  "gix",
  "json5",
  "regress 0.10.5",
+ "saphyr",
  "schemars 0.8.22",
  "serde",
  "serde-saphyr",
