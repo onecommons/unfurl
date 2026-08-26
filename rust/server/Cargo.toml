@@ -2,7 +2,8 @@
 name = "unfurl-server"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.70"
+# Inherited from `unfurl-git-sync`, which `saphyr` holds at 1.85.
+rust-version = "1.85"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"
 description = "Rust HTTP proxy server for unfurl"
@@ -53,6 +54,6 @@ validator = { version = "0.20", features = ["derive"] }
 axum-extra = { version = "0.12", features = ["query"] }
 
 [dev-dependencies]
-serde-saphyr = "0.0.25"
+serde-saphyr = "1.1.0"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

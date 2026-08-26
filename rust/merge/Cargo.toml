@@ -2,7 +2,8 @@
 name = "unfurl-merge"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.75"
+# Set by `saphyr`, the deepest MSRV in this crate's tree.
+rust-version = "1.85"
 authors = ["Adam Souzis <adam@souzis.com>"]
 license = "MIT"
 description = "Deep-merge engine for YAML/JSON with file include directives and source provenance. Rust port of unfurl/merge.py."
@@ -14,7 +15,7 @@ name = "unfurl_merge"
 path = "src/lib.rs"
 
 [dependencies]
-saphyr = "0.0.6"
+saphyr = "0.0.12"
 indexmap = "2"
 regex = "1"
 serde = { version = "1", features = ["derive"] }

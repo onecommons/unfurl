@@ -183,7 +183,7 @@ pip install setuptools-rust>=1.7.0
 python setup.py build_rust --debug --inplace
 ```
 
-Requires Rust >= 1.70.
+Requires Rust >= 1.85.
 
 4. To build documentation: Install tox (see below). Run `tox -e docs`.
 
