@@ -16,8 +16,12 @@
 //! survives it. Everything outside the holes, envelope included, is
 //! copied through byte for byte.
 
+use granit_parser::{Event, Parser};
 use std::collections::HashMap;
 use std::ops::Range;
+
+/// One parser event and the bytes of `src` it covers.
+type Located<'a> = (Event<'a>, Range<usize>);
 
 /// Where one top-level section's body sits in the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,60 +48,58 @@ impl Template {
     /// gets `None` should fall back to re-serializing the whole
     /// document.
     pub(crate) fn parse(src: &str) -> Option<Self> {
-        use saphyr::{LoadableYamlNode, MarkedYaml, YamlData};
+        let events = scan(src)?;
 
-        let docs = MarkedYaml::load_from_str(src).ok()?;
-        let root = docs.first()?;
-        let YamlData::Mapping(map) = &root.data else {
+        // The stream and document preamble, then the root, which has to
+        // be a mapping for sections to mean anything.
+        let mut i = 0;
+        while matches!(
+            events.get(i)?.0,
+            Event::StreamStart | Event::DocumentStart(..)
+        ) {
+            i += 1;
+        }
+        if !matches!(events.get(i)?.0, Event::MappingStart(..)) {
             return None;
-        };
-
-        // `saphyr` reports positions as char indices, despite
-        // `Marker::index` being documented as "the index (in bytes)" --
-        // its scanner counts characters. Every offset below is a byte
-        // offset, so translate once rather than per lookup;
-        // `a_section_after_multibyte_text_is_still_located_correctly`
-        // pins which of the two it really is.
-        let bytes: Vec<usize> = src
-            .char_indices()
-            .map(|(b, _)| b)
-            .chain(std::iter::once(src.len()))
-            .collect();
-        let byte_of = |chars: usize| *bytes.get(chars).unwrap_or(&src.len());
+        }
+        i += 1;
 
         let mut sections = HashMap::new();
-        for (key, value) in map {
-            let YamlData::Value(scalar) = &key.data else {
+        while let Some((event, _)) = events.get(i) {
+            if matches!(event, Event::MappingEnd) {
+                break;
+            }
+            let name = match event {
+                Event::Scalar(text, ..) => Some(text.to_string()),
+                // A complex key (`? [a, b]`) names no section, but its
+                // pair still has to be stepped over.
+                _ => None,
+            };
+            let value = end_of_node(&events, i);
+            i = end_of_node(&events, value);
+            let (Some(name), Some((_, first))) = (name, events.get(value)) else {
                 continue;
             };
-            let Some(name) = scalar.as_str() else {
-                continue;
-            };
-            let value_start = byte_of(value.span.start.index());
+
+            let value_start = first.start;
             // Take whole lines: the body's first character sits after the
             // indentation, which is already in the source, so a hole that
             // began there would have a replacement indented twice. Widen
             // to the line start and the hole becomes line-aligned.
-            let line_start = src[..value_start].rfind('\n').map_or(0, |i| i + 1);
+            let line_start = src[..value_start].rfind('\n').map_or(0, |n| n + 1);
             if !src[line_start..value_start].trim().is_empty() {
                 // Something other than indentation precedes the body on
-                // its line -- a flow collection or scalar sharing the
-                // key's line. Not offered for replacement; the caller
-                // falls back to re-serializing.
+                // its line -- a flow collection, a scalar, or an empty
+                // value sharing the key's line. Not offered for
+                // replacement; the caller falls back to re-serializing.
                 continue;
             }
-            // Trim only past the last scalar the section actually
-            // contains. Without that floor a `#` line inside a block
-            // scalar reads as a comment and the value loses its last
-            // line.
-            let floor = last_scalar_end(value).map_or(line_start, byte_of);
-            let end =
-                trim_trailing_prose(src, floor.max(line_start), byte_of(value.span.end.index()));
+            let last = last_content_end(&events[value..i]).unwrap_or(value_start);
             sections.insert(
-                name.to_string(),
+                name,
                 Section {
                     indent: value_start - line_start,
-                    body: line_start..end,
+                    body: line_start..line_end(src, last),
                 },
             );
         }
@@ -147,64 +149,71 @@ impl Template {
     }
 }
 
-/// The end of the last scalar anywhere under `node`, in char indices —
-/// the point past which nothing in the source is part of a value.
+/// Every event in `src` with the bytes it covers, or `None` if the
+/// document does not parse or the parser cannot place an event in the
+/// source.
 ///
-/// Only scalars count. A collection's span runs to wherever the next
-/// token begins, which is exactly the over-reach this is meant to bound,
-/// and the innermost collection over-reaches to the same place as its
-/// outermost parent — so including them would leave nothing to trim.
-fn last_scalar_end(node: &saphyr::MarkedYaml<'_>) -> Option<usize> {
-    use saphyr::YamlData;
-    match &node.data {
-        YamlData::Value(_) | YamlData::Representation(..) => Some(node.span.end.index()),
-        // Keys as well as values: a section can end on a key whose value
-        // is empty, and that key is still the last of its content.
-        YamlData::Mapping(map) => map
-            .iter()
-            .flat_map(|(k, v)| [last_scalar_end(k), last_scalar_end(v)])
-            .flatten()
-            .max(),
-        YamlData::Sequence(items) => items.iter().filter_map(last_scalar_end).max(),
-        YamlData::Tagged(_, inner) => last_scalar_end(inner),
-        YamlData::Alias(_) | YamlData::BadValue => None,
+/// Comments are dropped here. They are the reason this module exists,
+/// but they play no part in finding a section: what bounds a body is the
+/// last *content* event inside it, and a comment is never that.
+fn scan(src: &str) -> Option<Vec<Located<'_>>> {
+    let mut events = Vec::new();
+    for next in Parser::new_from_str(src) {
+        let (event, span) = next.ok()?;
+        if matches!(event, Event::Comment(..)) {
+            continue;
+        }
+        events.push((event, span.byte_range()?));
     }
+    Some(events)
 }
 
-/// Pull `end` back over trailing blank and comment lines, stopping at
-/// `floor`.
-///
-/// A section's span runs to wherever the next key begins, so a comment
-/// written above the *next* section lands inside the previous one's
-/// body. Replacing that body would delete a comment about something
-/// else, so those lines are left in the template — which also means a
-/// comment genuinely trailing the last record stays put textually,
-/// rather than moving with a record that has been re-sorted away.
-///
-/// `floor` is what keeps this from reading a value as prose: a line
-/// inside a block scalar may look exactly like a comment, so the caller
-/// passes the end of the section's last scalar and nothing before it is
-/// considered.
-fn trim_trailing_prose(src: &str, floor: usize, mut end: usize) -> usize {
-    while end > floor {
-        // A body ends just past the newline before the next key, so look
-        // at the line before that newline rather than at an empty tail.
-        let content_end = src[..end].strip_suffix('\n').map_or(end, str::len);
-        let line_start = src[..content_end].rfind('\n').map_or(0, |i| i + 1);
-        // `floor` usually lands mid-line -- a scalar ends before the
-        // newline that follows it -- so a line it falls inside is the
-        // last line of the value and stays.
-        if line_start < floor {
-            break;
-        }
-        let line = src[line_start..content_end].trim_start();
-        if line.is_empty() || line.starts_with('#') {
-            end = line_start;
-        } else {
-            break;
+/// The index one past the last event of the node beginning at `i`.
+fn end_of_node(events: &[Located<'_>], mut i: usize) -> usize {
+    let mut depth = 0usize;
+    while let Some((event, _)) = events.get(i) {
+        i += 1;
+        match event {
+            Event::MappingStart(..) | Event::SequenceStart(..) => depth += 1,
+            Event::MappingEnd | Event::SequenceEnd => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ if depth == 0 => return i,
+            _ => {}
         }
     }
-    end
+    i
+}
+
+/// The end of the last event in `node` that is part of a value.
+///
+/// A collection's closing event carries the position of whatever comes
+/// *after* the collection rather than of the collection itself, so
+/// counting it would run every section to the start of the next one --
+/// over any comment sitting in between. Content events are what mark
+/// where a value really stops, and a line of a block scalar is one of
+/// them however much it looks like a comment.
+fn last_content_end(node: &[Located<'_>]) -> Option<usize> {
+    node.iter()
+        .filter(|(event, _)| !matches!(event, Event::MappingEnd | Event::SequenceEnd))
+        .map(|(_, range)| range.end)
+        .max()
+}
+
+/// The start of the line after the one `at` ends on, so that a body is
+/// always cut at a line boundary.
+///
+/// `at` is an exclusive end. When it already sits just past a newline --
+/// a block scalar takes in the line break that ends it -- the body stops
+/// there instead of swallowing the line that follows.
+fn line_end(src: &str, at: usize) -> usize {
+    if at > 0 && src.as_bytes()[at - 1] == b'\n' {
+        return at;
+    }
+    src[at..].find('\n').map_or(src.len(), |i| at + i + 1)
 }
 
 /// Strip up to `indent` leading spaces from every line, the inverse of
@@ -261,10 +270,10 @@ artifacts:
     #[test]
     fn a_body_stops_before_a_comment_about_what_follows() {
         let t = Template::parse(DOC).expect("parses");
-        // The blank line and the comment sit inside the span saphyr
-        // reports for `repositories`; leaving them out of the body is
-        // what keeps a comment about `artifacts` from being deleted when
-        // `repositories` is rewritten.
+        // The blank line and the comment fall between the last record of
+        // `repositories` and the event that closes it; leaving them out
+        // of the body is what keeps a comment about `artifacts` from
+        // being deleted when `repositories` is rewritten.
         assert_eq!(
             body(&t, "repositories"),
             "  b:\n    name: b\n  a:\n    name: a\n"
@@ -274,10 +283,10 @@ artifacts:
     }
 
     /// A block scalar can hold a line that starts with `#`. It is text,
-    /// not a comment, and trimming it off the end of the section that
-    /// holds it would cut into a value.
+    /// not a comment, and cutting it off the end of the section that
+    /// holds it would take a line out of a value.
     #[test]
-    fn a_hash_line_inside_a_block_scalar_is_not_trailing_prose() {
+    fn a_hash_line_inside_a_block_scalar_is_not_a_comment() {
         const BLOCK: &str = "\
 kind: CloudMap
 repositories:
@@ -412,10 +421,9 @@ artifacts:
     }
 
     /// Byte and character offsets diverge as soon as a document holds
-    /// multibyte text, and the parser reports one of the two. A section
-    /// that follows such text has to still be cut at the right place --
-    /// an off-by-a-few-bytes hole would splice into the middle of a
-    /// line.
+    /// multibyte text, and the parser can report either. A section that
+    /// follows such text has to still be cut at the right place -- an
+    /// off-by-a-few-bytes hole would splice into the middle of a line.
     #[test]
     fn a_section_after_multibyte_text_is_still_located_correctly() {
         let doc = "\
@@ -450,6 +458,18 @@ artifacts:
         let t = Template::parse("kind: CloudMap\nrepositories: {a: {name: a}}\n").expect("parses");
         assert!(t.section("repositories").is_none());
         assert!(t.section("kind").is_none(), "a scalar shares its line too");
+    }
+
+    /// An empty section has no body to replace -- the parser puts its
+    /// null value on the key's own line -- so it is left out for the
+    /// same reason a flow one is, and a write touching it re-serializes
+    /// the document instead.
+    #[test]
+    fn an_empty_section_is_not_offered() {
+        let t = Template::parse("kind: CloudMap\nrepositories:\nartifacts:\n  z:\n    name: z\n")
+            .expect("parses");
+        assert!(t.section("repositories").is_none());
+        assert_eq!(body(&t, "artifacts"), "  z:\n    name: z\n");
     }
 
     #[test]
