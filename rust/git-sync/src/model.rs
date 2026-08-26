@@ -65,6 +65,15 @@ pub struct File {
     pub format: String,
     /// Last commit oid known to have touched this path.
     pub commit_id: Option<String>,
+    /// Blob OID of the exact bytes this file's records were parsed from,
+    /// or `None` for a file registered by a record write rather than a
+    /// scan.
+    ///
+    /// Compared against the file's current contents before a write, to
+    /// catch an edit the database never took in. `commit_id` cannot
+    /// serve: it names the commit that last touched the path, so an
+    /// uncommitted edit leaves it unchanged.
+    pub source_oid: Option<String>,
 }
 
 /// One row of the `record` table — a single extracted JSON value.
@@ -793,6 +802,39 @@ pub struct UpdateStats {
     /// reporting: a rewrite emits strict JSON, so the first change to a
     /// record in such a file normalizes it and drops its comments.
     pub files_needing_json5: usize,
+}
+
+/// Result of [`crate::SyncedRepo::save_changes`].
+///
+/// Files are written one at a time and a failure on one says nothing
+/// about the rest, so the outcome is per file rather than an error that
+/// discards what already succeeded. Reading it is the only way to learn
+/// which files a partly-successful save left modified on disk.
+#[derive(Debug, Default)]
+pub struct SaveOutcome {
+    /// Files rewritten on disk. Absent from this list means either
+    /// failed, or unchanged — the rendered bytes matched what was
+    /// already there.
+    pub written: Vec<std::path::PathBuf>,
+    /// Files that could not be written, each with the reason.
+    pub failed: Vec<SaveFailure>,
+}
+
+impl SaveOutcome {
+    /// The first failure, if any. For a caller that wants to stop on the
+    /// first problem while still seeing what was written.
+    pub fn first_error(&self) -> Option<&crate::Error> {
+        self.failed.first().map(|f| &f.error)
+    }
+}
+
+/// One file [`crate::SyncedRepo::save_changes`] could not write.
+#[derive(Debug)]
+pub struct SaveFailure {
+    /// Working-tree-relative path of the file.
+    pub file_path: String,
+    /// Why it could not be written.
+    pub error: crate::Error,
 }
 
 /// One operation in a batch passed to

@@ -131,7 +131,7 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
     .expect("create");
 
     // save_changes rewrites the YAML file on disk.
-    let written = sync.save_changes().await.expect("save_changes");
+    let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written.len(), 1);
 
     // Compare the on-disk YAML against the fixture.
@@ -267,7 +267,7 @@ async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir
     sync.update_record(Some("cloudmap.yaml"), path, key, rec.json.clone(), None)
         .await
         .expect("update");
-    let written = sync.save_changes().await.expect("save_changes");
+    let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written.len(), 1);
 
     let text = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");
@@ -514,7 +514,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // Persist + commit; on-disk file should have the new value, not a
     // missing key (which is what we'd see if the tombstone hadn't been
     // cleared).
-    let written = sync.save_changes().await.expect("save_changes");
+    let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written.len(), 1);
     let oid = sync
         .commit_repository("resurrect")
@@ -3573,4 +3573,183 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
         .await
         .expect("get")
         .is_some());
+}
+
+// ---------------------------------------------------------------------------
+// source_oid conflict detection
+// ---------------------------------------------------------------------------
+
+/// An edit made to the file outside this database stops a write rather
+/// than being overwritten by rows that predate it.
+async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "staged",
+        serde_json::json!({"name": "staged"}),
+        None,
+    )
+    .await
+    .expect("write");
+
+    // Someone edits an existing record directly, as a person or another
+    // tool would.
+    let path = tmp.path().join("cloudmap.yaml");
+    let before = std::fs::read_to_string(&path).expect("read");
+    let edited = before.replace("name: dashboard", "name: dashboard-by-hand");
+    assert_ne!(
+        edited, before,
+        "the fixture should contain the edited value"
+    );
+    std::fs::write(&path, &edited).expect("write");
+
+    let err = sync
+        .write_file("cloudmap.yaml")
+        .await
+        .expect_err("the database no longer describes this file");
+    assert!(
+        matches!(err, Error::FileChanged { .. }),
+        "expected FileChanged, got {err:?}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        edited,
+        "a refused write must not have touched the file"
+    );
+
+    // Taking the edit in clears the conflict, and the edit is what the
+    // database now holds.
+    sync.update_from_working_dir().await.expect("resync");
+    let rec = sync
+        .get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://unfurl.cloud/feb20a/dashboard.git",
+        )
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "dashboard-by-hand");
+
+    // Note what re-syncing costs: it takes the file as the truth, so the
+    // staged record -- written to the database but never to disk -- is
+    // gone. "Re-sync and retry" resolves the conflict but is not a
+    // lossless recovery for work that had not reached the file yet.
+    assert!(
+        sync.get_record("cloudmap.yaml", "/repositories", "staged")
+            .await
+            .expect("get")
+            .is_none(),
+        "a re-sync drops records the file does not have"
+    );
+}
+
+/// Consecutive writes do not conflict with their own output.
+async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    for name in ["first", "second", "third"] {
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            name,
+            serde_json::json!({"name": name}),
+            None,
+        )
+        .await
+        .expect("write");
+        sync.write_file("cloudmap.yaml")
+            .await
+            .unwrap_or_else(|e| panic!("write after {name} must not conflict: {e:?}"));
+    }
+}
+
+/// A file the database has never parsed has nothing to contradict, so a
+/// write to it proceeds.
+async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.upsert_record(
+        Some("brand-new.yaml"),
+        "/repositories",
+        "fresh",
+        serde_json::json!({"name": "fresh"}),
+        None,
+    )
+    .await
+    .expect("write");
+    sync.write_file("brand-new.yaml")
+        .await
+        .expect("a synthesised document has no recorded source")
+        .expect("written");
+    assert!(tmp.path().join("brand-new.yaml").exists());
+}
+
+crud_test!(a_hand_edit_blocks_a_write, run_a_hand_edit_blocks_a_write);
+crud_test!(
+    repeated_writes_do_not_self_conflict,
+    run_repeated_writes_do_not_self_conflict
+);
+crud_test!(
+    an_unscanned_file_has_no_conflict,
+    run_an_unscanned_file_has_no_conflict
+);
+
+/// One unwritable file does not stop the others, and the caller learns
+/// which was which.
+async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // Two files with pending records; one of them gets edited behind the
+    // database's back so its write will be refused.
+    for (file, key) in [("cloudmap.yaml", "in-main"), ("second.yaml", "in-second")] {
+        sync.upsert_record(
+            Some(file),
+            "/repositories",
+            key,
+            serde_json::json!({"name": key}),
+            None,
+        )
+        .await
+        .expect("write");
+    }
+    // `second.yaml` was created by the record write, so it has no
+    // recorded source and cannot conflict. Give `cloudmap.yaml` the
+    // conflict instead.
+    let path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(
+        &path,
+        text.replace("name: dashboard", "name: dashboard-by-hand"),
+    )
+    .expect("write");
+
+    let outcome = sync.save_changes().await.expect("save proceeds");
+    assert_eq!(outcome.failed.len(), 1, "{outcome:?}");
+    assert_eq!(outcome.failed[0].file_path, "cloudmap.yaml");
+    assert!(matches!(outcome.failed[0].error, Error::FileChanged { .. }));
+    // The other file was still written -- one failure must not strand it
+    // unreported, which is what failing fast used to do.
+    assert_eq!(
+        outcome.written,
+        vec![tmp.path().join("second.yaml")],
+        "{outcome:?}"
+    );
+    assert!(tmp.path().join("second.yaml").exists());
+
+    // And a commit refuses while anything is unwritten, rather than
+    // capturing a half-applied state.
+    let err = sync
+        .commit_repository("should not commit")
+        .await
+        .expect_err("a partial save must not be committed");
+    assert!(matches!(err, Error::FileChanged { .. }), "{err:?}");
+}
+
+crud_test!(save_reports_each_file, run_save_reports_each_file);
+
+/// The types `save_changes` returns are nameable from outside the crate.
+/// Without the re-export a caller cannot write its return type, which a
+/// build inside the crate never notices.
+#[test]
+fn save_outcome_types_are_public() {
+    fn _takes(_: unfurl_git_sync::SaveOutcome, _: unfurl_git_sync::SaveFailure) {}
 }

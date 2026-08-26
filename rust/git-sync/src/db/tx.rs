@@ -171,11 +171,13 @@ impl Dialect for sqlx::Sqlite {
            AND (?3 IS NULL OR version <= ?3) \
            AND (?4 IS NULL OR commit_id = ?4) \
          RETURNING id";
-    const UPSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
-         VALUES (?1, ?2, ?3, ?4) \
+    const UPSERT_FILE: &'static str =
+        "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
+         VALUES (?1, ?2, ?3, ?4, ?5) \
          ON CONFLICT(worktree_id, path) DO UPDATE SET \
            format = excluded.format, \
-           commit_id = excluded.commit_id";
+           commit_id = excluded.commit_id, \
+           source_oid = excluded.source_oid";
     const SYNC_UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
          VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, 0, ?7) \
@@ -241,11 +243,13 @@ impl Dialect for sqlx::Postgres {
            AND ($3::BIGINT IS NULL OR version <= $3) \
            AND ($4::TEXT IS NULL OR commit_id = $4) \
          RETURNING id";
-    const UPSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
-         VALUES ($1, $2, $3, $4) \
+    const UPSERT_FILE: &'static str =
+        "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
+         VALUES ($1, $2, $3, $4, $5) \
          ON CONFLICT(worktree_id, path) DO UPDATE SET \
            format = EXCLUDED.format, \
-           commit_id = EXCLUDED.commit_id";
+           commit_id = EXCLUDED.commit_id, \
+           source_oid = EXCLUDED.source_oid";
     const SYNC_UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
          VALUES ($1, $2, $3, $4, $5::jsonb, $6, FALSE, $7) \
@@ -437,6 +441,7 @@ pub(crate) async fn upsert_file<DB: Dialect>(
     file_path: &str,
     format: &str,
     commit_id: Option<&str>,
+    source_oid: &str,
 ) -> Result<()>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -450,6 +455,7 @@ where
         .bind(file_path)
         .bind(format)
         .bind(commit_id)
+        .bind(source_oid)
         .execute(&mut **tx)
         .await?;
     Ok(())

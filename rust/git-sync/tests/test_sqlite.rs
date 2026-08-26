@@ -36,7 +36,7 @@ async fn cloudmap_end_to_end_sqlite() {
     .await
     .expect("upsert");
 
-    let written = sync.save_changes().await.expect("save_changes");
+    let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written, vec![tmp.path().join("cloudmap.yaml")]);
 
     let on_disk_text = std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read");

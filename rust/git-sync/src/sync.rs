@@ -25,8 +25,8 @@ use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::model::{
-    Applied, BatchOp, BatchOutcome, CommitRollup, Failed, Record, RecordQuery, RollupTxn, Txn,
-    TxnMeta, TxnRecord, UpdateStats, WriteOutcome,
+    Applied, BatchOp, BatchOutcome, CommitRollup, Failed, Record, RecordQuery, RollupTxn,
+    SaveOutcome, Txn, TxnMeta, TxnRecord, UpdateStats, WriteOutcome,
 };
 
 /// Optimistic-concurrency token used by mutating CRUD calls.
@@ -199,6 +199,8 @@ impl SyncedRepo {
             format_name: String,
             value: serde_json::Value,
             clean: bool,
+            /// Blob OID of the bytes `value` was parsed from.
+            source_oid: String,
         }
 
         let mut stats = UpdateStats::default();
@@ -240,6 +242,7 @@ impl SyncedRepo {
             // content that never reached the database.
             let disk_blob = git::blob_oid_for_bytes(&repo, &bytes);
             let clean = disk_blob == tf.head_blob_oid;
+            let source_oid = disk_blob.to_string();
             if clean {
                 clean_paths.push(tf.rel_path.clone());
             }
@@ -248,6 +251,7 @@ impl SyncedRepo {
                 format_name,
                 value,
                 clean,
+                source_oid,
             });
         }
 
@@ -272,10 +276,13 @@ impl SyncedRepo {
 
             stats.files_updated += 1;
             self.upsert_file_and_records(
-                &p.tf.rel_path,
-                last_commit_id,
-                &p.value,
-                format,
+                ScannedFile {
+                    rel_path: &p.tf.rel_path,
+                    last_commit_id,
+                    source_oid: &p.source_oid,
+                    value: &p.value,
+                    format,
+                },
                 &mut stats,
             )
             .await?;
@@ -299,38 +306,13 @@ impl SyncedRepo {
     /// [`upsert_file_and_records_inner`]).
     async fn upsert_file_and_records(
         &self,
-        rel_path: &str,
-        last_commit_id: Option<&str>,
-        value: &serde_json::Value,
-        format: &dyn crate::format::DataFormat,
+        file: ScannedFile<'_>,
         stats: &mut UpdateStats,
     ) -> Result<()> {
         match self.db() {
-            Db::Sqlite(pool) => {
-                upsert_file_and_records_inner(
-                    self,
-                    pool,
-                    rel_path,
-                    last_commit_id,
-                    value,
-                    format,
-                    stats,
-                )
-                .await
-            }
+            Db::Sqlite(pool) => upsert_file_and_records_inner(self, pool, file, stats).await,
             #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                upsert_file_and_records_inner(
-                    self,
-                    pool,
-                    rel_path,
-                    last_commit_id,
-                    value,
-                    format,
-                    stats,
-                )
-                .await
-            }
+            Db::Postgres(pool) => upsert_file_and_records_inner(self, pool, file, stats).await,
         }
     }
 
@@ -829,19 +811,36 @@ impl SyncedRepo {
     /// Persist every in-flight record edit to disk.
     ///
     /// For each file with at least one record whose `commit_id IS
-    /// NULL`, calls [`Self::write_file`]. Returns the paths that were
-    /// actually rewritten — files whose bytes turned out to match
-    /// what's already on disk are skipped.
-    pub async fn save_changes(&self) -> Result<Vec<PathBuf>> {
+    /// NULL`, calls [`Self::write_file`]. Files whose bytes turn out to
+    /// match what is already on disk are skipped.
+    ///
+    /// A failure on one file does not stop the others, and does not
+    /// discard what already succeeded: each is reported in
+    /// [`SaveOutcome::failed`] while the rest carry on. Failing fast
+    /// would leave earlier files rewritten on disk with nothing in the
+    /// return value saying so — the error would name one file and the
+    /// caller would have no way to learn about the others.
+    ///
+    /// # Errors
+    ///
+    /// Only for failures that prevent the attempt entirely, such as the
+    /// database being unreachable. A per-file failure is data, not an
+    /// error.
+    pub async fn save_changes(&self) -> Result<SaveOutcome> {
         let dirty: Vec<String> =
             db::record::list_dirty_files(self.db(), self.worktree_id()).await?;
-        let mut written = Vec::new();
+        let mut outcome = SaveOutcome::default();
         for fp in dirty {
-            if let Some(p) = self.write_file(&fp).await? {
-                written.push(p);
+            match self.write_file(&fp).await {
+                Ok(Some(p)) => outcome.written.push(p),
+                Ok(None) => {}
+                Err(error) => outcome.failed.push(crate::model::SaveFailure {
+                    file_path: fp,
+                    error,
+                }),
             }
         }
-        Ok(written)
+        Ok(outcome)
     }
 
     /// Apply pending record changes for `file_path` to the on-disk
@@ -866,8 +865,43 @@ impl SyncedRepo {
     ///
     /// # Errors
     ///
+    /// [`crate::Error::FileChanged`] when the file on disk is not the one
+    /// this worktree's records were parsed from — an edit the database
+    /// never took in, which a write would overwrite with rows that
+    /// predate it. Re-run [`Self::update_from_working_dir`] and retry.
+    ///
     /// [`crate::Error::Yaml`] / [`crate::Error::Json`] on parse / emit
     /// failure; [`crate::Error::Io`] for filesystem failures.
+    /// Error when `abs` no longer hashes to the `source_oid` recorded
+    /// for it.
+    ///
+    /// Skipped when the row has no `source_oid` (registered by a record
+    /// write, never scanned — nothing was parsed, so there is nothing to
+    /// contradict) or when the file is absent (a document about to be
+    /// synthesised).
+    async fn check_source_unchanged(&self, file_path: &str, abs: &Path) -> Result<()> {
+        let Some(expected) = db::file::get(self.db(), self.worktree_id(), file_path)
+            .await?
+            .and_then(|f| f.source_oid)
+        else {
+            return Ok(());
+        };
+        let bytes = match std::fs::read(abs) {
+            Ok(b) => b,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(Error::Io(e)),
+        };
+        let actual = git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string();
+        if actual != expected {
+            return Err(Error::FileChanged {
+                file_path: file_path.to_string(),
+                expected,
+                actual,
+            });
+        }
+        Ok(())
+    }
+
     pub async fn write_file(&self, file_path: &str) -> Result<Option<PathBuf>> {
         let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
         if pending.is_empty() {
@@ -881,6 +915,12 @@ impl SyncedRepo {
         let abs = self.inner.repo_path.join(file_path);
         let syntax = Syntax::for_extension(&extract_ext(file_path))
             .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
+
+        // Refuse to write over an edit this database never saw. The
+        // check is before the read that follows, so a file changing
+        // afterwards is caught on the next write rather than half-applied
+        // to this one.
+        self.check_source_unchanged(file_path, &abs).await?;
 
         let existed = abs.exists();
         let mut root = load_root(&abs, file_path, syntax)?;
@@ -904,7 +944,17 @@ impl SyncedRepo {
             }
         }
 
-        atomic_write(&abs, &bytes)?;
+        // Write and flush outside the transaction; only the rename goes
+        // inside it, so the two records of "the file now holds these
+        // bytes" -- the file itself and `source_oid` -- commit together.
+        let tmp = stage_write(&abs, &bytes)?;
+        let oid = git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string();
+        db::file::commit_write(self.db(), self.worktree_id(), file_path, &oid, || {
+            tmp.persist(&abs)
+                .map(|_| ())
+                .map_err(|e| Error::Io(e.error))
+        })
+        .await?;
         Ok(Some(abs))
     }
 
@@ -940,7 +990,16 @@ impl SyncedRepo {
         if dirty.is_empty() {
             return Ok(None);
         }
-        let _written = self.save_changes().await?;
+        let saved = self.save_changes().await?;
+        if !saved.failed.is_empty() {
+            // Committing now would capture a partial application: some
+            // files hold their pending records, others do not. Surface
+            // the first reason -- `save_changes` reports them all -- and
+            // leave the already-written files in the working tree, where
+            // a retry after the cause is fixed picks them up unchanged.
+            let first = saved.failed.into_iter().next().expect("non-empty");
+            return Err(first.error);
+        }
 
         // Read the audit rows before roll_forward stamps them: this
         // commit is the one that carries their writes. Each batch's
@@ -1570,14 +1629,17 @@ fn reorder_like(previous: &serde_json::Value, next: serde_json::Value) -> serde_
 /// Serialize `root` as YAML or JSON depending on `ext`.
 /// Atomic-replace `abs` with `bytes` via a tempfile in the same
 /// directory. Creates the parent directory if needed.
-fn atomic_write(abs: &Path, bytes: &[u8]) -> Result<()> {
+fn stage_write(abs: &Path, bytes: &[u8]) -> Result<tempfile::NamedTempFile> {
     let dir = abs.parent().unwrap_or_else(|| Path::new("."));
     std::fs::create_dir_all(dir)?;
     let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
     tmp.write_all(bytes)?;
     tmp.flush()?;
-    tmp.persist(abs).map_err(|e| Error::Io(e.error))?;
-    Ok(())
+    // `flush` only empties userspace buffers. Without this the rename can
+    // be durable while the contents are not, leaving a truncated file
+    // where the database has recorded the full one.
+    tmp.as_file().sync_data()?;
+    Ok(tmp)
 }
 
 /// The concrete syntax of a tracked file, chosen by its extension.
@@ -2394,13 +2456,30 @@ where
 /// worktree counter row. Writing the file row first also means the
 /// SQLite transaction takes the write lock immediately, sidestepping
 /// the deferred-upgrade `SQLITE_BUSY_SNAPSHOT` hazard.
+/// One file the scan parsed, as the record upsert needs it.
+///
+/// Grouped for the same reason as [`crate::db::RecordId`]: these travel
+/// together through the whole sync path, and `rel_path` and `source_oid`
+/// are adjacent `&str`s that a positional call site could silently
+/// transpose.
+struct ScannedFile<'a> {
+    /// Working-tree-relative path of the file.
+    rel_path: &'a str,
+    /// Commit that last touched the path, or `None` when the file is
+    /// dirty and its records are therefore in-flight.
+    last_commit_id: Option<&'a str>,
+    /// Blob OID of the exact bytes `value` was parsed from.
+    source_oid: &'a str,
+    /// The parsed document.
+    value: &'a serde_json::Value,
+    /// The format that claimed it.
+    format: &'a dyn crate::format::DataFormat,
+}
+
 async fn upsert_file_and_records_inner<DB>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    rel_path: &str,
-    last_commit_id: Option<&str>,
-    value: &serde_json::Value,
-    format: &dyn crate::format::DataFormat,
+    file: ScannedFile<'_>,
     stats: &mut UpdateStats,
 ) -> Result<()>
 where
@@ -2413,6 +2492,13 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (String, String): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
+    let ScannedFile {
+        rel_path,
+        last_commit_id,
+        source_oid,
+        value,
+        format,
+    } = file;
     let mut tx = pool.begin().await?;
 
     // Upsert file row.
@@ -2422,6 +2508,7 @@ where
         rel_path,
         format.name(),
         last_commit_id,
+        source_oid,
     )
     .await?;
 
