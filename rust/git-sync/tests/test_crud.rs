@@ -4360,3 +4360,28 @@ crud_test!(
     rescan_bumps_only_changed_records,
     run_rescan_bumps_only_changed_records
 );
+
+/// A pending edit on X and a disk edit on Y do not conflict: X's disk
+/// value is still exactly the base the client edited from. Only a
+/// record whose file-side value moved off the base diverges.
+async fn run_edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://unfurl.cloud/onecommons/std.git",
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    hand_edit_dashboard(tmp, "theirs"); // a different record
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
+}
+
+crud_test!(
+    edit_of_a_neighbor_is_not_a_conflict,
+    run_edit_of_a_neighbor_is_not_a_conflict
+);

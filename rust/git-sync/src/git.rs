@@ -501,6 +501,31 @@ pub fn last_commits_for_paths(
     Ok(result)
 }
 
+/// Bytes of `rel_path`'s blob in `commit`.
+///
+/// `Ok(None)` when `commit` isn't a resolvable commit oid or its tree
+/// doesn't carry the path — the sync path reads a pending edit's base
+/// content through this, and an unreadable base is handled there (as
+/// "assume diverged"), not here.
+pub fn read_blob_at_commit(
+    repo: &gix::Repository,
+    commit: &str,
+    rel_path: &str,
+) -> Result<Option<Vec<u8>>> {
+    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
+        return Ok(None);
+    };
+    let Ok(commit) = repo.find_commit(oid) else {
+        return Ok(None);
+    };
+    let mut tree = commit.tree().map_err(git_err)?;
+    let Some(entry) = tree.peel_to_entry_by_path(rel_path).map_err(git_err)? else {
+        return Ok(None);
+    };
+    let object = entry.object().map_err(git_err)?;
+    Ok(Some(object.data.clone()))
+}
+
 /// Initialise a repository at `path` with an initial commit containing
 /// `files` (relative path → bytes). Returns the commit OID. Used by
 /// integration tests.

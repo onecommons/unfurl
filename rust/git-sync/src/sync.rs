@@ -2596,6 +2596,20 @@ struct ParsedDoc {
     value: serde_json::Value,
 }
 
+/// `rel_path`'s parsed document at `commit` — a pending edit's base
+/// content — or `None` when the commit, the path, or the parse is
+/// unavailable. The caller treats an unknown base as diverged: failing
+/// open would hide a conflict, failing closed only re-reports one.
+fn doc_at_commit(
+    repo: &gix::Repository,
+    commit: &str,
+    rel_path: &str,
+) -> Option<serde_json::Value> {
+    let bytes = git::read_blob_at_commit(repo, commit, rel_path).ok()??;
+    let syntax = Syntax::for_extension(&extract_ext(rel_path))?;
+    syntax.parse(rel_path, &bytes).ok().map(|p| p.value)
+}
+
 /// Transactional body of [`SyncedRepo::upsert_file_and_records`]: one
 /// SQL transaction per file covering the file-row upsert, every record
 /// upsert (each stamped with a version drawn *inside* the tx), and the
@@ -2676,6 +2690,32 @@ where
             .collect();
     let committed = db::tx::list_committed_records(&mut tx, sync.worktree_id(), rel_path).await?;
 
+    // Base-commit content for the live pending rows, read up front:
+    // whether the file diverges from a pending edit is a *three-way*
+    // question — theirs must have moved off the base, not merely
+    // differ from ours, which any unsaved edit trivially does. Read
+    // synchronously in one block so the (non-Sync) repo handle never
+    // lives across an await.
+    let base_docs: std::collections::HashMap<&str, Option<serde_json::Value>> = {
+        let bases: BTreeSet<&str> = pending
+            .values()
+            .filter(|p| !p.deleted)
+            .filter_map(|p| p.base_commit_id.as_deref())
+            .collect();
+        if bases.is_empty() {
+            Default::default()
+        } else {
+            match sync.repo() {
+                Ok(repo) => bases
+                    .into_iter()
+                    .map(|c| (c, doc_at_commit(&repo, c, rel_path)))
+                    .collect(),
+                // Unreadable repo → unknown bases → report conservatively.
+                Err(_) => bases.into_iter().map(|c| (c, None)).collect(),
+            }
+        }
+    };
+
     // Collect new (path, key) set so we can delete records that disappeared.
     let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
     let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
@@ -2696,14 +2736,29 @@ where
             stats.records_preserved += 1;
             // `Value` map equality is order-insensitive, so a mere
             // reordering on disk is not a divergence.
-            if p.json != child {
-                let kind = if p.deleted {
-                    ScanConflictKind::DeleteModify
-                } else if p.base_commit_id.is_some() {
-                    ScanConflictKind::ModifyModify
+            let kind = if p.json == child {
+                None
+            } else if p.deleted {
+                // A tombstone's json is the value it deletes — the
+                // base — so ours-vs-theirs already is base-vs-theirs.
+                Some(ScanConflictKind::DeleteModify)
+            } else if let Some(base) = p.base_commit_id.as_deref() {
+                let base_value = base_docs
+                    .get(base)
+                    .and_then(|doc| doc.as_ref())
+                    .and_then(|doc| doc.get(path.trim_start_matches('/')))
+                    .and_then(|section| section.get(key.as_str()));
+                if base_value == Some(&child) {
+                    // The file still holds exactly what this edit was
+                    // based on: the only change is ours, not yet saved.
+                    None
                 } else {
-                    ScanConflictKind::AddAdd
-                };
+                    Some(ScanConflictKind::ModifyModify)
+                }
+            } else {
+                Some(ScanConflictKind::AddAdd)
+            };
+            if let Some(kind) = kind {
                 tracing::warn!(
                     file = %rel_path, path = %path, key = %key, kind = ?kind,
                     "file diverges from a pending edit; keeping the edit"
