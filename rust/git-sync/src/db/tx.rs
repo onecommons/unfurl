@@ -102,6 +102,11 @@ pub(crate) trait Dialect: Database {
     /// WHERE commit_id IS NULL` — the file's in-flight rows, as the
     /// re-sync path needs them to preserve client edits over a scan.
     const LIST_PENDING_RECORDS: &'static str;
+    /// `SELECT path, key, json, commit_id FROM record … WHERE
+    /// commit_id IS NOT NULL` — the file's synced rows, as the re-sync
+    /// path needs them to leave untouched records' versions alone.
+    /// Never a tombstone: tombstoning nulls `commit_id`.
+    const LIST_COMMITTED_RECORDS: &'static str;
     /// `INSERT INTO file (...) … ON CONFLICT DO UPDATE` — full upsert
     /// that overwrites `format` and `commit_id`. Used by the from-disk
     /// re-sync path, where the scanned file is the source of truth
@@ -191,6 +196,8 @@ impl Dialect for sqlx::Sqlite {
     const LIST_PENDING_RECORDS: &'static str =
         "SELECT path, key, json(json), CASE WHEN deleted THEN 1 ELSE 0 END, base_commit_id \
          FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NULL";
+    const LIST_COMMITTED_RECORDS: &'static str = "SELECT path, key, json(json), commit_id \
+         FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NOT NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES (?1, ?2, ?3, ?4, ?5) \
@@ -273,6 +280,8 @@ impl Dialect for sqlx::Postgres {
     const LIST_PENDING_RECORDS: &'static str =
         "SELECT path, key, json::text, CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END, base_commit_id \
          FROM record WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NULL";
+    const LIST_COMMITTED_RECORDS: &'static str = "SELECT path, key, json::text, commit_id \
+         FROM record WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NOT NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES ($1, $2, $3, $4, $5) \
@@ -876,6 +885,39 @@ where
                 deleted: deleted != 0,
                 base_commit_id,
             })
+        })
+        .collect()
+}
+
+/// The file's synced (`commit_id IS NOT NULL`) rows as
+/// `(path, key) → (json, commit_id)`, for the re-sync path to compare
+/// the freshly parsed file against — a record matching both is left
+/// alone rather than re-upserted with a fresh version.
+pub(crate) async fn list_committed_records<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<std::collections::BTreeMap<(String, String), (serde_json::Value, String)>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (String, String, String, String):
+        for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let rows: Vec<(String, String, String, String)> = sqlx::query_as(DB::LIST_COMMITTED_RECORDS)
+        .bind(worktree_id)
+        .bind(file_path)
+        .fetch_all(&mut **tx)
+        .await?;
+    rows.into_iter()
+        .map(|(path, key, json_text, commit_id)| {
+            let json = serde_json::from_str(&json_text).map_err(|e| crate::error::Error::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+            Ok(((path, key), (json, commit_id)))
         })
         .collect()
 }

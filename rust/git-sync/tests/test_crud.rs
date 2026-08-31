@@ -4310,3 +4310,53 @@ crud_test!(
     run_rescan_reports_delete_modify
 );
 crud_test!(rescan_reports_add_add, run_rescan_reports_add_add);
+
+/// A disk edit to one record bumps only that record's version: its
+/// file-mates keep theirs, so their `Pending` OCC tokens stay valid and
+/// `list_changes(since)` names only what actually changed.
+async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let versions = |records: Vec<unfurl_git_sync::Record>| {
+        records
+            .into_iter()
+            .map(|r| ((r.path, r.key), r.version))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let before = versions(
+        sync.find_records(&RecordQuery::default())
+            .await
+            .expect("find"),
+    );
+    let cursor = *before.values().max().expect("records exist");
+
+    hand_edit_dashboard(tmp, "changed");
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.records_upserted, 1, "stats: {stats:?}");
+
+    let after = versions(
+        sync.find_records(&RecordQuery::default())
+            .await
+            .expect("find"),
+    );
+    let dashboard = ("/repositories".to_string(), DASHBOARD.to_string());
+    assert!(
+        after[&dashboard] > before[&dashboard],
+        "the edited record moved"
+    );
+    for (k, v) in &before {
+        if *k != dashboard {
+            assert_eq!(after[k], *v, "untouched record {k:?} must keep its version");
+        }
+    }
+    let changed = sync.list_changes(Some(cursor)).await.expect("list");
+    assert_eq!(
+        changed.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
+        [DASHBOARD],
+        "only the edited record is a change since the cursor"
+    );
+}
+
+crud_test!(
+    rescan_bumps_only_changed_records,
+    run_rescan_bumps_only_changed_records
+);

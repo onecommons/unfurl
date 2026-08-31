@@ -2644,6 +2644,8 @@ where
     (String, String): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (String, String, String, i64, Option<String>):
         for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (String, String, String, String):
+        for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
     let ScannedFile {
         rel_path,
@@ -2672,6 +2674,7 @@ where
             .into_iter()
             .map(|p| ((p.path.clone(), p.key.clone()), p))
             .collect();
+    let committed = db::tx::list_committed_records(&mut tx, sync.worktree_id(), rel_path).await?;
 
     // Collect new (path, key) set so we can delete records that disappeared.
     let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
@@ -2713,6 +2716,19 @@ where
                     base_commit_id: p.base_commit_id.clone(),
                 });
             }
+            continue;
+        }
+        // A record matching what the database already holds — same
+        // value, same commit attribution — is left alone. Drawing a
+        // version here would report it via `list_changes` and
+        // invalidate `Pending` OCC tokens for records that merely
+        // share a file with the actual change.
+        if committed
+            .get(&(path.clone(), key.clone()))
+            .is_some_and(|(json, commit)| {
+                *json == child && Some(commit.as_str()) == record_commit_id
+            })
+        {
             continue;
         }
         let json_text = serde_json::to_string(&child).map_err(|e| Error::Json {

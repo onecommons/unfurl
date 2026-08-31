@@ -795,7 +795,11 @@ pub struct UpdateStats {
     /// take-in, so there was nothing to re-extract. A skipped file is
     /// not re-classified against the format registry.
     pub files_unchanged: usize,
-    /// Total records inserted or refreshed in this pass.
+    /// Total records inserted or refreshed in this pass. A record in a
+    /// changed file whose value and commit attribution both already
+    /// match the database is not rewritten and not counted — its
+    /// `version` stays put, so `Pending` OCC tokens and `list_changes`
+    /// cursors see only records that actually changed.
     pub records_upserted: usize,
     /// Records hard-deleted because they disappeared from disk.
     pub records_deleted: usize,
