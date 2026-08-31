@@ -97,13 +97,19 @@ pub(crate) async fn list_by_version_range(
 
 pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<String>> {
     // A file is dirty when it has at least one record row with
-    // commit_id IS NULL — either an in-flight update / upsert (json
-    // pending) or an in-flight delete (tombstone). Both cases need
-    // `save_changes` to rewrite the file on disk.
+    // commit_id IS NULL — an in-flight update / upsert (json pending)
+    // or an in-flight delete (tombstone), which need `save_changes` to
+    // rewrite the file on disk — or when its own commit_id is NULL: a
+    // hand-edited file the scan took in, whose bytes are right but not
+    // yet committed. `commit_repository` must stage the latter even
+    // though `write_file` has nothing to write for it.
     match db {
         Db::Sqlite(pool) => {
             let rows: Vec<(String,)> = sqlx::query_as(
                 "SELECT DISTINCT file_path FROM record \
+                 WHERE worktree_id = ?1 AND commit_id IS NULL \
+                 UNION \
+                 SELECT path FROM file \
                  WHERE worktree_id = ?1 AND commit_id IS NULL",
             )
             .bind(worktree_id)
@@ -115,6 +121,9 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
         Db::Postgres(pool) => {
             let rows: Vec<(String,)> = sqlx::query_as(
                 "SELECT DISTINCT file_path FROM record \
+                 WHERE worktree_id = $1 AND commit_id IS NULL \
+                 UNION \
+                 SELECT path FROM file \
                  WHERE worktree_id = $1 AND commit_id IS NULL",
             )
             .bind(worktree_id)

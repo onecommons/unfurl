@@ -58,6 +58,41 @@ pub(crate) async fn get(
     }
 }
 
+/// Every file row of the worktree, in one query — the scan compares
+/// each tracked file against these to decide whether it changed at all.
+pub(crate) async fn list(db: &Db, worktree_id: i64) -> Result<Vec<crate::model::File>> {
+    let map = |(wt, path, format, commit_id, source_oid): FileRowSqlite| crate::model::File {
+        worktree_id: wt,
+        path,
+        format,
+        commit_id,
+        source_oid,
+    };
+    match db {
+        Db::Sqlite(pool) => {
+            let rows: Vec<FileRowSqlite> = sqlx::query_as(
+                "SELECT worktree_id, path, format, commit_id, source_oid \
+                 FROM file WHERE worktree_id = ?1",
+            )
+            .bind(worktree_id)
+            .fetch_all(pool)
+            .await?;
+            Ok(rows.into_iter().map(map).collect())
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let rows: Vec<FileRowPg> = sqlx::query_as(
+                "SELECT worktree_id, path, format, commit_id, source_oid \
+                 FROM file WHERE worktree_id = $1",
+            )
+            .bind(worktree_id)
+            .fetch_all(pool)
+            .await?;
+            Ok(rows.into_iter().map(map).collect())
+        }
+    }
+}
+
 /// Record `oid` as the file's source and run `persist` — the rename that
 /// puts the new bytes in place — inside one transaction.
 ///

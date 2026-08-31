@@ -16,7 +16,9 @@ use common::sqlite_fixture;
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
-use unfurl_git_sync::{BatchOp, CommitRef, Error, JsonQuery, RecordQuery, SyncedRepo, TxnMeta};
+use unfurl_git_sync::{
+    BatchOp, CommitRef, Error, JsonQuery, RecordQuery, ScanConflictKind, SyncedRepo, TxnMeta,
+};
 
 // ---------------------------------------------------------------------------
 // Test bodies
@@ -1876,6 +1878,72 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     assert!(rows.groups.is_empty());
 }
 
+/// A rescan must not undo record edits that haven't reached disk yet.
+/// The file is byte-for-byte what the last scan parsed, so it carries no
+/// news -- yet the scan re-derives every record in it from those bytes.
+async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let path = "/repositories";
+    let edited = "git://unfurl.cloud/onecommons/std.git";
+    let removed = "git://unfurl.cloud/feb20a/dashboard.git";
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        path,
+        edited,
+        serde_json::json!({"name": "edited"}),
+        None,
+    )
+    .await
+    .expect("update");
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        path,
+        "git://example.com/added.git",
+        serde_json::json!({"name": "added"}),
+        None,
+    )
+    .await
+    .expect("create");
+    sync.delete_record(Some("cloudmap.yaml"), path, removed, None)
+        .await
+        .expect("delete");
+    assert_eq!(
+        sync.list_changes(None).await.expect("list").len(),
+        3,
+        "three in-flight edits before the rescan"
+    );
+
+    // Nothing was written to disk, so this scan re-reads the same bytes
+    // the previous one did.
+    sync.update_from_working_dir().await.expect("rescan");
+
+    // Read all three back before asserting, so a run reports every
+    // edit the rescan lost rather than stopping at the first.
+    let update_survived = sync
+        .get_record("cloudmap.yaml", path, edited)
+        .await
+        .expect("get")
+        .is_some_and(|r| r.json["name"] == "edited");
+    let create_survived = sync
+        .get_record("cloudmap.yaml", path, "git://example.com/added.git")
+        .await
+        .expect("get")
+        .is_some();
+    let delete_survived = sync
+        .get_record("cloudmap.yaml", path, removed)
+        .await
+        .expect("get")
+        .is_none();
+    let pending = sync.list_changes(None).await.expect("list").len();
+    assert!(
+        update_survived && create_survived && delete_survived && pending == 3,
+        "rescan lost pending edits: update kept={update_survived}, \
+         create kept={create_survived}, delete kept={delete_survived}, \
+         {pending} of 3 still queued for save_changes"
+    );
+}
+
 macro_rules! crud_test {
     ($name:ident, $body:ident) => {
         mod $name {
@@ -3620,7 +3688,7 @@ async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
 
     // Taking the edit in clears the conflict, and the edit is what the
     // database now holds.
-    sync.update_from_working_dir().await.expect("resync");
+    let stats = sync.update_from_working_dir().await.expect("resync");
     let rec = sync
         .get_record(
             "cloudmap.yaml",
@@ -3632,17 +3700,32 @@ async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("present");
     assert_eq!(rec.json["name"], "dashboard-by-hand");
 
-    // Note what re-syncing costs: it takes the file as the truth, so the
-    // staged record -- written to the database but never to disk -- is
-    // gone. "Re-sync and retry" resolves the conflict but is not a
-    // lossless recovery for work that had not reached the file yet.
+    // The staged record -- written to the database but never to disk --
+    // survives the re-sync: "re-sync and retry" is a lossless merge for
+    // work that had not reached the file yet. An unsaved create absent
+    // from the file is not a divergence, so nothing is reported either.
     assert!(
         sync.get_record("cloudmap.yaml", "/repositories", "staged")
             .await
             .expect("get")
-            .is_none(),
-        "a re-sync drops records the file does not have"
+            .is_some(),
+        "a re-sync must keep records the file does not have yet"
     );
+    assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
+    assert!(stats.records_preserved >= 1, "stats: {stats:?}");
+
+    // And the retried write lands both sides in the file.
+    sync.write_file("cloudmap.yaml")
+        .await
+        .expect("retry after re-sync succeeds")
+        .expect("written");
+    let merged: serde_json::Value =
+        serde_saphyr::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+    assert_eq!(
+        merged["repositories"]["git://unfurl.cloud/feb20a/dashboard.git"]["name"],
+        "dashboard-by-hand"
+    );
+    assert_eq!(merged["repositories"]["staged"]["name"], "staged");
 }
 
 /// Consecutive writes do not conflict with their own output.
@@ -3841,3 +3924,389 @@ crud_test!(
     comments_inside_a_rewritten_section_are_lost,
     run_comments_inside_a_rewritten_section_are_lost
 );
+crud_test!(rescan_keeps_pending_edits, run_rescan_keeps_pending_edits);
+
+// ---------------------------------------------------------------------------
+// scan-side conflict detection and pending-edit preservation
+// ---------------------------------------------------------------------------
+
+const DASHBOARD: &str = "git://unfurl.cloud/feb20a/dashboard.git";
+
+/// HEAD as a hex string, for asserting conflict bases.
+async fn head_commit(sync: &SyncedRepo) -> String {
+    sync.get_working_dir()
+        .await
+        .expect("working dir")
+        .head_commit
+        .expect("repo has a HEAD")
+}
+
+/// Hand-edit the fixture's dashboard record on disk.
+fn hand_edit_dashboard(tmp: &TempDir, new_name: &str) {
+    let path = tmp.path().join("cloudmap.yaml");
+    let before = std::fs::read_to_string(&path).expect("read");
+    let edited = before.replace("name: dashboard", &format!("name: {new_name}"));
+    assert_ne!(edited, before, "fixture should contain the dashboard name");
+    std::fs::write(&path, edited).expect("write");
+}
+
+/// Both sides changed the same record: the pending edit wins, and the
+/// divergence is reported with the commit it was based on.
+async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let base = head_commit(sync).await;
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    hand_edit_dashboard(tmp, "theirs");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "ours", "the pending edit must survive");
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    let c = &stats.conflicts[0];
+    assert_eq!(c.kind, ScanConflictKind::ModifyModify);
+    assert_eq!(
+        (c.file_path.as_str(), c.path.as_str()),
+        ("cloudmap.yaml", "/repositories")
+    );
+    assert_eq!(c.key, DASHBOARD);
+    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert!(
+        sync.list_changes(None)
+            .await
+            .expect("list")
+            .iter()
+            .any(|r| r.key == DASHBOARD),
+        "the edit must still be queued for save_changes"
+    );
+}
+
+/// The record under a pending edit was deleted from the file; a pending
+/// create, indistinguishable in every way except its missing base, is
+/// preserved without noise.
+async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let base = head_commit(sync).await;
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/created.git",
+        serde_json::json!({"name": "created"}),
+        None,
+    )
+    .await
+    .expect("create");
+
+    // Remove the dashboard repository from the file on disk.
+    let path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&path).expect("read");
+    let mut value: serde_json::Value = serde_saphyr::from_str(&text).expect("parse");
+    value
+        .get_mut("repositories")
+        .and_then(|v| v.as_object_mut())
+        .expect("repositories section")
+        .remove(DASHBOARD)
+        .expect("fixture contains the repository");
+    std::fs::write(&path, serde_saphyr::to_string(&value).expect("emit")).expect("write");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    let c = &stats.conflicts[0];
+    assert_eq!(c.kind, ScanConflictKind::ModifyDelete);
+    assert_eq!(c.key, DASHBOARD);
+    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    for key in [DASHBOARD, "git://example.com/created.git"] {
+        assert!(
+            sync.get_record("cloudmap.yaml", "/repositories", key)
+                .await
+                .expect("get")
+                .is_some(),
+            "{key} must survive the rescan"
+        );
+    }
+}
+
+/// The base survives consecutive edits: the second update must not wipe
+/// it just because the first already nulled `commit_id`. Guards the
+/// COALESCE in the client-write SQL — without it this reports `AddAdd`
+/// with no base.
+async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let base = head_commit(sync).await;
+
+    for name in ["one", "two"] {
+        sync.update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": name}),
+            None,
+        )
+        .await
+        .expect("update");
+    }
+    hand_edit_dashboard(tmp, "theirs");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    let c = &stats.conflicts[0];
+    assert_eq!(c.kind, ScanConflictKind::ModifyModify);
+    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+}
+
+/// Across an edit → commit → edit cycle, the base of the second edit is
+/// the commit that carried the first — not the original take-in.
+async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "one"}),
+        None,
+    )
+    .await
+    .expect("update");
+    let oid = sync
+        .commit_repository("first edit")
+        .await
+        .expect("commit")
+        .expect("something to commit");
+
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "two"}),
+        None,
+    )
+    .await
+    .expect("update again");
+    // The committed write left `name: one` in the file; diverge it.
+    let path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&path).expect("read");
+    let edited = text.replace("name: one", "name: theirs");
+    assert_ne!(edited, text);
+    std::fs::write(&path, edited).expect("write");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    assert_eq!(
+        stats.conflicts[0].base_commit_id.as_deref(),
+        Some(oid.as_str())
+    );
+}
+
+/// A dirty file's rows read as committed-at-their-path's-last-commit,
+/// not as pending — so a second disk edit is taken in rather than
+/// "preserved" against. The case the `commit_id` semantics exist for.
+async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempDir) {
+    hand_edit_dashboard(tmp, "first-edit");
+    sync.update_from_working_dir().await.expect("scan dirty");
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "first-edit");
+
+    let path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&path).expect("read");
+    std::fs::write(&path, text.replace("name: first-edit", "name: second-edit")).expect("write");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan dirty");
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(
+        rec.json["name"], "second-edit",
+        "a rescan of an uncommitted file must not freeze on its own rows"
+    );
+    assert_eq!(stats.conflicts, vec![], "nothing was pending: {stats:?}");
+}
+
+/// A hand-edited file the scan took in has nothing pending to write,
+/// but `commit_repository` must still stage and commit it.
+async fn run_commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    hand_edit_dashboard(tmp, "by-hand");
+    sync.update_from_working_dir().await.expect("take in");
+
+    let oid = sync
+        .commit_repository("hand edit")
+        .await
+        .expect("commit")
+        .expect("the dirty file must be staged");
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+    assert_eq!(head_commit(sync).await, oid, "the commit reached the repo");
+    assert!(
+        sync.commit_repository("again").await.expect("ok").is_none(),
+        "nothing left to commit"
+    );
+}
+
+/// A rescan of an untouched tree is a no-op: no file re-extracted, no
+/// version drawn — the churn is visible through `record.version`.
+async fn run_rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempDir) {
+    let first = sync.update_from_working_dir().await.expect("update");
+    assert!(first.files_updated > 0, "stats: {first:?}");
+    let versions = |records: Vec<unfurl_git_sync::Record>| {
+        records
+            .into_iter()
+            .map(|r| ((r.path, r.key), r.version))
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let before = versions(
+        sync.find_records(&RecordQuery::default())
+            .await
+            .expect("find"),
+    );
+
+    let second = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(second.files_updated, 0, "stats: {second:?}");
+    assert_eq!(
+        second.files_unchanged, first.files_updated,
+        "stats: {second:?}"
+    );
+    assert_eq!(second.records_upserted, 0, "stats: {second:?}");
+    let after = versions(
+        sync.find_records(&RecordQuery::default())
+            .await
+            .expect("find"),
+    );
+    assert_eq!(before, after, "a no-op rescan must not bump versions");
+}
+
+crud_test!(
+    rescan_reports_modify_modify,
+    run_rescan_reports_modify_modify
+);
+crud_test!(
+    rescan_reports_modify_delete_but_not_creates,
+    run_rescan_reports_modify_delete_but_not_creates
+);
+crud_test!(
+    consecutive_updates_keep_base,
+    run_consecutive_updates_keep_base
+);
+crud_test!(
+    base_tracks_the_latest_commit,
+    run_base_tracks_the_latest_commit
+);
+crud_test!(
+    dirty_file_rescan_takes_in_new_edits,
+    run_dirty_file_rescan_takes_in_new_edits
+);
+crud_test!(commit_carries_a_hand_edit, run_commit_carries_a_hand_edit);
+crud_test!(
+    rescan_of_untouched_tree_is_skipped,
+    run_rescan_of_untouched_tree_is_skipped
+);
+
+/// The record being deleted was edited on disk: the tombstone is not
+/// resurrected, and the divergence is reported.
+async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let base = head_commit(sync).await;
+
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
+        .await
+        .expect("delete");
+    hand_edit_dashboard(tmp, "theirs");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .is_none(),
+        "the rescan resurrected a pending delete"
+    );
+    assert!(
+        sync.list_changes(None)
+            .await
+            .expect("list")
+            .iter()
+            .any(|r| r.key == DASHBOARD && r.deleted),
+        "the tombstone must still be queued for save_changes"
+    );
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    let c = &stats.conflicts[0];
+    assert_eq!(c.kind, ScanConflictKind::DeleteModify);
+    assert_eq!(c.key, DASHBOARD);
+    assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+}
+
+/// Both sides added the same key independently: the pending create
+/// wins, reported with no base — there is no commit it diverged from.
+async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+
+    let key = "git://example.com/new.git";
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        key,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("create");
+    let path = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&path).expect("read");
+    let edited = text.replace(
+        "repositories:\n",
+        "repositories:\n  git://example.com/new.git:\n    name: theirs\n",
+    );
+    assert_ne!(edited, text, "fixture should have a repositories section");
+    std::fs::write(&path, edited).expect("write");
+
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", key)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "ours", "the pending create must win");
+    assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
+    let c = &stats.conflicts[0];
+    assert_eq!(c.kind, ScanConflictKind::AddAdd);
+    assert_eq!(c.key, key);
+    assert_eq!(c.base_commit_id, None, "a create has no base");
+}
+
+crud_test!(
+    rescan_reports_delete_modify,
+    run_rescan_reports_delete_modify
+);
+crud_test!(rescan_reports_add_add, run_rescan_reports_add_add);

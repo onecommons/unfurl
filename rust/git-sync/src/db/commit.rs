@@ -1,7 +1,7 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
 //! Commit-roll-forward sequence — used when `commit_repository` finalises
-//! a new commit and rolls its oid into all in-flight rows.
+//! a new commit and rolls its oid into the committed files' rows.
 
 use crate::db::Db;
 use crate::error::Result;
@@ -16,9 +16,14 @@ pub(crate) async fn roll_forward(
         return Ok(());
     }
     // Order of operations:
-    //   1. roll commit forward on live, in-flight rows;
-    //   2. purge tombstones (their on-disk effect is already in the
-    //      commit);
+    //   1. roll commit forward on the committed files' live rows —
+    //      scoped to `files` rather than `commit_id IS NULL`, both to
+    //      re-attribute previously-scanned rows of hand-edited files
+    //      and to leave rows written concurrently to *other* files
+    //      alone. `base_commit_id` clears with it: a committed row is
+    //      no longer diverged from the file;
+    //   2. purge those files' tombstones (their on-disk effect is in
+    //      the commit — a concurrent tombstone elsewhere is not);
     //   3. roll commit forward on file rows;
     //   4. roll commit forward on the worktree row;
     //   5. roll commit forward on outstanding `txn` audit rows — the
@@ -26,18 +31,30 @@ pub(crate) async fn roll_forward(
     match db {
         Db::Sqlite(pool) => {
             let mut tx = pool.begin().await?;
-            sqlx::query(
-                "UPDATE record SET commit_id = ?1 \
-                 WHERE worktree_id = ?2 AND commit_id IS NULL AND deleted = 0",
-            )
-            .bind(new_commit)
-            .bind(worktree_id)
-            .execute(&mut *tx)
-            .await?;
-            sqlx::query("DELETE FROM record WHERE worktree_id = ?1 AND deleted = 1")
-                .bind(worktree_id)
-                .execute(&mut *tx)
-                .await?;
+            let placeholders: Vec<String> =
+                (0..files.len()).map(|i| format!("?{}", i + 3)).collect();
+            let sql = format!(
+                "UPDATE record SET commit_id = ?1, base_commit_id = NULL \
+                 WHERE worktree_id = ?2 AND deleted = 0 AND file_path IN ({})",
+                placeholders.join(",")
+            );
+            let mut q = sqlx::query(&sql).bind(new_commit).bind(worktree_id);
+            for f in files {
+                q = q.bind(f);
+            }
+            q.execute(&mut *tx).await?;
+            let placeholders: Vec<String> =
+                (0..files.len()).map(|i| format!("?{}", i + 2)).collect();
+            let sql = format!(
+                "DELETE FROM record WHERE worktree_id = ?1 AND deleted = 1 \
+                 AND file_path IN ({})",
+                placeholders.join(",")
+            );
+            let mut q = sqlx::query(&sql).bind(worktree_id);
+            for f in files {
+                q = q.bind(f);
+            }
+            q.execute(&mut *tx).await?;
             let placeholders: Vec<String> =
                 (0..files.len()).map(|i| format!("?{}", i + 3)).collect();
             let sql = format!(
@@ -67,17 +84,22 @@ pub(crate) async fn roll_forward(
         Db::Postgres(pool) => {
             let mut tx = pool.begin().await?;
             sqlx::query(
-                "UPDATE record SET commit_id = $1 \
-                 WHERE worktree_id = $2 AND commit_id IS NULL AND deleted = FALSE",
+                "UPDATE record SET commit_id = $1, base_commit_id = NULL \
+                 WHERE worktree_id = $2 AND deleted = FALSE AND file_path = ANY($3)",
             )
             .bind(new_commit)
             .bind(worktree_id)
+            .bind(files)
             .execute(&mut *tx)
             .await?;
-            sqlx::query("DELETE FROM record WHERE worktree_id = $1 AND deleted = TRUE")
-                .bind(worktree_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "DELETE FROM record WHERE worktree_id = $1 AND deleted = TRUE \
+                 AND file_path = ANY($2)",
+            )
+            .bind(worktree_id)
+            .bind(files)
+            .execute(&mut *tx)
+            .await?;
             sqlx::query("UPDATE file SET commit_id = $1 WHERE worktree_id = $2 AND path = ANY($3)")
                 .bind(new_commit)
                 .bind(worktree_id)

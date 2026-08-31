@@ -1,0 +1,12 @@
+-- The `commit_id` the row had when a client first edited it -- the
+-- commit this pending edit is based on.
+--
+-- NULL on a non-pending row, and NULL on a pending row that was never
+-- in the file (a create). Cleared when a commit rolls forward and when
+-- a scan takes the row in fresh. Distinguishes an unsaved create from
+-- a pending edit whose record was deleted from the file, and names the
+-- merge base for resolving a diverged record against git history.
+--
+-- Rows predating this migration get NULL, so a pending edit from
+-- before it reads as a create until committed or rewritten.
+ALTER TABLE record ADD COLUMN base_commit_id TEXT;

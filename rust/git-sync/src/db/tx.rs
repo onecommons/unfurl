@@ -98,6 +98,10 @@ pub(crate) trait Dialect: Database {
     /// `UPDATE record SET deleted = 1/TRUE, commit_id = NULL,
     /// version = ? WHERE id = ?`.
     const TOMBSTONE_RECORD: &'static str;
+    /// `SELECT path, key, json, deleted, base_commit_id FROM record …
+    /// WHERE commit_id IS NULL` — the file's in-flight rows, as the
+    /// re-sync path needs them to preserve client edits over a scan.
+    const LIST_PENDING_RECORDS: &'static str;
     /// `INSERT INTO file (...) … ON CONFLICT DO UPDATE` — full upsert
     /// that overwrites `format` and `commit_id`. Used by the from-disk
     /// re-sync path, where the scanned file is the source of truth
@@ -105,9 +109,12 @@ pub(crate) trait Dialect: Database {
     /// untouched).
     const UPSERT_FILE: &'static str;
     /// Re-sync record upsert: like [`Dialect::UPSERT_RECORD`] but
-    /// `commit_id` comes from a bind (the file's last commit, possibly
-    /// NULL) instead of being forced to NULL, and there is no OCC
-    /// predicate — the working tree is the source of truth.
+    /// `commit_id` comes from a bind (the commit that last touched the
+    /// path, possibly NULL for a never-committed one) instead of being
+    /// forced to NULL, and there is no OCC predicate. The working tree
+    /// is the source of truth for the rows this reaches — the caller
+    /// keeps in-flight client edits out of its way (see
+    /// `upsert_file_and_records_inner`).
     const SYNC_UPSERT_RECORD: &'static str;
     /// `SELECT path, key FROM record WHERE worktree_id = ? AND file_path = ?`.
     const LIST_FILE_RECORD_KEYS: &'static str;
@@ -147,11 +154,19 @@ impl Dialect for sqlx::Sqlite {
     // either bind is NULL (caller skipped OCC), the corresponding
     // arm short-circuits true. RETURNING returns 0 rows when the
     // WHERE filtered out, which the caller maps to Error::Conflict.
+    // Every client write snapshots the commit its edit is based on:
+    // `base_commit_id = COALESCE(commit_id, base_commit_id)` next to
+    // `commit_id = NULL`. The COALESCE keeps the base across
+    // consecutive edits (the second one sees commit_id already NULL),
+    // and ordering against `commit_id = NULL` is safe because SQL
+    // evaluates SET right-hand sides against the pre-update row.
     const UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
-         VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, 0, ?6) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
+         VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, NULL, 0, ?6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
-           json = excluded.json, commit_id = NULL, deleted = 0, version = excluded.version \
+           json = excluded.json, \
+           base_commit_id = COALESCE(record.commit_id, record.base_commit_id), \
+           commit_id = NULL, deleted = 0, version = excluded.version \
          WHERE (?7 IS NULL OR record.version <= ?7) \
            AND (?8 IS NULL OR record.commit_id = ?8) \
          RETURNING id";
@@ -159,18 +174,23 @@ impl Dialect for sqlx::Sqlite {
     // ``RETURNING id`` lets the caller distinguish "no rows matched"
     // (race detected → Error::Conflict) from a genuine update via
     // fetch_optional, without needing a portable rows_affected() bound.
-    const UPDATE_RECORD: &'static str =
-        "UPDATE record SET json = jsonb(?1), commit_id = NULL, deleted = 0, version = ?3 \
+    const UPDATE_RECORD: &'static str = "UPDATE record SET json = jsonb(?1), \
+           base_commit_id = COALESCE(commit_id, base_commit_id), \
+           commit_id = NULL, deleted = 0, version = ?3 \
          WHERE id = ?2 \
            AND (?4 IS NULL OR version <= ?4) \
            AND (?5 IS NULL OR commit_id = ?5) \
          RETURNING id";
-    const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = 1, commit_id = NULL, version = ?2 \
+    const TOMBSTONE_RECORD: &'static str = "UPDATE record SET deleted = 1, \
+           base_commit_id = COALESCE(commit_id, base_commit_id), \
+           commit_id = NULL, version = ?2 \
          WHERE id = ?1 \
            AND (?3 IS NULL OR version <= ?3) \
            AND (?4 IS NULL OR commit_id = ?4) \
          RETURNING id";
+    const LIST_PENDING_RECORDS: &'static str =
+        "SELECT path, key, json(json), CASE WHEN deleted THEN 1 ELSE 0 END, base_commit_id \
+         FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES (?1, ?2, ?3, ?4, ?5) \
@@ -179,11 +199,12 @@ impl Dialect for sqlx::Sqlite {
            commit_id = excluded.commit_id, \
            source_oid = excluded.source_oid";
     const SYNC_UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
-         VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, 0, ?7) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
+         VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, NULL, 0, ?7) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
            json = excluded.json, \
            commit_id = excluded.commit_id, \
+           base_commit_id = NULL, \
            deleted = 0, \
            version = excluded.version \
          RETURNING id";
@@ -223,26 +244,35 @@ impl Dialect for sqlx::Postgres {
     // (mirrors the SQLite impl; ``::BIGINT`` / ``::TEXT`` casts on
     // the bind sites are required because postgres can't infer the
     // type of a NULL parameter).
+    // See the sqlite constants for the `base_commit_id` COALESCE
+    // rationale; the semantics are identical here.
     const UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
-         VALUES ($1, $2, $3, $4, $5::jsonb, NULL, FALSE, $6) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
+         VALUES ($1, $2, $3, $4, $5::jsonb, NULL, NULL, FALSE, $6) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
-           json = EXCLUDED.json, commit_id = NULL, deleted = FALSE, version = EXCLUDED.version \
+           json = EXCLUDED.json, \
+           base_commit_id = COALESCE(record.commit_id, record.base_commit_id), \
+           commit_id = NULL, deleted = FALSE, version = EXCLUDED.version \
          WHERE ($7::BIGINT IS NULL OR record.version <= $7) \
            AND ($8::TEXT IS NULL OR record.commit_id = $8) \
          RETURNING id";
-    const UPDATE_RECORD: &'static str =
-        "UPDATE record SET json = $1::jsonb, commit_id = NULL, deleted = FALSE, version = $3 \
+    const UPDATE_RECORD: &'static str = "UPDATE record SET json = $1::jsonb, \
+           base_commit_id = COALESCE(commit_id, base_commit_id), \
+           commit_id = NULL, deleted = FALSE, version = $3 \
          WHERE id = $2 \
            AND ($4::BIGINT IS NULL OR version <= $4) \
            AND ($5::TEXT IS NULL OR commit_id = $5) \
          RETURNING id";
-    const TOMBSTONE_RECORD: &'static str =
-        "UPDATE record SET deleted = TRUE, commit_id = NULL, version = $2 \
+    const TOMBSTONE_RECORD: &'static str = "UPDATE record SET deleted = TRUE, \
+           base_commit_id = COALESCE(commit_id, base_commit_id), \
+           commit_id = NULL, version = $2 \
          WHERE id = $1 \
            AND ($3::BIGINT IS NULL OR version <= $3) \
            AND ($4::TEXT IS NULL OR commit_id = $4) \
          RETURNING id";
+    const LIST_PENDING_RECORDS: &'static str =
+        "SELECT path, key, json::text, CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END, base_commit_id \
+         FROM record WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES ($1, $2, $3, $4, $5) \
@@ -251,11 +281,12 @@ impl Dialect for sqlx::Postgres {
            commit_id = EXCLUDED.commit_id, \
            source_oid = EXCLUDED.source_oid";
     const SYNC_UPSERT_RECORD: &'static str =
-        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, deleted, version) \
-         VALUES ($1, $2, $3, $4, $5::jsonb, $6, FALSE, $7) \
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, NULL, FALSE, $7) \
          ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
            json = EXCLUDED.json, \
            commit_id = EXCLUDED.commit_id, \
+           base_commit_id = NULL, \
            deleted = FALSE, \
            version = EXCLUDED.version \
          RETURNING id";
@@ -799,6 +830,54 @@ where
         removed += deleted.len();
     }
     Ok(removed)
+}
+
+/// One in-flight row of a file, as [`list_pending_records`] returns it.
+pub(crate) struct PendingRecord {
+    pub(crate) path: String,
+    pub(crate) key: String,
+    pub(crate) json: serde_json::Value,
+    pub(crate) deleted: bool,
+    /// Commit the client's edit is based on; `None` for a create.
+    pub(crate) base_commit_id: Option<String>,
+}
+
+/// The file's in-flight (`commit_id IS NULL`) rows, which a re-sync
+/// must keep out of [`sync_upsert_record`] / [`delete_missing`]'s way.
+pub(crate) async fn list_pending_records<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<Vec<PendingRecord>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (String, String, String, i64, Option<String>):
+        for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let rows: Vec<(String, String, String, i64, Option<String>)> =
+        sqlx::query_as(DB::LIST_PENDING_RECORDS)
+            .bind(worktree_id)
+            .bind(file_path)
+            .fetch_all(&mut **tx)
+            .await?;
+    rows.into_iter()
+        .map(|(path, key, json_text, deleted, base_commit_id)| {
+            let json = serde_json::from_str(&json_text).map_err(|e| crate::error::Error::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+            Ok(PendingRecord {
+                path,
+                key,
+                json,
+                deleted: deleted != 0,
+                base_commit_id,
+            })
+        })
+        .collect()
 }
 
 /// Reconstruct a [`crate::CommitRef`] from the (expected_version,

@@ -791,17 +791,64 @@ pub struct UpdateStats {
     pub files_seen: usize,
     /// Files whose records were re-extracted into the database.
     pub files_updated: usize,
+    /// Files skipped whole: same bytes and same git state as the last
+    /// take-in, so there was nothing to re-extract. A skipped file is
+    /// not re-classified against the format registry.
+    pub files_unchanged: usize,
     /// Total records inserted or refreshed in this pass.
     pub records_upserted: usize,
     /// Records hard-deleted because they disappeared from disk.
     pub records_deleted: usize,
+    /// In-flight client edits the scan left untouched rather than
+    /// overwriting from disk — includes every row in [`Self::conflicts`]
+    /// plus the quiet cases (unsaved creates, edits matching the file).
+    /// Rows in files skipped as unchanged are not counted; see
+    /// [`Self::files_unchanged`].
+    pub records_preserved: usize,
+    /// Preserved rows whose file-side counterpart disagrees with them.
+    /// The pending edit stays what `save_changes` will write; resolving
+    /// in the file's favor means deleting or rewriting the record.
+    pub conflicts: Vec<ScanConflict>,
     /// Files that parsed only as JSON5 — a comment, a trailing comma, an
-    /// unquoted key — rather than as strict JSON.
+    /// unquoted key — rather than as strict JSON. Counts only files
+    /// actually parsed this pass, not skipped ones.
     ///
     /// They are read fine. It is the *write* side that makes this worth
     /// reporting: a rewrite emits strict JSON, so the first change to a
     /// record in such a file normalizes it and drops its comments.
     pub files_needing_json5: usize,
+}
+
+/// One record where a scan found the file disagreeing with an in-flight
+/// client edit. The edit was preserved; this reports the divergence.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScanConflict {
+    /// Working-tree-relative path of the file.
+    pub file_path: String,
+    /// Parent JSON-pointer the record sits under.
+    pub path: String,
+    /// The record's key within that section.
+    pub key: String,
+    /// Which pair of changes collided.
+    pub kind: ScanConflictKind,
+    /// Commit the pending edit is based on — the merge base for
+    /// resolving against git history. `None` for [`ScanConflictKind::AddAdd`].
+    pub base_commit_id: Option<String>,
+}
+
+/// The colliding pair behind a [`ScanConflict`], named ours-then-theirs:
+/// the pending edit first, the disk-side change second.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScanConflictKind {
+    /// Pending edit vs. a different value in the file.
+    ModifyModify,
+    /// Pending create vs. the same key added to the file independently.
+    AddAdd,
+    /// Pending delete vs. an edit in the file — the record being
+    /// deleted is not the one the client saw.
+    DeleteModify,
+    /// Pending edit vs. the key removed from the file.
+    ModifyDelete,
 }
 
 /// Result of [`crate::SyncedRepo::save_changes`].
