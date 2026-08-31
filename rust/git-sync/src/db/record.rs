@@ -206,6 +206,42 @@ pub(crate) async fn load_pending(
     Ok(out)
 }
 
+/// `(path, key) → base_commit_id` for the file's in-flight rows.
+///
+/// The write path's conflict detection needs the bases, which the
+/// public [`Record`] deliberately doesn't carry — this fetches them
+/// without widening that shape.
+pub(crate) async fn pending_bases(
+    db: &Db,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<std::collections::HashMap<(String, String), Option<String>>> {
+    let rows: Vec<(String, String, Option<String>)> = match db {
+        Db::Sqlite(pool) => {
+            sqlx::query_as(
+                "SELECT path, key, base_commit_id FROM record \
+                 WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NULL",
+            )
+            .bind(worktree_id)
+            .bind(file_path)
+            .fetch_all(pool)
+            .await?
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query_as(
+                "SELECT path, key, base_commit_id FROM record \
+                 WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NULL",
+            )
+            .bind(worktree_id)
+            .bind(file_path)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows.into_iter().map(|(p, k, b)| ((p, k), b)).collect())
+}
+
 /// Search records by optional `file_path` / `path` / `key` filters.
 /// All `Some(...)` filters AND together. With `alias = true` and
 /// `key = Some(...)`, a record also matches when one of its alias rows

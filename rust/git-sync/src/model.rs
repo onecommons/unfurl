@@ -4,7 +4,7 @@
 //!
 //! Each struct mirrors one row of its corresponding SQL table, plus
 //! [`WorkingDir`] (a derived view over the gix repo) and
-//! [`UpdateStats`] (a return value).
+//! [`SyncOutcome`] (a return value).
 
 use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
@@ -781,15 +781,23 @@ pub struct WriteOutcome {
     pub version: i64,
 }
 
-/// Counters returned by [`crate::SyncedRepo::update_from_working_dir`].
+/// Outcome of a sync in either direction — one shape for
+/// [`crate::SyncedRepo::update_from_working_dir`] (which fills the
+/// scan counters) and [`crate::SyncedRepo::save_changes`] (which fills
+/// [`Self::written`] / [`Self::failed`]), so a library client reads
+/// [`Self::conflicts`] the same way whichever function found them.
 ///
-/// `files_updated` ≤ `files_seen`; `records_upserted` and
-/// `records_deleted` are totals across the whole sync pass.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct UpdateStats {
+/// A pure scan leaves the write lists empty; a pure save leaves the
+/// scan counters zero. `files_updated` ≤ `files_seen`;
+/// `records_upserted` and `records_deleted` are totals across the
+/// whole pass.
+#[derive(Debug, Default)]
+pub struct SyncOutcome {
     /// Tracked files visited by the sync pass.
     pub files_seen: usize,
-    /// Files whose records were re-extracted into the database.
+    /// Files whose database state was refreshed — records re-extracted
+    /// from changed bytes, or commit attribution updated for unchanged
+    /// bytes whose git state moved.
     pub files_updated: usize,
     /// Files skipped whole: same bytes and same git state as the last
     /// take-in, so there was nothing to re-extract. A skipped file is
@@ -809,10 +817,11 @@ pub struct UpdateStats {
     /// Rows in files skipped as unchanged are not counted; see
     /// [`Self::files_unchanged`].
     pub records_preserved: usize,
-    /// Preserved rows whose file-side counterpart disagrees with them.
-    /// The pending edit stays what `save_changes` will write; resolving
-    /// in the file's favor means deleting or rewriting the record.
-    pub conflicts: Vec<ScanConflict>,
+    /// Rows the sync found the file disagreeing with a pending edit on
+    /// — the scan preserves the edit, the write lands it (pending
+    /// wins). Resolving in the file's favor means rewriting the record
+    /// to [`RecordConflict::theirs`] (or deleting it) before saving.
+    pub conflicts: Vec<RecordConflict>,
     /// Files that parsed only as JSON5 — a comment, a trailing comma, an
     /// unquoted key — rather than as strict JSON. Counts only files
     /// actually parsed this pass, not skipped ones.
@@ -821,12 +830,30 @@ pub struct UpdateStats {
     /// reporting: a rewrite emits strict JSON, so the first change to a
     /// record in such a file normalizes it and drops its comments.
     pub files_needing_json5: usize,
+    /// Files rewritten on disk by a save. Absent means failed, or
+    /// unchanged — the rendered bytes matched what was already there.
+    pub written: Vec<std::path::PathBuf>,
+    /// Files a save could not write, each with the reason. Per file
+    /// because one failure says nothing about the rest, and reading
+    /// this is the only way to learn which files a partly-successful
+    /// save left modified on disk.
+    pub failed: Vec<SaveFailure>,
 }
 
-/// One record where a scan found the file disagreeing with an in-flight
-/// client edit. The edit was preserved; this reports the divergence.
+impl SyncOutcome {
+    /// The first write failure, if any. For a caller that wants to
+    /// stop on the first problem while still seeing what was written.
+    pub fn first_error(&self) -> Option<&crate::Error> {
+        self.failed.first().map(|f| &f.error)
+    }
+}
+
+/// One record where the file disagrees with an in-flight client edit.
+/// The edit was preserved (in the database, and in the file once
+/// written — pending wins); this reports the divergence with enough to
+/// resolve it the other way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ScanConflict {
+pub struct RecordConflict {
     /// Working-tree-relative path of the file.
     pub file_path: String,
     /// Parent JSON-pointer the record sits under.
@@ -834,16 +861,25 @@ pub struct ScanConflict {
     /// The record's key within that section.
     pub key: String,
     /// Which pair of changes collided.
-    pub kind: ScanConflictKind,
+    pub kind: RecordConflictKind,
     /// Commit the pending edit is based on — the merge base for
-    /// resolving against git history. `None` for [`ScanConflictKind::AddAdd`].
+    /// resolving against git history. `None` for [`RecordConflictKind::AddAdd`].
     pub base_commit_id: Option<String>,
+    /// The file's version of the record — `None` when the file side
+    /// deleted it ([`RecordConflictKind::ModifyDelete`]). Carried here
+    /// because a subsequent write replaces it with the pending edit:
+    /// for an uncommitted disk change this report is then the only
+    /// place the value survives, and rewriting the record to it (or
+    /// deleting the record) is how a caller resolves in the file's
+    /// favor.
+    pub theirs: Option<serde_json::Value>,
 }
 
-/// The colliding pair behind a [`ScanConflict`], named ours-then-theirs:
-/// the pending edit first, the disk-side change second.
+/// The colliding pair behind a [`RecordConflict`], named
+/// ours-then-theirs: the pending edit first, the disk-side change
+/// second.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ScanConflictKind {
+pub enum RecordConflictKind {
     /// Pending edit vs. a different value in the file.
     ModifyModify,
     /// Pending create vs. the same key added to the file independently.
@@ -855,28 +891,18 @@ pub enum ScanConflictKind {
     ModifyDelete,
 }
 
-/// Result of [`crate::SyncedRepo::save_changes`].
-///
-/// Files are written one at a time and a failure on one says nothing
-/// about the rest, so the outcome is per file rather than an error that
-/// discards what already succeeded. Reading it is the only way to learn
-/// which files a partly-successful save left modified on disk.
+/// Result of one [`crate::SyncedRepo::write_file`] call.
 #[derive(Debug, Default)]
-pub struct SaveOutcome {
-    /// Files rewritten on disk. Absent from this list means either
-    /// failed, or unchanged — the rendered bytes matched what was
-    /// already there.
-    pub written: Vec<std::path::PathBuf>,
-    /// Files that could not be written, each with the reason.
-    pub failed: Vec<SaveFailure>,
-}
-
-impl SaveOutcome {
-    /// The first failure, if any. For a caller that wants to stop on the
-    /// first problem while still seeing what was written.
-    pub fn first_error(&self) -> Option<&crate::Error> {
-        self.failed.first().map(|f| &f.error)
-    }
+pub struct WriteFileOutcome {
+    /// Path rewritten on disk, or `None` when there was nothing to
+    /// write or the rendered bytes matched what was already there.
+    pub written: Option<std::path::PathBuf>,
+    /// Divergences detected while applying pending records over a
+    /// stale on-disk document; empty when the source was current. The
+    /// write resolved each pending-wins — `theirs` holds what was
+    /// replaced — without updating the database (see the
+    /// [`crate::SyncedRepo::save_changes`] warning).
+    pub conflicts: Vec<RecordConflict>,
 }
 
 /// One file [`crate::SyncedRepo::save_changes`] could not write.

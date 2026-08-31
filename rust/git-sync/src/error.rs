@@ -104,26 +104,6 @@ pub enum Error {
         /// Row's current `commit_id` (or `None` if pending / absent).
         actual: Option<String>,
     },
-    /// The file on disk is not the one this worktree's records were
-    /// parsed from, so the database's picture of it is out of date.
-    ///
-    /// Raised before a write rather than after, because a write renders
-    /// from the database: proceeding would drop whatever the edit added
-    /// and silently replace it with rows that predate it. Re-run
-    /// [`crate::SyncedRepo::update_from_working_dir`] to take the file's
-    /// current contents in — it preserves in-flight record edits and
-    /// reports where the two sides disagree
-    /// ([`crate::UpdateStats::conflicts`]) — then retry: the rewrite
-    /// applies the pending edits on top of what the file now says.
-    #[error("{file_path} changed outside this database: parsed from {expected}, found {actual}")]
-    FileChanged {
-        /// Working-tree-relative path of the file.
-        file_path: String,
-        /// Blob OID the records were parsed from.
-        expected: String,
-        /// Blob OID of what is on disk now.
-        actual: String,
-    },
     /// Catch-all for failure cases that don't fit the variants above.
     #[error("{0}")]
     Other(String),

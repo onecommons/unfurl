@@ -93,6 +93,67 @@ pub(crate) async fn list(db: &Db, worktree_id: i64) -> Result<Vec<crate::model::
     }
 }
 
+/// Point `file_path`'s row and its synced records at fresh commit
+/// attribution, in one transaction.
+///
+/// The content-free counterpart of a re-scan, for a file whose bytes
+/// the database already took in (`source_oid` match) but whose git
+/// state moved — e.g. a hand edit taken in while dirty was since
+/// committed outside this database. Pending records (`commit_id IS
+/// NULL`) and `version`s are untouched, so `Pending` OCC tokens stay
+/// valid and `list_changes` cursors don't surface a change that never
+/// altered content.
+pub(crate) async fn reattribute(
+    db: &Db,
+    worktree_id: i64,
+    file_path: &str,
+    file_commit: Option<&str>,
+    record_commit: Option<&str>,
+) -> Result<()> {
+    match db {
+        Db::Sqlite(pool) => {
+            let mut tx = pool.begin().await?;
+            sqlx::query("UPDATE file SET commit_id = ?3 WHERE worktree_id = ?1 AND path = ?2")
+                .bind(worktree_id)
+                .bind(file_path)
+                .bind(file_commit)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "UPDATE record SET commit_id = ?3 \
+                 WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NOT NULL",
+            )
+            .bind(worktree_id)
+            .bind(file_path)
+            .bind(record_commit)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let mut tx = pool.begin().await?;
+            sqlx::query("UPDATE file SET commit_id = $3 WHERE worktree_id = $1 AND path = $2")
+                .bind(worktree_id)
+                .bind(file_path)
+                .bind(file_commit)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "UPDATE record SET commit_id = $3 \
+                 WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NOT NULL",
+            )
+            .bind(worktree_id)
+            .bind(file_path)
+            .bind(record_commit)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+        }
+    }
+    Ok(())
+}
+
 /// Record `oid` as the file's source and run `persist` — the rename that
 /// puts the new bytes in place — inside one transaction.
 ///

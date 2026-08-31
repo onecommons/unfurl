@@ -17,7 +17,7 @@ use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
 use unfurl_git_sync::{
-    BatchOp, CommitRef, Error, JsonQuery, RecordQuery, ScanConflictKind, SyncedRepo, TxnMeta,
+    BatchOp, CommitRef, Error, JsonQuery, RecordConflictKind, RecordQuery, SyncedRepo, TxnMeta,
 };
 
 // ---------------------------------------------------------------------------
@@ -3647,9 +3647,11 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
 // source_oid conflict detection
 // ---------------------------------------------------------------------------
 
-/// An edit made to the file outside this database stops a write rather
-/// than being overwritten by rows that predate it.
-async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
+/// A write over a hand-edited file lands the merge on disk without
+/// touching the database: the file's rows keep their pre-edit values
+/// and `source_oid` keeps naming the old bytes, so the next scan sees
+/// the mismatch and takes the merged file in.
+async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
     sync.upsert_record(
         Some("cloudmap.yaml"),
@@ -3672,23 +3674,44 @@ async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
     );
     std::fs::write(&path, &edited).expect("write");
 
-    let err = sync
-        .write_file("cloudmap.yaml")
-        .await
-        .expect_err("the database no longer describes this file");
-    assert!(
-        matches!(err, Error::FileChanged { .. }),
-        "expected FileChanged, got {err:?}"
-    );
+    let outcome = sync.write_file("cloudmap.yaml").await.expect("write");
+    outcome.written.as_ref().expect("written");
     assert_eq!(
-        std::fs::read_to_string(&path).expect("read"),
-        edited,
-        "a refused write must not have touched the file"
+        outcome.conflicts,
+        vec![],
+        "different records on each side do not collide"
     );
 
-    // Taking the edit in clears the conflict, and the edit is what the
-    // database now holds.
-    let stats = sync.update_from_working_dir().await.expect("resync");
+    // The written file holds both sides...
+    let merged: serde_json::Value =
+        serde_saphyr::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+    assert_eq!(
+        merged["repositories"]["git://unfurl.cloud/feb20a/dashboard.git"]["name"],
+        "dashboard-by-hand"
+    );
+    assert_eq!(merged["repositories"]["staged"]["name"], "staged");
+
+    // ...but the database deliberately was not updated: the write must
+    // not claim the merged bytes as taken in, or the hand edit would
+    // hide from every future scan behind a matching source_oid.
+    let rec = sync
+        .get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://unfurl.cloud/feb20a/dashboard.git",
+        )
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(
+        rec.json["name"], "dashboard",
+        "a write must not edit record rows"
+    );
+
+    // The next scan sees the stale source and heals: the hand edit is
+    // taken in, the still-pending create is preserved without noise.
+    let stats = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
     let rec = sync
         .get_record(
             "cloudmap.yaml",
@@ -3699,33 +3722,51 @@ async fn run_a_hand_edit_blocks_a_write(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("get")
         .expect("present");
     assert_eq!(rec.json["name"], "dashboard-by-hand");
-
-    // The staged record -- written to the database but never to disk --
-    // survives the re-sync: "re-sync and retry" is a lossless merge for
-    // work that had not reached the file yet. An unsaved create absent
-    // from the file is not a divergence, so nothing is reported either.
     assert!(
-        sync.get_record("cloudmap.yaml", "/repositories", "staged")
+        sync.list_changes(None)
             .await
-            .expect("get")
-            .is_some(),
-        "a re-sync must keep records the file does not have yet"
+            .expect("list")
+            .iter()
+            .any(|r| r.key == "staged"),
+        "the created record must still be pending"
     );
-    assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
-    assert!(stats.records_preserved >= 1, "stats: {stats:?}");
+}
 
-    // And the retried write lands both sides in the file.
-    sync.write_file("cloudmap.yaml")
-        .await
-        .expect("retry after re-sync succeeds")
-        .expect("written");
-    let merged: serde_json::Value =
-        serde_saphyr::from_str(&std::fs::read_to_string(&path).expect("read")).expect("parse");
+/// When both sides changed the same record, the write lands the pending
+/// edit and the report carries the value it replaced — after the write,
+/// the report is the only place an uncommitted disk edit survives.
+async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    hand_edit_dashboard(tmp, "theirs");
+
+    let outcome = sync.write_file("cloudmap.yaml").await.expect("write");
+    outcome.written.as_ref().expect("written");
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    let c = &outcome.conflicts[0];
+    assert_eq!(c.kind, RecordConflictKind::ModifyModify);
+    assert_eq!(c.key, DASHBOARD);
     assert_eq!(
-        merged["repositories"]["git://unfurl.cloud/feb20a/dashboard.git"]["name"],
-        "dashboard-by-hand"
+        c.theirs.as_ref().expect("replaced value carried")["name"],
+        "theirs"
     );
-    assert_eq!(merged["repositories"]["staged"]["name"], "staged");
+
+    let written: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("parse");
+    assert_eq!(
+        written["repositories"][DASHBOARD]["name"], "ours",
+        "pending wins in the written file"
+    );
 }
 
 /// Consecutive writes do not conflict with their own output.
@@ -3763,11 +3804,19 @@ async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir)
     sync.write_file("brand-new.yaml")
         .await
         .expect("a synthesised document has no recorded source")
+        .written
         .expect("written");
     assert!(tmp.path().join("brand-new.yaml").exists());
 }
 
-crud_test!(a_hand_edit_blocks_a_write, run_a_hand_edit_blocks_a_write);
+crud_test!(
+    a_write_merges_over_a_hand_edit,
+    run_a_write_merges_over_a_hand_edit
+);
+crud_test!(
+    a_write_reports_the_value_it_replaced,
+    run_a_write_reports_the_value_it_replaced
+);
 crud_test!(
     repeated_writes_do_not_self_conflict,
     run_repeated_writes_do_not_self_conflict
@@ -3781,8 +3830,9 @@ crud_test!(
 /// which was which.
 async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir().await.expect("update");
-    // Two files with pending records; one of them gets edited behind the
-    // database's back so its write will be refused.
+    // Two files with pending records; one of them is corrupted behind
+    // the database's back, so its take-in — and with it the write —
+    // fails while the other proceeds.
     for (file, key) in [("cloudmap.yaml", "in-main"), ("second.yaml", "in-second")] {
         sync.upsert_record(
             Some(file),
@@ -3795,20 +3845,15 @@ async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("write");
     }
     // `second.yaml` was created by the record write, so it has no
-    // recorded source and cannot conflict. Give `cloudmap.yaml` the
-    // conflict instead.
+    // recorded source and nothing to take in. Give `cloudmap.yaml` the
+    // failure instead: stale bytes that no longer parse.
     let path = tmp.path().join("cloudmap.yaml");
-    let text = std::fs::read_to_string(&path).expect("read");
-    std::fs::write(
-        &path,
-        text.replace("name: dashboard", "name: dashboard-by-hand"),
-    )
-    .expect("write");
+    std::fs::write(&path, "[unclosed").expect("write");
 
     let outcome = sync.save_changes().await.expect("save proceeds");
     assert_eq!(outcome.failed.len(), 1, "{outcome:?}");
     assert_eq!(outcome.failed[0].file_path, "cloudmap.yaml");
-    assert!(matches!(outcome.failed[0].error, Error::FileChanged { .. }));
+    assert!(matches!(outcome.failed[0].error, Error::Yaml { .. }));
     // The other file was still written -- one failure must not strand it
     // unreported, which is what failing fast used to do.
     assert_eq!(
@@ -3817,6 +3862,11 @@ async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
         "{outcome:?}"
     );
     assert!(tmp.path().join("second.yaml").exists());
+    assert_eq!(
+        std::fs::read_to_string(&path).expect("read"),
+        "[unclosed",
+        "a failed take-in must not have touched the file"
+    );
 
     // And a commit refuses while anything is unwritten, rather than
     // capturing a half-applied state.
@@ -3824,17 +3874,17 @@ async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
         .commit_repository("should not commit")
         .await
         .expect_err("a partial save must not be committed");
-    assert!(matches!(err, Error::FileChanged { .. }), "{err:?}");
+    assert!(matches!(err, Error::Yaml { .. }), "{err:?}");
 }
 
 crud_test!(save_reports_each_file, run_save_reports_each_file);
 
-/// The types `save_changes` returns are nameable from outside the crate.
-/// Without the re-export a caller cannot write its return type, which a
-/// build inside the crate never notices.
+/// The types the sync functions return are nameable from outside the
+/// crate. Without the re-export a caller cannot write its return type,
+/// which a build inside the crate never notices.
 #[test]
-fn save_outcome_types_are_public() {
-    fn _takes(_: unfurl_git_sync::SaveOutcome, _: unfurl_git_sync::SaveFailure) {}
+fn sync_outcome_types_are_public() {
+    fn _takes(_: unfurl_git_sync::SyncOutcome, _: unfurl_git_sync::SaveFailure) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -3976,13 +4026,14 @@ async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(rec.json["name"], "ours", "the pending edit must survive");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
-    assert_eq!(c.kind, ScanConflictKind::ModifyModify);
+    assert_eq!(c.kind, RecordConflictKind::ModifyModify);
     assert_eq!(
         (c.file_path.as_str(), c.path.as_str()),
         ("cloudmap.yaml", "/repositories")
     );
     assert_eq!(c.key, DASHBOARD);
     assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
     assert!(
         sync.list_changes(None)
             .await
@@ -4034,9 +4085,10 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
     let stats = sync.update_from_working_dir().await.expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
-    assert_eq!(c.kind, ScanConflictKind::ModifyDelete);
+    assert_eq!(c.kind, RecordConflictKind::ModifyDelete);
     assert_eq!(c.key, DASHBOARD);
     assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.theirs, None, "the file side deleted the record");
     for key in [DASHBOARD, "git://example.com/created.git"] {
         assert!(
             sync.get_record("cloudmap.yaml", "/repositories", key)
@@ -4072,7 +4124,7 @@ async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
     let stats = sync.update_from_working_dir().await.expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
-    assert_eq!(c.kind, ScanConflictKind::ModifyModify);
+    assert_eq!(c.kind, RecordConflictKind::ModifyModify);
     assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
 }
 
@@ -4262,9 +4314,10 @@ async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
     );
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
-    assert_eq!(c.kind, ScanConflictKind::DeleteModify);
+    assert_eq!(c.kind, RecordConflictKind::DeleteModify);
     assert_eq!(c.key, DASHBOARD);
     assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
+    assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
 }
 
 /// Both sides added the same key independently: the pending create
@@ -4300,9 +4353,10 @@ async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(rec.json["name"], "ours", "the pending create must win");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
-    assert_eq!(c.kind, ScanConflictKind::AddAdd);
+    assert_eq!(c.kind, RecordConflictKind::AddAdd);
     assert_eq!(c.key, key);
     assert_eq!(c.base_commit_id, None, "a create has no base");
+    assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
 }
 
 crud_test!(
@@ -4384,4 +4438,92 @@ async fn run_edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempD
 crud_test!(
     edit_of_a_neighbor_is_not_a_conflict,
     run_edit_of_a_neighbor_is_not_a_conflict
+);
+
+/// `save_changes` aggregates the conflicts its writes' take-ins found,
+/// alongside the per-file written / failed lists.
+async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    sync.upsert_record(
+        Some("second.yaml"),
+        "/repositories",
+        "in-second",
+        serde_json::json!({"name": "in-second"}),
+        None,
+    )
+    .await
+    .expect("write");
+    hand_edit_dashboard(tmp, "theirs");
+
+    let outcome = sync.save_changes().await.expect("save");
+    assert_eq!(outcome.failed.len(), 0, "{outcome:?}");
+    assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
+    assert_eq!(outcome.conflicts[0].kind, RecordConflictKind::ModifyModify);
+    assert_eq!(outcome.written.len(), 2, "{outcome:?}");
+    for f in ["cloudmap.yaml", "second.yaml"] {
+        assert!(
+            outcome.written.contains(&tmp.path().join(f)),
+            "{f} missing from {outcome:?}"
+        );
+    }
+}
+
+crud_test!(save_aggregates_conflicts, run_save_aggregates_conflicts);
+
+/// `commit_repository` scans before saving, so a commit over a
+/// hand-edited file carries the merge and attributes rows to a commit
+/// that actually holds their json — no manual scan needed first.
+async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "staged",
+        serde_json::json!({"name": "staged"}),
+        None,
+    )
+    .await
+    .expect("write");
+    hand_edit_dashboard(tmp, "by-hand");
+
+    let oid = sync
+        .commit_repository("merge it all")
+        .await
+        .expect("commit")
+        .expect("committed");
+
+    // The committed file holds both sides, and the database agrees
+    // with it — the pre-save scan is what keeps roll_forward from
+    // stamping a row with a commit that doesn't carry its json.
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "by-hand");
+    assert_eq!(rec.commit_id.as_deref(), Some(oid.as_str()));
+    let on_disk: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("parse");
+    assert_eq!(on_disk["repositories"][DASHBOARD]["name"], "by-hand");
+    assert_eq!(on_disk["repositories"]["staged"]["name"], "staged");
+    assert!(
+        sync.list_changes(None).await.expect("list").is_empty(),
+        "everything is committed"
+    );
+}
+
+crud_test!(
+    commit_takes_outside_edits_in_first,
+    run_commit_takes_outside_edits_in_first
 );

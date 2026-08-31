@@ -1365,7 +1365,10 @@ async fn post_with_new_cloudmap_path_creates_the_file() {
 
     // Flushing pending records synthesises the file on disk.
     let written = synced.write_file(new_file).await.expect("write_file");
-    assert!(written.is_some(), "write_file should have created the file");
+    assert!(
+        written.written.is_some(),
+        "write_file should have created the file"
+    );
     let on_disk = std::fs::read_to_string(tmp.path().join(new_file)).expect("file exists");
     assert!(on_disk.contains("in-new-file"), "{on_disk}");
 
