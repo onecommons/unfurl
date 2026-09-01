@@ -27,6 +27,16 @@ CREATE TABLE file (
     -- -- nothing has been parsed from it, so there is nothing to
     -- compare.
     source_oid  TEXT,
+    -- The database owes the worktree a removal of this file: every
+    -- record in it is tombstoned and the next save deletes it from
+    -- disk, the next commit stages that and purges this row.
+    --
+    -- A tombstone rather than a hard delete for the same reason records
+    -- have them, plus one more: `record`'s foreign key onto this table
+    -- is ON DELETE CASCADE, so dropping the row would silently destroy
+    -- the file's *pending* rows -- including the tombstones that are
+    -- the deletion itself.
+    deleted     BOOLEAN NOT NULL DEFAULT FALSE,
     PRIMARY KEY (worktree_id, path)
 );
 

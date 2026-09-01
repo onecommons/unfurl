@@ -5408,3 +5408,134 @@ crud_test!(
     resolve_theirs_resurrects_a_record_ours_deleted,
     run_resolve_theirs_resurrects_a_record_ours_deleted
 );
+
+// ---------------------------------------------------------------------------
+// File deletion
+// ---------------------------------------------------------------------------
+
+async fn run_delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let path = tmp.path().join("cloudmap.yaml");
+    assert!(path.exists());
+
+    let tombstoned = sync
+        .delete_file("cloudmap.yaml", None)
+        .await
+        .expect("delete_file");
+    assert!(!tombstoned.is_empty(), "every record went with it");
+    // Nothing has touched the disk yet -- the deletion is in flight,
+    // and list_changes is where a client sees it.
+    assert!(path.exists());
+    let pending = sync.list_changes(None, false).await.expect("list");
+    assert_eq!(pending.len(), tombstoned.len());
+    assert!(pending.iter().all(|r| r.deleted), "{pending:?}");
+
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.failed.is_empty(), "{saved:?}");
+    assert_eq!(saved.files_deleted, 1, "{saved:?}");
+    assert!(
+        !path.exists(),
+        "the file is gone, not left as a header-only stub"
+    );
+
+    let oid = sync
+        .commit_repository("drop the cloudmap")
+        .await
+        .expect("commit")
+        .expect("a removal is a change");
+    let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
+    assert!(
+        unfurl_git_sync::git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
+            .expect("read")
+            .is_none(),
+        "the commit carries the removal"
+    );
+    assert!(
+        sync.get_file("cloudmap.yaml").await.expect("get").is_none(),
+        "the file row was purged with the commit"
+    );
+    assert!(sync
+        .list_changes(None, false)
+        .await
+        .expect("list")
+        .is_empty());
+}
+
+async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // A write to *some* record in the file moves the file's high-water
+    // mark, so a token from before it no longer describes the file.
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+        )
+        .await
+        .expect("update");
+    let stale = sync
+        .delete_file("cloudmap.yaml", Some(CommitRef::Pending(write.version - 1)))
+        .await;
+    assert!(matches!(stale, Err(Error::Conflict { .. })), "{stale:?}");
+
+    sync.delete_file("cloudmap.yaml", Some(CommitRef::Pending(write.version)))
+        .await
+        .expect("a current token passes");
+}
+
+async fn run_a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.delete_file("cloudmap.yaml", None)
+        .await
+        .expect("delete_file");
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/kept.git",
+        serde_json::json!({"name": "kept"}),
+        None,
+    )
+    .await
+    .expect("upsert");
+
+    let saved = sync.save_changes().await.expect("save");
+    assert_eq!(
+        saved.files_deleted, 0,
+        "the file has content again: {saved:?}"
+    );
+    let path = tmp.path().join("cloudmap.yaml");
+    assert!(path.exists(), "a file with a record in it plainly exists");
+    let doc: serde_json::Value =
+        serde_saphyr::from_str(&std::fs::read_to_string(&path).expect("read")).expect("yaml");
+    assert!(doc["repositories"]
+        .get("git://example.com/kept.git")
+        .is_some());
+    assert!(
+        doc["repositories"].get(DASHBOARD).is_none(),
+        "the rest went"
+    );
+    assert!(
+        !sync
+            .get_file("cloudmap.yaml")
+            .await
+            .expect("get")
+            .expect("row")
+            .deleted,
+        "the deletion no longer holds"
+    );
+}
+
+crud_test!(
+    delete_file_removes_it_from_disk_and_git,
+    run_delete_file_removes_it_from_disk_and_git
+);
+crud_test!(
+    delete_file_rejects_a_stale_token,
+    run_delete_file_rejects_a_stale_token
+);
+crud_test!(
+    a_record_written_back_undoes_a_file_deletion,
+    run_a_record_written_back_undoes_a_file_deletion
+);

@@ -278,12 +278,20 @@ pub fn commit_paths(
         .ok_or_else(|| Error::Git("repository has no working tree".to_string()))?
         .to_path_buf();
 
-    // For each path: read disk bytes, write a blob, capture (segments, oid).
-    let mut updates: Vec<(Vec<String>, gix::ObjectId)> = Vec::new();
+    // For each path: read disk bytes, write a blob, capture (segments,
+    // oid) -- or `None` for a path that is gone, which the commit
+    // removes.
+    let mut updates: Vec<TreeUpdate> = Vec::new();
     for rel in paths {
         let abs = work_dir.join(rel);
-        let bytes = std::fs::read(&abs)?;
-        let blob_oid = repo.write_blob(&bytes).map_err(git_err)?.detach();
+        let blob_oid = match std::fs::read(&abs) {
+            Ok(bytes) => Some(repo.write_blob(&bytes).map_err(git_err)?.detach()),
+            // Only an absent file means "remove this". Any other read
+            // failure is a real problem, and letting it read as a
+            // deletion would quietly drop the path from history.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(Error::Io(e)),
+        };
         let segments: Vec<String> = rel.split('/').map(|s| s.to_string()).collect();
         if segments.iter().any(|s| s.is_empty()) {
             return Err(Error::Other(format!("invalid path for commit: {rel}")));
@@ -327,18 +335,27 @@ pub fn commit_paths(
     Ok(id.detach())
 }
 
+/// One overlay onto a tree: the path split into segments, and the blob
+/// to put there -- or `None` to remove it.
+type TreeUpdate = (Vec<String>, Option<gix::ObjectId>);
+
 /// Build a new tree from `base_tree_oid` (or empty) with each entry in
-/// `updates` overlaid (insert/replace).
+/// `updates` overlaid: `Some(oid)` inserts or replaces the blob,
+/// `None` removes the path.
+///
+/// A directory that loses its last entry is dropped rather than written
+/// as an empty tree, which is what git does -- it tracks files, so a
+/// directory exists only while something is in it.
 fn build_tree_with_updates(
     repo: &gix::Repository,
     base_tree_oid: Option<gix::ObjectId>,
-    updates: &[(Vec<String>, gix::ObjectId)],
+    updates: &[TreeUpdate],
 ) -> Result<gix::ObjectId> {
     use gix::objs::tree::{Entry, EntryKind, EntryMode};
 
     // Group updates by the first path component.
-    let mut here_updates: BTreeMap<String, gix::ObjectId> = BTreeMap::new();
-    let mut sub_updates: BTreeMap<String, Vec<(Vec<String>, gix::ObjectId)>> = BTreeMap::new();
+    let mut here_updates: BTreeMap<String, Option<gix::ObjectId>> = BTreeMap::new();
+    let mut sub_updates: BTreeMap<String, Vec<TreeUpdate>> = BTreeMap::new();
     for (segments, oid) in updates {
         let mut iter = segments.iter().cloned();
         let head: String = iter.next().expect("non-empty segments");
@@ -371,16 +388,23 @@ fn build_tree_with_updates(
         }
     }
 
-    // Apply blob replacements at this level.
+    // Apply blob replacements and removals at this level.
     for (name, oid) in here_updates {
-        entries.insert(
-            name.clone(),
-            Entry {
-                mode: EntryMode::from(EntryKind::Blob),
-                filename: name.into(),
-                oid,
-            },
-        );
+        match oid {
+            Some(oid) => {
+                entries.insert(
+                    name.clone(),
+                    Entry {
+                        mode: EntryMode::from(EntryKind::Blob),
+                        filename: name.into(),
+                        oid,
+                    },
+                );
+            }
+            None => {
+                entries.remove(&name);
+            }
+        }
     }
 
     // Recurse into subdirectories.
@@ -390,6 +414,17 @@ fn build_tree_with_updates(
             .filter(|e| e.mode.is_tree())
             .map(|e| e.oid);
         let new_subtree_oid = build_tree_with_updates(repo, existing_subtree, &sub_ups)?;
+        if repo
+            .find_tree(new_subtree_oid)
+            .map_err(git_err)?
+            .decode()
+            .map_err(git_err)?
+            .entries
+            .is_empty()
+        {
+            entries.remove(&subdir);
+            continue;
+        }
         entries.insert(
             subdir.clone(),
             Entry {
@@ -637,5 +672,54 @@ mod normalize_tests {
     fn absolute_paths_are_resolved_textually() {
         assert_eq!(n("/tmp/a/../b"), "/tmp/b");
         assert_eq!(n("/tmp//a/./b/"), "/tmp/a/b");
+    }
+}
+
+#[cfg(test)]
+mod commit_tests {
+    use super::*;
+
+    /// A staged path whose file is gone is a removal -- and a directory
+    /// that loses its last file goes with it, since git tracks files and
+    /// a tree entry pointing at an empty tree is not what it writes.
+    #[test]
+    fn commit_paths_stages_a_removal() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        init_with_files(
+            tmp.path(),
+            &[
+                ("keep.yaml".to_string(), b"a: 1\n".to_vec()),
+                ("nested/gone.yaml".to_string(), b"b: 2\n".to_vec()),
+            ],
+            "initial",
+        )
+        .expect("init");
+        std::fs::remove_file(tmp.path().join("nested/gone.yaml")).expect("remove");
+
+        let repo = open_repo(tmp.path()).expect("open");
+        let oid =
+            commit_paths(&repo, &["nested/gone.yaml".to_string()], "drop it").expect("commit");
+        let oid_str = oid.to_string();
+
+        assert!(
+            read_blob_at_commit(&repo, &oid_str, "nested/gone.yaml")
+                .expect("read")
+                .is_none(),
+            "the commit no longer carries the path"
+        );
+        assert!(
+            read_blob_at_commit(&repo, &oid_str, "keep.yaml")
+                .expect("read")
+                .is_some(),
+            "its neighbour is untouched"
+        );
+        let commit = repo.find_commit(oid).expect("commit");
+        let mut tree = commit.tree().expect("tree");
+        assert!(
+            tree.peel_to_entry_by_path("nested")
+                .expect("peel")
+                .is_none(),
+            "the emptied directory went too"
+        );
     }
 }

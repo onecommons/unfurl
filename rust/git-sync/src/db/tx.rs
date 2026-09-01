@@ -152,6 +152,17 @@ pub(crate) trait Dialect: Database {
     /// `DELETE FROM record … WHERE conflict IS NOT NULL` — drop a
     /// conflict row once the divergence is settled or gone.
     const DELETE_CONFLICT_RECORD: &'static str;
+    /// `UPDATE file SET deleted = ? …` — mark, or clear, the database's
+    /// intent to remove a file from the worktree.
+    const SET_FILE_DELETED: &'static str;
+    /// `SELECT id FROM record … WHERE deleted = 0 AND conflict IS NULL`
+    /// — the file's live records, which a file deletion tombstones.
+    const LIST_FILE_LIVE_RECORD_IDS: &'static str;
+    /// `SELECT f.commit_id, MAX(r.version) …` — a file's attribution and
+    /// the high-water mark of writes to it, for the optimistic-
+    /// concurrency check on a whole-file operation. No row means no such
+    /// file.
+    const LOOKUP_FILE_STATE: &'static str;
     /// `SELECT id, commit_id, version, CAST(deleted AS INTEGER) FROM
     /// record … WHERE conflict IS NULL` — the database's own row at a
     /// key, **tombstones included**. Unlike [`Dialect::LOOKUP_COMMITS`],
@@ -275,6 +286,15 @@ impl Dialect for sqlx::Sqlite {
     const DELETE_CONFLICT_RECORD: &'static str =
         "DELETE FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
          AND path = ?3 AND key = ?4 AND conflict IS NOT NULL";
+    const SET_FILE_DELETED: &'static str =
+        "UPDATE file SET deleted = ?3 WHERE worktree_id = ?1 AND path = ?2";
+    const LIST_FILE_LIVE_RECORD_IDS: &'static str =
+        "SELECT id FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
+         AND deleted = 0 AND conflict IS NULL";
+    const LOOKUP_FILE_STATE: &'static str =
+        "SELECT f.commit_id, COALESCE(MAX(r.version), 0) FROM file f \
+         LEFT JOIN record r ON r.worktree_id = f.worktree_id AND r.file_path = f.path \
+         WHERE f.worktree_id = ?1 AND f.path = ?2 GROUP BY f.commit_id";
     const LOOKUP_OWN_RECORD: &'static str =
         "SELECT id, commit_id, version, CASE WHEN deleted THEN 1 ELSE 0 END FROM record \
          WHERE worktree_id = ?1 AND file_path = ?2 AND path = ?3 AND key = ?4 \
@@ -391,6 +411,15 @@ impl Dialect for sqlx::Postgres {
     const DELETE_CONFLICT_RECORD: &'static str =
         "DELETE FROM record WHERE worktree_id = $1 AND file_path = $2 \
          AND path = $3 AND key = $4 AND conflict IS NOT NULL";
+    const SET_FILE_DELETED: &'static str =
+        "UPDATE file SET deleted = ($3 <> 0) WHERE worktree_id = $1 AND path = $2";
+    const LIST_FILE_LIVE_RECORD_IDS: &'static str =
+        "SELECT id FROM record WHERE worktree_id = $1 AND file_path = $2 \
+         AND deleted = FALSE AND conflict IS NULL";
+    const LOOKUP_FILE_STATE: &'static str =
+        "SELECT f.commit_id, COALESCE(MAX(r.version), 0) FROM file f \
+         LEFT JOIN record r ON r.worktree_id = f.worktree_id AND r.file_path = f.path \
+         WHERE f.worktree_id = $1 AND f.path = $2 GROUP BY f.commit_id";
     const LOOKUP_OWN_RECORD: &'static str = "SELECT id, commit_id, version, \
                 CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END FROM record \
          WHERE worktree_id = $1 AND file_path = $2 AND path = $3 AND key = $4 \
@@ -924,6 +953,76 @@ where
         removed += deleted.len();
     }
     Ok(removed)
+}
+
+/// Mark (or clear) the database's intent to remove `file_path` from the
+/// worktree.
+pub(crate) async fn set_file_deleted<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+    deleted: bool,
+) -> Result<()>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+{
+    sqlx::query(DB::SET_FILE_DELETED)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(i64::from(deleted))
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Ids of the file's live records -- what a file deletion tombstones.
+pub(crate) async fn list_file_live_record_ids<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<Vec<i64>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let rows: Vec<(i64,)> = sqlx::query_as(DB::LIST_FILE_LIVE_RECORD_IDS)
+        .bind(worktree_id)
+        .bind(file_path)
+        .fetch_all(&mut **tx)
+        .await?;
+    Ok(rows.into_iter().map(|(id,)| id).collect())
+}
+
+/// `(commit_id, highest record version)` for one file, or `None` when
+/// the worktree has no such file.
+///
+/// The version is the high-water mark of writes to the file, which is
+/// what a [`crate::CommitRef::Pending`] token has to mean for an
+/// operation on the file as a whole: nothing in it has been written
+/// since the client's observation point.
+pub(crate) async fn lookup_file_state<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<Option<(Option<String>, i64)>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (Option<String>, i64): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    Ok(sqlx::query_as(DB::LOOKUP_FILE_STATE)
+        .bind(worktree_id)
+        .bind(file_path)
+        .fetch_optional(&mut **tx)
+        .await?)
 }
 
 /// One in-flight row of a file, as [`list_pending_records`] returns it.

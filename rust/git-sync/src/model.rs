@@ -74,6 +74,16 @@ pub struct File {
     /// serve: it names the commit that last touched the path, so an
     /// uncommitted edit leaves it unchanged.
     pub source_oid: Option<String>,
+    /// The database owes the worktree a removal of this file.
+    ///
+    /// Set by [`crate::SyncedRepo::delete_file`], which tombstones every
+    /// record in the file alongside it. The next
+    /// [`crate::SyncedRepo::save_changes`] removes the file from disk
+    /// and the next [`crate::SyncedRepo::commit_repository`] stages that
+    /// and drops this row. A tombstone rather than a hard delete
+    /// because `record`'s foreign key onto `file` cascades: dropping the
+    /// row would destroy the very tombstones that are the deletion.
+    pub deleted: bool,
 }
 
 /// One row of the `record` table — a single extracted JSON value.
@@ -938,9 +948,12 @@ pub struct SyncOutcome {
     /// reporting: a rewrite emits strict JSON, so the first change to a
     /// record in such a file normalizes it and drops its comments.
     pub files_needing_json5: usize,
-    /// Files rewritten on disk by a save. Absent means failed, or
+    /// Files changed on disk by a save. Absent means failed, or
     /// unchanged — the rendered bytes matched what was already there.
     pub written: Vec<std::path::PathBuf>,
+    /// How many of [`Self::written`] were removals rather than
+    /// rewrites. See [`crate::SyncedRepo::delete_file`].
+    pub files_deleted: usize,
     /// Files a save could not write, each with the reason. Per file
     /// because one failure says nothing about the rest, and reading
     /// this is the only way to learn which files a partly-successful
@@ -1005,9 +1018,14 @@ pub enum RecordConflictKind {
 /// Result of one [`crate::SyncedRepo::write_file`] call.
 #[derive(Debug, Default)]
 pub struct WriteFileOutcome {
-    /// Path rewritten on disk, or `None` when there was nothing to
-    /// write or the rendered bytes matched what was already there.
+    /// Path changed on disk, or `None` when there was nothing to write,
+    /// the rendered bytes matched what was already there, or a file
+    /// this call would have removed was already gone.
     pub written: Option<std::path::PathBuf>,
+    /// The change was a removal: the database had this file deleted and
+    /// nothing live or contested was left in it. See
+    /// [`crate::SyncedRepo::delete_file`].
+    pub deleted: bool,
     /// Records the write left alone because the two sides disagree:
     /// divergences already on record as conflict rows, plus any the
     /// write itself found by applying over a stale on-disk document.

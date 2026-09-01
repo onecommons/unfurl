@@ -719,3 +719,67 @@ pub(crate) fn compute_aliases(
     };
     fmt.find_alias(&record)
 }
+
+/// Body of [`SyncedRepo::delete_file`], generic over the pool.
+///
+/// The file row and every live record in it move together: a tombstoned
+/// file whose records were left alone would render as a header-only
+/// stub on the next save, which is the shape this whole path exists to
+/// avoid.
+pub(crate) async fn delete_file_in_pool<DB>(
+    sync: &SyncedRepo,
+    pool: &sqlx::Pool<DB>,
+    file_path: &str,
+    expected_commit: Option<CommitRef>,
+) -> Result<Vec<WriteOutcome>>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    (Option<String>, i64): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    let mut tx = pool.begin().await?;
+    let (commit_id, last_version) =
+        db::tx::lookup_file_state(&mut tx, sync.worktree_id(), file_path)
+            .await?
+            .ok_or_else(|| Error::NotFound {
+                file_path: file_path.to_string(),
+                path: String::new(),
+            })?;
+    if let Some(expected) = expected_commit.as_ref() {
+        // The file stands in for a record here: `record_present` is
+        // true because the *file* is what the token is about, and the
+        // version is the highest any record in it carries.
+        enforce_conflict(
+            file_path,
+            "",
+            expected,
+            commit_id.as_ref(),
+            Some(last_version),
+            true,
+        )?;
+    }
+
+    let ids = db::tx::list_file_live_record_ids(&mut tx, sync.worktree_id(), file_path).await?;
+    let base = if ids.is_empty() {
+        0
+    } else {
+        db::tx::next_version(&mut tx, sync.family_id(), ids.len() as i64).await?
+    };
+    let mut out = Vec::with_capacity(ids.len());
+    for (index, id) in ids.into_iter().enumerate() {
+        let version = base + index as i64;
+        // No OCC binds: the check above covered the whole file, and a
+        // per-row token would be asking a different question.
+        db::tx::delete_record(&mut tx, id, version, None, None).await?;
+        out.push(WriteOutcome { id, version });
+    }
+    db::tx::set_file_deleted(&mut tx, sync.worktree_id(), file_path, true).await?;
+    tx.commit().await?;
+    Ok(out)
+}

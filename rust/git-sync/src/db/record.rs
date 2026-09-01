@@ -116,7 +116,7 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
                  WHERE worktree_id = ?1 AND commit_id IS NULL AND conflict IS NULL \
                  UNION \
                  SELECT path FROM file \
-                 WHERE worktree_id = ?1 AND commit_id IS NULL",
+                 WHERE worktree_id = ?1 AND (commit_id IS NULL OR deleted)",
             )
             .bind(worktree_id)
             .fetch_all(pool)
@@ -130,7 +130,7 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
                  WHERE worktree_id = $1 AND commit_id IS NULL AND conflict IS NULL \
                  UNION \
                  SELECT path FROM file \
-                 WHERE worktree_id = $1 AND commit_id IS NULL",
+                 WHERE worktree_id = $1 AND (commit_id IS NULL OR deleted)",
             )
             .bind(worktree_id)
             .fetch_all(pool)

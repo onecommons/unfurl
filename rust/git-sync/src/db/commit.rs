@@ -26,10 +26,16 @@ fn record_predicates(false_lit: &str, true_lit: &str) -> (String, String) {
     )
 }
 
+/// Roll `new_commit` into the rows of the files it carries.
+///
+/// `removed` names the subset of `files` the commit *deletes*, whose
+/// `file` rows go with it -- the record tombstones inside them are
+/// purged first, so the cascade finds nothing left to take.
 pub(crate) async fn roll_forward(
     db: &Db,
     worktree_id: i64,
     files: &[String],
+    removed: &[String],
     new_commit: &str,
 ) -> Result<()> {
     if files.is_empty() {
@@ -99,6 +105,19 @@ pub(crate) async fn roll_forward(
                 q = q.bind(f);
             }
             q.execute(&mut *tx).await?;
+            if !removed.is_empty() {
+                let placeholders: Vec<String> =
+                    (0..removed.len()).map(|i| format!("?{}", i + 2)).collect();
+                let sql = format!(
+                    "DELETE FROM file WHERE worktree_id = ?1 AND path IN ({})",
+                    placeholders.join(",")
+                );
+                let mut q = sqlx::query(&sql).bind(worktree_id);
+                for f in removed {
+                    q = q.bind(f);
+                }
+                q.execute(&mut *tx).await?;
+            }
             sqlx::query("UPDATE worktree SET commit_id = ?1 WHERE id = ?2")
                 .bind(new_commit)
                 .bind(worktree_id)
@@ -140,6 +159,13 @@ pub(crate) async fn roll_forward(
                 .bind(files)
                 .execute(&mut *tx)
                 .await?;
+            if !removed.is_empty() {
+                sqlx::query("DELETE FROM file WHERE worktree_id = $1 AND path = ANY($2)")
+                    .bind(worktree_id)
+                    .bind(removed)
+                    .execute(&mut *tx)
+                    .await?;
+            }
             sqlx::query("UPDATE worktree SET commit_id = $1 WHERE id = $2")
                 .bind(new_commit)
                 .bind(worktree_id)

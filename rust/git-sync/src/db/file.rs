@@ -5,10 +5,10 @@
 use crate::db::Db;
 use crate::error::Result;
 
-type FileRowSqlite = (i64, String, String, Option<String>, Option<String>);
+type FileRowSqlite = (i64, String, String, Option<String>, Option<String>, i64);
 
 #[cfg(feature = "postgres")]
-type FileRowPg = (i64, String, String, Option<String>, Option<String>);
+type FileRowPg = (i64, String, String, Option<String>, Option<String>, bool);
 
 pub(crate) async fn get(
     db: &Db,
@@ -18,7 +18,7 @@ pub(crate) async fn get(
     match db {
         Db::Sqlite(pool) => {
             let row: Option<FileRowSqlite> = sqlx::query_as(
-                "SELECT worktree_id, path, format, commit_id, source_oid \
+                "SELECT worktree_id, path, format, commit_id, source_oid, deleted \
                  FROM file WHERE worktree_id = ?1 AND path = ?2",
             )
             .bind(worktree_id)
@@ -26,19 +26,20 @@ pub(crate) async fn get(
             .fetch_optional(pool)
             .await?;
             Ok(row.map(
-                |(wt, path, format, commit_id, source_oid)| crate::model::File {
+                |(wt, path, format, commit_id, source_oid, deleted)| crate::model::File {
                     worktree_id: wt,
                     path,
                     format,
                     commit_id,
                     source_oid,
+                    deleted: deleted != 0,
                 },
             ))
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let row: Option<FileRowPg> = sqlx::query_as(
-                "SELECT worktree_id, path, format, commit_id, source_oid \
+                "SELECT worktree_id, path, format, commit_id, source_oid, deleted \
                  FROM file WHERE worktree_id = $1 AND path = $2",
             )
             .bind(worktree_id)
@@ -46,12 +47,13 @@ pub(crate) async fn get(
             .fetch_optional(pool)
             .await?;
             Ok(row.map(
-                |(wt, path, format, commit_id, source_oid)| crate::model::File {
+                |(wt, path, format, commit_id, source_oid, deleted)| crate::model::File {
                     worktree_id: wt,
                     path,
                     format,
                     commit_id,
                     source_oid,
+                    deleted,
                 },
             ))
         }
@@ -61,34 +63,53 @@ pub(crate) async fn get(
 /// Every file row of the worktree, in one query — the scan compares
 /// each tracked file against these to decide whether it changed at all.
 pub(crate) async fn list(db: &Db, worktree_id: i64) -> Result<Vec<crate::model::File>> {
-    let map = |(wt, path, format, commit_id, source_oid): FileRowSqlite| crate::model::File {
-        worktree_id: wt,
-        path,
-        format,
-        commit_id,
-        source_oid,
-    };
+    // The two row shapes no longer agree -- SQLite decodes `deleted` as
+    // INTEGER and Postgres as BOOLEAN -- so each arm maps its own.
     match db {
         Db::Sqlite(pool) => {
             let rows: Vec<FileRowSqlite> = sqlx::query_as(
-                "SELECT worktree_id, path, format, commit_id, source_oid \
+                "SELECT worktree_id, path, format, commit_id, source_oid, deleted \
                  FROM file WHERE worktree_id = ?1",
             )
             .bind(worktree_id)
             .fetch_all(pool)
             .await?;
-            Ok(rows.into_iter().map(map).collect())
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(wt, path, format, commit_id, source_oid, deleted)| crate::model::File {
+                        worktree_id: wt,
+                        path,
+                        format,
+                        commit_id,
+                        source_oid,
+                        deleted: deleted != 0,
+                    },
+                )
+                .collect())
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
             let rows: Vec<FileRowPg> = sqlx::query_as(
-                "SELECT worktree_id, path, format, commit_id, source_oid \
+                "SELECT worktree_id, path, format, commit_id, source_oid, deleted \
                  FROM file WHERE worktree_id = $1",
             )
             .bind(worktree_id)
             .fetch_all(pool)
             .await?;
-            Ok(rows.into_iter().map(map).collect())
+            Ok(rows
+                .into_iter()
+                .map(
+                    |(wt, path, format, commit_id, source_oid, deleted)| crate::model::File {
+                        worktree_id: wt,
+                        path,
+                        format,
+                        commit_id,
+                        source_oid,
+                        deleted,
+                    },
+                )
+                .collect())
         }
     }
 }
@@ -204,6 +225,36 @@ where
                 .await?;
             persist()?;
             tx.commit().await?;
+        }
+    }
+    Ok(())
+}
+
+/// Mark, or clear, the database's intent to remove `file_path` from the
+/// worktree. See [`crate::model::File::deleted`].
+pub(crate) async fn set_deleted(
+    db: &Db,
+    worktree_id: i64,
+    file_path: &str,
+    deleted: bool,
+) -> Result<()> {
+    match db {
+        Db::Sqlite(pool) => {
+            sqlx::query("UPDATE file SET deleted = ?3 WHERE worktree_id = ?1 AND path = ?2")
+                .bind(worktree_id)
+                .bind(file_path)
+                .bind(i64::from(deleted))
+                .execute(pool)
+                .await?;
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query("UPDATE file SET deleted = $3 WHERE worktree_id = $1 AND path = $2")
+                .bind(worktree_id)
+                .bind(file_path)
+                .bind(deleted)
+                .execute(pool)
+                .await?;
         }
     }
     Ok(())

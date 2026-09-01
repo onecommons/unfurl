@@ -32,7 +32,7 @@ use crate::conflict::{
 };
 use crate::crud::{
     apply_batch_inner, crud_create_in_pool, crud_delete_in_pool, crud_update_in_pool,
-    crud_upsert_in_pool,
+    crud_upsert_in_pool, delete_file_in_pool,
 };
 use crate::db::{self, Db, DbConfig};
 use crate::document::{
@@ -977,6 +977,44 @@ impl SyncedRepo {
         }
     }
 
+    /// Remove a whole file from the worktree.
+    ///
+    /// Tombstones the file row and every live record in it, in one
+    /// transaction. Nothing touches the disk yet: the next
+    /// [`Self::save_changes`] removes the file, and the next
+    /// [`Self::commit_repository`] stages that removal and drops the
+    /// rows. Until then [`Self::list_changes`] shows the tombstones,
+    /// which is what a delete of this size ought to look like -- it is
+    /// the record deletions that the commit actually carries.
+    ///
+    /// Writing a record back into the file un-deletes it: a file with a
+    /// record in it plainly exists, so the two states cannot both hold
+    /// and the write is the more recent statement of intent.
+    ///
+    /// `expected_commit` is the optimistic-concurrency token, checked
+    /// against the file rather than any one record:
+    /// [`CommitRef::Commit`] must match the file row's `commit_id`, and
+    /// [`CommitRef::Pending`] requires that nothing in the file has been
+    /// written since that version. Deleting a file is a claim about all
+    /// of it, so a per-record check would let a concurrent write to a
+    /// record the caller never saw slip through.
+    ///
+    /// # Errors
+    ///
+    /// [`crate::Error::NotFound`] when the worktree has no such file,
+    /// [`crate::Error::Conflict`] on a failed token check.
+    pub async fn delete_file(
+        &self,
+        file_path: &str,
+        expected_commit: Option<CommitRef>,
+    ) -> Result<Vec<WriteOutcome>> {
+        match self.db() {
+            Db::Sqlite(pool) => delete_file_in_pool(self, pool, file_path, expected_commit).await,
+            #[cfg(feature = "postgres")]
+            Db::Postgres(pool) => delete_file_in_pool(self, pool, file_path, expected_commit).await,
+        }
+    }
+
     /// Apply a batch of [`BatchOp`]s under a single SQL transaction.
     ///
     /// In **atomic** mode (`atomic == true`), the first per-record
@@ -1059,6 +1097,7 @@ impl SyncedRepo {
         for fp in dirty {
             match self.write_file(&fp).await {
                 Ok(res) => {
+                    outcome.files_deleted += usize::from(res.deleted && res.written.is_some());
                     outcome.written.extend(res.written);
                     outcome.conflicts.extend(res.conflicts);
                 }
@@ -1113,20 +1152,8 @@ impl SyncedRepo {
     /// [`crate::Error::Yaml`] / [`crate::Error::Json`] on parse / emit
     /// failure; [`crate::Error::Io`] for filesystem failures.
     pub async fn write_file(&self, file_path: &str) -> Result<WriteFileOutcome> {
-        let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
-        if pending.is_empty() {
-            return Ok(WriteFileOutcome::default());
-        }
-
-        let format = pending
-            .iter()
-            .find_map(|rec| self.formats().for_path(&rec.path));
-
-        let abs = self.inner.repo_path.join(file_path);
-        let syntax = Syntax::for_extension(&extract_ext(file_path))
-            .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
-
         let file_row = db::file::get(self.db(), self.worktree_id(), file_path).await?;
+        let abs = self.inner.repo_path.join(file_path);
         // Divergences already on record: the file's side of these stands
         // whether or not the file has moved since, so they are loaded
         // unconditionally.
@@ -1136,6 +1163,53 @@ impl SyncedRepo {
                 .into_iter()
                 .map(|r| ((r.path.clone(), r.key.clone()), r))
                 .collect();
+
+        // A file the database has removed. Checked before the
+        // pending-is-empty exit below, because a deletion whose
+        // tombstones have already been purged leaves nothing pending and
+        // would otherwise never reach the disk.
+        if file_row.as_ref().is_some_and(|f| f.deleted) {
+            let live = db::record::find(
+                self.db(),
+                self.worktree_id(),
+                &RecordQuery {
+                    file_path: Some(file_path.to_string()),
+                    limit: Some(1),
+                    ..Default::default()
+                },
+            )
+            .await?;
+            if live.is_empty() && conflict_rows.is_empty() {
+                // `remove_file` on an absent file is the already-done
+                // case, not a failure.
+                let removed = match std::fs::remove_file(&abs) {
+                    Ok(()) => true,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                    Err(e) => return Err(Error::Io(e)),
+                };
+                return Ok(WriteFileOutcome {
+                    written: removed.then_some(abs),
+                    deleted: true,
+                    conflicts: Vec::new(),
+                });
+            }
+            // Something is in the file after all -- a record written
+            // back, or a contested one. A file with content plainly
+            // exists, so the deletion no longer holds.
+            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
+        }
+
+        let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
+        if pending.is_empty() {
+            return Ok(WriteFileOutcome::default());
+        }
+
+        let format = pending
+            .iter()
+            .find_map(|rec| self.formats().for_path(&rec.path));
+
+        let syntax = Syntax::for_extension(&extract_ext(file_path))
+            .ok_or_else(|| Error::Other(format!("{file_path}: unsupported file extension")))?;
         let bases = db::record::pending_bases(self.db(), self.worktree_id(), file_path).await?;
 
         // A stale source means the disk holds an edit this database
@@ -1193,6 +1267,7 @@ impl SyncedRepo {
         if touched.is_empty() {
             return Ok(WriteFileOutcome {
                 written: None,
+                deleted: false,
                 conflicts,
             });
         }
@@ -1228,6 +1303,7 @@ impl SyncedRepo {
         }
         Ok(WriteFileOutcome {
             written: Some(abs),
+            deleted: false,
             conflicts,
         })
     }
@@ -1478,6 +1554,13 @@ impl SyncedRepo {
             .filter(|rel| self.differs_from_head(&repo, head.as_deref(), rel))
             .cloned()
             .collect();
+        // A staged path with no file behind it is a deletion, so its
+        // `file` row goes with the commit that records the removal.
+        let removed: Vec<String> = to_stage
+            .iter()
+            .filter(|rel| !self.inner.repo_path.join(rel).exists())
+            .cloned()
+            .collect();
 
         let oid_str = match (to_stage.is_empty(), head.as_deref()) {
             (false, _) => git::commit_paths(&repo, &to_stage, &message)?.to_string(),
@@ -1493,7 +1576,7 @@ impl SyncedRepo {
         };
 
         // Roll the commit id into the dirty rows in a single transaction.
-        db::commit::roll_forward(self.db(), self.worktree_id(), &dirty, &oid_str).await?;
+        db::commit::roll_forward(self.db(), self.worktree_id(), &dirty, &removed, &oid_str).await?;
 
         Ok((!to_stage.is_empty()).then_some(oid_str))
     }
