@@ -3396,6 +3396,34 @@ fn doc_at_commit(
     syntax.parse(rel_path, &bytes).ok().map(|p| p.value)
 }
 
+/// Parse `rel_path` as it was at each commit in `bases`.
+///
+/// Synchronous, and takes the gix handle for the length of one call, so
+/// the (non-`Sync`) `Repository` never lives across an await. A commit
+/// whose blob or parse is unavailable maps to `None`, which the
+/// classification treats as diverged — failing open would hide a
+/// conflict, failing closed only re-reports one.
+fn read_base_docs(
+    sync: &SyncedRepo,
+    rel_path: &str,
+    bases: BTreeSet<String>,
+) -> std::collections::HashMap<String, Option<serde_json::Value>> {
+    if bases.is_empty() {
+        return Default::default();
+    }
+    match sync.repo() {
+        Ok(repo) => bases
+            .into_iter()
+            .map(|commit| {
+                let doc = doc_at_commit(&repo, &commit, rel_path);
+                (commit, doc)
+            })
+            .collect(),
+        // Unreadable repo → unknown bases → report conservatively.
+        Err(_) => bases.into_iter().map(|commit| (commit, None)).collect(),
+    }
+}
+
 /// Transactional body of [`SyncedRepo::upsert_file_and_records`]: one
 /// SQL transaction per file covering the file-row upsert, every record
 /// upsert (each stamped with a version drawn *inside* the tx), and the
@@ -3472,6 +3500,51 @@ where
         force,
         resolves_version,
     } = file;
+
+    // Everything that doesn't depend on a read inside the transaction
+    // is done before it opens. `upsert_file` below takes SQLite's
+    // single write lock immediately, so anything after it is holding
+    // that lock — and neither of these needs to.
+
+    // Extracting the records from the parsed document depends only on
+    // the document and its format.
+    let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
+    for prefix in format.path_prefixes() {
+        let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for (key, child) in section {
+            let path = format!("/{prefix}");
+            let key = key.clone();
+            new_keys.insert((path.clone(), key.clone()));
+            to_upsert.push((path, key, child.clone()));
+        }
+    }
+
+    // Base-commit content for the file's in-flight rows. Whether the
+    // file diverges from a pending edit is a *three-way* question —
+    // theirs must have moved off the base, not merely differ from ours,
+    // which any unsaved edit trivially does.
+    //
+    // This is gix work — open the repository, walk a tree, parse the
+    // file as it was at that commit — so it is the last thing that
+    // should sit inside a write lock. The bases are read
+    // non-transactionally to warm the cache; a row that becomes pending
+    // between that read and the authoritative one below simply misses,
+    // and is read inside the transaction instead. Rare, and it keeps
+    // the classification exact rather than falling back on the
+    // conservative "unknown base" path.
+    let mut base_docs = read_base_docs(
+        sync,
+        rel_path,
+        db::record::pending_bases(sync.db(), sync.worktree_id(), rel_path)
+            .await?
+            .into_values()
+            .flatten()
+            .collect::<BTreeSet<String>>(),
+    );
+
     let mut tx = pool.begin().await?;
 
     // Upsert file row.
@@ -3505,46 +3578,16 @@ where
     let resolved_by_trailer =
         |p: &db::tx::PendingRecord| resolves_version.is_some_and(|n| p.version <= n);
 
-    // Base-commit content for the live pending rows, read up front:
-    // whether the file diverges from a pending edit is a *three-way*
-    // question — theirs must have moved off the base, not merely
-    // differ from ours, which any unsaved edit trivially does. Read
-    // synchronously in one block so the (non-Sync) repo handle never
-    // lives across an await.
-    let base_docs: std::collections::HashMap<&str, Option<serde_json::Value>> = {
-        let bases: BTreeSet<&str> = pending
-            .values()
-            .filter(|p| !p.deleted)
-            .filter_map(|p| p.base_commit_id.as_deref())
-            .collect();
-        if bases.is_empty() {
-            Default::default()
-        } else {
-            match sync.repo() {
-                Ok(repo) => bases
-                    .into_iter()
-                    .map(|c| (c, doc_at_commit(&repo, c, rel_path)))
-                    .collect(),
-                // Unreadable repo → unknown bases → report conservatively.
-                Err(_) => bases.into_iter().map(|c| (c, None)).collect(),
-            }
-        }
-    };
-
-    // Collect new (path, key) set so we can delete records that disappeared.
-    let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
-    let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
-    for prefix in format.path_prefixes() {
-        let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
-            continue;
-        };
-        for (key, child) in section {
-            let path = format!("/{prefix}");
-            let key = key.clone();
-            new_keys.insert((path.clone(), key.clone()));
-            to_upsert.push((path, key, child.clone()));
-        }
-    }
+    // Bases for rows that became pending since the cache was warmed
+    // above. Normally empty, so normally no gix work in here.
+    let missed: BTreeSet<String> = pending
+        .values()
+        .filter(|p| !p.deleted)
+        .filter_map(|p| p.base_commit_id.as_deref())
+        .filter(|commit| !base_docs.contains_key(*commit))
+        .map(str::to_string)
+        .collect();
+    base_docs.extend(read_base_docs(sync, rel_path, missed));
 
     for (path, key, child) in to_upsert {
         let at = (path.clone(), key.clone());
