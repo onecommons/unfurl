@@ -11,7 +11,10 @@ use unfurl_git_sync::RecordQuery;
 async fn cloudmap_end_to_end_sqlite() {
     let (sync, tmp) = sqlite_fixture().await;
 
-    let stats = sync.update_from_working_dir().await.expect("update");
+    let stats = sync
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
     assert!(stats.records_upserted >= 5, "stats: {stats:?}");
 
     let repos = sync
@@ -32,6 +35,7 @@ async fn cloudmap_end_to_end_sqlite() {
         "git://example.com/x.git",
         new_json,
         None,
+        false,
     )
     .await
     .expect("upsert");

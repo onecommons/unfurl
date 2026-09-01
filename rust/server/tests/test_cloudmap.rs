@@ -95,7 +95,7 @@ async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
     .await
     .expect("open SyncedRepo");
     synced
-        .update_from_working_dir()
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
         .await
         .expect("update_from_working_dir");
 
@@ -658,7 +658,10 @@ async fn post_creates_new_record_in_default_file() {
     )
     .await
     .expect("open SyncedRepo");
-    synced.update_from_working_dir().await.expect("update");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
 
     // Default file path was set on first sync.
     let wt = synced.get_worktree().await.expect("get_worktree");
@@ -770,7 +773,10 @@ async fn post_with_oid_token_succeeds_when_matches() {
     )
     .await
     .expect("open SyncedRepo");
-    synced.update_from_working_dir().await.expect("update");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
 
     let key = "git://unfurl.cloud/onecommons/std.git";
     // Mutate, save, commit so the record now has a non-null commit_id.
@@ -781,6 +787,7 @@ async fn post_with_oid_token_succeeds_when_matches() {
             key,
             serde_json::json!({"name": "via-test"}),
             None,
+            false,
         )
         .await
         .expect("upsert");
@@ -1242,7 +1249,10 @@ async fn open_two_file_state() -> (CloudMapState, SyncedRepo, TempDir) {
     )
     .await
     .expect("open SyncedRepo");
-    synced.update_from_working_dir().await.expect("update");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
     (CloudMapState::from_synced(synced.clone()), synced, tmp)
 }
 
@@ -1392,7 +1402,10 @@ async fn post_with_new_cloudmap_path_creates_the_file() {
 
     // ... and a rescan of the worktree recognises it as a cloudmap, so the
     // record survives a round-trip through the scanner.
-    synced.update_from_working_dir().await.expect("rescan");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("rescan");
     let rescanned = synced
         .get_record(new_file, "/repositories", new_url)
         .await
@@ -1745,7 +1758,10 @@ async fn open_state_with_remote() -> (CloudMapState, TempDir) {
     )
     .await
     .expect("open SyncedRepo");
-    synced.update_from_working_dir().await.expect("update");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
     (CloudMapState::from_synced(synced), tmp)
 }
 
@@ -2365,7 +2381,7 @@ async fn since_version_reports_deleted_records() {
         .max()
         .expect("records");
     synced
-        .delete_record(Some("cloudmap.yaml"), "/repositories", key, None)
+        .delete_record(Some("cloudmap.yaml"), "/repositories", key, None, false)
         .await
         .expect("delete");
 
@@ -2706,6 +2722,7 @@ async fn paging_over_a_duplicated_key_reaches_the_tail() {
                 dup,
                 serde_json::json!({"name": file}),
                 None,
+                false,
             )
             .await
             .expect("write");

@@ -667,7 +667,7 @@ pub enum Resolution {
 
 /// Options for a working-tree scan — see
 /// [`crate::SyncedRepo::update_from_working_dir_with`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ScanOptions {
     /// Let the file win over every in-flight edit: pending rows are
     /// overwritten from disk and conflict rows are dropped.
@@ -1067,6 +1067,9 @@ pub enum BatchOp {
         json: serde_json::Value,
         /// Optional OCC token gating the write.
         expected: Option<crate::CommitRef>,
+        /// Settle any conflict on this record; see
+        /// [`crate::SyncedRepo::upsert_record`].
+        resolve: bool,
     },
     /// Tombstone — same semantics as
     /// [`crate::SyncedRepo::delete_record`].
@@ -1080,6 +1083,9 @@ pub enum BatchOp {
         key: String,
         /// Optional OCC token gating the delete.
         expected: Option<crate::CommitRef>,
+        /// Settle any conflict on this record; see
+        /// [`BatchOp::Upsert::resolve`].
+        resolve: bool,
     },
 }
 

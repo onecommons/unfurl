@@ -36,7 +36,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use unfurl_git_sync::{DbConfig, FormatRegistry, RecordQuery, SyncedRepo};
+//! use unfurl_git_sync::{DbConfig, FormatRegistry, RecordQuery, ScanOptions, SyncedRepo};
 //!
 //! # async fn run() -> unfurl_git_sync::Result<()> {
 //! let sync = SyncedRepo::open(
@@ -46,7 +46,7 @@
 //! )
 //! .await?;
 //!
-//! sync.update_from_working_dir().await?;
+//! sync.update_from_working_dir(ScanOptions::default()).await?;
 //! let repos = sync
 //!     .find_records(&RecordQuery {
 //!         path: Some("/repositories".into()),

@@ -25,6 +25,19 @@ use crate::sync::{CommitRef, SyncedRepo};
 
 // Note: See the comment under "Generic transaction helpers." in tx.rs if you are wondering why we need all these `where` clauses on these generic functions.
 
+/// Where a CRUD write lands, before the file path is resolved.
+///
+/// Grouped for the reason [`crate::db::RecordId`] is -- `path` and `key`
+/// are adjacent `&str`s a positional call site could transpose -- but
+/// distinct from it: `file_path` is optional here because the caller may
+/// leave it to the existing record's file or the worktree default, and
+/// the resolution is what these functions do first.
+pub(crate) struct WriteTarget<'a> {
+    pub(crate) file_path: Option<&'a str>,
+    pub(crate) path: &'a str,
+    pub(crate) key: &'a str,
+}
+
 /// Extract the (expected_version, expected_commit) bind pair from a
 /// [`CommitRef`] for the SQL-level OCC predicate baked into
 /// [`db::tx::update_record`] / [`db::tx::upsert_record`] /
@@ -94,11 +107,10 @@ pub(crate) fn enforce_conflict(
 pub(crate) async fn crud_create_in_pool<DB>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    file_path: Option<&str>,
-    path: &str,
-    key: &str,
+    at: WriteTarget<'_>,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
+    resolve: bool,
 ) -> Result<WriteOutcome>
 where
     DB: db::tx::Dialect,
@@ -112,6 +124,11 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
+    let WriteTarget {
+        file_path,
+        path,
+        key,
+    } = at;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
@@ -179,6 +196,18 @@ where
         ),
     )
     .await?;
+    if resolve {
+        db::tx::delete_conflict_record(
+            &mut tx,
+            RecordId {
+                worktree_id: sync.worktree_id(),
+                file_path,
+                path,
+                key,
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
@@ -186,11 +215,10 @@ where
 pub(crate) async fn crud_update_in_pool<DB>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    file_path: Option<&str>,
-    path: &str,
-    key: &str,
+    at: WriteTarget<'_>,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
+    resolve: bool,
 ) -> Result<WriteOutcome>
 where
     DB: db::tx::Dialect,
@@ -204,6 +232,11 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
+    let WriteTarget {
+        file_path,
+        path,
+        key,
+    } = at;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
@@ -252,6 +285,18 @@ where
         ),
     )
     .await?;
+    if resolve {
+        db::tx::delete_conflict_record(
+            &mut tx,
+            RecordId {
+                worktree_id: sync.worktree_id(),
+                file_path,
+                path,
+                key,
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
@@ -259,11 +304,10 @@ where
 pub(crate) async fn crud_upsert_in_pool<DB>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    file_path: Option<&str>,
-    path: &str,
-    key: &str,
+    at: WriteTarget<'_>,
     json: serde_json::Value,
     expected_commit: Option<CommitRef>,
+    resolve: bool,
 ) -> Result<WriteOutcome>
 where
     DB: db::tx::Dialect,
@@ -277,6 +321,11 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
+    let WriteTarget {
+        file_path,
+        path,
+        key,
+    } = at;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
@@ -336,6 +385,18 @@ where
         ),
     )
     .await?;
+    if resolve {
+        db::tx::delete_conflict_record(
+            &mut tx,
+            RecordId {
+                worktree_id: sync.worktree_id(),
+                file_path,
+                path,
+                key,
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
@@ -343,10 +404,9 @@ where
 pub(crate) async fn crud_delete_in_pool<DB>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
-    file_path: Option<&str>,
-    path: &str,
-    key: &str,
+    at: WriteTarget<'_>,
     expected_commit: Option<CommitRef>,
+    resolve: bool,
 ) -> Result<WriteOutcome>
 where
     DB: db::tx::Dialect,
@@ -359,6 +419,11 @@ where
     db::tx::LookupRow: for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
+    let WriteTarget {
+        file_path,
+        path,
+        key,
+    } = at;
     let mut tx = pool.begin().await?;
     let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
     // Resolve the effective file_path: caller-supplied, then existing
@@ -390,6 +455,18 @@ where
     let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
     let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
     db::tx::delete_record(&mut tx, id, version, exp_v, exp_c).await?;
+    if resolve {
+        db::tx::delete_conflict_record(
+            &mut tx,
+            RecordId {
+                worktree_id: sync.worktree_id(),
+                file_path,
+                path,
+                key,
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(WriteOutcome { id, version })
 }
@@ -430,6 +507,7 @@ where
             key: op_key,
             json,
             expected,
+            resolve,
         } => {
             let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
                 path: op_path.clone(),
@@ -496,6 +574,18 @@ where
                 ),
             )
             .await?;
+            if resolve {
+                db::tx::delete_conflict_record(
+                    tx,
+                    RecordId {
+                        worktree_id: sync.worktree_id(),
+                        file_path: &resolved_fp,
+                        path: &op_path,
+                        key: &op_key,
+                    },
+                )
+                .await?;
+            }
             Ok(WriteOutcome { id, version })
         }
         BatchOp::Delete {
@@ -503,6 +593,7 @@ where
             path: op_path,
             key: op_key,
             expected,
+            resolve,
         } => {
             let lookup = db::tx::lookup_commits(
                 tx,
@@ -538,6 +629,18 @@ where
             }
             let (exp_v, exp_c) = occ_binds(expected.as_ref());
             db::tx::delete_record(tx, id, version, exp_v, exp_c).await?;
+            if resolve {
+                db::tx::delete_conflict_record(
+                    tx,
+                    RecordId {
+                        worktree_id: sync.worktree_id(),
+                        file_path: &resolved_fp,
+                        path: &op_path,
+                        key: &op_key,
+                    },
+                )
+                .await?;
+            }
             Ok(WriteOutcome { id, version })
         }
     }

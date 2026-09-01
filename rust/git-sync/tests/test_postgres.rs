@@ -21,7 +21,10 @@ async fn cloudmap_end_to_end_postgres() {
         return;
     };
 
-    let stats = sync.update_from_working_dir().await.expect("update");
+    let stats = sync
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
     assert!(stats.records_upserted >= 5);
 
     let new_json = serde_json::json!({"name": "x"});
@@ -31,6 +34,7 @@ async fn cloudmap_end_to_end_postgres() {
         "git://example.com/x.git",
         new_json,
         None,
+        false,
     )
     .await
     .expect("upsert");

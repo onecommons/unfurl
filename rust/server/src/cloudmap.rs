@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use unfurl_git_sync::{
     canonical_facet_key, canonical_json_text, BatchOp, CommitRef, DbConfig, FacetPath, FacetSpec,
-    FormatRegistry, JsonQuery, Record, RecordQuery, SyncedRepo, TxnMeta,
+    FormatRegistry, JsonQuery, Record, RecordQuery, ScanOptions, SyncedRepo, TxnMeta,
 };
 
 use crate::proxy;
@@ -204,7 +204,9 @@ impl CloudMapState {
 
         let registry = FormatRegistry::with_builtins();
         let synced = SyncedRepo::open(repo_path, db_cfg, registry).await?;
-        synced.update_from_working_dir().await?;
+        synced
+            .update_from_working_dir(ScanOptions::default())
+            .await?;
         Ok(Self {
             inner: Arc::new(synced),
             types_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -1952,6 +1954,7 @@ fn build_batch_op(
                     path: path.to_string(),
                     key,
                     expected: commit_ref,
+                    resolve: false,
                 })
             } else {
                 Ok(BatchOp::Upsert {
@@ -1960,6 +1963,7 @@ fn build_batch_op(
                     key,
                     json: Value::Object(map),
                     expected: commit_ref,
+                    resolve: false,
                 })
             }
         }

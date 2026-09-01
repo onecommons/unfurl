@@ -32,7 +32,7 @@ use crate::conflict::{
 };
 use crate::crud::{
     apply_batch_inner, crud_create_in_pool, crud_delete_in_pool, crud_update_in_pool,
-    crud_upsert_in_pool, delete_file_in_pool,
+    crud_upsert_in_pool, delete_file_in_pool, WriteTarget,
 };
 use crate::db::{self, Db, DbConfig};
 use crate::document::{
@@ -283,14 +283,7 @@ impl SyncedRepo {
     /// Returns [`crate::Error::Yaml`] / [`crate::Error::Json`] when a
     /// tracked file fails to parse, or any underlying git / database
     /// error.
-    pub async fn update_from_working_dir(&self) -> Result<SyncOutcome> {
-        self.update_from_working_dir_with(&ScanOptions::default())
-            .await
-    }
-
-    /// [`Self::update_from_working_dir`] with the working tree given the
-    /// last word over in-flight edits where `options` says so.
-    pub async fn update_from_working_dir_with(&self, options: &ScanOptions) -> Result<SyncOutcome> {
+    pub async fn update_from_working_dir(&self, options: ScanOptions) -> Result<SyncOutcome> {
         // HEAD is read before the scan so the commit stamped below is
         // one the scan actually saw.
         let head_oid_str = {
@@ -300,7 +293,7 @@ impl SyncedRepo {
                 .map(|oid| oid.to_string())
         };
 
-        let stats = self.scan_files(options).await?;
+        let stats = self.scan_files(&options).await?;
 
         // Update worktree.commit_id to HEAD.
         if let Some(oid) = head_oid_str {
@@ -997,6 +990,14 @@ impl SyncedRepo {
     /// `default_file_path` (set on the first
     /// [`Self::update_from_working_dir`] run); errors with
     /// [`crate::Error::NotFound`] when the default is unset.
+    ///
+    /// `resolve` settles any conflict on the record: the client has
+    /// seen the file's side (via [`Self::list_conflicts`]) and is
+    /// choosing against it, so the conflict row goes with this write.
+    /// Passing `false` writes and leaves the conflict standing, which
+    /// is what an ordinary client that never looked should do -- a
+    /// write cannot discard the file's value by accident. Harmless on a
+    /// record with no conflict.
     pub async fn create_record(
         &self,
         file_path: Option<&str>,
@@ -1004,16 +1005,41 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
+        resolve: bool,
     ) -> Result<WriteOutcome> {
         // Dispatch on the concrete pool type; the body is shared via the
         // generic `crud_create_in_pool` (same pattern as `apply_batch`).
         match self.db() {
             Db::Sqlite(pool) => {
-                crud_create_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_create_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
             #[cfg(feature = "postgres")]
             Db::Postgres(pool) => {
-                crud_create_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_create_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
         }
     }
@@ -1029,6 +1055,14 @@ impl SyncedRepo {
     /// `file_path == None` resolves to the existing record's own
     /// `file_path`. Errors with [`crate::Error::NotFound`] when no
     /// record matches `(path, key)`.
+    ///
+    /// `resolve` settles any conflict on the record: the client has
+    /// seen the file's side (via [`Self::list_conflicts`]) and is
+    /// choosing against it, so the conflict row goes with this write.
+    /// Passing `false` writes and leaves the conflict standing, which
+    /// is what an ordinary client that never looked should do -- a
+    /// write cannot discard the file's value by accident. Harmless on a
+    /// record with no conflict.
     pub async fn update_record(
         &self,
         file_path: Option<&str>,
@@ -1036,14 +1070,39 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
+        resolve: bool,
     ) -> Result<WriteOutcome> {
         match self.db() {
             Db::Sqlite(pool) => {
-                crud_update_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_update_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
             #[cfg(feature = "postgres")]
             Db::Postgres(pool) => {
-                crud_update_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_update_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
         }
     }
@@ -1059,6 +1118,14 @@ impl SyncedRepo {
     /// `file_path` when one matches `(path, key)`, falling back to
     /// the worktree's `default_file_path` for new records. Errors
     /// when the record is new and no default is set.
+    ///
+    /// `resolve` settles any conflict on the record: the client has
+    /// seen the file's side (via [`Self::list_conflicts`]) and is
+    /// choosing against it, so the conflict row goes with this write.
+    /// Passing `false` writes and leaves the conflict standing, which
+    /// is what an ordinary client that never looked should do -- a
+    /// write cannot discard the file's value by accident. Harmless on a
+    /// record with no conflict.
     pub async fn upsert_record(
         &self,
         file_path: Option<&str>,
@@ -1066,14 +1133,39 @@ impl SyncedRepo {
         key: &str,
         json: serde_json::Value,
         expected_commit: Option<CommitRef>,
+        resolve: bool,
     ) -> Result<WriteOutcome> {
         match self.db() {
             Db::Sqlite(pool) => {
-                crud_upsert_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_upsert_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
             #[cfg(feature = "postgres")]
             Db::Postgres(pool) => {
-                crud_upsert_in_pool(self, pool, file_path, path, key, json, expected_commit).await
+                crud_upsert_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    json,
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
         }
     }
@@ -1091,20 +1183,51 @@ impl SyncedRepo {
     ///
     /// `file_path == None` resolves to the existing record's own
     /// `file_path`.
+    ///
+    /// `resolve` settles any conflict on the record: the client has
+    /// seen the file's side (via [`Self::list_conflicts`]) and is
+    /// choosing against it, so the conflict row goes with this write.
+    /// Passing `false` writes and leaves the conflict standing, which
+    /// is what an ordinary client that never looked should do -- a
+    /// write cannot discard the file's value by accident. Harmless on a
+    /// record with no conflict.
     pub async fn delete_record(
         &self,
         file_path: Option<&str>,
         path: &str,
         key: &str,
         expected_commit: Option<CommitRef>,
+        resolve: bool,
     ) -> Result<WriteOutcome> {
         match self.db() {
             Db::Sqlite(pool) => {
-                crud_delete_in_pool(self, pool, file_path, path, key, expected_commit).await
+                crud_delete_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
             #[cfg(feature = "postgres")]
             Db::Postgres(pool) => {
-                crud_delete_in_pool(self, pool, file_path, path, key, expected_commit).await
+                crud_delete_in_pool(
+                    self,
+                    pool,
+                    WriteTarget {
+                        file_path,
+                        path,
+                        key,
+                    },
+                    expected_commit,
+                    resolve,
+                )
+                .await
             }
         }
     }
@@ -1611,7 +1734,7 @@ impl SyncedRepo {
         // Take any outside edits in before saving: the writes below
         // then render over a current picture, and roll_forward can't
         // stamp a stale row with a commit that doesn't carry its json.
-        self.update_from_working_dir().await?;
+        self.update_from_working_dir(ScanOptions::default()).await?;
         // Snapshot the dirty file list *before* save_changes (which sets
         // no commit_id changes) so we know what to stage even when bytes
         // didn't actually change on disk.

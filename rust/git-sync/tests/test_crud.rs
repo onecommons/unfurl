@@ -26,7 +26,9 @@ use unfurl_git_sync::{
 // ---------------------------------------------------------------------------
 
 async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     // create_record fails on existing path.
     let dup = sync
@@ -36,6 +38,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
             "git://unfurl.cloud/onecommons/std.git",
             serde_json::json!({}),
             None,
+            false,
         )
         .await;
     assert!(
@@ -51,6 +54,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
             "new",
             serde_json::json!({"name":"new"}),
             None,
+            false,
         )
         .await
         .expect("create");
@@ -71,6 +75,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
             "missing",
             serde_json::json!({}),
             None,
+            false,
         )
         .await;
     assert!(
@@ -78,7 +83,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
         "expected NotFound, got {missing:?}"
     );
 
-    sync.delete_record(Some("cloudmap.yaml"), "/repositories", "new", None)
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", "new", None, false)
         .await
         .expect("delete");
     assert!(sync
@@ -89,13 +94,15 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
 
     // delete_record on a missing path returns NotFound.
     let dne = sync
-        .delete_record(Some("cloudmap.yaml"), "/repositories", "new", None)
+        .delete_record(Some("cloudmap.yaml"), "/repositories", "new", None, false)
         .await;
     assert!(matches!(dne, Err(Error::NotFound { .. })));
 }
 
 async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
 
@@ -108,13 +115,14 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
             updated_key,
             serde_json::json!({"name": "renamed"}),
             None,
+            false,
         )
         .await
         .expect("update");
 
     // 2) Delete an existing record.
     let deleted_key = "git://unfurl.cloud/feb20a/dashboard.git";
-    sync.delete_record(Some("cloudmap.yaml"), path, deleted_key, None)
+    sync.delete_record(Some("cloudmap.yaml"), path, deleted_key, None, false)
         .await
         .expect("delete");
 
@@ -129,6 +137,7 @@ async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) 
             "path": "example/added",
         }),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -231,7 +240,9 @@ fn field_order(value: &serde_json::Value) -> Vec<&str> {
 /// is the point: the two backends disagree about what comes out of the
 /// database, and must still agree about what lands in the file.
 async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
@@ -267,9 +278,16 @@ async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir
     // 2) The read-modify-write an editing client actually performs:
     //    change one field, put the whole record back, save.
     rec.json["name"] = serde_json::json!("Odoo ERP");
-    sync.update_record(Some("cloudmap.yaml"), path, key, rec.json.clone(), None)
-        .await
-        .expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        path,
+        key,
+        rec.json.clone(),
+        None,
+        false,
+    )
+    .await
+    .expect("update");
     let written = sync.save_changes().await.expect("save_changes").written;
     assert_eq!(written.len(), 1);
 
@@ -290,7 +308,9 @@ async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir
 /// Without it a new record would land in whatever order the database
 /// returned, which differs per backend and matches neither tool.
 async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     // Sent in an order that is neither the schema's nor either
     // backend's, so this can't pass by accident: JSONB would sort these
@@ -308,6 +328,7 @@ async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &
             "path": "example/new",
         }),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -331,7 +352,9 @@ async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &
 }
 
 async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let oid_a = sync
         .get_working_dir()
         .await
@@ -349,6 +372,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
         key,
         serde_json::json!({"name":"v2"}),
         None,
+        false,
     )
     .await
     .expect("update v2");
@@ -367,6 +391,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             key,
             serde_json::json!({"name":"v3"}),
             Some(CommitRef::Commit(oid_a.clone())),
+            false,
         )
         .await;
     assert!(
@@ -384,6 +409,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             key,
             serde_json::json!({"name":"v3"}),
             Some(CommitRef::Pending(0)),
+            false,
         )
         .await;
     assert!(matches!(res, Err(Error::Conflict { .. })));
@@ -396,6 +422,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
             key,
             serde_json::json!({"name":"v3"}),
             Some(CommitRef::Commit(oid_b.clone())),
+            false,
         )
         .await
         .expect("update with correct oid");
@@ -425,7 +452,9 @@ async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir)
     // Regression: the conflict check + mutation + alias refresh must
     // happen in a single transaction. Before the fix, a Conflict
     // returned partway through left stale alias rows in the DB.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let target_path = "/repositories";
     let target_key = "git://unfurl.cloud/onecommons/std.git";
@@ -445,6 +474,7 @@ async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir)
             target_key,
             serde_json::json!({"name": "should-not-stick"}),
             Some(CommitRef::Commit(bogus)),
+            false,
         )
         .await;
     assert!(
@@ -473,13 +503,15 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // subsequent create_record at the same (path, key) must succeed —
     // resurrecting the row — rather than seeing the tombstone as an
     // existing record and returning AlreadyExists.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://unfurl.cloud/onecommons/std.git";
 
     // Tombstone the existing record.
-    sync.delete_record(Some("cloudmap.yaml"), path, key, None)
+    sync.delete_record(Some("cloudmap.yaml"), path, key, None, false)
         .await
         .expect("delete");
     assert!(
@@ -499,6 +531,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
             key,
             serde_json::json!({"name": "resurrected"}),
             None,
+            false,
         )
         .await
         .expect("create resurrects tombstone");
@@ -555,7 +588,9 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     // record row is absent. A `Pending(v)` token requires the row to
     // exist *and* its version to match — neither holds here, so any
     // value yields Conflict.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let res = sync
         .create_record(
             Some("cloudmap.yaml"),
@@ -563,6 +598,7 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
             "brand-new",
             serde_json::json!({"name":"x"}),
             Some(CommitRef::Pending(0)),
+            false,
         )
         .await;
     assert!(
@@ -575,7 +611,9 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     // `type_names` matches records whose `type` typeRef object
     // declares one of the given names as a key. Exact names only —
     // subtype expansion is the caller's job.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let pipelines = sync
         .find_records(&RecordQuery {
@@ -645,6 +683,7 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
         "test.NewType",
         serde_json::json!({"kind": "Component"}),
         None,
+        false,
     )
     .await
     .expect("upsert type record");
@@ -663,7 +702,9 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // each into an alias row at (record.path, joined_url). Looking up
     // those alias keys with `alias=true` should resolve to the parent
     // OCI artifact record.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let parent_path = "/artifacts";
     let parent_key = "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo";
@@ -766,7 +807,9 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     //
     // 4. The OCI image and the dummy-ensemble TypeLibrary have no
     //    follow-shaped fields. BFS ends.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let start_path = "/repositories";
     let start_key = "git://unfurl.cloud/onecommons/blueprints/odoo.git";
@@ -914,7 +957,9 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
     // Two writers race on the same in-flight record. They both read
     // `Pending(v)` for the same `v`, but only one's update succeeds —
     // the other's `version` no longer matches and gets a Conflict.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://unfurl.cloud/onecommons/std.git";
@@ -927,6 +972,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
         key,
         serde_json::json!({"name": "v1"}),
         None,
+        false,
     )
     .await
     .expect("update v1");
@@ -944,6 +990,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
         key,
         serde_json::json!({"name": "v2-A"}),
         Some(CommitRef::Pending(v1)),
+        false,
     )
     .await
     .expect("A: update with valid Pending(v1)");
@@ -957,6 +1004,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
             key,
             serde_json::json!({"name": "v2-B"}),
             Some(CommitRef::Pending(v1)),
+            false,
         )
         .await;
     assert!(
@@ -978,6 +1026,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
         key,
         serde_json::json!({"name": "v3-B"}),
         Some(CommitRef::Pending(v2)),
+        false,
     )
     .await
     .expect("B: retry with valid Pending(v2)");
@@ -987,7 +1036,9 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
     // A `Pending(v)` token doesn't depend on `commit_id` — once issued,
     // it stays valid as long as nobody else has rewritten the row,
     // even after `commit_repository` rolls forward.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://unfurl.cloud/onecommons/std.git";
@@ -998,6 +1049,7 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
         key,
         serde_json::json!({"name": "edited"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -1031,6 +1083,7 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
         key,
         serde_json::json!({"name": "edited-again"}),
         Some(CommitRef::Pending(v)),
+        false,
     )
     .await
     .expect("Pending(v) still valid after commit");
@@ -1039,7 +1092,9 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
 async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     // `list_changes(None, false)` returns only the in-flight (commit_id IS
     // NULL) records — exactly what `commit_repository` would write.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     assert!(
         sync.list_changes(None, false)
             .await
@@ -1054,6 +1109,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
         "git://unfurl.cloud/onecommons/std.git",
         serde_json::json!({"name": "edited"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -1062,6 +1118,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
         "/repositories",
         "git://unfurl.cloud/feb20a/dashboard.git",
         None,
+        false,
     )
     .await
     .expect("delete");
@@ -1111,7 +1168,9 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
 async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     // `list_changes(Some(v), false)` returns records (committed or not) whose
     // version is greater than `v`. Useful for "sync me forward."
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key_a = "git://unfurl.cloud/onecommons/std.git";
@@ -1134,6 +1193,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
         key_a,
         serde_json::json!({"name": "edited"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -1142,6 +1202,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
         path,
         "git://unfurl.cloud/feb20a/dashboard.git",
         None,
+        false,
     )
     .await
     .expect("delete");
@@ -1178,7 +1239,9 @@ async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &Tem
     // `update_from_working_dir` run, that should become the default
     // file path. A subsequent run must NOT clobber a manually-set
     // value.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let wt = sync.get_worktree().await.expect("get_worktree");
     assert_eq!(wt.default_file_path.as_deref(), Some("cloudmap.yaml"));
 
@@ -1186,7 +1249,9 @@ async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &Tem
     sync.set_default_file_path(Some("pinned.yaml"))
         .await
         .expect("manual override");
-    sync.update_from_working_dir().await.expect("update again");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update again");
     let wt2 = sync.get_worktree().await.expect("get_worktree");
     assert_eq!(
         wt2.default_file_path.as_deref(),
@@ -1198,7 +1263,9 @@ async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &Tem
 async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp: &TempDir) {
     // `update_record(None, ...)` should look up the existing record
     // by `(path, key)` and use *its* file_path.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://unfurl.cloud/onecommons/std.git";
@@ -1210,6 +1277,7 @@ async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp:
             key,
             serde_json::json!({"name": "via-none"}),
             None,
+            false,
         )
         .await
         .expect("update with file_path=None");
@@ -1226,7 +1294,9 @@ async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp:
 async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _tmp: &TempDir) {
     // `upsert_record(None, ...)` for a *new* (path, key) falls back
     // to `worktree.default_file_path`.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let path = "/repositories";
     let key = "git://example.com/brand-new.git";
@@ -1238,6 +1308,7 @@ async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _t
             key,
             serde_json::json!({"name": "brand-new"}),
             None,
+            false,
         )
         .await
         .expect("upsert with file_path=None");
@@ -1254,7 +1325,9 @@ async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo,
     // Sync (which auto-sets default_file_path), then explicitly clear
     // it. `upsert_record(None, ...)` for a brand-new key now has no
     // file to fall back on → NotFound.
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.set_default_file_path(None)
         .await
         .expect("clear default");
@@ -1266,6 +1339,7 @@ async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo,
             "git://example.com/no-default.git",
             serde_json::json!({}),
             None,
+            false,
         )
         .await;
     assert!(
@@ -1283,7 +1357,9 @@ async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo,
 // unset, and compiled away entirely without the `postgres` feature).
 
 async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let ops = vec![
         BatchOp::Upsert {
@@ -1292,6 +1368,7 @@ async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
             key: "batch-a".into(),
             json: serde_json::json!({"name": "a"}),
             expected: None,
+            resolve: false,
         },
         BatchOp::Upsert {
             file_path: Some("cloudmap.yaml".into()),
@@ -1299,6 +1376,7 @@ async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
             key: "batch-b".into(),
             json: serde_json::json!({"name": "b"}),
             expected: None,
+            resolve: false,
         },
     ];
     let outcome = sync
@@ -1320,7 +1398,9 @@ async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
 }
 
 async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     // First batch: stage record so we have a known version for the
     // OCC token. Capture the version.
@@ -1332,6 +1412,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
                 key: "tracked".into(),
                 json: serde_json::json!({"name": "v1"}),
                 expected: None,
+                resolve: false,
             }],
             true,
             None,
@@ -1348,6 +1429,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
         "tracked",
         serde_json::json!({"name": "v2"}),
         None,
+        false,
     )
     .await
     .expect("oob update");
@@ -1362,6 +1444,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
             key: "fresh".into(),
             json: serde_json::json!({"name": "fresh"}),
             expected: None,
+            resolve: false,
         },
         BatchOp::Upsert {
             file_path: Some("cloudmap.yaml".into()),
@@ -1369,6 +1452,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
             key: "tracked".into(),
             json: serde_json::json!({"name": "stomp"}),
             expected: Some(CommitRef::Pending(v1)),
+            resolve: false,
         },
     ];
     let outcome = sync
@@ -1388,7 +1472,9 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
 }
 
 async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let first = sync
         .apply_batch(
@@ -1398,6 +1484,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
                 key: "tracked".into(),
                 json: serde_json::json!({"name": "v1"}),
                 expected: None,
+                resolve: false,
             }],
             true,
             None,
@@ -1412,6 +1499,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
         "tracked",
         serde_json::json!({"name": "v2"}),
         None,
+        false,
     )
     .await
     .expect("oob update");
@@ -1423,6 +1511,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
             key: "fresh".into(),
             json: serde_json::json!({"name": "fresh"}),
             expected: None,
+            resolve: false,
         },
         BatchOp::Upsert {
             file_path: Some("cloudmap.yaml".into()),
@@ -1430,6 +1519,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
             key: "tracked".into(),
             json: serde_json::json!({"name": "stomp"}),
             expected: Some(CommitRef::Pending(v1)),
+            resolve: false,
         },
         BatchOp::Upsert {
             file_path: Some("cloudmap.yaml".into()),
@@ -1437,6 +1527,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
             key: "after".into(),
             json: serde_json::json!({"name": "after"}),
             expected: None,
+            resolve: false,
         },
     ];
     let outcome = sync
@@ -1469,7 +1560,9 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
 /// Page a whole section with `after` + `limit` and check the walk is
 /// exactly the unpaged result: no record skipped, none seen twice.
 async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let all = sync
         .find_records(&RecordQuery {
@@ -1548,7 +1641,9 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 /// before "z"; the `COLLATE "C"` in `find_pg` is what keeps a token
 /// minted by sqlite or python meaning the same thing there.
 async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     for key in ["z-repo", "\u{e9}-repo"] {
         sync.create_record(
             Some("cloudmap.yaml"),
@@ -1556,6 +1651,7 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
             key,
             serde_json::json!({"name": key}),
             None,
+            false,
         )
         .await
         .expect("create");
@@ -1600,7 +1696,9 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
 /// reachable by a client catching up from a watermark -- otherwise the
 /// delete is unobservable, since the row simply stops being returned.
 async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let key = "doomed";
     sync.create_record(
         Some("cloudmap.yaml"),
@@ -1608,6 +1706,7 @@ async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) 
         key,
         serde_json::json!({"name": key}),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -1621,7 +1720,7 @@ async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) 
         .max()
         .expect("records");
 
-    sync.delete_record(Some("cloudmap.yaml"), "/repositories", key, None)
+    sync.delete_record(Some("cloudmap.yaml"), "/repositories", key, None, false)
         .await
         .expect("delete");
 
@@ -1668,7 +1767,9 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     use std::collections::BTreeMap;
     use unfurl_git_sync::{canonical_facet_key, FacetColumnRow, FacetPath, FacetSpec};
 
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     // A path outside the fixture's sections keeps the counts hermetic.
     for (key, json) in [
@@ -1700,7 +1801,7 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
         // scalar and boolean facet values exercise the non-container arms
         ("a6", serde_json::json!({"flag": true, "level": 3})),
     ] {
-        sync.create_record(Some("cloudmap.yaml"), "/facettest", key, json, None)
+        sync.create_record(Some("cloudmap.yaml"), "/facettest", key, json, None, false)
             .await
             .expect("create facet record");
     }
@@ -1889,7 +1990,9 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
 /// The file is byte-for-byte what the last scan parsed, so it carries no
 /// news -- yet the scan re-derives every record in it from those bytes.
 async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let path = "/repositories";
     let edited = "git://unfurl.cloud/onecommons/std.git";
     let removed = "git://unfurl.cloud/feb20a/dashboard.git";
@@ -1900,6 +2003,7 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
         edited,
         serde_json::json!({"name": "edited"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -1909,10 +2013,11 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
         "git://example.com/added.git",
         serde_json::json!({"name": "added"}),
         None,
+        false,
     )
     .await
     .expect("create");
-    sync.delete_record(Some("cloudmap.yaml"), path, removed, None)
+    sync.delete_record(Some("cloudmap.yaml"), path, removed, None, false)
         .await
         .expect("delete");
     assert_eq!(
@@ -1923,7 +2028,9 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
 
     // Nothing was written to disk, so this scan re-reads the same bytes
     // the previous one did.
-    sync.update_from_working_dir().await.expect("rescan");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
 
     // Read all three back before asserting, so a run reports every
     // edit the rescan lost rather than stopping at the first.
@@ -2013,7 +2120,9 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
     // under `crud_test!` checks: sqlite uses `json_each`, postgres the `@?`
     // jsonpath operator (in lax mode, so `[*]` covers arrays and scalars
     // alike).
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let find = |tokens: Vec<&str>, value: serde_json::Value| {
         let q = JsonQuery::new(tokens.into_iter().map(str::to_string).collect(), value)
@@ -2353,7 +2462,9 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
         eprintln!("skip: UNFURL_TEST_PG_URL not set");
         return;
     };
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let DbConfig::Postgres { url } = scope.db_config() else {
         unreachable!("pg_fixture yields a postgres config")
@@ -2388,6 +2499,7 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
             key,
             serde_json::json!({"name": key}),
             None,
+            false,
         )
         .await
         .expect("create");
@@ -2437,7 +2549,10 @@ crud_test!(
 );
 
 async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
-    let stats = sync.update_from_working_dir().await.expect("update");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     assert!(stats.records_upserted >= 5, "stats: {stats:?}");
     assert_eq!(stats.records_deleted, 0, "stats: {stats:?}");
 
@@ -2460,7 +2575,10 @@ async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
     )
     .expect("write cloudmap");
 
-    let stats = sync.update_from_working_dir().await.expect("re-sync");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("re-sync");
     assert_eq!(stats.records_deleted, 1, "stats: {stats:?}");
     assert!(sync
         .get_record("cloudmap.yaml", "/repositories", removed_key)
@@ -2522,6 +2640,7 @@ fn upsert_op(key: &str) -> BatchOp {
         key: key.into(),
         json: serde_json::json!({"name": key}),
         expected: None,
+        resolve: false,
     }
 }
 
@@ -2531,6 +2650,7 @@ fn delete_op(key: &str) -> BatchOp {
         path: "/repositories".into(),
         key: key.into(),
         expected: None,
+        resolve: false,
     }
 }
 
@@ -2541,7 +2661,9 @@ const MESSAGE_A: &str = "Point std at the new branch";
 const MESSAGE_B: &str = "Retire the legacy mirror\n\nSuperseded by the dashboard entry.";
 
 async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // Exists in the fixture, so it can be deleted below.
     let doomed = "git://unfurl.cloud/feb20a/dashboard.git";
 
@@ -2704,7 +2826,9 @@ async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tm
 }
 
 async fn run_keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // A key with a space and a quote: bare whitespace-splitting would
     // corrupt this, and there is no second copy to fall back on.
     let awkward = "git://example.com/a repo \"quoted\".git";
@@ -2741,7 +2865,9 @@ async fn run_keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
 }
 
 async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // Single-op CRUD writes never record a txn, so this commit has
     // nothing to roll up -- but it still drew a version.
     sync.upsert_record(
@@ -2750,6 +2876,7 @@ async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tm
         "no-rollup",
         serde_json::json!({"name": "no-rollup"}),
         None,
+        false,
     )
     .await
     .expect("upsert");
@@ -2785,7 +2912,9 @@ async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tm
 }
 
 async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     // `None` opts out of the audit trail entirely.
     let staged = sync
@@ -2807,6 +2936,7 @@ async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &T
         "tracked",
         serde_json::json!({"name": "v2"}),
         None,
+        false,
     )
     .await
     .expect("out-of-band update makes the token below stale");
@@ -2820,6 +2950,7 @@ async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &T
                     key: "tracked".into(),
                     json: serde_json::json!({"name": "stomp"}),
                     expected: Some(CommitRef::Pending(v1)),
+                    resolve: false,
                 },
             ],
             true,
@@ -2956,7 +3087,10 @@ async fn url_spellings_resolve_to_one_worktree() {
     );
 
     let https = open_at(tmp.path(), &db).await;
-    https.update_from_working_dir().await.expect("sync");
+    https
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     https
         .upsert_record(
             Some("cloudmap.yaml"),
@@ -2964,6 +3098,7 @@ async fn url_spellings_resolve_to_one_worktree() {
             "shared",
             serde_json::json!({"name": "shared"}),
             None,
+            false,
         )
         .await
         .expect("write");
@@ -3000,7 +3135,9 @@ async fn url_spellings_resolve_to_one_worktree() {
 /// Two files holding the same `(path, key)` are two records, and paging
 /// must return both.
 async fn run_paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // The same key in two files. The unique index is per
     // (worktree, file, path, key), so this is legal storage even though
     // the cloudmap document model would collapse the pair.
@@ -3012,6 +3149,7 @@ async fn run_paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &
             dup,
             serde_json::json!({"name": file}),
             None,
+            false,
         )
         .await
         .expect("write");
@@ -3066,7 +3204,9 @@ crud_test!(
 /// the page overshoots `limit` rather than splitting a group, so
 /// resuming past that `(path, key)` can never skip a straggler.
 async fn run_whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let dup = "git://example.com/same-key.git";
     for file in ["cloudmap.yaml", "second.yaml"] {
         sync.upsert_record(
@@ -3075,6 +3215,7 @@ async fn run_whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp
             dup,
             serde_json::json!({"name": file}),
             None,
+            false,
         )
         .await
         .expect("write");
@@ -3164,7 +3305,10 @@ async fn a_family_shares_one_version_sequence() {
         ],
     );
     let upstream = open_at(tmp.path(), &db).await;
-    upstream.update_from_working_dir().await.expect("sync");
+    upstream
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     let first = upstream
         .upsert_record(
             Some("cloudmap.yaml"),
@@ -3172,6 +3316,7 @@ async fn a_family_shares_one_version_sequence() {
             "upstream-write",
             serde_json::json!({"name": "u"}),
             None,
+            false,
         )
         .await
         .expect("write")
@@ -3204,7 +3349,9 @@ async fn a_family_shares_one_version_sequence() {
     // Re-open so the cached family is re-resolved.
     drop(fork);
     let fork = open_at(tmp2.path(), &db).await;
-    fork.update_from_working_dir().await.expect("sync");
+    fork.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     let forked = fork
         .upsert_record(
             Some("cloudmap.yaml"),
@@ -3212,6 +3359,7 @@ async fn a_family_shares_one_version_sequence() {
             "fork-write",
             serde_json::json!({"name": "f"}),
             None,
+            false,
         )
         .await
         .expect("write")
@@ -3231,6 +3379,7 @@ async fn a_family_shares_one_version_sequence() {
             "upstream-again",
             serde_json::json!({"name": "u2"}),
             None,
+            false,
         )
         .await
         .expect("write")
@@ -3251,7 +3400,9 @@ async fn a_family_shares_one_version_sequence() {
 
 /// A batch takes its versions in one contiguous block.
 async fn run_batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let outcome = sync
         .apply_batch(
             vec![upsert_op("a"), upsert_op("b"), upsert_op("c")],
@@ -3280,6 +3431,7 @@ async fn run_batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDi
             "after-batch",
             serde_json::json!({"name": "after"}),
             None,
+            false,
         )
         .await
         .expect("write")
@@ -3311,7 +3463,10 @@ async fn a_fork_records_its_family_in_the_rollup() {
         ],
     );
     let upstream = open_at(tmp.path(), &db).await;
-    upstream.update_from_working_dir().await.expect("sync");
+    upstream
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
 
     let (tmp2, _) = file_backed_fixture().await;
     git(
@@ -3336,7 +3491,9 @@ async fn a_fork_records_its_family_in_the_rollup() {
     .expect("join the family");
 
     let fork = open_at(tmp2.path(), &db).await;
-    fork.update_from_working_dir().await.expect("sync");
+    fork.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     fork.apply_batch(
         vec![upsert_op("from-the-fork")],
         true,
@@ -3415,7 +3572,9 @@ async fn json5_and_jsonc_round_trip() {
 
     let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
     let sync = open_at(tmp.path(), &db).await;
-    sync.update_from_working_dir().await.expect("sync");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
 
     for (file, key) in [
         ("a.jsonc", "git://example.com/from-jsonc.git"),
@@ -3438,6 +3597,7 @@ async fn json5_and_jsonc_round_trip() {
         "git://example.com/added.git",
         serde_json::json!({"name": "added"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -3457,7 +3617,9 @@ async fn json5_and_jsonc_round_trip() {
 
     // Re-reading sees the write, so the extension still resolves.
     let sync = open_at(tmp.path(), &db).await;
-    sync.update_from_working_dir().await.expect("resync");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("resync");
     assert!(sync
         .get_record("b.json5", "/repositories", "git://example.com/added.git")
         .await
@@ -3485,13 +3647,16 @@ async fn a_rewrite_drops_comments() {
     .expect("init repo");
     let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
     let sync = open_at(tmp.path(), &db).await;
-    sync.update_from_working_dir().await.expect("sync");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     sync.upsert_record(
         Some("c.jsonc"),
         "/repositories",
         "git://example.com/x.git",
         serde_json::json!({"name": "changed"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -3533,7 +3698,10 @@ async fn a_dot_json_file_may_use_json5_syntax_and_says_so() {
 
     let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
     let sync = open_at(tmp.path(), &db).await;
-    let stats = sync.update_from_working_dir().await.expect("sync");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
 
     assert!(sync
         .get_record("loose.json", "/repositories", "git://example.com/loose.git")
@@ -3562,7 +3730,7 @@ async fn a_broken_dot_json_reports_the_json_error() {
     let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
     let sync = open_at(tmp.path(), &db).await;
     let err = sync
-        .update_from_working_dir()
+        .update_from_working_dir(ScanOptions::default())
         .await
         .expect_err("a truncated document cannot parse either way");
     assert!(
@@ -3627,7 +3795,9 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
                  git://example.com/dirty.git: {name: dirty}\n";
     std::fs::write(tmp.path().join("cloudmap.yaml"), dirty).expect("write");
     let sync = open_at(tmp.path(), &db).await;
-    sync.update_from_working_dir().await.expect("sync");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("sync");
     let dirty_oid = unfurl_git_sync::git::blob_oid_for_bytes(&repo, dirty.as_bytes());
     let out = std::process::Command::new("git")
         .args(["cat-file", "-e", &dirty_oid.to_string()])
@@ -3659,13 +3829,16 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
 /// and `source_oid` keeps naming the old bytes, so the next scan sees
 /// the mismatch and takes the merged file in.
 async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
         "staged",
         serde_json::json!({"name": "staged"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -3717,7 +3890,10 @@ async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
 
     // The next scan sees the stale source and heals: the hand edit is
     // taken in, the still-pending create is preserved without noise.
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
     let rec = sync
         .get_record(
@@ -3743,13 +3919,16 @@ async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
 /// edit and the report carries the value it replaced — after the write,
 /// the report is the only place an uncommitted disk edit survives.
 async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.update_record(
         Some("cloudmap.yaml"),
         "/repositories",
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -3797,7 +3976,9 @@ async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &Temp
 
 /// Consecutive writes do not conflict with their own output.
 async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     for name in ["first", "second", "third"] {
         sync.upsert_record(
             Some("cloudmap.yaml"),
@@ -3805,6 +3986,7 @@ async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &Temp
             name,
             serde_json::json!({"name": name}),
             None,
+            false,
         )
         .await
         .expect("write");
@@ -3817,13 +3999,16 @@ async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &Temp
 /// A file the database has never parsed has nothing to contradict, so a
 /// write to it proceeds.
 async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.upsert_record(
         Some("brand-new.yaml"),
         "/repositories",
         "fresh",
         serde_json::json!({"name": "fresh"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -3855,7 +4040,9 @@ crud_test!(
 /// One unwritable file does not stop the others, and the caller learns
 /// which was which.
 async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // Two files with pending records; one of them is corrupted behind
     // the database's back, so its take-in — and with it the write —
     // fails while the other proceeds.
@@ -3866,6 +4053,7 @@ async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
             key,
             serde_json::json!({"name": key}),
             None,
+            false,
         )
         .await
         .expect("write");
@@ -3931,13 +4119,16 @@ async fn run_a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) 
     );
     std::fs::write(&path, &commented).expect("write");
 
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
         "git://example.com/added.git",
         serde_json::json!({"name": "added"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -3976,13 +4167,16 @@ async fn run_comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp
     assert_ne!(commented, original, "fixture should contain that key");
     std::fs::write(&path, &commented).expect("write");
 
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
         "git://example.com/added.git",
         serde_json::json!({"name": "added"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -4029,7 +4223,9 @@ fn hand_edit_dashboard(tmp: &TempDir, new_name: &str) {
 /// Both sides changed the same record: the pending edit wins, and the
 /// divergence is reported with the commit it was based on.
 async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let base = head_commit(sync).await;
 
     sync.update_record(
@@ -4038,12 +4234,16 @@ async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
     hand_edit_dashboard(tmp, "theirs");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     let rec = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
         .await
@@ -4074,7 +4274,9 @@ async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
 /// create, indistinguishable in every way except its missing base, is
 /// preserved without noise.
 async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let base = head_commit(sync).await;
 
     sync.update_record(
@@ -4083,6 +4285,7 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -4092,6 +4295,7 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
         "git://example.com/created.git",
         serde_json::json!({"name": "created"}),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -4108,7 +4312,10 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
         .expect("fixture contains the repository");
     std::fs::write(&path, serde_saphyr::to_string(&value).expect("emit")).expect("write");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::ModifyDelete);
@@ -4131,7 +4338,9 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
 /// COALESCE in the client-write SQL — without it this reports `AddAdd`
 /// with no base.
 async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let base = head_commit(sync).await;
 
     for name in ["one", "two"] {
@@ -4141,13 +4350,17 @@ async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
             DASHBOARD,
             serde_json::json!({"name": name}),
             None,
+            false,
         )
         .await
         .expect("update");
     }
     hand_edit_dashboard(tmp, "theirs");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     let c = &stats.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::ModifyModify);
@@ -4157,7 +4370,9 @@ async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
 /// Across an edit → commit → edit cycle, the base of the second edit is
 /// the commit that carried the first — not the original take-in.
 async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     sync.update_record(
         Some("cloudmap.yaml"),
@@ -4165,6 +4380,7 @@ async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
         DASHBOARD,
         serde_json::json!({"name": "one"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -4180,6 +4396,7 @@ async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
         DASHBOARD,
         serde_json::json!({"name": "two"}),
         None,
+        false,
     )
     .await
     .expect("update again");
@@ -4190,7 +4407,10 @@ async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
     assert_ne!(edited, text);
     std::fs::write(&path, edited).expect("write");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.conflicts.len(), 1, "stats: {stats:?}");
     assert_eq!(
         stats.conflicts[0].base_commit_id.as_deref(),
@@ -4203,7 +4423,9 @@ async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
 /// "preserved" against. The case the `commit_id` semantics exist for.
 async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempDir) {
     hand_edit_dashboard(tmp, "first-edit");
-    sync.update_from_working_dir().await.expect("scan dirty");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan dirty");
     let rec = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
         .await
@@ -4215,7 +4437,10 @@ async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempD
     let text = std::fs::read_to_string(&path).expect("read");
     std::fs::write(&path, text.replace("name: first-edit", "name: second-edit")).expect("write");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan dirty");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan dirty");
     let rec = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
         .await
@@ -4231,9 +4456,13 @@ async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempD
 /// A hand-edited file the scan took in has nothing pending to write,
 /// but `commit_repository` must still stage and commit it.
 async fn run_commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     hand_edit_dashboard(tmp, "by-hand");
-    sync.update_from_working_dir().await.expect("take in");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("take in");
 
     let oid = sync
         .commit_repository("hand edit")
@@ -4256,7 +4485,10 @@ async fn run_commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
 /// A rescan of an untouched tree is a no-op: no file re-extracted, no
 /// version drawn — the churn is visible through `record.version`.
 async fn run_rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempDir) {
-    let first = sync.update_from_working_dir().await.expect("update");
+    let first = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     assert!(first.files_updated > 0, "stats: {first:?}");
     let versions = |records: Vec<unfurl_git_sync::Record>| {
         records
@@ -4270,7 +4502,10 @@ async fn run_rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempD
             .expect("find"),
     );
 
-    let second = sync.update_from_working_dir().await.expect("rescan");
+    let second = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(second.files_updated, 0, "stats: {second:?}");
     assert_eq!(
         second.files_unchanged, first.files_updated,
@@ -4314,15 +4549,26 @@ crud_test!(
 /// The record being deleted was edited on disk: the tombstone is not
 /// resurrected, and the divergence is reported.
 async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let base = head_commit(sync).await;
 
-    sync.delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
-        .await
-        .expect("delete");
+    sync.delete_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        None,
+        false,
+    )
+    .await
+    .expect("delete");
     hand_edit_dashboard(tmp, "theirs");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(
         sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
             .await
@@ -4349,7 +4595,9 @@ async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
 /// Both sides added the same key independently: the pending create
 /// wins, reported with no base — there is no commit it diverged from.
 async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
 
     let key = "git://example.com/new.git";
     sync.create_record(
@@ -4358,6 +4606,7 @@ async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
         key,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -4370,7 +4619,10 @@ async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
     assert_ne!(edited, text, "fixture should have a repositories section");
     std::fs::write(&path, edited).expect("write");
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     let rec = sync
         .get_record("cloudmap.yaml", "/repositories", key)
         .await
@@ -4395,7 +4647,9 @@ crud_test!(rescan_reports_add_add, run_rescan_reports_add_add);
 /// file-mates keep theirs, so their `Pending` OCC tokens stay valid and
 /// `list_changes(since)` names only what actually changed.
 async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let versions = |records: Vec<unfurl_git_sync::Record>| {
         records
             .into_iter()
@@ -4410,7 +4664,10 @@ async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir)
     let cursor = *before.values().max().expect("records exist");
 
     hand_edit_dashboard(tmp, "changed");
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.records_upserted, 1, "stats: {stats:?}");
 
     let after = versions(
@@ -4445,19 +4702,25 @@ crud_test!(
 /// value is still exactly the base the client edited from. Only a
 /// record whose file-side value moved off the base diverges.
 async fn run_edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.update_record(
         Some("cloudmap.yaml"),
         "/repositories",
         "git://unfurl.cloud/onecommons/std.git",
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
     hand_edit_dashboard(tmp, "theirs"); // a different record
 
-    let stats = sync.update_from_working_dir().await.expect("rescan");
+    let stats = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
 }
 
@@ -4469,13 +4732,16 @@ crud_test!(
 /// `save_changes` aggregates the conflicts its writes' take-ins found,
 /// alongside the per-file written / failed lists.
 async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.update_record(
         Some("cloudmap.yaml"),
         "/repositories",
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
@@ -4485,6 +4751,7 @@ async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
         "in-second",
         serde_json::json!({"name": "in-second"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -4506,13 +4773,16 @@ crud_test!(save_aggregates_conflicts, run_save_aggregates_conflicts);
 /// hand-edited file carries the merge and attributes rows to a commit
 /// that actually holds their json — no manual scan needed first.
 async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.upsert_record(
         Some("cloudmap.yaml"),
         "/repositories",
         "staged",
         serde_json::json!({"name": "staged"}),
         None,
+        false,
     )
     .await
     .expect("write");
@@ -4633,7 +4903,9 @@ fn dashboard_on_disk(tmp: &TempDir) -> serde_json::Value {
 /// database holds `ours`, the file holds `theirs`. Returns the version
 /// stamped on the client's edit, for the trailer tests.
 async fn stand_up_conflict(sync: &SyncedRepo, tmp: &TempDir) -> i64 {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let write = sync
         .update_record(
             Some("cloudmap.yaml"),
@@ -4641,11 +4913,15 @@ async fn stand_up_conflict(sync: &SyncedRepo, tmp: &TempDir) -> i64 {
             DASHBOARD,
             serde_json::json!({"name": "ours"}),
             None,
+            false,
         )
         .await
         .expect("update");
     rename_name(tmp, "dashboard", "theirs");
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyModify);
     write.version
@@ -4768,13 +5044,24 @@ async fn run_a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &T
 }
 
 async fn run_a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let write = sync
-        .delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
+        .delete_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            None,
+            false,
+        )
         .await
         .expect("delete");
     rename_name(tmp, "dashboard", "theirs");
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::DeleteModify);
 
@@ -4896,25 +5183,33 @@ async fn run_resolve_merged_settles_with_a_third_value(sync: &SyncedRepo, tmp: &
 }
 
 async fn run_a_record_the_file_dropped_conflicts_as_a_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.update_record(
         Some("cloudmap.yaml"),
         "/repositories",
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
     set_record_on_disk(tmp, DASHBOARD, None);
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
 
     // The file's side is "this record is gone", carrying the value it
     // dropped -- and it survives the pass that hard-deletes records the
     // file no longer has.
-    sync.update_from_working_dir().await.expect("rescan again");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan again");
     let theirs = only_conflict(sync).await;
     assert!(theirs.deleted, "{theirs:?}");
     assert_eq!(theirs.json["name"], "dashboard", "the value the file lost");
@@ -4968,7 +5263,10 @@ async fn run_the_resolves_version_trailer_settles_a_conflict(sync: &SyncedRepo, 
     // disk and would otherwise be swallowed by the unchanged-file skip.
     commit_resolving(tmp, version);
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
     assert_eq!(
         sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
@@ -4995,7 +5293,10 @@ async fn run_an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) 
     // author cannot have seen that edit, so it does not settle it.
     commit_resolving(tmp, version - 1);
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(
         sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
@@ -5012,7 +5313,9 @@ async fn run_an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) 
 }
 
 async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // An ordinary unsaved edit: the file still holds what it was based
     // on, so there is no divergence for a trailer to settle.
     let write = sync
@@ -5022,6 +5325,7 @@ async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp
             DASHBOARD,
             serde_json::json!({"name": "ours"}),
             None,
+            false,
         )
         .await
         .expect("update");
@@ -5030,7 +5334,10 @@ async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp
     rename_name(tmp, "std", "std-edited");
     commit_resolving(tmp, write.version);
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
     assert_eq!(
         sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
@@ -5066,12 +5373,13 @@ async fn run_a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp
         "git://unfurl.cloud/onecommons/std.git",
         serde_json::json!({"name": "unsaved"}),
         None,
+        false,
     )
     .await
     .expect("upsert");
 
     let scan = sync
-        .update_from_working_dir_with(&ScanOptions { force: true })
+        .update_from_working_dir(ScanOptions { force: true })
         .await
         .expect("forced rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
@@ -5200,18 +5508,24 @@ async fn run_resolve_delete_drops_the_record_from_both_sides(sync: &SyncedRepo, 
 /// the tombstone-shaped conflict row goes to `resolved`, which both the
 /// scan and the write have to read as "the file has no value here".
 async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.update_record(
         Some("cloudmap.yaml"),
         "/repositories",
         DASHBOARD,
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("update");
     set_record_on_disk(tmp, DASHBOARD, None);
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
 
     sync.resolve_conflict(
@@ -5232,7 +5546,10 @@ async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp
 
     // A scan in between must let the resolution stand rather than
     // re-open it against a file that has not moved.
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
     assert_eq!(
         only_conflict(sync).await.conflict,
@@ -5246,7 +5563,9 @@ async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp
 }
 
 async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // A create, so the row has no base commit...
     sync.create_record(
         Some("cloudmap.yaml"),
@@ -5254,6 +5573,7 @@ async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
         "git://example.com/both.git",
         serde_json::json!({"name": "ours"}),
         None,
+        false,
     )
     .await
     .expect("create");
@@ -5264,7 +5584,10 @@ async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
         Some(serde_json::json!({"name": "theirs"})),
     );
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::AddAdd);
     assert_eq!(
@@ -5304,7 +5627,10 @@ async fn run_a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp:
     // The file is edited to say exactly what the database's row says.
     set_record_on_disk(tmp, DASHBOARD, Some(serde_json::json!({"name": "ours"})));
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
     assert!(
         sync.list_conflicts(None).await.expect("list").is_empty(),
@@ -5322,7 +5648,9 @@ async fn run_a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp:
 }
 
 async fn run_a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let write = sync
         .update_record(
             Some("cloudmap.yaml"),
@@ -5330,17 +5658,21 @@ async fn run_a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: 
             DASHBOARD,
             serde_json::json!({"name": "ours"}),
             None,
+            false,
         )
         .await
         .expect("update");
     set_record_on_disk(tmp, DASHBOARD, None);
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
 
     // The file says the record is gone, and force says the file wins:
     // the in-flight row goes with it rather than being preserved.
     let scan = sync
-        .update_from_working_dir_with(&ScanOptions { force: true })
+        .update_from_working_dir(ScanOptions { force: true })
         .await
         .expect("forced rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
@@ -5378,13 +5710,24 @@ crud_test!(
 /// Ours deletes the record, the file edits it, and the file wins: the
 /// tombstone has to come back to life rather than merely change value.
 async fn run_resolve_theirs_resurrects_a_record_ours_deleted(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let write = sync
-        .delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
+        .delete_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            None,
+            false,
+        )
         .await
         .expect("delete");
     rename_name(tmp, "dashboard", "theirs");
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::DeleteModify);
     let theirs = only_conflict(sync).await;
     assert!(!theirs.deleted, "the file still has the record: {theirs:?}");
@@ -5419,7 +5762,9 @@ crud_test!(
 // ---------------------------------------------------------------------------
 
 async fn run_delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let path = tmp.path().join("cloudmap.yaml");
     assert!(path.exists());
 
@@ -5467,7 +5812,9 @@ async fn run_delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &T
 }
 
 async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     // A write to *some* record in the file moves the file's high-water
     // mark, so a token from before it no longer describes the file.
     let write = sync
@@ -5477,6 +5824,7 @@ async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir
             DASHBOARD,
             serde_json::json!({"name": "ours"}),
             None,
+            false,
         )
         .await
         .expect("update");
@@ -5491,7 +5839,9 @@ async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir
 }
 
 async fn run_a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     sync.delete_file("cloudmap.yaml", None)
         .await
         .expect("delete_file");
@@ -5501,6 +5851,7 @@ async fn run_a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp
         "git://example.com/kept.git",
         serde_json::json!({"name": "kept"}),
         None,
+        false,
     )
     .await
     .expect("upsert");
@@ -5546,7 +5897,9 @@ crud_test!(
 );
 
 async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let before = sync
         .find_records(&RecordQuery::default())
         .await
@@ -5556,7 +5909,10 @@ async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &T
 
     // Unlinked but still in the index -- a plain `rm`.
     std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.files_deleted, 1, "{scan:?}");
     assert!(
         sync.find_records(&RecordQuery::default())
@@ -5592,7 +5948,9 @@ async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &T
 }
 
 async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
     git(tmp.path(), &["rm", "--cached", "cloudmap.yaml"]);
     git(
@@ -5609,7 +5967,10 @@ async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &
     );
     let head = head_commit(sync).await;
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.files_deleted, 1, "{scan:?}");
     // git already records the removal, so there is nothing to commit --
     // but the row still has to go.
@@ -5624,7 +5985,9 @@ async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &
 }
 
 async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let write = sync
         .update_record(
             Some("cloudmap.yaml"),
@@ -5632,12 +5995,16 @@ async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, t
             DASHBOARD,
             serde_json::json!({"name": "ours"}),
             None,
+            false,
         )
         .await
         .expect("update");
     std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
     assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
     let row = sync
@@ -5650,7 +6017,9 @@ async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, t
 }
 
 async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     let before = sync
         .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
         .await
@@ -5664,12 +6033,16 @@ async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) 
             "git://unfurl.cloud/onecommons/std.git",
             serde_json::json!({"name": "edited"}),
             None,
+            false,
         )
         .await
         .expect("update");
     git(tmp.path(), &["mv", "cloudmap.yaml", "moved.yaml"]);
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert_eq!(
         scan.files_renamed,
         vec![("cloudmap.yaml".to_string(), "moved.yaml".to_string())],
@@ -5698,19 +6071,25 @@ async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) 
         "git://unfurl.cloud/onecommons/std.git",
         serde_json::json!({"name": "edited again"}),
         Some(CommitRef::Pending(write.version)),
+        false,
     )
     .await
     .expect("the pending token survived the rename");
 }
 
 async fn run_a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &TempDir) {
-    sync.update_from_working_dir().await.expect("update");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
     git(tmp.path(), &["mv", "cloudmap.yaml", "moved.yaml"]);
     // The bytes no longer match, so there is nothing to pair on and the
     // honest answer is delete-and-add.
     rename_name_in(tmp, "moved.yaml", "dashboard", "moved-and-edited");
 
-    let scan = sync.update_from_working_dir().await.expect("rescan");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
     assert!(scan.files_renamed.is_empty(), "{scan:?}");
     assert_eq!(scan.files_deleted, 1, "{scan:?}");
     assert_eq!(
@@ -5742,4 +6121,154 @@ crud_test!(
 crud_test!(
     a_move_that_also_edits_is_not_a_rename,
     run_a_move_that_also_edits_is_not_a_rename
+);
+
+async fn run_a_write_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+
+    // Without the flag the write lands but the conflict stands, so a
+    // client that never looked at it cannot discard the file's value.
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "second thoughts"}),
+        None,
+        false,
+    )
+    .await
+    .expect("update");
+    assert_eq!(only_conflict(sync).await.json["name"], "theirs");
+    let saved = sync.save_changes().await.expect("save");
+    assert_eq!(saved.conflicts.len(), 1, "still skipped: {saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+
+    // With it, the same write settles the record.
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "decided"}),
+        None,
+        true,
+    )
+    .await
+    .expect("update");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "decided");
+}
+
+async fn run_a_delete_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    sync.delete_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        None,
+        true,
+    )
+    .await
+    .expect("delete");
+
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+    sync.save_changes().await.expect("save");
+    let doc: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("yaml");
+    assert!(doc["repositories"].get(DASHBOARD).is_none(), "{doc:?}");
+}
+
+async fn run_resolving_a_record_with_no_conflict_is_a_no_op(sync: &SyncedRepo, _tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+        true,
+    )
+    .await
+    .expect("a write may always claim to settle; there is simply nothing to settle");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+async fn run_a_batch_settles_only_the_ops_that_ask(sync: &SyncedRepo, tmp: &TempDir) {
+    // Two conflicts, so the batch can settle one and leave the other.
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    const STD: &str = "git://unfurl.cloud/onecommons/std.git";
+    for key in [DASHBOARD, STD] {
+        sync.update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({"name": "ours"}),
+            None,
+            false,
+        )
+        .await
+        .expect("update");
+    }
+    rename_name(tmp, "dashboard", "theirs");
+    rename_name(tmp, "std", "theirs-too");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
+    assert_eq!(scan.conflicts.len(), 2, "{scan:?}");
+
+    let outcome = sync
+        .apply_batch(
+            vec![
+                BatchOp::Upsert {
+                    file_path: Some("cloudmap.yaml".into()),
+                    path: "/repositories".into(),
+                    key: DASHBOARD.into(),
+                    json: serde_json::json!({"name": "settled"}),
+                    expected: None,
+                    resolve: true,
+                },
+                BatchOp::Upsert {
+                    file_path: Some("cloudmap.yaml".into()),
+                    path: "/repositories".into(),
+                    key: STD.into(),
+                    json: serde_json::json!({"name": "left alone"}),
+                    expected: None,
+                    resolve: false,
+                },
+            ],
+            true,
+            None,
+        )
+        .await
+        .expect("batch");
+    assert_eq!(outcome.failed.len(), 0, "{outcome:?}");
+
+    let rows = sync.list_conflicts(None).await.expect("list");
+    assert_eq!(rows.len(), 1, "exactly one settled: {rows:?}");
+    assert_eq!(rows[0].key, STD);
+}
+
+crud_test!(
+    a_write_can_settle_the_conflict_it_touches,
+    run_a_write_can_settle_the_conflict_it_touches
+);
+crud_test!(
+    a_delete_can_settle_the_conflict_it_touches,
+    run_a_delete_can_settle_the_conflict_it_touches
+);
+crud_test!(
+    resolving_a_record_with_no_conflict_is_a_no_op,
+    run_resolving_a_record_with_no_conflict_is_a_no_op
+);
+crud_test!(
+    a_batch_settles_only_the_ops_that_ask,
+    run_a_batch_settles_only_the_ops_that_ask
 );
