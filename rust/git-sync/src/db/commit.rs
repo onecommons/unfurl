@@ -6,6 +6,26 @@
 use crate::db::Db;
 use crate::error::Result;
 
+/// True when the row this is attached to has a conflict sibling — the
+/// file's own view of the same record, materialized because the two
+/// sides disagree.
+///
+/// Correlated against the statement's target table by name, so it reads
+/// the same in an UPDATE and a DELETE and on both backends.
+const HAS_CONFLICT_SIBLING: &str = "EXISTS (SELECT 1 FROM record c \
+     WHERE c.worktree_id = record.worktree_id AND c.file_path = record.file_path \
+       AND c.path = record.path AND c.key = record.key AND c.conflict IS NOT NULL)";
+
+/// `(rows this commit carries, tombstones it may purge)` as WHERE
+/// fragments, spelled with the caller's boolean literals — SQLite stores
+/// `deleted` as INTEGER and Postgres as BOOLEAN.
+fn record_predicates(false_lit: &str, true_lit: &str) -> (String, String) {
+    (
+        format!("conflict IS NOT NULL OR (deleted = {false_lit} AND NOT {HAS_CONFLICT_SIBLING})"),
+        format!("deleted = {true_lit} AND conflict IS NULL AND NOT {HAS_CONFLICT_SIBLING}"),
+    )
+}
+
 pub(crate) async fn roll_forward(
     db: &Db,
     worktree_id: i64,
@@ -28,14 +48,27 @@ pub(crate) async fn roll_forward(
     //   4. roll commit forward on the worktree row;
     //   5. roll commit forward on outstanding `txn` audit rows — the
     //      writes they describe are exactly the ones just committed.
+    //
+    // What a commit stamps is what it carries, which is why both record
+    // statements consult `HAS_CONFLICT_SIBLING`:
+    //   - a conflict row *is* the file's value, so the commit carries it
+    //     whether it is live or the tombstone-shaped kind, and it is
+    //     stamped unconditionally. Conflict rows are never purged here —
+    //     unlike a tombstone, a divergence outlives the commit that
+    //     wrote the file, and only a resolution ends it;
+    //   - a row shadowed by one is not in the commit at all: the write
+    //     skipped it and left the file's value alone. Stamping it would
+    //     claim this commit carries json it does not, and purging its
+    //     tombstone would drop a pending delete nobody applied.
     match db {
         Db::Sqlite(pool) => {
+            let (live_rows, purgeable) = record_predicates("0", "1");
             let mut tx = pool.begin().await?;
             let placeholders: Vec<String> =
                 (0..files.len()).map(|i| format!("?{}", i + 3)).collect();
             let sql = format!(
                 "UPDATE record SET commit_id = ?1, base_commit_id = NULL \
-                 WHERE worktree_id = ?2 AND deleted = 0 AND file_path IN ({})",
+                 WHERE worktree_id = ?2 AND ({live_rows}) AND file_path IN ({})",
                 placeholders.join(",")
             );
             let mut q = sqlx::query(&sql).bind(new_commit).bind(worktree_id);
@@ -46,7 +79,7 @@ pub(crate) async fn roll_forward(
             let placeholders: Vec<String> =
                 (0..files.len()).map(|i| format!("?{}", i + 2)).collect();
             let sql = format!(
-                "DELETE FROM record WHERE worktree_id = ?1 AND deleted = 1 \
+                "DELETE FROM record WHERE worktree_id = ?1 AND ({purgeable}) \
                  AND file_path IN ({})",
                 placeholders.join(",")
             );
@@ -82,20 +115,21 @@ pub(crate) async fn roll_forward(
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
+            let (live_rows, purgeable) = record_predicates("FALSE", "TRUE");
             let mut tx = pool.begin().await?;
-            sqlx::query(
+            sqlx::query(&format!(
                 "UPDATE record SET commit_id = $1, base_commit_id = NULL \
-                 WHERE worktree_id = $2 AND deleted = FALSE AND file_path = ANY($3)",
-            )
+                 WHERE worktree_id = $2 AND ({live_rows}) AND file_path = ANY($3)"
+            ))
             .bind(new_commit)
             .bind(worktree_id)
             .bind(files)
             .execute(&mut *tx)
             .await?;
-            sqlx::query(
-                "DELETE FROM record WHERE worktree_id = $1 AND deleted = TRUE \
-                 AND file_path = ANY($2)",
-            )
+            sqlx::query(&format!(
+                "DELETE FROM record WHERE worktree_id = $1 AND ({purgeable}) \
+                 AND file_path = ANY($2)"
+            ))
             .bind(worktree_id)
             .bind(files)
             .execute(&mut *tx)

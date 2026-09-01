@@ -86,11 +86,14 @@ pub(crate) trait Dialect: Database {
     const DELETE_ALIASES: &'static str;
     /// `INSERT INTO alias (...) … <conflict-skipping clause>`.
     const INSERT_ALIAS: &'static str;
-    /// `INSERT … ON CONFLICT DO UPDATE … RETURNING id` — used by both
-    /// `create_record` (with the resurrect-tombstone semantics) and
-    /// `upsert_record` (where overwrite-live is the documented behaviour).
-    /// The two SQL bodies are identical so we share one constant.
-    /// Sets `version` to the supplied bind value.
+    /// `INSERT … ON CONFLICT (…) WHERE conflict IS NULL DO UPDATE …
+    /// RETURNING id` — used by both `create_record` (with the
+    /// resurrect-tombstone semantics) and `upsert_record` (where
+    /// overwrite-live is the documented behaviour). The two SQL bodies
+    /// are identical so we share one constant. Sets `version` to the
+    /// supplied bind value. The `WHERE` on the conflict target names the
+    /// partial unique index over the database's own rows, so an upsert
+    /// can never collide with a conflict row.
     const UPSERT_RECORD: &'static str;
     /// `UPDATE record SET json = …, commit_id = NULL, deleted = 0/FALSE,
     /// version = ? WHERE id = ?`.
@@ -98,14 +101,15 @@ pub(crate) trait Dialect: Database {
     /// `UPDATE record SET deleted = 1/TRUE, commit_id = NULL,
     /// version = ? WHERE id = ?`.
     const TOMBSTONE_RECORD: &'static str;
-    /// `SELECT path, key, json, deleted, base_commit_id FROM record …
-    /// WHERE commit_id IS NULL` — the file's in-flight rows, as the
-    /// re-sync path needs them to preserve client edits over a scan.
+    /// `SELECT path, key, json, deleted, base_commit_id, version FROM
+    /// record … WHERE commit_id IS NULL AND conflict IS NULL` — the
+    /// file's in-flight rows, as the re-sync path needs them to preserve
+    /// client edits over a scan.
     const LIST_PENDING_RECORDS: &'static str;
     /// `SELECT path, key, json, commit_id FROM record … WHERE
-    /// commit_id IS NOT NULL` — the file's synced rows, as the re-sync
-    /// path needs them to leave untouched records' versions alone.
-    /// Never a tombstone: tombstoning nulls `commit_id`.
+    /// commit_id IS NOT NULL AND conflict IS NULL` — the file's synced
+    /// rows, as the re-sync path needs them to leave untouched records'
+    /// versions alone. Never a tombstone: tombstoning nulls `commit_id`.
     const LIST_COMMITTED_RECORDS: &'static str;
     /// `INSERT INTO file (...) … ON CONFLICT DO UPDATE` — full upsert
     /// that overwrites `format` and `commit_id`. Used by the from-disk
@@ -121,15 +125,40 @@ pub(crate) trait Dialect: Database {
     /// keeps in-flight client edits out of its way (see
     /// `upsert_file_and_records_inner`).
     const SYNC_UPSERT_RECORD: &'static str;
-    /// `SELECT path, key FROM record WHERE worktree_id = ? AND file_path = ?`.
+    /// `SELECT path, key FROM record WHERE worktree_id = ? AND
+    /// file_path = ? AND conflict IS NULL`.
     const LIST_FILE_RECORD_KEYS: &'static str;
     /// `DELETE FROM record … RETURNING id` — single-row hard delete
-    /// keyed by `(worktree_id, file_path, path, key)`.
+    /// keyed by `(worktree_id, file_path, path, key)`. Conflict rows are
+    /// excluded: the key names two rows and this one means the
+    /// database's own.
     const DELETE_RECORD_BY_KEY: &'static str;
     /// `INSERT INTO txn (...)` — audit row for one batch write.
     /// `commit_id` is left NULL (outstanding) for
     /// `db::commit::roll_forward` to stamp.
     const INSERT_TXN: &'static str;
+    /// `SELECT id, path, key, json, deleted, conflict FROM record …
+    /// WHERE conflict IS NOT NULL` — the file's side of every record the
+    /// two sides disagree about.
+    const LIST_CONFLICT_RECORDS: &'static str;
+    /// `INSERT … ON CONFLICT (…) WHERE conflict IS NOT NULL DO UPDATE …
+    /// RETURNING id` — create or refresh a conflict row. Targets the
+    /// second partial unique index, so it can never collide with the
+    /// database's own row for the same key.
+    const UPSERT_CONFLICT_RECORD: &'static str;
+    /// `UPDATE record SET conflict = ?, version = ? … WHERE conflict IS
+    /// NOT NULL RETURNING id` — flip a conflict row's state.
+    const SET_CONFLICT_STATE: &'static str;
+    /// `DELETE FROM record … WHERE conflict IS NOT NULL` — drop a
+    /// conflict row once the divergence is settled or gone.
+    const DELETE_CONFLICT_RECORD: &'static str;
+    /// `SELECT id, commit_id, version, CAST(deleted AS INTEGER) FROM
+    /// record … WHERE conflict IS NULL` — the database's own row at a
+    /// key, **tombstones included**. Unlike [`Dialect::LOOKUP_COMMITS`],
+    /// which reports a tombstone as absent because a CRUD write treats
+    /// it that way; resolving a conflict has to see an in-flight delete,
+    /// that being one of the two sides.
+    const LOOKUP_OWN_RECORD: &'static str;
 }
 
 impl Dialect for sqlx::Sqlite {
@@ -142,6 +171,7 @@ impl Dialect for sqlx::Sqlite {
          LEFT JOIN record r ON r.worktree_id = w.id \
                            AND r.path = ?3 \
                            AND r.key = ?4 \
+                           AND r.conflict IS NULL \
                            AND (?2 IS NULL OR r.file_path = ?2) \
          WHERE w.id = ?1 \
          LIMIT 1";
@@ -168,7 +198,7 @@ impl Dialect for sqlx::Sqlite {
     const UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
          VALUES (?1, ?2, ?3, ?4, jsonb(?5), NULL, NULL, 0, ?6) \
-         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NULL DO UPDATE SET \
            json = excluded.json, \
            base_commit_id = COALESCE(record.commit_id, record.base_commit_id), \
            commit_id = NULL, deleted = 0, version = excluded.version \
@@ -194,10 +224,12 @@ impl Dialect for sqlx::Sqlite {
            AND (?4 IS NULL OR commit_id = ?4) \
          RETURNING id";
     const LIST_PENDING_RECORDS: &'static str =
-        "SELECT path, key, json(json), CASE WHEN deleted THEN 1 ELSE 0 END, base_commit_id \
-         FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NULL";
+        "SELECT path, key, json(json), CASE WHEN deleted THEN 1 ELSE 0 END, base_commit_id, version \
+         FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
+           AND commit_id IS NULL AND conflict IS NULL";
     const LIST_COMMITTED_RECORDS: &'static str = "SELECT path, key, json(json), commit_id \
-         FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND commit_id IS NOT NULL";
+         FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
+           AND commit_id IS NOT NULL AND conflict IS NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES (?1, ?2, ?3, ?4, ?5) \
@@ -208,21 +240,45 @@ impl Dialect for sqlx::Sqlite {
     const SYNC_UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
          VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, NULL, 0, ?7) \
-         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NULL DO UPDATE SET \
            json = excluded.json, \
            commit_id = excluded.commit_id, \
            base_commit_id = NULL, \
            deleted = 0, \
            version = excluded.version \
          RETURNING id";
-    const LIST_FILE_RECORD_KEYS: &'static str =
-        "SELECT path, key FROM record WHERE worktree_id = ?1 AND file_path = ?2";
+    const LIST_FILE_RECORD_KEYS: &'static str = "SELECT path, key FROM record \
+         WHERE worktree_id = ?1 AND file_path = ?2 AND conflict IS NULL";
     const DELETE_RECORD_BY_KEY: &'static str =
         "DELETE FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
-         AND path = ?3 AND key = ?4 RETURNING id";
+         AND path = ?3 AND key = ?4 AND conflict IS NULL RETURNING id";
     const INSERT_TXN: &'static str =
         "INSERT INTO txn (worktree_id, first_version, last_version, author, message, created_at) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)";
+    const LIST_CONFLICT_RECORDS: &'static str =
+        "SELECT id, path, key, json(json), CASE WHEN deleted THEN 1 ELSE 0 END, conflict \
+         FROM record WHERE worktree_id = ?1 AND file_path = ?2 AND conflict IS NOT NULL";
+    const UPSERT_CONFLICT_RECORD: &'static str =
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version, conflict) \
+         VALUES (?1, ?2, ?3, ?4, jsonb(?5), ?6, NULL, ?7, ?8, ?9) \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NOT NULL DO UPDATE SET \
+           json = excluded.json, \
+           commit_id = excluded.commit_id, \
+           deleted = excluded.deleted, \
+           version = excluded.version, \
+           conflict = excluded.conflict \
+         RETURNING id";
+    const SET_CONFLICT_STATE: &'static str = "UPDATE record SET conflict = ?5, version = ?6 \
+         WHERE worktree_id = ?1 AND file_path = ?2 AND path = ?3 AND key = ?4 \
+           AND conflict IS NOT NULL \
+         RETURNING id";
+    const DELETE_CONFLICT_RECORD: &'static str =
+        "DELETE FROM record WHERE worktree_id = ?1 AND file_path = ?2 \
+         AND path = ?3 AND key = ?4 AND conflict IS NOT NULL";
+    const LOOKUP_OWN_RECORD: &'static str =
+        "SELECT id, commit_id, version, CASE WHEN deleted THEN 1 ELSE 0 END FROM record \
+         WHERE worktree_id = ?1 AND file_path = ?2 AND path = ?3 AND key = ?4 \
+           AND conflict IS NULL";
 }
 
 #[cfg(feature = "postgres")]
@@ -236,6 +292,7 @@ impl Dialect for sqlx::Postgres {
          LEFT JOIN record r ON r.worktree_id = w.id \
                            AND r.path = $3 \
                            AND r.key = $4 \
+                           AND r.conflict IS NULL \
                            AND ($2::TEXT IS NULL OR r.file_path = $2) \
          WHERE w.id = $1 \
          LIMIT 1";
@@ -256,7 +313,7 @@ impl Dialect for sqlx::Postgres {
     const UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
          VALUES ($1, $2, $3, $4, $5::jsonb, NULL, NULL, FALSE, $6) \
-         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NULL DO UPDATE SET \
            json = EXCLUDED.json, \
            base_commit_id = COALESCE(record.commit_id, record.base_commit_id), \
            commit_id = NULL, deleted = FALSE, version = EXCLUDED.version \
@@ -278,10 +335,12 @@ impl Dialect for sqlx::Postgres {
            AND ($4::TEXT IS NULL OR commit_id = $4) \
          RETURNING id";
     const LIST_PENDING_RECORDS: &'static str =
-        "SELECT path, key, json::text, CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END, base_commit_id \
-         FROM record WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NULL";
+        "SELECT path, key, json::text, CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END, base_commit_id, version \
+         FROM record WHERE worktree_id = $1 AND file_path = $2 \
+           AND commit_id IS NULL AND conflict IS NULL";
     const LIST_COMMITTED_RECORDS: &'static str = "SELECT path, key, json::text, commit_id \
-         FROM record WHERE worktree_id = $1 AND file_path = $2 AND commit_id IS NOT NULL";
+         FROM record WHERE worktree_id = $1 AND file_path = $2 \
+           AND commit_id IS NOT NULL AND conflict IS NULL";
     const UPSERT_FILE: &'static str =
         "INSERT INTO file (worktree_id, path, format, commit_id, source_oid) \
          VALUES ($1, $2, $3, $4, $5) \
@@ -292,24 +351,50 @@ impl Dialect for sqlx::Postgres {
     const SYNC_UPSERT_RECORD: &'static str =
         "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version) \
          VALUES ($1, $2, $3, $4, $5::jsonb, $6, NULL, FALSE, $7) \
-         ON CONFLICT(worktree_id, file_path, path, key) DO UPDATE SET \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NULL DO UPDATE SET \
            json = EXCLUDED.json, \
            commit_id = EXCLUDED.commit_id, \
            base_commit_id = NULL, \
            deleted = FALSE, \
            version = EXCLUDED.version \
          RETURNING id";
-    const LIST_FILE_RECORD_KEYS: &'static str =
-        "SELECT path, key FROM record WHERE worktree_id = $1 AND file_path = $2";
+    const LIST_FILE_RECORD_KEYS: &'static str = "SELECT path, key FROM record \
+         WHERE worktree_id = $1 AND file_path = $2 AND conflict IS NULL";
     const DELETE_RECORD_BY_KEY: &'static str =
         "DELETE FROM record WHERE worktree_id = $1 AND file_path = $2 \
-         AND path = $3 AND key = $4 RETURNING id";
+         AND path = $3 AND key = $4 AND conflict IS NULL RETURNING id";
     // No `::TEXT` casts on the nullable binds: an INSERT into named
     // columns gives postgres the target type, unlike the WHERE-position
     // NULLs above.
     const INSERT_TXN: &'static str =
         "INSERT INTO txn (worktree_id, first_version, last_version, author, message, created_at) \
          VALUES ($1, $2, $3, $4, $5, $6)";
+    const LIST_CONFLICT_RECORDS: &'static str =
+        "SELECT id, path, key, json::text, CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END, conflict \
+         FROM record WHERE worktree_id = $1 AND file_path = $2 AND conflict IS NOT NULL";
+    // `$7 <> 0` keeps the `deleted` bind an i64 on both backends, so the
+    // shared helper body binds one type.
+    const UPSERT_CONFLICT_RECORD: &'static str =
+        "INSERT INTO record (worktree_id, file_path, path, key, json, commit_id, base_commit_id, deleted, version, conflict) \
+         VALUES ($1, $2, $3, $4, $5::jsonb, $6, NULL, ($7 <> 0), $8, $9) \
+         ON CONFLICT(worktree_id, file_path, path, key) WHERE conflict IS NOT NULL DO UPDATE SET \
+           json = EXCLUDED.json, \
+           commit_id = EXCLUDED.commit_id, \
+           deleted = EXCLUDED.deleted, \
+           version = EXCLUDED.version, \
+           conflict = EXCLUDED.conflict \
+         RETURNING id";
+    const SET_CONFLICT_STATE: &'static str = "UPDATE record SET conflict = $5, version = $6 \
+         WHERE worktree_id = $1 AND file_path = $2 AND path = $3 AND key = $4 \
+           AND conflict IS NOT NULL \
+         RETURNING id";
+    const DELETE_CONFLICT_RECORD: &'static str =
+        "DELETE FROM record WHERE worktree_id = $1 AND file_path = $2 \
+         AND path = $3 AND key = $4 AND conflict IS NOT NULL";
+    const LOOKUP_OWN_RECORD: &'static str = "SELECT id, commit_id, version, \
+                CASE WHEN deleted THEN 1::BIGINT ELSE 0::BIGINT END FROM record \
+         WHERE worktree_id = $1 AND file_path = $2 AND path = $3 AND key = $4 \
+           AND conflict IS NULL";
 }
 
 // ---------------------------------------------------------------------------
@@ -849,6 +934,210 @@ pub(crate) struct PendingRecord {
     pub(crate) deleted: bool,
     /// Commit the client's edit is based on; `None` for a create.
     pub(crate) base_commit_id: Option<String>,
+    /// The row's version stamp, against which a
+    /// `Git-Sync-Resolves-Version` trailer is compared.
+    pub(crate) version: i64,
+}
+
+/// The database's own row at one key — id, attribution and version.
+/// A tombstone is one of these like any other row; `deleted` is not
+/// carried because every resolution rewrites the row outright.
+pub(crate) struct OwnRecord {
+    pub(crate) id: i64,
+    pub(crate) commit_id: Option<String>,
+    pub(crate) version: i64,
+}
+
+/// Read [`Dialect::LOOKUP_OWN_RECORD`]. `None` when the key has no row
+/// of the database's own — only, say, a conflict row left behind.
+pub(crate) async fn lookup_own_record<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: RecordId<'_>,
+) -> Result<Option<OwnRecord>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64, Option<String>, i64, i64):
+        for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
+    let row: Option<(i64, Option<String>, i64, i64)> = sqlx::query_as(DB::LOOKUP_OWN_RECORD)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(path)
+        .bind(key)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(row.map(|(id, commit_id, version, _deleted)| OwnRecord {
+        id,
+        commit_id,
+        version,
+    }))
+}
+
+/// One conflict row of a file — the file's side of a record the two
+/// sides disagree about, as [`list_conflict_records`] returns it.
+pub(crate) struct ConflictRecord {
+    pub(crate) json: serde_json::Value,
+    /// The file no longer has this record: the tombstone-shaped
+    /// conflict, where `json` is the value the file dropped.
+    pub(crate) deleted: bool,
+    pub(crate) state: crate::model::ConflictState,
+}
+
+/// The file's conflict rows, keyed by `(path, key)`.
+pub(crate) async fn list_conflict_records<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    worktree_id: i64,
+    file_path: &str,
+) -> Result<std::collections::BTreeMap<(String, String), ConflictRecord>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64, String, String, String, i64, String):
+        for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let rows: Vec<(i64, String, String, String, i64, String)> =
+        sqlx::query_as(DB::LIST_CONFLICT_RECORDS)
+            .bind(worktree_id)
+            .bind(file_path)
+            .fetch_all(&mut **tx)
+            .await?;
+    rows.into_iter()
+        .map(|(_id, path, key, json_text, deleted, state)| {
+            let json = serde_json::from_str(&json_text).map_err(|e| crate::error::Error::Json {
+                path: path.clone(),
+                source: e,
+            })?;
+            Ok((
+                (path, key),
+                ConflictRecord {
+                    json,
+                    deleted: deleted != 0,
+                    state: crate::model::ConflictState::from_column(Some(&state))
+                        .unwrap_or(crate::model::ConflictState::Conflict),
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Create or refresh the conflict row at `id` — the file's value for a
+/// record the database's own row disagrees with.
+///
+/// `commit_id` is the commit that last touched the path, which is what
+/// carries this value; `deleted` marks the file having dropped the
+/// record, in which case `json_text` is the value it dropped (the
+/// column is NOT NULL and the tombstone convention already reads json as
+/// "the value this removes"). Draw a fresh `version` only when something
+/// actually moved — the row is a `list_changes` entry like any other, so
+/// re-stamping it on every scan of the file would be churn.
+pub(crate) async fn upsert_conflict_record<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: RecordId<'_>,
+    json_text: &str,
+    commit_id: Option<&str>,
+    deleted: bool,
+    version: i64,
+    state: crate::model::ConflictState,
+) -> Result<i64>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> Option<&'q str>: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
+    let row: (i64,) = sqlx::query_as(DB::UPSERT_CONFLICT_RECORD)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(path)
+        .bind(key)
+        .bind(json_text)
+        .bind(commit_id)
+        .bind(i64::from(deleted))
+        .bind(version)
+        .bind(state.as_str())
+        .fetch_one(&mut **tx)
+        .await?;
+    Ok(row.0)
+}
+
+/// Flip an existing conflict row's state, stamping `version`.
+/// `Ok(None)` when there is no conflict row at that key.
+pub(crate) async fn set_conflict_state<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: RecordId<'_>,
+    state: crate::model::ConflictState,
+    version: i64,
+) -> Result<Option<i64>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (i64,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
+    let row: Option<(i64,)> = sqlx::query_as(DB::SET_CONFLICT_STATE)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(path)
+        .bind(key)
+        .bind(state.as_str())
+        .bind(version)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(row.map(|(id,)| id))
+}
+
+/// Drop the conflict row at `id`, if there is one — the divergence is
+/// settled, or has gone away on its own.
+pub(crate) async fn delete_conflict_record<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: RecordId<'_>,
+) -> Result<()>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> &'q str: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+{
+    let RecordId {
+        worktree_id,
+        file_path,
+        path,
+        key,
+    } = id;
+    sqlx::query(DB::DELETE_CONFLICT_RECORD)
+        .bind(worktree_id)
+        .bind(file_path)
+        .bind(path)
+        .bind(key)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 /// The file's in-flight (`commit_id IS NULL`) rows, which a re-sync
@@ -863,17 +1152,17 @@ where
     for<'q> &'q str: Encode<'q, DB> + Type<DB>,
     for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
     for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
-    (String, String, String, i64, Option<String>):
+    (String, String, String, i64, Option<String>, i64):
         for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
 {
-    let rows: Vec<(String, String, String, i64, Option<String>)> =
+    let rows: Vec<(String, String, String, i64, Option<String>, i64)> =
         sqlx::query_as(DB::LIST_PENDING_RECORDS)
             .bind(worktree_id)
             .bind(file_path)
             .fetch_all(&mut **tx)
             .await?;
     rows.into_iter()
-        .map(|(path, key, json_text, deleted, base_commit_id)| {
+        .map(|(path, key, json_text, deleted, base_commit_id, version)| {
             let json = serde_json::from_str(&json_text).map_err(|e| crate::error::Error::Json {
                 path: path.clone(),
                 source: e,
@@ -884,6 +1173,7 @@ where
                 json,
                 deleted: deleted != 0,
                 base_commit_id,
+                version,
             })
         })
         .collect()

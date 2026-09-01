@@ -17,7 +17,8 @@ use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
 use unfurl_git_sync::{
-    BatchOp, CommitRef, Error, JsonQuery, RecordConflictKind, RecordQuery, SyncedRepo, TxnMeta,
+    BatchOp, CommitRef, ConflictState, Error, JsonQuery, RecordConflictKind, RecordQuery,
+    Resolution, ScanOptions, SyncedRepo, TxnMeta,
 };
 
 // ---------------------------------------------------------------------------
@@ -1036,11 +1037,14 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
 }
 
 async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
-    // `list_changes(None)` returns only the in-flight (commit_id IS
+    // `list_changes(None, false)` returns only the in-flight (commit_id IS
     // NULL) records — exactly what `commit_repository` would write.
     sync.update_from_working_dir().await.expect("update");
     assert!(
-        sync.list_changes(None).await.expect("list").is_empty(),
+        sync.list_changes(None, false)
+            .await
+            .expect("list")
+            .is_empty(),
         "no pending changes after a fresh update_from_working_dir"
     );
 
@@ -1062,7 +1066,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     .await
     .expect("delete");
 
-    let pending = sync.list_changes(None).await.expect("list");
+    let pending = sync.list_changes(None, false).await.expect("list");
     let kinds: Vec<(&str, &str, bool)> = pending
         .iter()
         .map(|r| (r.path.as_str(), r.key.as_str(), r.deleted))
@@ -1085,7 +1089,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     );
     assert!(
         pending.iter().all(|r| r.commit_id.is_none()),
-        "list_changes(None) only yields commit_id IS NULL records"
+        "list_changes(None, false) only yields commit_id IS NULL records"
     );
 
     // After commit, the listing is empty again (tombstones are purged,
@@ -1096,13 +1100,16 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("commit")
         .expect("returned");
     assert!(
-        sync.list_changes(None).await.expect("list").is_empty(),
+        sync.list_changes(None, false)
+            .await
+            .expect("list")
+            .is_empty(),
         "no pending changes after commit"
     );
 }
 
 async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
-    // `list_changes(Some(v))` returns records (committed or not) whose
+    // `list_changes(Some(v), false)` returns records (committed or not) whose
     // version is greater than `v`. Useful for "sync me forward."
     sync.update_from_working_dir().await.expect("update");
 
@@ -1112,7 +1119,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     // Read the current head version: snapshot all records and take the
     // max — anything written after is what we want to enumerate.
     let after_initial = sync
-        .list_changes(Some(0))
+        .list_changes(Some(0), false)
         .await
         .expect("list since 0")
         .iter()
@@ -1140,7 +1147,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     .expect("delete");
 
     let since = sync
-        .list_changes(Some(after_initial))
+        .list_changes(Some(after_initial), false)
         .await
         .expect("list since head");
     let keys: Vec<(&str, bool)> = since.iter().map(|r| (r.key.as_str(), r.deleted)).collect();
@@ -1160,7 +1167,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     // A cursor at the very last version yields nothing further.
     let head = since.iter().map(|r| r.version).max().unwrap();
     assert!(sync
-        .list_changes(Some(head))
+        .list_changes(Some(head), false)
         .await
         .expect("list since head")
         .is_empty());
@@ -1909,7 +1916,7 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("delete");
     assert_eq!(
-        sync.list_changes(None).await.expect("list").len(),
+        sync.list_changes(None, false).await.expect("list").len(),
         3,
         "three in-flight edits before the rescan"
     );
@@ -1935,7 +1942,7 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
         .await
         .expect("get")
         .is_none();
-    let pending = sync.list_changes(None).await.expect("list").len();
+    let pending = sync.list_changes(None, false).await.expect("list").len();
     assert!(
         update_survived && create_survived && delete_survived && pending == 3,
         "rescan lost pending edits: update kept={update_survived}, \
@@ -3723,7 +3730,7 @@ async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("present");
     assert_eq!(rec.json["name"], "dashboard-by-hand");
     assert!(
-        sync.list_changes(None)
+        sync.list_changes(None, false)
             .await
             .expect("list")
             .iter()
@@ -3749,13 +3756,16 @@ async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &Temp
     hand_edit_dashboard(tmp, "theirs");
 
     let outcome = sync.write_file("cloudmap.yaml").await.expect("write");
-    outcome.written.as_ref().expect("written");
+    assert!(
+        outcome.written.is_none(),
+        "the only pending record is conflicted, so nothing is written: {outcome:?}"
+    );
     assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
     let c = &outcome.conflicts[0];
     assert_eq!(c.kind, RecordConflictKind::ModifyModify);
     assert_eq!(c.key, DASHBOARD);
     assert_eq!(
-        c.theirs.as_ref().expect("replaced value carried")["name"],
+        c.theirs.as_ref().expect("the file's value carried")["name"],
         "theirs"
     );
 
@@ -3764,9 +3774,25 @@ async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &Temp
     )
     .expect("parse");
     assert_eq!(
-        written["repositories"][DASHBOARD]["name"], "ours",
-        "pending wins in the written file"
+        written["repositories"][DASHBOARD]["name"], "theirs",
+        "the file keeps its own value until someone resolves"
     );
+
+    // ...and the database keeps serving its own, with the file's side
+    // materialized beside it.
+    assert_eq!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("record")
+            .json["name"],
+        "ours"
+    );
+    let rows = sync.list_conflicts(None).await.expect("conflicts");
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!(rows[0].key, DASHBOARD);
+    assert_eq!(rows[0].json["name"], "theirs");
+    assert_eq!(rows[0].conflict, Some(ConflictState::Conflict));
 }
 
 /// Consecutive writes do not conflict with their own output.
@@ -4035,7 +4061,7 @@ async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(c.base_commit_id.as_deref(), Some(base.as_str()));
     assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
     assert!(
-        sync.list_changes(None)
+        sync.list_changes(None, false)
             .await
             .expect("list")
             .iter()
@@ -4305,7 +4331,7 @@ async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
         "the rescan resurrected a pending delete"
     );
     assert!(
-        sync.list_changes(None)
+        sync.list_changes(None, false)
             .await
             .expect("list")
             .iter()
@@ -4402,7 +4428,7 @@ async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir)
             assert_eq!(after[k], *v, "untouched record {k:?} must keep its version");
         }
     }
-    let changed = sync.list_changes(Some(cursor)).await.expect("list");
+    let changed = sync.list_changes(Some(cursor), false).await.expect("list");
     assert_eq!(
         changed.iter().map(|r| r.key.as_str()).collect::<Vec<_>>(),
         [DASHBOARD],
@@ -4468,13 +4494,10 @@ async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(outcome.failed.len(), 0, "{outcome:?}");
     assert_eq!(outcome.conflicts.len(), 1, "{outcome:?}");
     assert_eq!(outcome.conflicts[0].kind, RecordConflictKind::ModifyModify);
-    assert_eq!(outcome.written.len(), 2, "{outcome:?}");
-    for f in ["cloudmap.yaml", "second.yaml"] {
-        assert!(
-            outcome.written.contains(&tmp.path().join(f)),
-            "{f} missing from {outcome:?}"
-        );
-    }
+    assert_eq!(outcome.conflicts[0].file_path, "cloudmap.yaml");
+    // One file's only pending record is conflicted, so it is left
+    // alone; a conflict in one file doesn't hold up any other.
+    assert_eq!(outcome.written, vec![tmp.path().join("second.yaml")]);
 }
 
 crud_test!(save_aggregates_conflicts, run_save_aggregates_conflicts);
@@ -4518,7 +4541,10 @@ async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDi
     assert_eq!(on_disk["repositories"][DASHBOARD]["name"], "by-hand");
     assert_eq!(on_disk["repositories"]["staged"]["name"], "staged");
     assert!(
-        sync.list_changes(None).await.expect("list").is_empty(),
+        sync.list_changes(None, false)
+            .await
+            .expect("list")
+            .is_empty(),
         "everything is committed"
     );
 }
@@ -4526,4 +4552,859 @@ async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDi
 crud_test!(
     commit_takes_outside_edits_in_first,
     run_commit_takes_outside_edits_in_first
+);
+
+// ---------------------------------------------------------------------------
+// Materialized conflicts
+// ---------------------------------------------------------------------------
+//
+// The principle these all check: the file and the database each keep
+// their own view of a record they disagree about, and neither is
+// overwritten until someone says which wins.
+//
+// The outcome space is (conflict kind × what settles it). Cells hold
+// the distinguishing part of the test name, so each is greppable as
+// written:
+//
+// kind         | conflict row      | Ours         | Theirs            | Merged         | Delete
+// -------------+-------------------+--------------+-------------------+----------------+-------------
+// ModifyModify | materializes_both | ours_applies | theirs_takes      | merged_settles | delete_drops
+//              |                   | ours_reopens |                   |                |
+// ModifyDelete | as_a_tombstone    | ours_keeps   | as_a_tombstone    | (a)            | (a)
+// DeleteModify | theirs_resurrects | (b)          | theirs_resurrects | (a)            | (a)
+// AddAdd       | has_no_base       | (b)          | has_no_base       | (a)            | (a)
+//
+// The gaps are deliberate, not missing coverage:
+//   (a) `Merged` and `Delete` don't branch on the kind at all -- they
+//       name a value (or its absence) and write it, so a second kind
+//       would re-run identical code.
+//   (b) `Ours` and `Theirs` branch only on whether the *file's* side is
+//       deleted, and both halves of that are covered above:
+//       ModifyModify/ModifyDelete for `Ours`, ModifyDelete (delete) and
+//       DeleteModify (resurrect) for `Theirs`.
+//
+// Tests below that aren't in the grid cover the mechanism rather than a
+// cell of it: a standing conflict surviving a save and a commit, the
+// commit stamping the file's side, a pending delete escaping the
+// tombstone purge, a divergence ending on its own, `ScanOptions::force`,
+// and the `Git-Sync-Resolves-Version` trailer.
+
+/// Rewrite a record's `name` on disk, by its current value.
+fn rename_name(tmp: &TempDir, from: &str, to: &str) {
+    let path = tmp.path().join("cloudmap.yaml");
+    let before = std::fs::read_to_string(&path).expect("read");
+    let edited = before.replace(&format!("name: {from}"), &format!("name: {to}"));
+    assert_ne!(edited, before, "expected `name: {from}` on disk");
+    std::fs::write(&path, edited).expect("write");
+}
+
+/// Set a `/repositories` record in the file, or remove it with `None`.
+/// Rewrites the whole document, so unlike [`rename_name`] the record
+/// ends up holding exactly what is passed.
+fn set_record_on_disk(tmp: &TempDir, key: &str, json: Option<serde_json::Value>) {
+    let path = tmp.path().join("cloudmap.yaml");
+    let mut doc: serde_json::Value =
+        serde_saphyr::from_str(&std::fs::read_to_string(&path).expect("read")).expect("yaml");
+    let repos = doc["repositories"].as_object_mut().expect("repositories");
+    match json {
+        Some(value) => {
+            repos.insert(key.to_string(), value);
+        }
+        None => assert!(repos.remove(key).is_some(), "{key} should be in the file"),
+    }
+    std::fs::write(&path, serde_saphyr::to_string(&doc).expect("emit")).expect("write");
+}
+
+/// The dashboard record as the file now has it.
+fn dashboard_on_disk(tmp: &TempDir) -> serde_json::Value {
+    let doc: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("yaml");
+    doc["repositories"][DASHBOARD].clone()
+}
+
+/// A standing ModifyModify conflict on the dashboard record: the
+/// database holds `ours`, the file holds `theirs`. Returns the version
+/// stamped on the client's edit, for the trailer tests.
+async fn stand_up_conflict(sync: &SyncedRepo, tmp: &TempDir) -> i64 {
+    sync.update_from_working_dir().await.expect("update");
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+        )
+        .await
+        .expect("update");
+    rename_name(tmp, "dashboard", "theirs");
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyModify);
+    write.version
+}
+
+/// The one conflict row this worktree has, or a failure naming what it
+/// found instead.
+async fn only_conflict(sync: &SyncedRepo) -> unfurl_git_sync::Record {
+    let rows = sync.list_conflicts(None).await.expect("list_conflicts");
+    assert_eq!(rows.len(), 1, "expected exactly one conflict: {rows:?}");
+    rows.into_iter().next().expect("checked")
+}
+
+async fn run_a_conflict_materializes_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+
+    // The API serves the database's row, still in flight...
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(ours.json["name"], "ours");
+    assert!(ours.commit_id.is_none(), "not saved yet: {ours:?}");
+    assert_eq!(ours.conflict, None, "the database's own row");
+
+    // ...while the file keeps its value. The scan takes in disk
+    // changes, but not over an edit that hasn't reached the file.
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+
+    // A default query sees one row for the key; both, when asked.
+    let one_key = RecordQuery {
+        path: Some("/repositories".into()),
+        key: Some(DASHBOARD.into()),
+        ..Default::default()
+    };
+    assert_eq!(sync.find_records(&one_key).await.expect("find").len(), 1);
+    let both = sync
+        .find_records(&RecordQuery {
+            include_conflicts: true,
+            ..one_key
+        })
+        .await
+        .expect("find");
+    assert_eq!(both.len(), 2, "{both:?}");
+
+    let theirs = only_conflict(sync).await;
+    assert_eq!(theirs.json["name"], "theirs");
+    assert_eq!(theirs.conflict, Some(ConflictState::Conflict));
+    assert!(!theirs.deleted, "the file still has the record");
+}
+
+async fn run_a_standing_conflict_survives_a_save(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+
+    let saved = sync.save_changes().await.expect("save");
+    assert!(
+        saved.written.is_empty(),
+        "the file's value stands until someone resolves: {saved:?}"
+    );
+    assert_eq!(saved.conflicts.len(), 1, "{saved:?}");
+    assert_eq!(saved.conflicts[0].kind, RecordConflictKind::ModifyModify);
+    assert_eq!(
+        saved.conflicts[0].theirs.as_ref().expect("carried")["name"],
+        "theirs"
+    );
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+
+    // Repeated saves neither apply it nor lose the report.
+    let again = sync.save_changes().await.expect("save");
+    assert_eq!(again.conflicts.len(), 1, "{again:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(ours.json["name"], "ours");
+    assert!(ours.commit_id.is_none(), "still unsaved: {ours:?}");
+}
+
+async fn run_a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    let oid = sync
+        .commit_repository("carry the hand edit")
+        .await
+        .expect("commit")
+        .expect("the hand edit is not in git yet");
+
+    // What the commit holds is the file's value, so that is what gets
+    // stamped with it.
+    let theirs = only_conflict(sync).await;
+    assert_eq!(theirs.json["name"], "theirs");
+    assert_eq!(
+        theirs.commit_id.as_deref(),
+        Some(oid.as_str()),
+        "the conflict row is what this commit carries"
+    );
+
+    // The record is not in the commit, so it stays in flight.
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(ours.json["name"], "ours");
+    assert!(
+        ours.commit_id.is_none(),
+        "the commit does not carry ours: {ours:?}"
+    );
+
+    // And there is nothing left to commit. Without this, a standing
+    // conflict would append an empty commit on every call, forever.
+    assert_eq!(
+        sync.commit_repository("again").await.expect("commit"),
+        None,
+        "nothing changed on disk"
+    );
+    assert_eq!(head_commit(sync).await, oid, "HEAD did not move");
+}
+
+async fn run_a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let write = sync
+        .delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
+        .await
+        .expect("delete");
+    rename_name(tmp, "dashboard", "theirs");
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::DeleteModify);
+
+    sync.commit_repository("carry the hand edit")
+        .await
+        .expect("commit")
+        .expect("the hand edit is not in git yet");
+
+    // The commit did not apply the delete -- the record is still in the
+    // file -- so purging the tombstone would drop the client's delete
+    // with nothing to show for it.
+    let row = sync
+        .get_record_by_id(write.id)
+        .await
+        .expect("get")
+        .expect("the tombstone outlives the commit");
+    assert!(row.deleted, "{row:?}");
+    assert!(
+        row.commit_id.is_none(),
+        "not carried by the commit: {row:?}"
+    );
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+}
+
+async fn run_resolve_ours_applies_on_the_next_write(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Ours,
+        None,
+    )
+    .await
+    .expect("resolve");
+
+    // Marking it resolved doesn't touch the file: the write does.
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "ours");
+    assert!(
+        sync.list_conflicts(None).await.expect("list").is_empty(),
+        "the conflict row goes with the resolution it settled"
+    );
+}
+
+async fn run_resolve_ours_reopens_when_the_file_moves_again(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Ours,
+        None,
+    )
+    .await
+    .expect("resolve");
+    // The file moves again before the resolution reaches it, so the
+    // decision was made about a value that is gone.
+    rename_name(tmp, "theirs", "later");
+
+    let saved = sync.save_changes().await.expect("save");
+    assert_eq!(saved.conflicts.len(), 1, "{saved:?}");
+    assert_eq!(
+        dashboard_on_disk(tmp)["name"],
+        "later",
+        "nothing was applied over the newer value"
+    );
+    let theirs = only_conflict(sync).await;
+    assert_eq!(theirs.conflict, Some(ConflictState::Conflict), "re-opened");
+    assert_eq!(theirs.json["name"], "later");
+}
+
+async fn run_resolve_theirs_takes_the_files_value(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Theirs,
+        None,
+    )
+    .await
+    .expect("resolve");
+
+    let rec = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "theirs");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+
+    // Both sides now say the same thing, so the save has nothing to
+    // report and nothing to change.
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
+}
+
+async fn run_resolve_merged_settles_with_a_third_value(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Merged(serde_json::json!({"name": "merged"})),
+        None,
+    )
+    .await
+    .expect("resolve");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "merged");
+}
+
+async fn run_a_record_the_file_dropped_conflicts_as_a_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    set_record_on_disk(tmp, DASHBOARD, None);
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
+
+    // The file's side is "this record is gone", carrying the value it
+    // dropped -- and it survives the pass that hard-deletes records the
+    // file no longer has.
+    sync.update_from_working_dir().await.expect("rescan again");
+    let theirs = only_conflict(sync).await;
+    assert!(theirs.deleted, "{theirs:?}");
+    assert_eq!(theirs.json["name"], "dashboard", "the value the file lost");
+
+    // Taking the file's side of a record it no longer has deletes ours.
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Theirs,
+        None,
+    )
+    .await
+    .expect("resolve");
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .is_none());
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+/// Commit everything on disk with a `Git-Sync-Resolves-Version` trailer.
+fn commit_resolving(tmp: &TempDir, version: i64) {
+    git(tmp.path(), &["add", "-A"]);
+    git(
+        tmp.path(),
+        &[
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=Tester",
+            "commit",
+            "-m",
+            &format!("hand edit\n\nGit-Sync-Resolves-Version: {version}"),
+        ],
+    );
+    // Assert git itself parses the block: a missing blank line makes it
+    // prose, which a substring check would happily still match.
+    assert_eq!(
+        head_trailer(tmp.path(), "Git-Sync-Resolves-Version").as_deref(),
+        Some(version.to_string().as_str())
+    );
+}
+
+async fn run_the_resolves_version_trailer_settles_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+    let version = stand_up_conflict(sync, tmp).await;
+    // Committing the hand edit as it stands: the bytes are the ones the
+    // scan already took in, so this is the "keep the file as it is and
+    // drop the database's edit" resolution, which changes nothing on
+    // disk and would otherwise be swallowed by the unchanged-file skip.
+    commit_resolving(tmp, version);
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert_eq!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("present")
+            .json["name"],
+        "theirs",
+        "the file won"
+    );
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+    assert!(
+        sync.list_changes(None, false)
+            .await
+            .expect("list")
+            .is_empty(),
+        "the in-flight edit was settled, not left hanging"
+    );
+}
+
+async fn run_an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) {
+    let version = stand_up_conflict(sync, tmp).await;
+    // A trailer naming a version *older* than the client's edit: its
+    // author cannot have seen that edit, so it does not settle it.
+    commit_resolving(tmp, version - 1);
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("present")
+            .json["name"],
+        "ours"
+    );
+    assert_eq!(
+        only_conflict(sync).await.conflict,
+        Some(ConflictState::Conflict)
+    );
+}
+
+async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // An ordinary unsaved edit: the file still holds what it was based
+    // on, so there is no divergence for a trailer to settle.
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+        )
+        .await
+        .expect("update");
+    // Something else in the file changes, so the commit touches the
+    // path and its trailer is the one the scan reads.
+    rename_name(tmp, "std", "std-edited");
+    commit_resolving(tmp, write.version);
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert_eq!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("present")
+            .json["name"],
+        "ours",
+        "a trailer settles conflicts; it does not discard unsaved work"
+    );
+    assert_eq!(
+        sync.get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://unfurl.cloud/onecommons/std.git"
+        )
+        .await
+        .expect("get")
+        .expect("present")
+        .json["name"],
+        "std-edited",
+        "the unrelated disk change was taken in as usual"
+    );
+}
+
+async fn run_a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    // A second, non-conflicted unsaved edit: `force` is the blanket
+    // assertion, so it takes this one too.
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://unfurl.cloud/onecommons/std.git",
+        serde_json::json!({"name": "unsaved"}),
+        None,
+    )
+    .await
+    .expect("upsert");
+
+    let scan = sync
+        .update_from_working_dir_with(&ScanOptions { force: true })
+        .await
+        .expect("forced rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+    assert_eq!(
+        sync.get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("present")
+            .json["name"],
+        "theirs"
+    );
+    assert_eq!(
+        sync.get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://unfurl.cloud/onecommons/std.git"
+        )
+        .await
+        .expect("get")
+        .expect("present")
+        .json["name"],
+        "std",
+        "the unsaved edit went too"
+    );
+    assert!(
+        sync.list_changes(None, false)
+            .await
+            .expect("list")
+            .is_empty(),
+        "nothing is in flight after the file wins"
+    );
+}
+
+crud_test!(
+    a_conflict_materializes_both_sides,
+    run_a_conflict_materializes_both_sides
+);
+crud_test!(
+    a_standing_conflict_survives_a_save,
+    run_a_standing_conflict_survives_a_save
+);
+crud_test!(
+    a_commit_carries_the_file_not_the_record,
+    run_a_commit_carries_the_file_not_the_record
+);
+crud_test!(
+    a_pending_delete_under_a_conflict_survives_a_commit,
+    run_a_pending_delete_under_a_conflict_survives_a_commit
+);
+crud_test!(
+    resolve_ours_applies_on_the_next_write,
+    run_resolve_ours_applies_on_the_next_write
+);
+crud_test!(
+    resolve_ours_reopens_when_the_file_moves_again,
+    run_resolve_ours_reopens_when_the_file_moves_again
+);
+crud_test!(
+    resolve_theirs_takes_the_files_value,
+    run_resolve_theirs_takes_the_files_value
+);
+crud_test!(
+    resolve_merged_settles_with_a_third_value,
+    run_resolve_merged_settles_with_a_third_value
+);
+crud_test!(
+    a_record_the_file_dropped_conflicts_as_a_tombstone,
+    run_a_record_the_file_dropped_conflicts_as_a_tombstone
+);
+crud_test!(
+    the_resolves_version_trailer_settles_a_conflict,
+    run_the_resolves_version_trailer_settles_a_conflict
+);
+crud_test!(
+    an_older_trailer_settles_nothing,
+    run_an_older_trailer_settles_nothing
+);
+crud_test!(
+    the_trailer_spares_an_unrelated_unsaved_edit,
+    run_the_trailer_spares_an_unrelated_unsaved_edit
+);
+crud_test!(
+    a_forced_scan_hands_every_record_to_the_file,
+    run_a_forced_scan_hands_every_record_to_the_file
+);
+
+async fn run_resolve_delete_drops_the_record_from_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    let write = sync
+        .resolve_conflict(
+            "cloudmap.yaml",
+            "/repositories",
+            DASHBOARD,
+            Resolution::Delete,
+            None,
+        )
+        .await
+        .expect("resolve");
+
+    // Neither side's value won: the record goes.
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .is_none());
+    let row = sync
+        .get_record_by_id(write.id)
+        .await
+        .expect("get")
+        .expect("tombstone");
+    assert!(row.deleted, "{row:?}");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+
+    // With nothing left contested, the save applies the delete.
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    let doc: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("yaml");
+    assert!(doc["repositories"].get(DASHBOARD).is_none(), "{doc:?}");
+}
+
+/// A pending edit of a record the file dropped, settled the other way:
+/// the tombstone-shaped conflict row goes to `resolved`, which both the
+/// scan and the write have to read as "the file has no value here".
+async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("update");
+    set_record_on_disk(tmp, DASHBOARD, None);
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
+
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Ours,
+        None,
+    )
+    .await
+    .expect("resolve");
+    let marked = only_conflict(sync).await;
+    assert_eq!(marked.conflict, Some(ConflictState::Resolved));
+    assert!(
+        marked.deleted,
+        "the file still has no value here: {marked:?}"
+    );
+
+    // A scan in between must let the resolution stand rather than
+    // re-open it against a file that has not moved.
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert_eq!(
+        only_conflict(sync).await.conflict,
+        Some(ConflictState::Resolved)
+    );
+
+    let saved = sync.save_changes().await.expect("save");
+    assert!(saved.conflicts.is_empty(), "{saved:?}");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "ours", "put back");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    // A create, so the row has no base commit...
+    sync.create_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "git://example.com/both.git",
+        serde_json::json!({"name": "ours"}),
+        None,
+    )
+    .await
+    .expect("create");
+    // ...and the same key turns up in the file independently.
+    set_record_on_disk(
+        tmp,
+        "git://example.com/both.git",
+        Some(serde_json::json!({"name": "theirs"})),
+    );
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::AddAdd);
+    assert_eq!(
+        scan.conflicts[0].base_commit_id, None,
+        "neither side edited a shared ancestor"
+    );
+    let theirs = only_conflict(sync).await;
+    assert_eq!(theirs.json["name"], "theirs");
+    assert!(!theirs.deleted);
+
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        "git://example.com/both.git",
+        Resolution::Theirs,
+        None,
+    )
+    .await
+    .expect("resolve");
+    assert_eq!(
+        sync.get_record(
+            "cloudmap.yaml",
+            "/repositories",
+            "git://example.com/both.git"
+        )
+        .await
+        .expect("get")
+        .expect("present")
+        .json["name"],
+        "theirs"
+    );
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+async fn run_a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp: &TempDir) {
+    stand_up_conflict(sync, tmp).await;
+    // The file is edited to say exactly what the database's row says.
+    set_record_on_disk(tmp, DASHBOARD, Some(serde_json::json!({"name": "ours"})));
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert!(
+        sync.list_conflicts(None).await.expect("list").is_empty(),
+        "a divergence that ended on its own leaves no row behind"
+    );
+    // The record is still the client's to commit -- agreeing with the
+    // file is not the same as being in it.
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(ours.json["name"], "ours");
+    assert!(ours.commit_id.is_none(), "{ours:?}");
+}
+
+async fn run_a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+        )
+        .await
+        .expect("update");
+    set_record_on_disk(tmp, DASHBOARD, None);
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
+
+    // The file says the record is gone, and force says the file wins:
+    // the in-flight row goes with it rather than being preserved.
+    let scan = sync
+        .update_from_working_dir_with(&ScanOptions { force: true })
+        .await
+        .expect("forced rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+    assert!(
+        sync.get_record_by_id(write.id)
+            .await
+            .expect("get")
+            .is_none(),
+        "the row was hard-deleted, not tombstoned"
+    );
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+crud_test!(
+    resolve_delete_drops_the_record_from_both_sides,
+    run_resolve_delete_drops_the_record_from_both_sides
+);
+crud_test!(
+    resolve_ours_keeps_a_record_the_file_dropped,
+    run_resolve_ours_keeps_a_record_the_file_dropped
+);
+crud_test!(
+    an_add_add_conflict_has_no_base,
+    run_an_add_add_conflict_has_no_base
+);
+crud_test!(
+    a_conflict_ends_when_the_two_sides_converge,
+    run_a_conflict_ends_when_the_two_sides_converge
+);
+crud_test!(
+    a_forced_scan_drops_a_record_the_file_lost,
+    run_a_forced_scan_drops_a_record_the_file_lost
+);
+
+/// Ours deletes the record, the file edits it, and the file wins: the
+/// tombstone has to come back to life rather than merely change value.
+async fn run_resolve_theirs_resurrects_a_record_ours_deleted(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let write = sync
+        .delete_record(Some("cloudmap.yaml"), "/repositories", DASHBOARD, None)
+        .await
+        .expect("delete");
+    rename_name(tmp, "dashboard", "theirs");
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::DeleteModify);
+    let theirs = only_conflict(sync).await;
+    assert!(!theirs.deleted, "the file still has the record: {theirs:?}");
+
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Theirs,
+        None,
+    )
+    .await
+    .expect("resolve");
+
+    let row = sync
+        .get_record_by_id(write.id)
+        .await
+        .expect("get")
+        .expect("same row");
+    assert!(!row.deleted, "the tombstone was resurrected: {row:?}");
+    assert_eq!(row.json["name"], "theirs");
+    assert!(sync.list_conflicts(None).await.expect("list").is_empty());
+}
+
+crud_test!(
+    resolve_theirs_resurrects_a_record_ours_deleted,
+    run_resolve_theirs_resurrects_a_record_ours_deleted
 );

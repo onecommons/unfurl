@@ -526,6 +526,16 @@ pub fn read_blob_at_commit(
     Ok(Some(object.data.clone()))
 }
 
+/// The raw message of `commit`, or `None` when it isn't a resolvable
+/// commit oid. Read by the scan to look for the trailer a file-side
+/// author uses to resolve conflicts (see
+/// [`crate::SyncedRepo::update_from_working_dir_with`]).
+pub fn commit_message(repo: &gix::Repository, commit: &str) -> Option<String> {
+    let oid = gix::ObjectId::from_hex(commit.as_bytes()).ok()?;
+    let commit = repo.find_commit(oid).ok()?;
+    Some(commit.message_raw().ok()?.to_string())
+}
+
 /// Initialise a repository at `path` with an initial commit containing
 /// `files` (relative path → bytes). Returns the commit OID. Used by
 /// integration tests.

@@ -171,6 +171,13 @@ pub struct RecordQuery {
     /// is otherwise unobservable — its row simply stops being returned.
     /// Check [`Record::deleted`] to tell a tombstone from a live record.
     pub include_deleted: bool,
+    /// Also return the file's side of conflicted records — see
+    /// [`ConflictState`].
+    ///
+    /// Off by default, so an ordinary read sees one row per record: the
+    /// database's own. Turn it on to see both sides at once, and read
+    /// [`Record::conflict`] to tell them apart.
+    pub include_conflicts: bool,
 }
 
 /// Where a page of [`crate::SyncedRepo::find_records`] resumes.
@@ -564,6 +571,105 @@ pub struct Record {
     /// [`crate::CommitRef::Pending`]) and a cursor for
     /// [`crate::SyncedRepo::list_changes`].
     pub version: i64,
+    /// `None` on the database's own row — the one the CRUD API reads and
+    /// writes. `Some(..)` marks the *file's* side of a record the two
+    /// disagree about; see [`ConflictState`].
+    ///
+    /// Only returned by queries that opt in
+    /// ([`RecordQuery::include_conflicts`],
+    /// [`crate::SyncedRepo::list_conflicts`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conflict: Option<ConflictState>,
+}
+
+/// What a conflict row holds — the file's view of a record the database
+/// disagrees with, kept alongside the database's own row so that neither
+/// side is overwritten before someone resolves.
+///
+/// Materialized by a scan or a write that finds the file diverging from
+/// an in-flight edit, and carried in the `record.conflict` column. Until
+/// it is resolved (see [`crate::SyncedRepo::resolve_conflict`]) the API
+/// keeps serving the database's row while git and the working tree keep
+/// serving this one — deliberately, so a divergence is never decided by
+/// whichever side happened to be written last.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ConflictState {
+    /// Unresolved: the file's value, as of the scan or write that last
+    /// saw the divergence. A write leaves the record alone while this
+    /// stands, and a commit stamps this row rather than its sibling —
+    /// this is what the commit actually carries.
+    Conflict,
+    /// The client has declared the database's row the winner. The file's
+    /// value is kept as the snapshot the resolution was made against:
+    /// the next write applies the record only if the file still holds
+    /// it, and flips back to [`Self::Conflict`] if it has moved again.
+    Resolved,
+}
+
+impl ConflictState {
+    /// The `record.conflict` column value.
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Conflict => "conflict",
+            Self::Resolved => "resolved",
+        }
+    }
+
+    /// Read the column back. An unrecognized non-NULL value reads as
+    /// [`Self::Conflict`]: whatever wrote it meant "the two sides
+    /// disagree", and the unresolved reading is the safe one.
+    pub(crate) fn from_column(value: Option<&str>) -> Option<Self> {
+        match value {
+            None => None,
+            Some("resolved") => Some(Self::Resolved),
+            Some(_) => Some(Self::Conflict),
+        }
+    }
+}
+
+/// How [`crate::SyncedRepo::resolve_conflict`] settles a conflicted
+/// record.
+///
+/// Every variant clears the divergence; they differ in what the record
+/// becomes. `Ours` is the only one that defers — it records the decision
+/// and leaves the file check to the next write, because the record's
+/// value is not being restated and so nothing has re-validated it
+/// against the file. The rest name a value (or its absence) explicitly,
+/// which the next scan re-checks against the file anyway.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Resolution {
+    /// Keep the database's row as it stands. Marks the conflict
+    /// [`ConflictState::Resolved`]; the next write applies the record
+    /// if the file still holds the snapshotted value, and re-opens the
+    /// conflict if it has moved again.
+    Ours,
+    /// Take the file's value — the record is rewritten to it (or
+    /// tombstoned, when the file no longer has the record).
+    Theirs,
+    /// Take a hand-merged value. The usual outcome of a real three-way
+    /// resolution, where neither side is wholly right.
+    Merged(serde_json::Value),
+    /// Drop the record from both sides: the row becomes a tombstone and
+    /// the next write removes the key from the file.
+    Delete,
+}
+
+/// Options for a working-tree scan — see
+/// [`crate::SyncedRepo::update_from_working_dir_with`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ScanOptions {
+    /// Let the file win over every in-flight edit: pending rows are
+    /// overwritten from disk and conflict rows are dropped.
+    ///
+    /// The blanket form of the per-record `Git-Sync-Resolves-Version`
+    /// trailer, for an operator who has decided the working tree is
+    /// authoritative. It also bypasses the unchanged-file skip — a
+    /// pending row diverges from the file whatever the file's bytes
+    /// have done since the last take-in, so skipping on unchanged bytes
+    /// would make this a no-op on exactly the files it is meant to
+    /// resolve.
+    pub force: bool,
 }
 
 /// Attribution for a batch write: who asked for it and why.
@@ -817,10 +923,12 @@ pub struct SyncOutcome {
     /// Rows in files skipped as unchanged are not counted; see
     /// [`Self::files_unchanged`].
     pub records_preserved: usize,
-    /// Rows the sync found the file disagreeing with a pending edit on
-    /// — the scan preserves the edit, the write lands it (pending
-    /// wins). Resolving in the file's favor means rewriting the record
-    /// to [`RecordConflict::theirs`] (or deleting it) before saving.
+    /// Rows the sync found the file disagreeing with a pending edit on.
+    /// Each one also exists as a conflict row in the database (see
+    /// [`ConflictState`]), so this list is a report of state that
+    /// persists rather than the only record of it. Settle them with
+    /// [`crate::SyncedRepo::resolve_conflict`]; until then a write
+    /// leaves the file's value in place and the record unsaved.
     pub conflicts: Vec<RecordConflict>,
     /// Files that parsed only as JSON5 — a comment, a trailing comma, an
     /// unquoted key — rather than as strict JSON. Counts only files
@@ -849,9 +957,12 @@ impl SyncOutcome {
 }
 
 /// One record where the file disagrees with an in-flight client edit.
-/// The edit was preserved (in the database, and in the file once
-/// written — pending wins); this reports the divergence with enough to
-/// resolve it the other way.
+///
+/// Both sides are preserved: the database keeps serving its own row and
+/// the file keeps serving its value, with the latter materialized as a
+/// conflict row (see [`ConflictState`]) that this report mirrors. Until
+/// [`crate::SyncedRepo::resolve_conflict`] settles it, a write skips the
+/// record rather than overwriting either side.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecordConflict {
     /// Working-tree-relative path of the file.
@@ -897,11 +1008,12 @@ pub struct WriteFileOutcome {
     /// Path rewritten on disk, or `None` when there was nothing to
     /// write or the rendered bytes matched what was already there.
     pub written: Option<std::path::PathBuf>,
-    /// Divergences detected while applying pending records over a
-    /// stale on-disk document; empty when the source was current. The
-    /// write resolved each pending-wins — `theirs` holds what was
-    /// replaced — without updating the database (see the
-    /// [`crate::SyncedRepo::save_changes`] warning).
+    /// Records the write left alone because the two sides disagree:
+    /// divergences already on record as conflict rows, plus any the
+    /// write itself found by applying over a stale on-disk document.
+    /// `theirs` holds the file's value, which is what stays in the
+    /// file. Settle one with
+    /// [`crate::SyncedRepo::resolve_conflict`].
     pub conflicts: Vec<RecordConflict>,
 }
 

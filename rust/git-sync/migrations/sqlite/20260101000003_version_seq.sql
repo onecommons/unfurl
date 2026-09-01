@@ -18,14 +18,8 @@ CREATE TABLE version_seq (
     next_version INTEGER NOT NULL DEFAULT 1
 );
 
--- Every existing worktree is its own family, keeping its counter.
-INSERT INTO version_seq (worktree_id, next_version)
-    SELECT id, next_version FROM worktree;
-
 -- NULL means "its own family"; see `COALESCE(family_id, id)` in the
 -- queries. Left nullable so adding the column needs no sentinel value
--- that would momentarily violate the reference.
+-- that would momentarily violate the reference. `db::worktree::upsert`
+-- seeds both this and the `version_seq` row when it creates a worktree.
 ALTER TABLE worktree ADD COLUMN family_id INTEGER REFERENCES version_seq(worktree_id);
-UPDATE worktree SET family_id = id;
-
-ALTER TABLE worktree DROP COLUMN next_version;
