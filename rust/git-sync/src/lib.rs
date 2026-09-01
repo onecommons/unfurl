@@ -60,6 +60,7 @@
 
 #![deny(rust_2018_idioms)]
 
+mod conflict;
 mod crud;
 pub mod db;
 mod document;
@@ -69,6 +70,7 @@ pub mod formats;
 pub mod git;
 pub mod model;
 pub mod rollup;
+mod scan;
 pub mod sync;
 mod template;
 mod util;
