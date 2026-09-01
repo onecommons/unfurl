@@ -184,6 +184,7 @@ impl CloudMapState {
     pub async fn open(
         repo_path: &str,
         db_url: &str,
+        scan: ScanOptions,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let db_cfg = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
             #[cfg(feature = "postgres")]
@@ -204,9 +205,7 @@ impl CloudMapState {
 
         let registry = FormatRegistry::with_builtins();
         let synced = SyncedRepo::open(repo_path, db_cfg, registry).await?;
-        synced
-            .update_from_working_dir(ScanOptions::default())
-            .await?;
+        synced.update_from_working_dir(scan).await?;
         Ok(Self {
             inner: Arc::new(synced),
             types_cache: Arc::new(Mutex::new(HashMap::new())),
@@ -1452,6 +1451,11 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 ///   the write.
 /// - `unfurl.server.deleted: true` — delete the record (OCC tokens
 ///   still honoured).
+/// - `unfurl.server.resolve: true` — settle any conflict on the
+///   record: the file's side, as returned by a GET, is discarded in
+///   favour of this write. Absent leaves the conflict standing, so a
+///   client that never looked at it cannot drop the file's value by
+///   accident.
 ///
 /// Unknown top-level sections produce a **400 Bad Request** with an
 /// `error: "unknown section <name>"` body, matching the Python
@@ -1931,8 +1935,9 @@ async fn apply_writes(
 
 /// Convert a single ``(section, path, key, value)`` triple into a
 /// [`BatchOp`]. The OCC marker keys (``unfurl.server.{commit,version,
-/// id}``) and the ``unfurl.server.deleted`` flag are popped here so
-/// the JSON that goes into git-sync is the bare record payload.
+/// id}``) and the ``unfurl.server.{deleted,resolve}`` flags are popped
+/// here so the JSON that goes into git-sync is the bare record
+/// payload.
 fn build_batch_op(
     section: &str,
     path: &'static str,
@@ -1948,13 +1953,18 @@ fn build_batch_op(
         Value::Object(mut map) => {
             let commit_ref = pop_commit_ref(&mut map);
             let is_delete = matches!(map.remove("unfurl.server.deleted"), Some(Value::Bool(true)));
+            // Settles any conflict on the record: the client has seen
+            // the file's side in a GET and is choosing against it.
+            // Absent means leave it standing, so a client that never
+            // looked cannot discard the file's value by accident.
+            let resolve = matches!(map.remove("unfurl.server.resolve"), Some(Value::Bool(true)));
             if is_delete {
                 Ok(BatchOp::Delete {
                     file_path,
                     path: path.to_string(),
                     key,
                     expected: commit_ref,
-                    resolve: false,
+                    resolve,
                 })
             } else {
                 Ok(BatchOp::Upsert {
@@ -1963,7 +1973,7 @@ fn build_batch_op(
                     key,
                     json: Value::Object(map),
                     expected: commit_ref,
-                    resolve: false,
+                    resolve,
                 })
             }
         }

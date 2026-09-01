@@ -101,6 +101,17 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
     pub cloudmap_db_url: Option<String>,
 
+    /// Let the working tree win over every in-flight cloudmap edit on
+    /// the startup scan: pending records are overwritten from disk and
+    /// their conflicts dropped.
+    ///
+    /// For an operator who has decided the checkout is authoritative,
+    /// after resolving a divergence by hand. Startup-only on purpose —
+    /// discarding in-flight edits is the sort of thing whoever starts
+    /// the process decides, not a request.
+    #[arg(long, env = "UNFURL_CLOUDMAP_FORCE")]
+    pub cloudmap_force: bool,
+
     /// The local checkout this server was started on, if any.
     ///
     /// Reads python's `UNFURL_SERVE_PATH`, which `unfurl serve <path>` exports
@@ -242,6 +253,7 @@ mod tests {
             worker_poll_interval_secs: 0.1,
             cloudmap_repo: None,
             cloudmap_db_url: None,
+            cloudmap_force: false,
             local: None,
         }
     }

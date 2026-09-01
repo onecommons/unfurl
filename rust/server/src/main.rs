@@ -136,7 +136,15 @@ async fn main() {
     ) {
         (Some(repo), Some(db_url)) => {
             tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
-            match cloudmap::CloudMapState::open(repo, db_url).await {
+            match cloudmap::CloudMapState::open(
+                repo,
+                db_url,
+                unfurl_git_sync::ScanOptions {
+                    force: config.cloudmap_force,
+                },
+            )
+            .await
+            {
                 Ok(cm) => Some(cm),
                 Err(e) => {
                     tracing::error!("failed to open cloudmap repo: {}", e);

@@ -50,6 +50,7 @@ fn default_config() -> Config {
         worker_poll_interval_secs: 0.05,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        cloudmap_force: false,
         // These fixtures stand in for a server started on a local checkout
         // (`unfurl serve <path>`), which is what turns off the auth_project
         // check. The auth_project tests below build a strict config instead.
@@ -2769,5 +2770,80 @@ async fn paging_over_a_duplicated_key_reaches_the_tail() {
     assert_eq!(
         seen, expected,
         "the walk must reach every key, not stop at the duplicated one"
+    );
+}
+
+/// Stand up a divergence on `key`: the database holds an in-flight edit
+/// and the file on disk holds something else.
+async fn stand_up_conflict(cm: &CloudMapState, tmp: &tempfile::TempDir, key: &str) {
+    cm.synced()
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            key,
+            serde_json::json!({"name": "ours"}),
+            None,
+            false,
+        )
+        .await
+        .expect("update");
+    let path = tmp.path().join("cloudmap.yaml");
+    let before = std::fs::read_to_string(&path).expect("read");
+    let edited = before.replace("name: std", "name: theirs");
+    assert_ne!(edited, before);
+    std::fs::write(&path, edited).expect("write");
+    let scan = cm
+        .synced()
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+}
+
+#[tokio::test]
+async fn post_resolve_marker_settles_a_conflict() {
+    let key = "git://unfurl.cloud/onecommons/std.git";
+
+    // Without the marker the write lands and the conflict stands, so a
+    // client that never read the file's side cannot discard it.
+    let (cm, tmp) = open_cloudmap_state().await;
+    stand_up_conflict(&cm, &tmp, key).await;
+    let body = serde_json::json!({
+        "repositories": { key: {"name": "decided"} }
+    });
+    let (status, _) = post_json(router(make_state(cm.clone())), body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        cm.synced().list_conflicts(None).await.expect("list").len(),
+        1,
+        "the conflict survives a plain write"
+    );
+
+    // With it, the same write settles the record.
+    let (cm, tmp) = open_cloudmap_state().await;
+    stand_up_conflict(&cm, &tmp, key).await;
+    let body = serde_json::json!({
+        "repositories": {
+            key: {"name": "decided", "unfurl.server.resolve": true}
+        }
+    });
+    let (status, _) = post_json(router(make_state(cm.clone())), body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(cm
+        .synced()
+        .list_conflicts(None)
+        .await
+        .expect("list")
+        .is_empty());
+    let rec = cm
+        .synced()
+        .get_record("cloudmap.yaml", "/repositories", key)
+        .await
+        .expect("get")
+        .expect("present");
+    assert_eq!(rec.json["name"], "decided");
+    assert!(
+        rec.json.get("unfurl.server.resolve").is_none(),
+        "the marker is popped, not stored: {rec:?}"
     );
 }

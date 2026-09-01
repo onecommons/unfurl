@@ -41,6 +41,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         worker_poll_interval_secs: 0.05,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        cloudmap_force: false,
         local: None,
     }
 }

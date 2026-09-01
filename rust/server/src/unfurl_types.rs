@@ -1540,9 +1540,11 @@ pub struct PostCloudmapRequest {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
-/// Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``types``).
+/// Apply a batch of add / update / delete operations to ``cloudmap.yaml``. Top-level keys split between an envelope (``latest_commit`` / ``cloudmap_path`` / ``username`` / ``private_token`` / ``commit_msg``) and the cloudmap sections (``repositories``, ``artifacts``, ``services``, ``instantiations``, ``components``, ``types``).
 ///
 /// Each section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.
+///
+/// When an edit POSTed to this endpoint is contradicted by a change in the file itself, neither side overwrites the other: a GET keeps returning the edit, the file keeps its own version, and the record is not written back to the file until the conflict is settled. Send ``unfurl.server.resolve: true`` on the record to resolve any conflicting changes in favour of this write. Leaving the flag off updates the record but leaves the conflict outstanding.
 ///
 /// The body is validated against ``docs/cloudmap-schema.json`` (a 422 is returned on schema violation). On success the file is committed locally (no push) and the new commit oid is returned.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]

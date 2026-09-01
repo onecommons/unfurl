@@ -533,11 +533,11 @@ class CloudMapDocument(BaseModel):
     element** for GET ``/cloudmap`` and as the **request body** for
     POST ``/cloudmap``.
 
-    For POST, deletes are signalled by an ``unfurl.server.deleted:
-    true`` flag on the record (handled by the endpoint after schema
-    validation passes). Record values must always be objects.
+    The model has no declared fields — they are replaced wholesale by
+    :func:`hoist_cloudmap_definitions` (registered as a
+    ``@app.spec_processor``) with the contents of
+    ``unfurl/cloudmap/cloudmap-schema.json``.
     """
-
     # The model has no declared fields — APIFlask emits an empty stub
     # in the OpenAPI spec, which is then replaced wholesale by
     # :func:`hoist_cloudmap_definitions` (registered as a
