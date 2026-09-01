@@ -10,13 +10,13 @@
 //! the file yet. Where the two disagree, [`crate::conflict`] decides
 //! what that means and records it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use crate::conflict::{
     classify_conflict, drop_conflict_row, read_base_docs, record_id, refresh_conflict_row,
     TheirSide,
 };
-use crate::db::{self, RecordId};
+use crate::db;
 use crate::error::{Error, Result};
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
 use crate::sync::SyncedRepo;
@@ -59,6 +59,309 @@ pub(crate) struct ScannedFile<'a> {
 pub(crate) struct ParsedDoc<'a> {
     pub(crate) format: &'a dyn crate::format::DataFormat,
     pub(crate) value: serde_json::Value,
+}
+
+/// What deciding one record's fate needs beyond the transaction.
+///
+/// The two reconcile passes — one for a record the file still holds, one
+/// for a record it dropped — ask the same questions of the same four
+/// things, so they hang off one context rather than taking a fistful of
+/// positional arguments each.
+struct Reconcile<'a> {
+    sync: &'a SyncedRepo,
+    file: &'a ScannedFile<'a>,
+    /// The file's content at each base commit an in-flight row names.
+    base_docs: &'a HashMap<String, Option<serde_json::Value>>,
+    /// The file's side of every divergence already on record, so a scan
+    /// can refresh one, let a resolution stand, or drop one whose reason
+    /// has gone away.
+    conflicts: &'a std::collections::BTreeMap<(String, String), db::tx::ConflictRecord>,
+}
+
+/// A pending row's content at the commit its edit was based on.
+///
+/// `None` whenever any step of the lookup is missing — no base, an
+/// unreadable one, or a base that had no such record. Both passes need
+/// it, and [`classify_conflict`] reads a `None` as diverged.
+fn base_value<'a>(
+    base_docs: &'a HashMap<String, Option<serde_json::Value>>,
+    base_commit_id: Option<&str>,
+    path: &str,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    base_docs
+        .get(base_commit_id?)?
+        .as_ref()?
+        .get(path.trim_start_matches('/'))?
+        .get(key)
+}
+
+/// The `(path, key, value)` of every record a parsed document holds,
+/// under each path prefix its format claims.
+fn document_records(
+    value: &serde_json::Value,
+    format: &dyn crate::format::DataFormat,
+) -> Vec<(String, String, serde_json::Value)> {
+    let mut records: Vec<(String, String, serde_json::Value)> = Vec::new();
+    for prefix in format.path_prefixes() {
+        let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
+            continue;
+        };
+        for (key, child) in section {
+            records.push((format!("/{prefix}"), key.clone(), child.clone()));
+        }
+    }
+    records
+}
+
+impl Reconcile<'_> {
+    /// Whether the trailer on the file's last commit settles a
+    /// divergence involving this row.
+    ///
+    /// Only ever consulted once the row is *known* to diverge: an
+    /// ordinary unsaved edit is not something the file's author had to
+    /// resolve, and overwriting it from a file that still holds its base
+    /// would destroy work for nothing.
+    fn resolved_by_trailer(&self, p: &db::tx::PendingRecord) -> bool {
+        self.file.resolves_version.is_some_and(|n| p.version <= n)
+    }
+
+    /// What the file holding `child` at `at` means for the row already
+    /// there.
+    ///
+    /// `true` says the file's value is the database's to take: nothing
+    /// in-flight stands in its way, or something did and the file's author
+    /// settled it. `false` leaves the row alone — the caller must not write.
+    /// Either way any conflict row for the key is left describing the
+    /// current state of the disagreement, or dropped when there no longer is
+    /// one.
+    async fn present<DB>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: &(String, String),
+        child: &serde_json::Value,
+        pending: Option<&db::tx::PendingRecord>,
+        stats: &mut SyncOutcome,
+    ) -> Result<bool>
+    where
+        DB: db::tx::Dialect,
+        for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+        (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    {
+        let (path, key) = at;
+        let id = record_id(self.sync, self.file.rel_path, path, key);
+        let existing = self.conflicts.get(at);
+        // No in-flight row to protect, or an operator who has declared the
+        // working tree authoritative: the file is simply taken in.
+        let Some(p) = pending.filter(|_| !self.file.force) else {
+            drop_conflict_row(tx, self.sync, id, existing).await?;
+            return Ok(true);
+        };
+        // A resolution the file has not invalidated stands: the client
+        // already chose, and the write applies it.
+        if matches!(existing, Some(c)
+        if c.state == ConflictState::Resolved && !c.deleted && c.json == *child)
+        {
+            stats.records_preserved += 1;
+            return Ok(false);
+        }
+        let base = base_value(self.base_docs, p.base_commit_id.as_deref(), path, key);
+        match classify_conflict(
+            &p.json,
+            p.deleted,
+            p.base_commit_id.is_some(),
+            base,
+            Some(child),
+        ) {
+            // The author of the file's last commit settled this one.
+            Some(_) if self.resolved_by_trailer(p) => {
+                tracing::info!(
+                    file = %self.file.rel_path, path = %path, key = %key,
+                    "conflict resolved by the file's Git-Sync-Resolves-Version trailer"
+                );
+                drop_conflict_row(tx, self.sync, id, existing).await?;
+                Ok(true)
+            }
+            Some(kind) => {
+                stats.records_preserved += 1;
+                tracing::warn!(
+                    file = %self.file.rel_path, path = %path, key = %key, kind = ?kind,
+                    "file diverges from a pending edit; keeping both sides"
+                );
+                refresh_conflict_row(
+                    tx,
+                    self.sync,
+                    id,
+                    TheirSide {
+                        json: child,
+                        deleted: false,
+                        commit_id: self.file.file_commit_id,
+                    },
+                    existing,
+                )
+                .await?;
+                stats.conflicts.push(RecordConflict {
+                    file_path: self.file.rel_path.to_string(),
+                    path: path.clone(),
+                    key: key.clone(),
+                    kind,
+                    base_commit_id: p.base_commit_id.clone(),
+                    theirs: Some(child.clone()),
+                });
+                Ok(false)
+            }
+            // The two sides agree after all — any conflict row for this key
+            // describes a divergence that is over.
+            None => {
+                stats.records_preserved += 1;
+                drop_conflict_row(tx, self.sync, id, existing).await?;
+                Ok(false)
+            }
+        }
+    }
+
+    /// What the file no longer holding `at` means for the in-flight row that
+    /// still does.
+    ///
+    /// `true` keeps the row out of the trailing [`db::tx::delete_missing`] —
+    /// either both sides agree the record goes, or they disagree and the
+    /// disagreement is now on record. `false` lets the delete take it.
+    async fn absent<DB>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: &(String, String),
+        p: &db::tx::PendingRecord,
+        stats: &mut SyncOutcome,
+    ) -> Result<bool>
+    where
+        DB: db::tx::Dialect,
+        for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+        (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    {
+        let (path, key) = at;
+        let id = record_id(self.sync, self.file.rel_path, path, key);
+        let existing = self.conflicts.get(at);
+        if self.file.force {
+            drop_conflict_row(tx, self.sync, id, existing).await?;
+            return Ok(false);
+        }
+        // The tombstone-shaped resolution: the client chose its own row over
+        // the file having dropped the record.
+        if matches!(existing, Some(c) if c.state == ConflictState::Resolved && c.deleted) {
+            stats.records_preserved += 1;
+            return Ok(true);
+        }
+        match classify_conflict(&p.json, p.deleted, p.base_commit_id.is_some(), None, None) {
+            // The file dropped the record and the author of its last commit
+            // said that settles it.
+            Some(_) if self.resolved_by_trailer(p) => {
+                tracing::info!(
+                    file = %self.file.rel_path, path = %path, key = %key,
+                    "deletion resolved by the file's Git-Sync-Resolves-Version trailer"
+                );
+                drop_conflict_row(tx, self.sync, id, existing).await?;
+                Ok(false)
+            }
+            Some(kind) => {
+                stats.records_preserved += 1;
+                tracing::warn!(
+                    file = %self.file.rel_path, path = %path, key = %key,
+                    "record deleted from file under a pending edit; keeping both sides"
+                );
+                // The conflict row's json is NOT NULL and the file has no
+                // value to give it, so it holds the one the file dropped —
+                // the same reading a tombstone's json has.
+                let dropped = base_value(self.base_docs, p.base_commit_id.as_deref(), path, key)
+                    .unwrap_or(&p.json);
+                refresh_conflict_row(
+                    tx,
+                    self.sync,
+                    id,
+                    TheirSide {
+                        json: dropped,
+                        deleted: true,
+                        commit_id: self.file.file_commit_id,
+                    },
+                    existing,
+                )
+                .await?;
+                stats.conflicts.push(RecordConflict {
+                    file_path: self.file.rel_path.to_string(),
+                    path: path.clone(),
+                    key: key.clone(),
+                    kind,
+                    base_commit_id: p.base_commit_id.clone(),
+                    theirs: None,
+                });
+                Ok(true)
+            }
+            // An unsaved create, or a tombstone the file already agrees
+            // with: nothing to disagree about, so it is simply kept.
+            None => {
+                stats.records_preserved += 1;
+                drop_conflict_row(tx, self.sync, id, existing).await?;
+                Ok(true)
+            }
+        }
+    }
+
+    /// Take the file's value for one record: draw a version, upsert the row,
+    /// and replace its aliases.
+    async fn write_record<DB>(
+        &self,
+        tx: &mut sqlx::Transaction<'_, DB>,
+        at: &(String, String),
+        child: serde_json::Value,
+        stats: &mut SyncOutcome,
+    ) -> Result<()>
+    where
+        DB: db::tx::Dialect,
+        for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+        for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+        for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+        (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+    {
+        let (path, key) = at;
+        let json_text = serde_json::to_string(&child).map_err(|e| Error::Json {
+            path: path.clone(),
+            source: e,
+        })?;
+        let version = db::tx::next_version(tx, self.sync.family_id(), 1).await?;
+        let id = db::tx::sync_upsert_record(
+            tx,
+            record_id(self.sync, self.file.rel_path, path, key),
+            &json_text,
+            self.file.record_commit_id,
+            version,
+        )
+        .await?;
+        stats.records_upserted += 1;
+
+        let record = Record {
+            id,
+            worktree_id: self.sync.worktree_id(),
+            file_path: self.file.rel_path.to_string(),
+            path: path.clone(),
+            key: key.clone(),
+            commit_id: self.file.record_commit_id.map(|s| s.to_string()),
+            json: child,
+            deleted: false,
+            version,
+            conflict: None,
+        };
+        db::tx::replace_aliases(tx, id, &self.file.format.find_alias(&record)).await?;
+        Ok(())
+    }
 }
 
 /// Transactional body of [`SyncedRepo::upsert_file_and_records`]: one
@@ -127,17 +430,6 @@ where
     (i64, String, String, String, i64, String):
         for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
-    let ScannedFile {
-        rel_path,
-        record_commit_id,
-        file_commit_id,
-        source_oid,
-        value,
-        format,
-        force,
-        resolves_version,
-    } = file;
-
     // Everything that doesn't depend on a read inside the transaction
     // is done before it opens. `upsert_file` below takes SQLite's
     // single write lock immediately, so anything after it is holding
@@ -145,19 +437,7 @@ where
 
     // Extracting the records from the parsed document depends only on
     // the document and its format.
-    let mut new_keys: BTreeSet<(String, String)> = BTreeSet::new();
-    let mut to_upsert: Vec<(String, String, serde_json::Value)> = Vec::new();
-    for prefix in format.path_prefixes() {
-        let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
-            continue;
-        };
-        for (key, child) in section {
-            let path = format!("/{prefix}");
-            let key = key.clone();
-            new_keys.insert((path.clone(), key.clone()));
-            to_upsert.push((path, key, child.clone()));
-        }
-    }
+    let to_upsert = document_records(file.value, file.format);
 
     // Base-commit content for the file's in-flight rows. Whether the
     // file diverges from a pending edit is a *three-way* question —
@@ -174,8 +454,8 @@ where
     // conservative "unknown base" path.
     let mut base_docs = read_base_docs(
         sync,
-        rel_path,
-        db::record::pending_bases(sync.db(), sync.worktree_id(), rel_path)
+        file.rel_path,
+        db::record::pending_bases(sync.db(), sync.worktree_id(), file.rel_path)
             .await?
             .into_values()
             .flatten()
@@ -188,32 +468,23 @@ where
     db::tx::upsert_file(
         &mut tx,
         sync.worktree_id(),
-        rel_path,
-        format.name(),
-        file_commit_id,
-        source_oid,
+        file.rel_path,
+        file.format.name(),
+        file.file_commit_id,
+        file.source_oid,
     )
     .await?;
 
     let pending: std::collections::BTreeMap<(String, String), db::tx::PendingRecord> =
-        db::tx::list_pending_records(&mut tx, sync.worktree_id(), rel_path)
+        db::tx::list_pending_records(&mut tx, sync.worktree_id(), file.rel_path)
             .await?
             .into_iter()
             .map(|p| ((p.path.clone(), p.key.clone()), p))
             .collect();
-    let committed = db::tx::list_committed_records(&mut tx, sync.worktree_id(), rel_path).await?;
-    // The file's side of every divergence already on record, so this
-    // scan can refresh one, let a resolution stand, or drop one whose
-    // reason has gone away.
+    let committed =
+        db::tx::list_committed_records(&mut tx, sync.worktree_id(), file.rel_path).await?;
     let conflict_rows =
-        db::tx::list_conflict_records(&mut tx, sync.worktree_id(), rel_path).await?;
-    // Whether the trailer on the file's last commit settles a
-    // divergence involving this row. Only ever consulted once the row
-    // is *known* to diverge: an ordinary unsaved edit is not something
-    // the file's author had to resolve, and overwriting it from a file
-    // that still holds its base would destroy work for nothing.
-    let resolved_by_trailer =
-        |p: &db::tx::PendingRecord| resolves_version.is_some_and(|n| p.version <= n);
+        db::tx::list_conflict_records(&mut tx, sync.worktree_id(), file.rel_path).await?;
 
     // Bases for rows that became pending since the cache was warmed
     // above. Normally empty, so normally no gix work in here.
@@ -224,152 +495,41 @@ where
         .filter(|commit| !base_docs.contains_key(*commit))
         .map(str::to_string)
         .collect();
-    base_docs.extend(read_base_docs(sync, rel_path, missed));
+    base_docs.extend(read_base_docs(sync, file.rel_path, missed));
+
+    let reconcile = Reconcile {
+        sync,
+        file: &file,
+        base_docs: &base_docs,
+        conflicts: &conflict_rows,
+    };
+
+    // Every key the file holds, so the trailing delete leaves them
+    // alone. Built before the loop below consumes the records.
+    let mut keep: BTreeSet<(String, String)> = to_upsert
+        .iter()
+        .map(|(path, key, _)| (path.clone(), key.clone()))
+        .collect();
 
     for (path, key, child) in to_upsert {
-        let at = (path.clone(), key.clone());
-        let existing = conflict_rows.get(&at);
-        // No in-flight row to protect, or an operator who has declared
-        // the working tree authoritative: the file is simply taken in.
-        let mut take_file = !pending.contains_key(&at) || force;
-        if take_file {
-            drop_conflict_row(
-                &mut tx,
-                sync,
-                record_id(sync, rel_path, &path, &key),
-                existing,
-            )
-            .await?;
-        } else {
-            let p = &pending[&at];
-            // A resolution the file has not invalidated stands: the
-            // client already chose, and the write applies it.
-            if matches!(existing, Some(c)
-                if c.state == ConflictState::Resolved && !c.deleted && c.json == child)
-            {
-                stats.records_preserved += 1;
-                continue;
-            }
-            let base_value = p
-                .base_commit_id
-                .as_deref()
-                .and_then(|base| base_docs.get(base))
-                .and_then(|doc| doc.as_ref())
-                .and_then(|doc| doc.get(path.trim_start_matches('/')))
-                .and_then(|section| section.get(key.as_str()));
-            match classify_conflict(
-                &p.json,
-                p.deleted,
-                p.base_commit_id.is_some(),
-                base_value,
-                Some(&child),
-            ) {
-                // The author of the file's last commit settled this one.
-                Some(_) if resolved_by_trailer(p) => {
-                    tracing::info!(
-                        file = %rel_path, path = %path, key = %key,
-                        "conflict resolved by the file's Git-Sync-Resolves-Version trailer"
-                    );
-                    drop_conflict_row(
-                        &mut tx,
-                        sync,
-                        record_id(sync, rel_path, &path, &key),
-                        existing,
-                    )
-                    .await?;
-                    take_file = true;
-                }
-                Some(kind) => {
-                    stats.records_preserved += 1;
-                    tracing::warn!(
-                        file = %rel_path, path = %path, key = %key, kind = ?kind,
-                        "file diverges from a pending edit; keeping both sides"
-                    );
-                    refresh_conflict_row(
-                        &mut tx,
-                        sync,
-                        record_id(sync, rel_path, &path, &key),
-                        TheirSide {
-                            json: &child,
-                            deleted: false,
-                            commit_id: file_commit_id,
-                        },
-                        existing,
-                    )
-                    .await?;
-                    stats.conflicts.push(RecordConflict {
-                        file_path: rel_path.to_string(),
-                        path,
-                        key,
-                        kind,
-                        base_commit_id: p.base_commit_id.clone(),
-                        theirs: Some(child),
-                    });
-                    continue;
-                }
-                // The two sides agree after all — any conflict row for
-                // this key describes a divergence that is over.
-                None => {
-                    stats.records_preserved += 1;
-                    drop_conflict_row(
-                        &mut tx,
-                        sync,
-                        record_id(sync, rel_path, &path, &key),
-                        existing,
-                    )
-                    .await?;
-                    continue;
-                }
-            }
+        let at = (path, key);
+        if !reconcile
+            .present(&mut tx, &at, &child, pending.get(&at), stats)
+            .await?
+        {
+            continue;
         }
-        debug_assert!(take_file);
         // A record matching what the database already holds — same
         // value, same commit attribution — is left alone. Drawing a
         // version here would report it via `list_changes` and
         // invalidate `Pending` OCC tokens for records that merely
         // share a file with the actual change.
-        if committed
-            .get(&(path.clone(), key.clone()))
-            .is_some_and(|(json, commit)| {
-                *json == child && Some(commit.as_str()) == record_commit_id
-            })
-        {
+        if committed.get(&at).is_some_and(|(json, commit)| {
+            *json == child && Some(commit.as_str()) == file.record_commit_id
+        }) {
             continue;
         }
-        let json_text = serde_json::to_string(&child).map_err(|e| Error::Json {
-            path: path.clone(),
-            source: e,
-        })?;
-        let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
-        let id = db::tx::sync_upsert_record(
-            &mut tx,
-            RecordId {
-                worktree_id: sync.worktree_id(),
-                file_path: rel_path,
-                path: &path,
-                key: &key,
-            },
-            &json_text,
-            record_commit_id,
-            version,
-        )
-        .await?;
-        stats.records_upserted += 1;
-
-        // Aliases.
-        let record = Record {
-            id,
-            worktree_id: sync.worktree_id(),
-            file_path: rel_path.to_string(),
-            path: path.clone(),
-            key: key.clone(),
-            commit_id: record_commit_id.map(|s| s.to_string()),
-            json: child,
-            deleted: false,
-            version,
-            conflict: None,
-        };
-        db::tx::replace_aliases(&mut tx, id, &format.find_alias(&record)).await?;
+        reconcile.write_record(&mut tx, &at, child, stats).await?;
     }
 
     // Pending rows the file no longer (or never) contains survive the
@@ -377,100 +537,12 @@ where
     // disk deleted out from under a client edit — report it. Without a
     // base it's an unsaved create, added on the next save; a tombstone
     // means both sides agree the record goes.
-    let mut keep = new_keys;
     for (at, p) in &pending {
         if keep.contains(at) {
             continue; // in the file; the upsert loop handled it
         }
-        let (path, key) = at;
-        let existing = conflict_rows.get(at);
-        if force {
-            // Left out of `keep`, so the hard delete below takes it.
-            drop_conflict_row(
-                &mut tx,
-                sync,
-                record_id(sync, rel_path, path, key),
-                existing,
-            )
-            .await?;
-            continue;
-        }
-        // The tombstone-shaped resolution: the client chose its own row
-        // over the file having dropped the record.
-        if matches!(existing, Some(c) if c.state == ConflictState::Resolved && c.deleted) {
+        if reconcile.absent(&mut tx, at, p, stats).await? {
             keep.insert(at.clone());
-            stats.records_preserved += 1;
-            continue;
-        }
-        match classify_conflict(&p.json, p.deleted, p.base_commit_id.is_some(), None, None) {
-            // The file dropped the record and the author of its last
-            // commit said that settles it.
-            Some(_) if resolved_by_trailer(p) => {
-                tracing::info!(
-                    file = %rel_path, path = %path, key = %key,
-                    "deletion resolved by the file's Git-Sync-Resolves-Version trailer"
-                );
-                drop_conflict_row(
-                    &mut tx,
-                    sync,
-                    record_id(sync, rel_path, path, key),
-                    existing,
-                )
-                .await?;
-                continue;
-            }
-            Some(kind) => {
-                keep.insert(at.clone());
-                stats.records_preserved += 1;
-                tracing::warn!(
-                    file = %rel_path, path = %path, key = %key,
-                    "record deleted from file under a pending edit; keeping both sides"
-                );
-                // The conflict row's json is NOT NULL and the file has
-                // no value to give it, so it holds the one the file
-                // dropped — the same reading a tombstone's json has.
-                let dropped = p
-                    .base_commit_id
-                    .as_deref()
-                    .and_then(|base| base_docs.get(base))
-                    .and_then(|doc| doc.as_ref())
-                    .and_then(|doc| doc.get(path.trim_start_matches('/')))
-                    .and_then(|section| section.get(key.as_str()))
-                    .unwrap_or(&p.json);
-                refresh_conflict_row(
-                    &mut tx,
-                    sync,
-                    record_id(sync, rel_path, path, key),
-                    TheirSide {
-                        json: dropped,
-                        deleted: true,
-                        commit_id: file_commit_id,
-                    },
-                    existing,
-                )
-                .await?;
-                stats.conflicts.push(RecordConflict {
-                    file_path: rel_path.to_string(),
-                    path: path.clone(),
-                    key: key.clone(),
-                    kind,
-                    base_commit_id: p.base_commit_id.clone(),
-                    theirs: None,
-                });
-            }
-            // An unsaved create, or a tombstone the file already agrees
-            // with: nothing to disagree about, so it is simply kept.
-            None => {
-                keep.insert(at.clone());
-                stats.records_preserved += 1;
-                drop_conflict_row(
-                    &mut tx,
-                    sync,
-                    record_id(sync, rel_path, path, key),
-                    existing,
-                )
-                .await?;
-            }
         }
     }
 
@@ -483,7 +555,7 @@ where
             drop_conflict_row(
                 &mut tx,
                 sync,
-                record_id(sync, rel_path, path, key),
+                record_id(sync, file.rel_path, path, key),
                 Some(row),
             )
             .await?;
@@ -491,7 +563,7 @@ where
     }
 
     // Delete records that used to be in the file but are gone now.
-    let removed = db::tx::delete_missing(&mut tx, sync.worktree_id(), rel_path, &keep).await?;
+    let removed = db::tx::delete_missing(&mut tx, sync.worktree_id(), file.rel_path, &keep).await?;
     stats.records_deleted += removed;
 
     tx.commit().await?;
