@@ -5562,6 +5562,73 @@ async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 
+/// The same resolution, but with the scan actually reading the file.
+///
+/// The rescan above skips it -- nothing on disk moved since the conflict
+/// -- so it never reaches the keep-set decision. An unrelated edit
+/// elsewhere in the file gives the scan a reason to look, and a resolved
+/// tombstone left out of the keep set is hard-deleted by
+/// `delete_missing`: the resolution is lost before the write can apply
+/// it.
+async fn run_a_rescan_keeps_a_resolved_deletion(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    sync.update_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        serde_json::json!({"name": "ours"}),
+        None,
+        false,
+    )
+    .await
+    .expect("update");
+    set_record_on_disk(tmp, DASHBOARD, None);
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
+    sync.resolve_conflict(
+        "cloudmap.yaml",
+        "/repositories",
+        DASHBOARD,
+        Resolution::Ours,
+        None,
+    )
+    .await
+    .expect("resolve");
+
+    set_record_on_disk(
+        tmp,
+        "git://example.com/unrelated.git",
+        Some(serde_json::json!({"name": "unrelated"})),
+    );
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
+    assert!(scan.conflicts.is_empty(), "{scan:?}");
+
+    let ours = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get");
+    assert!(
+        ours.is_some(),
+        "the scan dropped the row the resolution was holding open"
+    );
+    assert_eq!(ours.expect("present").json["name"], "ours");
+    assert_eq!(
+        only_conflict(sync).await.conflict,
+        Some(ConflictState::Resolved)
+    );
+
+    sync.save_changes().await.expect("save");
+    assert_eq!(dashboard_on_disk(tmp)["name"], "ours", "put back");
+}
+
 async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -5693,6 +5760,10 @@ crud_test!(
 crud_test!(
     resolve_ours_keeps_a_record_the_file_dropped,
     run_resolve_ours_keeps_a_record_the_file_dropped
+);
+crud_test!(
+    a_rescan_keeps_a_resolved_deletion,
+    run_a_rescan_keeps_a_resolved_deletion
 );
 crud_test!(
     an_add_add_conflict_has_no_base,
