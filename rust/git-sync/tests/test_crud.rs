@@ -4589,9 +4589,14 @@ crud_test!(
 // tombstone purge, a divergence ending on its own, `ScanOptions::force`,
 // and the `Git-Sync-Resolves-Version` trailer.
 
-/// Rewrite a record's `name` on disk, by its current value.
+/// Rewrite a record's `name` in `cloudmap.yaml`, by its current value.
 fn rename_name(tmp: &TempDir, from: &str, to: &str) {
-    let path = tmp.path().join("cloudmap.yaml");
+    rename_name_in(tmp, "cloudmap.yaml", from, to);
+}
+
+/// The same, in a named file.
+fn rename_name_in(tmp: &TempDir, file: &str, from: &str, to: &str) {
+    let path = tmp.path().join(file);
     let before = std::fs::read_to_string(&path).expect("read");
     let edited = before.replace(&format!("name: {from}"), &format!("name: {to}"));
     assert_ne!(edited, before, "expected `name: {from}` on disk");
@@ -5538,4 +5543,203 @@ crud_test!(
 crud_test!(
     a_record_written_back_undoes_a_file_deletion,
     run_a_record_written_back_undoes_a_file_deletion
+);
+
+async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let before = sync
+        .find_records(&RecordQuery::default())
+        .await
+        .expect("find")
+        .len();
+    assert!(before > 0);
+
+    // Unlinked but still in the index -- a plain `rm`.
+    std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.files_deleted, 1, "{scan:?}");
+    assert!(
+        sync.find_records(&RecordQuery::default())
+            .await
+            .expect("find")
+            .is_empty(),
+        "its records went with it"
+    );
+    assert!(
+        sync.get_file("cloudmap.yaml")
+            .await
+            .expect("get")
+            .expect("row")
+            .deleted,
+        "the database owes git the removal"
+    );
+
+    let oid = sync
+        .commit_repository("drop it")
+        .await
+        .expect("commit")
+        .expect("the working tree lost a file git still has");
+    let repo = unfurl_git_sync::git::open_repo(tmp.path()).expect("open");
+    assert!(
+        unfurl_git_sync::git::read_blob_at_commit(&repo, &oid, "cloudmap.yaml")
+            .expect("read")
+            .is_none()
+    );
+    assert!(
+        sync.get_file("cloudmap.yaml").await.expect("get").is_none(),
+        "and the row is purged"
+    );
+}
+
+async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
+    git(tmp.path(), &["rm", "--cached", "cloudmap.yaml"]);
+    git(
+        tmp.path(),
+        &[
+            "-c",
+            "user.email=t@example.com",
+            "-c",
+            "user.name=Tester",
+            "commit",
+            "-m",
+            "remove it by hand",
+        ],
+    );
+    let head = head_commit(sync).await;
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.files_deleted, 1, "{scan:?}");
+    // git already records the removal, so there is nothing to commit --
+    // but the row still has to go.
+    assert_eq!(
+        sync.commit_repository("nothing to do")
+            .await
+            .expect("commit"),
+        None
+    );
+    assert_eq!(head_commit(sync).await, head, "HEAD did not move");
+    assert!(sync.get_file("cloudmap.yaml").await.expect("get").is_none());
+}
+
+async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+        )
+        .await
+        .expect("update");
+    std::fs::remove_file(tmp.path().join("cloudmap.yaml")).expect("rm");
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyDelete);
+    let row = sync
+        .get_record_by_id(write.id)
+        .await
+        .expect("get")
+        .expect("the edit is not collateral of the file going");
+    assert_eq!(row.json["name"], "ours");
+    assert!(!row.deleted);
+}
+
+async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    let before = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present");
+    // A pending edit, to prove its OCC token survives the move.
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://unfurl.cloud/onecommons/std.git",
+            serde_json::json!({"name": "edited"}),
+            None,
+        )
+        .await
+        .expect("update");
+    git(tmp.path(), &["mv", "cloudmap.yaml", "moved.yaml"]);
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert_eq!(
+        scan.files_renamed,
+        vec![("cloudmap.yaml".to_string(), "moved.yaml".to_string())],
+        "{scan:?}"
+    );
+    assert!(scan.conflicts.is_empty(), "a move is not a divergence");
+    assert_eq!(scan.files_deleted, 0, "{scan:?}");
+
+    let after = sync
+        .get_record("moved.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("present at the new path");
+    assert_eq!(after.id, before.id, "same row, not a fresh one");
+    assert_eq!(after.version, before.version, "and the same version");
+    assert!(sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .is_none());
+
+    // The token minted before the move is still good after it.
+    sync.update_record(
+        Some("moved.yaml"),
+        "/repositories",
+        "git://unfurl.cloud/onecommons/std.git",
+        serde_json::json!({"name": "edited again"}),
+        Some(CommitRef::Pending(write.version)),
+    )
+    .await
+    .expect("the pending token survived the rename");
+}
+
+async fn run_a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir().await.expect("update");
+    git(tmp.path(), &["mv", "cloudmap.yaml", "moved.yaml"]);
+    // The bytes no longer match, so there is nothing to pair on and the
+    // honest answer is delete-and-add.
+    rename_name_in(tmp, "moved.yaml", "dashboard", "moved-and-edited");
+
+    let scan = sync.update_from_working_dir().await.expect("rescan");
+    assert!(scan.files_renamed.is_empty(), "{scan:?}");
+    assert_eq!(scan.files_deleted, 1, "{scan:?}");
+    assert_eq!(
+        sync.get_record("moved.yaml", "/repositories", DASHBOARD)
+            .await
+            .expect("get")
+            .expect("present")
+            .json["name"],
+        "moved-and-edited"
+    );
+}
+
+crud_test!(
+    a_deleted_file_is_taken_in_and_committed,
+    run_a_deleted_file_is_taken_in_and_committed
+);
+crud_test!(
+    a_deletion_already_in_git_makes_no_commit,
+    run_a_deletion_already_in_git_makes_no_commit
+);
+crud_test!(
+    a_pending_edit_survives_the_file_being_deleted,
+    run_a_pending_edit_survives_the_file_being_deleted
+);
+crud_test!(
+    a_renamed_file_keeps_its_records,
+    run_a_renamed_file_keeps_its_records
+);
+crud_test!(
+    a_move_that_also_edits_is_not_a_rename,
+    run_a_move_that_also_edits_is_not_a_rename
 );

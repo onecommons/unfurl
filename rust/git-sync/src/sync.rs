@@ -113,6 +113,34 @@ impl SyncedRepo {
     /// repo handle is then dropped — each subsequent call re-opens via
     /// `gix::open` to keep `Send` guarantees out of long-lived state.
     ///
+    ///
+    /// `options` can give the working tree the last word over in-flight
+    /// edits, in two ways that answer different questions.
+    /// [`ScanOptions::force`] is the operator's blanket assertion that
+    /// the working tree is right: every in-flight row it reaches is
+    /// overwritten from the file, in conflict or not.
+    ///
+    /// The other is per record and comes from git itself: a
+    /// `Git-Sync-Resolves-Version: N` trailer on the commit that last
+    /// touched a file lets whoever wrote that commit settle the
+    /// conflicts they knew about. It applies only where the two sides
+    /// actually **diverge**, and only to rows at `version <= N`:
+    ///
+    /// - a diverged row at `version <= N` is overwritten from the file
+    ///   and its conflict row dropped — the author saw this one;
+    /// - a diverged row written since (a higher version: the client has
+    ///   moved on) is preserved and re-reported;
+    /// - a row that merely has unsaved edits is untouched. The file
+    ///   still holds what that edit was based on, so there is nothing
+    ///   for the author to have resolved and overwriting it would
+    ///   discard work no one disagreed with. This is narrower than
+    ///   `force` deliberately.
+    ///
+    /// A conflict the client has already marked
+    /// [`ConflictState::Resolved`] also stands: that decision was made
+    /// knowing about the divergence, which the trailer's author cannot
+    /// have been. Only the last commit touching the path is consulted,
+    /// so an older trailer stops applying once the file moves again.
     /// # Errors
     ///
     /// Returns [`crate::Error::Db`] / [`crate::Error::Migrate`] for
@@ -222,20 +250,8 @@ impl SyncedRepo {
     /// value (see [`crate::ConflictState`] and
     /// [`upsert_file_and_records_inner`]).
     ///
-    /// # Errors
-    ///
-    /// Returns [`crate::Error::Yaml`] / [`crate::Error::Json`] when a
-    /// tracked file fails to parse, or any underlying git / database
-    /// error.
-    pub async fn update_from_working_dir(&self) -> Result<SyncOutcome> {
-        self.update_from_working_dir_with(&ScanOptions::default())
-            .await
-    }
-
-    /// [`Self::update_from_working_dir`] with the working tree given the
-    /// last word over in-flight edits where `options` says so.
-    ///
-    /// Two ways to say it, and they answer different questions.
+    /// `options` can hand the working tree the last word over those
+    /// edits, in two ways that answer different questions.
     /// [`ScanOptions::force`] is the operator's blanket assertion that
     /// the working tree is right: every in-flight row it reaches is
     /// overwritten from the file, in conflict or not.
@@ -261,6 +277,19 @@ impl SyncedRepo {
     /// knowing about the divergence, which the trailer's author cannot
     /// have been. Only the last commit touching the path is consulted,
     /// so an older trailer stops applying once the file moves again.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::Error::Yaml`] / [`crate::Error::Json`] when a
+    /// tracked file fails to parse, or any underlying git / database
+    /// error.
+    pub async fn update_from_working_dir(&self) -> Result<SyncOutcome> {
+        self.update_from_working_dir_with(&ScanOptions::default())
+            .await
+    }
+
+    /// [`Self::update_from_working_dir`] with the working tree given the
+    /// last word over in-flight edits where `options` says so.
     pub async fn update_from_working_dir_with(&self, options: &ScanOptions) -> Result<SyncOutcome> {
         // HEAD is read before the scan so the commit stamped below is
         // one the scan actually saw.
@@ -327,8 +356,15 @@ impl SyncedRepo {
         let mut candidates: Vec<Candidate<'_>> = Vec::new();
         let mut walk_paths: Vec<String> = Vec::new();
 
+        // What the index still carries, so the database's picture can be
+        // compared against it below.
+        let mut indexed: std::collections::HashSet<&str> =
+            std::collections::HashSet::with_capacity(tracked.len());
+        let mut vanished: std::collections::HashSet<String> = std::collections::HashSet::new();
+
         for tf in &tracked {
             stats.files_seen += 1;
+            indexed.insert(tf.rel_path.as_str());
 
             let Some(syntax) = Syntax::for_extension(&extract_ext(&tf.rel_path)) else {
                 continue;
@@ -336,6 +372,13 @@ impl SyncedRepo {
 
             let bytes = match std::fs::read(&tf.abs_path) {
                 Ok(b) => b,
+                // Still in the index, gone from the working tree: a
+                // plain `rm`. Every other read failure leaves the file
+                // alone rather than reading as a deletion.
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    vanished.insert(tf.rel_path.clone());
+                    continue;
+                }
                 Err(_) => continue,
             };
 
@@ -386,6 +429,50 @@ impl SyncedRepo {
                 parsed_doc,
                 db_commit,
             });
+        }
+
+        // Files the database knows and the working tree no longer has,
+        // either because the index dropped them or because the file
+        // itself is gone.
+        let mut orphans: Vec<String> = known_files
+            .keys()
+            .filter(|path| !indexed.contains(path.as_str()) || vanished.contains(*path))
+            .cloned()
+            .collect();
+        orphans.sort();
+
+        // A rename is an orphan and a brand-new path holding the exact
+        // bytes the orphan's records were parsed from. Exact-content
+        // only: git's own first pass, but runnable against states git
+        // cannot see, such as an uncommitted move or a dirty file whose
+        // blob was never written to the object database. A move that
+        // also edited the file, or an ambiguity in either direction,
+        // falls back to delete-and-add -- noisier, but never a guess.
+        if !orphans.is_empty() {
+            let arrivals: Vec<(&str, &str)> = candidates
+                .iter()
+                .filter(|c| !known_files.contains_key(&c.tf.rel_path))
+                .map(|c| (c.tf.rel_path.as_str(), c.disk_blob.as_str()))
+                .collect();
+            let renames = crate::scan::match_renames(&orphans, &known_files, &arrivals);
+            for (from, to) in renames {
+                db::file::rename(self.db(), self.worktree_id(), &from, &to).await?;
+                orphans.retain(|p| *p != from);
+                // The destination now *is* the row that just moved, and
+                // its bytes are the ones already taken in. Dropping the
+                // parse sends it down the reattribute branch in pass 2,
+                // which is what keeps the records' ids and versions.
+                if let Some(c) = candidates.iter_mut().find(|c| c.tf.rel_path == to) {
+                    c.parsed_doc = None;
+                    c.db_commit = known_files[&from].commit_id.clone();
+                }
+                stats.files_renamed.push((from, to));
+            }
+        }
+
+        for path in &orphans {
+            self.take_in_deletion(path, &known_files[path], &mut stats)
+                .await?;
         }
 
         // Second pass: resolve the commit that last touched every
@@ -469,6 +556,51 @@ impl SyncedRepo {
         }
 
         Ok(stats)
+    }
+
+    /// Take a file's disappearance into the database.
+    ///
+    /// Processed as an *empty document* under the format the file row
+    /// records, so the ordinary machinery does the work: nothing is in
+    /// the new key set, so every non-pending record is hard-deleted, and
+    /// a pending edit of a record the file no longer has classifies as a
+    /// divergence like any other. Then the row is tombstoned, which is
+    /// what makes the save remove the file and the commit stage that.
+    ///
+    /// A file whose format the registry no longer knows keeps its
+    /// records and gets only the tombstone: deleting them would rest on
+    /// a guess about how to read a file that is not there.
+    async fn take_in_deletion(
+        &self,
+        rel_path: &str,
+        row: &crate::model::File,
+        stats: &mut SyncOutcome,
+    ) -> Result<()> {
+        tracing::info!(file = %rel_path, "file is gone from the working tree");
+        if let Some(format) = self.formats().by_name(&row.format) {
+            let empty = serde_json::Value::Object(serde_json::Map::new());
+            self.upsert_file_and_records(
+                ScannedFile {
+                    rel_path,
+                    // A path's history is unchanged by its absence, and
+                    // the rows this leaves behind are the pending ones
+                    // the deletion collided with.
+                    record_commit_id: row.commit_id.as_deref(),
+                    file_commit_id: row.commit_id.as_deref(),
+                    source_oid: row.source_oid.as_deref().unwrap_or_default(),
+                    value: &empty,
+                    format,
+                    force: false,
+                    resolves_version: None,
+                },
+                stats,
+            )
+            .await?;
+        }
+        db::file::set_deleted(self.db(), self.worktree_id(), rel_path, true).await?;
+        stats.files_deleted += 1;
+        stats.files_updated += 1;
+        Ok(())
     }
 
     /// Parse `bytes` and classify the document via the registry.
@@ -1554,11 +1686,21 @@ impl SyncedRepo {
             .filter(|rel| self.differs_from_head(&repo, head.as_deref(), rel))
             .cloned()
             .collect();
-        // A staged path with no file behind it is a deletion, so its
-        // `file` row goes with the commit that records the removal.
-        let removed: Vec<String> = to_stage
+        // File rows the database owes a removal for and no longer has a
+        // file behind. Drawn from `dirty` rather than `to_stage`: a
+        // deletion git has already recorded stages nothing, and its row
+        // would otherwise stay tombstoned with no commit ever coming to
+        // purge it.
+        let tombstoned: std::collections::HashSet<String> =
+            db::file::list(self.db(), self.worktree_id())
+                .await?
+                .into_iter()
+                .filter(|f| f.deleted)
+                .map(|f| f.path)
+                .collect();
+        let removed: Vec<String> = dirty
             .iter()
-            .filter(|rel| !self.inner.repo_path.join(rel).exists())
+            .filter(|rel| tombstoned.contains(*rel) && !self.inner.repo_path.join(rel).exists())
             .cloned()
             .collect();
 
@@ -1591,14 +1733,16 @@ impl SyncedRepo {
         let Some(head) = head else {
             return true;
         };
-        let Ok(disk) = std::fs::read(self.inner.repo_path.join(rel)) else {
-            return true;
+        let disk = match std::fs::read(self.inner.repo_path.join(rel)) {
+            Ok(bytes) => Some(bytes),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            // Unreadable for some other reason: stage it and let
+            // `commit_paths` report the failure rather than guess.
+            Err(_) => return true,
         };
-        match git::read_blob_at_commit(repo, head, rel) {
-            Ok(Some(committed)) => committed != disk,
-            // Absent from HEAD, or unreadable: staging it is the
-            // conservative answer either way.
-            _ => true,
-        }
+        // Both sides as `Option`, so a path absent from the working tree
+        // *and* from HEAD compares equal -- a deletion git already
+        // records is not something to commit again.
+        disk != git::read_blob_at_commit(repo, head, rel).ok().flatten()
     }
 }

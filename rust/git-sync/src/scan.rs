@@ -497,3 +497,40 @@ where
     tx.commit().await?;
     Ok(())
 }
+
+/// Pair each orphaned file with the new path holding its exact bytes.
+///
+/// `arrivals` is `(path, blob oid)` for every tracked path the database
+/// has no row for. Only an unambiguous pairing counts -- one orphan and
+/// one arrival sharing a blob. Two identical files where one moved, or
+/// a copy rather than a move, leave one side ambiguous, and a wrong
+/// guess would silently re-point a file's whole record set, so those
+/// fall back to delete-and-add: noisier, but never invented.
+pub(crate) fn match_renames(
+    orphans: &[String],
+    known_files: &std::collections::HashMap<String, crate::model::File>,
+    arrivals: &[(&str, &str)],
+) -> Vec<(String, String)> {
+    use std::collections::HashMap;
+    let mut by_blob: HashMap<&str, Vec<&str>> = HashMap::new();
+    for (path, blob) in arrivals {
+        by_blob.entry(blob).or_default().push(path);
+    }
+    let mut departures: HashMap<&str, Vec<&str>> = HashMap::new();
+    for path in orphans {
+        if let Some(oid) = known_files[path].source_oid.as_deref() {
+            departures.entry(oid).or_default().push(path.as_str());
+        }
+    }
+    let mut out: Vec<(String, String)> = departures
+        .iter()
+        .filter_map(
+            |(oid, from)| match (from.as_slice(), by_blob.get(oid).map(Vec::as_slice)) {
+                ([from], Some([to])) => Some(((*from).to_string(), (*to).to_string())),
+                _ => None,
+            },
+        )
+        .collect();
+    out.sort();
+    out
+}

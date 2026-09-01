@@ -259,3 +259,73 @@ pub(crate) async fn set_deleted(
     }
     Ok(())
 }
+
+/// Move every row of `from` to `to`, keeping the records themselves --
+/// ids, versions, bases, pending flags, conflict rows and aliases all
+/// stay put, so a `Pending` token minted before the move is still good
+/// after it.
+///
+/// Ordered rather than done with an `ON UPDATE CASCADE`, which the
+/// schema deliberately does not have: insert the destination row,
+/// re-point the records, then drop the source, whose cascade then finds
+/// nothing left to take.
+pub(crate) async fn rename(db: &Db, worktree_id: i64, from: &str, to: &str) -> Result<()> {
+    match db {
+        Db::Sqlite(pool) => {
+            let mut tx = pool.begin().await?;
+            sqlx::query(
+                "INSERT INTO file (worktree_id, path, format, commit_id, source_oid, deleted) \
+                 SELECT worktree_id, ?3, format, commit_id, source_oid, deleted FROM file \
+                 WHERE worktree_id = ?1 AND path = ?2",
+            )
+            .bind(worktree_id)
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE record SET file_path = ?3 WHERE worktree_id = ?1 AND file_path = ?2",
+            )
+            .bind(worktree_id)
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM file WHERE worktree_id = ?1 AND path = ?2")
+                .bind(worktree_id)
+                .bind(from)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let mut tx = pool.begin().await?;
+            sqlx::query(
+                "INSERT INTO file (worktree_id, path, format, commit_id, source_oid, deleted) \
+                 SELECT worktree_id, $3, format, commit_id, source_oid, deleted FROM file \
+                 WHERE worktree_id = $1 AND path = $2",
+            )
+            .bind(worktree_id)
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE record SET file_path = $3 WHERE worktree_id = $1 AND file_path = $2",
+            )
+            .bind(worktree_id)
+            .bind(from)
+            .bind(to)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query("DELETE FROM file WHERE worktree_id = $1 AND path = $2")
+                .bind(worktree_id)
+                .bind(from)
+                .execute(&mut *tx)
+                .await?;
+            tx.commit().await?;
+        }
+    }
+    Ok(())
+}

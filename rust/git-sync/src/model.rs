@@ -954,6 +954,11 @@ pub struct SyncOutcome {
     /// How many of [`Self::written`] were removals rather than
     /// rewrites. See [`crate::SyncedRepo::delete_file`].
     pub files_deleted: usize,
+    /// Files a scan recognised as moved rather than deleted-and-added,
+    /// as `(old path, new path)`. Pairs rather than a count because
+    /// only the pairing is actionable — the records kept their ids and
+    /// versions, so a caller holding either can follow them across.
+    pub files_renamed: Vec<(String, String)>,
     /// Files a save could not write, each with the reason. Per file
     /// because one failure says nothing about the rest, and reading
     /// this is the only way to learn which files a partly-successful
