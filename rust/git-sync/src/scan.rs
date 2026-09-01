@@ -292,7 +292,7 @@ where
                         TheirSide {
                             json: &child,
                             deleted: false,
-                            commit_id: record_commit_id,
+                            commit_id: file_commit_id,
                         },
                         existing,
                     )
@@ -444,7 +444,7 @@ where
                     TheirSide {
                         json: dropped,
                         deleted: true,
-                        commit_id: record_commit_id,
+                        commit_id: file_commit_id,
                     },
                     existing,
                 )

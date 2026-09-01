@@ -284,8 +284,28 @@
         "type": "object"
       },
       "CloudMapResult": {
-        "description": "The queried (and optionally filtered) CloudMap document under ``result``. ``followed`` and ``next_page_token`` appear only when the request asked for what they carry, so their absence is meaningful rather than empty.",
+        "description": "The queried (and optionally filtered) CloudMap document under ``result``. ``followed``, ``conflicts`` and ``next_page_token`` appear only when the request asked for what they carry, so their absence is meaningful rather than empty.",
         "properties": {
+          "conflicts": {
+            "description": "The working tree's side of records the database disagrees with, grouped by the commit that carries them. Present only when the request asked for ``conflicts``; an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.",
+            "items": {
+              "properties": {
+                "commit": {
+                  "description": "Commit carrying this version of the records, or null when the file's content is not in git yet.",
+                  "nullable": true,
+                  "type": "string"
+                },
+                "records": {
+                  "$ref": "#/components/schemas/CloudMapDocument"
+                }
+              },
+              "required": [
+                "records"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "followed": {
             "allOf": [
               {
@@ -3121,6 +3141,17 @@
               "description": "If > 0, walk the CloudMap graph outward from every record the query selected and return what it reaches under ``followed``. Records already in the result are never repeated under ``followed``, and the value caps how many are returned. Follow doesn't know about paging; a record reachable from two pages appears on both unless ``exclude`` rules it out.",
               "title": "Follow",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "conflicts",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also return the working tree's side of any record the query selected that the database and the file disagree about, under ``conflicts``. Off by default, so an ordinary read sees one version of each record -- the database's, which is what a write acts on. Turn it on to see what a write carrying ``unfurl.server.resolve: true`` would discard. Requires the rust git-sync backend.",
+              "title": "Conflicts",
+              "type": "boolean"
             }
           },
           {

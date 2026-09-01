@@ -161,7 +161,10 @@ pub(crate) struct TheirSide<'a> {
     pub(crate) json: &'a serde_json::Value,
     /// The file no longer has this record.
     pub(crate) deleted: bool,
-    /// Commit that last touched the path: what carries this value.
+    /// Commit carrying this value, or `None` when it is not in git --
+    /// an uncommitted hand edit. Not "the commit that last touched the
+    /// path", which is a different question and would name a commit
+    /// that does not hold what this row records.
     pub(crate) commit_id: Option<&'a str>,
 }
 

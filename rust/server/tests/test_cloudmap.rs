@@ -2847,3 +2847,85 @@ async fn post_resolve_marker_settles_a_conflict() {
         "the marker is popped, not stored: {rec:?}"
     );
 }
+
+#[tokio::test]
+async fn get_conflicts_reports_the_working_trees_side() {
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (cm, tmp) = open_cloudmap_state().await;
+    stand_up_conflict(&cm, &tmp, key).await;
+
+    // Without the parameter the response has no `conflicts` key at
+    // all, so a client can tell "didn't ask" from "none".
+    let (status, body) = get_json(router(make_state(cm.clone())), "/cloudmap").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body.get("conflicts").is_none(), "{body:?}");
+    assert_eq!(
+        body["result"]["repositories"][key]["name"], "ours",
+        "an ordinary read still sees the database's version"
+    );
+
+    let (status, body) = get_json(
+        router(make_state(cm.clone())),
+        "/cloudmap?kind=repositories&conflicts=true",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        body["result"]["repositories"][key]["name"], "ours",
+        "`result` is unchanged by asking"
+    );
+    let groups = body["conflicts"].as_array().expect("array");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(
+        groups[0]["records"]["repositories"][key]["name"], "theirs",
+        "and the working tree's version is what `conflicts` carries"
+    );
+    assert!(
+        groups[0]["commit"].is_null(),
+        "the file's version is an uncommitted edit, so no commit carries \
+         it yet: {:?}",
+        groups[0]["commit"]
+    );
+
+    // Commit it, and the group names the commit that now holds it --
+    // the record itself stays in flight, so `result` is unchanged.
+    let oid = cm
+        .synced()
+        .commit_repository("carry the hand edit")
+        .await
+        .expect("commit")
+        .expect("the working tree differs from HEAD");
+    let (_, body) = get_json(
+        router(make_state(cm.clone())),
+        "/cloudmap?kind=repositories&conflicts=true",
+    )
+    .await;
+    let groups = body["conflicts"].as_array().expect("array");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["commit"], serde_json::json!(oid));
+    assert_eq!(groups[0]["records"]["repositories"][key]["name"], "theirs");
+    assert_eq!(body["result"]["repositories"][key]["name"], "ours");
+
+    // Settling it empties the array -- present, because the request
+    // asked, but with nothing in it.
+    cm.synced()
+        .resolve_conflict(
+            "cloudmap.yaml",
+            "/repositories",
+            key,
+            unfurl_git_sync::Resolution::Ours,
+            None,
+        )
+        .await
+        .expect("resolve");
+    let (_, body) = get_json(
+        router(make_state(cm)),
+        "/cloudmap?kind=repositories&conflicts=true",
+    )
+    .await;
+    assert_eq!(
+        body["conflicts"].as_array().expect("array").len(),
+        0,
+        "{body:?}"
+    );
+}

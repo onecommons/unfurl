@@ -295,6 +295,19 @@ class CloudMapDocQuery(CloudMapSelectionQuery):
             "both unless ``exclude`` rules it out."
         ),
     )
+    conflicts: bool = Field(
+        default=False,
+        description=(
+            "Also return the working tree's side of any record the "
+            "query selected that the database and the file disagree "
+            "about, under ``conflicts``. Off by default, so an "
+            "ordinary read sees one version of each record -- the "
+            "database's, which is what a write acts on. Turn it on to "
+            "see what a write carrying "
+            "``unfurl.server.resolve: true`` would discard. Requires "
+            "the rust git-sync backend."
+        ),
+    )
     since_version: Optional[int] = Field(
         default=None,
         description=(
@@ -749,9 +762,10 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
             "title": "CloudMap query result",
             "description": (
                 "The queried (and optionally filtered) CloudMap document "
-                "under ``result``. ``followed`` and ``next_page_token`` "
-                "appear only when the request asked for what they carry, "
-                "so their absence is meaningful rather than empty."
+                "under ``result``. ``followed``, ``conflicts`` and "
+                "``next_page_token`` appear only when the request asked "
+                "for what they carry, so their absence is meaningful "
+                "rather than empty."
             ),
             "type": "object",
             "properties": {
@@ -763,6 +777,41 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                         "``key``. Present only when the request asked to "
                         "``follow`` from a ``key``."
                     ),
+                },
+                "conflicts": {
+                    "type": "array",
+                    "description": (
+                        "The working tree's side of records the "
+                        "database disagrees with, grouped by the "
+                        "commit that carries them. Present only when "
+                        "the request asked for ``conflicts``; an "
+                        "empty array means there are none. Grouped "
+                        "rather than merged into ``result`` because a "
+                        "record can be contested from more than one "
+                        "commit, and because the two versions of a "
+                        "record share a key and would otherwise "
+                        "collide. Only records still contested appear: "
+                        "once a write has settled one the decision is "
+                        "made, and it drops out."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "commit": {
+                                "type": "string",
+                                "nullable": True,
+                                "description": (
+                                    "Commit carrying this version of "
+                                    "the records, or null when the "
+                                    "file's content is not in git yet."
+                                ),
+                            },
+                            "records": {
+                                "$ref": "#/components/schemas/CloudMapDocument"
+                            },
+                        },
+                        "required": ["records"],
+                    },
                 },
                 "next_page_token": {
                     "type": "string",

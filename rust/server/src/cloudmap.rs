@@ -23,8 +23,9 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use unfurl_git_sync::{
-    canonical_facet_key, canonical_json_text, BatchOp, CommitRef, DbConfig, FacetPath, FacetSpec,
-    FormatRegistry, JsonQuery, Record, RecordQuery, ScanOptions, SyncedRepo, TxnMeta,
+    canonical_facet_key, canonical_json_text, BatchOp, CommitRef, ConflictState, DbConfig,
+    FacetPath, FacetSpec, FormatRegistry, JsonQuery, Record, RecordQuery, ScanOptions, SyncedRepo,
+    TxnMeta,
 };
 
 use crate::proxy;
@@ -736,6 +737,90 @@ impl Selection {
     }
 }
 
+/// The working tree's side of every contested record the selection
+/// reaches, grouped by the commit carrying it.
+///
+/// Grouped rather than folded into `result` for two reasons: the two
+/// versions of a record share a key and would collide in a
+/// CloudMap-shaped object, and a record can be contested from more than
+/// one commit once several files are in play.
+///
+/// Only records still contested. Once
+/// [`unfurl_git_sync::SyncedRepo::resolve_conflict`] has settled one,
+/// the decision is made and the next write applies it, so it drops out
+/// of the report.
+///
+/// Not paged. A `limit` request pages `result`, but conflicts are
+/// exceptional and few, and a client asking about them wants the set,
+/// not a window onto it.
+async fn conflict_groups(
+    synced: &SyncedRepo,
+    query: &RecordQuery,
+    select: Option<&[SelectPath]>,
+) -> Result<Vec<Value>, LocalError> {
+    let contested = synced
+        .find_records(&RecordQuery {
+            include_conflicts: true,
+            // A conflict row is a tombstone when the file dropped the
+            // record, which is half of what there is to report.
+            include_deleted: true,
+            after: None,
+            limit: None,
+            whole_groups: false,
+            ..query.clone()
+        })
+        .await
+        .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+
+    let mut by_commit: std::collections::BTreeMap<Option<String>, Vec<Record>> =
+        std::collections::BTreeMap::new();
+    for record in contested {
+        // The query returns both sides; only the file's is new here,
+        // and only while it is still contested. A resolved one is a
+        // decision already made -- the next write applies it -- so
+        // reporting it would be asking the client to decide twice.
+        if record.conflict == Some(ConflictState::Conflict) {
+            by_commit
+                .entry(record.commit_id.clone())
+                .or_default()
+                .push(record);
+        }
+    }
+    Ok(by_commit
+        .into_iter()
+        .map(|(commit, records)| {
+            let mut entry = Map::new();
+            entry.insert(
+                "commit".to_string(),
+                commit.map_or(Value::Null, Value::String),
+            );
+            entry.insert("records".to_string(), records_to_document(records, select));
+            Value::Object(entry)
+        })
+        .collect())
+}
+
+/// Attach `conflicts` to a response body when the request asked for it.
+///
+/// An empty array rather than an omitted key: the request asked, so
+/// "none" is an answer. The key is absent entirely when it did not ask,
+/// which is what lets a client tell the two apart.
+async fn attach_conflicts(
+    synced: &SyncedRepo,
+    query: &RecordQuery,
+    select: Option<&[SelectPath]>,
+    wanted: bool,
+    mut body: Value,
+) -> Result<Value, LocalError> {
+    if wanted {
+        let groups = conflict_groups(synced, query, select).await?;
+        if let Some(object) = body.as_object_mut() {
+            object.insert("conflicts".to_string(), Value::Array(groups));
+        }
+    }
+    Ok(body)
+}
+
 async fn build_response(
     cm: &CloudMapState,
     params: &unfurl_types::GetCloudmapRequestQuery,
@@ -758,6 +843,7 @@ async fn build_response(
     // `filter` it is their matches, and the walk returns the
     // neighbourhood of all of them.
     let follow = params.follow.unwrap_or(0).max(0) as u32;
+    let want_conflicts = params.conflicts.unwrap_or(false);
     // alias=true when filtering by key (so versioned URLs hit their
     // canonical record); alias=false for the full document.
     let alias = key.is_some();
@@ -825,13 +911,21 @@ async fn build_response(
         // can make a page longer than `limit`; `next_page_token` rather
         // than page length is what says whether more remain.
         query.whole_groups = true;
-        return paged_response(
+        let body = paged_response(
             synced,
             &query,
             follow,
             exclude_ids,
             select_paths.as_deref(),
             limit,
+        )
+        .await?;
+        return attach_conflicts(
+            synced,
+            &query,
+            select_paths.as_deref(),
+            want_conflicts,
+            body,
         )
         .await;
     }
@@ -870,7 +964,14 @@ async fn build_response(
             records_to_document(followed_records, select_paths.as_deref()),
         );
     }
-    Ok(Value::Object(body))
+    attach_conflicts(
+        synced,
+        &query,
+        select_paths.as_deref(),
+        want_conflicts,
+        Value::Object(body),
+    )
+    .await
 }
 
 /// One page of a `limit` request: the ordered scan cut at `limit`.
