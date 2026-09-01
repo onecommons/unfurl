@@ -17,6 +17,6 @@ flask_cors>=5.0.0 # MIT
 waitress  # Zope ZPL 2.1
 python-gitlab==5.0.0 # LGPL 3.0
 tosca>=0.1
-RestrictedPython==8.1a1.dev0
+RestrictedPython==8.3
 tenacity>=6.1.0 # Apache-2.0
 pydantic_core==2.38.0
