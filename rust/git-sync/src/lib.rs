@@ -60,12 +60,15 @@
 
 #![deny(rust_2018_idioms)]
 
+mod crud;
 pub mod db;
+mod document;
 pub mod error;
 pub mod format;
 pub mod formats;
 pub mod git;
 pub mod model;
+pub mod rollup;
 pub mod sync;
 mod template;
 mod util;
@@ -87,4 +90,6 @@ pub use model::{
     Worktree, WriteFileOutcome, WriteOutcome,
 };
 #[doc(inline)]
-pub use sync::{parse_commit_rollup, CommitRef, SyncedRepo};
+pub use rollup::parse_commit_rollup;
+#[doc(inline)]
+pub use sync::{CommitRef, SyncedRepo};
