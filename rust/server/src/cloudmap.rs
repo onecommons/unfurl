@@ -750,6 +750,9 @@ impl Selection {
 /// the decision is made and the next write applies it, so it drops out
 /// of the report.
 ///
+/// `only` narrows the report to specific `(path, key)` pairs -- what a
+/// write touched -- leaving `None` to mean the whole selection.
+///
 /// Not paged. A `limit` request pages `result`, but conflicts are
 /// exceptional and few, and a client asking about them wants the set,
 /// not a window onto it.
@@ -757,6 +760,7 @@ async fn conflict_groups(
     synced: &SyncedRepo,
     query: &RecordQuery,
     select: Option<&[SelectPath]>,
+    only: Option<&std::collections::HashSet<(String, String)>>,
 ) -> Result<Vec<Value>, LocalError> {
     let contested = synced
         .find_records(&RecordQuery {
@@ -779,6 +783,9 @@ async fn conflict_groups(
         // and only while it is still contested. A resolved one is a
         // decision already made -- the next write applies it -- so
         // reporting it would be asking the client to decide twice.
+        if only.is_some_and(|keys| !keys.contains(&(record.path.clone(), record.key.clone()))) {
+            continue;
+        }
         if record.conflict == Some(ConflictState::Conflict) {
             by_commit
                 .entry(record.commit_id.clone())
@@ -813,7 +820,7 @@ async fn attach_conflicts(
     mut body: Value,
 ) -> Result<Value, LocalError> {
     if wanted {
-        let groups = conflict_groups(synced, query, select).await?;
+        let groups = conflict_groups(synced, query, select, None).await?;
         if let Some(object) = body.as_object_mut() {
             object.insert("conflicts".to_string(), Value::Array(groups));
         }
@@ -1697,7 +1704,7 @@ async fn post_cloudmap_apply(
     cm: &CloudMapState,
     body: unfurl_types::PostCloudmapRequest,
     author: Option<String>,
-) -> Result<Json<unfurl_types::PatchResponse>, ApiError> {
+) -> Result<Json<Value>, ApiError> {
     // Reject unknown top-level keys (sections or envelope) the same
     // way the Python handler does — they end up in the typed
     // request's `additional_properties` bag because oas3-gen reflects
@@ -1779,11 +1786,48 @@ async fn post_cloudmap_apply(
     // `commit_repository` hands back the oid it just wrote; without a commit
     // HEAD is unchanged, so the value read for the check above still stands.
     let commit = committed.or(head);
-    Ok(Json(unfurl_types::PatchResponse {
+
+    // Gathered after any commit, so a stamped conflict row reports the
+    // commit that now carries the working tree's version rather than a
+    // stale one.
+    let touched: std::collections::HashSet<(String, String)> = result
+        .applied
+        .iter()
+        .map(|r| (format!("/{}", r.section), r.key.clone()))
+        .collect();
+    let contested = conflict_groups(
+        cm.inner.as_ref(),
+        &RecordQuery::default(),
+        None,
+        Some(&touched),
+    )
+    .await
+    .map_err(|e| {
+        WriteError::Internal(match e {
+            LocalError::NotFound(m)
+            | LocalError::BadRequest(m)
+            | LocalError::Unprocessable(m)
+            | LocalError::Internal(m) => format!("conflict_groups: {m}"),
+        })
+    })?;
+
+    // Emitted as raw JSON for the same reason the GET path does it: the
+    // generated `CloudMapDocument` has required fields that a typed
+    // round-trip would fill with defaults, and the two responses have to
+    // carry the same shape.
+    let mut body = serde_json::to_value(unfurl_types::PatchResponse {
         commit,
         queueid: result.last_version,
         applied: Some(result.applied),
-    }))
+        conflicts: None,
+    })
+    .map_err(|e| WriteError::Internal(format!("serialize response: {e}")))?;
+    if !contested.is_empty() {
+        if let Some(object) = body.as_object_mut() {
+            object.insert("conflicts".to_string(), Value::Array(contested));
+        }
+    }
+    Ok(Json(body))
 }
 
 /// Proxy fallthrough for `POST /cloudmap` when `state.cloudmap` is

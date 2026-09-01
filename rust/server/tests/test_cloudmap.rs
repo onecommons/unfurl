@@ -2929,3 +2929,43 @@ async fn get_conflicts_reports_the_working_trees_side() {
         "{body:?}"
     );
 }
+
+#[tokio::test]
+async fn post_reports_conflicts_it_could_not_land() {
+    let key = "git://unfurl.cloud/onecommons/std.git";
+    let (cm, tmp) = open_cloudmap_state().await;
+    stand_up_conflict(&cm, &tmp, key).await;
+
+    // Writing the contested record: staged, but it will not reach the
+    // file, and the response has to say so.
+    let body = serde_json::json!({
+        "repositories": { key: {"name": "second thoughts"} }
+    });
+    let (status, echo) = post_json(router(make_state(cm.clone())), body).await;
+    assert_eq!(status, StatusCode::OK);
+    let groups = echo["conflicts"].as_array().expect("conflicts reported");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["records"]["repositories"][key]["name"], "theirs");
+
+    // A write to an uncontested record says nothing, so the key's
+    // presence is the signal.
+    let other = "git://unfurl.cloud/onecommons/unfurl-types.git";
+    let body = serde_json::json!({
+        "repositories": { other: {"name": "quiet"} }
+    });
+    let (status, echo) = post_json(router(make_state(cm.clone())), body).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        echo.get("conflicts").is_none(),
+        "scoped to what this request wrote: {echo:?}"
+    );
+
+    // And settling it clears the report.
+    let body = serde_json::json!({
+        "repositories": {
+            key: {"name": "decided", "unfurl.server.resolve": true}
+        }
+    });
+    let (_, echo) = post_json(router(make_state(cm)), body).await;
+    assert!(echo.get("conflicts").is_none(), "{echo:?}");
+}

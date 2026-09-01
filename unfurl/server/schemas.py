@@ -724,6 +724,35 @@ def _rewrite_refs_to_components(node: Any, prefix: str = "cloudmap_") -> Any:
     return node
 
 
+def _conflicts_schema(description: str) -> Dict[str, Any]:
+    """The ``conflicts`` array, shared by ``CloudMapResult`` and
+    ``PatchResponse`` so the two cannot drift apart.
+
+    Defined here rather than as a Pydantic model because each entry
+    ``$ref``s ``CloudMapDocument``, which only exists once
+    :func:`hoist_cloudmap_definitions` has substituted it.
+    """
+    return {
+        "type": "array",
+        "description": description,
+        "items": {
+            "type": "object",
+            "properties": {
+                "commit": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "Commit carrying this version of the records, or "
+                        "null when the file's content is not in git yet."
+                    ),
+                },
+                "records": {"$ref": "#/components/schemas/CloudMapDocument"},
+            },
+            "required": ["records"],
+        },
+    }
+
+
 def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     """APIFlask ``spec_processor``: replace the placeholder
     ``CloudMapDocument`` schema with the canonical CloudMap schema and
@@ -778,41 +807,18 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                         "``follow`` from a ``key``."
                     ),
                 },
-                "conflicts": {
-                    "type": "array",
-                    "description": (
-                        "The working tree's side of records the "
-                        "database disagrees with, grouped by the "
-                        "commit that carries them. Present only when "
-                        "the request asked for ``conflicts``; an "
-                        "empty array means there are none. Grouped "
-                        "rather than merged into ``result`` because a "
-                        "record can be contested from more than one "
-                        "commit, and because the two versions of a "
-                        "record share a key and would otherwise "
-                        "collide. Only records still contested appear: "
-                        "once a write has settled one the decision is "
-                        "made, and it drops out."
-                    ),
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "commit": {
-                                "type": "string",
-                                "nullable": True,
-                                "description": (
-                                    "Commit carrying this version of "
-                                    "the records, or null when the "
-                                    "file's content is not in git yet."
-                                ),
-                            },
-                            "records": {
-                                "$ref": "#/components/schemas/CloudMapDocument"
-                            },
-                        },
-                        "required": ["records"],
-                    },
-                },
+                "conflicts": _conflicts_schema(
+                    "The working tree's side of records the database "
+                    "disagrees with, grouped by the commit that carries "
+                    "them. Present only when the request asked for "
+                    "``conflicts``; an empty array means there are none. "
+                    "Grouped rather than merged into ``result`` because a "
+                    "record can be contested from more than one commit, "
+                    "and because the two versions of a record share a key "
+                    "and would otherwise collide. Only records still "
+                    "contested appear: once a write has settled one the "
+                    "decision is made, and it drops out."
+                ),
                 "next_page_token": {
                     "type": "string",
                     "description": (
@@ -824,6 +830,22 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
             },
             "required": ["result"],
         }
+    # A write can only tell the client "this did not reach the file" if
+    # the response says so; without it a POST to a contested record
+    # succeeds silently. Scoped to the records the request touched --
+    # the whole picture is what GET ``conflicts`` is for.
+    if "PatchResponse" in schemas:
+        schemas["PatchResponse"].setdefault("properties", {})["conflicts"] = (
+            _conflicts_schema(
+                "Records this request wrote that the working tree "
+                "disagrees with, grouped by the commit carrying the "
+                "working tree's version. The writes were staged but will "
+                "not reach the file until the conflict is settled -- "
+                "re-send the record with ``unfurl.server.resolve: true`` "
+                "to settle it in favour of the write. Absent when the "
+                "request contested nothing."
+            )
+        )
     if has_post:
         # Replace the loose `Dict[str, Any]` shape Pydantic emits for
         # the cloudmap section fields with the typed

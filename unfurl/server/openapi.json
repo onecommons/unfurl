@@ -1709,6 +1709,26 @@
             "description": "The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD (which the client can echo back as ``latest_commit``). Null only when the repository has no commits at all.",
             "title": "Commit"
           },
+          "conflicts": {
+            "description": "Records this request wrote that the working tree disagrees with, grouped by the commit carrying the working tree's version. The writes were staged but will not reach the file until the conflict is settled -- re-send the record with ``unfurl.server.resolve: true`` to settle it in favour of the write. Absent when the request contested nothing.",
+            "items": {
+              "properties": {
+                "commit": {
+                  "description": "Commit carrying this version of the records, or null when the file's content is not in git yet.",
+                  "nullable": true,
+                  "type": "string"
+                },
+                "records": {
+                  "$ref": "#/components/schemas/CloudMapDocument"
+                }
+              },
+              "required": [
+                "records"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "queueid": {
             "anyOf": [
               {

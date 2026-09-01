@@ -1431,6 +1431,8 @@ pub struct PatchResponse {
     pub applied: Option<Vec<PatchResponseAppliedRecord>>,
     /// The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD (which the client can echo back as ``latest_commit``). Null only when the repository has no commits at all.
     pub commit: Option<String>,
+    /// Records this request wrote that the working tree disagrees with, grouped by the commit carrying the working tree's version. The writes were staged but will not reach the file until the conflict is settled -- re-send the record with ``unfurl.server.resolve: true`` to settle it in favour of the write. Absent when the request contested nothing.
+    pub conflicts: Option<Vec<CloudMapResultConflict>>,
     /// Monotonic version assigned to this uncommitted write operation.
     pub queueid: Option<i64>,
 }
