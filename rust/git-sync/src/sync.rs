@@ -1726,19 +1726,19 @@ where
     let mut tx = pool.begin().await?;
     let existing = db::tx::list_conflict_records(&mut tx, sync.worktree_id(), file_path).await?;
     for op in ops {
-        let at = (op.path().to_string(), op.key().to_string());
+        let key = (op.path().to_string(), op.key().to_string());
         match op {
             ConflictOp::Open { json, deleted, .. } => {
                 refresh_conflict_row(
                     &mut tx,
                     sync,
-                    file_path,
-                    op.path(),
-                    op.key(),
-                    json,
-                    *deleted,
-                    commit_id,
-                    existing.get(&at),
+                    record_id(sync, file_path, op.path(), op.key()),
+                    TheirSide {
+                        json,
+                        deleted: *deleted,
+                        commit_id,
+                    },
+                    existing.get(&key),
                 )
                 .await?;
             }
@@ -1746,10 +1746,8 @@ where
                 drop_conflict_row(
                     &mut tx,
                     sync,
-                    file_path,
-                    op.path(),
-                    op.key(),
-                    existing.get(&at),
+                    record_id(sync, file_path, op.path(), op.key()),
+                    existing.get(&key),
                 )
                 .await?;
             }
@@ -2193,7 +2191,13 @@ where
         // the working tree authoritative: the file is simply taken in.
         let mut take_file = !pending.contains_key(&at) || force;
         if take_file {
-            drop_conflict_row(&mut tx, sync, rel_path, &path, &key, existing).await?;
+            drop_conflict_row(
+                &mut tx,
+                sync,
+                record_id(sync, rel_path, &path, &key),
+                existing,
+            )
+            .await?;
         } else {
             let p = &pending[&at];
             // A resolution the file has not invalidated stands: the
@@ -2224,7 +2228,13 @@ where
                         file = %rel_path, path = %path, key = %key,
                         "conflict resolved by the file's Git-Sync-Resolves-Version trailer"
                     );
-                    drop_conflict_row(&mut tx, sync, rel_path, &path, &key, existing).await?;
+                    drop_conflict_row(
+                        &mut tx,
+                        sync,
+                        record_id(sync, rel_path, &path, &key),
+                        existing,
+                    )
+                    .await?;
                     take_file = true;
                 }
                 Some(kind) => {
@@ -2236,12 +2246,12 @@ where
                     refresh_conflict_row(
                         &mut tx,
                         sync,
-                        rel_path,
-                        &path,
-                        &key,
-                        &child,
-                        false,
-                        record_commit_id,
+                        record_id(sync, rel_path, &path, &key),
+                        TheirSide {
+                            json: &child,
+                            deleted: false,
+                            commit_id: record_commit_id,
+                        },
                         existing,
                     )
                     .await?;
@@ -2259,7 +2269,13 @@ where
                 // this key describes a divergence that is over.
                 None => {
                     stats.records_preserved += 1;
-                    drop_conflict_row(&mut tx, sync, rel_path, &path, &key, existing).await?;
+                    drop_conflict_row(
+                        &mut tx,
+                        sync,
+                        record_id(sync, rel_path, &path, &key),
+                        existing,
+                    )
+                    .await?;
                     continue;
                 }
             }
@@ -2328,7 +2344,13 @@ where
         let existing = conflict_rows.get(at);
         if force {
             // Left out of `keep`, so the hard delete below takes it.
-            drop_conflict_row(&mut tx, sync, rel_path, path, key, existing).await?;
+            drop_conflict_row(
+                &mut tx,
+                sync,
+                record_id(sync, rel_path, path, key),
+                existing,
+            )
+            .await?;
             continue;
         }
         // The tombstone-shaped resolution: the client chose its own row
@@ -2346,7 +2368,13 @@ where
                     file = %rel_path, path = %path, key = %key,
                     "deletion resolved by the file's Git-Sync-Resolves-Version trailer"
                 );
-                drop_conflict_row(&mut tx, sync, rel_path, path, key, existing).await?;
+                drop_conflict_row(
+                    &mut tx,
+                    sync,
+                    record_id(sync, rel_path, path, key),
+                    existing,
+                )
+                .await?;
                 continue;
             }
             Some(kind) => {
@@ -2370,12 +2398,12 @@ where
                 refresh_conflict_row(
                     &mut tx,
                     sync,
-                    rel_path,
-                    path,
-                    key,
-                    dropped,
-                    true,
-                    record_commit_id,
+                    record_id(sync, rel_path, path, key),
+                    TheirSide {
+                        json: dropped,
+                        deleted: true,
+                        commit_id: record_commit_id,
+                    },
                     existing,
                 )
                 .await?;
@@ -2393,7 +2421,13 @@ where
             None => {
                 keep.insert(at.clone());
                 stats.records_preserved += 1;
-                drop_conflict_row(&mut tx, sync, rel_path, path, key, existing).await?;
+                drop_conflict_row(
+                    &mut tx,
+                    sync,
+                    record_id(sync, rel_path, path, key),
+                    existing,
+                )
+                .await?;
             }
         }
     }
@@ -2404,7 +2438,13 @@ where
     for (at, row) in &conflict_rows {
         if !pending.contains_key(at) {
             let (path, key) = at;
-            drop_conflict_row(&mut tx, sync, rel_path, path, key, Some(row)).await?;
+            drop_conflict_row(
+                &mut tx,
+                sync,
+                record_id(sync, rel_path, path, key),
+                Some(row),
+            )
+            .await?;
         }
     }
 
@@ -2414,6 +2454,37 @@ where
 
     tx.commit().await?;
     Ok(())
+}
+
+/// A [`crate::db::RecordId`] for one record of `file_path`, so the four
+/// parts travel as a unit rather than as loose positional strings.
+fn record_id<'a>(
+    sync: &SyncedRepo,
+    file_path: &'a str,
+    path: &'a str,
+    key: &'a str,
+) -> RecordId<'a> {
+    RecordId {
+        worktree_id: sync.worktree_id(),
+        file_path,
+        path,
+        key,
+    }
+}
+
+/// The file's side of a divergence, as a conflict row records it.
+///
+/// Grouped for the same reason as [`crate::db::RecordId`]: the three
+/// travel together and a positional call site could transpose them.
+struct TheirSide<'a> {
+    /// The file's value -- or, when `deleted`, the one it dropped. The
+    /// column is NOT NULL and a tombstone's json already reads as "the
+    /// value this removes".
+    json: &'a serde_json::Value,
+    /// The file no longer has this record.
+    deleted: bool,
+    /// Commit that last touched the path: what carries this value.
+    commit_id: Option<&'a str>,
 }
 
 /// Record the file's value for a diverged record, creating the conflict
@@ -2429,16 +2500,11 @@ where
 /// older commit. It is informational — `db::commit::roll_forward`
 /// restamps it on the next commit made through here, and nothing reads
 /// it to decide anything.
-#[allow(clippy::too_many_arguments)]
 async fn refresh_conflict_row<DB>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
-    file_path: &str,
-    path: &str,
-    key: &str,
-    theirs: &serde_json::Value,
-    deleted: bool,
-    commit_id: Option<&str>,
+    at: RecordId<'_>,
+    theirs: TheirSide<'_>,
     existing: Option<&db::tx::ConflictRecord>,
 ) -> Result<()>
 where
@@ -2451,26 +2517,23 @@ where
     (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
 {
     if matches!(existing, Some(c)
-        if c.state == ConflictState::Conflict && c.deleted == deleted && c.json == *theirs)
+        if c.state == ConflictState::Conflict
+            && c.deleted == theirs.deleted
+            && c.json == *theirs.json)
     {
         return Ok(());
     }
-    let json_text = serde_json::to_string(theirs).map_err(|e| Error::Json {
-        path: path.to_string(),
+    let json_text = serde_json::to_string(theirs.json).map_err(|e| Error::Json {
+        path: at.path.to_string(),
         source: e,
     })?;
     let version = db::tx::next_version(tx, sync.family_id(), 1).await?;
     db::tx::upsert_conflict_record(
         tx,
-        RecordId {
-            worktree_id: sync.worktree_id(),
-            file_path,
-            path,
-            key,
-        },
+        at,
         &json_text,
-        commit_id,
-        deleted,
+        theirs.commit_id,
+        theirs.deleted,
         version,
         ConflictState::Conflict,
     )
@@ -2481,10 +2544,8 @@ where
 /// Drop the conflict row at this key, if `existing` says there is one.
 async fn drop_conflict_row<DB>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    sync: &SyncedRepo,
-    file_path: &str,
-    path: &str,
-    key: &str,
+    _sync: &SyncedRepo,
+    at: RecordId<'_>,
     existing: Option<&db::tx::ConflictRecord>,
 ) -> Result<()>
 where
@@ -2497,16 +2558,7 @@ where
     if existing.is_none() {
         return Ok(());
     }
-    db::tx::delete_conflict_record(
-        tx,
-        RecordId {
-            worktree_id: sync.worktree_id(),
-            file_path,
-            path,
-            key,
-        },
-    )
-    .await
+    db::tx::delete_conflict_record(tx, at).await
 }
 
 #[cfg(test)]
