@@ -7,7 +7,9 @@
 use std::path::Path;
 
 use tempfile::TempDir;
-use unfurl_git_sync::{DbConfig, FormatRegistry, SyncedRepo};
+use unfurl_git_sync::{
+    BatchOp, DbConfig, FormatRegistry, Record, RecordConflictKind, ScanOptions, SyncedRepo,
+};
 
 /// Initialise a fresh git repository at `path` and commit
 /// `expected_cloudmap.yaml` (copied from this crate's fixtures dir) as
@@ -192,4 +194,122 @@ pub async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
     )
     .await
     .expect("open SyncedRepo")
+}
+
+// ---------------------------------------------------------------------------
+// Fixture helpers shared across the test files
+// ---------------------------------------------------------------------------
+
+pub const DASHBOARD: &str = "git://unfurl.cloud/feb20a/dashboard.git";
+
+/// HEAD as a hex string, for asserting conflict bases.
+pub async fn head_commit(sync: &SyncedRepo) -> String {
+    sync.get_working_dir()
+        .await
+        .expect("working dir")
+        .head_commit
+        .expect("repo has a HEAD")
+}
+
+/// The dashboard record as the file now has it.
+pub fn dashboard_on_disk(tmp: &TempDir) -> serde_json::Value {
+    let doc: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("cloudmap.yaml")).expect("read"),
+    )
+    .expect("yaml");
+    doc["repositories"][DASHBOARD].clone()
+}
+
+/// The same, in a named file.
+pub fn rename_name_in(tmp: &TempDir, file: &str, from: &str, to: &str) {
+    let path = tmp.path().join(file);
+    let before = std::fs::read_to_string(&path).expect("read");
+    let edited = before.replace(&format!("name: {from}"), &format!("name: {to}"));
+    assert_ne!(edited, before, "expected `name: {from}` on disk");
+    std::fs::write(&path, edited).expect("write");
+}
+
+/// Rewrite a record's `name` in `cloudmap.yaml`, by its current value.
+pub fn rename_name(tmp: &TempDir, from: &str, to: &str) {
+    rename_name_in(tmp, "cloudmap.yaml", from, to);
+}
+
+/// A standing ModifyModify conflict on the dashboard record: the
+/// database holds `ours`, the file holds `theirs`. Returns the version
+/// stamped on the client's edit, for the trailer tests.
+pub async fn stand_up_conflict(sync: &SyncedRepo, tmp: &TempDir) -> i64 {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    let write = sync
+        .update_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            DASHBOARD,
+            serde_json::json!({"name": "ours"}),
+            None,
+            false,
+        )
+        .await
+        .expect("update");
+    rename_name(tmp, "dashboard", "theirs");
+    let scan = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("rescan");
+    assert_eq!(scan.conflicts.len(), 1, "{scan:?}");
+    assert_eq!(scan.conflicts[0].kind, RecordConflictKind::ModifyModify);
+    write.version
+}
+
+/// The one conflict row this worktree has, or a failure naming what it
+/// found instead.
+pub async fn only_conflict(sync: &SyncedRepo) -> unfurl_git_sync::Record {
+    let rows = sync.list_conflicts(None).await.expect("list_conflicts");
+    assert_eq!(rows.len(), 1, "expected exactly one conflict: {rows:?}");
+    rows.into_iter().next().expect("checked")
+}
+
+/// HEAD's full commit message.
+pub fn head_commit_body(dir: &std::path::Path) -> String {
+    let out = std::process::Command::new("git")
+        .args(["log", "-1", "--format=%B"])
+        .current_dir(dir)
+        .output()
+        .expect("git log");
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8_lossy(&out.stdout).to_string()
+}
+
+/// The value of a trailer on HEAD, **as git itself parses it**.
+///
+/// Asserting on the raw message text would pass even if the trailer
+/// block were malformed -- a missing blank line makes git read the whole
+/// thing as prose while a substring check happily still matches. Going
+/// through `%(trailers:key=...)` is what proves the block is well-formed.
+pub fn head_trailer(dir: &std::path::Path, key: &str) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args([
+            "log",
+            "-1",
+            &format!("--format=%(trailers:key={key},valueonly)"),
+        ])
+        .current_dir(dir)
+        .output()
+        .expect("git log");
+    assert!(out.status.success(), "{out:?}");
+    let value = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!value.is_empty()).then_some(value)
+}
+
+/// A batch upsert into `/repositories`, no OCC token.
+pub fn upsert_op(key: &str) -> BatchOp {
+    BatchOp::Upsert {
+        file_path: Some("cloudmap.yaml".into()),
+        path: "/repositories".into(),
+        key: key.into(),
+        json: serde_json::json!({"name": key}),
+        expected: None,
+        resolve: false,
+    }
 }
