@@ -28,6 +28,11 @@ pub(crate) struct Parsed {
     /// the file is about to be normalized and its comments dropped.
     /// Always false for YAML, where the question does not arise.
     pub(crate) extended: bool,
+    /// The `literate-yaml` front-matter value of a markdown document —
+    /// what names its format, since the YAML it holds carries no header
+    /// for [`crate::DataFormat::is_format`] to inspect. `None` for every
+    /// other syntax, and for a `.md` that is not a literate document.
+    pub(crate) literate: Option<String>,
 }
 
 /// The concrete syntax of a tracked file, chosen by its extension.
@@ -46,6 +51,9 @@ pub(crate) enum Syntax {
     /// JSON5, which also covers JSONC — comments and trailing commas are
     /// the whole of JSONC, and JSON5 is a superset of it.
     Json5,
+    /// YAML extracted from the fenced code blocks of a markdown
+    /// document. See [`crate::markdown`].
+    Markdown,
 }
 
 impl Syntax {
@@ -60,6 +68,7 @@ impl Syntax {
             // while accepting the rarer explicit spellings.
             "json" => Some(Self::Json),
             "json5" | "jsonc" => Some(Self::Json5),
+            "md" | "markdown" => Some(Self::Markdown),
             _ => None,
         }
     }
@@ -92,16 +101,34 @@ impl Syntax {
                     message: e.to_string(),
                 })?,
                 extended: false,
+                literate: None,
             }),
+            // A `.md` that is not a literate document parses to nothing
+            // and names no format, which `parse_and_detect` reads as
+            // "not one of ours". Erroring would abort the whole scan
+            // over someone's README.
+            Self::Markdown => {
+                let (value, literate) = match crate::markdown::Markdown::parse(file_path, text()?) {
+                    Some(md) => (md.value, Some(md.name)),
+                    None => (serde_json::Value::Object(serde_json::Map::new()), None),
+                };
+                Ok(Parsed {
+                    value,
+                    extended: false,
+                    literate,
+                })
+            }
             Self::Json | Self::Json5 => match serde_json::from_slice(bytes) {
                 Ok(value) => Ok(Parsed {
                     value,
                     extended: false,
+                    literate: None,
                 }),
                 Err(strict) => match (json5::from_str(text()?), self) {
                     (Ok(value), _) => Ok(Parsed {
                         value,
                         extended: true,
+                        literate: None,
                     }),
                     (Err(_), Self::Json) => Err(Error::Json {
                         path: file_path.to_string(),
@@ -145,6 +172,14 @@ impl Syntax {
                 path: file_path.to_string(),
                 source: e,
             }),
+            // Unreachable: a markdown document is written by
+            // `crate::markdown`, which needs the original prose and so
+            // cannot be expressed as a value-to-bytes function. Loud
+            // rather than silently emitting YAML over someone's
+            // document if a branch is ever missed.
+            Self::Markdown => Err(Error::Other(format!(
+                "{file_path}: markdown is written by the literate renderer, not serialized"
+            ))),
         }
     }
 
@@ -198,6 +233,7 @@ impl Syntax {
             // `serde_json::Value`, so any comment or JSON5 spelling was
             // already gone before serialization. See `Self::serialize`.
             Self::Json | Self::Json5 => Ok(bytes),
+            Self::Markdown => unreachable!("write_file branches before rendering markdown"),
         }
     }
 }

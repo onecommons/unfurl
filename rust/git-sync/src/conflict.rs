@@ -288,6 +288,25 @@ pub(crate) struct Applying {
     pub(crate) conflicts: Vec<RecordConflict>,
     /// Conflict-row bookkeeping for the caller to persist.
     pub(crate) ops: Vec<ConflictOp>,
+    /// Every record this batch actually applied, in order.
+    ///
+    /// What a renderer that cannot use the mutated `root` needs
+    /// instead — [`crate::markdown`] writes into the source's own
+    /// blocks. Reported here rather than derived from `pending` by the
+    /// caller, because `pending` also holds the records the conflict
+    /// logic *declined*, and writing one of those into a document is
+    /// exactly what a conflict is supposed to prevent.
+    pub(crate) applied: Vec<Applied>,
+}
+
+/// One record [`apply_pending_records`] wrote into the document.
+#[derive(Debug, Clone)]
+pub(crate) struct Applied {
+    /// Top-level section, without the leading slash.
+    pub(crate) section: String,
+    pub(crate) key: String,
+    /// The record was removed rather than written.
+    pub(crate) deleted: bool,
 }
 
 /// Apply every pending record to `root` in order, leaving conflicted
@@ -320,6 +339,7 @@ pub(crate) fn apply_pending_records(
         touched: Vec::new(),
         conflicts: Vec::new(),
         ops: Vec::new(),
+        applied: Vec::new(),
     };
     for rec in pending {
         let section_name = rec.path.trim_start_matches('/').to_string();
@@ -423,11 +443,17 @@ pub(crate) fn apply_pending_records(
         }
 
         let root_obj = root.as_object_mut().expect("root is object");
+        let (key, deleted) = (rec.key.clone(), rec.deleted);
         if rec.deleted {
             apply_delete(root_obj, &section_name, &rec.key);
         } else {
             apply_insert(root_obj, &section_name, rec.key, rec.json, format);
         }
+        out.applied.push(Applied {
+            section: section_name.clone(),
+            key: key.clone(),
+            deleted,
+        });
         if !out.touched.contains(&section_name) {
             out.touched.push(section_name);
         }

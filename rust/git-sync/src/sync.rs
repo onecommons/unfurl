@@ -615,7 +615,15 @@ impl SyncedRepo {
                 "file needs json5 syntax; a rewrite will emit strict json and drop comments"
             );
         }
-        let Some(format) = self.formats().detect(&parsed.value) else {
+        // A literate document names its format in front matter. That
+        // substitution is required, not a shortcut: its YAML is spread
+        // across fenced blocks and carries no header, so `detect` would
+        // never claim it.
+        let format = match parsed.literate.as_deref() {
+            Some(name) => self.formats().detect_literate(name),
+            None => self.formats().detect(&parsed.value),
+        };
+        let Some(format) = format else {
             return Ok(None);
         };
         Ok(Some(ParsedDoc {
@@ -1458,6 +1466,16 @@ impl SyncedRepo {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
             Err(e) => return Err(Error::Io(e)),
         };
+        // A literate document is human-authored: there is no prose to
+        // invent, and the front matter naming its format has to come
+        // from somewhere. Refuse rather than write records into a file
+        // the next scan would not recognise.
+        if syntax == Syntax::Markdown && source.is_none() {
+            return Err(Error::Other(format!(
+                "{file_path}: cannot create a literate markdown document; \
+                 add it with `literate-yaml` front matter first"
+            )));
+        }
         let mut root = match source.as_deref() {
             Some(text) => syntax.into_value(file_path, text.as_bytes())?,
             None => new_root(format),
@@ -1466,6 +1484,7 @@ impl SyncedRepo {
             touched,
             conflicts,
             ops,
+            applied,
         } = apply_pending_records(
             &mut root,
             file_path,
@@ -1490,8 +1509,16 @@ impl SyncedRepo {
                 conflicts,
             });
         }
-        let bytes =
-            syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?;
+        // Markdown is rendered against the document's own blocks rather
+        // than from `root`, so it needs the source and the list of
+        // records actually applied -- neither of which a
+        // value-to-bytes function can take.
+        let bytes = match source.as_deref().filter(|_| syntax == Syntax::Markdown) {
+            Some(src) => crate::markdown::render(file_path, src, &root, &applied, format)?,
+            None => {
+                syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?
+            }
+        };
         self.persist_render(file_path, &abs_path, &bytes, stale)
             .await?;
         Ok(WriteFileOutcome {

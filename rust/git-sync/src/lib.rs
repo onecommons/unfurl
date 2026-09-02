@@ -68,6 +68,7 @@ pub mod error;
 pub mod format;
 pub mod formats;
 pub mod git;
+mod markdown;
 pub mod model;
 pub mod rollup;
 mod scan;

@@ -34,12 +34,20 @@ pub(crate) struct Section {
     pub(crate) indent: usize,
 }
 
-/// A document split into the parts that stay and the sections that can
-/// be replaced.
+/// A document split into the parts that stay and the parts that can be
+/// replaced.
+///
+/// Two shapes, because a mapping has two: a value on its own lines,
+/// which is replaced as a block and re-indented, and a value sharing
+/// its key's line, which is replaced as the bytes it occupies. The
+/// second matters more than it looks — a scalar's span stops before any
+/// comment following it, so swapping one leaves the rest of the
+/// enclosing body, comments and all, untouched.
 #[derive(Debug)]
 pub(crate) struct Template {
     source: String,
     sections: HashMap<String, Section>,
+    inline: HashMap<String, Range<usize>>,
 }
 
 impl Template {
@@ -65,6 +73,7 @@ impl Template {
         i += 1;
 
         let mut sections = HashMap::new();
+        let mut inline = HashMap::new();
         while let Some((event, _)) = events.get(i) {
             if matches!(event, Event::MappingEnd) {
                 break;
@@ -77,7 +86,7 @@ impl Template {
             };
             let value = end_of_node(&events, i);
             i = end_of_node(&events, value);
-            let (Some(name), Some((_, first))) = (name, events.get(value)) else {
+            let (Some(name), Some((node, first))) = (name, events.get(value)) else {
                 continue;
             };
 
@@ -88,10 +97,16 @@ impl Template {
             // to the line start and the hole becomes line-aligned.
             let line_start = src[..value_start].rfind('\n').map_or(0, |n| n + 1);
             if !src[line_start..value_start].trim().is_empty() {
-                // Something other than indentation precedes the body on
-                // its line -- a flow collection, a scalar, or an empty
-                // value sharing the key's line. Not offered for
-                // replacement; the caller falls back to re-serializing.
+                // Something other than indentation precedes the value on
+                // its line. A lone scalar is still replaceable in place:
+                // its span covers the value and nothing else, so a
+                // comment after it stays put. A flow collection is not
+                // offered -- its span is right, but nothing needs it yet
+                // and admitting it would widen what `render` has to be
+                // correct about. An empty span is no value at all.
+                if i - value == 1 && matches!(node, Event::Scalar(..)) && !first.is_empty() {
+                    inline.insert(name, first.clone());
+                }
                 continue;
             }
             let last = last_content_end(&events[value..i]).unwrap_or(value_start);
@@ -106,6 +121,7 @@ impl Template {
         Some(Template {
             source: src.to_string(),
             sections,
+            inline,
         })
     }
 
@@ -114,9 +130,19 @@ impl Template {
         &self.source[section.body.clone()]
     }
 
-    /// The named section, if the document has one.
+    /// The named section, if the document has one whose body sits on
+    /// its own lines.
     pub(crate) fn section(&self, name: &str) -> Option<&Section> {
         self.sections.get(name)
+    }
+
+    /// The span of the named key's value when it shares the key's line,
+    /// covering the value and nothing after it.
+    ///
+    /// Separate from [`Self::section`] so a caller that only knows how
+    /// to replace block bodies is unaffected by the existence of these.
+    pub(crate) fn inline(&self, name: &str) -> Option<&Range<usize>> {
+        self.inline.get(name)
     }
 
     /// The document with each named section's body replaced. Sections
@@ -128,11 +154,13 @@ impl Template {
     /// from whatever produced the replacement still comes out
     /// consistent.
     pub(crate) fn render(&self, replacements: &HashMap<&str, String>) -> String {
-        let mut holes: Vec<(&Range<usize>, usize, &String)> = replacements
+        // `None` indent marks an inline hole, which is spliced as the
+        // one line it is rather than re-indented.
+        let mut holes: Vec<(&Range<usize>, Option<usize>, &String)> = replacements
             .iter()
-            .filter_map(|(name, text)| {
-                let section = self.sections.get(*name)?;
-                Some((&section.body, section.indent, text))
+            .filter_map(|(name, text)| match self.sections.get(*name) {
+                Some(section) => Some((&section.body, Some(section.indent), text)),
+                None => Some((self.inline.get(*name)?, None, text)),
             })
             .collect();
         holes.sort_by_key(|(range, _, _)| range.start);
@@ -141,7 +169,10 @@ impl Template {
         let mut cursor = 0;
         for (range, indent, text) in holes {
             out.push_str(&self.source[cursor..range.start]);
-            out.push_str(&indent_block(text, indent));
+            match indent {
+                Some(indent) => out.push_str(&indent_block(text, indent)),
+                None => out.push_str(text.trim_end_matches('\n')),
+            }
             cursor = range.end;
         }
         out.push_str(&self.source[cursor..]);
@@ -230,7 +261,7 @@ pub(crate) fn dedent_block(text: &str, indent: usize) -> String {
 }
 
 /// Prefix every non-empty line of `text` with `indent` spaces.
-fn indent_block(text: &str, indent: usize) -> String {
+pub(crate) fn indent_block(text: &str, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let mut out = String::with_capacity(text.len() + text.lines().count() * indent);
     for line in text.lines() {
@@ -448,6 +479,49 @@ artifacts:
         let parsed: serde_json::Value = serde_saphyr::from_str(&out).expect("still valid yaml");
         assert_eq!(parsed["repositories"]["a"]["name"], "caf\u{e9} \u{2615}");
         assert_eq!(parsed["artifacts"]["spliced"]["name"], "spliced");
+    }
+
+    /// A scalar's span covers the value and nothing else, so swapping
+    /// one leaves the comment after it -- and every other comment in the
+    /// body -- exactly where it was. This is what a block replacement
+    /// cannot do: it would take the whole body, comments and all.
+    #[test]
+    fn replacing_an_inline_scalar_leaves_its_comment_alone() {
+        let doc = "\
+# about the record
+name: onecommons # the short name
+count: 2
+";
+        let t = Template::parse(doc).expect("parses");
+        assert!(t.section("name").is_none(), "a scalar has no block body");
+        let out = t.render(&HashMap::from([("name", "onecommons.org\n".to_string())]));
+        assert_eq!(
+            out,
+            "\
+# about the record
+name: onecommons.org # the short name
+count: 2
+"
+        );
+    }
+
+    /// Only a lone scalar is offered inline. A flow collection's span is
+    /// just as exact, but nothing needs it, and admitting it would widen
+    /// what `render` has to be correct about.
+    #[test]
+    fn a_flow_collection_is_not_offered_inline() {
+        let t = Template::parse("kind: CloudMap\nrepositories: {a: {name: a}}\n").expect("parses");
+        assert!(t.inline("repositories").is_none());
+        assert!(t.inline("kind").is_some(), "but a scalar is");
+    }
+
+    /// `repositories:` with nothing after it has no value to replace,
+    /// and an empty span would splice text straight onto the key.
+    #[test]
+    fn an_empty_value_is_not_offered_inline() {
+        let t = Template::parse("repositories:\nartifacts:\n  z:\n    name: z\n").expect("parses");
+        assert!(t.inline("repositories").is_none());
+        assert!(t.section("repositories").is_none());
     }
 
     /// A section written in flow style shares its key's line, so there

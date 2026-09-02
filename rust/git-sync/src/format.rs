@@ -46,6 +46,23 @@ pub trait DataFormat: Send + Sync {
     /// header.
     fn is_format(&self, json: &serde_json::Value) -> bool;
 
+    /// Returns `true` if `name` — the `literate-yaml` front-matter value
+    /// of a markdown document — names this format.
+    ///
+    /// Used by [`FormatRegistry::detect_literate`] in place of
+    /// [`Self::is_format`], which cannot classify a literate document:
+    /// its YAML is spread across fenced code blocks and carries no
+    /// header, so the front matter is the only thing that names a
+    /// format. Matched in full rather than derived from [`Self::name`],
+    /// because the literate name carries a schema version the bare
+    /// format name does not.
+    ///
+    /// The default is `false`: a format that does not publish itself
+    /// this way is never asked to read prose.
+    fn is_literate_format(&self, _name: &str) -> bool {
+        false
+    }
+
     /// The header a brand-new document of this format needs, merged in
     /// ahead of the records when [`crate::SyncedRepo::write_file`]
     /// synthesises a file that isn't on disk yet.
@@ -165,6 +182,20 @@ impl FormatRegistry {
         self.formats
             .iter()
             .find(|f| f.is_format(json))
+            .map(|b| b.as_ref())
+    }
+
+    /// Return the first registered format whose
+    /// [`DataFormat::is_literate_format`] accepts `name`, or `None` if
+    /// no format claims it.
+    ///
+    /// The literate counterpart of [`Self::detect`]: a markdown
+    /// document names its format in front matter rather than being
+    /// classified by its content.
+    pub fn detect_literate(&self, name: &str) -> Option<&dyn DataFormat> {
+        self.formats
+            .iter()
+            .find(|f| f.is_literate_format(name))
             .map(|b| b.as_ref())
     }
 

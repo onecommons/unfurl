@@ -35,6 +35,12 @@ use crate::{Order, Record};
 /// `unfurl/v1alpha1` for documents written elsewhere.
 const API_VERSION: &str = "unfurl/v1.0.0";
 
+/// The name a literate markdown cloudmap carries in its `literate-yaml`
+/// front matter. `{name}@{API_VERSION}`, spelled out rather than built,
+/// because it is a wire value: a document in the working tree names this
+/// exact string and matching it must not drift with the constants.
+const LITERATE_NAME: &str = "cloudmap@unfurl/v1.0.0";
+
 const PATH_PREFIXES: &[&str] = &[
     "services",
     "components",
@@ -84,6 +90,10 @@ impl DataFormat for CloudMapFormat {
     fn is_format(&self, json: &serde_json::Value) -> bool {
         // `unfurl/cloudmap.py:518`: default_db sets kind = "CloudMap".
         json.get("kind").and_then(|v| v.as_str()) == Some("CloudMap")
+    }
+
+    fn is_literate_format(&self, name: &str) -> bool {
+        name == LITERATE_NAME
     }
 
     fn new_document(&self) -> serde_json::Value {
