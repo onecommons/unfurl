@@ -866,3 +866,47 @@ fn the_byte_forms_name_the_document_in_a_utf8_failure() {
         assert!(message.contains("utf-8"), "{message}");
     }
 }
+
+/// Reads only as far as the front matter, and distinguishes "read it,
+/// not literate" from "could not read it" -- a caller skipping files
+/// must not skip one it failed to open.
+#[test]
+fn find_literate_directive_reads_only_the_head() {
+    assert_eq!(
+        unfurl_merge::find_literate_directive(&fixture("literate/document.md")).expect("read"),
+        Some("cloudmap@unfurl/v1.0.0".to_string())
+    );
+    // A document that opens with something else is settled by line one.
+    assert_eq!(
+        unfurl_merge::find_literate_directive(&fixture("expand_file_include/parent.yaml"))
+            .expect("read"),
+        None
+    );
+    assert!(unfurl_merge::find_literate_directive(&fixture("literate/nope.md")).is_err());
+}
+
+/// Front matter that never closes is not front matter. Without the
+/// limit this would read to the end of whatever it was pointed at.
+#[test]
+fn find_literate_directive_gives_up_on_a_block_that_never_closes() {
+    // Asserted rather than assumed: the fixture below is sized from
+    // this, so a limit that stopped bounding anything would hang the
+    // test rather than fail it.
+    let limit = unfurl_merge::markdown::FRONT_MATTER_LIMIT;
+    assert!(limit <= 1 << 20, "the limit has to bound the read: {limit}");
+
+    let path = std::env::temp_dir().join("unfurl_merge_long_front_matter.md");
+    let mut src = String::from("---\nliterate-yaml: x\n");
+    while src.len() <= limit {
+        src.push_str("filler: 1\n");
+    }
+    // The block *does* close -- past the limit, which is the only
+    // reason this is not a literate document.
+    src.push_str("---\n");
+    std::fs::write(&path, &src).expect("write");
+    assert_eq!(
+        unfurl_merge::find_literate_directive(&path).expect("read"),
+        None
+    );
+    std::fs::remove_file(&path).ok();
+}

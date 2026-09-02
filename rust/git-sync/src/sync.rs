@@ -360,6 +360,19 @@ impl SyncedRepo {
             let Some(syntax) = Syntax::for_extension(&extract_ext(&tf.rel_path)) else {
                 continue;
             };
+            // Most markdown in a repository is prose. Settle that from
+            // the first line rather than reading and hashing every
+            // README to find out. `Err` falls through on purpose: a
+            // file that could not be opened is handled below, where a
+            // missing one reads as a deletion.
+            if syntax == Syntax::Markdown
+                && matches!(
+                    unfurl_merge::markdown::find_literate_directive(&tf.abs_path),
+                    Ok(None)
+                )
+            {
+                continue;
+            }
 
             let bytes = match std::fs::read(&tf.abs_path) {
                 Ok(b) => b,

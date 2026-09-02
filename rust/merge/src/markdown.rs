@@ -168,6 +168,56 @@ pub fn front_matter_name(src: &str) -> Option<String> {
     (!name.is_empty()).then(|| name.to_string())
 }
 
+/// The `literate-yaml` value of the document at `path`, reading only as
+/// far as the front matter.
+///
+/// `Ok(None)` means the file was read and is not a literate document —
+/// the first line is not `---`, the block does not terminate within
+/// [`FRONT_MATTER_LIMIT`] bytes, or it names no format. `Err` means it
+/// could not be read at all, which is a different answer: a caller
+/// deciding whether to skip a file should not skip one it failed to
+/// open.
+pub fn find_literate_directive(path: &std::path::Path) -> std::io::Result<Option<String>> {
+    use std::io::BufRead;
+
+    let mut reader = std::io::BufReader::new(std::fs::File::open(path)?);
+    let mut head = Vec::new();
+    let mut line = Vec::new();
+
+    // Front matter opens the file or there is none, so one line
+    // settles it for every markdown document that is not ours.
+    if reader.read_until(b'\n', &mut line)? == 0 || !is_fence(&line, b"---") {
+        return Ok(None);
+    }
+    head.extend_from_slice(&line);
+    loop {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+        head.extend_from_slice(&line);
+        if is_fence(&line, b"---") || is_fence(&line, b"...") || head.len() > FRONT_MATTER_LIMIT {
+            break;
+        }
+    }
+    Ok(std::str::from_utf8(&head).ok().and_then(front_matter_name))
+}
+
+/// How far [`find_literate_directive`] reads before giving up on a
+/// front-matter block ever closing.
+pub const FRONT_MATTER_LIMIT: usize = 4096;
+
+/// Whether `line` is exactly `marker`, ignoring a byte-order mark and
+/// the line ending.
+fn is_fence(line: &[u8], marker: &[u8]) -> bool {
+    let line = line.strip_prefix("\u{feff}".as_bytes()).unwrap_or(line);
+    line.strip_suffix(b"\n")
+        .unwrap_or(line)
+        .strip_suffix(b"\r")
+        .unwrap_or_else(|| line.strip_suffix(b"\n").unwrap_or(line))
+        == marker
+}
+
 /// Every `yaml` fence in `src`, in document order.
 ///
 /// A fence whose info string names something else is consumed but not

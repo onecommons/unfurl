@@ -393,5 +393,27 @@ crud_test!(literate_markdown_updates_in_place);
 crud_test!(literate_markdown_new_record_appends_a_fence);
 crud_test!(literate_markdown_delete_clears_every_block);
 crud_test!(literate_markdown_save_is_idempotent);
+/// Markdown that is not text at all is not ours either -- and must not
+/// take the scan of every other file down with it.
+async fn a_markdown_file_that_is_not_text_is_skipped(sync: &SyncedRepo, tmp: &TempDir) {
+    // Front matter the probe accepts, and bytes after it that are not
+    // text -- so the file gets past the cheap check and the parse is
+    // what has to cope with it.
+    std::fs::write(
+        tmp.path().join("binary.md"),
+        b"---\nliterate-yaml: cloudmap@unfurl/v1.0.0\n---\n\n```yaml\na: \xff\xfe\n```\n",
+    )
+    .expect("write");
+    git(tmp.path(), &["add", "binary.md"]);
+    seed_literate(tmp);
+
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("one unreadable markdown file must not fail the scan");
+    // ...and the literate file beside it was still indexed.
+    assert_eq!(org_record(sync).await["name"], "onecommons");
+}
+
+crud_test!(a_markdown_file_that_is_not_text_is_skipped);
 crud_test!(a_plain_markdown_file_is_never_indexed);
 crud_test!(creating_a_literate_markdown_file_is_refused);

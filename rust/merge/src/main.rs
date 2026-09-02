@@ -113,6 +113,19 @@ fn run(command: Command) -> Result<String, String> {
         other => other.to_string(),
     };
     let text = if stages.extract {
+        // A path typed by hand is sometimes not the one meant. One line
+        // settles whether this is a literate document, so an accident
+        // costs a line read rather than however large the file is.
+        if unfurl_merge::find_literate_directive(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .is_none()
+        {
+            return Err(format!(
+                "{}: not a literate markdown document; it needs front matter \
+                 naming a format under `literate-yaml`",
+                path.display()
+            ));
+        }
         unfurl_merge::extract_file(&path).map_err(named)?
     } else {
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?

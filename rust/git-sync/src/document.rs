@@ -103,16 +103,15 @@ impl Syntax {
                 extended: false,
                 literate: None,
             }),
-            // A `.md` that is not a literate document parses to nothing
-            // and names no format, which `parse_and_detect` reads as
-            // "not one of ours". Erroring would abort the whole scan
-            // over someone's README.
             Self::Markdown => {
-                let (value, literate) =
-                    match unfurl_merge::markdown::Markdown::parse(file_path, text()?) {
-                        Some(md) => (md.value, Some(md.name)),
-                        None => (serde_json::Value::Object(serde_json::Map::new()), None),
-                    };
+                // This markdown has embedded YAML
+                let (value, literate) = match std::str::from_utf8(bytes)
+                    .ok()
+                    .and_then(|src| unfurl_merge::markdown::Markdown::parse(file_path, src))
+                {
+                    Some(md) => (md.value, Some(md.name)),
+                    None => (serde_json::Value::Object(serde_json::Map::new()), None),
+                };
                 Ok(Parsed {
                     value,
                     extended: false,

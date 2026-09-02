@@ -45,7 +45,7 @@ pub use include::{
     MergeKey, NullResolver,
 };
 #[doc(inline)]
-pub use markdown::{extract_bytes, extract_file, Applied, Markdown};
+pub use markdown::{extract_bytes, extract_file, find_literate_directive, Applied, Markdown};
 #[doc(inline)]
 pub use node::{load_file, load_text, Node, Source};
 #[doc(inline)]
