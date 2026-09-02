@@ -18,7 +18,7 @@
 /// string whose content happens to include a `foo: null` line is not
 /// corrupted. Single-line strings ending in `: null` are quoted by the
 /// emitter and don't end with a bare `null`, so they're already safe.
-pub(crate) fn elide_explicit_nulls(input: &str) -> String {
+pub fn elide_explicit_nulls(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     // Some(min_content_indent) while inside a block scalar.
     let mut block_content_indent: Option<usize> = None;

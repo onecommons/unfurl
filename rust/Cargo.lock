@@ -4464,7 +4464,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "gix",
- "granit-parser",
  "json5",
  "regress 0.10.5",
  "schemars 0.8.22",
@@ -4478,6 +4477,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "typify",
+ "unfurl-merge",
  "url",
  "uuid",
 ]
@@ -4486,12 +4486,15 @@ dependencies = [
 name = "unfurl-merge"
 version = "0.1.0"
 dependencies = [
+ "granit-parser",
  "indexmap 2.13.0",
  "regex",
  "saphyr",
  "serde",
+ "serde-saphyr",
  "serde_json",
  "thiserror 1.0.69",
+ "tracing",
 ]
 
 [[package]]

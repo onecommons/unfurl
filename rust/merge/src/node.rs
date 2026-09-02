@@ -113,9 +113,15 @@ impl Node {
 /// Multi-document YAML files take the first document; an empty file
 /// loads as [`Node::Null`].
 pub fn load_file(path: &Path) -> Result<Node, MergeError> {
-    let text = std::fs::read_to_string(path)?;
-    let file = Arc::new(path.to_path_buf());
-    load_str(&text, &file, path)
+    load_text(&std::fs::read_to_string(path)?, path)
+}
+
+/// Load YAML `text` as though it had been read from `path`.
+///
+/// `path` is not read; it is what every mapping's [`Source`] names, so
+/// `+include` directives resolve relative to its directory.
+pub fn load_text(text: &str, path: &Path) -> Result<Node, MergeError> {
+    load_str(text, &Arc::new(path.to_path_buf()), path)
 }
 
 fn load_str(text: &str, file: &Arc<PathBuf>, path: &Path) -> Result<Node, MergeError> {

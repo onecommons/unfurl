@@ -725,3 +725,144 @@ fn expand_anchor_reference_with_sequence_index_pointer() {
     let (_includes, expanded) = expand(&doc).expect("expand");
     assert_eq!(expanded, expected);
 }
+
+// ---------------------------------------------------------------------------
+// file-in, yaml-out entry points
+// ---------------------------------------------------------------------------
+
+fn fixture(rel: &str) -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(rel)
+}
+
+/// Every live fence merged, in document order, and nothing from the
+/// ones that opted out or are not YAML.
+#[test]
+fn extract_file_emits_the_embedded_yaml() {
+    let yaml = unfurl_merge::extract_file(&fixture("literate/document.md")).expect("extract");
+    let value: serde_json::Value = serde_saphyr::from_str(&yaml).expect("valid yaml");
+    assert_eq!(value["components"]["org"]["type"], "RealWorldEntity");
+    assert_eq!(
+        value["components"]["org"]["name"], "onecommons",
+        "the second fence merged in"
+    );
+    assert!(value["components"].get("never").is_none(), "{yaml}");
+    assert!(value["components"].get("from-json").is_none(), "{yaml}");
+    // The prose is gone -- this is the document's data, not its text.
+    assert!(!yaml.contains("An organization"), "{yaml}");
+}
+
+/// A markdown file that is not literate is a distinct answer from one
+/// holding nothing, so it is an error rather than an empty document.
+#[test]
+fn extract_file_rejects_a_plain_markdown_file() {
+    let err = unfurl_merge::extract_file(&fixture("literate/../expand_file_include/parent.yaml"))
+        .expect_err("not literate");
+    assert!(err.to_string().contains("literate-yaml"), "{err}");
+}
+
+/// `+include` resolved against the filesystem, emitted as YAML.
+#[test]
+fn expand_file_resolves_includes_and_emits_yaml() {
+    let yaml =
+        unfurl_merge::expand_file(&fixture("expand_file_include/parent.yaml")).expect("expand");
+    let got: serde_json::Value = serde_saphyr::from_str(&yaml).expect("valid yaml");
+    let want: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(fixture("expand_file_include/expected.yaml")).expect("expected"),
+    )
+    .expect("valid yaml");
+    assert_eq!(got, want, "{yaml}");
+    // The directive itself is gone -- this entry point is one-way.
+    assert!(!yaml.contains("+include"), "{yaml}");
+}
+
+/// A required include that resolves to nothing is an error, not a
+/// silently thinner document.
+#[test]
+fn expand_file_reports_a_missing_required_include() {
+    assert!(
+        unfurl_merge::expand_file(&fixture("expand_file_include/missing_required.yaml")).is_err()
+    );
+}
+
+/// The yaml embedded in a markdown document, with its includes resolved
+/// afterwards -- and resolved relative to *that document's* directory,
+/// which is the whole reason `expand_text` takes a path rather than
+/// just text.
+#[test]
+fn extract_then_expand_resolves_includes_beside_the_markdown() {
+    let path = fixture("literate/with_include.md");
+    let yaml = unfurl_merge::extract_file(&path).expect("extract");
+    assert!(
+        yaml.contains("+include"),
+        "extract leaves the directive alone: {yaml}"
+    );
+
+    let expanded = unfurl_merge::expand_text(&yaml, &path).expect("expand");
+    let value: serde_json::Value = serde_saphyr::from_str(&expanded).expect("valid yaml");
+    assert_eq!(value["app"]["env"]["DATABASE_URL"], "postgres://localhost");
+    assert_eq!(
+        value["app"]["env"]["LOG_LEVEL"], "debug",
+        "the document's own value wins over the included one"
+    );
+    assert!(!expanded.contains("+include"), "{expanded}");
+}
+
+/// The byte forms answer the same as the file forms for the same
+/// document -- the file form is just the one that does the reading.
+#[test]
+fn the_byte_forms_agree_with_the_file_forms() {
+    for rel in ["literate/document.md", "literate/with_include.md"] {
+        let path = fixture(rel);
+        let bytes = std::fs::read(&path).expect("read");
+        assert_eq!(
+            unfurl_merge::extract_bytes(&bytes, &path).expect("bytes"),
+            unfurl_merge::extract_file(&path).expect("file"),
+            "{rel}"
+        );
+    }
+    let path = fixture("expand_file_include/parent.yaml");
+    let bytes = std::fs::read(&path).expect("read");
+    assert_eq!(
+        unfurl_merge::expand_bytes(&bytes, &path).expect("bytes"),
+        unfurl_merge::expand_file(&path).expect("file"),
+    );
+}
+
+/// `path` is not read by the byte forms -- it names the document, and
+/// for expand it is what includes resolve against. So bytes that never
+/// were a file still resolve an include, as long as the path says where
+/// they came from.
+#[test]
+fn the_byte_forms_never_read_the_path_they_are_given() {
+    let never = fixture("literate/does-not-exist.md");
+    assert!(!never.exists());
+
+    let src = b"---\nliterate-yaml: x\n---\n\n```yaml\nenv:\n  \"+include\": shared.yaml\n```\n";
+    let yaml = unfurl_merge::extract_bytes(src, &never).expect("extract");
+    let expanded = unfurl_merge::expand_bytes(yaml.as_bytes(), &never).expect("expand");
+    let value: serde_json::Value = serde_saphyr::from_str(&expanded).expect("valid yaml");
+    assert_eq!(
+        value["env"]["DATABASE_URL"], "postgres://localhost",
+        "resolved beside the path, not beside the process: {expanded}"
+    );
+}
+
+/// Bytes that are not text fail naming the document, rather than as a
+/// bare io or utf-8 error with nothing to locate it by.
+#[test]
+fn the_byte_forms_name_the_document_in_a_utf8_failure() {
+    let path = fixture("literate/whatever.md");
+    for message in [
+        unfurl_merge::extract_bytes(b"---\nliterate-yaml: x\n---\n\xff", &path)
+            .expect_err("not utf-8")
+            .to_string(),
+        unfurl_merge::expand_bytes(b"a: \xff", &path)
+            .expect_err("not utf-8")
+            .to_string(),
+    ] {
+        assert!(message.contains("whatever.md"), "{message}");
+        assert!(message.contains("utf-8"), "{message}");
+    }
+}

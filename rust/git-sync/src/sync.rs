@@ -1514,7 +1514,13 @@ impl SyncedRepo {
         // records actually applied -- neither of which a
         // value-to-bytes function can take.
         let bytes = match source.as_deref().filter(|_| syntax == Syntax::Markdown) {
-            Some(src) => crate::markdown::render(file_path, src, &root, &applied, format)?,
+            Some(src) => unfurl_merge::markdown::render(
+                file_path,
+                src,
+                &root,
+                &applied,
+                format.map(|f| f.path_prefixes()).unwrap_or_default(),
+            )?,
             None => {
                 syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?
             }

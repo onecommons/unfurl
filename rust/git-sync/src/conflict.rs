@@ -18,6 +18,8 @@
 use std::collections::BTreeSet;
 
 use crate::crud::{compute_aliases, enforce_conflict, occ_binds};
+use unfurl_merge::markdown::Applied;
+
 use crate::db::{self, RecordId};
 use crate::document::{apply_delete, apply_insert, extract_ext, Syntax};
 use crate::error::{Error, Result};
@@ -297,16 +299,6 @@ pub(crate) struct Applying {
     /// logic *declined*, and writing one of those into a document is
     /// exactly what a conflict is supposed to prevent.
     pub(crate) applied: Vec<Applied>,
-}
-
-/// One record [`apply_pending_records`] wrote into the document.
-#[derive(Debug, Clone)]
-pub(crate) struct Applied {
-    /// Top-level section, without the leading slash.
-    pub(crate) section: String,
-    pub(crate) key: String,
-    /// The record was removed rather than written.
-    pub(crate) deleted: bool,
 }
 
 /// Apply every pending record to `root` in order, leaving conflicted

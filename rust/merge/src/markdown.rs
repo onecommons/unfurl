@@ -29,8 +29,7 @@
 use std::collections::HashSet;
 use std::ops::Range;
 
-use crate::conflict::Applied;
-use crate::error::{Error, Result};
+use crate::error::{MergeError, Result};
 use crate::template::{dedent_block, indent_block, splice_value, to_yaml};
 
 /// Opts a fenced block out of the document, as its first non-blank line.
@@ -40,45 +39,96 @@ use crate::template::{dedent_block, indent_block, splice_value, to_yaml};
 /// someone reading the raw file.
 const IGNORE_DIRECTIVE: &str = "# literate-yaml: ignore";
 
+/// The YAML a literate markdown document holds, as text.
+///
+/// Merges every `yaml` fence in document order. Fences opted out with
+/// `# literate-yaml: ignore`, fences that do not parse, and fences in
+/// another language contribute nothing.
+///
+/// Fails when the file is not a literate document — no front matter, or
+/// front matter naming no format. Distinct from one that holds nothing,
+/// which is an empty mapping.
+pub fn extract_file(path: &std::path::Path) -> Result<String> {
+    extract_bytes(&std::fs::read(path)?, path)
+}
+
+/// The YAML a literate markdown document holds, as text — from bytes
+/// already in hand rather than a file to read.
+///
+/// `path` is *not* read. It names the document in error messages.
+pub fn extract_bytes(src: &[u8], path: &std::path::Path) -> Result<String> {
+    let name = path.display().to_string();
+    let src = std::str::from_utf8(src)
+        .map_err(|e| markdown_error(&name, format!("not valid utf-8: {e}")))?;
+    let md = Markdown::parse(&name, src).ok_or_else(|| {
+        markdown_error(
+            &name,
+            "not a literate markdown document; it needs front matter naming a \
+             format under `literate-yaml`"
+                .to_string(),
+        )
+    })?;
+    to_yaml(&md.value, &name)
+}
+
+/// A failure to read or update the document at `path`.
+fn markdown_error(path: &str, message: String) -> MergeError {
+    MergeError::Markdown {
+        path: path.to_string(),
+        message,
+    }
+}
+
+/// One record a caller wrote, for [`render`] to place.
+#[derive(Debug, Clone)]
+pub struct Applied {
+    /// Top-level section, without the leading slash.
+    pub section: String,
+    pub key: String,
+    /// The record was removed rather than written.
+    pub deleted: bool,
+}
+
 /// A markdown document's YAML: which format its front matter names, the
 /// fenced blocks it was extracted from, and their merge.
 #[derive(Debug)]
-pub(crate) struct Markdown {
-    /// The `literate-yaml` front-matter value, to be matched against
-    /// [`crate::DataFormat::is_literate_format`].
-    pub(crate) name: String,
-    pub(crate) blocks: Vec<Block>,
+pub struct Markdown {
+    /// The `literate-yaml` front-matter value, naming the format the
+    /// document holds.
+    pub name: String,
+    pub blocks: Vec<Block>,
     /// Every live block merged in document order.
-    pub(crate) value: serde_json::Value,
+    pub value: serde_json::Value,
 }
 
 /// One `yaml` fence of a markdown document.
 #[derive(Debug)]
-pub(crate) struct Block {
+pub struct Block {
     /// Byte range of the fence *body* — the lines between the opening
     /// and closing fence lines, so the fence lines and their info
     /// string splice through verbatim.
-    pub(crate) body: Range<usize>,
+    pub body: Range<usize>,
     /// Column the opening fence sits at. Content is dedented by this on
     /// the way in and re-indented on the way out.
-    pub(crate) indent: usize,
+    pub indent: usize,
     /// The dedented body text, which the write path splices into.
-    pub(crate) text: String,
+    pub text: String,
     /// `None` when the block is inert to both directions: it did not
     /// parse, its root is not a mapping, or it opted out with
     /// [`IGNORE_DIRECTIVE`].
-    pub(crate) value: Option<serde_json::Value>,
+    pub value: Option<serde_json::Value>,
 }
 
 impl Markdown {
     /// The document `src` holds, or `None` when it is not literate —
     /// no front matter, or none naming a format.
+    /// `file_path` is *not* read. It names the document in error messages.
     ///
     /// Never fails. A `parse_and_detect` error aborts the whole scan,
     /// so one unreadable `.md` in a working tree must not stop every
     /// other file being indexed; an unreadable document is simply not
     /// one of ours.
-    pub(crate) fn parse(file_path: &str, src: &str) -> Option<Self> {
+    pub fn parse(file_path: &str, src: &str) -> Option<Self> {
         let name = front_matter_name(src)?;
         let blocks = blocks(file_path, src);
         let mut value = serde_json::Value::Object(serde_json::Map::new());
@@ -100,7 +150,7 @@ impl Markdown {
 /// that is exactly `---` or `...`. Every failure — no front matter, no
 /// terminator, unparseable YAML, no `literate-yaml` key, a non-string
 /// value — is `None` rather than an error, per [`Markdown::parse`].
-pub(crate) fn front_matter_name(src: &str) -> Option<String> {
+pub fn front_matter_name(src: &str) -> Option<String> {
     let src = src.strip_prefix('\u{feff}').unwrap_or(src);
     let rest = src
         .strip_prefix("---\n")
@@ -129,7 +179,7 @@ pub(crate) fn front_matter_name(src: &str) -> Option<String> {
 /// at least as long, and end-of-file closing an unterminated fence.
 /// Fences nested in list items or blockquotes are not recognised — their
 /// line prefix is not stripped.
-pub(crate) fn blocks(file_path: &str, src: &str) -> Vec<Block> {
+pub fn blocks(file_path: &str, src: &str) -> Vec<Block> {
     let mut out = Vec::new();
     let mut open: Option<Fence> = None;
     let mut body_start = 0;
@@ -259,7 +309,7 @@ fn ignored(text: &str) -> bool {
 ///   would be a guess about which element is which, and concatenating
 ///   would make a rewrite non-idempotent. A record field holding a list
 ///   must therefore live wholly in one block.
-pub(crate) fn merge_into(acc: &mut serde_json::Value, next: serde_json::Value) {
+pub fn merge_into(acc: &mut serde_json::Value, next: serde_json::Value) {
     match (acc, next) {
         (serde_json::Value::Object(into), serde_json::Value::Object(from)) => {
             for (key, value) in from {
@@ -282,33 +332,34 @@ pub(crate) fn merge_into(acc: &mut serde_json::Value, next: serde_json::Value) {
 
 /// `src` with the applied records put back where they already live.
 ///
-/// Each eligible block — one holding at least one of the format's
-/// [`path_prefixes`](crate::DataFormat::path_prefixes) — is updated in
+/// Each eligible block — one holding at least one of `prefixes`, the
+/// top-level keys whose children are records — is updated in
 /// place for the records it already carries, *field by field*: a field
 /// the block defines takes the database's value, one the record no
 /// longer has is removed, and one the block never had is left for the
 /// trailing fence. Anything no block absorbed is appended as a single
 /// new `yaml` fence.
 ///
-/// Field-level rather than record-level because the merge has no notion
-/// of a primary block. With block A holding `{x: {type: T}}` and B
-/// holding `{x: {name: n}}`, writing the whole record into A alone
-/// leaves B's `name` merging *after* it and resurrecting the stale
-/// value.
-pub(crate) fn render(
+/// Field-level rather than record-level: with block A holding
+/// `{x: {type: T}}` and B holding `{x: {name: n}}`, writing the whole
+/// record into A alone leaves B's `name` merging *after* it and
+/// resurrecting the stale value.
+pub fn render(
     file_path: &str,
     src: &str,
     root: &serde_json::Value,
     applied: &[Applied],
-    format: Option<&dyn crate::DataFormat>,
+    prefixes: &[&str],
 ) -> Result<Vec<u8>> {
     let md = Markdown::parse(file_path, src).ok_or_else(|| {
-        Error::Other(format!(
-            "{file_path}: not a literate markdown document; \
+        markdown_error(
+            file_path,
+            format!(
+                "{file_path}: not a literate markdown document; \
              add `literate-yaml` front matter naming a format first"
-        ))
+            ),
+        )
     })?;
-    let prefixes = format.map(|f| f.path_prefixes()).unwrap_or_default();
 
     // Every live block after its edits, and the text of the ones that
     // moved. An ineligible block still merges, so it still counts
@@ -583,18 +634,24 @@ fn additive_fallback(
     // naming, and a caller told only "it did not read back" cannot tell
     // a removal that is impossible here from a bug that is not.
     if applied.iter().any(|a| a.deleted) || deep_diff(&md.value, root).is_some() {
-        return Err(Error::Other(format!(
-            "{file_path}: the fenced blocks could not be updated in place, and this \
+        return Err(markdown_error(
+            file_path,
+            format!(
+                "{file_path}: the fenced blocks could not be updated in place, and this \
              edit removes something -- which appending a block cannot express. \
              The edit was not written"
-        )));
+            ),
+        ));
     }
     let out = assemble(src, &[], leftover(root, &md.value, prefixes), file_path)?;
     if !reads_back_as(file_path, &out, root) {
-        return Err(Error::Other(format!(
-            "{file_path}: could not update the fenced blocks without changing what \
+        return Err(markdown_error(
+            file_path,
+            format!(
+                "{file_path}: could not update the fenced blocks without changing what \
              the document means; the edit was not written"
-        )));
+            ),
+        ));
     }
     Ok(out.into_bytes())
 }

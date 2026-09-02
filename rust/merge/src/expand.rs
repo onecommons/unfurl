@@ -68,6 +68,38 @@ pub fn expand(doc: &Node) -> Result<(Includes, Node)> {
     expand_with(doc, &NullResolver)
 }
 
+/// Read `path`, expand it, and emit the result as YAML text.
+///
+/// Resolves `+include` directives against the filesystem, relative to
+/// each document's own directory, so an included file may itself
+/// include. One-way: the [`Includes`] map that would reconstruct the
+/// directives is dropped.
+pub fn expand_file(path: &std::path::Path) -> Result<String> {
+    expand_bytes(&std::fs::read(path)?, path)
+}
+
+/// Expand YAML bytes as though they had been read from `path`, and emit
+/// the result.
+///
+/// `path` is not read; it is what includes resolve relative to.
+pub fn expand_bytes(src: &[u8], path: &std::path::Path) -> Result<String> {
+    let text = std::str::from_utf8(src).map_err(|e| MergeError::Yaml {
+        path: path.display().to_string(),
+        message: format!("not valid utf-8: {e}"),
+    })?;
+    expand_text(text, path)
+}
+
+/// Expand YAML `text` as though it had been read from `path`, and emit
+/// the result.
+///
+/// `path` is not read; it is what includes resolve relative to.
+pub fn expand_text(text: &str, path: &std::path::Path) -> Result<String> {
+    let doc = crate::node::load_text(text, path)?;
+    let (_, expanded) = expand_with(&doc, &crate::include::FileResolver)?;
+    crate::template::to_yaml(&expanded.to_json_value(), &path.display().to_string())
+}
+
 /// Expand `doc`, resolving `+include` directives via `resolver`.
 ///
 /// Walks the document, replacing `+...` keys with their resolved

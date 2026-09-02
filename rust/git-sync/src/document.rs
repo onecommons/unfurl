@@ -108,10 +108,11 @@ impl Syntax {
             // "not one of ours". Erroring would abort the whole scan
             // over someone's README.
             Self::Markdown => {
-                let (value, literate) = match crate::markdown::Markdown::parse(file_path, text()?) {
-                    Some(md) => (md.value, Some(md.name)),
-                    None => (serde_json::Value::Object(serde_json::Map::new()), None),
-                };
+                let (value, literate) =
+                    match unfurl_merge::markdown::Markdown::parse(file_path, text()?) {
+                        Some(md) => (md.value, Some(md.name)),
+                        None => (serde_json::Value::Object(serde_json::Map::new()), None),
+                    };
                 Ok(Parsed {
                     value,
                     extended: false,
@@ -166,7 +167,7 @@ impl Syntax {
                     path: file_path.to_string(),
                     message: e.to_string(),
                 })?;
-                Ok(crate::util::elide_explicit_nulls(&s).into_bytes())
+                Ok(unfurl_merge::util::elide_explicit_nulls(&s).into_bytes())
             }
             Self::Json | Self::Json5 => serde_json::to_vec_pretty(root).map_err(|e| Error::Json {
                 path: file_path.to_string(),
@@ -204,7 +205,7 @@ impl Syntax {
     /// applied to, keeping as much of the original file as this syntax
     /// allows.
     ///
-    /// Only YAML splices. [`Template`](crate::template::Template)
+    /// Only YAML splices. [`Template`](unfurl_merge::template::Template)
     /// locates block-style bodies, and `serde_json::to_vec_pretty` puts
     /// every JSON value on its key's line, so a JSON splice would find
     /// no section to replace — and if one ever did, the re-parse check
@@ -444,8 +445,8 @@ pub(crate) fn splice_touched_sections(
     touched: &[String],
 ) -> Option<Vec<u8>> {
     let rendered = std::str::from_utf8(rendered).ok()?;
-    let original = crate::template::Template::parse(src)?;
-    let updated = crate::template::Template::parse(rendered)?;
+    let original = unfurl_merge::template::Template::parse(src)?;
+    let updated = unfurl_merge::template::Template::parse(rendered)?;
     let want: serde_json::Value = serde_saphyr::from_str(rendered).ok()?;
     let have: serde_json::Value = serde_saphyr::from_str(src).ok()?;
 
@@ -460,8 +461,8 @@ pub(crate) fn splice_touched_sections(
         // the only thing that is right.
         let edited = same_keys(have.get(name.as_str()), want.get(name.as_str()))
             .then(|| {
-                crate::template::splice_value(
-                    &crate::template::dedent_block(original.body(section), section.indent),
+                unfurl_merge::template::splice_value(
+                    &unfurl_merge::template::dedent_block(original.body(section), section.indent),
                     have.get(name.as_str())?,
                     want.get(name.as_str())?,
                 )
@@ -469,8 +470,9 @@ pub(crate) fn splice_touched_sections(
             .flatten();
         replacements.insert(
             name.as_str(),
-            edited
-                .unwrap_or_else(|| crate::template::dedent_block(updated.body(from), from.indent)),
+            edited.unwrap_or_else(|| {
+                unfurl_merge::template::dedent_block(updated.body(from), from.indent)
+            }),
         );
     }
     let spliced = original.render(&replacements);

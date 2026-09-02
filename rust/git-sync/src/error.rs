@@ -62,6 +62,11 @@ pub enum Error {
         #[source]
         source: serde_json::Error,
     },
+    /// A failure from [`unfurl_merge`] — reading or rewriting a
+    /// document, including the literate markdown path.
+    #[error(transparent)]
+    Merge(#[from] unfurl_merge::MergeError),
+
     /// A caller asked for a [`crate::DataFormat`] that isn't
     /// registered in the [`crate::FormatRegistry`].
     #[error("unknown format: {0}")]

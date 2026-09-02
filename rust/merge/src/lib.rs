@@ -11,10 +11,11 @@
 //! extraction via [`Node::deserialize_into`] cover the storage and
 //! consumer paths.
 //!
-//! This crate has no git, SQL, or async runtime dependencies — just
-//! `saphyr`, `indexmap`, `serde`, `serde_json`, and `thiserror` —
-//! so it can be embedded in pyo3 extensions or other pure-data
-//! tooling without dragging in a backend stack.
+//! [`markdown`] reads the same data out of prose: a document whose YAML
+//! lives in fenced code blocks, merged into one value, and written back
+//! into the blocks it came from. [`template`] is the byte-level splicer
+//! both of those rest on — it replaces the spans that changed and copies
+//! everything else through, which is how comments survive an edit.
 
 #![deny(rust_2018_idioms)]
 
@@ -22,7 +23,10 @@ pub mod dict_merge;
 pub mod error;
 pub mod expand;
 pub mod include;
+pub mod markdown;
 pub mod node;
+pub mod template;
+pub mod util;
 
 #[doc(inline)]
 pub use dict_merge::{
@@ -32,11 +36,17 @@ pub use dict_merge::{
 #[doc(inline)]
 pub use error::{MergeError, Result};
 #[doc(inline)]
-pub use expand::{expand, expand_with, IncludeEntry, Includes};
+pub use expand::{
+    expand, expand_bytes, expand_file, expand_text, expand_with, IncludeEntry, Includes,
+};
 #[doc(inline)]
 pub use include::{
     find_template, lookup_path, parse_merge_key, FileResolver, IncludeResolver, IncludeTarget,
     MergeKey, NullResolver,
 };
 #[doc(inline)]
-pub use node::{load_file, Node, Source};
+pub use markdown::{extract_bytes, extract_file, Applied, Markdown};
+#[doc(inline)]
+pub use node::{load_file, load_text, Node, Source};
+#[doc(inline)]
+pub use template::Template;

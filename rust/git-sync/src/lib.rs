@@ -68,13 +68,10 @@ pub mod error;
 pub mod format;
 pub mod formats;
 pub mod git;
-mod markdown;
 pub mod model;
 pub mod rollup;
 mod scan;
 pub mod sync;
-mod template;
-mod util;
 
 #[doc(inline)]
 pub use db::{Db, DbConfig};

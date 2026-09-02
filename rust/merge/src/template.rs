@@ -25,13 +25,13 @@ type Located<'a> = (Event<'a>, Range<usize>);
 
 /// Where one top-level section's body sits in the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Section {
+pub struct Section {
     /// Byte range of the body — not including the `key:` line, which
     /// stays in the template.
-    pub(crate) body: Range<usize>,
+    pub body: Range<usize>,
     /// Column the body is indented to, so a replacement can be written
     /// to match.
-    pub(crate) indent: usize,
+    pub indent: usize,
 }
 
 /// A document split into the parts that stay and the parts that can be
@@ -44,7 +44,7 @@ pub(crate) struct Section {
 /// comment following it, so swapping one leaves the rest of the
 /// enclosing body, comments and all, untouched.
 #[derive(Debug)]
-pub(crate) struct Template {
+pub struct Template {
     source: String,
     sections: HashMap<String, Section>,
     inline: HashMap<String, Range<usize>>,
@@ -55,7 +55,7 @@ impl Template {
     /// is a mapping — the only shape this can rewrite. A caller that
     /// gets `None` should fall back to re-serializing the whole
     /// document.
-    pub(crate) fn parse(src: &str) -> Option<Self> {
+    pub fn parse(src: &str) -> Option<Self> {
         let events = scan(src)?;
 
         // The stream and document preamble, then the root, which has to
@@ -126,13 +126,13 @@ impl Template {
     }
 
     /// The text of a section's body, at the indentation it sits at.
-    pub(crate) fn body(&self, section: &Section) -> &str {
+    pub fn body(&self, section: &Section) -> &str {
         &self.source[section.body.clone()]
     }
 
     /// The named section, if the document has one whose body sits on
     /// its own lines.
-    pub(crate) fn section(&self, name: &str) -> Option<&Section> {
+    pub fn section(&self, name: &str) -> Option<&Section> {
         self.sections.get(name)
     }
 
@@ -141,7 +141,7 @@ impl Template {
     ///
     /// Separate from [`Self::section`] so a caller that only knows how
     /// to replace block bodies is unaffected by the existence of these.
-    pub(crate) fn inline(&self, name: &str) -> Option<&Range<usize>> {
+    pub fn inline(&self, name: &str) -> Option<&Range<usize>> {
         self.inline.get(name)
     }
 
@@ -153,7 +153,7 @@ impl Template {
     /// to match where it is going, so a document indented differently
     /// from whatever produced the replacement still comes out
     /// consistent.
-    pub(crate) fn render(&self, replacements: &HashMap<&str, String>) -> String {
+    pub fn render(&self, replacements: &HashMap<&str, String>) -> String {
         // `None` indent marks an inline hole, which is spliced as the
         // one line it is rather than re-indented.
         let mut holes: Vec<(&Range<usize>, Option<usize>, &String)> = replacements
@@ -184,7 +184,7 @@ impl Template {
 /// the sub-bodies that differ, or `None` when its shape does not allow
 /// it.
 ///
-/// The generalisation of [`crate::document::splice_touched_sections`] to
+/// The generalisation of `splice_touched_sections` in `unfurl-git-sync` to
 /// arbitrary depth. Sound here and not for plain YAML for the reason
 /// [the module docs](self) gives: record-level spans are invalidated by the
 /// key-sort a cloudmap section gets on write, and a literate block is
@@ -193,7 +193,7 @@ impl Template {
 /// A key added or removed at a level makes that level un-spliceable, so
 /// the failure widens the diff by one enclosing body rather than
 /// escaping to the whole document.
-pub(crate) fn splice_value(
+pub fn splice_value(
     body: &str,
     before: &serde_json::Value,
     after: &serde_json::Value,
@@ -254,8 +254,8 @@ pub(crate) fn splice_value(
 
 /// Serialize a YAML fragment: YAML at column 0, with the explicit nulls
 /// elided so an anchor written `x:` does not come back as `x: null`.
-pub(crate) fn to_yaml(value: &serde_json::Value, file_path: &str) -> crate::error::Result<String> {
-    let text = serde_saphyr::to_string(value).map_err(|e| crate::error::Error::Yaml {
+pub fn to_yaml(value: &serde_json::Value, file_path: &str) -> crate::error::Result<String> {
+    let text = serde_saphyr::to_string(value).map_err(|e| crate::error::MergeError::Yaml {
         path: file_path.to_string(),
         message: e.to_string(),
     })?;
@@ -332,7 +332,7 @@ fn line_end(src: &str, at: usize) -> usize {
 /// Strip up to `indent` leading spaces from every line, the inverse of
 /// [`indent_block`]. Used to take a section body out of one document at
 /// its indentation before putting it into another at that one\'s.
-pub(crate) fn dedent_block(text: &str, indent: usize) -> String {
+pub fn dedent_block(text: &str, indent: usize) -> String {
     let mut out = String::with_capacity(text.len());
     for line in text.lines() {
         let strip = line.len() - line.trim_start_matches(' ').len();
@@ -343,7 +343,7 @@ pub(crate) fn dedent_block(text: &str, indent: usize) -> String {
 }
 
 /// Prefix every non-empty line of `text` with `indent` spaces.
-pub(crate) fn indent_block(text: &str, indent: usize) -> String {
+pub fn indent_block(text: &str, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let mut out = String::with_capacity(text.len() + text.lines().count() * indent);
     for line in text.lines() {
@@ -499,13 +499,16 @@ artifacts:
         assert_eq!(parsed["kind"], "CloudMap");
     }
 
-    /// The shapes a real cloudmap has -- URL keys containing `#`, block
+    /// The shapes a real document has -- URL keys containing `#`, block
     /// sequences, nested maps -- rather than a hand-made two-key toy.
+    /// The fixture is a copy of a cloudmap, kept here so this crate
+    /// stands alone; only its *shape* matters, so it never needs
+    /// updating in step with anything.
     #[test]
     fn the_real_fixture_splits_into_sections() {
         let src = std::fs::read_to_string(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/tests/fixtures/expected_cloudmap.yaml"
+            "/tests/fixtures/sample_document.yaml"
         ))
         .expect("fixture");
         let t = Template::parse(&src).expect("parses");

@@ -19,6 +19,16 @@ pub enum MergeError {
         message: String,
     },
 
+    /// A literate markdown document could not be read or updated.
+    /// `path` identifies it; `message` says what stood in the way.
+    #[error("{path}: {message}")]
+    Markdown {
+        /// Path of the offending document.
+        path: String,
+        /// What could not be done, and why.
+        message: String,
+    },
+
     /// A merge was rejected — typically because the overlay
     /// specified `+%: error` on a key that exists in the base.
     #[error("merge rejected: {0}")]
