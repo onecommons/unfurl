@@ -418,6 +418,26 @@ fn reorder_like(previous: &serde_json::Value, next: serde_json::Value) -> serde_
 /// wrongly -- for any reason, including ones not anticipated here -- is
 /// discarded rather than written. That is what makes this safe to
 /// attempt at all: being wrong costs a comment, never a document.
+/// Whether two sections hold the same keys in the same order, which is
+/// what says an edit did not move anything.
+///
+/// `apply_format_ordering` sorts a section's keys before serialization,
+/// so an added or removed record shifts every later one and only the
+/// freshly rendered body describes the result. When the keys match, the
+/// sort changed nothing and the original text is still a valid place to
+/// splice into.
+fn same_keys(have: Option<&serde_json::Value>, want: Option<&serde_json::Value>) -> bool {
+    match (
+        have.and_then(|v| v.as_object()),
+        want.and_then(|v| v.as_object()),
+    ) {
+        (Some(have), Some(want)) => {
+            have.len() == want.len() && have.keys().zip(want.keys()).all(|(a, b)| a == b)
+        }
+        _ => false,
+    }
+}
+
 pub(crate) fn splice_touched_sections(
     src: &str,
     rendered: &[u8],
@@ -426,19 +446,35 @@ pub(crate) fn splice_touched_sections(
     let rendered = std::str::from_utf8(rendered).ok()?;
     let original = crate::template::Template::parse(src)?;
     let updated = crate::template::Template::parse(rendered)?;
+    let want: serde_json::Value = serde_saphyr::from_str(rendered).ok()?;
+    let have: serde_json::Value = serde_saphyr::from_str(src).ok()?;
 
     let mut replacements = std::collections::HashMap::new();
     for name in touched {
         let from = updated.section(name)?;
-        original.section(name)?;
+        let section = original.section(name)?;
+        // Where the section's keys are unchanged and in the same order,
+        // the sort was a no-op, so each record can be edited where it
+        // sits -- which keeps the comments between them. Adding or
+        // removing one moves the rest, and then the rendered body is
+        // the only thing that is right.
+        let edited = same_keys(have.get(name.as_str()), want.get(name.as_str()))
+            .then(|| {
+                crate::template::splice_value(
+                    &crate::template::dedent_block(original.body(section), section.indent),
+                    have.get(name.as_str())?,
+                    want.get(name.as_str())?,
+                )
+            })
+            .flatten();
         replacements.insert(
             name.as_str(),
-            crate::template::dedent_block(updated.body(from), from.indent),
+            edited
+                .unwrap_or_else(|| crate::template::dedent_block(updated.body(from), from.indent)),
         );
     }
     let spliced = original.render(&replacements);
 
-    let want: serde_json::Value = serde_saphyr::from_str(rendered).ok()?;
     let got: serde_json::Value = serde_saphyr::from_str(&spliced).ok()?;
     (got == want).then(|| spliced.into_bytes())
 }

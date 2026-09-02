@@ -180,6 +180,88 @@ impl Template {
     }
 }
 
+/// `body` rewritten to hold `after` instead of `before`, replacing only
+/// the sub-bodies that differ, or `None` when its shape does not allow
+/// it.
+///
+/// The generalisation of [`crate::document::splice_touched_sections`] to
+/// arbitrary depth. Sound here and not for plain YAML for the reason
+/// [the module docs](self) gives: record-level spans are invalidated by the
+/// key-sort a cloudmap section gets on write, and a literate block is
+/// never sorted — it is updated in place.
+///
+/// A key added or removed at a level makes that level un-spliceable, so
+/// the failure widens the diff by one enclosing body rather than
+/// escaping to the whole document.
+pub(crate) fn splice_value(
+    body: &str,
+    before: &serde_json::Value,
+    after: &serde_json::Value,
+) -> Option<String> {
+    let (before, after) = (before.as_object()?, after.as_object()?);
+    // A key *removed* at this level leaves a hole `Template` cannot
+    // close, so the caller re-serializes the enclosing body. A key
+    // added is fine: it goes after the ones already here.
+    if before.keys().any(|k| !after.contains_key(k)) {
+        return None;
+    }
+    let template = Template::parse(body)?;
+    let mut replacements: HashMap<&str, String> = HashMap::new();
+    for (key, was) in before {
+        let now = &after[key];
+        if was == now {
+            continue;
+        }
+        let text = match template.section(key) {
+            Some(section) => {
+                let nested = dedent_block(template.body(section), section.indent);
+                splice_value(&nested, was, now).or_else(|| to_yaml(now, "").ok())?
+            }
+            // A value sharing its key's line is swapped where it sits,
+            // so the comment after it and every comment elsewhere in
+            // this body survive -- which is the whole difference for a
+            // scalar field, the most common thing an edit touches.
+            // Only while it stays one line: a block scalar cannot go on
+            // a key's line, and widening the hole to fit one would
+            // swallow the comment this exists to keep.
+            None => {
+                template.inline(key)?;
+                let text = to_yaml(now, "").ok()?;
+                let line = text.trim_end_matches('\n');
+                if line.contains('\n') {
+                    return None;
+                }
+                line.to_string()
+            }
+        };
+        replacements.insert(key.as_str(), text);
+    }
+    let mut out = template.render(&replacements);
+
+    let added: serde_json::Map<String, serde_json::Value> = after
+        .iter()
+        .filter(|(key, _)| !before.contains_key(*key))
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    if !added.is_empty() {
+        if !out.is_empty() && !out.ends_with('\n') {
+            out.push('\n');
+        }
+        out.push_str(&to_yaml(&serde_json::Value::Object(added), "").ok()?);
+    }
+    Some(out)
+}
+
+/// Serialize a YAML fragment: YAML at column 0, with the explicit nulls
+/// elided so an anchor written `x:` does not come back as `x: null`.
+pub(crate) fn to_yaml(value: &serde_json::Value, file_path: &str) -> crate::error::Result<String> {
+    let text = serde_saphyr::to_string(value).map_err(|e| crate::error::Error::Yaml {
+        path: file_path.to_string(),
+        message: e.to_string(),
+    })?;
+    Ok(crate::util::elide_explicit_nulls(&text))
+}
+
 /// Every event in `src` with the bytes it covers, or `None` if the
 /// document does not parse or the parser cannot place an event in the
 /// source.

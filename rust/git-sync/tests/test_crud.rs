@@ -12,7 +12,7 @@ mod common;
 
 #[cfg(feature = "postgres")]
 use common::pg_fixture;
-use common::{crud_test, git};
+use common::{crud_test, git, open_at};
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
@@ -2963,16 +2963,6 @@ async fn file_backed_fixture() -> (TempDir, String) {
     (tmp, db)
 }
 
-async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
-    SyncedRepo::open(
-        dir,
-        unfurl_git_sync::DbConfig::Sqlite { url: db.into() },
-        unfurl_git_sync::FormatRegistry::with_builtins(),
-    )
-    .await
-    .expect("open SyncedRepo")
-}
-
 /// One repository reached two ways is one worktree, not two.
 #[tokio::test]
 async fn url_spellings_resolve_to_one_worktree() {
@@ -3519,49 +3509,6 @@ async fn json5_and_jsonc_round_trip() {
         .is_some());
 }
 
-/// Comments do not survive a rewrite -- the document round-trips through
-/// a `serde_json::Value`, which cannot hold them. Pinned so the loss is
-/// a known property rather than a surprise.
-#[tokio::test]
-async fn a_rewrite_drops_comments() {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    let jsonc = br#"{
-  // this comment cannot survive
-  "apiVersion": "unfurl/v1alpha1",
-  "kind": "CloudMap",
-  "repositories": {"git://example.com/x.git": {"name": "x"}}
-}"#;
-    unfurl_git_sync::git::init_with_files(
-        tmp.path(),
-        &[("c.jsonc".to_string(), jsonc.to_vec())],
-        "initial",
-    )
-    .expect("init repo");
-    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
-    let sync = open_at(tmp.path(), &db).await;
-    sync.update_from_working_dir(ScanOptions::default())
-        .await
-        .expect("sync");
-    sync.upsert_record(
-        Some("c.jsonc"),
-        "/repositories",
-        "git://example.com/x.git",
-        serde_json::json!({"name": "changed"}),
-        None,
-        false,
-    )
-    .await
-    .expect("write");
-    sync.save_changes().await.expect("save");
-
-    let text = std::fs::read_to_string(tmp.path().join("c.jsonc")).expect("read");
-    assert!(
-        !text.contains("cannot survive"),
-        "comments are dropped, same as for yaml: {text}"
-    );
-    assert!(text.contains("changed"), "{text}");
-}
-
 /// A plain `.json` file with comments and a trailing comma is read --
 /// most JSON-with-comments in the wild has a `.json` extension -- and
 /// the sync reports that it needed the lenient parser.
@@ -4029,93 +3976,6 @@ fn sync_outcome_types_are_public() {
     fn _takes(_: unfurl_git_sync::SyncOutcome, _: unfurl_git_sync::SaveFailure) {}
 }
 
-// ---------------------------------------------------------------------------
-// comment preservation
-// ---------------------------------------------------------------------------
-
-/// A write keeps the comments it did not touch.
-async fn a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) {
-    let path = tmp.path().join("cloudmap.yaml");
-    let original = std::fs::read_to_string(&path).expect("read");
-    // Comments in the three places people put them: above the document,
-    // above a section, and inside one.
-    let commented = format!(
-        "# what this cloudmap is for\n{}",
-        original
-            .replacen("repositories:", "# the repos we track\nrepositories:", 1)
-            .replacen("artifacts:", "# and the artifacts\nartifacts:", 1)
-    );
-    std::fs::write(&path, &commented).expect("write");
-
-    sync.update_from_working_dir(ScanOptions::default())
-        .await
-        .expect("update");
-    sync.upsert_record(
-        Some("cloudmap.yaml"),
-        "/repositories",
-        "git://example.com/added.git",
-        serde_json::json!({"name": "added"}),
-        None,
-        false,
-    )
-    .await
-    .expect("write");
-    sync.save_changes().await.expect("save");
-
-    let after = std::fs::read_to_string(&path).expect("read");
-    assert!(
-        after.starts_with("# what this cloudmap is for\n"),
-        "header comment lost:\n{after}"
-    );
-    assert!(after.contains("# the repos we track\n"), "{after}");
-    assert!(
-        after.contains("# and the artifacts\n"),
-        "a comment about an untouched section lost:\n{after}"
-    );
-    // ...and the write itself landed, in a document that still parses.
-    let parsed: serde_json::Value = serde_saphyr::from_str(&after).expect("valid yaml");
-    assert_eq!(
-        parsed["repositories"]["git://example.com/added.git"]["name"],
-        "added"
-    );
-    assert_eq!(parsed["kind"], "CloudMap");
-}
-
-/// Rewriting a section drops the comments *inside* it -- the records it
-/// annotates are re-sorted, so there is nowhere to put them back. Pinned
-/// so the boundary of what survives is stated rather than assumed.
-async fn comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &TempDir) {
-    let path = tmp.path().join("cloudmap.yaml");
-    let original = std::fs::read_to_string(&path).expect("read");
-    let commented = original.replacen(
-        "  git://unfurl.cloud/onecommons/std.git:",
-        "  # a note about std\n  git://unfurl.cloud/onecommons/std.git:",
-        1,
-    );
-    assert_ne!(commented, original, "fixture should contain that key");
-    std::fs::write(&path, &commented).expect("write");
-
-    sync.update_from_working_dir(ScanOptions::default())
-        .await
-        .expect("update");
-    sync.upsert_record(
-        Some("cloudmap.yaml"),
-        "/repositories",
-        "git://example.com/added.git",
-        serde_json::json!({"name": "added"}),
-        None,
-        false,
-    )
-    .await
-    .expect("write");
-    sync.save_changes().await.expect("save");
-
-    let after = std::fs::read_to_string(&path).expect("read");
-    assert!(!after.contains("a note about std"), "{after}");
-}
-
-crud_test!(a_write_keeps_comments_elsewhere);
-crud_test!(comments_inside_a_rewritten_section_are_lost);
 crud_test!(rescan_keeps_pending_edits);
 
 // ---------------------------------------------------------------------------

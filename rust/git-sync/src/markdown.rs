@@ -26,12 +26,12 @@
 //! with `# literate-yaml: ignore` — is funnelled into one signal,
 //! [`Block::value`] being `None`, so the two paths cannot drift.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::ops::Range;
 
 use crate::conflict::Applied;
 use crate::error::{Error, Result};
-use crate::template::{dedent_block, indent_block, Template};
+use crate::template::{dedent_block, indent_block, splice_value, to_yaml};
 
 /// Opts a fenced block out of the document, as its first non-blank line.
 ///
@@ -341,7 +341,7 @@ pub(crate) fn render(
             } else {
                 splice_value(&block.text, before, &after)
                     .map(Ok)
-                    .unwrap_or_else(|| emit(&after, file_path))?
+                    .unwrap_or_else(|| to_yaml(&after, file_path))?
             };
             rewritten.push((block, text));
         }
@@ -527,88 +527,6 @@ fn deep_diff(want: &serde_json::Value, have: &serde_json::Value) -> Option<serde
     (!out.is_empty()).then(|| serde_json::Value::Object(out))
 }
 
-/// `body` rewritten to hold `after` instead of `before`, replacing only
-/// the sub-bodies that differ, or `None` when its shape does not allow
-/// it.
-///
-/// The generalisation of [`crate::document::splice_touched_sections`] to
-/// arbitrary depth. Sound here and not for plain YAML for the reason
-/// [`crate::template`] gives: record-level spans are invalidated by the
-/// key-sort a cloudmap section gets on write, and a literate block is
-/// never sorted — it is updated in place.
-///
-/// A key added or removed at a level makes that level un-spliceable, so
-/// the failure widens the diff by one enclosing body rather than
-/// escaping to the whole document.
-fn splice_value(
-    body: &str,
-    before: &serde_json::Value,
-    after: &serde_json::Value,
-) -> Option<String> {
-    let (before, after) = (before.as_object()?, after.as_object()?);
-    // A key *removed* at this level leaves a hole `Template` cannot
-    // close, so the caller re-serializes the enclosing body. A key
-    // added is fine: it goes after the ones already here.
-    if before.keys().any(|k| !after.contains_key(k)) {
-        return None;
-    }
-    let template = Template::parse(body)?;
-    let mut replacements: HashMap<&str, String> = HashMap::new();
-    for (key, was) in before {
-        let now = &after[key];
-        if was == now {
-            continue;
-        }
-        let text = match template.section(key) {
-            Some(section) => {
-                let nested = dedent_block(template.body(section), section.indent);
-                splice_value(&nested, was, now).or_else(|| emit(now, "").ok())?
-            }
-            // A value sharing its key's line is swapped where it sits,
-            // so the comment after it and every comment elsewhere in
-            // this body survive -- which is the whole difference for a
-            // scalar field, the most common thing an edit touches.
-            // Only while it stays one line: a block scalar cannot go on
-            // a key's line, and widening the hole to fit one would
-            // swallow the comment this exists to keep.
-            None => {
-                template.inline(key)?;
-                let text = emit(now, "").ok()?;
-                let line = text.trim_end_matches('\n');
-                if line.contains('\n') {
-                    return None;
-                }
-                line.to_string()
-            }
-        };
-        replacements.insert(key.as_str(), text);
-    }
-    let mut out = template.render(&replacements);
-
-    let added: serde_json::Map<String, serde_json::Value> = after
-        .iter()
-        .filter(|(key, _)| !before.contains_key(*key))
-        .map(|(key, value)| (key.clone(), value.clone()))
-        .collect();
-    if !added.is_empty() {
-        if !out.is_empty() && !out.ends_with('\n') {
-            out.push('\n');
-        }
-        out.push_str(&emit(&serde_json::Value::Object(added), "").ok()?);
-    }
-    Some(out)
-}
-
-/// Serialize a fence body: YAML at column 0, with the explicit nulls
-/// elided so an anchor written `x:` does not come back as `x: null`.
-fn emit(value: &serde_json::Value, file_path: &str) -> Result<String> {
-    let text = serde_saphyr::to_string(value).map_err(|e| Error::Yaml {
-        path: file_path.to_string(),
-        message: e.to_string(),
-    })?;
-    Ok(crate::util::elide_explicit_nulls(&text))
-}
-
 /// Splice the rewritten blocks back into `src` and append the trailing
 /// fence, leaving every other byte — prose, fence lines, front matter —
 /// exactly where it was.
@@ -632,7 +550,7 @@ fn assemble(
             out.push('\n');
         }
         out.push_str("\n```yaml\n");
-        out.push_str(&emit(&leftover, file_path)?);
+        out.push_str(&to_yaml(&leftover, file_path)?);
         out.push_str("```\n");
     }
     Ok(out)
@@ -943,7 +861,7 @@ key: [unclosed
     #[test]
     fn an_emitted_null_anchor_stays_distinct_from_an_empty_map() {
         let value = serde_json::json!({"anchor": null, "empty": {}, "nested": {"a": null}});
-        let text = emit(&value, "t.md").expect("emit");
+        let text = to_yaml(&value, "t.md").expect("emit");
         assert_eq!(text, "anchor:\nempty: {}\nnested:\n  a:\n");
         assert_eq!(
             serde_saphyr::from_str::<serde_json::Value>(&text).expect("yaml"),

@@ -182,3 +182,14 @@ macro_rules! crud_test {
     };
 }
 pub(crate) use crud_test;
+
+/// Open a `SyncedRepo` over an existing directory and sqlite file.
+pub async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
+    SyncedRepo::open(
+        dir,
+        DbConfig::Sqlite { url: db.into() },
+        FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo")
+}
