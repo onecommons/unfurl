@@ -117,13 +117,21 @@ impl Syntax {
 
     /// Render a value back out.
     ///
-    /// JSON5 and JSONC are written as pretty JSON, which is valid in
-    /// both: json5's own serializer emits everything on one line, and a
-    /// file a person maintains should not be reflowed into one. The
-    /// rewrite is lossy for either in the same way it already is for
-    /// YAML — the document round-trips through a `serde_json::Value`,
-    /// which holds no comments, so comments anywhere in the file are
-    /// dropped when any record in it changes.
+    /// JSON5 and JSONC are written as strict pretty JSON, which is
+    /// valid in both. `json5::to_string` is not used even though it
+    /// indents: its output is JSON5-flavoured — unquoted keys, trailing
+    /// commas — which a plain `.json` must not receive, and both
+    /// dialects share this arm.
+    ///
+    /// The rewrite is lossy for either in the same way it already is
+    /// for YAML — the document round-trips through a
+    /// `serde_json::Value`, which holds no comments, so comments
+    /// anywhere in the file are dropped when any record in it changes.
+    /// `json5`'s deserializer discards them at parse time
+    /// (`skip_comment`) and serde's data model has nowhere to put them,
+    /// so no serializer choice would preserve them; that needs a
+    /// lossless parser with byte spans, as the YAML path gets from
+    /// [`crate::template`].
     pub(crate) fn serialize(self, root: &serde_json::Value, file_path: &str) -> Result<Vec<u8>> {
         match self {
             Self::Yaml => {
@@ -139,6 +147,59 @@ impl Syntax {
             }),
         }
     }
+
+    /// Parse `bytes` as a document to apply records to: [`Self::parse`],
+    /// but guaranteed to be an object.
+    ///
+    /// A root that is a sequence or a scalar is replaced with an empty
+    /// object rather than rejected — there is nowhere in it to put a
+    /// record, so treating it as an empty document is the only reading
+    /// under which the write means anything. The records then overwrite
+    /// it, which is deliberate: the file did not hold this format.
+    pub(crate) fn into_value(self, file_path: &str, bytes: &[u8]) -> Result<serde_json::Value> {
+        let root = self.parse(file_path, bytes)?.value;
+        Ok(if root.is_object() {
+            root
+        } else {
+            serde_json::Value::Object(serde_json::Map::new())
+        })
+    }
+
+    /// The bytes to write for a document the pending records have been
+    /// applied to, keeping as much of the original file as this syntax
+    /// allows.
+    ///
+    /// Only YAML splices. [`Template`](crate::template::Template)
+    /// locates block-style bodies, and `serde_json::to_vec_pretty` puts
+    /// every JSON value on its key's line, so a JSON splice would find
+    /// no section to replace — and if one ever did, the re-parse check
+    /// inside [`splice_touched_sections`] would reject it. Saying so
+    /// here rather than leaning on that is the point of matching on the
+    /// syntax: for JSON the whole document is re-emitted, and that is
+    /// the design, not an accident.
+    pub(crate) fn render_document(
+        self,
+        source: Option<&str>,
+        root: &mut serde_json::Value,
+        format: Option<&dyn crate::DataFormat>,
+        touched: &[String],
+        file_path: &str,
+    ) -> Result<Vec<u8>> {
+        apply_format_ordering(root, format, touched);
+        let bytes = self.serialize(root, file_path)?;
+        match self {
+            // Re-emitting the whole document is correct but drops every
+            // comment in it. Where the shape allows, keep the original
+            // bytes and swap in only the sections that changed.
+            Self::Yaml => Ok(source
+                .and_then(|src| splice_touched_sections(src, &bytes, touched))
+                .unwrap_or(bytes)),
+            // Nothing to preserve: the document round-tripped through a
+            // `serde_json::Value`, so any comment or JSON5 spelling was
+            // already gone before serialization. See `Self::serialize`.
+            Self::Json | Self::Json5 => Ok(bytes),
+        }
+    }
 }
 
 /// Lower-cased extension of `file_path`, or empty when there isn't one.
@@ -149,21 +210,20 @@ pub(crate) fn extract_ext(file_path: &str) -> String {
         .unwrap_or_default()
 }
 
-/// Load the on-disk document at `abs` as a `serde_json::Value` and
-/// guarantee it's an object. A missing file yields an empty object;
-/// a non-object root is replaced with one.
-pub(crate) fn load_root(abs: &Path, file_path: &str, syntax: Syntax) -> Result<serde_json::Value> {
-    let mut root: serde_json::Value = match std::fs::read(abs) {
-        Ok(bytes) => syntax.parse(file_path, &bytes)?.value,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            serde_json::Value::Object(serde_json::Map::new())
-        }
-        Err(e) => return Err(Error::Io(e)),
-    };
-    if !root.is_object() {
-        root = serde_json::Value::Object(serde_json::Map::new());
+/// The document to start from when the file is not on disk yet: the
+/// format's header, or an empty object when no format claims the
+/// records.
+///
+/// Whatever [`crate::DataFormat::is_format`] inspects lives in
+/// [`new_document`](crate::DataFormat::new_document); a file synthesised
+/// without it would not be recognised by the next
+/// [`crate::SyncedRepo::update_from_working_dir`] and its records would
+/// drop out of the index.
+pub(crate) fn new_root(format: Option<&dyn crate::DataFormat>) -> serde_json::Value {
+    match format.map(crate::DataFormat::new_document) {
+        Some(header @ serde_json::Value::Object(_)) => header,
+        _ => serde_json::Value::Object(serde_json::Map::new()),
     }
-    Ok(root)
 }
 
 /// Apply `format`'s per-section ordering policy to the sections this batch

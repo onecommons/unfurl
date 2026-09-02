@@ -35,9 +35,7 @@ use crate::crud::{
     crud_upsert_in_pool, delete_file_in_pool, WriteTarget,
 };
 use crate::db::{self, Db, DbConfig};
-use crate::document::{
-    apply_format_ordering, extract_ext, load_root, splice_touched_sections, stage_write, Syntax,
-};
+use crate::document::{extract_ext, new_root, stage_write, Syntax};
 use crate::error::{Error, Result};
 use crate::format::FormatRegistry;
 use crate::git;
@@ -1408,7 +1406,7 @@ impl SyncedRepo {
     /// failure; [`crate::Error::Io`] for filesystem failures.
     pub async fn write_file(&self, file_path: &str) -> Result<WriteFileOutcome> {
         let file_row = db::file::get(self.db(), self.worktree_id(), file_path).await?;
-        let abs = self.inner.repo_path.join(file_path);
+        let abs_path = self.inner.repo_path.join(file_path);
         // Divergences already on record: the file's side of these stands
         // whether or not the file has moved since, so they are loaded
         // unconditionally.
@@ -1419,39 +1417,14 @@ impl SyncedRepo {
                 .map(|r| ((r.path.clone(), r.key.clone()), r))
                 .collect();
 
-        // A file the database has removed. Checked before the
-        // pending-is-empty exit below, because a deletion whose
-        // tombstones have already been purged leaves nothing pending and
-        // would otherwise never reach the disk.
-        if file_row.as_ref().is_some_and(|f| f.deleted) {
-            let live = db::record::find(
-                self.db(),
-                self.worktree_id(),
-                &RecordQuery {
-                    file_path: Some(file_path.to_string()),
-                    limit: Some(1),
-                    ..Default::default()
-                },
-            )
-            .await?;
-            if live.is_empty() && conflict_rows.is_empty() {
-                // `remove_file` on an absent file is the already-done
-                // case, not a failure.
-                let removed = match std::fs::remove_file(&abs) {
-                    Ok(()) => true,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
-                    Err(e) => return Err(Error::Io(e)),
-                };
-                return Ok(WriteFileOutcome {
-                    written: removed.then_some(abs),
-                    deleted: true,
-                    conflicts: Vec::new(),
-                });
-            }
-            // Something is in the file after all -- a record written
-            // back, or a contested one. A file with content plainly
-            // exists, so the deletion no longer holds.
-            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
+        // Checked before the pending-is-empty exit below, because a
+        // deletion whose tombstones have already been purged leaves
+        // nothing pending and would otherwise never reach the disk.
+        if let Some(outcome) = self
+            .remove_deleted_file(file_path, &abs_path, file_row.as_ref(), &conflict_rows)
+            .await?
+        {
+            return Ok(outcome);
         }
 
         let pending = db::record::load_pending(self.db(), self.worktree_id(), file_path).await?;
@@ -1470,34 +1443,25 @@ impl SyncedRepo {
         // A stale source means the disk holds an edit this database
         // never took in — the apply below must check each pending
         // record against its base for collisions with that edit.
-        let stale = self.source_stale(file_row.as_ref(), &abs)?;
-        let check = if stale {
-            let repo = self.repo()?;
-            let base_docs = bases
-                .values()
-                .flatten()
-                .collect::<BTreeSet<_>>()
-                .into_iter()
-                .map(|commit| (commit.clone(), doc_at_commit(&repo, commit, file_path)))
-                .collect();
-            Some(ConflictCheck { base_docs })
-        } else {
-            None
-        };
+        let stale = self.source_stale(file_row.as_ref(), &abs_path)?;
+        let check = stale
+            .then(|| self.base_documents(file_path, &bases))
+            .transpose()?;
 
-        let existed = abs.exists();
-        let source = std::fs::read_to_string(&abs).ok();
-        let mut root = load_root(&abs, file_path, syntax)?;
-        if !existed {
-            // Brand-new document
-            if let (Some(fmt), Some(root_obj)) = (format, root.as_object_mut()) {
-                if let Some(header) = fmt.new_document().as_object() {
-                    for (k, v) in header {
-                        root_obj.insert(k.clone(), v.clone());
-                    }
-                }
-            }
-        }
+        // One read answers both questions the write has about the file:
+        // the bytes a splice keeps, and whether there is a document here
+        // at all. Asking the filesystem twice can answer them
+        // differently -- a file that appears between a stat and a read
+        // would have the format header written over its contents.
+        let source = match std::fs::read_to_string(&abs_path) {
+            Ok(text) => Some(text),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(Error::Io(e)),
+        };
+        let mut root = match source.as_deref() {
+            Some(text) => syntax.into_value(file_path, text.as_bytes())?,
+            None => new_root(format),
+        };
         let Applying {
             touched,
             conflicts,
@@ -1526,41 +1490,110 @@ impl SyncedRepo {
                 conflicts,
             });
         }
-        apply_format_ordering(&mut root, format, &touched);
-        let bytes = syntax.serialize(&root, file_path)?;
-        // Re-emitting the whole document is correct but drops every
-        // comment in it. Where the shape allows, keep the original bytes
-        // and swap in only the sections that changed.
-        let bytes = source
-            .and_then(|src| splice_touched_sections(&src, &bytes, &touched))
-            .unwrap_or(bytes);
-        let tmp = stage_write(&abs, &bytes)?;
-        if stale {
-            // The database does not describe this file's current
-            // content — the render just merged over an edit it never
-            // took in. Leave `source_oid` naming the old bytes so the
-            // next scan sees the mismatch and takes the merged file
-            // in; stamping the rendered oid here would hide the hand
-            // edit from every future scan.
-            tmp.persist(&abs).map_err(|e| Error::Io(e.error))?;
-        } else {
-            // Write and flush outside the transaction; only the rename
-            // goes inside it, so the two records of "the file now
-            // holds these bytes" -- the file itself and `source_oid`
-            // -- commit together.
-            let oid = git::blob_oid_for_bytes(&self.repo()?, &bytes).to_string();
-            db::file::commit_write(self.db(), self.worktree_id(), file_path, &oid, || {
-                tmp.persist(&abs)
-                    .map(|_| ())
-                    .map_err(|e| Error::Io(e.error))
-            })
+        let bytes =
+            syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?;
+        self.persist_render(file_path, &abs_path, &bytes, stale)
             .await?;
-        }
         Ok(WriteFileOutcome {
-            written: Some(abs),
+            written: Some(abs_path),
             deleted: false,
             conflicts,
         })
+    }
+
+    /// Take a file the database has deleted off the disk, or retract the
+    /// deletion when something is still in it.
+    ///
+    /// `Some` means the file is gone and [`Self::write_file`] is done;
+    /// `None` means there was no deletion to act on, or one that no
+    /// longer holds because a record was written back or is contested —
+    /// a file with content plainly exists.
+    async fn remove_deleted_file(
+        &self,
+        file_path: &str,
+        abs: &Path,
+        file_row: Option<&crate::model::File>,
+        conflict_rows: &std::collections::HashMap<(String, String), Record>,
+    ) -> Result<Option<WriteFileOutcome>> {
+        if !file_row.is_some_and(|f| f.deleted) {
+            return Ok(None);
+        }
+        let live = db::record::find(
+            self.db(),
+            self.worktree_id(),
+            &RecordQuery {
+                file_path: Some(file_path.to_string()),
+                limit: Some(1),
+                ..Default::default()
+            },
+        )
+        .await?;
+        if !live.is_empty() || !conflict_rows.is_empty() {
+            db::file::set_deleted(self.db(), self.worktree_id(), file_path, false).await?;
+            return Ok(None);
+        }
+        // `remove_file` on an absent file is the already-done case, not
+        // a failure.
+        let removed = match std::fs::remove_file(abs) {
+            Ok(()) => true,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+            Err(e) => return Err(Error::Io(e)),
+        };
+        Ok(Some(WriteFileOutcome {
+            written: removed.then(|| abs.to_path_buf()),
+            deleted: true,
+            conflicts: Vec::new(),
+        }))
+    }
+
+    /// `file_path`'s parsed document at each commit a pending row is
+    /// based on — what a write over a stale file classifies against.
+    ///
+    /// Holds the gix handle for the length of one call, so the
+    /// (non-`Sync`) `Repository` never lives across an await.
+    fn base_documents(
+        &self,
+        file_path: &str,
+        bases: &std::collections::HashMap<(String, String), Option<String>>,
+    ) -> Result<ConflictCheck> {
+        let repo = self.repo()?;
+        let base_docs = bases
+            .values()
+            .flatten()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|commit| (commit.clone(), doc_at_commit(&repo, commit, file_path)))
+            .collect();
+        Ok(ConflictCheck { base_docs })
+    }
+
+    /// Put the rendered bytes on disk, stamping `source_oid` only when
+    /// the database still describes what the file held.
+    ///
+    /// A stale write deliberately leaves `source_oid` naming the old
+    /// bytes: the render just merged over an edit this database never
+    /// took in, so the next scan has to see the mismatch and take the
+    /// merged file in. Stamping the rendered oid would hide the hand
+    /// edit from every future scan.
+    async fn persist_render(
+        &self,
+        file_path: &str,
+        abs: &Path,
+        bytes: &[u8],
+        stale: bool,
+    ) -> Result<()> {
+        let tmp = stage_write(abs, bytes)?;
+        if stale {
+            return tmp.persist(abs).map(|_| ()).map_err(|e| Error::Io(e.error));
+        }
+        // Write and flush outside the transaction; only the rename goes
+        // inside it, so the two records of "the file now holds these
+        // bytes" -- the file itself and `source_oid` -- commit together.
+        let oid = git::blob_oid_for_bytes(&self.repo()?, bytes).to_string();
+        db::file::commit_write(self.db(), self.worktree_id(), file_path, &oid, || {
+            tmp.persist(abs).map(|_| ()).map_err(|e| Error::Io(e.error))
+        })
+        .await
     }
 
     /// Whether `abs` no longer hashes to the `source_oid` recorded on

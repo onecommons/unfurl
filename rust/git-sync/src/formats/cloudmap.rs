@@ -3,8 +3,8 @@
 //! CloudMap [`DataFormat`] implementation.
 //!
 //! Recognises documents with `kind: CloudMap` and extracts records
-//! under the five path-prefix sections (`services`, `repositories`,
-//! `artifacts`, `instantiations`, `types`).
+//! under the path-prefix sections (`services`, `repositories`,
+//! `artifacts`, `components`, `instantiations`, `types`).
 //!
 //! The helpers port logic from the Python codebase:
 //!

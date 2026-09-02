@@ -17,8 +17,8 @@ use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
 use unfurl_git_sync::{
-    BatchOp, CommitRef, ConflictState, Error, JsonQuery, RecordConflictKind, RecordQuery,
-    Resolution, ScanOptions, SyncedRepo, TxnMeta,
+    BatchOp, CloudMapFormat, CommitRef, ConflictState, DataFormat, Error, JsonQuery,
+    RecordConflictKind, RecordQuery, Resolution, ScanOptions, SyncedRepo, TxnMeta,
 };
 
 // ---------------------------------------------------------------------------
@@ -4018,8 +4018,59 @@ async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir)
         .written
         .expect("written");
     assert!(tmp.path().join("brand-new.yaml").exists());
+
+    // The synthesised file must carry whatever `is_format` inspects, or
+    // the next scan will not claim it and every record in it drops out
+    // of the index. Asserting the predicate rather than the header text
+    // pins the property `DataFormat::new_document` exists for.
+    let doc: serde_json::Value = serde_saphyr::from_str(
+        &std::fs::read_to_string(tmp.path().join("brand-new.yaml")).expect("read"),
+    )
+    .expect("yaml");
+    assert!(
+        CloudMapFormat.is_format(&doc),
+        "a synthesised file no format claims loses its records: {doc:?}"
+    );
 }
 
+/// A file whose root is a sequence has nowhere to put a record.
+///
+/// Whether the write refuses or replaces the document is a design
+/// choice nobody has made deliberately; that it does not *panic* is
+/// not. `apply_pending_records` indexes the root with
+/// `as_object_mut().expect(...)`, so letting a non-mapping reach it
+/// would take down the whole `save_changes` batch instead of failing
+/// this one file.
+async fn run_a_write_over_a_non_mapping_document_does_not_panic(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("update");
+    std::fs::write(tmp.path().join("list.yaml"), b"- a\n- b\n").expect("seed");
+    sync.upsert_record(
+        Some("list.yaml"),
+        "/repositories",
+        "fresh",
+        serde_json::json!({"name": "fresh"}),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+
+    if let Ok(res) = sync.write_file("list.yaml").await {
+        assert!(res.written.is_some(), "{res:?}");
+        let doc: serde_json::Value = serde_saphyr::from_str(
+            &std::fs::read_to_string(tmp.path().join("list.yaml")).expect("read"),
+        )
+        .expect("yaml");
+        assert_eq!(doc["repositories"]["fresh"]["name"], "fresh", "{doc:?}");
+    }
+}
+
+crud_test!(
+    a_write_over_a_non_mapping_document_does_not_panic,
+    run_a_write_over_a_non_mapping_document_does_not_panic
+);
 crud_test!(
     a_write_merges_over_a_hand_edit,
     run_a_write_merges_over_a_hand_edit

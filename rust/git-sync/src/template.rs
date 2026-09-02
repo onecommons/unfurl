@@ -6,7 +6,7 @@
 //! The record round-trip goes through a `serde_json::Value`, which holds
 //! no comments — so re-serializing a whole document drops every comment
 //! in it, including ones nowhere near the records that changed. A
-//! cloudmap's *layout* is generated (sections are key-sorted, fields have
+//! document's *layout* is generated (sections are key-sorted, fields have
 //! a canonical order), so there is nothing to preserve there; what people
 //! lose is what they wrote.
 //!
