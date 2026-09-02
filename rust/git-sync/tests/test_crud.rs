@@ -12,7 +12,7 @@ mod common;
 
 #[cfg(feature = "postgres")]
 use common::pg_fixture;
-use common::sqlite_fixture;
+use common::{crud_test, git};
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
@@ -25,7 +25,7 @@ use unfurl_git_sync::{
 // Test bodies
 // ---------------------------------------------------------------------------
 
-async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -99,7 +99,7 @@ async fn run_create_update_delete_round_trip(sync: &SyncedRepo, _tmp: &TempDir) 
     assert!(matches!(dne, Err(Error::NotFound { .. })));
 }
 
-async fn run_save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
+async fn save_changes_round_trips_to_disk(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -239,7 +239,7 @@ fn field_order(value: &serde_json::Value) -> Vec<&str> {
 /// `get_record` is only checked for content. Running under `crud_test!`
 /// is the point: the two backends disagree about what comes out of the
 /// database, and must still agree about what lands in the file.
-async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir) {
+async fn record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -307,7 +307,7 @@ async fn run_record_field_order_survives_the_db(sync: &SyncedRepo, tmp: &TempDir
 /// `CloudMapDB.save()` writes, both being derived from the schema.
 /// Without it a new record would land in whatever order the database
 /// returned, which differs per backend and matches neither tool.
-async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &TempDir) {
+async fn new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -351,7 +351,7 @@ async fn run_new_record_gets_the_canonical_field_order(sync: &SyncedRepo, tmp: &
     );
 }
 
-async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -448,7 +448,7 @@ async fn run_commit_conflict_is_detected(sync: &SyncedRepo, _tmp: &TempDir) {
     assert_eq!(r.commit_id.as_deref(), Some(oid_c.as_str()));
 }
 
-async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir) {
     // Regression: the conflict check + mutation + alias refresh must
     // happen in a single transaction. Before the fix, a Conflict
     // returned partway through left stale alias rows in the DB.
@@ -498,7 +498,7 @@ async fn run_conflict_rolls_back_alias_writes(sync: &SyncedRepo, _tmp: &TempDir)
     );
 }
 
-async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
+async fn create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     // delete_record only marks `deleted = TRUE` (a tombstone). A
     // subsequent create_record at the same (path, key) must succeed —
     // resurrecting the row — rather than seeing the tombstone as an
@@ -580,7 +580,7 @@ async fn run_create_resurrects_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     assert!(!after.deleted);
 }
 
-async fn run_create_with_pending_token_on_committed_file_is_conflict(
+async fn create_with_pending_token_on_committed_file_is_conflict(
     sync: &SyncedRepo,
     _tmp: &TempDir,
 ) {
@@ -607,7 +607,7 @@ async fn run_create_with_pending_token_on_committed_file_is_conflict(
     );
 }
 
-async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     // `type_names` matches records whose `type` typeRef object
     // declares one of the given names as a key. Exact names only —
     // subtype expansion is the caller's job.
@@ -696,7 +696,7 @@ async fn run_find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 }
 
-async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     // The fixture's pkg:oci/odoo OCI artifact has a `versions` map
     // (`@sha256:…`, `?tag=latest`); CloudMapFormat::find_alias turns
     // each into an alias row at (record.path, joined_url). Looking up
@@ -780,7 +780,7 @@ async fn run_find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 }
 
-async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     // find_records_follow walks DataFormat::follow edges from each
     // initial match, breadth-first, returning at most `follow` newly
     // visited records.
@@ -953,7 +953,7 @@ async fn run_find_records_follow_walk(sync: &SyncedRepo, _tmp: &TempDir) {
     assert_eq!(walked_small_ids, vec![expected_walk[0]]);
 }
 
-async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _tmp: &TempDir) {
     // Two writers race on the same in-flight record. They both read
     // `Pending(v)` for the same `v`, but only one's update succeeds —
     // the other's `version` no longer matches and gets a Conflict.
@@ -1032,7 +1032,7 @@ async fn run_pending_token_distinguishes_concurrent_updates(sync: &SyncedRepo, _
     .expect("B: retry with valid Pending(v2)");
 }
 
-async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp: &TempDir) {
     // A `Pending(v)` token doesn't depend on `commit_id` — once issued,
     // it stays valid as long as nobody else has rewritten the row,
     // even after `commit_repository` rolls forward.
@@ -1089,7 +1089,7 @@ async fn run_pending_token_survives_commit_roll_forward(sync: &SyncedRepo, _tmp:
     .expect("Pending(v) still valid after commit");
 }
 
-async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     // `list_changes(None, false)` returns only the in-flight (commit_id IS
     // NULL) records — exactly what `commit_repository` would write.
     sync.update_from_working_dir(ScanOptions::default())
@@ -1165,7 +1165,7 @@ async fn run_list_changes_pending_only(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 }
 
-async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
     // `list_changes(Some(v), false)` returns records (committed or not) whose
     // version is greater than `v`. Useful for "sync me forward."
     sync.update_from_working_dir(ScanOptions::default())
@@ -1234,7 +1234,7 @@ async fn run_list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
         .is_empty());
 }
 
-async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &TempDir) {
     // The fresh fixture has only `cloudmap.yaml`. After the first
     // `update_from_working_dir` run, that should become the default
     // file path. A subsequent run must NOT clobber a manually-set
@@ -1260,7 +1260,7 @@ async fn run_default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &Tem
     );
 }
 
-async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp: &TempDir) {
     // `update_record(None, ...)` should look up the existing record
     // by `(path, key)` and use *its* file_path.
     sync.update_from_working_dir(ScanOptions::default())
@@ -1291,7 +1291,7 @@ async fn run_crud_with_none_file_path_resolves_existing(sync: &SyncedRepo, _tmp:
     assert_eq!(r.json["name"], "via-none");
 }
 
-async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _tmp: &TempDir) {
     // `upsert_record(None, ...)` for a *new* (path, key) falls back
     // to `worktree.default_file_path`.
     sync.update_from_working_dir(ScanOptions::default())
@@ -1321,7 +1321,7 @@ async fn run_crud_with_none_file_path_uses_default_for_new(sync: &SyncedRepo, _t
     assert_eq!(r.file_path, "cloudmap.yaml");
 }
 
-async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo, _tmp: &TempDir) {
     // Sync (which auto-sets default_file_path), then explicitly clear
     // it. `upsert_record(None, ...)` for a brand-new key now has no
     // file to fall back on → NotFound.
@@ -1356,7 +1356,7 @@ async fn run_crud_none_file_path_no_default_returns_not_found(sync: &SyncedRepo,
 // one Postgres test (skipped at runtime when `UNFURL_TEST_PG_URL` is
 // unset, and compiled away entirely without the `postgres` feature).
 
-async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1397,7 +1397,7 @@ async fn run_apply_batch_atomic_success(sync: &SyncedRepo, _tmp: &TempDir) {
     }
 }
 
-async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1471,7 +1471,7 @@ async fn run_apply_batch_atomic_conflict_rolls_back(sync: &SyncedRepo, _tmp: &Te
         .is_none());
 }
 
-async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1559,7 +1559,7 @@ async fn run_apply_batch_non_atomic_partial(sync: &SyncedRepo, _tmp: &TempDir) {
 
 /// Page a whole section with `after` + `limit` and check the walk is
 /// exactly the unpaged result: no record skipped, none seen twice.
-async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1640,7 +1640,7 @@ async fn run_find_records_paging(sync: &SyncedRepo, _tmp: &TempDir) {
 /// default collation is locale-dependent and would sort "e-with-acute"
 /// before "z"; the `COLLATE "C"` in `find_pg` is what keeps a token
 /// minted by sqlite or python meaning the same thing there.
-async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1695,7 +1695,7 @@ async fn run_find_records_paging_is_byte_ordered(sync: &SyncedRepo, _tmp: &TempD
 /// A record that was deleted is invisible to a normal search but must be
 /// reachable by a client catching up from a watermark -- otherwise the
 /// delete is unobservable, since the row simply stops being returned.
-async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -1763,7 +1763,7 @@ async fn run_find_records_reports_tombstones(sync: &SyncedRepo, _tmp: &TempDir) 
 /// body runs on both backends; object-valued cells are compared after
 /// canonicalize-and-merge because sqlite legitimately splits them by
 /// stored key order (the documented approximation the server merges).
-async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     use std::collections::BTreeMap;
     use unfurl_git_sync::{canonical_facet_key, FacetColumnRow, FacetPath, FacetSpec};
 
@@ -1989,7 +1989,7 @@ async fn run_facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
 /// A rescan must not undo record edits that haven't reached disk yet.
 /// The file is byte-for-byte what the last scan parsed, so it carries no
 /// news -- yet the scan re-derives every record in it from those bytes.
-async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -2058,63 +2058,18 @@ async fn run_rescan_keeps_pending_edits(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 }
 
-macro_rules! crud_test {
-    ($name:ident, $body:ident) => {
-        mod $name {
-            use super::*;
-
-            #[tokio::test]
-            async fn sqlite() {
-                let (sync, tmp) = sqlite_fixture().await;
-                $body(&sync, &tmp).await;
-            }
-
-            #[cfg(feature = "postgres")]
-            #[tokio::test]
-            async fn postgres() {
-                let Some((sync, tmp, scope)) = pg_fixture().await else {
-                    eprintln!("skip: UNFURL_TEST_PG_URL not set");
-                    return;
-                };
-                $body(&sync, &tmp).await;
-                drop(sync);
-                drop(tmp);
-                scope.teardown().await;
-            }
-        }
-    };
-}
-
-crud_test!(
-    create_update_delete_round_trip,
-    run_create_update_delete_round_trip
-);
-crud_test!(
-    save_changes_round_trips_to_disk,
-    run_save_changes_round_trips_to_disk
-);
-crud_test!(
-    record_field_order_survives_the_db,
-    run_record_field_order_survives_the_db
-);
-crud_test!(
-    new_record_gets_the_canonical_field_order,
-    run_new_record_gets_the_canonical_field_order
-);
-crud_test!(commit_conflict_is_detected, run_commit_conflict_is_detected);
-crud_test!(
-    conflict_rolls_back_alias_writes,
-    run_conflict_rolls_back_alias_writes
-);
-crud_test!(create_resurrects_tombstone, run_create_resurrects_tombstone);
-crud_test!(
-    create_with_pending_token_on_committed_file_is_conflict,
-    run_create_with_pending_token_on_committed_file_is_conflict
-);
-crud_test!(find_records_alias_lookup, run_find_records_alias_lookup);
-crud_test!(find_records_follow_walk, run_find_records_follow_walk);
-crud_test!(facet_records, run_facet_records);
-async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
+crud_test!(create_update_delete_round_trip);
+crud_test!(save_changes_round_trips_to_disk);
+crud_test!(record_field_order_survives_the_db);
+crud_test!(new_record_gets_the_canonical_field_order);
+crud_test!(commit_conflict_is_detected);
+crud_test!(conflict_rolls_back_alias_writes);
+crud_test!(create_resurrects_tombstone);
+crud_test!(create_with_pending_token_on_committed_file_is_conflict);
+crud_test!(find_records_alias_lookup);
+crud_test!(find_records_follow_walk);
+crud_test!(facet_records);
+async fn find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
     // A `JsonQuery` is pushed into the SQL WHERE clause. The same predicate has
     // to mean the same thing on both backends, which is what running this test
     // under `crud_test!` checks: sqlite uses `json_each`, postgres the `@?`
@@ -2402,52 +2357,25 @@ async fn run_find_records_json_query(sync: &SyncedRepo, _tmp: &TempDir) {
     );
 }
 
-crud_test!(find_records_json_query, run_find_records_json_query);
-crud_test!(find_records_type_filter, run_find_records_type_filter);
-crud_test!(
-    pending_token_distinguishes_concurrent_updates,
-    run_pending_token_distinguishes_concurrent_updates
-);
-crud_test!(
-    pending_token_survives_commit_roll_forward,
-    run_pending_token_survives_commit_roll_forward
-);
-crud_test!(list_changes_pending_only, run_list_changes_pending_only);
-crud_test!(list_changes_since_version, run_list_changes_since_version);
-crud_test!(
-    default_file_path_set_on_first_update,
-    run_default_file_path_set_on_first_update
-);
-crud_test!(
-    crud_with_none_file_path_resolves_existing,
-    run_crud_with_none_file_path_resolves_existing
-);
-crud_test!(
-    crud_with_none_file_path_uses_default_for_new,
-    run_crud_with_none_file_path_uses_default_for_new
-);
-crud_test!(
-    crud_none_file_path_no_default_returns_not_found,
-    run_crud_none_file_path_no_default_returns_not_found
-);
-crud_test!(apply_batch_atomic_success, run_apply_batch_atomic_success);
-crud_test!(
-    apply_batch_atomic_conflict_rolls_back,
-    run_apply_batch_atomic_conflict_rolls_back
-);
-crud_test!(
-    apply_batch_non_atomic_partial,
-    run_apply_batch_non_atomic_partial
-);
-crud_test!(find_records_paging, run_find_records_paging);
-crud_test!(
-    find_records_paging_is_byte_ordered,
-    run_find_records_paging_is_byte_ordered
-);
+crud_test!(find_records_json_query);
+crud_test!(find_records_type_filter);
+crud_test!(pending_token_distinguishes_concurrent_updates);
+crud_test!(pending_token_survives_commit_roll_forward);
+crud_test!(list_changes_pending_only);
+crud_test!(list_changes_since_version);
+crud_test!(default_file_path_set_on_first_update);
+crud_test!(crud_with_none_file_path_resolves_existing);
+crud_test!(crud_with_none_file_path_uses_default_for_new);
+crud_test!(crud_none_file_path_no_default_returns_not_found);
+crud_test!(apply_batch_atomic_success);
+crud_test!(apply_batch_atomic_conflict_rolls_back);
+crud_test!(apply_batch_non_atomic_partial);
+crud_test!(find_records_paging);
+crud_test!(find_records_paging_is_byte_ordered);
 
 /// The `COLLATE "C"` guard, run against a column that is *not* C-collated.
 ///
-/// `run_find_records_paging_is_byte_ordered` above can't catch a missing
+/// `find_records_paging_is_byte_ordered` above can't catch a missing
 /// `COLLATE "C"` on its own: it only discriminates when the database's
 /// default collation is locale-based, and a test database is usually
 /// created with `C`. So force the adverse condition -- retype the two
@@ -2543,12 +2471,9 @@ async fn find_records_paging_overrides_a_locale_column_collation() {
     drop(tmp);
     scope.teardown().await;
 }
-crud_test!(
-    find_records_reports_tombstones,
-    run_find_records_reports_tombstones
-);
+crud_test!(find_records_reports_tombstones);
 
-async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
     let stats = sync
         .update_from_working_dir(ScanOptions::default())
         .await
@@ -2591,10 +2516,7 @@ async fn run_resync_deletes_missing_records(sync: &SyncedRepo, tmp: &TempDir) {
         .expect("get kept")
         .is_some());
 }
-crud_test!(
-    resync_deletes_missing_records,
-    run_resync_deletes_missing_records
-);
+crud_test!(resync_deletes_missing_records);
 
 // ---------------------------------------------------------------------------
 // txn audit table and the commit-message rollup
@@ -2660,7 +2582,7 @@ const MESSAGE_A: &str = "Point std at the new branch";
 // to trailing-whitespace stripping.
 const MESSAGE_B: &str = "Retire the legacy mirror\n\nSuperseded by the dashboard entry.";
 
-async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -2825,7 +2747,7 @@ async fn run_rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tm
     }
 }
 
-async fn run_keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
+async fn keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -2864,7 +2786,7 @@ async fn run_keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
     );
 }
 
-async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &TempDir) {
+async fn commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -2911,7 +2833,7 @@ async fn run_commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tm
     );
 }
 
-async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -2972,22 +2894,10 @@ async fn run_apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &T
     );
 }
 
-crud_test!(
-    rollup_round_trips_through_the_commit_message,
-    run_rollup_round_trips_through_the_commit_message
-);
-crud_test!(
-    keys_needing_quoting_round_trip,
-    run_keys_needing_quoting_round_trip
-);
-crud_test!(
-    commit_without_txns_still_records_the_counter,
-    run_commit_without_txns_still_records_the_counter
-);
-crud_test!(
-    apply_batch_without_meta_records_no_txn,
-    run_apply_batch_without_meta_records_no_txn
-);
+crud_test!(rollup_round_trips_through_the_commit_message);
+crud_test!(keys_needing_quoting_round_trip);
+crud_test!(commit_without_txns_still_records_the_counter);
+crud_test!(apply_batch_without_meta_records_no_txn);
 
 // Parser rejection cases. These need no database, so they run once.
 
@@ -3044,15 +2954,6 @@ fn parse_rejects_a_message_it_cannot_trust() {
 // These need two `SyncedRepo` handles sharing one database, so they use a
 // file-backed sqlite rather than the `:memory:` fixture, and run once
 // instead of through `crud_test!`.
-
-fn git(dir: &std::path::Path, args: &[&str]) {
-    let out = std::process::Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("git");
-    assert!(out.status.success(), "git {args:?}: {out:?}");
-}
 
 /// A repo seeded with the cloudmap fixture plus a sqlite file beside it.
 async fn file_backed_fixture() -> (TempDir, String) {
@@ -3134,7 +3035,7 @@ async fn url_spellings_resolve_to_one_worktree() {
 
 /// Two files holding the same `(path, key)` are two records, and paging
 /// must return both.
-async fn run_paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3195,15 +3096,12 @@ async fn run_paging_spans_duplicate_keys_across_files(sync: &SyncedRepo, _tmp: &
     assert_eq!(sorted.len(), seen.len(), "a record repeated: {seen:?}");
 }
 
-crud_test!(
-    paging_spans_duplicate_keys_across_files,
-    run_paging_spans_duplicate_keys_across_files
-);
+crud_test!(paging_spans_duplicate_keys_across_files);
 
 /// With `whole_groups`, a coarse `(path, key)` cursor walks losslessly:
 /// the page overshoots `limit` rather than splitting a group, so
 /// resuming past that `(path, key)` can never skip a straggler.
-async fn run_whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3277,10 +3175,7 @@ async fn run_whole_groups_keeps_a_coarse_cursor_lossless(sync: &SyncedRepo, _tmp
     assert_eq!(lossy.len(), 1, "limit is a hard cap without whole_groups");
 }
 
-crud_test!(
-    whole_groups_keeps_a_coarse_cursor_lossless,
-    run_whole_groups_keeps_a_coarse_cursor_lossless
-);
+crud_test!(whole_groups_keeps_a_coarse_cursor_lossless);
 
 // ---------------------------------------------------------------------------
 // shared version sequence
@@ -3399,7 +3294,7 @@ async fn a_family_shares_one_version_sequence() {
 }
 
 /// A batch takes its versions in one contiguous block.
-async fn run_batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3442,10 +3337,7 @@ async fn run_batch_allocates_a_contiguous_range(sync: &SyncedRepo, _tmp: &TempDi
     );
 }
 
-crud_test!(
-    batch_allocates_a_contiguous_range,
-    run_batch_allocates_a_contiguous_range
-);
+crud_test!(batch_allocates_a_contiguous_range);
 
 /// A fork's commits name the upstream as their family, so a reader can
 /// tell its ranges came from the sequence it is reconstructing even
@@ -3828,7 +3720,7 @@ async fn hashing_a_blob_matches_git_and_writes_nothing() {
 /// touching the database: the file's rows keep their pre-edit values
 /// and `source_oid` keeps naming the old bytes, so the next scan sees
 /// the mismatch and takes the merged file in.
-async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3918,7 +3810,7 @@ async fn run_a_write_merges_over_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
 /// When both sides changed the same record, the write lands the pending
 /// edit and the report carries the value it replaced — after the write,
 /// the report is the only place an uncommitted disk edit survives.
-async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3975,7 +3867,7 @@ async fn run_a_write_reports_the_value_it_replaced(sync: &SyncedRepo, tmp: &Temp
 }
 
 /// Consecutive writes do not conflict with their own output.
-async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -3998,7 +3890,7 @@ async fn run_repeated_writes_do_not_self_conflict(sync: &SyncedRepo, _tmp: &Temp
 
 /// A file the database has never parsed has nothing to contradict, so a
 /// write to it proceeds.
-async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+async fn an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4041,7 +3933,7 @@ async fn run_an_unscanned_file_has_no_conflict(sync: &SyncedRepo, tmp: &TempDir)
 /// `as_object_mut().expect(...)`, so letting a non-mapping reach it
 /// would take down the whole `save_changes` batch instead of failing
 /// this one file.
-async fn run_a_write_over_a_non_mapping_document_does_not_panic(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_write_over_a_non_mapping_document_does_not_panic(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4067,30 +3959,15 @@ async fn run_a_write_over_a_non_mapping_document_does_not_panic(sync: &SyncedRep
     }
 }
 
-crud_test!(
-    a_write_over_a_non_mapping_document_does_not_panic,
-    run_a_write_over_a_non_mapping_document_does_not_panic
-);
-crud_test!(
-    a_write_merges_over_a_hand_edit,
-    run_a_write_merges_over_a_hand_edit
-);
-crud_test!(
-    a_write_reports_the_value_it_replaced,
-    run_a_write_reports_the_value_it_replaced
-);
-crud_test!(
-    repeated_writes_do_not_self_conflict,
-    run_repeated_writes_do_not_self_conflict
-);
-crud_test!(
-    an_unscanned_file_has_no_conflict,
-    run_an_unscanned_file_has_no_conflict
-);
+crud_test!(a_write_over_a_non_mapping_document_does_not_panic);
+crud_test!(a_write_merges_over_a_hand_edit);
+crud_test!(a_write_reports_the_value_it_replaced);
+crud_test!(repeated_writes_do_not_self_conflict);
+crud_test!(an_unscanned_file_has_no_conflict);
 
 /// One unwritable file does not stop the others, and the caller learns
 /// which was which.
-async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
+async fn save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4142,7 +4019,7 @@ async fn run_save_reports_each_file(sync: &SyncedRepo, tmp: &TempDir) {
     assert!(matches!(err, Error::Yaml { .. }), "{err:?}");
 }
 
-crud_test!(save_reports_each_file, run_save_reports_each_file);
+crud_test!(save_reports_each_file);
 
 /// The types the sync functions return are nameable from outside the
 /// crate. Without the re-export a caller cannot write its return type,
@@ -4157,7 +4034,7 @@ fn sync_outcome_types_are_public() {
 // ---------------------------------------------------------------------------
 
 /// A write keeps the comments it did not touch.
-async fn run_a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) {
     let path = tmp.path().join("cloudmap.yaml");
     let original = std::fs::read_to_string(&path).expect("read");
     // Comments in the three places people put them: above the document,
@@ -4207,7 +4084,7 @@ async fn run_a_write_keeps_comments_elsewhere(sync: &SyncedRepo, tmp: &TempDir) 
 /// Rewriting a section drops the comments *inside* it -- the records it
 /// annotates are re-sorted, so there is nowhere to put them back. Pinned
 /// so the boundary of what survives is stated rather than assumed.
-async fn run_comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &TempDir) {
+async fn comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp: &TempDir) {
     let path = tmp.path().join("cloudmap.yaml");
     let original = std::fs::read_to_string(&path).expect("read");
     let commented = original.replacen(
@@ -4237,15 +4114,9 @@ async fn run_comments_inside_a_rewritten_section_are_lost(sync: &SyncedRepo, tmp
     assert!(!after.contains("a note about std"), "{after}");
 }
 
-crud_test!(
-    a_write_keeps_comments_elsewhere,
-    run_a_write_keeps_comments_elsewhere
-);
-crud_test!(
-    comments_inside_a_rewritten_section_are_lost,
-    run_comments_inside_a_rewritten_section_are_lost
-);
-crud_test!(rescan_keeps_pending_edits, run_rescan_keeps_pending_edits);
+crud_test!(a_write_keeps_comments_elsewhere);
+crud_test!(comments_inside_a_rewritten_section_are_lost);
+crud_test!(rescan_keeps_pending_edits);
 
 // ---------------------------------------------------------------------------
 // scan-side conflict detection and pending-edit preservation
@@ -4273,7 +4144,7 @@ fn hand_edit_dashboard(tmp: &TempDir, new_name: &str) {
 
 /// Both sides changed the same record: the pending edit wins, and the
 /// divergence is reported with the commit it was based on.
-async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4324,7 +4195,7 @@ async fn run_rescan_reports_modify_modify(sync: &SyncedRepo, tmp: &TempDir) {
 /// The record under a pending edit was deleted from the file; a pending
 /// create, indistinguishable in every way except its missing base, is
 /// preserved without noise.
-async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4388,7 +4259,7 @@ async fn run_rescan_reports_modify_delete_but_not_creates(sync: &SyncedRepo, tmp
 /// it just because the first already nulled `commit_id`. Guards the
 /// COALESCE in the client-write SQL — without it this reports `AddAdd`
 /// with no base.
-async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
+async fn consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4420,7 +4291,7 @@ async fn run_consecutive_updates_keep_base(sync: &SyncedRepo, tmp: &TempDir) {
 
 /// Across an edit → commit → edit cycle, the base of the second edit is
 /// the commit that carried the first — not the original take-in.
-async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4472,7 +4343,7 @@ async fn run_base_tracks_the_latest_commit(sync: &SyncedRepo, tmp: &TempDir) {
 /// A dirty file's rows read as committed-at-their-path's-last-commit,
 /// not as pending — so a second disk edit is taken in rather than
 /// "preserved" against. The case the `commit_id` semantics exist for.
-async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempDir) {
+async fn dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempDir) {
     hand_edit_dashboard(tmp, "first-edit");
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -4506,7 +4377,7 @@ async fn run_dirty_file_rescan_takes_in_new_edits(sync: &SyncedRepo, tmp: &TempD
 
 /// A hand-edited file the scan took in has nothing pending to write,
 /// but `commit_repository` must still stage and commit it.
-async fn run_commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4535,7 +4406,7 @@ async fn run_commit_carries_a_hand_edit(sync: &SyncedRepo, tmp: &TempDir) {
 
 /// A rescan of an untouched tree is a no-op: no file re-extracted, no
 /// version drawn — the churn is visible through `record.version`.
-async fn run_rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempDir) {
     let first = sync
         .update_from_working_dir(ScanOptions::default())
         .await
@@ -4571,35 +4442,17 @@ async fn run_rescan_of_untouched_tree_is_skipped(sync: &SyncedRepo, _tmp: &TempD
     assert_eq!(before, after, "a no-op rescan must not bump versions");
 }
 
-crud_test!(
-    rescan_reports_modify_modify,
-    run_rescan_reports_modify_modify
-);
-crud_test!(
-    rescan_reports_modify_delete_but_not_creates,
-    run_rescan_reports_modify_delete_but_not_creates
-);
-crud_test!(
-    consecutive_updates_keep_base,
-    run_consecutive_updates_keep_base
-);
-crud_test!(
-    base_tracks_the_latest_commit,
-    run_base_tracks_the_latest_commit
-);
-crud_test!(
-    dirty_file_rescan_takes_in_new_edits,
-    run_dirty_file_rescan_takes_in_new_edits
-);
-crud_test!(commit_carries_a_hand_edit, run_commit_carries_a_hand_edit);
-crud_test!(
-    rescan_of_untouched_tree_is_skipped,
-    run_rescan_of_untouched_tree_is_skipped
-);
+crud_test!(rescan_reports_modify_modify);
+crud_test!(rescan_reports_modify_delete_but_not_creates);
+crud_test!(consecutive_updates_keep_base);
+crud_test!(base_tracks_the_latest_commit);
+crud_test!(dirty_file_rescan_takes_in_new_edits);
+crud_test!(commit_carries_a_hand_edit);
+crud_test!(rescan_of_untouched_tree_is_skipped);
 
 /// The record being deleted was edited on disk: the tombstone is not
 /// resurrected, and the divergence is reported.
-async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4645,7 +4498,7 @@ async fn run_rescan_reports_delete_modify(sync: &SyncedRepo, tmp: &TempDir) {
 
 /// Both sides added the same key independently: the pending create
 /// wins, reported with no base — there is no commit it diverged from.
-async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4688,16 +4541,13 @@ async fn run_rescan_reports_add_add(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(c.theirs.as_ref().expect("theirs carried")["name"], "theirs");
 }
 
-crud_test!(
-    rescan_reports_delete_modify,
-    run_rescan_reports_delete_modify
-);
-crud_test!(rescan_reports_add_add, run_rescan_reports_add_add);
+crud_test!(rescan_reports_delete_modify);
+crud_test!(rescan_reports_add_add);
 
 /// A disk edit to one record bumps only that record's version: its
 /// file-mates keep theirs, so their `Pending` OCC tokens stay valid and
 /// `list_changes(since)` names only what actually changed.
-async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir) {
+async fn rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4744,15 +4594,12 @@ async fn run_rescan_bumps_only_changed_records(sync: &SyncedRepo, tmp: &TempDir)
     );
 }
 
-crud_test!(
-    rescan_bumps_only_changed_records,
-    run_rescan_bumps_only_changed_records
-);
+crud_test!(rescan_bumps_only_changed_records);
 
 /// A pending edit on X and a disk edit on Y do not conflict: X's disk
 /// value is still exactly the base the client edited from. Only a
 /// record whose file-side value moved off the base diverges.
-async fn run_edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+async fn edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4775,14 +4622,11 @@ async fn run_edit_of_a_neighbor_is_not_a_conflict(sync: &SyncedRepo, tmp: &TempD
     assert_eq!(stats.conflicts, vec![], "stats: {stats:?}");
 }
 
-crud_test!(
-    edit_of_a_neighbor_is_not_a_conflict,
-    run_edit_of_a_neighbor_is_not_a_conflict
-);
+crud_test!(edit_of_a_neighbor_is_not_a_conflict);
 
 /// `save_changes` aggregates the conflicts its writes' take-ins found,
 /// alongside the per-file written / failed lists.
-async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
+async fn save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4818,12 +4662,12 @@ async fn run_save_aggregates_conflicts(sync: &SyncedRepo, tmp: &TempDir) {
     assert_eq!(outcome.written, vec![tmp.path().join("second.yaml")]);
 }
 
-crud_test!(save_aggregates_conflicts, run_save_aggregates_conflicts);
+crud_test!(save_aggregates_conflicts);
 
 /// `commit_repository` scans before saving, so a commit over a
 /// hand-edited file carries the merge and attributes rows to a commit
 /// that actually holds their json — no manual scan needed first.
-async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
+async fn commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -4870,10 +4714,7 @@ async fn run_commit_takes_outside_edits_in_first(sync: &SyncedRepo, tmp: &TempDi
     );
 }
 
-crud_test!(
-    commit_takes_outside_edits_in_first,
-    run_commit_takes_outside_edits_in_first
-);
+crud_test!(commit_takes_outside_edits_in_first);
 
 // ---------------------------------------------------------------------------
 // Materialized conflicts
@@ -4986,7 +4827,7 @@ async fn only_conflict(sync: &SyncedRepo) -> unfurl_git_sync::Record {
     rows.into_iter().next().expect("checked")
 }
 
-async fn run_a_conflict_materializes_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_conflict_materializes_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
 
     // The API serves the database's row, still in flight...
@@ -5025,7 +4866,7 @@ async fn run_a_conflict_materializes_both_sides(sync: &SyncedRepo, tmp: &TempDir
     assert!(!theirs.deleted, "the file still has the record");
 }
 
-async fn run_a_standing_conflict_survives_a_save(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_standing_conflict_survives_a_save(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
 
     let saved = sync.save_changes().await.expect("save");
@@ -5054,7 +4895,7 @@ async fn run_a_standing_conflict_survives_a_save(sync: &SyncedRepo, tmp: &TempDi
     assert!(ours.commit_id.is_none(), "still unsaved: {ours:?}");
 }
 
-async fn run_a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     let oid = sync
         .commit_repository("carry the hand edit")
@@ -5094,7 +4935,7 @@ async fn run_a_commit_carries_the_file_not_the_record(sync: &SyncedRepo, tmp: &T
     assert_eq!(head_commit(sync).await, oid, "HEAD did not move");
 }
 
-async fn run_a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5137,7 +4978,7 @@ async fn run_a_pending_delete_under_a_conflict_survives_a_commit(sync: &SyncedRe
     assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
 }
 
-async fn run_resolve_ours_applies_on_the_next_write(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_ours_applies_on_the_next_write(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     sync.resolve_conflict(
         "cloudmap.yaml",
@@ -5161,7 +5002,7 @@ async fn run_resolve_ours_applies_on_the_next_write(sync: &SyncedRepo, tmp: &Tem
     );
 }
 
-async fn run_resolve_ours_reopens_when_the_file_moves_again(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_ours_reopens_when_the_file_moves_again(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     sync.resolve_conflict(
         "cloudmap.yaml",
@@ -5188,7 +5029,7 @@ async fn run_resolve_ours_reopens_when_the_file_moves_again(sync: &SyncedRepo, t
     assert_eq!(theirs.json["name"], "later");
 }
 
-async fn run_resolve_theirs_takes_the_files_value(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_theirs_takes_the_files_value(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     sync.resolve_conflict(
         "cloudmap.yaml",
@@ -5215,7 +5056,7 @@ async fn run_resolve_theirs_takes_the_files_value(sync: &SyncedRepo, tmp: &TempD
     assert_eq!(dashboard_on_disk(tmp)["name"], "theirs");
 }
 
-async fn run_resolve_merged_settles_with_a_third_value(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_merged_settles_with_a_third_value(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     sync.resolve_conflict(
         "cloudmap.yaml",
@@ -5233,7 +5074,7 @@ async fn run_resolve_merged_settles_with_a_third_value(sync: &SyncedRepo, tmp: &
     assert_eq!(dashboard_on_disk(tmp)["name"], "merged");
 }
 
-async fn run_a_record_the_file_dropped_conflicts_as_a_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_record_the_file_dropped_conflicts_as_a_tombstone(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5306,7 +5147,7 @@ fn commit_resolving(tmp: &TempDir, version: i64) {
     );
 }
 
-async fn run_the_resolves_version_trailer_settles_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
+async fn the_resolves_version_trailer_settles_a_conflict(sync: &SyncedRepo, tmp: &TempDir) {
     let version = stand_up_conflict(sync, tmp).await;
     // Committing the hand edit as it stands: the bytes are the ones the
     // scan already took in, so this is the "keep the file as it is and
@@ -5338,7 +5179,7 @@ async fn run_the_resolves_version_trailer_settles_a_conflict(sync: &SyncedRepo, 
     );
 }
 
-async fn run_an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) {
+async fn an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) {
     let version = stand_up_conflict(sync, tmp).await;
     // A trailer naming a version *older* than the client's edit: its
     // author cannot have seen that edit, so it does not settle it.
@@ -5363,7 +5204,7 @@ async fn run_an_older_trailer_settles_nothing(sync: &SyncedRepo, tmp: &TempDir) 
     );
 }
 
-async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5414,7 +5255,7 @@ async fn run_the_trailer_spares_an_unrelated_unsaved_edit(sync: &SyncedRepo, tmp
     );
 }
 
-async fn run_a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     // A second, non-conflicted unsaved edit: `force` is the blanket
     // assertion, so it takes this one too.
@@ -5465,60 +5306,21 @@ async fn run_a_forced_scan_hands_every_record_to_the_file(sync: &SyncedRepo, tmp
     );
 }
 
-crud_test!(
-    a_conflict_materializes_both_sides,
-    run_a_conflict_materializes_both_sides
-);
-crud_test!(
-    a_standing_conflict_survives_a_save,
-    run_a_standing_conflict_survives_a_save
-);
-crud_test!(
-    a_commit_carries_the_file_not_the_record,
-    run_a_commit_carries_the_file_not_the_record
-);
-crud_test!(
-    a_pending_delete_under_a_conflict_survives_a_commit,
-    run_a_pending_delete_under_a_conflict_survives_a_commit
-);
-crud_test!(
-    resolve_ours_applies_on_the_next_write,
-    run_resolve_ours_applies_on_the_next_write
-);
-crud_test!(
-    resolve_ours_reopens_when_the_file_moves_again,
-    run_resolve_ours_reopens_when_the_file_moves_again
-);
-crud_test!(
-    resolve_theirs_takes_the_files_value,
-    run_resolve_theirs_takes_the_files_value
-);
-crud_test!(
-    resolve_merged_settles_with_a_third_value,
-    run_resolve_merged_settles_with_a_third_value
-);
-crud_test!(
-    a_record_the_file_dropped_conflicts_as_a_tombstone,
-    run_a_record_the_file_dropped_conflicts_as_a_tombstone
-);
-crud_test!(
-    the_resolves_version_trailer_settles_a_conflict,
-    run_the_resolves_version_trailer_settles_a_conflict
-);
-crud_test!(
-    an_older_trailer_settles_nothing,
-    run_an_older_trailer_settles_nothing
-);
-crud_test!(
-    the_trailer_spares_an_unrelated_unsaved_edit,
-    run_the_trailer_spares_an_unrelated_unsaved_edit
-);
-crud_test!(
-    a_forced_scan_hands_every_record_to_the_file,
-    run_a_forced_scan_hands_every_record_to_the_file
-);
+crud_test!(a_conflict_materializes_both_sides);
+crud_test!(a_standing_conflict_survives_a_save);
+crud_test!(a_commit_carries_the_file_not_the_record);
+crud_test!(a_pending_delete_under_a_conflict_survives_a_commit);
+crud_test!(resolve_ours_applies_on_the_next_write);
+crud_test!(resolve_ours_reopens_when_the_file_moves_again);
+crud_test!(resolve_theirs_takes_the_files_value);
+crud_test!(resolve_merged_settles_with_a_third_value);
+crud_test!(a_record_the_file_dropped_conflicts_as_a_tombstone);
+crud_test!(the_resolves_version_trailer_settles_a_conflict);
+crud_test!(an_older_trailer_settles_nothing);
+crud_test!(the_trailer_spares_an_unrelated_unsaved_edit);
+crud_test!(a_forced_scan_hands_every_record_to_the_file);
 
-async fn run_resolve_delete_drops_the_record_from_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_delete_drops_the_record_from_both_sides(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     let write = sync
         .resolve_conflict(
@@ -5558,7 +5360,7 @@ async fn run_resolve_delete_drops_the_record_from_both_sides(sync: &SyncedRepo, 
 /// A pending edit of a record the file dropped, settled the other way:
 /// the tombstone-shaped conflict row goes to `resolved`, which both the
 /// scan and the write have to read as "the file has no value here".
-async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5621,7 +5423,7 @@ async fn run_resolve_ours_keeps_a_record_the_file_dropped(sync: &SyncedRepo, tmp
 /// tombstone left out of the keep set is hard-deleted by
 /// `delete_missing`: the resolution is lost before the write can apply
 /// it.
-async fn run_a_rescan_keeps_a_resolved_deletion(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_rescan_keeps_a_resolved_deletion(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5680,7 +5482,7 @@ async fn run_a_rescan_keeps_a_resolved_deletion(sync: &SyncedRepo, tmp: &TempDir
     assert_eq!(dashboard_on_disk(tmp)["name"], "ours", "put back");
 }
 
-async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
+async fn an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5740,7 +5542,7 @@ async fn run_an_add_add_conflict_has_no_base(sync: &SyncedRepo, tmp: &TempDir) {
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 
-async fn run_a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     // The file is edited to say exactly what the database's row says.
     set_record_on_disk(tmp, DASHBOARD, Some(serde_json::json!({"name": "ours"})));
@@ -5765,7 +5567,7 @@ async fn run_a_conflict_ends_when_the_two_sides_converge(sync: &SyncedRepo, tmp:
     assert!(ours.commit_id.is_none(), "{ours:?}");
 }
 
-async fn run_a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5804,34 +5606,16 @@ async fn run_a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: 
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 
-crud_test!(
-    resolve_delete_drops_the_record_from_both_sides,
-    run_resolve_delete_drops_the_record_from_both_sides
-);
-crud_test!(
-    resolve_ours_keeps_a_record_the_file_dropped,
-    run_resolve_ours_keeps_a_record_the_file_dropped
-);
-crud_test!(
-    a_rescan_keeps_a_resolved_deletion,
-    run_a_rescan_keeps_a_resolved_deletion
-);
-crud_test!(
-    an_add_add_conflict_has_no_base,
-    run_an_add_add_conflict_has_no_base
-);
-crud_test!(
-    a_conflict_ends_when_the_two_sides_converge,
-    run_a_conflict_ends_when_the_two_sides_converge
-);
-crud_test!(
-    a_forced_scan_drops_a_record_the_file_lost,
-    run_a_forced_scan_drops_a_record_the_file_lost
-);
+crud_test!(resolve_delete_drops_the_record_from_both_sides);
+crud_test!(resolve_ours_keeps_a_record_the_file_dropped);
+crud_test!(a_rescan_keeps_a_resolved_deletion);
+crud_test!(an_add_add_conflict_has_no_base);
+crud_test!(a_conflict_ends_when_the_two_sides_converge);
+crud_test!(a_forced_scan_drops_a_record_the_file_lost);
 
 /// Ours deletes the record, the file edits it, and the file wins: the
 /// tombstone has to come back to life rather than merely change value.
-async fn run_resolve_theirs_resurrects_a_record_ours_deleted(sync: &SyncedRepo, tmp: &TempDir) {
+async fn resolve_theirs_resurrects_a_record_ours_deleted(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5874,16 +5658,13 @@ async fn run_resolve_theirs_resurrects_a_record_ours_deleted(sync: &SyncedRepo, 
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 
-crud_test!(
-    resolve_theirs_resurrects_a_record_ours_deleted,
-    run_resolve_theirs_resurrects_a_record_ours_deleted
-);
+crud_test!(resolve_theirs_resurrects_a_record_ours_deleted);
 
 // ---------------------------------------------------------------------------
 // File deletion
 // ---------------------------------------------------------------------------
 
-async fn run_delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempDir) {
+async fn delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5933,7 +5714,7 @@ async fn run_delete_file_removes_it_from_disk_and_git(sync: &SyncedRepo, tmp: &T
         .is_empty());
 }
 
-async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -5960,7 +5741,7 @@ async fn run_delete_file_rejects_a_stale_token(sync: &SyncedRepo, _tmp: &TempDir
         .expect("a current token passes");
 }
 
-async fn run_a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6005,20 +5786,11 @@ async fn run_a_record_written_back_undoes_a_file_deletion(sync: &SyncedRepo, tmp
     );
 }
 
-crud_test!(
-    delete_file_removes_it_from_disk_and_git,
-    run_delete_file_removes_it_from_disk_and_git
-);
-crud_test!(
-    delete_file_rejects_a_stale_token,
-    run_delete_file_rejects_a_stale_token
-);
-crud_test!(
-    a_record_written_back_undoes_a_file_deletion,
-    run_a_record_written_back_undoes_a_file_deletion
-);
+crud_test!(delete_file_removes_it_from_disk_and_git);
+crud_test!(delete_file_rejects_a_stale_token);
+crud_test!(a_record_written_back_undoes_a_file_deletion);
 
-async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6069,7 +5841,7 @@ async fn run_a_deleted_file_is_taken_in_and_committed(sync: &SyncedRepo, tmp: &T
     );
 }
 
-async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6106,7 +5878,7 @@ async fn run_a_deletion_already_in_git_makes_no_commit(sync: &SyncedRepo, tmp: &
     assert!(sync.get_file("cloudmap.yaml").await.expect("get").is_none());
 }
 
-async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6138,7 +5910,7 @@ async fn run_a_pending_edit_survives_the_file_being_deleted(sync: &SyncedRepo, t
     assert!(!row.deleted);
 }
 
-async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6199,7 +5971,7 @@ async fn run_a_renamed_file_keeps_its_records(sync: &SyncedRepo, tmp: &TempDir) 
     .expect("the pending token survived the rename");
 }
 
-async fn run_a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6224,28 +5996,13 @@ async fn run_a_move_that_also_edits_is_not_a_rename(sync: &SyncedRepo, tmp: &Tem
     );
 }
 
-crud_test!(
-    a_deleted_file_is_taken_in_and_committed,
-    run_a_deleted_file_is_taken_in_and_committed
-);
-crud_test!(
-    a_deletion_already_in_git_makes_no_commit,
-    run_a_deletion_already_in_git_makes_no_commit
-);
-crud_test!(
-    a_pending_edit_survives_the_file_being_deleted,
-    run_a_pending_edit_survives_the_file_being_deleted
-);
-crud_test!(
-    a_renamed_file_keeps_its_records,
-    run_a_renamed_file_keeps_its_records
-);
-crud_test!(
-    a_move_that_also_edits_is_not_a_rename,
-    run_a_move_that_also_edits_is_not_a_rename
-);
+crud_test!(a_deleted_file_is_taken_in_and_committed);
+crud_test!(a_deletion_already_in_git_makes_no_commit);
+crud_test!(a_pending_edit_survives_the_file_being_deleted);
+crud_test!(a_renamed_file_keeps_its_records);
+crud_test!(a_move_that_also_edits_is_not_a_rename);
 
-async fn run_a_write_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_write_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
 
     // Without the flag the write lands but the conflict stands, so a
@@ -6282,7 +6039,7 @@ async fn run_a_write_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: 
     assert_eq!(dashboard_on_disk(tmp)["name"], "decided");
 }
 
-async fn run_a_delete_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_delete_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp: &TempDir) {
     stand_up_conflict(sync, tmp).await;
     sync.delete_record(
         Some("cloudmap.yaml"),
@@ -6303,7 +6060,7 @@ async fn run_a_delete_can_settle_the_conflict_it_touches(sync: &SyncedRepo, tmp:
     assert!(doc["repositories"].get(DASHBOARD).is_none(), "{doc:?}");
 }
 
-async fn run_resolving_a_record_with_no_conflict_is_a_no_op(sync: &SyncedRepo, _tmp: &TempDir) {
+async fn resolving_a_record_with_no_conflict_is_a_no_op(sync: &SyncedRepo, _tmp: &TempDir) {
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -6320,7 +6077,7 @@ async fn run_resolving_a_record_with_no_conflict_is_a_no_op(sync: &SyncedRepo, _
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 
-async fn run_a_batch_settles_only_the_ops_that_ask(sync: &SyncedRepo, tmp: &TempDir) {
+async fn a_batch_settles_only_the_ops_that_ask(sync: &SyncedRepo, tmp: &TempDir) {
     // Two conflicts, so the batch can settle one and leave the other.
     sync.update_from_working_dir(ScanOptions::default())
         .await
@@ -6378,19 +6135,7 @@ async fn run_a_batch_settles_only_the_ops_that_ask(sync: &SyncedRepo, tmp: &Temp
     assert_eq!(rows[0].key, STD);
 }
 
-crud_test!(
-    a_write_can_settle_the_conflict_it_touches,
-    run_a_write_can_settle_the_conflict_it_touches
-);
-crud_test!(
-    a_delete_can_settle_the_conflict_it_touches,
-    run_a_delete_can_settle_the_conflict_it_touches
-);
-crud_test!(
-    resolving_a_record_with_no_conflict_is_a_no_op,
-    run_resolving_a_record_with_no_conflict_is_a_no_op
-);
-crud_test!(
-    a_batch_settles_only_the_ops_that_ask,
-    run_a_batch_settles_only_the_ops_that_ask
-);
+crud_test!(a_write_can_settle_the_conflict_it_touches);
+crud_test!(a_delete_can_settle_the_conflict_it_touches);
+crud_test!(resolving_a_record_with_no_conflict_is_a_no_op);
+crud_test!(a_batch_settles_only_the_ops_that_ask);

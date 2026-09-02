@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! Test helpers shared across the integration test files.
 
-#![allow(dead_code, unused_imports)]
+#![allow(dead_code, unused_imports, unused_macros)]
 
 use std::path::Path;
 
@@ -138,3 +138,47 @@ impl PgScope {
 pub async fn pg_fixture() -> Option<(SyncedRepo, TempDir, PgScope)> {
     None
 }
+
+/// Run `args` as a git subcommand in `dir`, failing the test on a
+/// non-zero exit.
+pub fn git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(dir)
+        .output()
+        .expect("git");
+    assert!(out.status.success(), "git {args:?}: {out:?}");
+}
+
+/// Run one scenario against both backends.
+///
+/// `crud_test!(foo)` expects an `async fn foo(&SyncedRepo, &TempDir)`
+/// beside it and generates `foo::sqlite` plus, behind the `postgres`
+/// feature, `foo::postgres`. The module and the function share a name
+/// on purpose -- Rust keeps them in separate namespaces, and it is one
+/// name to read rather than two to keep in step.
+macro_rules! crud_test {
+    ($name:ident) => {
+        mod $name {
+            #[tokio::test]
+            async fn sqlite() {
+                let (sync, tmp) = crate::common::sqlite_fixture().await;
+                super::$name(&sync, &tmp).await;
+            }
+
+            #[cfg(feature = "postgres")]
+            #[tokio::test]
+            async fn postgres() {
+                let Some((sync, tmp, scope)) = crate::common::pg_fixture().await else {
+                    eprintln!("skip: UNFURL_TEST_PG_URL not set");
+                    return;
+                };
+                super::$name(&sync, &tmp).await;
+                drop(sync);
+                drop(tmp);
+                scope.teardown().await;
+            }
+        }
+    };
+}
+pub(crate) use crud_test;
