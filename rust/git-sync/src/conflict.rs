@@ -254,31 +254,23 @@ pub(crate) struct ConflictCheck {
 
 /// One change [`apply_pending_records`] wants made to the conflict rows
 /// of the file it just rendered.
-pub(crate) enum ConflictOp {
+pub(crate) struct ConflictOp {
+    pub(crate) path: String,
+    pub(crate) key: String,
+    pub(crate) kind: ConflictOpKind,
+}
+
+/// What [`apply_conflict_ops_in_pool`] does to the row.
+pub(crate) enum ConflictOpKind {
     /// Record (or refresh) the file's side of a divergence.
     Open {
-        path: String,
-        key: String,
         /// The file's value — or, when `deleted`, the one it dropped.
         json: serde_json::Value,
         /// The file no longer has this record.
         deleted: bool,
     },
     /// Drop the conflict row: its resolution has just been applied.
-    Clear { path: String, key: String },
-}
-
-impl ConflictOp {
-    fn path(&self) -> &str {
-        match self {
-            Self::Open { path, .. } | Self::Clear { path, .. } => path,
-        }
-    }
-    fn key(&self) -> &str {
-        match self {
-            Self::Open { key, .. } | Self::Clear { key, .. } => key,
-        }
-    }
+    Clear,
 }
 
 /// What [`apply_pending_records`] worked out about one file.
@@ -373,9 +365,10 @@ pub(crate) fn apply_pending_records(
                     None => row.deleted,
                 };
                 if unmoved {
-                    out.ops.push(ConflictOp::Clear {
+                    out.ops.push(ConflictOp {
                         path: rec.path.clone(),
                         key: rec.key.clone(),
+                        kind: ConflictOpKind::Clear,
                     });
                 } else {
                     // The file changed under the resolution, so the
@@ -385,13 +378,16 @@ pub(crate) fn apply_pending_records(
                         file = %file_path, path = %rec.path, key = %rec.key, kind = ?kind,
                         "file moved again since the conflict was resolved; re-opening it"
                     );
-                    out.ops.push(ConflictOp::Open {
+                    out.ops.push(ConflictOp {
                         path: rec.path.clone(),
                         key: rec.key.clone(),
-                        // A file that dropped the record leaves no value
-                        // to hold, so the last one it had stands in.
-                        json: theirs.clone().unwrap_or_else(|| row.json.clone()),
-                        deleted: theirs.is_none(),
+                        kind: ConflictOpKind::Open {
+                            // A file that dropped the record leaves no
+                            // value to hold, so the last one it had
+                            // stands in.
+                            json: theirs.clone().unwrap_or_else(|| row.json.clone()),
+                            deleted: theirs.is_none(),
+                        },
                     });
                     out.conflicts
                         .push(report(kind, &base_commit, theirs.as_ref()));
@@ -417,14 +413,16 @@ pub(crate) fn apply_pending_records(
                             file = %file_path, path = %rec.path, key = %rec.key, kind = ?kind,
                             "file diverges from a pending edit; keeping both sides"
                         );
-                        out.ops.push(ConflictOp::Open {
+                        out.ops.push(ConflictOp {
                             path: rec.path.clone(),
                             key: rec.key.clone(),
-                            json: theirs
-                                .clone()
-                                .or_else(|| base_value.cloned())
-                                .unwrap_or_else(|| rec.json.clone()),
-                            deleted: theirs.is_none(),
+                            kind: ConflictOpKind::Open {
+                                json: theirs
+                                    .clone()
+                                    .or_else(|| base_value.cloned())
+                                    .unwrap_or_else(|| rec.json.clone()),
+                                deleted: theirs.is_none(),
+                            },
                         });
                         out.conflicts
                             .push(report(kind, &base_commit, theirs.as_ref()));
@@ -476,13 +474,14 @@ where
     let mut tx = pool.begin().await?;
     let existing = db::tx::list_conflict_records(&mut tx, sync.worktree_id(), file_path).await?;
     for op in ops {
-        let key = (op.path().to_string(), op.key().to_string());
-        match op {
-            ConflictOp::Open { json, deleted, .. } => {
+        let key = (op.path.clone(), op.key.clone());
+        let at = record_id(sync, file_path, &op.path, &op.key);
+        match &op.kind {
+            ConflictOpKind::Open { json, deleted } => {
                 refresh_conflict_row(
                     &mut tx,
                     sync,
-                    record_id(sync, file_path, op.path(), op.key()),
+                    at,
                     TheirSide {
                         json,
                         deleted: *deleted,
@@ -492,14 +491,8 @@ where
                 )
                 .await?;
             }
-            ConflictOp::Clear { .. } => {
-                drop_conflict_row(
-                    &mut tx,
-                    sync,
-                    record_id(sync, file_path, op.path(), op.key()),
-                    existing.get(&key),
-                )
-                .await?;
+            ConflictOpKind::Clear => {
+                drop_conflict_row(&mut tx, sync, at, existing.get(&key)).await?;
             }
         }
     }
