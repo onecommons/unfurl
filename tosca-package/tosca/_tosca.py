@@ -1672,6 +1672,16 @@ class _Tosca_Field(dataclasses.Field, Generic[_T]):
             if len(entry_schema) > 1 or entry_schema["type"] != "any":
                 schema["entry_schema"] = entry_schema
         if info.metadata:
+            # An unresolved name in the annotation (e.g. a constraint whose
+            # import is missing) is deferred to a ForwardRef rather than
+            # raising. Dropping it silently yields an empty constraint list and
+            # a type that validates anything, so surface it instead.
+            for c in info.metadata:
+                if isinstance(c, ForwardRef):
+                    raise NameError(
+                        f"can't resolve {c.__forward_arg__} in the type annotation"
+                        f" for {self.name}: is its import missing?"
+                    )
             schema["constraints"] = [
                 c.to_yaml() for c in info.metadata if isinstance(c, DataConstraint)
             ]
