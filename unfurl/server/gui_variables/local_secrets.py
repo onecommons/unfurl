@@ -11,6 +11,17 @@ from . import EnvVar
 logger = getLogger("unfurl.gui")
 
 
+def _setdefault_map(config: Dict[str, Any], key: str) -> CommentedMap:
+    """dict.setdefault() only substitutes when the key is absent, but a key
+    present with a null value is common in generated config -- `unfurl init`
+    writes an `environments:` key followed only by comments, which parses as
+    None."""
+    value = config.get(key)
+    if value is None:
+        value = config[key] = CommentedMap()
+    return value
+
+
 def _get_env_vars(envs: Dict[str, dict], env_name: str) -> Dict[str, Any]:
     env = envs.get(env_name)
     if env:
@@ -35,13 +46,13 @@ def set_variables(localenv: LocalEnv, env_vars: List[EnvVar]) -> None:
 
     config = cast(Dict[str, Dict], project.localConfig.config.config)
     assert config
-    envs = config.setdefault("environments", CommentedMap())
+    envs = _setdefault_map(config, "environments")
 
     secret_config_key, secret_config = project.localConfig.find_secret_include()
     if secret_config is not None:
         secret_environments = cast(
             Optional[Dict[str, Dict]],
-            secret_config.setdefault("environments", CommentedMap()),
+            _setdefault_map(secret_config, "environments"),
         )
     else:
         secret_environments = None
