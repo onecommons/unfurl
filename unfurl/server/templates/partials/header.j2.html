@@ -1,23 +1,71 @@
-<header class="navbar navbar-gitlab navbar-expand-sm js-navbar" data-qa-selector="navbar">
+{#
+  The standalone GUI's top bar.
+
+  Shaped after GitLab 19.3's own header (header.super-topbar.js-super-topbar)
+  rather than 15.11's .navbar-gitlab, which 19.3's CSS has no rules for at all
+  -- the old header/nav/sidebar styles went away with the DOM they targeted.
+  For the same reason every class here is one 19.3's Tailwind actually emits:
+  the previous markup used gl-display-none / gl-lg-display-flex to show one of
+  two identical logos, and since neither name survives, both rendered.
+#}
+<style>
+    /*
+     * .top-nav-button and .s16 are 15.11 classes that 19.3 dropped along with
+     * the header they belonged to. Values are the fork's own, from
+     * oc/app/assets/stylesheets/onecommons_dark_mode_overrides.scss and
+     * onecommons_variables.scss ($uf_primary_teal, $darkmode-white/black).
+     */
+    /*
+     * The bar sits on the same surface as a card header, which is what 15.11
+     * did -- so take the token .gl-card takes rather than pinning a hex, and it
+     * stays matched in light mode too.
+     */
+    header.super-topbar {
+      background-color: var(--gl-background-color-strong);
+    }
+
+    .super-topbar .top-nav-button {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      /* $darkmode-white was dark-mode only and vanished on the light bar;
+         this token is neutral-600 light / neutral-200 dark */
+      color: var(--gl-text-color-subtle);
+      font-weight: 600;
+      text-decoration: none;
+    }
+
+    .super-topbar .top-nav-button:hover {
+      background-color: #00d2d9;
+      color: #121212;
+    }
+
+    .super-topbar .s16 {
+      width: 16px;
+      height: 16px;
+      flex: none;
+    }
+  </style>
+
+  <header class="super-topbar js-super-topbar gl-flex gl-items-center gl-gap-3 gl-px-5 gl-py-3"
+        {# .super-topbar is height: var(--top-bar-height); GitLab raises that from JS
+           and it defaults to 0, which collapsed this bar to its padding and left the
+           logo and nav overflowing it. #}
+        style="--top-bar-height: 48px">
   <a class="gl-sr-only gl-accessibility" href="#content-body">Skip to content</a>
-  <div class="container-fluid">
-    <div class="header-content js-header-content">
-      <div
-        class="title-container hide-when-top-nav-responsive-open gl-transition-medium gl-display-flex gl-align-items-stretch gl-pt-0 gl-mr-3">
-        <div class="title">
-          <span class="gl-sr-only">Unfurl Cloud</span>
-          <a title="Dashboard" id="logo" class="canary-badge" href="https://unfurl.cloud"><span
-              class="gl-display-none gl-lg-display-flex">
-              <svg version="1.1" width="120" height="30" class="unfurl-logo" id="Layer_1"
+  <span class="gl-sr-only">Unfurl</span>
+
+  <a id="logo" href="/" title="Dashboard" class="gl-flex gl-items-center gl-no-underline">
+    <svg version="1.1" width="95" height="30" class="unfurl-logo" id="Layer_1"
                 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-                viewBox="0 0 324.4 64.8" style="enable-background:new 0 0 324.4 64.8;" xml:space="preserve">
+                viewBox="0 0 205 64.8" style="enable-background:new 0 0 205 64.8;" xml:space="preserve">
                 <style type="text/css">
                   .st0 {
                     fill: #00D2D9;
-                  }
-
-                  .st1 {
-                    fill: #FFFFFF;
                   }
                 </style>
                 <g>
@@ -43,107 +91,67 @@
                   <path class="st0" d="M179.7,45.4c-1,1.6-2.9,2.6-4.8,2.5c-1.4,0.1-2.9-0.5-3.8-1.6c-0.9-1.2-1.4-2.6-1.4-4.1
 		c0.1-3.2,0.5-6.3,1.3-9.4l5.4-25.7h6.7l-5.5,26.8c-0.7,2.7-1.1,5.4-1.2,8.2c-0.1,1.7,1.2,3.2,2.9,3.3
 		C179.4,45.4,179.5,45.4,179.7,45.4z"></path>
-                  <path class="st1" d="M217.1,11l-2.8,5.6c-1.5-1.5-3.9-2.2-7.2-2.2c-3.1,0-6,1.5-7.8,4c-2.1,2.9-3.1,6.4-3,10c0,4,0.9,7.3,2.8,9.7
-		c1.8,2.3,4.6,3.7,7.5,3.6c3.2,0.1,6.4-1.3,8.4-3.8l3.1,5.4c-2.7,2.9-6.8,4.4-12.1,4.4c-5.3,0-9.4-1.7-12.3-5.2
-		c-3-3.5-4.4-8.2-4.4-14.3c-0.2-5.1,1.6-10.1,4.9-14.1c3.1-3.7,7.7-5.8,12.5-5.7C211,8.4,214.5,9.2,217.1,11z"></path>
-                  <path class="st1"
-                    d="M224.3,8.9l6.5-1.5v31.1c0,3.4,1,5.5,3,6.1c-1,1.9-3,3-5.1,2.8c-2.9,0-4.3-2-4.3-6.1V8.9z"></path>
-                  <path class="st1" d="M237,33c-0.2-3.8,1.2-7.5,3.7-10.3c2.5-2.7,6-4.1,9.7-4c4.2,0,7.5,1.3,9.8,3.8c2.3,2.6,3.5,6,3.5,10.5
-		c0,4.4-1.2,7.9-3.6,10.5c-2.4,2.6-5.6,3.9-9.8,3.9c-4.2,0-7.5-1.3-9.8-4C238.1,40.8,236.9,37.3,237,33z M243.7,33
-		c0,6.1,2.2,9.2,6.6,9.2c1.9,0.1,3.7-0.8,4.8-2.4c1.3-2,1.9-4.4,1.8-6.8c0-6-2.2-9-6.6-9c-1.9-0.1-3.7,0.8-4.8,2.3
-		C244.2,28.3,243.5,30.6,243.7,33z"></path>
-                  <path class="st1" d="M286.6,47v-2.3c-1.1,0.9-2.4,1.6-3.8,2c-1.4,0.5-2.9,0.8-4.4,0.8c-6.4,0-9.7-3.4-9.7-10.2v-18h6.5v17.5
-		c0,3.5,1.6,5.3,4.8,5.3c1.4,0,2.9-0.4,4.1-1.1c1.1-0.6,2-1.5,2.5-2.6v-19h6.5V47H286.6z"></path>
-                  <path class="st1" d="M317.9,46.9v-1.7c-0.8,0.7-1.7,1.3-2.7,1.5c-1.3,0.4-2.6,0.7-4,0.7c-3.4,0.2-6.8-1.2-9.1-3.7
-		c-2.2-2.4-3.3-5.9-3.3-10.2c-0.2-3.9,1.2-7.8,3.8-10.7c2.4-2.7,5.9-4.2,9.6-4.1c2,0,4,0.4,5.8,1.3V8.9l6.5-1.5v39.6H317.9z
-		 M317.9,25.8c-1.2-1-2.7-1.6-4.3-1.7c-2.3-0.1-4.5,0.7-6,2.4c-1.4,1.6-2.1,3.8-2.1,6.8c0,5.8,2.8,8.6,8.3,8.6
-		c0.8,0,1.6-0.2,2.3-0.6c0.7-0.2,1.3-0.6,1.8-1.1V25.8z"></path>
                 </g>
               </svg>
+  </a>
 
-            </span>
-            <span class="gl-lg-display-none! gl-display-flex">
-              <svg version="1.1" width="120" height="30" class="unfurl-logo" id="Layer_1"
-                xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px" y="0px"
-                viewBox="0 0 324.4 64.8" style="enable-background:new 0 0 324.4 64.8;" xml:space="preserve">
-                <style type="text/css">
-                  .st0 {
-                    fill: #00D2D9;
-                  }
-
-                  .st1 {
-                    fill: #FFFFFF;
-                  }
-                </style>
-                <g>
-                  <path class="st0" d="M53.5,42c-2.5,2.8-6.1,4.9-9.4,3.6c-1.1-0.5-1.7-1.7-1.4-2.8c0.1-1.6,0.4-3.2,0.7-4.8l4-21h-7.6l-3.3,18.7
-		c-0.4,2.2-1.5,4.1-3.1,5.6c-1.6,1.5-3.8,2.4-6.1,2.3c-3,0-4.4-1.4-4.4-4c0-0.7,0.1-1.5,0.3-2.2l3.9-20.6h-7.7l-3.9,20.9
-		c-0.2,1.1-0.3,2.2-0.3,3.3c0,2.8,0.7,5.1,2.3,6.6c1.8,1.6,4.2,2.4,6.6,2.3c3.6,0.2,7.2-0.9,10.2-3c0,0,0.4,4.2,7.6,5
-		c2.7,0.2,5.4,0.1,8-0.3c2.4-0.5,4.6-1.4,6.6-2.8c6.1-4.1,8.9-11.5,8.4-18.6c-0.4-6.4-2.8-12.5-6.7-17.6c-3.8-5-9.1-8.8-15.1-10.8
-		C39.7,0.6,36.1,0,32.6,0h-0.2C14.5,0,0,14.6,0,32.4c0,17.9,14.6,32.4,32.4,32.4h0.2c6.4,0,12.7-1.9,18.1-5.4
-		c3.3-2.3,6.2-5.2,8.4-8.6c-4.2,3-9.2,4.6-14.3,4.7c-1.2,0-2.3-0.1-3.5-0.3c-2.8,1-5.8,1.5-8.8,1.5h-0.2
-		C19.1,56.8,8.3,46.2,8.2,32.9c0-0.1,0-0.3,0-0.4C8.1,19.1,18.9,8.2,32.3,8.1c0,0,0.1,0,0.1,0h0.2C42.4,8.1,51.2,14,55,23
-		c1.8,4.4,2.7,9.7,1.3,14.3C55.6,39,54.7,40.6,53.5,42z"></path>
-                  <path class="st0" d="M91.5,47.6h-7l3.1-16.8c0.3-1.1,0.4-2.3,0.4-3.4c0-2.4-1.4-3.6-4.2-3.6c-2.5,0-4.9,1.1-6.5,3l-3.8,20.7h-6.7
-		l4-21.4c0.1-0.5,0.1-1.1,0.1-1.6c0-1.7-0.3-3.4-0.8-5.1l6.6-1.2l0.6,3.2c2.5-2.1,5.6-3.2,8.9-3.1c5.9,0,8.9,2.8,8.9,8.3
-		c0,1.2-0.1,2.4-0.4,3.5L91.5,47.6z"></path>
-                  <path class="st0" d="M119.3,13.5c-1.2-0.6-2.4-0.9-3.7-1c-2.6,0-4.4,2.1-5.3,6.3h6.6l-0.7,5.4h-6.8l-4.3,25.2
-		c-0.4,2.6-1.8,5.1-3.8,6.8c-2,1.8-4.5,2.7-7.2,2.7l-1.4-4.5c2.6-0.6,4.7-2.7,5.3-5.3l4.5-24.9h-4.1l0.9-5.4h4
-		c1.8-7.9,6-11.8,12.6-11.8c1.7-0.1,3.3,0.4,4.8,1.2L119.3,13.5z"></path>
-                  <path class="st0" d="M140.5,47.7h-6.7l0.4-2.1c-2.7,1.8-5.8,2.7-9,2.6c-2.1,0.1-4.2-0.6-5.8-2.1c-1.5-1.6-2.2-3.7-2.1-5.9
-		c0-0.9,0.1-1.9,0.3-2.8l3.5-18.5h6.8l-3.5,18.2c-0.1,0.7-0.2,1.3-0.2,2c0,2.3,1.3,3.5,3.9,3.5c2,0,3.9-0.7,5.4-2.1
-		c1.4-1.4,2.3-3.1,2.7-5l3-16.6h6.7L140.5,47.7z"></path>
-                  <path class="st0" d="M167.6,25.7c-1.2-1-2.6-1.7-4.2-1.8c-1.8,0.1-3.6,0.9-4.8,2.3c-1.4,1.4-2.4,3.2-2.7,5.2l-3,16.3h-6.7l5.4-28.8
-		h6.7l-0.5,2.5c2.2-1.9,5-3,7.9-3c1.3,0.1,2.7,0.3,4,0.5L167.6,25.7z"></path>
-                  <path class="st0" d="M179.7,45.4c-1,1.6-2.9,2.6-4.8,2.5c-1.4,0.1-2.9-0.5-3.8-1.6c-0.9-1.2-1.4-2.6-1.4-4.1
-		c0.1-3.2,0.5-6.3,1.3-9.4l5.4-25.7h6.7l-5.5,26.8c-0.7,2.7-1.1,5.4-1.2,8.2c-0.1,1.7,1.2,3.2,2.9,3.3
-		C179.4,45.4,179.5,45.4,179.7,45.4z"></path>
-                  <path class="st1" d="M217.1,11l-2.8,5.6c-1.5-1.5-3.9-2.2-7.2-2.2c-3.1,0-6,1.5-7.8,4c-2.1,2.9-3.1,6.4-3,10c0,4,0.9,7.3,2.8,9.7
-		c1.8,2.3,4.6,3.7,7.5,3.6c3.2,0.1,6.4-1.3,8.4-3.8l3.1,5.4c-2.7,2.9-6.8,4.4-12.1,4.4c-5.3,0-9.4-1.7-12.3-5.2
-		c-3-3.5-4.4-8.2-4.4-14.3c-0.2-5.1,1.6-10.1,4.9-14.1c3.1-3.7,7.7-5.8,12.5-5.7C211,8.4,214.5,9.2,217.1,11z"></path>
-                  <path class="st1"
-                    d="M224.3,8.9l6.5-1.5v31.1c0,3.4,1,5.5,3,6.1c-1,1.9-3,3-5.1,2.8c-2.9,0-4.3-2-4.3-6.1V8.9z"></path>
-                  <path class="st1" d="M237,33c-0.2-3.8,1.2-7.5,3.7-10.3c2.5-2.7,6-4.1,9.7-4c4.2,0,7.5,1.3,9.8,3.8c2.3,2.6,3.5,6,3.5,10.5
-		c0,4.4-1.2,7.9-3.6,10.5c-2.4,2.6-5.6,3.9-9.8,3.9c-4.2,0-7.5-1.3-9.8-4C238.1,40.8,236.9,37.3,237,33z M243.7,33
-		c0,6.1,2.2,9.2,6.6,9.2c1.9,0.1,3.7-0.8,4.8-2.4c1.3-2,1.9-4.4,1.8-6.8c0-6-2.2-9-6.6-9c-1.9-0.1-3.7,0.8-4.8,2.3
-		C244.2,28.3,243.5,30.6,243.7,33z"></path>
-                  <path class="st1" d="M286.6,47v-2.3c-1.1,0.9-2.4,1.6-3.8,2c-1.4,0.5-2.9,0.8-4.4,0.8c-6.4,0-9.7-3.4-9.7-10.2v-18h6.5v17.5
-		c0,3.5,1.6,5.3,4.8,5.3c1.4,0,2.9-0.4,4.1-1.1c1.1-0.6,2-1.5,2.5-2.6v-19h6.5V47H286.6z"></path>
-                  <path class="st1" d="M317.9,46.9v-1.7c-0.8,0.7-1.7,1.3-2.7,1.5c-1.3,0.4-2.6,0.7-4,0.7c-3.4,0.2-6.8-1.2-9.1-3.7
-		c-2.2-2.4-3.3-5.9-3.3-10.2c-0.2-3.9,1.2-7.8,3.8-10.7c2.4-2.7,5.9-4.2,9.6-4.1c2,0,4,0.4,5.8,1.3V8.9l6.5-1.5v39.6H317.9z
-		 M317.9,25.8c-1.2-1-2.7-1.6-4.3-1.7c-2.3-0.1-4.5,0.7-6,2.4c-1.4,1.6-2.1,3.8-2.1,6.8c0,5.8,2.8,8.6,8.3,8.6
-		c0.8,0,1.6-0.2,2.3-0.6c0.7-0.2,1.3-0.6,1.8-1.1V25.8z"></path>
-                </g>
-              </svg>
-
-            </span>
-          </a>
-        </div>
-        {% if home_project %}
-        <div class="gl-display-none gl-sm-display-block">
-          <ul class="list-unstyled navbar-sub-nav">
-            <li>
-              <a class="top-nav-button active" href="/" title="Dashboard" type="button">
-                <svg class="s16 dropdown-icon" data-testid="home-icon">
+    <ul class="gl-flex gl-items-center gl-list-none gl-m-0 gl-p-0">
+    {% if home_project %}
+    <li>
+      <a href="/" title="Dashboard" class="top-nav-button active">
+        <svg class="s16 dropdown-icon" data-testid="home-icon">
                   <path fill-rule="evenodd" clip-rule="evenodd"
                     d="M8.38 1.353L8 1.131l-.38.222-7.25 4.25a.75.75 0 0 0 .76 1.294l.87-.51V14h12V6.387l.87.51a.75.75 0 1 0 .76-1.294l-7.25-4.25zm4.12 4.154L8 2.87 3.5 5.507V12.5H6V8h4v4.5h2.5V5.507zM8.5 9.5v3h-1v-3h1z">
                   </path>
 
 
                 </svg>
-                Dashboard
-              </a>
-            </li>
+        Dashboard
+      </a>
+    </li>
+    {% endif %}
+    <li>
+      <a href="/cloud" title="Cloud" class="top-nav-button">
+        <svg class="s16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" data-testid="cloud-icon"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 2.5a3.75 3.75 0 0 0-3.745 3.552l-.04.787-.785-.08a1.75 1.75 0 0 0-1.055 3.257.75.75 0 0 1-.75 1.299 3.249 3.249 0 0 1 1.215-6.04 5.251 5.251 0 0 1 10.037-.973 3.75 3.75 0 0 1 1.561 6.744.75.75 0 0 1-.876-1.218 2.25 2.25 0 0 0-1.256-4.077l-.55-.014-.152-.528A3.752 3.752 0 0 0 8 2.5zm-.803 3.924c-.05.405-.355.724-.731.88-.323.135-.624.31-.898.52-.324.248-.752.352-1.129.193a.485.485 0 0 0-.608.204l-.322.558a.485.485 0 0 0 .127.629c.325.246.45.668.397 1.073a4.04 4.04 0 0 0 0 1.038c.053.405-.072.827-.397 1.073a.485.485 0 0 0-.127.629l.322.558c.122.212.383.3.608.204.377-.159.805-.055 1.129.193.274.21.575.385.898.52.376.156.68.475.731.88.03.242.236.424.48.424h.645c.245 0 .45-.182.481-.424.05-.405.355-.724.731-.88.323-.135.624-.31.898-.52.324-.248.752-.352 1.128-.193a.485.485 0 0 0 .61-.204l.321-.558a.485.485 0 0 0-.127-.629c-.325-.246-.45-.668-.397-1.073a4.046 4.046 0 0 0 0-1.038c-.053-.405.072-.827.397-1.073a.485.485 0 0 0 .127-.629l-.322-.558a.485.485 0 0 0-.609-.204c-.376.159-.804.055-1.128-.193a3.994 3.994 0 0 0-.898-.52c-.376-.156-.68-.475-.731-.88A.484.484 0 0 0 8.323 6h-.645a.484.484 0 0 0-.481.424zM10.5 11a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM8 10a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
+        Cloud
+      </a>
+    </li>
+  </ul>
+  {#
+    Colour-mode toggle. Standalone only: the fork gets its mode server-side from
+    Gitlab::ColorModes and already has a user preference for it, so this must not
+    live in oc-pages, which both consume.
 
+    The class is applied before paint by the script in the built <head> (see
+    public/index.html in unfurl-gui, lifted here by gui.py); this only writes the
+    preference and flips the class in place.
+  #}
+  <button type="button" id="color-mode-toggle" title="Switch between light and dark"
+          aria-label="Switch colour mode"
+          class="gl-ml-auto gl-flex gl-items-center gl-justify-center gl-p-2 gl-rounded-base gl-bg-transparent gl-border-0 gl-text-default gl-cursor-pointer">
+    {# moon / sun from @gitlab/svgs (dist/icons.svg symbols of the same name),
+       so the toggle uses the same icon set as the rest of the chrome #}
+    <svg class="s16 js-mode-dark" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M7.15 1.809l.578.479a.75.75 0 0 0-.679-1.223l.101.744zM6 5h-.75H6zm5 5v.75V10zm3.19-1.151l.744.1a.75.75 0 0 0-1.223-.678l.48.578zM8 14.25V15v-.75zM1.75 8H1h.75zm5.4-6.191l-.577-.48A5.73 5.73 0 0 0 5.25 5h1.5a4.23 4.23 0 0 1 .978-2.712l-.578-.48zM6 5h-.75A5.75 5.75 0 0 0 11 10.75v-1.5A4.25 4.25 0 0 1 6.75 5H6zm5 5v.75a5.729 5.729 0 0 0 3.67-1.324l-.48-.577-.479-.578A4.229 4.229 0 0 1 11 9.25V10zm3.19-1.151l-.743-.101A5.5 5.5 0 0 1 8 13.5V15a7 7 0 0 0 6.934-6.05l-.744-.101zM8 14.25v-.75A5.5 5.5 0 0 1 2.5 8H1a7 7 0 0 0 7 7v-.75zM1.75 8h.75a5.5 5.5 0 0 1 4.751-5.448l-.1-.743-.102-.744A7 7 0 0 0 1 8h.75z"/></svg>
+    <svg class="s16 js-mode-light" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13zm3.537-1.46a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06zm-8.132-.008a.75.75 0 1 1 1.06 1.06l-1.06 1.061a.75.75 0 0 1-1.06-1.06l1.06-1.06zM8 4a4 4 0 1 1 0 8 4 4 0 0 1 0-8zm0 1.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM2.255 7.245a.75.75 0 1 1 0 1.5h-1.5a.75.75 0 0 1 0-1.5h1.5zm13 0a.75.75 0 0 1 0 1.5h-1.5a.75.75 0 0 1 0-1.5h1.5zM2.345 2.347a.75.75 0 0 1 1.06 0l1.06 1.06a.75.75 0 0 1-1.06 1.06l-1.06-1.06a.75.75 0 0 1 0-1.06zm10.253-.007a.75.75 0 1 1 1.06 1.06l-1.06 1.06a.75.75 0 0 1-1.06-1.06l1.06-1.06zM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0z"/></svg>
+  </button>
 
-          </ul>
-        </div>
-        {% endif %}
-
-      </div>
-
-
-
-    </div>
-  </div>
+  <script>
+    (function () {
+      var btn = document.getElementById('color-mode-toggle')
+      if (!btn) return
+      var root = document.documentElement
+      var sync = function () {
+        var dark = root.classList.contains('gl-dark')
+        btn.querySelector('.js-mode-dark').style.display = dark ? '' : 'none'
+        btn.querySelector('.js-mode-light').style.display = dark ? 'none' : ''
+      }
+      btn.addEventListener('click', function () {
+        var toLight = root.classList.contains('gl-dark')
+        root.className = (toLight ? 'gl-light' : 'gl-dark') + ' ui-neutral'
+        try { localStorage.setItem('oc-color-mode', toLight ? 'light' : 'dark') } catch (e) {}
+        sync()
+      })
+      sync()
+    })()
+  </script>
 </header>

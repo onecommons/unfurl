@@ -1,9 +1,18 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="gl-dark ui-neutral">
 <title>Unfurl {{name}}</title>
 {{head}}
 
-<body class="ui-indigo tab-width-8 gl-browser-chrome gl-platform-mac gl-dark">
+{#
+  19.3 puts the colour mode (gl-light / gl-dark / gl-system) and the nav theme
+  on <html>; @gitlab/ui scopes its design tokens to `:root.gl-dark`, so a class
+  on <body> matches nothing and every token resolves to its light value while
+  `.gl-dark .foo` rules still apply -- a light page with dark controls.
+#}
+<body class="tab-width-8">
+
+  {# GitLab UI mounts its tooltips here by default #}
+  <div id="js-tooltips-container"></div>
 
   {% include 'partials/header.j2.html' %}
   <div class="layout-page hide-when-top-nav-responsive-open">
