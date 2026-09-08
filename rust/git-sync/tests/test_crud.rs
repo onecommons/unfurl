@@ -680,7 +680,7 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
         Some("cloudmap.yaml"),
         "/types",
         "test.NewType",
-        serde_json::json!({"kind": "Component"}),
+        serde_json::json!({"kind": "component"}),
         None,
         false,
     )

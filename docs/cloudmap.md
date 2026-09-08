@@ -130,7 +130,7 @@ Each artifact can describe what it `instantiates` (the types or components it em
 
 ### Types
 
-The `types` section is a catalog of TOSCA type definitions referenced by artifacts and services. Each entry has a `kind` (`Component`, `Artifact`, or `Capability`), an optional list of `extends` parent types, and metadata. Types are referenced by artifacts (via `instantiates`) and by other types (via `extends`) using fully-qualified names of the form `<TypeName>@<package_id>`.
+The `types` section is a catalog of TOSCA type definitions referenced by artifacts and services. Each entry has a `kind` (`component`, `artifact`, `capability`, or `facet`), an optional list of `extends` parent types, and metadata. Types are referenced by artifacts (via `instantiates`) and by other types (via `extends`) using fully-qualified names of the form `<TypeName>@<package_id>`.
 
 ### Services and Instantiations
 

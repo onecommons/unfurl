@@ -460,10 +460,6 @@
           "type": "object",
           "description": "Service policies and legal information.",
           "properties": {
-            "spdx_licenses": {
-              "type": "string",
-              "description": "License(s) under which the service is distributed as an SPDX License Expression."
-            },
             "terms_of_service": {
               "type": "string",
               "description": "URL to the terms of service."
@@ -760,11 +756,12 @@
         },
         "kind": {
           "type": "string",
-          "description": "The kind of the type. One of: Component, Artifact, or Capability.",
+          "description": "The kind of the type. One of: component, artifact, capability, or facet.",
           "enum": [
-            "Component",
-            "Artifact",
-            "Capability"
+            "component",
+            "artifact",
+            "capability",
+            "facet"
           ]
         },
         "source": {

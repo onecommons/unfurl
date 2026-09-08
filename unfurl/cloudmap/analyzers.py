@@ -482,7 +482,7 @@ def create_cloud_type_from_type_info(
     # properties_schema.update(type_info.get("inputsSchema", {}))
     return CloudType(
         name=type_name,
-        kind="Component",  # XXX inferred from artifact_type
+        kind="component",  # XXX inferred from artifact_type
         metadata=metadata,
         # properties=properties_schema,
         extends=cast(List[str], type_info.get("extends", [])),

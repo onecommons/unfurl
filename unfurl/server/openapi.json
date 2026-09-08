@@ -2651,10 +2651,6 @@
                 "description": "URL to the privacy policy.",
                 "type": "string"
               },
-              "spdx_licenses": {
-                "description": "License(s) under which the service is distributed as an SPDX License Expression.",
-                "type": "string"
-              },
               "terms_of_service": {
                 "description": "URL to the terms of service.",
                 "type": "string"
@@ -2700,11 +2696,12 @@
             "type": "array"
           },
           "kind": {
-            "description": "The kind of the type. One of: Component, Artifact, or Capability.",
+            "description": "The kind of the type. One of: component, artifact, capability, or facet.",
             "enum": [
-              "Component",
-              "Artifact",
-              "Capability"
+              "component",
+              "artifact",
+              "capability",
+              "facet"
             ],
             "type": "string"
           },

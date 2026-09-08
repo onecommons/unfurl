@@ -2868,10 +2868,6 @@ impl ::std::convert::From<f64> for RepositoryMetadataVersion {
 #[doc = "          \"description\": \"URL to the privacy policy.\","]
 #[doc = "          \"type\": \"string\""]
 #[doc = "        },"]
-#[doc = "        \"spdx_licenses\": {"]
-#[doc = "          \"description\": \"License(s) under which the service is distributed as an SPDX License Expression.\","]
-#[doc = "          \"type\": \"string\""]
-#[doc = "        },"]
 #[doc = "        \"terms_of_service\": {"]
 #[doc = "          \"description\": \"URL to the terms of service.\","]
 #[doc = "          \"type\": \"string\""]
@@ -3051,10 +3047,6 @@ impl ::std::convert::TryFrom<::std::string::String> for ServiceAccess {
 #[doc = "      \"description\": \"URL to the privacy policy.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
-#[doc = "    \"spdx_licenses\": {"]
-#[doc = "      \"description\": \"License(s) under which the service is distributed as an SPDX License Expression.\","]
-#[doc = "      \"type\": \"string\""]
-#[doc = "    },"]
 #[doc = "    \"terms_of_service\": {"]
 #[doc = "      \"description\": \"URL to the terms of service.\","]
 #[doc = "      \"type\": \"string\""]
@@ -3068,9 +3060,6 @@ pub struct ServicePolicies {
     #[doc = "URL to the privacy policy."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub privacy_policy: ::std::option::Option<::std::string::String>,
-    #[doc = "License(s) under which the service is distributed as an SPDX License Expression."]
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub spdx_licenses: ::std::option::Option<::std::string::String>,
     #[doc = "URL to the terms of service."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub terms_of_service: ::std::option::Option<::std::string::String>,
@@ -3079,7 +3068,6 @@ impl ::std::default::Default for ServicePolicies {
     fn default() -> Self {
         Self {
             privacy_policy: Default::default(),
-            spdx_licenses: Default::default(),
             terms_of_service: Default::default(),
         }
     }
@@ -3171,12 +3159,13 @@ impl<'de> ::serde::Deserialize<'de> for ServiceVersionsKey {
 #[doc = "      }"]
 #[doc = "    },"]
 #[doc = "    \"kind\": {"]
-#[doc = "      \"description\": \"The kind of the type. One of: Component, Artifact, or Capability.\","]
+#[doc = "      \"description\": \"The kind of the type. One of: component, artifact, capability, or facet.\","]
 #[doc = "      \"type\": \"string\","]
 #[doc = "      \"enum\": ["]
-#[doc = "        \"Component\","]
-#[doc = "        \"Artifact\","]
-#[doc = "        \"Capability\""]
+#[doc = "        \"component\","]
+#[doc = "        \"artifact\","]
+#[doc = "        \"capability\","]
+#[doc = "        \"facet\""]
 #[doc = "      ]"]
 #[doc = "    },"]
 #[doc = "    \"metadata\": {"]
@@ -3222,7 +3211,7 @@ pub struct Type {
     #[doc = "List of fully-qualified type names that this type extends."]
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub extends: ::std::vec::Vec<::std::string::String>,
-    #[doc = "The kind of the type. One of: Component, Artifact, or Capability."]
+    #[doc = "The kind of the type. One of: component, artifact, capability, or facet."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub kind: ::std::option::Option<TypeKind>,
     #[doc = "Additional metadata about the type."]
@@ -3258,18 +3247,19 @@ impl ::std::default::Default for Type {
         }
     }
 }
-#[doc = "The kind of the type. One of: Component, Artifact, or Capability."]
+#[doc = "The kind of the type. One of: component, artifact, capability, or facet."]
 #[doc = r""]
 #[doc = r" <details><summary>JSON schema</summary>"]
 #[doc = r""]
 #[doc = r" ```json"]
 #[doc = "{"]
-#[doc = "  \"description\": \"The kind of the type. One of: Component, Artifact, or Capability.\","]
+#[doc = "  \"description\": \"The kind of the type. One of: component, artifact, capability, or facet.\","]
 #[doc = "  \"type\": \"string\","]
 #[doc = "  \"enum\": ["]
-#[doc = "    \"Component\","]
-#[doc = "    \"Artifact\","]
-#[doc = "    \"Capability\""]
+#[doc = "    \"component\","]
+#[doc = "    \"artifact\","]
+#[doc = "    \"capability\","]
+#[doc = "    \"facet\""]
 #[doc = "  ]"]
 #[doc = "}"]
 #[doc = r" ```"]
@@ -3287,16 +3277,22 @@ impl ::std::default::Default for Type {
     PartialOrd,
 )]
 pub enum TypeKind {
+    #[serde(rename = "component")]
     Component,
+    #[serde(rename = "artifact")]
     Artifact,
+    #[serde(rename = "capability")]
     Capability,
+    #[serde(rename = "facet")]
+    Facet,
 }
 impl ::std::fmt::Display for TypeKind {
     fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
         match *self {
-            Self::Component => f.write_str("Component"),
-            Self::Artifact => f.write_str("Artifact"),
-            Self::Capability => f.write_str("Capability"),
+            Self::Component => f.write_str("component"),
+            Self::Artifact => f.write_str("artifact"),
+            Self::Capability => f.write_str("capability"),
+            Self::Facet => f.write_str("facet"),
         }
     }
 }
@@ -3304,9 +3300,10 @@ impl ::std::str::FromStr for TypeKind {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         match value {
-            "Component" => Ok(Self::Component),
-            "Artifact" => Ok(Self::Artifact),
-            "Capability" => Ok(Self::Capability),
+            "component" => Ok(Self::Component),
+            "artifact" => Ok(Self::Artifact),
+            "capability" => Ok(Self::Capability),
+            "facet" => Ok(Self::Facet),
             _ => Err("invalid value".into()),
         }
     }

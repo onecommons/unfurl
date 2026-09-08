@@ -702,7 +702,7 @@ artifacts:
 types:
   CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle:
     name: CronicleApp@unfurl.cloud/onecommons/blueprints/cronicle
-    kind: Component
+    kind: component
     metadata:
       title: CronicleApp
       discussion_url: https://unfurl.cloud/onecommons/blueprints/cronicle/-/issues/1
@@ -1586,19 +1586,19 @@ services:
       documentation_url: https://docs.unfurl.cloud
       thumbnail_url: https://unfurl.cloud/unfurl-logo.svg
       source_url: https://github.com/onecommons/unfurl-cloud
+      spdx_licenses: MIT
       discovery:
         last_checked: "2023-09-24T15:30:00Z"
         sources:
         - https://unfurl.cloud/api/v1/metadata
     policies:
-      spdx_licenses: MIT
       terms_of_service: https://unfurl.cloud/terms
       privacy_policy: https://unfurl.cloud/privacy
     instantiated_by:
       "#/instantiations/2023-09-24T15:31:00Z":
 types:
   Zulip@unfurl.cloud/onecommons/blueprints/zulip:
-    kind: Component
+    kind: component
     source: git://unfurl.cloud/onecommons/blueprints/zulip.git#:types/app.yaml
     metadata:
       title: Zulip
@@ -1606,7 +1606,7 @@ types:
     - unfurl.nodes.WebApp@unfurl.cloud/onecommons/std:generic_types
     - WebApp@unfurl.cloud/onecommons/std:generic_types
   software.Nginx@unfurl.cloud/onecommons/std:
-    kind: Component
+    kind: component
     metadata:
       title: Nginx Web Server
     extends:
@@ -1726,7 +1726,7 @@ types:
         assert len(service.endpoints) == 1
         assert len(service.connections) == 1
         assert service.metadata.title == "Unfurl Cloud"
-        assert service.policies.spdx_licenses == "MIT"
+        assert service.metadata.spdx_licenses == "MIT"
         assert len(service.instantiated_by) == 1
         assert service.metadata.discovery.last_checked == "2023-09-24T15:30:00Z"
         assert len(service.metadata.discovery.sources) == 1
@@ -1753,7 +1753,7 @@ types:
         # Verify Zulip service type
         assert "Zulip@unfurl.cloud/onecommons/blueprints/zulip" in db.types
         zulip_type = db.types["Zulip@unfurl.cloud/onecommons/blueprints/zulip"]
-        assert zulip_type.kind == "Component"
+        assert zulip_type.kind == "component"
         assert zulip_type.metadata.title == "Zulip"
         assert (
             zulip_type.source
@@ -1772,7 +1772,7 @@ types:
         # Verify Nginx software type
         assert "software.Nginx@unfurl.cloud/onecommons/std" in db.types
         nginx_type = db.types["software.Nginx@unfurl.cloud/onecommons/std"]
-        assert nginx_type.kind == "Component"
+        assert nginx_type.kind == "component"
         assert nginx_type.metadata.title == "Nginx Web Server"
         assert not nginx_type.source  # Optional field not provided
 

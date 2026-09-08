@@ -46,7 +46,7 @@ artifacts:
       cloudmap.artifacts.oci.Image:
 types:
   Mediawiki@unfurl.cloud/onecommons/blueprints/mediawiki:
-    kind: Component
+    kind: component
     metadata:
       title: Mediawiki
     extends:

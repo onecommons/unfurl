@@ -974,8 +974,8 @@ class TestPipelineRunAnalyzer:
 
         # sub_type -> mid_type -> base_type (transitive extends chain)
         type_records = {
-            sub_type: CloudType(name=sub_type, kind="Artifact", extends=[mid_type]),
-            mid_type: CloudType(name=mid_type, kind="Artifact", extends=[base_type]),
+            sub_type: CloudType(name=sub_type, kind="artifact", extends=[mid_type]),
+            mid_type: CloudType(name=mid_type, kind="artifact", extends=[base_type]),
         }
         cm.directory.context.get_type.side_effect = lambda name: type_records.get(name)
 
@@ -1955,7 +1955,7 @@ def test_analyze_url_records_discovery_source(tmp_path):
         {
             "stub:one": [
                 Artifact(url="pkg:generic/main"),
-                CloudType(name="some.Type", kind="Component"),
+                CloudType(name="some.Type", kind="component"),
                 Service(url="https://svc.example.com"),
             ]
         },
@@ -1985,7 +1985,7 @@ def test_analyze_url_attributes_nested_analysis_to_every_enclosing_url(tmp_path)
             "stub:outer": [Artifact(url="pkg:generic/outer")],
             "stub:inner": [
                 Artifact(url="pkg:generic/inner"),
-                CloudType(name="inner.Type", kind="Component"),
+                CloudType(name="inner.Type", kind="component"),
             ],
         },
         recurses={"stub:outer": ["stub:inner"]},
@@ -2027,7 +2027,7 @@ def test_analyze_url_replace_collects_orphans(tmp_path):
 
 def test_analyze_url_replace_keeps_records_with_other_sources(tmp_path):
     """A record is only deleted once every source has stopped producing it."""
-    shared = CloudType(name="shared.Type", kind="Component")
+    shared = CloudType(name="shared.Type", kind="component")
     cm = _stub_cloudmap(
         tmp_path,
         {
@@ -2245,7 +2245,7 @@ def test_replace_repository_collects_records_of_a_deleted_file(tmp_path):
         "kept.yaml": [Artifact(url="pkg:generic/from-kept")],
         "removed.yaml": [
             Artifact(url="pkg:generic/from-removed"),
-            CloudType(name="removed.Type", kind="Component"),
+            CloudType(name="removed.Type", kind="component"),
         ],
     }
 
@@ -2313,7 +2313,7 @@ def test_pipeline_run_analyzer_records_are_attributed(tmp_path):
     still in use, so `--replace` doesn't sweep records it is still using.
     """
     added = Artifact(url="pkg:generic/from-pipeline")
-    seen = CloudType(name="looked.Up", kind="Component")
+    seen = CloudType(name="looked.Up", kind="component")
 
     class _Enricher(PipelineRunAnalyzer):
         repositories = ("git://example.com/org/repo.git",)

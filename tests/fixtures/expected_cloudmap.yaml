@@ -336,7 +336,7 @@ instantiations:
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     name: Odoo@unfurl.cloud/onecommons/blueprints/odoo
-    kind: Component
+    kind: component
     extends:
     - Odoo@unfurl.cloud/onecommons/blueprints/odoo
     - unfurl.nodes.SoftwareService@unfurl.cloud/onecommons/std:generic_types
@@ -353,7 +353,7 @@ types:
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
   unfurl.relationships.ConnectsTo.AWSAccount:
     name: unfurl.relationships.ConnectsTo.AWSAccount
-    kind: Component
+    kind: component
     extends:
     - unfurl.relationships.ConnectsTo.AWSAccount
     - unfurl.relationships.ConnectsTo.CloudAccount
@@ -369,7 +369,7 @@ types:
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
   unfurl.relationships.ConnectsTo.GoogleCloudProject:
     name: unfurl.relationships.ConnectsTo.GoogleCloudProject
-    kind: Component
+    kind: component
     extends:
     - unfurl.relationships.ConnectsTo.GoogleCloudProject
     - unfurl.relationships.ConnectsTo.CloudAccount

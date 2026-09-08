@@ -249,10 +249,10 @@ def test_find_by_type_loads_types_for_the_subtype_closure() -> None:
     types_pair = _response(
         {
             "types": {
-                "ex.Base": {"name": "ex.Base", "kind": "Artifact"},
+                "ex.Base": {"name": "ex.Base", "kind": "artifact"},
                 "ex.Derived": {
                     "name": "ex.Derived",
-                    "kind": "Artifact",
+                    "kind": "artifact",
                     "extends": ["ex.Base"],
                 },
             }

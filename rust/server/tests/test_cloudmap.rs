@@ -1092,7 +1092,7 @@ async fn type_filter_cache_invalidated_when_types_change() {
         serde_json::json!({
             "types": {
                 "test.SubTypeLibrary": {
-                    "kind": "Artifact",
+                    "kind": "artifact",
                     "extends": ["cloudmap.artifacts.tosca.TypeLibrary"]
                 }
             },

@@ -511,8 +511,6 @@ impl core::str::FromStr for CloudmapServiceAccess {
 pub struct CloudmapServicePolicies {
     /// URL to the privacy policy.
     pub privacy_policy: Option<String>,
-    /// License(s) under which the service is distributed as an SPDX License Expression.
-    pub spdx_licenses: Option<String>,
     /// URL to the terms of service.
     pub terms_of_service: Option<String>,
 }
@@ -521,7 +519,7 @@ pub struct CloudmapServicePolicies {
 pub struct CloudmapType {
     /// List of fully-qualified type names that this type extends.
     pub extends: Option<Vec<String>>,
-    /// The kind of the type. One of: Component, Artifact, or Capability.
+    /// The kind of the type. One of: component, artifact, capability, or facet.
     pub kind: Option<CloudmapTypeKind>,
     /// Common metadata fields shared across artifacts, services, instantiations, and repositories.
     pub metadata: Option<CloudmapMetadata>,
@@ -539,20 +537,26 @@ pub struct CloudmapType {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
-/// The kind of the type. One of: Component, Artifact, or Capability.
+/// The kind of the type. One of: component, artifact, capability, or facet.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
 pub enum CloudmapTypeKind {
+    #[serde(rename = "component")]
     #[default]
     Component,
+    #[serde(rename = "artifact")]
     Artifact,
+    #[serde(rename = "capability")]
     Capability,
+    #[serde(rename = "facet")]
+    Facet,
 }
 impl core::fmt::Display for CloudmapTypeKind {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            Self::Component => write!(f, "Component"),
-            Self::Artifact => write!(f, "Artifact"),
-            Self::Capability => write!(f, "Capability"),
+            Self::Component => write!(f, "component"),
+            Self::Artifact => write!(f, "artifact"),
+            Self::Capability => write!(f, "capability"),
+            Self::Facet => write!(f, "facet"),
         }
     }
 }
@@ -560,12 +564,13 @@ impl core::str::FromStr for CloudmapTypeKind {
     type Err = String;
     fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
         match s {
-            "Component" => Ok(Self::Component),
-            "Artifact" => Ok(Self::Artifact),
-            "Capability" => Ok(Self::Capability),
+            "component" => Ok(Self::Component),
+            "artifact" => Ok(Self::Artifact),
+            "capability" => Ok(Self::Capability),
+            "facet" => Ok(Self::Facet),
             _ => Err(format!(
                 "unknown variant '{}', expected one of: {}",
-                s, "Component, Artifact, Capability"
+                s, "component, artifact, capability, facet"
             )),
         }
     }

@@ -1301,7 +1301,6 @@ class ServiceMetadata(CommonMetadata):
 class ServicePolicies:
     """Service policies and legal information."""
 
-    spdx_licenses: str = ""
     terms_of_service: str = ""
     privacy_policy: str = ""
 
@@ -1411,7 +1410,7 @@ class CloudType(CloudMapRecord):
 
     name: str
     """Fully-qualified type name with namespace"""
-    kind: Literal["Component", "Artifact", "Capability"]
+    kind: Literal["component", "artifact", "capability", "facet"]
     source: str = ""
     """Artifact containing type definition"""
     extends: List[str] = field(default_factory=list)
