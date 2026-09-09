@@ -614,6 +614,34 @@ async fn handle_write(
             };
 
             match qid_result {
+                // A batch queued against this commit was rejected and its
+                // writes discarded. 409 because the client already handles
+                // it by clearing its stored lastCommit and rethrowing --
+                // a status it doesn't know would let the UI keep reporting
+                // success. Same `code` for that reason, distinct message.
+                //
+                // Note this is only discovered on the client's *next*
+                // write: the queue key is the only channel. A user who
+                // makes one write and closes the tab still isn't told.
+                QueueIdResult::Failed { status, queueid } => {
+                    tracing::warn!(
+                        "queued write failed earlier: project={} commit={} backend_status={} queueid={}",
+                        project_id,
+                        latest_commit,
+                        status,
+                        queueid
+                    );
+                    return (
+                        StatusCode::CONFLICT,
+                        Json(json!({
+                            "code": "CONFLICT",
+                            "message": format!(
+                                "a queued write against this commit was discarded: backend returned {status}"
+                            ),
+                        })),
+                    )
+                        .into_response();
+                }
                 QueueIdResult::Conflict => {
                     tracing::info!(
                         "queueid conflict: project={} commit={} queueid={}",

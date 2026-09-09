@@ -76,6 +76,7 @@ return len
 ///   - "error" on conflict (stale queueid or newer patch in flight)
 ///   - "{new_queueid}" when incrementing on current commit
 ///   - "{new_commit},{new_queueid}" when a new commit was produced
+///   - "failed:{status}:{queueid}" when the batch against this commit failed
 const INC_QUEUEID_SCRIPT: &str = r#"
 local queue_key = KEYS[1]
 local queueid = tonumber(ARGV[1])
@@ -90,6 +91,13 @@ if not current then
     -- first patch: create and set to 1
     redis.call('SET', queue_key, '1')
     return "1"
+end
+
+-- a failed batch left a sentinel: report it to every later writer until
+-- someone resolves it. Must come before the parse below, where
+-- tonumber() would return nil and the comparison would raise.
+if string.sub(current, 1, 7) == 'failed:' then
+    return current
 end
 
 -- parse current value: either "queueid" or "new_commit,last_queueid"
@@ -134,8 +142,27 @@ const DRAIN_BATCH_SIZE: usize = 1000;
 // Enqueue
 // ---------------------------------------------------------------------------
 
+/// Marks a queue key whose batch the backend rejected.
+///
+/// The value is `failed:{status}:{queueid}`. It deliberately contains no
+/// comma: [`check_export_queue`] splits on one to find a commit hash, so a
+/// comma here would make a discarded write look like a new revision and
+/// send `/export` after a commit that was never created.
+const FAILED_SENTINEL_PREFIX: &str = "failed:";
+
+fn failed_sentinel(status: u16, queueid: i64) -> String {
+    format!("{FAILED_SENTINEL_PREFIX}{status}:{queueid}")
+}
+
+/// Parse `failed:{status}:{queueid}`, or `None` if this isn't a sentinel.
+fn parse_failed_sentinel(value: &str) -> Option<(u16, i64)> {
+    let rest = value.strip_prefix(FAILED_SENTINEL_PREFIX)?;
+    let (status, queueid) = rest.split_once(':')?;
+    Some((status.parse().ok()?, queueid.parse().unwrap_or(0)))
+}
+
 /// Result of `inc_queueid`: either a new queueid (with an optional new
-/// commit hash) or a conflict error.
+/// commit hash), a conflict error, or a batch that failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueueIdResult {
     /// The queueid was incremented on the current commit.
@@ -148,6 +175,10 @@ pub enum QueueIdResult {
     },
     /// Conflict: stale queueid or newer patch already in flight.
     Conflict,
+    /// The batch queued against this commit was rejected by the backend and
+    /// its writes were discarded. Every later write against the same commit
+    /// gets this until the client moves to a different one.
+    Failed { status: u16, queueid: i64 },
 }
 
 /// Atomically validate and increment the queueid for a project+commit.
@@ -175,6 +206,13 @@ pub async fn inc_queueid(
 
     if result == "error" {
         return Ok(QueueIdResult::Conflict);
+    }
+
+    if let Some((status, failed_queueid)) = parse_failed_sentinel(&result) {
+        return Ok(QueueIdResult::Failed {
+            status,
+            queueid: failed_queueid,
+        });
     }
 
     if let Some((commit, qid_str)) = result.split_once(',') {
@@ -217,6 +255,12 @@ pub enum ExportQueueCheck {
 ///     [`ExportQueueCheck::UseNewCommit`]
 ///   * `"{new_commit},{N}"` where `N < request_queueid` →
 ///     [`ExportQueueCheck::Retry`] (more queued writes still pending)
+///   * `failed:{status}:{queueid}` → [`ExportQueueCheck::Retry`], because the
+///     sentinel has no comma. That matches what a failed batch did before
+///     the sentinel existed (the key kept a bare `"N"`), so this path is
+///     unchanged rather than correct: the client polls 503 instead of being
+///     told its write was dropped. `inc_queueid` is what reports the
+///     failure. A `Failed` variant here would be the next improvement.
 pub async fn check_export_queue(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
@@ -383,6 +427,45 @@ struct PartitionedBatch {
     /// update the queue key after committing.
     #[serde(skip_serializing_if = "Option::is_none")]
     queueid: Option<i64>,
+}
+
+/// Record a failed batch against every commit its requests were queued
+/// against, so the next `inc_queueid` for any of them reports it.
+///
+/// Python's success path updates the key for *each* distinct
+/// `latest_commit` in the batch (see `_update_queue_key` callers in
+/// `unfurl/server/endpoints.py`); mirror that, or a client sitting on one
+/// of the other commits never learns its write was dropped.
+///
+/// Best-effort: a Redis error here is logged, not propagated. The batch is
+/// already lost and the lock still needs releasing.
+async fn mark_batch_failed(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    batch: &PartitionedBatch,
+    status: u16,
+) {
+    let value = failed_sentinel(status, batch.queueid.unwrap_or(0));
+    let mut commits: Vec<&str> = vec![batch.latest_commit.as_str()];
+    for req in &batch.requests {
+        if let Some(lc) = req.body.get("latest_commit").and_then(|v| v.as_str()) {
+            if !lc.is_empty() && !commits.contains(&lc) {
+                commits.push(lc);
+            }
+        }
+    }
+    for commit in commits {
+        if commit.is_empty() {
+            continue;
+        }
+        let key = config.queue_entry_key(project_id, commit);
+        let res: Result<(), _> = conn.set(&key, &value).await;
+        match res {
+            Ok(()) => tracing::warn!("marked queue key {} failed: {}", key, value),
+            Err(e) => tracing::error!("failed to mark queue key {} failed: {}", key, e),
+        }
+    }
 }
 
 /// Extract the endpoint name from a full path+query string.
@@ -605,6 +688,11 @@ pub async fn run_worker(
                 }
                 builder = builder.json(&batch_json);
 
+                // The items were LPOP'd before this call, so a failure here
+                // has already destroyed the patches. Record it against the
+                // queue key -- python only writes that key on success, so
+                // without this the key keeps the pre-batch queueid forever
+                // and the client's next write is told everything is fine.
                 match builder.send().await {
                     Ok(resp) => {
                         let status = resp.status();
@@ -616,6 +704,14 @@ pub async fn run_worker(
                                 project_id,
                                 body
                             );
+                            mark_batch_failed(
+                                &mut conn,
+                                &config,
+                                project_id,
+                                &batch,
+                                status.as_u16(),
+                            )
+                            .await;
                         }
                     }
                     Err(e) => {
@@ -624,6 +720,9 @@ pub async fn run_worker(
                             project_id,
                             e
                         );
+                        // No response to report, so use the status that says
+                        // exactly that: the proxy could not reach upstream.
+                        mark_batch_failed(&mut conn, &config, project_id, &batch, 502).await;
                     }
                 }
             }

@@ -1065,3 +1065,196 @@ async fn test_kick_worker_lowers_deadline() {
 
     cleanup_keys(&mut conn, project).await;
 }
+
+/// Spin up a backend that rejects every request with `status`.
+async fn failing_backend(status: u16) -> String {
+    let code = axum::http::StatusCode::from_u16(status).unwrap();
+    let app = axum::Router::new().fallback(move || async move { (code, "Missing credentials") });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{}", addr)
+}
+
+/// A rejected batch must leave a mark on the queue key.
+///
+/// The items are LPOP'd before the forward, and python only writes the
+/// queue key on success, so before the sentinel a failed batch left the
+/// key holding the pre-batch queueid: the writes were gone and the
+/// client's next write was told everything was fine.
+#[tokio::test]
+async fn failed_batch_marks_queue_key() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let prefix = "batch_failed";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_failed";
+    let commit = "commit_a";
+
+    // Claim the first queueid the way handle_write does, so the key exists
+    // with the pre-batch value a stale client would be handed back.
+    let first = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+        .await
+        .unwrap();
+    assert_eq!(first, QueueIdResult::Ok { new_queueid: 1 });
+
+    let item = make_item(
+        &format!("/update_ensemble?auth_project={}", project),
+        "main",
+        commit,
+        json!([{ "__typename": "ResourceTemplate", "name": "t0" }]),
+        "change 0",
+    );
+    queue::enqueue(&mut conn, &config, project, &item)
+        .await
+        .unwrap();
+
+    // 401 is the failure that exposed this: batched sub-requests were
+    // reaching python without the credentials from the outer request.
+    let backend_url = failing_backend(401).await;
+    let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+    let worker_config = config.clone();
+    let handle = tokio::spawn(async move {
+        queue::run_worker(
+            worker_conn,
+            worker_config,
+            backend_url,
+            reqwest::Client::new(),
+        )
+        .await;
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+    let list_key = config.batch_list_key(project);
+    let len: i64 = redis::cmd("LLEN")
+        .arg(&list_key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(len, 0, "the writes are gone from the list either way");
+
+    let queue_key = config.queue_entry_key(project, commit);
+    let value: Option<String> = redis::cmd("GET")
+        .arg(&queue_key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(
+        value.as_deref(),
+        Some("failed:401:0"),
+        "queue key should record the failure, not keep the pre-batch queueid"
+    );
+
+    // What the client's next write sees.
+    let next = queue::inc_queueid(&mut conn, &config, project, commit, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        next,
+        QueueIdResult::Failed {
+            status: 401,
+            queueid: 0
+        },
+    );
+
+    // Regression guard: the sentinel must not parse as a commit hash.
+    // `check_export_queue` splits on ',' and treats the left side as a
+    // revision, so a comma in the sentinel would send /export chasing a
+    // commit that was never created.
+    let export = queue::check_export_queue(&mut conn, &config, project, commit, 1)
+        .await
+        .unwrap();
+    assert_eq!(export, ExportQueueCheck::Retry);
+
+    cleanup_keys(&mut conn, prefix).await;
+    handle.abort();
+}
+
+/// The other failure arm: no response at all.
+///
+/// A backend that is down or drops the connection takes the `Err(_)` path,
+/// which has no status to report and records 502. This is a common way a
+/// batch dies, and it is a different branch from the non-2xx one.
+#[tokio::test]
+async fn unreachable_backend_marks_queue_key() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+
+    let prefix = "batch_unreachable";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_unreachable";
+    let commit = "commit_a";
+
+    // Bind to claim a port, read it, then drop the listener: nothing is
+    // accepting there, so the forward fails without a response.
+    let dead = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let backend_url = format!("http://{}", dead.local_addr().unwrap());
+    drop(dead);
+
+    let item = make_item(
+        &format!("/update_ensemble?auth_project={}", project),
+        "main",
+        commit,
+        json!([{ "__typename": "ResourceTemplate", "name": "t0" }]),
+        "change 0",
+    );
+    queue::enqueue(&mut conn, &config, project, &item)
+        .await
+        .unwrap();
+
+    let worker_conn = client.get_multiplexed_async_connection().await.unwrap();
+    let worker_config = config.clone();
+    let handle = tokio::spawn(async move {
+        queue::run_worker(
+            worker_conn,
+            worker_config,
+            backend_url,
+            reqwest::Client::new(),
+        )
+        .await;
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+
+    let queue_key = config.queue_entry_key(project, commit);
+    let value: Option<String> = redis::cmd("GET")
+        .arg(&queue_key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(value.as_deref(), Some("failed:502:0"));
+
+    let next = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+        .await
+        .unwrap();
+    assert_eq!(
+        next,
+        QueueIdResult::Failed {
+            status: 502,
+            queueid: 0
+        },
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
+    handle.abort();
+}
