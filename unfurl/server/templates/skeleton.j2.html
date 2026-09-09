@@ -17,7 +17,7 @@
   {% include 'partials/header.j2.html' %}
   <div class="layout-page hide-when-top-nav-responsive-open">
     <div class="content-wrapper content-wrapper-margin">
-      <div class="container-fluid container-limited limit-container-width">
+      <div class="container-fluid {% block container_classes %}container-limited limit-container-width{% endblock %}">
         <main class="content" id="content-body" style="display: block !important;" itemscope
           itemtype="http://schema.org/SoftwareSourceCode">
           <div class="flash-container flash-container-page sticky" data-qa-selector="flash_container">

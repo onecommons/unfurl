@@ -1,0 +1,25 @@
+{% extends "skeleton.j2.html" %}
+
+{# The map is full-bleed; container-limited would cap it at 1006px. #}
+{% block container_classes %}{% endblock %}
+
+{#
+  Body markup is lifted from unfurl-gui's public_cloud.html rather than written
+  here: the element ids are that package's contract with oc-pages, already
+  spelled twice (there and in the fork's public_cloud/index.html.haml), and a
+  third copy would be the one that drifts.
+#}
+{% block content %}
+<style>
+  /*
+   * #public-cloud-layout sizes itself to calc(100vh - 7rem), budgeting 112px
+   * for chrome. The skeleton's wrappers spend 136px of it -- 24 on a flash
+   * container this page never fills, 64 on padding below the fold -- which is
+   * enough to put the whole page into scroll and defeat the splitter. Nothing
+   * here is wanted on a fixed-viewport map, so take it back.
+   */
+  .flash-container { display: none }
+  .content-wrapper, .layout-page { padding-bottom: 0 }
+</style>
+{{ body | safe }}
+{% endblock %}

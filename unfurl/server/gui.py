@@ -167,6 +167,7 @@ _template_env = Environment(
 )
 blueprint_template = _template_env.get_template("project.j2.html")
 dashboard_template = _template_env.get_template("dashboard.j2.html")
+cloud_template = _template_env.get_template("cloud.j2.html")
 
 
 def get_project_readme(repo: Repo) -> str:
@@ -176,14 +177,14 @@ def get_project_readme(repo: Repo) -> str:
     return ""
 
 
+def _inner_html(tag: str, contents: str) -> str:
+    match = re.search(rf"<{tag}.*?>(.*?)</{tag}>", contents, re.DOTALL)
+    return match.group(1) if match else ""
+
+
 def get_head_contents(f) -> str:
     with open(f, "r") as file:
-        contents = file.read()
-        match = re.search(r"<head.*?>(.*?)</head>", contents, re.DOTALL)
-        if match:
-            return match.group(1)
-        else:
-            return ""
+        return _inner_html("head", file.read())
 
 
 def get_head_for_webpack(index_path: str) -> str:
@@ -234,6 +235,12 @@ def notfound_page(public_files_dir: str) -> Response:
     return response
 
 
+def _is_dashboard(localenv: LocalEnv) -> bool:
+    return bool(
+        localenv.manifestPath and localenv.overrides.get("format") != "blueprint"
+    )
+
+
 def serve_project_page(
     path, localenv: LocalEnv, webpack_origin: str, public_files_dir: str
 ):
@@ -241,9 +248,7 @@ def serve_project_page(
     localrepo = localenv.project.project_repoview.repo
     assert localrepo
 
-    localrepo_is_dashboard = bool(
-        localenv.manifestPath and localenv.overrides.get("format") != "blueprint"
-    )
+    localrepo_is_dashboard = _is_dashboard(localenv)
 
     home_project = _get_project_path(localrepo) if localrepo_is_dashboard else None
 
@@ -293,6 +298,7 @@ def serve_project_page(
         head = f"<head>{get_head_contents(os.path.join(public_files_dir, html_src_file))}</head>"
 
     return template.render(
+        nav="dashboard",
         name=project_name,
         readme=get_project_readme(repo),
         user=user,
@@ -641,18 +647,40 @@ def create_routes(localenv: LocalEnv):
     def public_cloud():
         if webpack_origin:
             response = proxy_request(urllib.parse.urljoin(webpack_origin, CLOUD_PAGE))
-            response.set_data(render_cloud_page(response.get_data(as_text=True)))
-            return response
+            if response.status_code != 200:
+                return response  # an error page is not markup to lift from
+            html = response.get_data(as_text=True)
+        else:
+            html_path = os.path.join(public_files_dir, CLOUD_PAGE)
+            if not os.path.isfile(html_path):
+                logger.error(
+                    "%s not found, this unfurl-gui distribution predates the cloud map page.",
+                    html_path,
+                )
+                return notfound_response("cloud")
+            with open(html_path) as f:
+                html = f.read()
 
-        html_path = os.path.join(public_files_dir, CLOUD_PAGE)
-        if not os.path.isfile(html_path):
-            logger.error(
-                "%s not found, this unfurl-gui distribution predates the cloud map page.",
-                html_path,
-            )
-            return notfound_response("cloud")
-        with open(html_path) as f:
-            return render_cloud_page(f.read())
+        # The built page is a whole document. Re-serving it as-is left /cloud
+        # with no header and so no way back to the dashboard, so lift its head
+        # and body into the skeleton instead; the markup stays unfurl-gui's.
+        html = render_cloud_page(html)
+        localrepo = localenv.project.project_repoview.repo if localenv.project else None
+        home_project = (
+            _get_project_path(localrepo)
+            if localrepo and _is_dashboard(localenv)
+            else None
+        )
+        return cloud_template.render(
+            nav="cloud",
+            name="Cloud",
+            head=f"<head>{_inner_html('head', html)}</head>",
+            body=_inner_html("body", html),
+            home_project=home_project,
+            working_dir_project=home_project or "",
+            user="",
+            origin="",
+        )
 
     def _serve_static_file(path):
         if webpack_origin:

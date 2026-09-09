@@ -30,7 +30,9 @@
       gap: 8px;
       padding: 6px 12px;
       border: 0;
-      border-radius: 4px;
+      /* reserved in both themes so the active state does not change the height */
+      border-bottom: 2px solid transparent;
+      border-radius: 0;
       background: transparent;
       /* $darkmode-white was dark-mode only and vanished on the light bar;
          this token is neutral-600 light / neutral-200 dark */
@@ -39,7 +41,22 @@
       text-decoration: none;
     }
 
-    .super-topbar .top-nav-button:hover {
+    /*
+     * 15.11 gave .active the same treatment as :hover, but a different one per
+     * theme: an underline in light (framework/header.scss) and a filled pill in
+     * dark (oc/app/assets/stylesheets/onecommons_dark_mode_overrides.scss).
+     * $uf_primary_teal is #00D2D9 in onecommons_variables.scss.
+     */
+    .super-topbar .top-nav-button:hover,
+    .super-topbar .top-nav-button.active {
+      border-bottom-color: #00d2d9;
+      color: var(--gl-text-color-default);
+    }
+
+    :root.gl-dark .super-topbar .top-nav-button:hover,
+    :root.gl-dark .super-topbar .top-nav-button.active {
+      border-bottom-color: transparent;
+      border-radius: 4px;
       background-color: #00d2d9;
       color: #121212;
     }
@@ -98,7 +115,7 @@
     <ul class="gl-flex gl-items-center gl-list-none gl-m-0 gl-p-0">
     {% if home_project %}
     <li>
-      <a href="/" title="Dashboard" class="top-nav-button active">
+      <a href="/" title="Dashboard" class="top-nav-button{% if nav != 'cloud' %} active{% endif %}">
         <svg class="s16 dropdown-icon" data-testid="home-icon">
                   <path fill-rule="evenodd" clip-rule="evenodd"
                     d="M8.38 1.353L8 1.131l-.38.222-7.25 4.25a.75.75 0 0 0 .76 1.294l.87-.51V14h12V6.387l.87.51a.75.75 0 1 0 .76-1.294l-7.25-4.25zm4.12 4.154L8 2.87 3.5 5.507V12.5H6V8h4v4.5h2.5V5.507zM8.5 9.5v3h-1v-3h1z">
@@ -111,7 +128,7 @@
     </li>
     {% endif %}
     <li>
-      <a href="/cloud" title="Cloud" class="top-nav-button">
+      <a href="/cloud" title="Cloud" class="top-nav-button{% if nav == 'cloud' %} active{% endif %}">
         <svg class="s16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" data-testid="cloud-icon"><path fill-rule="evenodd" clip-rule="evenodd" d="M8 2.5a3.75 3.75 0 0 0-3.745 3.552l-.04.787-.785-.08a1.75 1.75 0 0 0-1.055 3.257.75.75 0 0 1-.75 1.299 3.249 3.249 0 0 1 1.215-6.04 5.251 5.251 0 0 1 10.037-.973 3.75 3.75 0 0 1 1.561 6.744.75.75 0 0 1-.876-1.218 2.25 2.25 0 0 0-1.256-4.077l-.55-.014-.152-.528A3.752 3.752 0 0 0 8 2.5zm-.803 3.924c-.05.405-.355.724-.731.88-.323.135-.624.31-.898.52-.324.248-.752.352-1.129.193a.485.485 0 0 0-.608.204l-.322.558a.485.485 0 0 0 .127.629c.325.246.45.668.397 1.073a4.04 4.04 0 0 0 0 1.038c.053.405-.072.827-.397 1.073a.485.485 0 0 0-.127.629l.322.558c.122.212.383.3.608.204.377-.159.805-.055 1.129.193.274.21.575.385.898.52.376.156.68.475.731.88.03.242.236.424.48.424h.645c.245 0 .45-.182.481-.424.05-.405.355-.724.731-.88.323-.135.624-.31.898-.52.324-.248.752-.352 1.128-.193a.485.485 0 0 0 .61-.204l.321-.558a.485.485 0 0 0-.127-.629c-.325-.246-.45-.668-.397-1.073a4.046 4.046 0 0 0 0-1.038c-.053-.405.072-.827.397-1.073a.485.485 0 0 0 .127-.629l-.322-.558a.485.485 0 0 0-.609-.204c-.376.159-.804.055-1.128-.193a3.994 3.994 0 0 0-.898-.52c-.376-.156-.68-.475-.731-.88A.484.484 0 0 0 8.323 6h-.645a.484.484 0 0 0-.481.424zM10.5 11a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0zM8 10a1 1 0 1 1 0 2 1 1 0 0 1 0-2z"/></svg>
         Cloud
       </a>
