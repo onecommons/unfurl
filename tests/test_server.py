@@ -788,6 +788,50 @@ def test_server_version(runner: Process):
     assert re.match(rb"^1\..+\+\w+$", res.content) is not None
 
 
+def test_cors_preflight(runner: Process):
+    """A browser preflight is answered by whichever server is in front.
+
+    ``/export`` is registered GET-only on the rust server, so before the
+    cors layer this got a 405 from the method router; python's auth hook
+    answered it with a 401. The allowed origin is never in the
+    environment: python derives it from UNFURL_CLOUD_SERVER and hands it
+    to the rust process it spawns.
+    """
+    # Deliberately no secret: a preflight carries no credentials, and both
+    # servers must answer it anyway or the browser never sends the
+    # authenticated request it precedes.
+    url = f"http://{HOST}:{_static_server_port}/export"
+    res = requests.options(
+        url,
+        headers={
+            "Origin": CLOUD_TEST_SERVER,
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert res.status_code < 400, f"{res.status_code}: {res.text}"
+    # Exact equality also rules out a duplicate header: requests joins
+    # repeats with ", ", and two Allow-Origins make a browser reject the
+    # response. The proxied python response already carries one.
+    assert res.headers.get("Access-Control-Allow-Origin") == CLOUD_TEST_SERVER
+
+    other = requests.options(
+        url,
+        headers={
+            "Origin": "https://not-allowed.test",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+    assert "Access-Control-Allow-Origin" not in other.headers
+
+    # The preflight exemption must not be a way past the secret: the
+    # request the browser sends next still has to carry it.
+    assert requests.get(url, headers={"Origin": CLOUD_TEST_SERVER}).status_code == 401
+    # A bare OPTIONS carrying no Access-Control-Request-Method is not
+    # asserted: python authenticates it, while tower-http answers every
+    # OPTIONS as a preflight. Neither returns data, so the divergence
+    # doesn't matter -- but don't tighten this into an equality.
+
+
 def test_gui_release():
     assert re.match(gui.release_url_pattern, gui.RELEASE_URL).group(1) == gui.TAG
     assert is_semver_compatible_with(gui.TAG, "v0.1.0-alpha.1")
@@ -3821,3 +3865,50 @@ def test_get_default_branch_local_project(tmp_path, monkeypatch):
 
     # projects that aren't local still go through remote tag resolution
     assert server.get_local_branch("onecommons/unfurl-types") == ""
+
+
+def test_cors_origins_resolved_and_handed_to_rust_server(monkeypatch, tmp_path):
+    """The rust server gets the origins flask-cors was actually configured with.
+
+    With UNFURL_SERVE_CORS unset the origin is derived from
+    UNFURL_CLOUD_SERVER, so it exists only in app.config -- the inherited
+    environment the child would otherwise read has nothing in it.
+    """
+    from apiflask import APIFlask
+
+    monkeypatch.setenv("UNFURL_CLOUD_SERVER", "https://cloud.example.com/some/path")
+    monkeypatch.delenv("UNFURL_SERVE_CORS", raising=False)
+
+    isolated = APIFlask(__name__)
+    server.configure_app(isolated)
+    assert isolated.config["UNFURL_SERVE_CORS"] == "https://cloud.example.com"
+
+    fake_bin = tmp_path / "unfurl-server"
+    fake_bin.write_text("")
+    monkeypatch.setattr(server, "_find_rust_server_bin", lambda: str(fake_bin))
+    monkeypatch.setitem(
+        server.app.config, "UNFURL_SERVE_CORS", isolated.config["UNFURL_SERVE_CORS"]
+    )
+    captured = {}
+
+    class FakePopen:
+        pid = 1234
+
+        def __init__(self, argv, env=None, stderr=None):
+            captured["env"] = env
+
+    monkeypatch.setattr(server.subprocess, "Popen", FakePopen)
+    server._start_proxy_server("127.0.0.1", 8080)
+    assert captured["env"]["UNFURL_SERVE_CORS"] == "https://cloud.example.com"
+
+
+def test_cors_explicit_origins_override_cloud_server(monkeypatch):
+    """An explicit UNFURL_SERVE_CORS wins over the UNFURL_CLOUD_SERVER default."""
+    from apiflask import APIFlask
+
+    monkeypatch.setenv("UNFURL_CLOUD_SERVER", "https://cloud.example.com")
+    monkeypatch.setenv("UNFURL_SERVE_CORS", "https://a.test https://b.test")
+
+    isolated = APIFlask(__name__)
+    server.configure_app(isolated)
+    assert isolated.config["UNFURL_SERVE_CORS"] == "https://a.test https://b.test"

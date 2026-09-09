@@ -82,8 +82,21 @@ Pass `--help` for the canonical list. The most-used knobs:
 | Max request body bytes | `--max-body-bytes` | `UNFURL_MAX_BODY_BYTES` | `10485760` (10 MiB) |
 | Shared internal-auth secret | `--secret` | `UNFURL_SECRET` | (empty) |
 | Package digest for ETags | `--package-digest` | `UNFURL_PACKAGE_DIGEST` | (empty) |
+| Allowed CORS origins | `--cors-origins` | `UNFURL_SERVE_CORS` | (unset — no CORS layer) |
 | Log file (else stderr) | — | `UNFURL_LOGFILE` | (unset) |
 | Log filter | — | `RUST_LOG` | `info` |
+
+`--cors-origins` takes origins separated by whitespace or commas, or
+`*` for any origin; an origin that isn't a valid header value is a
+startup error. Credentials are not allowed, matching flask-cors's
+default on the python side.
+
+When `unfurl serve` spawns this process it exports the origins it
+resolved for its own flask-cors setup — including the
+`UNFURL_CLOUD_SERVER`-derived default — so both servers answer
+preflights for the same set. Preflights matter here because routes such
+as `/export` are registered `GET`-only: without the layer a browser's
+`OPTIONS` gets a 405 from the method router.
 
 **Redis** (optional — required for `GET /export`/`/types` caching
 and for the write-queue fast path on the patch endpoints):

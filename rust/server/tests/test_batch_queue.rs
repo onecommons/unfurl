@@ -43,6 +43,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         cloudmap_db_url: None,
         cloudmap_force: false,
         local: None,
+        cors_origins: None,
     }
 }
 

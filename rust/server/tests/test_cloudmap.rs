@@ -55,6 +55,7 @@ fn default_config() -> Config {
         // (`unfurl serve <path>`), which is what turns off the auth_project
         // check. The auth_project tests below build a strict config instead.
         local: Some("/tmp/checkout".into()),
+        cors_origins: None,
     }
 }
 

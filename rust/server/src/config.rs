@@ -3,6 +3,8 @@
 //! CLI arguments and configuration from environment variables.
 
 use clap::Parser;
+use http::HeaderValue;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 /// Rust HTTP proxy server for unfurl.
 ///
@@ -121,6 +123,17 @@ pub struct Config {
     /// is python's business.
     #[arg(long = "local", env = "UNFURL_SERVE_PATH")]
     pub local: Option<String>,
+
+    /// Origins allowed to make cross-origin requests, separated by
+    /// whitespace or commas, or `*` for any origin.
+    ///
+    /// Reads python's `UNFURL_SERVE_CORS`. When `unfurl serve` spawns this
+    /// process it exports the origins it resolved for its own flask-cors
+    /// setup, including the `UNFURL_CLOUD_SERVER` fallback, so the two
+    /// servers answer preflights identically. Unset or empty adds no CORS
+    /// layer at all.
+    #[arg(long = "cors-origins", env = "UNFURL_SERVE_CORS")]
+    pub cors_origins: Option<String>,
 }
 
 impl Config {
@@ -146,6 +159,29 @@ impl Config {
         self.backend_url
             .clone()
             .unwrap_or_else(|| format!("http://{}:{}", self.host, self.port + 1))
+    }
+
+    /// CORS layer for `cors_origins`, or `None` when no origins are configured.
+    ///
+    /// Credentials are deliberately not allowed: flask-cors defaults to
+    /// `supports_credentials=False`, and tower-http panics at runtime if
+    /// credentials are combined with the `*` wildcard.
+    pub fn cors_layer(&self) -> Result<Option<CorsLayer>, String> {
+        let raw = self.cors_origins.as_deref().unwrap_or("").trim();
+        if raw.is_empty() {
+            return Ok(None);
+        }
+        let layer = CorsLayer::new().allow_methods(Any).allow_headers(Any);
+        if raw == "*" {
+            return Ok(Some(layer.allow_origin(Any)));
+        }
+        // Python splits on whitespace; its docstring promises commas.
+        let origins = raw
+            .split([',', ' ', '\t', '\n', '\r'])
+            .filter(|o| !o.is_empty())
+            .map(|o| HeaderValue::from_str(o).map_err(|_| format!("invalid CORS origin: {o:?}")))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(Some(layer.allow_origin(AllowOrigin::list(origins))))
     }
 
     /// Resolved Redis URL: prefers `CACHE_REDIS_URL`, otherwise builds from
@@ -255,6 +291,7 @@ mod tests {
             cloudmap_db_url: None,
             cloudmap_force: false,
             local: None,
+            cors_origins: None,
         }
     }
 

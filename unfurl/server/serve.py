@@ -144,7 +144,7 @@ def configure_app(app: APIFlask = app) -> Cache:
      - UNFURL_CLONE_ROOT: root directory for cloning git repositories (default: current directory)
      - UNFURL_CLOUD_SERVER: URL of the unfurl cloud server (default: https://unfurl.cloud)
      - UNFURL_SERVE_SECRET: optional secret for authenticating requests
-     - UNFURL_SERVE_CORS: optional comma-separated list of allowed CORS origins (default: origin of UNFURL_CLOUD_SERVER)
+     - UNFURL_SERVE_CORS: optional whitespace-separated list of allowed CORS origins, or "*" (default: origin of UNFURL_CLOUD_SERVER)
      - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries, -1: never pull, 0: always pull (default: 120)
      - CACHE_DEFAULT_REMOTE_TAGS_TIMEOUT: default timeout in seconds for fetching remote tags when validating package dependencies in cache entries (default: 300)
      - CACHE_CONTROL_SERVE_STALE: if set to a positive integer, allows serving stale cache entries while asynchronously refreshing them in the background if they are older than this many seconds (default: 0, which means don't serve stale entries)
@@ -201,10 +201,13 @@ def configure_app(app: APIFlask = app) -> Cache:
     )
     global _cache_inflight_timeout
     _cache_inflight_timeout = int(os.getenv("UNFURL_SERVE_CACHE_TIMEOUT") or 120)
-    cors = app.config["UNFURL_SERVE_CORS"] = os.getenv("UNFURL_SERVE_CORS")
+    cors = os.getenv("UNFURL_SERVE_CORS")
     if not cors:
         ucs_parts = urlparse(app.config["UNFURL_CLOUD_SERVER"])
         cors = f"{ucs_parts.scheme}://{ucs_parts.netloc}"
+    # Store the resolved value, not the raw environment variable: the rust
+    # server is handed this so both answer preflights for the same origins.
+    app.config["UNFURL_SERVE_CORS"] = cors
     if cors:
         CORS(app, origins=cors.split())
     os.environ["GIT_TERMINAL_PROMPT"] = "0"
@@ -1367,7 +1370,18 @@ def hook():
     Run before every request. If the secret is specified, check all requests for the secret.
     Secret can be in the secret query parameter (localhost:8080/health?secret=<secret>) or as an
     Authorization bearer token (Authorization=Bearer <secret>).
+
+    CORS preflights are exempt -- see below.
     """
+    if request.method == "OPTIONS" and "Access-Control-Request-Method" in request.headers:
+        # A CORS preflight carries no credentials: it is the browser asking
+        # permission before it sends the real, authenticated request. A 401
+        # here makes the browser abort that request, so let flask-cors answer
+        # and leave the secret check to the request the preflight precedes.
+        # The rust server does the same -- its CorsLayer sits outside the
+        # router and never reaches an auth check.
+        return
+
     secret = current_app.config.get("UNFURL_SECRET")
     if secret is None:  # No secret specified, no authentication required
         return
@@ -2342,6 +2356,12 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     env["UNFURL_PORT"] = str(port)
     env["UNFURL_BACKEND_URL"] = f"http://{host}:{backend_port}"
     env.setdefault("UNFURL_PACKAGE_DIGEST", get_package_digest())
+    # Hand over the origins flask-cors was actually configured with,
+    # including the UNFURL_CLOUD_SERVER fallback that isn't in the
+    # environment we inherited.
+    serve_cors = app.config.get("UNFURL_SERVE_CORS")
+    if serve_cors:
+        env["UNFURL_SERVE_CORS"] = serve_cors
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
     # At debug/trace, scope the verbose level to our crate and keep the
     # chatty dependencies (reqwest, hyper, tower_http, h2, want, mio) at

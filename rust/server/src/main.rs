@@ -6,17 +6,12 @@
 //! - Enqueues POST write operations to a Redis list
 //! - Transparently proxies everything else to Python
 
-use axum::{
-    routing::{get, post},
-    Router,
-};
 use clap::Parser;
 use std::sync::Arc;
 use tokio::net::TcpListener;
-use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 use unfurl_server::config::Config;
-use unfurl_server::{cloudmap, queue, routes, AppState};
+use unfurl_server::{cloudmap, queue, AppState};
 
 #[tokio::main]
 async fn main() {
@@ -169,47 +164,23 @@ async fn main() {
         cloudmap: cloudmap_state,
     };
 
-    // Build router.
-    // POST /cloudmap is registered as the typed local handler when a
-    // cloudmap repo is configured, otherwise the proxy fallthrough.
-    // Splitting at startup lets the local handler use a clean
-    // `Json<unfurl_types::CloudMapDocument>` extractor without losing
-    // the proxy path.
-    let cloudmap_route = if state.cloudmap.is_some() {
-        get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap_local)
-    } else {
-        get(cloudmap::handle_cloudmap).post(cloudmap::post_cloudmap_proxy)
+    let cors = match config.cors_layer() {
+        Ok(layer) => {
+            if layer.is_some() {
+                tracing::info!(
+                    "CORS enabled for origins: {}",
+                    config.cors_origins.as_deref().unwrap_or("")
+                );
+            }
+            layer
+        }
+        Err(e) => {
+            tracing::error!("{}", e);
+            std::process::exit(1);
+        }
     };
 
-    let app = Router::new()
-        // Cache-aware read endpoints.
-        .route("/export", get(routes::handle_export))
-        .route("/types", get(routes::handle_types))
-        .route("/cloudmap", cloudmap_route)
-        // Facet counts over the same records; the handler proxies
-        // itself when no cloudmap repo is configured.
-        .route("/cloudmap/facets", get(cloudmap::handle_cloudmap_facets))
-        // Write endpoints queued to Redis. Follow the openapi spec: Two typed wrappers around
-        // `handle_write` validate the request body against its
-        // OpenAPI request schema and declare `Json<PatchResponse>`
-        // Three endpoints share `PatchEnsembleBody`,
-        // the other three share `PatchEnvironmentBody`.
-        .route("/create_ensemble", post(routes::handle_patch_ensemble))
-        .route("/update_ensemble", post(routes::handle_patch_ensemble))
-        .route("/create_provider", post(routes::handle_patch_ensemble))
-        .route("/delete_deployment", post(routes::handle_patch_environment))
-        .route(
-            "/update_environment",
-            post(routes::handle_patch_environment),
-        )
-        .route(
-            "/delete_environment",
-            post(routes::handle_patch_environment),
-        )
-        // Everything else proxied transparently.
-        .fallback(routes::handle_fallback)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+    let app = unfurl_server::build_router(state, cors);
 
     // Resolve `host:port` to every address the OS hands back via
     // getaddrinfo and bind a listener on each one we can.  This is what
