@@ -1280,7 +1280,9 @@ def _apply_imports(
         if repository:
             if repository != "unfurl" and root:
                 for name, tpl in repositories.items():
-                    if normalize_git_url_hard(tpl["url"]) == norm_root:
+                    # sometime the client sends reposities with the package id as its name and no "url" key
+                    url = tpl.get("url") or name
+                    if url and normalize_git_url_hard(url) == norm_root:
                         repository = name
                         break
                 else:
@@ -1294,9 +1296,10 @@ def _apply_imports(
                 _import["repository"] = repository
         else:
             if root and norm_root != normalize_git_url_hard(repo_url):
-                # if root is an url then this was imported by file inside a repository
+                # sometime the client sends reposities with the package id as its name and no "url" key
                 for name, tpl in repositories.items():
-                    if normalize_git_url_hard(tpl["url"]) == norm_root:
+                    url = tpl.get("url") or name
+                    if url and normalize_git_url_hard(url) == norm_root:
                         repository = name
                         break
                 else:
