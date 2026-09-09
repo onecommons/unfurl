@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: MIT
 import glob
 import os
-from typing import Any, Dict, Iterator, List, Literal, Optional, Union
+from typing import Any, Dict, Iterator, List, Literal, Optional, Tuple, Union
 import shutil
 import tarfile
 import urllib.request
 import urllib.parse
 import datetime
+import time
 
 from ..packages import is_semver_compatible_with
 
@@ -35,6 +36,102 @@ TAG = "v0.1.0-alpha.2"
 RELEASE_URL = f"https://github.com/onecommons/unfurl-gui/releases/download/{TAG}/unfurl-gui-dist.tar.gz"
 DIST_DIR = ".cache/unfurl_gui"
 TAG_FILE = "dist/RELEASE.txt"
+# URL prefixes that only ever contain build output, never project paths
+# Build output, never project paths. The directories webpack emits are fixed by
+# unfurl-gui's vue.config.js; the rest is whatever public/ ships, enumerated at
+# startup so a new directory there (oc/, and whatever comes next) is covered
+# without being listed here -- a hand-written list silently turned /oc/assets
+# font requests into git clone attempts.
+#
+# This is a prefix test rather than a file-existence test because in webpack dev
+# mode there is no populated dist/ to stat; those requests are proxied instead.
+_WEBPACK_OUTPUT_DIRS = ("js/", "css/", "img/", "media/", "fonts/", "fixtures/")
+
+
+def _static_prefixes(public_files_dir: str) -> Tuple[str, ...]:
+    shipped = set()
+    if os.path.isdir(public_files_dir):
+        shipped = {
+            entry + "/"
+            for entry in os.listdir(public_files_dir)
+            if os.path.isdir(os.path.join(public_files_dir, entry))
+        }
+    return tuple(sorted(shipped.union(_WEBPACK_OUTPUT_DIRS)))
+
+
+# A project path has to look like one before it is worth a network round trip.
+# These are GitLab's own rules (lib/gitlab/path_regex.rb): a segment starts with
+# an alphanumeric, underscore or dot, may contain hyphens, ends alphanumeric,
+# underscore or hyphen, and may not end in .git or .atom. A project always lives
+# in a namespace, so there are at least two segments.
+_PATH_SEGMENT_RE = re.compile(
+    r"[a-zA-Z0-9_.][a-zA-Z0-9_\-.]{0,253}[a-zA-Z0-9_\-]|[a-zA-Z0-9_]"
+)
+
+# TOP_LEVEL_ROUTES in that same file -- the ones a stray request is most likely
+# to ask for. A namespace can never be called these, so they cannot be projects.
+_RESERVED_FIRST_SEGMENT = frozenset((
+    "-",
+    "admin",
+    "api",
+    "assets",
+    "dashboard",
+    "explore",
+    "groups",
+    "health_check",
+    "help",
+    "import",
+    "login",
+    "oauth",
+    "profile",
+    "projects",
+    "public",
+    "s",
+    "search",
+    "snippets",
+    "uploads",
+    "users",
+    "v2",
+))
+
+
+def looks_like_project_path(path: str) -> bool:
+    """Cheap structural check, so junk never reaches a clone attempt."""
+    segments = path.strip("/").split("/")
+    if len(segments) < 2 or segments[0] in _RESERVED_FIRST_SEGMENT:
+        return False
+    if path.startswith("remote:"):
+        return True
+    return all(
+        _PATH_SEGMENT_RE.fullmatch(segment) and not segment.endswith((".git", ".atom"))
+        for segment in segments
+    )
+
+
+# Remember paths that did not resolve, so a scanner -- or a mistyped URL someone
+# reloads -- pays the clone attempt once rather than on every request.
+#
+# The entry can be long lived because it never hides a project that exists: a
+# cached miss falls back to _get_local_repo, which still finds anything cloned
+# since. All it delays is re-attempting a clone for a path that really was not
+# there, so the cost of being wrong is one stale 404 rather than a broken page.
+MISSING_PROJECT_TTL = 3600.0  # an hour
+_missing_projects: Dict[str, float] = {}
+
+
+def _is_known_missing(project_path: str) -> bool:
+    expires = _missing_projects.get(project_path)
+    if expires is None:
+        return False
+    if expires <= time.monotonic():
+        del _missing_projects[project_path]
+        return False
+    return True
+
+
+def _remember_missing(project_path: str) -> None:
+    _missing_projects[project_path] = time.monotonic() + MISSING_PROJECT_TTL
+
 
 CLOUD_PAGE = "public_cloud.html"
 # Where the cloud map page fetches its data from. Relative to this server, which
@@ -137,7 +234,7 @@ def notfound_page(public_files_dir: str) -> Response:
     return response
 
 
-def serve_document(
+def serve_project_page(
     path, localenv: LocalEnv, webpack_origin: str, public_files_dir: str
 ):
     assert localenv.project
@@ -161,28 +258,35 @@ def serve_document(
 
     server_fragment = re.split(r"/?(deployment-drafts|-)(?=/)", path)
     projectPath = server_fragment[0].lstrip("/")
-    repo = _get_repo(projectPath, localenv)
+    # _get_repo clones when it can't find the project locally, so guard it:
+    # anything that isn't shaped like a project path, or that we already failed
+    # to find recently, is answered without touching the network.
+    if len(server_fragment) == 1 and (
+        not looks_like_project_path(projectPath) or _is_known_missing(projectPath)
+    ):
+        repo = _get_local_repo(projectPath, localenv)
+    else:
+        repo = _get_repo(projectPath, localenv)
+        if repo is None:
+            _remember_missing(projectPath)
 
     if not repo:
         return notfound_page(public_files_dir)
-    format = "environments"
     # assume serving dashboard unless an /-/overview url
     if (
         "-/overview" in path
         or repo.working_dir != localrepo.working_dir
         or not localrepo_is_dashboard
     ):
-        format = "blueprint"
-
-    project_path = _get_project_path(repo)
-    project_name = os.path.basename(project_path)
-
-    if format == "blueprint":
         template = blueprint_template
         html_src_file = "project.html"
     else:
         template = dashboard_template
         html_src_file = "dashboard.html"
+
+    project_path = _get_project_path(repo)
+    project_name = os.path.basename(project_path)
+
     if webpack_origin:
         head = get_head_for_webpack(os.path.join(public_files_dir, "index.html"))
     else:
@@ -234,7 +338,9 @@ def proxy_request(url: str) -> Response:
     return Response(res.content, res.status_code, headers)
 
 
-def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Repo]:
+def _get_local_repo(
+    project_path: str, localenv: LocalEnv, branch=None
+) -> Optional[Repo]:
     if not project_path or project_path == "local:":
         return localenv.project.project_repoview.repo if localenv.project else None
 
@@ -267,6 +373,13 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
     localrepo = localenv.project.project_repoview.repo
     if localrepo and (project_path == localrepo.project_path()):
         return localrepo
+    return None
+
+
+def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Repo]:
+    repo = _get_local_repo(project_path, localenv, branch)
+    if repo:
+        return repo
 
     # not found, so clone repo using import loader machinery
     # (to apply package rules and deduce branch from lock section or remote tags)
@@ -277,7 +390,6 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
         url = get_project_url(project_path, branch=branch)
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
-    # XXX why do we need to clone here?
     try:
         repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
             url
@@ -288,6 +400,8 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
 
     if not repo_view or not repo_view.repo:
         logger.warning("could not find or clone %s", url)
+    else:
+        app.config["UNFURL_LOCAL_PROJECTS"][project_path] = repo_view.repo.working_dir
     return repo_view and repo_view.repo or None
 
 
@@ -408,11 +522,27 @@ def create_routes(localenv: LocalEnv):
             # XXX search for latest compatible release with https://api.github.com/repos/onecommons/unfurl-gui/releases tag_name assets[0][browser_download_url]
             fetch_release(download_dir, release_url, tag, exact)
 
+    # after both branches, so it sees the directory this mode actually serves
+    static_prefixes = _static_prefixes(public_files_dir)
+    logger.debug("serving these paths as static files: %s", static_prefixes)
+
     def get_repo(project_path: str, branch=None) -> Optional[Repo]:
         return _get_repo(project_path, localenv, branch)
 
+    # Paths every crawler and browser asks for and this server does not serve.
+    # Answering them here keeps them out of serve_path, where each one would
+    # otherwise be treated as a project path.
     @app.route("/.well-known/<path:path>")
-    def notfound_response(path):
+    @app.route("/robots.txt")
+    @app.route("/sitemap.xml")
+    @app.route("/sitemap.xml.gz")
+    @app.route("/favicon.ico")
+    @app.route("/favicon.png")
+    @app.route("/apple-touch-icon.png")
+    @app.route("/apple-touch-icon-precomposed.png")
+    @app.route("/browserconfig.xml")
+    @app.route("/manifest.json")
+    def notfound_response(path=None):
         # 404 page is not currently a template, but could become one
         return notfound_page(public_files_dir)
 
@@ -524,45 +654,56 @@ def create_routes(localenv: LocalEnv):
         with open(html_path) as f:
             return render_cloud_page(f.read())
 
-    @app.route("/", defaults={"path": ""})
-    @app.route("/<path:path>")
-    def serve_path(path):
-        if "accept" in request.headers and "text/html" in request.headers["accept"]:
-            return serve_document(path, localenv, webpack_origin, public_files_dir)
-
-        if request.headers.get("sec-fetch-dest") == "iframe":
-            return "Bad Request", 400
-
+    def _serve_static_file(path):
         if webpack_origin:
             url = urllib.parse.urljoin(webpack_origin, path)
             qs = request.query_string.decode("utf-8")
             if qs != "":
                 url += "?" + qs
             return proxy_request(url)
-        else:
-            assert path and path[0] != "/"
-            local_path = os.path.join(dist_dir, path)
-            if os.path.isfile(local_path):
-                response = make_response(send_from_directory(dist_dir, path))
-                # Content-hashed webpack assets are immutable — safe to
-                # cache forever even in development mode. Otherwise a
-                # reload redownloads ~80 chunks.
-                #
-                # Webpack outputs hashes in two formats:
-                #   - `.<hex8+>.<ext>`: JS/CSS/sourcemap chunks, e.g.
-                #     `3124.39cada19.js`, `app.1f2e3d4c.css`
-                #   - `<hash>.<ext>`: font/image assets where the whole
-                #     basename is the hash, e.g.
-                #     `o-0NIpQlx3QUlC5A4PNjXhFVZNyB.woff2` (base64-ish,
-                #     20+ chars).
-                basename = os.path.basename(path)
-                has_content_hash = bool(
-                    re.search(r"\.[0-9a-f]{8,}\.[^.]+$", basename)
-                    or re.match(r"^[A-Za-z0-9_-]{20,}\.[^.]+$", basename)
+
+        assert path and path[0] != "/"
+        local_path = os.path.join(dist_dir, path)
+        if os.path.isfile(local_path):
+            response = make_response(send_from_directory(dist_dir, path))
+            # Content-hashed webpack assets are immutable — safe to
+            # cache forever even in development mode. Otherwise a
+            # reload downloads ~80 chunks.
+            #
+            # Webpack outputs hashes in two formats:
+            #   - `.<hex8+>.<ext>`: JS/CSS/sourcemap chunks, e.g.
+            #     `3124.39cada19.js`, `app.1f2e3d4c.css`
+            #   - `<hash>.<ext>`: font/image assets where the whole
+            #     basename is the hash, e.g.
+            #     `o-0NIpQlx3QUlC5A4PNjXhFVZNyB.woff2` (base64-ish,
+            #     20+ chars).
+            basename = os.path.basename(path)
+            has_content_hash = bool(
+                re.search(r"\.[0-9a-f]{8,}\.[^.]+$", basename)
+                or re.match(r"^[A-Za-z0-9_-]{20,}\.[^.]+$", basename)
+            )
+            if not development_mode or has_content_hash:
+                response.headers["Cache-Control"] = (
+                    "public, max-age=31536000, immutable"  # 1 year
                 )
-                if not development_mode or has_content_hash:
-                    response.headers["Cache-Control"] = (
-                        "public, max-age=31536000, immutable"  # 1 year
-                    )
-                return response
-            return serve_document(path, localenv, webpack_origin, public_files_dir)
+            return response
+        else:
+            logger.debug("no static file at %s", local_path)
+            return "Not Found", 404
+
+    @app.route("/", defaults={"path": ""})
+    @app.route("/<path:path>")
+    def serve_path(path):
+        # Refuse to be framed by another site. A same-origin frame is not a
+        # framing attempt -- Cypress runs the app in one, and checking dest
+        # alone answered every one of its page loads with a 400.
+        if request.headers.get("sec-fetch-dest") == "iframe" and request.headers.get(
+            "sec-fetch-site"
+        ) not in ("same-origin", "same-site", "none"):
+            return "Bad Request", 400
+
+        is_static = path.startswith(static_prefixes)
+        if is_static:
+            return _serve_static_file(path)
+
+        return serve_project_page(path, localenv, webpack_origin, public_files_dir)

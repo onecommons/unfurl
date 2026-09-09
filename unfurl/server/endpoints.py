@@ -2042,7 +2042,7 @@ def _patch_ensemble(
                 refreshed = set_current_ensemble_git_url(gui=True)
                 if refreshed:
                     app.config["UNFURL_GUI_MODE"] = refreshed
-            if manifest.repo and not app.config.get("UNFURL_GUI_MODE") and not batched:
+            if isinstance(manifest.repo, GitRepo) and not app.config.get("UNFURL_GUI_MODE") and not batched:
                 err = _push_changes(
                     manifest.repo, username, password, starting_revision
                 )

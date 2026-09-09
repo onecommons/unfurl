@@ -153,7 +153,7 @@ class Manifest(AttributeManager):
         # save separate reference for pickling cache
         self.overrides: Dict[str, Any] = localEnv.overrides if localEnv else {}
         self.path: Optional[str] = path
-        self.repo: Optional["GitRepo"] = self._find_repo()
+        self.repo: Optional["Repo"] = self._find_repo()
         self.currentCommitId: Optional[str] = self.repo and self.repo.revision or None
         # self.revisions = RevisionManager(self)
         self.changeSets: Optional[Dict[str, ChangeRecordRecord]] = None
@@ -217,15 +217,10 @@ class Manifest(AttributeManager):
         self.specDigest = self.get_spec_digest(spec)
         tosca.global_state.mode = "runtime"
 
-    def _find_repo(self) -> Optional["GitRepo"]:
-        # check if this path exists in the repo
+    def _find_repo(self) -> Optional["Repo"]:
         repo = self.localEnv and self.localEnv.instance_repoview
         if repo:
-            # this check is expensive and not that important so skip
-            return repo.gitrepo
-            # path = repo.find_path(self.path)[0]
-            # if path and (path, 0) in repo.repo.index.entries:
-            #     return repo
+            return repo.repo
         return None
 
     def _load_spec(
@@ -779,7 +774,7 @@ class Manifest(AttributeManager):
     def last_commit_time(self) -> Optional[datetime.datetime]:
         # return seconds (0 if not found)
         repo = self.repo
-        if not repo:
+        if not isinstance(repo, GitRepo):
             return None
         try:
             # find the revision that last modified this file before or equal to the current revision

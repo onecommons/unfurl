@@ -71,7 +71,7 @@ from .eval import map_value, Ref
 from .planrequests import create_instance_from_spec
 from .logs import getLogger
 from .init import get_input_vars
-from .repo import normalize_git_url
+from .repo import normalize_git_url, GitRepo
 from tosca import global_state
 from ruamel.yaml.comments import CommentedMap
 from ansible.parsing.dataloader import DataLoader
@@ -886,7 +886,7 @@ class YamlManifest(ReadOnlyManifest):
     def _lock_lfs(self) -> bool:
         lfs_try, lfs_required, lfs_lock_path, lfs_url = self.lfs_settings()
         if lfs_try:
-            if self.repo and self.repo.is_lfs_enabled(lfs_url):
+            if isinstance(self.repo, GitRepo) and self.repo.is_lfs_enabled(lfs_url):
                 if self.repo.lock_lfs(lfs_lock_path, lfs_url):
                     self.lfs_locked = lfs_lock_path
                     self.lfs_url = lfs_url
@@ -929,7 +929,7 @@ class YamlManifest(ReadOnlyManifest):
             return True
 
     def unlock(self):
-        if self.repo and self.lfs_locked:
+        if isinstance(self.repo, GitRepo) and self.lfs_locked:
             self.repo.unlock_lfs(self.lfs_locked, self.lfs_url)
             self.lfs_locked = None
         if self.lockfile and self.lockfilepath:
