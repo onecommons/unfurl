@@ -312,11 +312,27 @@ def fetch_release(dist_dir, release_url, release_tag, exact_match):
             logger.info(msg)
 
     if os.path.exists(dist_dir):
-        parent, dirname = os.path.split(dist_dir)
-        new_name = unique_name(dirname, os.listdir(parent))
-        new_path = os.path.join(parent, new_name)
-        logger.info("Moving existing dist directory to %s", new_path)
-        os.rename(dist_dir, new_path)
+        if not os.path.isdir(dist_dir):
+            raise UnfurlError(
+                f"{dist_dir} is not an unfurl_gui download directory "
+                "Set UNFURL_GUI_DIST_DIR to an empty or managed path, or set "
+                "UNFURL_GUI_DIR to a local unfurl-gui clone to serve it directly."
+            )
+
+        if any(os.scandir(dist_dir)):  # not an empty directory
+            if os.getenv("UNFURL_GUI_DIST_DIR"):
+                raise UnfurlError(
+                    f"{dist_dir} is not an empty unfurl_gui download directory "
+                    "Set UNFURL_GUI_DIST_DIR to an empty path, or set "
+                    "UNFURL_GUI_DIR to a local unfurl-gui clone to serve it directly."
+                )
+
+            # This is our managed cache dir, backup the existing non-empty dist directory
+            parent, dirname = os.path.split(dist_dir)
+            new_name = unique_name(dirname, os.listdir(parent))
+            new_path = os.path.join(parent, new_name)
+            logger.info("Moving existing dist directory to %s", new_path)
+            os.rename(dist_dir, new_path)
 
     tar_path = os.path.join(dist_dir, "unfurl-gui-dist.tar.gz")
     logger.debug(f"Downloading {release_url} to {tar_path}")
