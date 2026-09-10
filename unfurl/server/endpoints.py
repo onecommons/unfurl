@@ -1577,7 +1577,14 @@ def batch_patch(
         endpoint = req.get("endpoint", "")
         latest_commits.add(req.get("latest_commit", ""))
         # The request body is the req dict itself (endpoint + original body fields).
+        # Credentials reach us once, on the outer request's X-Git-Credentials
+        # header; the queued sub-requests were serialized before that header
+        # existed and never pass through _get_body, so carry them in or every
+        # batched patch fails its own credential check (and the push after it).
         req_body = req
+        for cred in ("username", "private_token", "password"):
+            if cred in body and cred not in req_body:
+                req_body[cred] = body[cred]
         last_body = req_body
         create = endpoint in ("create_ensemble", "create_provider")
         if endpoint in (
