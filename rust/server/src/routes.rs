@@ -509,8 +509,13 @@ pub async fn handle_types(
 // Write / queue handlers
 // ---------------------------------------------------------------------------
 
-/// Filter the upstream request's headers down to the set we want to
-/// forward to the Python backend (or stash on a queued item).
+/// Filter the upstream request's headers down to the set stashed on a
+/// queued item and replayed by `run_worker`.
+///
+/// Queue path only. It drops `content-type` because the worker
+/// re-serializes the consolidated batch with `.json()`, which sets its
+/// own -- so this set is wrong for a synchronous forward, which passes
+/// the client's bytes through untouched and needs the original.
 fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, String> {
     headers
         .iter()
@@ -542,7 +547,7 @@ fn filter_forward_headers(headers: &axum::http::HeaderMap) -> HashMap<String, St
 async fn handle_write(
     state: AppState,
     endpoint: String,
-    headers_map: HashMap<String, String>,
+    headers: axum::http::HeaderMap,
     body_bytes: axum::body::Bytes,
 ) -> Response {
     // Extract project_id from the endpoint's query string for
@@ -661,7 +666,7 @@ async fn handle_write(
                     let item = QueueItem {
                         endpoint: endpoint.clone(),
                         body: updated_body,
-                        headers: headers_map,
+                        headers: filter_forward_headers(&headers),
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await
@@ -683,7 +688,7 @@ async fn handle_write(
                     let item = QueueItem {
                         endpoint: endpoint.clone(),
                         body: updated_body,
-                        headers: headers_map,
+                        headers: filter_forward_headers(&headers),
                     };
                     if let Err(e) =
                         queue::enqueue(&mut conn, &state.config, &project_id, &item).await
@@ -735,11 +740,19 @@ async fn handle_write(
     // Proxy directly to Python backend (Redis unavailable, or queue disabled).
     // Preserve full path + query string from the original request.
     let path_and_query = ensure_leading_slash(&endpoint);
-    let proxy_req = Request::builder()
+    let mut proxy_req = Request::builder()
         .method(axum::http::Method::POST)
         .uri(format!("{}{}", state.config.backend_url(), path_and_query))
         .body(Body::from(body_bytes))
         .unwrap();
+    // Carry the client's headers, the way `handle_fallback` hands the
+    // whole original request to the same forwarder. Building a request
+    // without them sent python a bare POST: no `X-Git-Credentials`, so
+    // `_get_body` had nothing to inject and a private project cloned
+    // anonymously into repos/public/ and failed; and no `Content-Type`,
+    // which flask's `request.json` needs. Not the filtered set below --
+    // that one is for the queue, and drops content-type on purpose.
+    *proxy_req.headers_mut() = headers;
     proxy::forward(
         &state.client,
         &state.config.backend_url(),
@@ -767,8 +780,7 @@ pub async fn handle_patch_ensemble(
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| uri.path().to_string());
-    let headers_map = filter_forward_headers(&headers);
-    Err(handle_write(state, endpoint, headers_map, body_bytes).await)
+    Err(handle_write(state, endpoint, headers, body_bytes).await)
 }
 
 /// `POST /delete_deployment`, `/update_environment`,
@@ -786,8 +798,7 @@ pub async fn handle_patch_environment(
         .path_and_query()
         .map(|pq| pq.as_str().to_string())
         .unwrap_or_else(|| uri.path().to_string());
-    let headers_map = filter_forward_headers(&headers);
-    Err(handle_write(state, endpoint, headers_map, body_bytes).await)
+    Err(handle_write(state, endpoint, headers, body_bytes).await)
 }
 
 /// Validate raw body bytes as JSON shape `T`, returning a 422
