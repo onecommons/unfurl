@@ -155,7 +155,10 @@ class Project:
             return
 
         # project maybe part of a containing repo (if created with --existing option)
-        repo = Repo.find_containing_git_repo(path)
+        # find_containing_repo, not the git-only walker: a proxied package has no
+        # .git, so the git-only walk skips it and attributes the project to the
+        # repo it was materialized into -- which may have no remote to name it by.
+        repo = Repo.find_containing_repo(path)
         # make sure projectroot isn't excluded from the containing repo
         if not repo or repo.is_path_excluded(path):
             repo = None
@@ -398,7 +401,8 @@ class Project:
         return that repository and a path relative to it"""
         # importloader is unused until pinned revisions are supported
         candidate = None
-        for dir in sorted(self.workingDirs.keys()):
+        # Descending, so a nested repo wins over the one containing it
+        for dir in sorted(self.workingDirs.keys(), reverse=True):
             repo_view = self.workingDirs[dir]
             if not repo_view.repo:
                 continue
@@ -1537,7 +1541,10 @@ class LocalEnv:
         instanceDir = os.path.dirname(self.manifestPath)
         if self.project:
             return self.project.find_path_in_repos(instanceDir)[0]
-        repo = Repo.find_containing_git_repo(instanceDir)
+        # find_containing_repo, not the git-only walker: a proxied package has no
+        # .git, so the git-only walk skips it and returns the repo it was
+        # materialized into, which may have no remote to identify it by.
+        repo = Repo.find_containing_repo(instanceDir)
         if repo:
             return repo.as_repo_view()
         else:
