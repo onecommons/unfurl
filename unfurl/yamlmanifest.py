@@ -33,6 +33,7 @@ except ImportError:
 
 from . import DefaultNames
 from .util import (
+    API_VERSION,
     UnfurlError,
     UnfurlValidationError,
     get_base_dir,
@@ -274,13 +275,15 @@ class LfsSettings(TypedDict):
     name: NotRequired[str]  # name of the lock $ensemble or $environment
     url: NotRequired[str]  # otherwise use the ensemble's git repository
 
+def default_manifest_yaml() -> Dict[str, Any]:
+    return dict(apiVersion=API_VERSION, kind="Manifest", spec={})
 
 class ReadOnlyManifest(Manifest):
     """Loads an ensemble from a manifest but doesn't instantiate the instance model."""
 
     def __init__(
         self,
-        manifest=None,
+        manifest: Optional[Mapping[str, Any]] = None,
         path: Optional[str] = None,
         validate=True,
         localEnv: Optional[LocalEnv] = None,
@@ -300,7 +303,7 @@ class ReadOnlyManifest(Manifest):
             localEnv and localEnv.overrides.get("format") or "", "manifest-schema.json"
         )
         self.manifest = YamlConfig(
-            manifest,
+            manifest or default_manifest_yaml(),
             self.path,
             validate,
             schema,
@@ -311,7 +314,7 @@ class ReadOnlyManifest(Manifest):
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)
         manifest = self.manifest.expanded
-        self.apiVersion = manifest.get("apiVersion")
+        self.apiVersion = manifest.get("apiVersion") or ""
         spec = manifest.get("spec", {})
         self.context = manifest.get("environment", CommentedMap())
         if localEnv:
@@ -374,6 +377,8 @@ class ReadOnlyManifest(Manifest):
     def get_base_dir(self) -> str:
         if self.path:
             return get_base_dir(self.path)
+        elif self.localEnv and self.localEnv.project:
+            return self.localEnv.project.projectRoot
         else:
             return "."
 
@@ -452,7 +457,7 @@ class YamlManifest(ReadOnlyManifest):
         load_env_instances = self.localEnv and self.localEnv.overrides.get(
             "load_env_instances"
         )
-        more_spec = self._load_context(self.context, localEnv, load_env_instances)
+        more_spec = self.load_context(self.context, localEnv, load_env_instances)
         deployment_blueprint = self.context.get("deployment_blueprint")
         deployment_blueprints = self.get_deployment_blueprints()
         if deployment_blueprints:
@@ -692,7 +697,8 @@ class YamlManifest(ReadOnlyManifest):
                     directives.append("virtual")
             node_templates[name] = tpl
 
-    def _load_context(self, context, localEnv, include_all_imports):
+    @staticmethod
+    def load_context(context, localEnv, include_all_imports=True):
         imports: List[dict] = context.get("imports") or []
         prefixes: Dict[str, list] = {}
         if imports and not include_all_imports:

@@ -10,13 +10,13 @@ import urllib.parse
 import datetime
 import time
 
-from ..packages import is_semver_compatible_with
+from ..packages import is_semver_compatible_with, resolve_package
 
 from ..to_json import get_project_path
 
 from ..logs import getLogger
 
-from ..repo import GitRepo, normalize_git_url, Repo
+from ..repo import GitRepo, RepoView, normalize_git_url, Repo, split_git_url
 
 from .serve import app, get_project_url
 from ..localenv import LocalEnv
@@ -402,6 +402,43 @@ def _get_local_repo(
     return None
 
 
+def _find_or_clone_no_ensemble(url: str, localenv: LocalEnv) -> Optional[Repo]:
+    """Find or clone ``url`` for a project that has no ensemble manifests.
+
+    :py:meth:`Manifest.find_or_clone_from_url` builds its import resolver from
+    a manifest, so a project with no ensemble can't go through it -- but
+    package rules still have to apply, or a rewritten package id resolves to
+    the wrong remote. Resolve them against the environment context instead,
+    which is the only thing ``find_or_clone_from_url`` was wanted for here.
+    """
+    repo = localenv.find_repo(split_git_url(url)[0])
+    if repo:
+        return repo
+
+    from .cache import get_remote_refs_cached
+
+    def get_remote_tags(tag_url: str, pattern: str) -> List[str]:
+        # No credentials, matching the manifest path: this localenv has no
+        # `make_resolver`, so `find_or_clone_from_url` resolves through a
+        # SimpleCacheResolver, which takes credentials from the local repo's
+        # own remote url rather than from the request.
+        return get_remote_refs_cached(tag_url, pattern, None).tags
+
+    repo_view = RepoView(dict(name="", url=url), None)
+    _, package_specs = localenv.get_repositories_and_package_specs()
+    # A fresh `packages` dict: this resolves one url, where an import loader
+    # shares one across a whole load so repeated references reuse a package.
+    resolve_package(repo_view, {}, package_specs, get_remote_tags)
+    # resolve_package() rewrote repo_view's url and revision to the package's
+    # if it matched a rule, so read them back off the view.
+    repo, _, _ = localenv.find_or_create_working_dir(
+        split_git_url(repo_view.url)[0],
+        repo_view.revision_tag or None,
+        package=repo_view.package or None,
+    )
+    return repo
+
+
 def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Repo]:
     repo = _get_local_repo(project_path, localenv, branch)
     if repo:
@@ -417,18 +454,22 @@ def _get_repo(project_path: str, localenv: LocalEnv, branch=None) -> Optional[Re
     # XXX this will always use the default deployment
     # this might be a problem we weren't explicitly passed the branch/revision used by a different deployment
     try:
-        repo_view = localenv.get_manifest(skip_validation=True).find_or_clone_from_url(
-            url
-        )
+        if not localenv.manifestPath:
+            repo = _find_or_clone_no_ensemble(url, localenv)
+        else:
+            repo_view = localenv.get_manifest(
+                skip_validation=True
+            ).find_or_clone_from_url(url)
+            repo = repo_view.repo if repo_view else None
     except UnfurlError:  # we probably want to treat clone errors as not found
         logger.warning("could not find or clone %s", url, exc_info=True)
-        repo_view = None
+        repo = None
 
-    if not repo_view or not repo_view.repo:
+    if not repo:
         logger.warning("could not find or clone %s", url)
     else:
-        app.config["UNFURL_LOCAL_PROJECTS"][project_path] = repo_view.repo.working_dir
-    return repo_view and repo_view.repo or None
+        app.config["UNFURL_LOCAL_PROJECTS"][project_path] = repo.working_dir
+    return repo
 
 
 def fetch_release(dist_dir, release_url, release_tag, exact_match):

@@ -57,7 +57,7 @@ from .spec import (
     ToscaSpec,
     get_nodefilters,
 )
-from .util import UnfurlError, assert_not_none
+from .util import API_VERSION, UnfurlError, assert_not_none
 from .localenv import LocalEnv, Project
 
 from .graphql import (
@@ -1088,7 +1088,9 @@ def _generate_primary(
     topology.custom_defs[primary_name] = nodetype_tpl
     if topology.tosca_template:
         # update directly to avoid InvalidTypeDefinition errors in entity_template.py
-        topology.tosca_template.tpl.setdefault("node_types", {})[primary_name] = nodetype_tpl
+        topology.tosca_template.tpl.setdefault("node_types", {})[primary_name] = (
+            nodetype_tpl
+        )
     tpl = node_tpl or {}
     tpl["type"] = primary_name
     tpl.setdefault("properties", {}).update({
@@ -1455,33 +1457,21 @@ def _add_repositories(db: dict, tpl: dict):
         db["repositories"] = repositories
 
 
-def _to_graphql(
-    localenv: LocalEnv,
-    root_url: Optional[str] = None,
-    include_all: bool = False,
-) -> Tuple[GraphqlDB, YamlManifest, DeploymentEnvironment, ResourceTypesByName]:
-    # set skip_validation because we want to be able to dump incomplete service templates
-    manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
-    db = GraphqlDB({})
-    spec = manifest.tosca
-    assert spec
-    tpl = spec.template.tpl
-    assert spec.topology and tpl
-    _add_repositories(db, tpl)
-    assert spec.template.topology_template
-    if root_url:
-        url = root_url or ""
-    else:
-        url = manifest.get_package_url()
-    types = ResourceTypesByName(url, spec.template.topology_template.custom_defs)
-    to_graphql_nodetypes(spec, include_all, types)
-    db["ResourceType"] = types  # type: ignore
-    db["ResourceTemplate"] = {}
-    environment_instances = {}
-    # the ensemble will have merged in its environment's templates and types
-    connection_types = ResourceTypesByName(
-        url, spec.template.topology_template.custom_defs
-    )
+def _add_node_templates(
+    spec: ToscaSpec,
+    types: ResourceTypesByName,
+    connection_types: ResourceTypesByName,
+    db: GraphqlDB,
+) -> Dict[ResourceTemplateName, ResourceTemplate]:
+    """Add the topology's node templates to ``db["ResourceTemplate"]``.
+
+    Returns the templates that belong to the environment rather than the
+    topology: "virtual" is only set when loading resources from an
+    environment or from "spec/resource_templates", and their types are
+    copied into ``connection_types``.
+    """
+    environment_instances: Dict[ResourceTemplateName, ResourceTemplate] = {}
+    assert spec.topology
     for node_spec in spec.topology.node_templates.values():
         toscaEntityTemplate = node_spec.toscaEntityTemplate
         # XXX default templates can be from different namespace
@@ -1490,8 +1480,6 @@ def _to_graphql(
             continue
         name = t["name"]
         if "virtual" in toscaEntityTemplate.directives:
-            # virtual is only set when loading resources from an environment
-            # or from "spec/resource_templates"
             environment_instances[name] = t
             typename = types.expand_typename(node_spec.global_type)
             if typename not in types:
@@ -1504,6 +1492,20 @@ def _to_graphql(
                 connection_types[typename] = types[typename]
         else:
             db["ResourceTemplate"][name] = t
+    return environment_instances
+
+
+def _collect_connections(
+    spec: ToscaSpec,
+    types: ResourceTypesByName,
+    connection_types: ResourceTypesByName,
+) -> Dict[ResourceTemplateName, ResourceTemplate]:
+    """The relationship templates that declare ``default_for``, as connections.
+
+    Their types are added to ``connection_types`` rather than to ``types``:
+    a connection is reachable from an environment, not from the topology
+    the types were collected for.
+    """
     connections: Dict[ResourceTemplateName, ResourceTemplate] = {}
     assert spec.topology
     for relationship_spec in spec.topology.relationship_templates.values():
@@ -1526,13 +1528,64 @@ def _to_graphql(
             # assert name not in db["ResourceTemplate"], f"template name conflict: {name}"
             # db["ResourceTemplate"][name] = connection_template
             connections[name] = connection_template
+    return connections
+
+
+def _build_environment_db(
+    manifest: YamlManifest,
+    types_url: str,
+    connection_types_url: str,
+    include_all: bool,
+) -> Tuple[GraphqlDB, DeploymentEnvironment, ResourceTypesByName, ResourceTypesByName]:
+    """The db, environment and type maps shared by :py:func:`_to_graphql` and
+    :py:func:`_to_environment`.
+
+    ``types_url`` and ``connection_types_url`` are separate because the two
+    callers disagree: ``_to_graphql`` passes one url for both, while
+    ``_to_environment`` namespaces its types locally and only the connection
+    types against the requesting repository.
+
+    Nothing here may depend on ``manifest.repo``: ``to_environments`` calls
+    this with a synthetic manifest for a project that has no ensemble.
+    """
+    db = GraphqlDB({})
+    spec = manifest.tosca
+    assert spec
+    tpl = spec.template.tpl
+    assert spec.topology and tpl
+    _add_repositories(db, tpl)
+    assert spec.template.topology_template
+    custom_defs = spec.template.topology_template.custom_defs
+    types = ResourceTypesByName(types_url, custom_defs)
+    to_graphql_nodetypes(spec, include_all, types)
+    db["ResourceType"] = types  # type: ignore
+    db["ResourceTemplate"] = {}
+    # the ensemble will have merged in its environment's templates and types
+    connection_types = ResourceTypesByName(connection_types_url, custom_defs)
+    environment_instances = _add_node_templates(spec, types, connection_types, db)
+    connections = _collect_connections(spec, types, connection_types)
 
     db["Overview"] = spec.template.metadata
     env = DeploymentEnvironment(
         connections=connections,
-        primary_provider=connections.get("primary_provider") or connections.get("_default_provider"),
+        primary_provider=connections.get("primary_provider")
+        or connections.get("_default_provider"),
         instances=environment_instances,
         repositories=manifest.context.get("repositories") or {},
+    )
+    return db, env, types, connection_types
+
+
+def _to_graphql(
+    localenv: LocalEnv,
+    root_url: Optional[str] = None,
+    include_all: bool = False,
+) -> Tuple[GraphqlDB, YamlManifest, DeploymentEnvironment, ResourceTypesByName]:
+    # set skip_validation because we want to be able to dump incomplete service templates
+    manifest = localenv.get_manifest(skip_validation=True, safe_mode=True)
+    url = root_url or manifest.get_package_url()
+    db, env, types, connection_types = _build_environment_db(
+        manifest, url, url, include_all
     )
     assert manifest.repo
     file_path = manifest.get_tosca_file_path()
@@ -1545,6 +1598,16 @@ def _to_graphql(
             if ty:
                 add_root_source_info(ty, root_url, file_path)
     return db, manifest, env, connection_types
+
+
+def _to_environment(
+    manifest: YamlManifest,
+    root_url: str = "",
+) -> Tuple[GraphqlDB, DeploymentEnvironment, ResourceTypesByName]:
+    db, env, _types, connection_types = _build_environment_db(
+        manifest, root_url, root_url, False
+    )
+    return db, env, connection_types
 
 
 def to_blueprint(
@@ -1809,10 +1872,16 @@ def to_environments(
         try:
             # reuse the localEnv and use the default manifest so environment instances don't clash with a real deployment
             localEnv.manifest_environment_name = name
-            # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
-            localEnv._manifests.pop(default_manifest_path, None)
-            localEnv.manifestPath = default_manifest_path
-            blueprintdb, manifest, env, env_types = _to_graphql(localEnv, root_url)
+            if default_manifest_path:
+                # delete existing default manfest if created because we need to instantiate a different ToscaSpec object
+                localEnv._manifests.pop(default_manifest_path, None)
+                localEnv.manifestPath = default_manifest_path
+                # set skip_validation because we want to be able to dump incomplete service templates
+                manifest = localEnv.get_manifest(skip_validation=True, safe_mode=True)
+            else:
+                # project doesn't have an ensemble, create an empty one so we can export the environment
+                manifest = YamlManifest(localEnv=localEnv)
+            db, env, env_types = _to_environment(manifest, root_url or "")
             env["name"] = name
             if default_imported_instances is None:
                 default_imported_instances = _set_shared_instances(

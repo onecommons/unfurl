@@ -639,7 +639,6 @@ def extract_package(repoview: RepoView):
     minimum_version = repoview.repository.revision or revision
     return Package(package_id, url or "", minimum_version)
 
-
 def resolve_package(
     repoview: RepoView,
     packages: PackagesType,
