@@ -72,6 +72,7 @@ _PATH_SEGMENT_RE = re.compile(
 # to ask for. A namespace can never be called these, so they cannot be projects.
 _RESERVED_FIRST_SEGMENT = frozenset((
     "-",
+    "__",
     "admin",
     "api",
     "assets",
@@ -92,6 +93,25 @@ _RESERVED_FIRST_SEGMENT = frozenset((
     "uploads",
     "users",
     "v2",
+))
+
+
+# https://developer.mozilla.org/docs/Web/HTTP/Reference/Headers/Sec-Fetch-Dest
+_SUBRESOURCE_FETCH_DESTS = frozenset((
+    "audio",
+    "embed",
+    "font",
+    "image",
+    "manifest",
+    "object",
+    "paintworklet",
+    "report",
+    "script",
+    "style",
+    "track",
+    "video",
+    "worker",
+    "xslt",
 ))
 
 
@@ -552,6 +572,12 @@ def create_routes(localenv: LocalEnv):
         # 404 page is not currently a template, but could become one
         return notfound_page(public_files_dir)
 
+    @app.route(
+        "/api/v4/projects//-/variables",
+        defaults={"project_path": ""},
+        merge_slashes=False,
+        methods=["GET"],
+    )
     @app.route("/<path:project_path>/-/variables", methods=["GET"])
     def get_variables(project_path):
         repo = get_repo(project_path)
@@ -559,6 +585,12 @@ def create_routes(localenv: LocalEnv):
             return notfound_response(project_path)
         return {"variables": list(yield_variables(localenv))}
 
+    @app.route(
+        "/api/v4/projects//-/variables",
+        defaults={"project_path": ""},
+        merge_slashes=False,
+        methods=["PATCH"],
+    )
     @app.route("/<path:project_path>/-/variables", methods=["PATCH"])
     def patch_variables(project_path):
         repo = get_repo(project_path)
@@ -572,6 +604,11 @@ def create_routes(localenv: LocalEnv):
         else:
             return "Bad Request", 400
 
+    @app.route(
+        "/api/v4/projects//repository/branches",
+        defaults={"project_path": ""},
+        merge_slashes=False,
+    )
     @app.route("/api/v4/projects/<path:project_path>/repository/branches")
     def branches(project_path):
         repo = get_repo(project_path)
@@ -634,6 +671,12 @@ def create_routes(localenv: LocalEnv):
     def unsupported_api(api):
         return "Bad Request", 400
 
+    @app.route(
+        "//-/raw/<branch>/<path:file>",
+        defaults={"project_path": ""},
+        merge_slashes=False,
+        methods=["GET"],
+    )
     @app.route("/<path:project_path>/-/raw/<branch>/<path:file>")
     def local_file(project_path, branch, file):
         repo = get_repo(project_path, branch)
@@ -731,7 +774,11 @@ def create_routes(localenv: LocalEnv):
             return "Bad Request", 400
 
         is_static = path.startswith(static_prefixes)
-        if is_static:
+        # A browser navigates to a project page; it never fetches one as a font,
+        # stylesheet or script. Sec-Fetch-Dest says which.
+        fetch_dest = request.headers.get("Sec-Fetch-Dest")
+        is_subresource = bool(fetch_dest) and fetch_dest in _SUBRESOURCE_FETCH_DESTS
+        if is_static or is_subresource:
             return _serve_static_file(path)
 
         return serve_project_page(path, localenv, webpack_origin, public_files_dir)
