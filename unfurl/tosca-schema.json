@@ -2167,6 +2167,13 @@
           "type": "string",
           "description": "Optional description for the relationship template."
         },
+        "directives": {
+          "type": "array",
+          "description": "Unfurl extension: Optional processing directives for tooling and orchestrators.",
+          "items": {
+            "type": "string"
+          }
+        },
         "metadata": {
           "$ref": "#/$defs/genericMetadata",
           "description": "Optional metadata map for the relationship template."
