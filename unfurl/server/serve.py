@@ -343,7 +343,6 @@ def set_current_ensemble_git_url(gui: bool = False) -> Optional[LocalEnv]:
                     'Can not find an ensemble or ensemble template in project at "%s"',
                     template,
                 )
-                return None
     except Exception:
         logger.info(
             'No project found at "%s", no local project set', project_or_ensemble_path
@@ -374,6 +373,12 @@ def set_current_ensemble_git_url(gui: bool = False) -> Optional[LocalEnv]:
             )
         return local_env
     return None
+
+
+def refresh_current_localenv():
+    refreshed = set_current_ensemble_git_url(gui=True)
+    if refreshed:
+        app.config["UNFURL_GUI_MODE"] = refreshed
 
 
 _cache: Optional[Cache] = None
@@ -2097,8 +2102,16 @@ def _do_export(
         parent_localenv.project and parent_localenv.project.project_repoview,
         parent_localenv.instance_repoview,
     )
+    # A local project whose directory isn't itself an unfurl project (no
+    # ensemble.yaml or unfurl.yaml, e.g. the std clone) resolves parent_localenv.project to the
+    # project we are serving from, so its working_dir is the wrong root here.
+    # UNFURL_LOCAL_PROJECTS is what _fetch_working_dir already resolved for
+    # this project_id; fall back to the repo for staged/cloned projects.
     err, local_env = _make_readonly_localenv(
-        repo.repo.working_dir, deployment_path, parent_localenv, requested_format
+        _get_local_project_dir(project_id) or repo.repo.working_dir,
+        deployment_path,
+        parent_localenv,
+        requested_format,
     )
     if err:
         return (
@@ -2155,7 +2168,7 @@ def _fetch_working_dir(
         local_dir = _get_local_project_dir(project_path)
         if local_dir:
             # developer mode: use the project we are serving from if the project_path matches
-            logger.debug("exporting from local repo %s", project_path)
+            logger.debug("exporting from local repo %s in %s", project_path, local_dir)
             clone_location = local_dir
         else:
             # otherwise clone the project if necessary

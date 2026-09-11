@@ -71,6 +71,7 @@ from .serve import (
     get_project_id,
     get_project_id_or_abort,
     serving_local_path,
+    refresh_current_localenv,
 )
 
 logger = getLogger("unfurl.server")
@@ -1094,7 +1095,6 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
 # Patch endpoints
 # ---------------------------------------------------------------------------
 
-
 def _get_author(request) -> Optional[str]:
     """The git author for commits made while handling ``request``.
 
@@ -1808,6 +1808,14 @@ def _patch_environment(
             "local repository at %s was dirty, not committing or pushing",
             localEnv.project.projectRoot,
         )
+
+    # Standalone gui mode answers /export from the LocalEnv in
+    # app.config["UNFURL_GUI_MODE"], built when the server started -- the
+    # environment we just wrote stays invisible to it until it is rebuilt, so
+    # the page that saved it renders none of what it saved. Same refresh
+    # _patch_ensemble does when it registers a new ensemble.
+    if app.config.get("UNFURL_GUI_MODE"):
+        refresh_current_localenv()
     return _patch_response(repo)
 
 
@@ -2047,11 +2055,7 @@ def _patch_ensemble(
             # until we rebuild it, so the dashboard's include_all_deployments
             # wouldn't iterate the new deployment.
             if create and app.config.get("UNFURL_GUI_MODE"):
-                from .serve import set_current_ensemble_git_url
-
-                refreshed = set_current_ensemble_git_url(gui=True)
-                if refreshed:
-                    app.config["UNFURL_GUI_MODE"] = refreshed
+                refresh_current_localenv()
             if isinstance(manifest.repo, GitRepo) and not app.config.get("UNFURL_GUI_MODE") and not batched:
                 err = _push_changes(
                     manifest.repo, username, password, starting_revision
