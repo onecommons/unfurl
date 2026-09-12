@@ -383,6 +383,11 @@ def serve_server(
 ):
     """Wrapper around server.serve that forwards child start errors to a Queue.
 
+    `args` is passed through positionally to `unfurl.server.serve.serve()`:
+    (host, port, secret, clone_root, project_path, options, cloud_server, gui).
+    Most callers below stop at `options`; those that pass a 7th set the
+    server's UNFURL_CLOUD_SERVER.
+
     extra_env: env vars to set in the child process before starting the server.
     Use this instead of relying on os.environ inheritance, which is unreliable
     with the forkserver start method (the default on Linux since Python 3.14).
@@ -742,12 +747,19 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
     p = ctx.Process(
         target=serve_server,
         args=(
-            HOST,
-            port,
-            None,
-            "server",
-            ".",
-            {"home": ""},
+            HOST,  # host
+            port,  # port
+            None,  # secret
+            "server",  # clone_root
+            ".",  # project_path
+            {"home": ""},  # options
+            # cloud_server: a local path, not a url. serve() skips the hostname
+            # check for a value starting with "/" and stores it as
+            # UNFURL_CLOUD_SERVER, so get_project_url() builds every repository
+            # url by joining onto it -- "/tmp/.../remote.git" rather than
+            # "https://unfurl.cloud/...". Anything that treats a repository url
+            # as a url-with-a-scheme behaves differently here than in
+            # production because of this.
             os.path.abspath("remote.git"),
         ),
         kwargs={
@@ -2110,7 +2122,12 @@ def _start_gui_server(project_dir, name=""):
         prefix=f"py-gui-{name or 'server'}-", suffix=".log"
     )
     os.close(py_log_fd)
-    ctx = get_context()
+    # spawn, not the platform default: under fork the child inherits this
+    # process's module-level Flask `app`, and if anything in this xdist
+    # worker has already driven a request through it, `configure_app`'s
+    # CORS(app, ...) trips flask's "setup method after first request"
+    # assertion. Spawn re-imports serve.py, so the child gets a clean app.
+    ctx = get_context("spawn")
     error_queue = ctx.Queue()
     p = ctx.Process(
         target=serve_server,

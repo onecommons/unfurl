@@ -13,7 +13,7 @@ class EnvVar(TypedDict, total=False):
     masked: Required[bool]
     environment_scope: Required[str]
     value: Any
-    secret_value: Any  # ??? not sent by api
+    secret_value: Any  # newer version of gitlab use this
     _destroy: bool
     variable_type: Required[Union[Literal["env_var"], Literal["file"]]]
     raw: Literal[False]  # if true value isn't expanded

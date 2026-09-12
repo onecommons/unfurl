@@ -48,6 +48,7 @@ from ..yamlloader import (
     ImportResolver_Context,
     SimpleCacheResolver,
     get_tags_from_proxy,
+    is_inside,
 )
 from ..packages import is_semver
 
@@ -372,6 +373,24 @@ class ServerCacheResolver(SimpleCacheResolver):
             return resolver
 
         return ctor
+
+    def _is_local_repository_allowed(self, path: str) -> bool:
+        """Also allow repositories served by a local ``UNFURL_CLOUD_SERVER``.
+
+        That setting is normally a url, but `serve()` accepts a filesystem
+        path too (the unit tests pass one, and it is how you serve a local
+        bare repository). `get_project_url` then builds every repository url
+        by joining onto it, so they all resolve outside the checkout being
+        served and the project-confinement check would reject every one.
+        """
+        base = current_app.config.get("UNFURL_CLOUD_SERVER")
+        if (
+            base
+            and base.startswith("/")
+            and is_inside(path, os.path.dirname(base.rstrip("/")))
+        ):
+            return True
+        return super()._is_local_repository_allowed(path)
 
     def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
         if self.local_env and self.local_env.overrides.get(

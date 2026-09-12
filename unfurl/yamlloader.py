@@ -129,6 +129,25 @@ def yaml_dict_type(readonly: bool) -> type:
         return CommentedMap
 
 
+def is_inside(path: str, root: str) -> bool:
+    """Whether ``path`` resolves to somewhere inside ``root``."""
+    root = root.rstrip("/")
+    if root.endswith(("/.unfurl", "/_unfurl")):
+        # special case for projects in .unfurl directory to allow access to file inside the parent directory
+        root = os.path.dirname(root)
+
+    # Accept if either the un-resolved (abspath) form or the symlink-resolved
+    # (realpath) form of `path` is inside `root`. Comparing abspaths preserves
+    # the case where a symlink inside the project points outside it (user
+    # intent: still inside). Comparing realpaths handles cases like macOS
+    # /tmp vs /private/tmp where one side is a symlink to the other.
+    full_path = os.path.join(root, path)  # if path is absolute, root is ignored
+    for resolver in (os.path.abspath, os.path.realpath):
+        if not os.path.relpath(resolver(full_path), resolver(root)).startswith(".."):
+            return True
+    return False
+
+
 def load_yaml(yaml, stream, path=None, readonly: bool = False):
     global yaml_perf
     start_time = perf_counter()
@@ -638,7 +657,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
     def get_repository(
         self, name: str, tpl: Optional[dict] = None, unique: bool = False
     ) -> Optional[Repository]:
-        # this is called by ToscaTemplate
+        # this is called by ToscaTemplate.repositories getter
         # may modify tpl
         if self.manifest:
             if not unique and name in self.manifest.repositories:
@@ -653,6 +672,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return self._create_repository(name, tpl)
 
     def _create_repository(self, name: str, tpl: dict) -> Repository:
+        # called by add_repository() and get_repository()
         if not name:
             raise UnfurlError(
                 f'invalid repository "{name}": definition {tpl} is type {type(tpl)}, not a map or string'
@@ -701,7 +721,7 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         return True, "", ""
 
     def add_repository(self, name: str, tpl: dict) -> Repository:
-        # called by tosca.Repository.__init__() to register itself
+        # called by tosca.Repository.__init__() register itself
         if not self.manifest:
             return self.get_repository(name, tpl)
         repo: Optional[RepoView] = self.manifest.repositories.get(name)
@@ -736,6 +756,26 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                     self.manifest.repositories[repository_name].repository.tpl
                 )
             url = super().get_repository_url(importsLoader, repository_name)
+            if self._safe_mode and url:
+                parsed = urlparse(url)
+                if parsed.scheme == "file":
+                    path = url[5:]
+                elif not parsed.scheme:
+                    path = url
+                else:
+                    path = ""
+                if path:
+                    # strips multiple slashes and resolves ".." and "."
+                    path = os.path.normpath(path)
+                    if path[0] == "/":
+                        if not self._is_local_repository_allowed(path):
+                            # _has_path_escaped_project() reports the reason through
+                            # ExceptionCollector; "" is what the caller reads as "no url".
+                            return ""
+                    else:
+                        msg = f'Repository urls can not be relative paths in repository "{repository_name}": "{url}"'
+                        ExceptionCollector.appendException(ImportError(msg))
+                        return ""
         else:
             if self.manifest:
                 if self.manifest.repo:
@@ -797,29 +837,24 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         else:
             return False
 
-    @staticmethod
-    def _is_inside(path: str, root: str) -> bool:
-        root = root.rstrip("/")
-        if root.endswith(("/.unfurl", "/_unfurl")):
-            # special case for projects in .unfurl directory to allow access to file inside the parent directory
-            root = os.path.dirname(root)
+    def _is_local_repository_allowed(self, path: str) -> bool:
+        """Whether an absolute local repository path is acceptable in safe mode.
 
-        # Accept if either the un-resolved (abspath) form or the symlink-resolved
-        # (realpath) form of `path` is inside `root`. Comparing abspaths preserves
-        # the case where a symlink inside the project points outside it (user
-        # intent: still inside). Comparing realpaths handles cases like macOS
-        # /tmp vs /private/tmp where one side is a symlink to the other.
-        for resolver in (os.path.abspath, os.path.realpath):
-            if not os.path.relpath(resolver(path), resolver(root)).startswith(".."):
-                return True
-        return False
+        A repository has to live in the project by default. The server
+        overrides this: when it is configured with a local ``UNFURL_CLOUD_SERVER``
+        the repositories it serves legitimately sit outside the checkout.
 
-    def _has_path_escaped_base(self, path: str, base) -> bool:
+        Implementations must report the reason for a refusal through
+        ``ExceptionCollector``, as ``_has_path_escaped_project`` does.
+        """
+        return not self._has_path_escaped_project(path)
+
+    def _has_path_escaped_base(self, path: str, base: Optional[str]) -> bool:
         if not self.confine_user_paths:
             return False
         if not base:
             return self._has_path_escaped_project(path)
-        if self._is_inside(path, base):
+        if is_inside(path, base):
             return False
         msg = f'Path not allowed outside of repository or document root "{os.path.abspath(base)}": "{path}"'
         ExceptionCollector.appendException(ImportError(msg))
@@ -831,12 +866,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
         # user supplied path can't be outside of the project or the home project.
         if self.local_env and self.local_env.project:
-            if self._is_inside(path, os.path.dirname(__file__)):
+            if is_inside(path, os.path.dirname(__file__)):
                 # special case for built-in "unfurl" repository
                 return False
-            if not self._is_inside(path, self.local_env.project.projectRoot) and (
+            if not is_inside(path, self.local_env.project.projectRoot) and (
                 not self.local_env.homeProject
-                or not self._is_inside(path, self.local_env.homeProject.projectRoot)
+                or not is_inside(path, self.local_env.homeProject.projectRoot)
             ):
                 msg = f'Path "{os.path.abspath(path)}" not allowed outside of project: "{self.local_env.project.projectRoot}"'
                 if self.local_env.homeProject:
@@ -1022,11 +1057,16 @@ class ImportResolver(toscaparser.imports.ImportResolver):
             if not os.path.isabs(path):
                 path = os.path.join(base, path)
             path = os.path.join(path, file_name)
+            if repo_view.repo:
+                # if we already have a local repository, check if the path is inside the repository's working directory
+                if not is_inside(path, repo_view.working_dir):
+                    return None, None
             # repositories can be outside of the project when not in safe mode
-            if (
+            elif (
                 not repository_name or self._safe_mode
             ) and self._has_path_escaped_project(path):
                     return None, None
+
         repo_view.add_file_ref(file_name)
         return path, (is_file, repo_view, base, file_name)
 
@@ -1409,11 +1449,15 @@ class YamlConfig:
         loadHook=None,
         vault=None,
         readonly=False,
+        safe_mode=False,
     ):
         err_msg = "Unable to parse yaml configuration"
         try:
             self._yaml = None
             self.vault = vault
+            # when set, `load_yaml` refuses documents outside `get_base_dir()`
+            # and refuses remote ones outright -- see there
+            self.safe_mode = bool(safe_mode)
             self.path = None
             self.schema = schema
             self.readonly = bool(readonly)
@@ -1490,6 +1534,7 @@ class YamlConfig:
             self.loadHook,
             self.vault,
             self.readonly,
+            self.safe_mode,
         )
 
     def _expand(self) -> Tuple[Includes, Mapping]:
@@ -1506,6 +1551,10 @@ class YamlConfig:
     ) -> Tuple[str, Optional[dict]]:
         url = urlsplit(path)
         if url.scheme.startswith("http") and url.netloc:  # looks like an absolute url
+            if self.safe_mode:
+                raise UnfurlError(
+                    f"can not load a remote document in safe mode: {path}"
+                )
             fragment = url.fragment
             logger.trace("attempting to load YAML url: %s", path)
             try:
@@ -1518,6 +1567,14 @@ class YamlConfig:
         else:
             path, sep, fragment = path.partition("#")
             path = os.path.abspath(os.path.join(baseDir or self.get_base_dir(), path))
+            # Checked against this document's own directory, not the caller's
+            # `baseDir`: a nested include pushes each included file's
+            # directory onto `baseDirs`, so honouring that would let a chain
+            # of includes walk out of the project one level at a time.
+            if self.safe_mode and not is_inside(path, self.get_base_dir()):
+                raise UnfurlError(
+                    f"can not load document outside of {self.get_base_dir()} in safe mode: {path}"
+                )
             if warnWhenNotFound and not os.path.isfile(path):
                 logger.warning(
                     f"document include {path} does not exist (base: {baseDir})"

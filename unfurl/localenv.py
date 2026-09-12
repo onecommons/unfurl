@@ -55,6 +55,7 @@ from .yamlloader import (
     LoadIncludeAction,
     UnfurlVaultLib,
     YamlConfig,
+    is_inside,
     make_vault_lib_ex,
     make_yaml,
 )
@@ -107,12 +108,18 @@ class Project:
             path = os.path.join(path, DefaultNames.LocalConfig)
         self.projectRoot = os.path.dirname(os.path.abspath(path))
         self.overrides = overrides or {}
+        # set by the server (see _make_readonly_localenv): the project being
+        # loaded is untrusted, so its includes must not reach out of it
+        safe_mode = self.safe_mode = bool(self.overrides.get("safe_mode"))
         if os.path.exists(path):
             self.localConfig = LocalConfig(
-                path, yaml_include_hook=self.load_yaml_include, readonly=bool(readonly)
+                path,
+                yaml_include_hook=self.load_yaml_include,
+                readonly=bool(readonly),
+                safe_mode=safe_mode,
             )
         else:
-            self.localConfig = LocalConfig(readonly=bool(readonly))
+            self.localConfig = LocalConfig(readonly=bool(readonly), safe_mode=safe_mode)
         self._set_repos()
         # XXX this might save the local config to disk -- constructing a Project object shouldn't do that
         # especially since the localenv call this might not have found the ensemble yet
@@ -201,6 +208,15 @@ class Project:
 
         # add referenced local repositories outside of the project
         for path, tpl in self.localConfig.localRepositories.items():
+            if self.safe_mode and not is_inside(path, self.projectRoot):
+                # the config naming them is untrusted here, and registering
+                # one would make a repository outside the project resolvable
+                logger.warning(
+                    'Ignoring localRepositories entry outside of project "%s": "%s"',
+                    self.projectRoot,
+                    path,
+                )
+                continue
             if os.path.isdir(path):
                 repo = Repo.find_containing_repo(path)
                 if repo:  # make sure it's a git repo
@@ -848,11 +864,23 @@ class LocalConfig:
     ]
 
     def __init__(
-        self, path=None, validate=True, yaml_include_hook=None, readonly=False
+        self,
+        path=None,
+        validate=True,
+        yaml_include_hook=None,
+        readonly=False,
+        safe_mode=False,
     ):
-        self._load(path, yaml_include_hook, validate, readonly)
+        self._load(path, yaml_include_hook, validate, readonly, safe_mode)
 
-    def _load(self, path, yaml_include_hook, validate: bool, readonly: bool) -> None:
+    def _load(
+        self,
+        path,
+        yaml_include_hook,
+        validate: bool,
+        readonly: bool,
+        safe_mode: bool = False,
+    ) -> None:
         defaultConfig = {"apiVersion": API_VERSION, "kind": "Project"}
         self.config = YamlConfig(
             defaultConfig,
@@ -861,6 +889,7 @@ class LocalConfig:
             os.path.join(_basepath, "unfurl-schema.json"),
             yaml_include_hook,
             readonly=readonly,
+            safe_mode=safe_mode,
         )
         self.ensembles = self.config.expanded.get("ensembles") or []
         self.projects = self.config.expanded.get("projects") or {}
@@ -1407,7 +1436,9 @@ class LocalEnv:
         if path and path != self.manifestPath:
             # share projects and ensembles
             localEnv = LocalEnv(path, parent=self, readonly=self.readonly)
-            return localEnv.get_manifest(skip_validation=skip_validation)
+            return localEnv.get_manifest(
+                skip_validation=skip_validation, safe_mode=safe_mode
+            )
         else:
             assert self.manifestPath, "check manifestPath before calling get_manifest"
             manifest: Optional[YamlManifest] = self._manifests.get(self.manifestPath)

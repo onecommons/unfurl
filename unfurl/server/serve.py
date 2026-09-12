@@ -1939,6 +1939,9 @@ def _make_readonly_localenv(
             # XXX enable skipping when deps support private repositories
             UNFURL_SKIP_UPSTREAM_CHECK=bool(gui_local_env),
             apply_url_credentials=True,
+            # the project is untrusted here: confine its yaml includes to
+            # its own directory (see YamlConfig.load_yaml)
+            safe_mode=True,
         )
         overrides["UNFURL_SEARCH_ROOT"] = clone_root
         if requested_format:

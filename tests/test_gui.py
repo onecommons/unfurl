@@ -1,22 +1,40 @@
-"""The gui server must work in an unfurl project that has no ensembles.
+"""How `unfurl serve --gui` resolves the projects it is asked for.
 
-`_get_repo` used to route every clone through
-`Manifest.find_or_clone_from_url`, which needs a manifest to build its
-import resolver -- so a project without one could not resolve a project
-path at all. The replacement resolves package rules off the environment
-context directly; these tests pin that the rules are still applied,
-since that was the only reason the manifest path was used here.
+Two things it used to get wrong, both about where a repository is allowed
+to live:
+
+* a project with no ensembles could not resolve a project path at all,
+  because `_get_repo` routed every clone through
+  `Manifest.find_or_clone_from_url`, which needs a manifest to build its
+  import resolver. Package rules are the only thing that path was wanted
+  for here, so the replacement applies them off the environment context
+  and these tests pin that they still are;
+* a `localRepositories` entry pointing outside the served project was
+  rejected rather than used. The project doing the serving is trusted and
+  its entries apply; a project it serves is not, and gets `safe_mode`,
+  where the same entry is ignored.
 """
 
 import os
 import subprocess
+import urllib.parse
 from typing import Optional
 
 import pytest
+import requests
+from click.testing import CliRunner
 
 from unfurl.localenv import LocalEnv
+from git import Repo
+from unfurl.repo import GitRepo
 from unfurl.server import gui
+from unfurl.server import serve
 from unfurl.server.serve import app
+from unfurl.yamlloader import yaml
+from tests.utils import init_project
+
+# the server fixtures live with the other server tests
+from tests.test_server import HOST, _start_gui_server, _terminate_process
 
 
 def _make_git_repo(path) -> str:
@@ -139,3 +157,120 @@ def test_to_environments_without_an_ensemble(tmp_path):
     assert "error" not in env, env.get("details")
     assert env["name"] == "staging"
     assert "connections" in env and "instances" in env
+
+
+def _add_local_repository(project_root: str, path: str, url: str) -> None:
+    """Set a `localRepositories` entry in a project's unfurl.yaml.
+
+    Loaded and re-dumped rather than appended: `unfurl init` leaves the file
+    ending inside a commented-out `environments:` block with no trailing
+    newline, so appended top-level keys get absorbed into it.
+    """
+    unfurl_yaml = os.path.join(project_root, "unfurl.yaml")
+    with open(unfurl_yaml) as f:
+        config = yaml.load(f)
+    config.setdefault("localRepositories", {})[path] = {"url": url}
+    with open(unfurl_yaml, "w") as f:
+        yaml.dump(config, f)
+
+
+def _read_log(path: str) -> str:
+    with open(path, "r", errors="replace") as f:
+        return f.read()
+
+
+def test_gui_local_repository_outside_project():
+    """`unfurl serve --gui` resolves a localRepositories entry outside the project.
+
+    The scenario: a project served with --gui declares
+
+        localRepositories:
+          /path/to/onecommons/std:
+            url: https://unfurl.cloud/onecommons/std
+
+    and the browser asks for that project. This used to fail with
+    "<path> not allowed outside of project" -- the path confinement applied
+    to the project being served rather than to the one doing the serving.
+    Now the entry is honoured and the local checkout is used instead of
+    cloning.
+
+    The other half is the contrast: an *upstream* project is untrusted, so
+    `_make_readonly_localenv` gives it `safe_mode` and the same yaml in its
+    own unfurl.yaml is ignored with a warning. The gui's own project is not
+    loaded that way, so its entry still applies.
+
+    `remote:<git-url>` is used as the project path because in gui mode it
+    bypasses treating the id as a cloud-server project, which keeps this
+    test off the network.
+    """
+    runner = CliRunner()
+    p = None
+    with runner.isolated_filesystem():
+        try:
+            # The repository the gui project points at. It is an unfurl
+            # project itself, and carries the same kind of entry -- pointing
+            # further out -- so the safe_mode branch has something to ignore.
+            init_project(
+                runner, args=["init", "--empty", "upstream"], env=dict(UNFURL_HOME="")
+            )
+            upstream_root = os.path.abspath("upstream")
+            outside_upstream = os.path.abspath("elsewhere")
+            os.makedirs(outside_upstream)
+            _add_local_repository(
+                upstream_root, outside_upstream, "https://example.com/elsewhere.git"
+            )
+            upstream_repo = GitRepo(Repo(upstream_root))
+            upstream_repo.add_all(upstream_root)
+            upstream_repo.commit("add localRepositories")
+
+            # The project served with --gui, pointing at the one above.
+            init_project(
+                runner, args=["init", "--empty", "guiproject"], env=dict(UNFURL_HOME="")
+            )
+            gui_root = os.path.abspath("guiproject")
+            _add_local_repository(gui_root, upstream_root, f"file://{upstream_root}")
+            gui_repo = GitRepo(Repo(gui_root))
+            gui_repo.add_all(gui_root)
+            gui_repo.commit("add localRepositories")
+
+            p, port = _start_gui_server(gui_root, name="localrepos")
+
+            project_path = f"remote:file://{upstream_root}"
+            url = (
+                f"http://{HOST}:{port}/api/v4/projects/"
+                f"{urllib.parse.quote(project_path, safe='/')}"
+                "/repository/branches"
+            )
+            res = requests.get(url)
+            assert res.status_code == 200, f"{res.status_code}: {res.text}"
+            branches = res.json()
+            assert branches, res.text
+            assert branches[0]["commit"]["id"] == upstream_repo.revision
+
+            log = _read_log(p._py_log_file)
+            # the bug this fixes
+            assert "not allowed outside of project" not in log, log[-4000:]
+            # it used the checkout rather than cloning it
+            assert not os.path.isdir(os.path.join(gui_root, "upstream")), (
+                "should have resolved the local repository, not cloned"
+            )
+            # ...and the gui project's own entry was honoured, which is only
+            # meaningful because the same yaml is ignored below.
+            assert "Ignoring localRepositories entry" not in log, log[-4000:]
+
+            # Now export the upstream project. `_make_readonly_localenv` loads
+            # it with safe_mode, so *its* localRepositories entry -- pointing
+            # at `elsewhere`, outside itself -- must be dropped with a warning.
+            res = requests.get(
+                f"http://{HOST}:{port}/export",
+                params={"auth_project": project_path, "format": "blueprint"},
+            )
+            assert res.status_code == 200, f"{res.status_code}: {res.text}"
+            log = _read_log(p._py_log_file)
+            assert "Ignoring localRepositories entry outside of project" in log, log[
+                -4000:
+            ]
+            assert outside_upstream in log, log[-4000:]
+        finally:
+            if p:
+                _terminate_process(p)
