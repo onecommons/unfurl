@@ -578,7 +578,13 @@ class Repo(abc.ABC):
         shallow_since=None,
         username=None,
         password=None,
+        symlinks=True,
     ):
+        """``symlinks=False`` clones with ``core.symlinks=false``, so a symlink
+        in the repository is checked out as a regular file holding its target
+        path instead of a link. The server passes it in safe mode: a committed
+        symlink to somewhere outside the clone would otherwise make an
+        arbitrary file readable through the checkout."""
         localRepoPath = localRepoPath or "."
         if os.path.exists(localRepoPath):
             if not os.path.isdir(localRepoPath) or os.listdir(localRepoPath):
@@ -610,6 +616,16 @@ class Repo(abc.ABC):
                 kwargs["branch"] = revision
             # equivalent to git.Repo.clone_from() with add_transient_credentials() added
             gitcmd = git.Repo.GitCommandWrapperType(os.getcwd())
+            if not symlinks:
+                # set on this command object rather than as a `--config` clone
+                # option, which GitPython rejects unless unsafe options are
+                # allowed wholesale, and rather than on os.environ, which every
+                # other git process in this one would inherit.
+                gitcmd.update_environment(
+                    GIT_CONFIG_COUNT="1",
+                    GIT_CONFIG_KEY_0="core.symlinks",
+                    GIT_CONFIG_VALUE_0="false",
+                )
             if username:
                 add_transient_credentials(gitcmd, gitUrl, username, password)
             repo = git.Repo._clone(
@@ -623,6 +639,12 @@ class Repo(abc.ABC):
             raise UnfurlError(
                 f'couldn\'t create working directory, clone failed: "{err._cmdline}"\nTry re-running that command to diagnose the problem.'
             )
+        if not symlinks:
+            # The environment above only governed this clone's own checkout;
+            # persist the setting so later checkouts in this working
+            # directory -- a branch switch, a pull that doesn't go through
+            # the server -- are covered too.
+            repo.git.config("core.symlinks", "false")
         Repo.ignore_dir(localRepoPath)
         return GitRepo(repo)
 

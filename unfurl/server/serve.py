@@ -112,6 +112,7 @@ from .. import init
 from toscaparser.common.exception import FatalToscaImportError
 from toscaparser.elements.entity_type import Namespace
 import tosca
+import tosca.loader
 
 if TYPE_CHECKING:
     from cachelib.redis import RedisCache
@@ -537,7 +538,13 @@ def _clone_repo(
         with open(clone_lock_path, "xb", buffering=0) as lockfile:
             lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
         return Repo.create_working_dir(
-            git_url, repo_path, branch, shallow_since=shallow_since
+            git_url,
+            repo_path,
+            branch,
+            shallow_since=shallow_since,
+            # a committed symlink pointing outside the clone would otherwise
+            # expose an arbitrary file through the checked-out tree
+            symlinks=not _safe_mode(),
         )
     finally:
         if os.path.exists(clone_lock_path):
@@ -711,6 +718,11 @@ def _get_committed_date(commit: Commit) -> int:
 
 def pull(repo: GitRepo, branch: str, shallow_since=None) -> str:
     action = "pulled"
+    if _safe_mode():
+        # persist it: this guards the checkout the pull performs and every
+        # later one in this working directory, which a clone-time option
+        # wouldn't reach for a repository cloned before safe mode was on.
+        repo.repo.git.config("core.symlinks", "false")
     firstCommit = next(repo.repo.iter_commits("HEAD", max_parents=0))
     # set shallow_since so we don't remove commits we already fetched
     committed_date = _get_committed_date(firstCommit)
@@ -2280,9 +2292,11 @@ def error_response(error: HTTPError) -> Response:
 
 
 def enter_safe_mode():
-    import tosca.loader
-
     tosca.loader.FORCE_SAFE_MODE = os.getenv("UNFURL_TEST_SAFE_LOADER") or "1"
+
+
+def _safe_mode() -> bool:
+    return tosca.loader.get_safe_mode()
 
 
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
