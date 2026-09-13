@@ -375,14 +375,8 @@ class ServerCacheResolver(SimpleCacheResolver):
         return ctor
 
     def _is_local_repository_allowed(self, path: str) -> bool:
-        """Also allow repositories served by a local ``UNFURL_CLOUD_SERVER``.
-
-        That setting is normally a url, but `serve()` accepts a filesystem
-        path too (the unit tests pass one, and it is how you serve a local
-        bare repository). `get_project_url` then builds every repository url
-        by joining onto it, so they all resolve outside the checkout being
-        served and the project-confinement check would reject every one.
-        """
+        # if the UNFURL_CLOUD_SERVER is a local path, allow repositories inside it
+        # only happens in local development or testing scenarios
         base = current_app.config.get("UNFURL_CLOUD_SERVER")
         if (
             base

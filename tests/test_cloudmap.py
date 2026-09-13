@@ -481,11 +481,14 @@ environments:
   defaults:
     repositories:
       cloudmap:
-        url: file:../cloudmap
+        # this is needed for the configurator
+        # we need the "#:." make it clear this is a git url
+        url: file:../cloudmap#:.
     cloudmaps:
       repositories:
         cloudmap:
-          # url: file:../cloudmap # configurator needs it to be a regular repository
+          # the other tests need a regular file url, luckily we can set url here too
+          url: file:../cloudmap
           clone_root: ../repos
       hosts:
         testProvider:
