@@ -326,3 +326,155 @@ def test_make_readonly_localenv_sets_the_override(tmp_path):
     assert local_env is not None
     assert local_env.overrides.get("safe_mode") is True
     assert local_env.project and local_env.project.safe_mode is True
+
+
+# ---------------------------------------------------------------------------
+# UNFURL_CLOUD_VARS_URL is exempt from the safe-mode remote-document refusal
+# ---------------------------------------------------------------------------
+
+
+def _project_including(tmp_path, include_url: str):
+    """A project whose unfurl.yaml pulls its variables from `include_url`."""
+    project = tmp_path / "project"
+    project.mkdir()
+    (project / "unfurl.yaml").write_text(
+        "apiVersion: unfurl/v1alpha1\n"
+        "kind: Project\n"
+        "environments:\n"
+        "  defaults:\n"
+        "    variables:\n"
+        "      +?include-env:\n"
+        f"        file: {include_url}\n"
+        "        merge: maplist\n"
+    )
+    return project
+
+
+def _serve_json(body: str):
+    """A local http server returning `body`; returns (url, shutdown)."""
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            payload = body.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+        def log_message(self, *a):
+            pass
+
+    httpd = HTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    return f"http://127.0.0.1:{httpd.server_port}/vars.json", httpd.shutdown
+
+
+def test_cloud_vars_url_loads_in_safe_mode(tmp_path):
+    """The server sets this override itself, so it is trusted."""
+    from unfurl.localenv import LocalEnv
+
+    # gitlab's list-project-variables reply, which is what `maplist` expects
+    url, shutdown = _serve_json(
+        '[{"variable_type": "env_var", "key": "CLOUD_VAR",'
+        ' "value": "from_the_server", "environment_scope": "*"}]'
+    )
+    try:
+        project = _project_including(tmp_path, "${UNFURL_CLOUD_VARS_URL}")
+        local_env = LocalEnv(
+            str(project / "unfurl.yaml"),
+            can_be_empty=True,
+            overrides=dict(
+                safe_mode=True, ENVIRONMENT="defaults", UNFURL_CLOUD_VARS_URL=url
+            ),
+        )
+        assert local_env.project and local_env.project.safe_mode is True
+        variables = local_env.get_context().get("variables") or {}
+        assert variables.get("CLOUD_VAR") == "from_the_server", variables
+    finally:
+        shutdown()
+
+
+def test_other_remote_includes_still_blocked_in_safe_mode(tmp_path):
+    """The exemption is that one url, not remote includes in general.
+
+    Without this the fix would read as "safe mode allows http" -- the
+    project names this url itself, so it must stay refused.
+    """
+    from unfurl.localenv import LocalEnv
+    from unfurl.util import UnfurlError
+
+    url, shutdown = _serve_json(
+        '[{"key": "SNEAKY", "value": "yes", "environment_scope": "*"}]'
+    )
+    try:
+        project = _project_including(tmp_path, url)
+        with pytest.raises(UnfurlError):
+            LocalEnv(
+                str(project / "unfurl.yaml"),
+                can_be_empty=True,
+                overrides=dict(safe_mode=True, ENVIRONMENT="defaults"),
+            )
+    finally:
+        shutdown()
+
+
+# ---------------------------------------------------------------------------
+# cloud_vars_url is whitelisted before the server will fetch it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "url,accepted",
+    [
+        # what unfurl-gui's unfurl_cloud_vars_url() builds
+        (
+            "https://unfurl.cloud/api/v4/projects/42/variables"
+            "?per_page=1000&private_token=SECRET",
+            True,
+        ),
+        ("https://unfurl.cloud/api/v4/projects/a%2Fb/variables", True),
+        # a different host would be handed the token
+        (
+            "https://evil.test/api/v4/projects/42/variables?private_token=SECRET",
+            False,
+        ),
+        # same host, but any other endpoint is an SSRF into the server's network
+        ("https://unfurl.cloud/api/v4/projects/42/repository/archive", False),
+        ("https://unfurl.cloud/", False),
+        # scheme games
+        ("file:///etc/passwd", False),
+        ("http://unfurl.cloud.evil.test/api/v4/projects/42/variables", False),
+        # a port mismatch is a different service on the same host
+        ("https://unfurl.cloud:8443/api/v4/projects/42/variables", False),
+    ],
+)
+def test_cloud_vars_url_whitelist(url, accepted):
+    from unfurl.server import endpoints
+    from unfurl.server.serve import app
+
+    with app.app_context():
+        app.config["UNFURL_CLOUD_SERVER"] = "https://unfurl.cloud"
+        rejected = endpoints._rejected_cloud_vars_url(url)
+    # a reason means refused; "" means it may be fetched
+    assert (not rejected) is accepted, rejected
+    # the reason must never quote the url -- it carries a private token
+    assert url not in rejected
+
+
+def test_cloud_vars_url_rejected_when_cloud_server_is_a_local_path():
+    """The unit tests configure a filesystem path as the cloud server.
+
+    There is no origin to match then, so nothing can be accepted -- better
+    than matching an empty hostname against a url's.
+    """
+    from unfurl.server import endpoints
+    from unfurl.server.serve import app
+
+    with app.app_context():
+        app.config["UNFURL_CLOUD_SERVER"] = "/tmp/somewhere/remote.git"
+        assert endpoints._rejected_cloud_vars_url(
+            "https://unfurl.cloud/api/v4/projects/42/variables"
+        )

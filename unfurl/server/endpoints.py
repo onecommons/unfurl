@@ -8,6 +8,7 @@ import gc
 import json
 import os
 import re
+from urllib.parse import urlparse
 from itertools import product
 from base64 import b64decode
 from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, cast
@@ -373,15 +374,14 @@ def _parse_select(raw: str) -> List[SelectPath]:
             continue
         if not part.startswith("/"):
             part = "/" + part
-        items.append(
-            [t.replace("~1", "/").replace("~0", "~") for t in part.split("/")[1:]]
-        )
+        items.append([
+            t.replace("~1", "/").replace("~0", "~") for t in part.split("/")[1:]
+        ])
     pointers = [i for i in items if i is not None]
     return [
         i
         for i in items
-        if i is None
-        or not any(len(p) < len(i) and i[: len(p)] == p for p in pointers)
+        if i is None or not any(len(p) < len(i) and i[: len(p)] == p for p in pointers)
     ]
 
 
@@ -425,15 +425,11 @@ def _project_record(record: Any, key: str, select: List[SelectPath]) -> Dict[str
     return out
 
 
-def _project_document(
-    doc: Dict[str, Any], select: List[SelectPath]
-) -> Dict[str, Any]:
+def _project_document(doc: Dict[str, Any], select: List[SelectPath]) -> Dict[str, Any]:
     """Apply :func:`_project_record` to every record of a
     CloudMap-shaped dict, dropping any non-section envelope keys."""
     return {
-        section_name: {
-            k: _project_record(v, k, select) for k, v in section.items()
-        }
+        section_name: {k: _project_record(v, k, select) for k, v in section.items()}
         for section_name, section in doc.items()
         if section_name in _CLOUDMAP_SECTIONS and isinstance(section, dict)
     }
@@ -1095,6 +1091,7 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
 # Patch endpoints
 # ---------------------------------------------------------------------------
 
+
 def _get_author(request) -> Optional[str]:
     """The git author for commits made while handling ``request``.
 
@@ -1618,6 +1615,7 @@ def batch_patch(
         home_dir,
         parent=readonly_localEnv,
         can_be_empty=True,
+        overrides=dict(safe_mode=True),
     )
     assert parent_localEnv.project
     repo = parent_localEnv.project.project_repoview.gitrepo
@@ -1760,6 +1758,7 @@ def _patch_environment(
         home_dir,
         parent=readonly_localEnv,
         can_be_empty=True,
+        overrides=dict(safe_mode=True),
     )
     assert localEnv.project
     repo = localEnv.project.project_repoview.gitrepo
@@ -1898,6 +1897,36 @@ def _get_commit_msg(body, default_msg):
     return msg
 
 
+_CLOUD_VARS_PATH = re.compile(r"/api/v4/projects/[^/]+/variables/?\Z")
+
+
+def _rejected_cloud_vars_url(url: str) -> str:
+    """Why this server may not fetch `url`, or "" if it may.
+
+    The server fetches this itself (see `Project._load_cloud_vars`) and the
+    client puts a private token in the query string -- see
+    `unfurl_cloud_vars_url()` in unfurl-gui -- so an unchecked value would
+    let a caller point the server at any host and hand that host the token.
+
+    Accept only the project-variables endpoint on the configured
+    UNFURL_CLOUD_SERVER.
+    """
+    base = current_app.config.get("UNFURL_CLOUD_SERVER") or ""
+    base_parts = urlparse(base)
+    parts = urlparse(url)
+    if not base_parts.hostname:
+        # a local path, as the unit tests configure: no origin to match
+        reason = f"UNFURL_CLOUD_SERVER is not a url: {base!r}"
+    elif (parts.hostname, parts.port) != (base_parts.hostname, base_parts.port):
+        reason = f"not on {base_parts.hostname}"
+    elif not _CLOUD_VARS_PATH.fullmatch(parts.path):
+        reason = "not the project-variables endpoint"
+    else:
+        return ""
+    logger.warning("rejecting cloud_vars_url %s: %s", reason, sanitize_url(url))
+    return reason
+
+
 def _patch_ensemble(
     body: dict,
     create: bool,
@@ -1917,6 +1946,15 @@ def _patch_ensemble(
             return create_error_response(
                 "BAD_REQUEST",
                 f'Cannot create deployment with reserved name: "{invalid}"',
+            )
+    cloud_vars_url = body.get("cloud_vars_url") or ""
+    if cloud_vars_url:
+        # checked here rather than where it is used, so a request carrying
+        # one we won't fetch is refused before any repository is cloned
+        rejected = _rejected_cloud_vars_url(cloud_vars_url)
+        if rejected:
+            return create_error_response(
+                "BAD_REQUEST", f"invalid cloud_vars_url: {rejected}"
             )
     branch_err, branch = _branch_from_body(body)
     if branch_err:
@@ -2012,7 +2050,6 @@ def _patch_ensemble(
             body.get("blueprint_url"),
             _get_author(request),
         )
-    cloud_vars_url = body.get("cloud_vars_url") or ""
     # set the UNFURL_CLOUD_VARS_URL because we may need to encrypt with vault secret when we commit changes.
     # set apply_url_credentials=True so that we reuse the credentials when cloning other repositories on this server
     overrides = dict(
@@ -2020,15 +2057,19 @@ def _patch_ensemble(
         apply_url_credentials=True,
         # we need to decrypt/encrypt yaml but we can skip secret files (expensive)
         skip_secret_files=True,
+        safe_mode=True,
     )
-    if cloud_vars_url:
+    if cloud_vars_url:  # validated above
         overrides["UNFURL_CLOUD_VARS_URL"] = cloud_vars_url
     if gui_mode:
         overrides["UNFURL_SKIP_UPSTREAM_CHECK"] = True
         overrides["use_local_cache"] = True
     ensure_local_config(parent_localenv.project.projectRoot)
     local_env = LocalEnv(
-        clone_location, current_working_dir, parent=parent_localenv, overrides=overrides
+        clone_location,
+        current_working_dir,
+        parent=parent_localenv,
+        overrides=overrides,
     )
     local_env.make_resolver = make_resolver
     # don't validate in case we are still an incomplete draft
@@ -2056,7 +2097,11 @@ def _patch_ensemble(
             # wouldn't iterate the new deployment.
             if create and app.config.get("UNFURL_GUI_MODE"):
                 refresh_current_localenv()
-            if isinstance(manifest.repo, GitRepo) and not app.config.get("UNFURL_GUI_MODE") and not batched:
+            if (
+                isinstance(manifest.repo, GitRepo)
+                and not app.config.get("UNFURL_GUI_MODE")
+                and not batched
+            ):
                 err = _push_changes(
                     manifest.repo, username, password, starting_revision
                 )

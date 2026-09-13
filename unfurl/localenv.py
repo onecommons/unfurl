@@ -770,6 +770,61 @@ class Project:
         )
         return saved
 
+    def _load_cloud_vars(
+        self, url: str, warnWhenNotFound: bool
+    ) -> Tuple[str, Optional[list]]:
+        """Fetch the environment's CI variables, bypassing safe mode.
+
+        `YamlConfig.load_yaml` refuses every remote document in safe mode,
+        which is right for a url the project itself names. This one isn't:
+        the server sets `UNFURL_CLOUD_VARS_URL` as an override (see
+        `_patch_ensemble` in server/endpoints.py), so it is trusted even
+        though the project being loaded is not. The caller has already
+        checked the url is exactly that override.
+
+        The url is gitlab's list-project-variables endpoint, so the reply is
+        a json array of variable objects -- the shape `_maplist` expects.
+        """
+        import json
+        import urllib.error
+        from urllib.request import urlopen
+
+        logger.trace("retrieving cloud vars: %s", url)
+        try:
+            with urlopen(url) as f:
+                return url, json.load(f)
+        except urllib.error.URLError:
+            if warnWhenNotFound:
+                logger.warning("cloud vars %s could not be retrieved", url)
+                return url, None
+            raise
+
+    def _environment_for_include(self, url_vars: dict, expanded) -> Optional[str]:
+        """The environment whose variables a `maplist` include should select.
+
+        Falls back to the one the current ensemble uses when ENVIRONMENT
+        isn't set -- we're still loading, so `manifest_environment_name`
+        isn't available yet.
+        """
+        environment = url_vars.get("ENVIRONMENT")
+        if environment:
+            return environment
+        environment = expanded and expanded.get("default_environment")
+        ensembles = expanded and expanded.get("ensembles") or []
+        if "manifest_path" in url_vars:
+            ensemble_tpl = self._find_ensemble_by_path(
+                ensembles, self.projectRoot, url_vars["manifest_path"]
+            )
+        elif "manifest_alias" in url_vars:
+            ensemble_tpl = self._find_ensemble_by_name(
+                ensembles, url_vars["manifest_alias"]
+            )
+        else:
+            ensemble_tpl = LocalConfig._get_default_manifest_tpl(ensembles)
+        if ensemble_tpl:
+            environment = ensemble_tpl.get("environment", environment)
+        return environment
+
     def load_yaml_include(
         self,
         yamlConfig: YamlConfig,
@@ -809,26 +864,15 @@ class Project:
             return key, None
         assert isinstance(key, str)
         key = substitute_env(key, url_vars)
-        includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
+        # a yaml include is a mapping; the cloud-vars endpoint returns a
+        # json array of variable objects
+        template: Union[dict, list, None]
+        if key and key == self.overrides.get("UNFURL_CLOUD_VARS_URL"):
+            includekey, template = self._load_cloud_vars(key, warnWhenNotFound)
+        else:
+            includekey, template = yamlConfig.load_yaml(key, baseDir, warnWhenNotFound)
         if merge == "maplist" and template is not None:
-            environment = url_vars.get("ENVIRONMENT")
-            if not environment:
-                # find the name of the environment that the current ensemble's is using
-                # (we're still loading, so can't use manifest_environment_name)
-                environment = expanded and expanded.get("default_environment")
-                ensembles = expanded and expanded.get("ensembles") or []
-                if "manifest_path" in url_vars:
-                    ensemble_tpl = self._find_ensemble_by_path(
-                        ensembles, self.projectRoot, url_vars["manifest_path"]
-                    )
-                elif "manifest_alias" in url_vars:
-                    ensemble_tpl = self._find_ensemble_by_name(
-                        ensembles, url_vars["manifest_alias"]
-                    )
-                else:
-                    ensemble_tpl = LocalConfig._get_default_manifest_tpl(ensembles)
-                if ensemble_tpl:
-                    environment = ensemble_tpl.get("environment", environment)
+            environment = self._environment_for_include(url_vars, expanded)
             template = CommentedMap(_maplist(template, environment))
             logger.debug(
                 "retrieved remote environment vars for %s: %s",

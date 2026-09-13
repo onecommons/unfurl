@@ -310,6 +310,7 @@ class ReadOnlyManifest(Manifest):
             self.load_yaml_include,
             vault,
             readonly,
+            self.safe_mode,
         )
         if self.manifest.path:
             logger.debug("loaded ensemble manifest at %s", self.manifest.path)

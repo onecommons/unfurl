@@ -3929,3 +3929,44 @@ def test_cors_explicit_origins_override_cloud_server(monkeypatch):
     isolated = APIFlask(__name__)
     server.configure_app(isolated)
     assert isolated.config["UNFURL_SERVE_CORS"] == "https://a.test https://b.test"
+
+
+def test_cloud_vars_url_rejected_with_400():
+    """A cloud_vars_url this server won't fetch is a bad request.
+
+    The server fetches that url itself and the client puts a private token
+    in its query string, so one pointing anywhere else would hand the token
+    away. Dropping it instead would give a request that succeeds while the
+    environment's variables are silently missing.
+    """
+    runner = CliRunner()
+    p = None
+    with runner.isolated_filesystem():
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), name="cloud-vars-url"
+            )
+            url = f"http://{HOST}:{port}/update_ensemble?auth_project=remote"
+            body = {
+                "patch": json.loads(patch.format("target")),
+                "latest_commit": last_commit,
+                "branch": "main",
+            }
+
+            res = requests.post(
+                url,
+                json={
+                    **body,
+                    "cloud_vars_url": (
+                        "https://evil.test/api/v4/projects/42/variables"
+                        "?private_token=SECRET"
+                    ),
+                },
+            )
+            assert res.status_code == 400, f"{res.status_code}: {res.text!r}"
+            assert "cloud_vars_url" in res.text
+            # the reason travels back; the url (and its token) must not
+            assert "SECRET" not in res.text and "evil.test" not in res.text
+        finally:
+            if p:
+                _terminate_process(p)
