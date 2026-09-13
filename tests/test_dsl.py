@@ -73,6 +73,33 @@ def _to_python(
     return src, tosca_yaml
 
 
+@pytest.fixture(autouse=True)
+def _no_leaked_import_resolver():
+    """Run these with no ImportResolver installed, as they do in isolation.
+
+    `tosca.loader.install()` sets a module-level global and has no
+    counterpart, so any earlier test that ran a job (test_tosca's
+    test_import and test_workflows, via job.py) leaves unfurl's
+    ImportResolver installed for the rest of the process. Repository
+    declarations in the DSL then register through it, and
+    `ImportResolver._create_repository` rewrites a scp-style git url --
+    "git@example.com" becomes "ssh://git@example.com" -- which the
+    round-trip comparisons here don't expect. Whether that rewrite belongs
+    there is a separate question; this only keeps it out of these tests.
+    """
+    import tosca.loader
+
+    saved = (tosca.loader.import_resolver, tosca.loader.service_template_basedir)
+    tosca.loader.import_resolver = None
+    try:
+        yield
+    finally:
+        (
+            tosca.loader.import_resolver,
+            tosca.loader.service_template_basedir,
+        ) = saved
+
+
 def _to_yaml(python_src: str, safe_mode) -> dict:
     namespace: dict = {}
     current = globals._annotate_namespaces
