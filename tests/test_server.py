@@ -13,6 +13,16 @@ import unittest.mock
 import urllib.request
 from functools import partial
 from multiprocessing import Process, set_start_method, get_context, Queue
+
+# Every process below that runs `serve()` uses get_context("spawn"), not the
+# platform default. Under fork (the default on Linux) the child inherits this
+# process's module-level Flask `app`; if anything in this xdist worker has
+# already driven a request through it -- test_cloudmap.py's app.test_client()
+# calls, say -- `configure_app`'s `CORS(app, ...)` trips flask's "The setup
+# method 'after_request' can no longer be called on the application"
+# assertion, the server exits before it binds, and the test fails with
+# "server process exited prematurely". Spawn re-imports serve.py, so the
+# child always gets a clean app.
 from typing import Optional
 
 import requests
@@ -674,7 +684,7 @@ def runner(request):
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
         os.environ["UNFURL_LOGGING"] = "TRACE"
-        ctx = get_context()
+        ctx = get_context("spawn")
         error_queue = ctx.Queue()
         server_process = ctx.Process(
             target=serve_server,
@@ -742,7 +752,7 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
         extra_env["UNFURL_LOGGING"] = os.environ.get("UNFURL_LOGGING", "debug")
 
     os.makedirs("server")
-    ctx = get_context()
+    ctx = get_context("spawn")
     error_queue = ctx.Queue()
     p = ctx.Process(
         target=serve_server,
@@ -944,7 +954,7 @@ def test_server_export_local(server_env):
     runner = CliRunner()
     port = _next_port()
     with runner.isolated_filesystem() as tmpdir:
-        ctx = get_context()
+        ctx = get_context("spawn")
         error_queue = ctx.Queue()
         p = ctx.Process(
             target=serve_server,
@@ -1004,7 +1014,7 @@ def test_server_export_remote(server_env):
     use_rust = "rust" in server_env
     with runner.isolated_filesystem():
         port = _next_port()
-        ctx = get_context()
+        ctx = get_context("spawn")
         error_queue = ctx.Queue()
         # When the Rust proxy is active, redirect its logs to a temp file
         # so we can assert on cache hit/miss messages.
@@ -1797,7 +1807,7 @@ def test_empty_cache(server_env):
     with runner.isolated_filesystem():
         p = None
         try:
-            ctx = get_context()
+            ctx = get_context("spawn")
             error_queue = ctx.Queue()
             p = ctx.Process(
                 target=serve_server,
@@ -2122,11 +2132,6 @@ def _start_gui_server(project_dir, name=""):
         prefix=f"py-gui-{name or 'server'}-", suffix=".log"
     )
     os.close(py_log_fd)
-    # spawn, not the platform default: under fork the child inherits this
-    # process's module-level Flask `app`, and if anything in this xdist
-    # worker has already driven a request through it, `configure_app`'s
-    # CORS(app, ...) trips flask's "setup method after first request"
-    # assertion. Spawn re-imports serve.py, so the child gets a clean app.
     ctx = get_context("spawn")
     error_queue = ctx.Queue()
     p = ctx.Process(
@@ -2491,7 +2496,7 @@ def test_server_cloudmap(server_env):
             extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
             extra_env["UNFURL_CLOUDMAP_DB_URL"] = _cloudmap_db_url()
 
-        ctx = get_context()
+        ctx = get_context("spawn")
         error_queue = ctx.Queue()
         p = ctx.Process(
             target=serve_server,
@@ -3427,7 +3432,7 @@ def test_cloudmap_proxy_round_trip(server_env):
             extra_env["UNFURL_CLOUDMAP_REPO"] = os.path.abspath(".")
             extra_env["UNFURL_CLOUDMAP_DB_URL"] = _cloudmap_db_url()
 
-        ctx = get_context()
+        ctx = get_context("spawn")
         error_queue = ctx.Queue()
         p = ctx.Process(
             target=serve_server,
