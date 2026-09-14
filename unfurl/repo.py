@@ -751,6 +751,8 @@ class RepoView:
             )
         self.read_only = False
         self.package: Optional[Union[Literal[False], "Package"]] = None
+        # set by Package.add_reference() when a package rule rewrites the url
+        self.original_url: Optional[str] = None
         self._loaded_secrets = False
 
     def __getstate__(self):

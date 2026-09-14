@@ -6,6 +6,7 @@ from click.testing import CliRunner
 from unfurl.__main__ import cli
 import git
 import pytest
+from toscaparser.common.exception import FatalToscaImportError
 from unfurl.localenv import LocalEnv
 from unfurl.packages import (
     PackageSpec,
@@ -746,6 +747,114 @@ def test_proxied_repo_is_dirty_after_convert(proxied_repo_with_origin):
     with open(os.path.join(wd, "dummy.txt"), "w") as f:
         f.write("changed")
     assert repo.is_dirty()
+
+
+# The repository as it is declared, and the url a package rule rewrites it to.
+DECLARED_URL = "https://unfurl.test/onecommons/std.git"
+REWRITTEN_URL = "https://gitlab.test/onecommons/std.git"
+
+_TYPES_YAML = """\
+tosca_definitions_version: tosca_simple_unfurl_1_0_0
+node_types:
+  %s:
+    derived_from: tosca.nodes.Root
+"""
+
+
+def _imports(*files: str) -> str:
+    return "tosca_definitions_version: tosca_simple_unfurl_1_0_0\nimports:\n" + "".join(
+        f"  - file: {f}\n" for f in files
+    )
+
+
+def _make_project(tmp_path, declared_url: str, files: dict) -> str:
+    """Write a project declaring `std` at declared_url, cloned from REWRITTEN_URL.
+
+    `files` are written into the clone; the ensemble imports its "main.yaml".
+    Returns the path of the ensemble manifest.
+    """
+    project = tmp_path / "project"
+    std = project / "std"
+    for name, contents in files.items():
+        path = std / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(contents)
+    std_repo = git.Repo.init(std, initial_branch="main")
+    std_repo.create_remote("origin", REWRITTEN_URL)
+    std_repo.git.add(all=True)
+    std_repo.index.commit("initial")
+
+    (project / "unfurl.yaml").write_text(
+        "apiVersion: unfurl/v1alpha1\nkind: Project\nenvironments:\n  defaults: {}\n"
+    )
+    ensemble = project / "ensemble"
+    ensemble.mkdir()
+    (ensemble / "ensemble.yaml").write_text(
+        f"""\
+apiVersion: unfurl/v1alpha1
+kind: Ensemble
+spec:
+  service_template:
+    repositories:
+      std:
+        url: {declared_url}
+        revision: main
+    imports:
+      - repository: std
+        file: main.yaml
+"""
+    )
+    return str(ensemble / "ensemble.yaml")
+
+
+@pytest.fixture
+def rewritten_package_env(monkeypatch):
+    monkeypatch.setenv(
+        "UNFURL_PACKAGE_RULES", "unfurl.test/onecommons/* gitlab.test/onecommons/*"
+    )
+    monkeypatch.setenv("UNFURL_HOME", "")
+    # .test never resolves; without this the loader tries to pull from it
+    monkeypatch.setenv("UNFURL_SKIP_UPSTREAM_CHECK", "1")
+
+
+def test_import_nested_in_rewritten_package(tmp_path, rewritten_package_env):
+    """Imports nested in a repository a package rule rewrote still resolve."""
+    manifest_path = _make_project(
+        tmp_path,
+        DECLARED_URL,
+        {"main.yaml": _imports("types.yaml"), "types.yaml": _TYPES_YAML % "Marker"},
+    )
+    manifest = LocalEnv(manifest_path).get_manifest(skip_validation=True, safe_mode=True)
+
+    repo_view = manifest.repositories["std"]
+    assert repo_view.original_url == DECLARED_URL, "the rule should have rewritten it"
+    assert repo_view.url != DECLARED_URL
+
+    custom_defs = manifest.tosca.template.topology_template.custom_defs
+    assert [name for name in custom_defs if name.startswith("Marker")], (
+        f"types.yaml was not imported: {sorted(custom_defs)}"
+    )
+
+
+def test_nested_import_confined_to_rewritten_package_path(
+    tmp_path, rewritten_package_env
+):
+    """A repository pinned to a subdirectory confines its nested imports to it.
+
+    The whole clone is a git repository, so falling back to the containing repo
+    would confine only to the clone root and let "../" out of the subdirectory.
+    """
+    manifest_path = _make_project(
+        tmp_path,
+        DECLARED_URL + "#:subdir",
+        {
+            "subdir/main.yaml": _imports("../outside.yaml"),
+            "outside.yaml": _TYPES_YAML % "Escaped",
+        },
+    )
+    with pytest.raises(FatalToscaImportError) as err:
+        LocalEnv(manifest_path).get_manifest(skip_validation=True, safe_mode=True)
+    assert "can not import" in str(err.value), err.value
 
 
 if __name__ == "__main__":

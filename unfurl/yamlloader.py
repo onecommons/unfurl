@@ -863,11 +863,34 @@ class ImportResolver(toscaparser.imports.ImportResolver):
                 return True
         return False
 
+    def _find_repoview_by_url(self, git_url: str) -> Optional[RepoView]:
+        """Find an already resolved repository by its current or its declared url."""
+        if not self.manifest:
+            return None
+        normalized = normalize_git_url_hard(git_url)
+        candidate = None
+        for repo_view in self.manifest.repositories.values():
+            urls = [repo_view.url]
+            if repo_view.original_url:
+                urls.append(repo_view.original_url)
+            if not any(
+                normalize_git_url_hard(split_git_url(u)[0]) == normalized for u in urls
+            ):
+                continue
+            if repo_view.repo:
+                return repo_view
+            candidate = repo_view  # keep looking for one that was cloned
+        return candidate
+
     def _find_repoview(self, url: str) -> RepoView:
         git_url, path, revision = split_git_url(url)  # we only support git urls
         assert self.local_env
         repo_view, resolved_url, exact = self.local_env._find_repo(git_url, revision)
         if repo_view is None:
+            # a package rule may have rewritten the url this was cloned from
+            found = self._find_repoview_by_url(git_url)
+            if found is not None:
+                return found
             # repo wasn't not found, resolved_url is the git_url (with credentials possibly applied)
             # create new RepoView for this url
             name = Repo.get_path_for_git_repo(resolved_url, name_only=True)
@@ -1092,8 +1115,12 @@ class ImportResolver(toscaparser.imports.ImportResolver):
         if repository_root and toscaparser.imports.is_url(repository_root):
             # we're resolving a path inside a repository
             repo_view = self._find_repoview(repository_root)
-            assert repo_view  # so we must have resolved it before
-            repository_root = repo_view.working_dir
+            if repo_view.repo:  # so we must have resolved it before
+                repository_root = repo_view.working_dir
+            else:
+                repo = Repo.find_containing_repo(url)
+                # with no repository to confine to, fall back to the project
+                repository_root = repo.working_dir if repo else None
         if self._has_path_escaped_base(url, repository_root):
             return None, None
         return url, (True, None, base, file_name)

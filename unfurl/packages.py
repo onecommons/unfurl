@@ -576,6 +576,10 @@ class Package:
         if repoview not in self.repositories:
             self.repositories.append(repoview)
             repoview.package = self
+            if repoview.original_url is None:
+                # imports nested in this repository are resolved against the
+                # url it declared, not the one we're about to rewrite it to
+                repoview.original_url = repoview.repository.url
             # we need to set the path, url, and revision to match the package
             if self.revision and is_url_or_git_path(self.url):
                 url, repopath, urlrevision = split_git_url(self.url)
