@@ -1787,12 +1787,7 @@ def export(ctx, path: str, format, file, overwrite, python_target, **options):
     try:
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""),
                     skip_secret_files=True)
-        local_env = LocalEnv(
-            path,
-            options.get("home"),
-            overrides=overrides,
-            readonly=True,
-        )
+        local_env = _get_local_env(path, options, overrides)
     except Exception:
         if format != "python":
             raise
@@ -1933,26 +1928,7 @@ def validate(ctx, path, **options):
         overrides = dict(ENVIRONMENT=options.get("use_environment", ""))
         if options.get("as_template") or "template" in path:  # hack!
             overrides["format"] = "blueprint"
-        localEnv = LocalEnv(
-            path, options.get("home"), overrides=overrides, can_be_empty=True
-        )
-        if localEnv.manifestPath:
-            # report validation errors instead of aborting
-            localEnv.get_manifest(skip_validation=True)
-        elif localEnv.project:
-            # found project without an ensemble, try to validate the ensemble-template.yaml
-            template = os.path.join(
-                localEnv.project.projectRoot, DefaultNames.EnsembleTemplate
-            )
-            if not os.path.isfile(template):
-                click.echo(
-                    f"No ensemble or ensemble template found in project at {localEnv.project.projectRoot}"
-                )
-            else:
-                overrides["format"] = "blueprint"
-                localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
-                # report validation errors instead of aborting
-                localEnv.get_manifest(skip_validation=True)
+        localEnv = _get_local_env(path, options, overrides)
     except UnfurlBadDocumentError as e:
         if path.endswith(".py"):
             doc_type = "Python"
@@ -1992,6 +1968,29 @@ def validate(ctx, path, **options):
         from .cloudmap import CloudMapDB
 
         CloudMapDB(path)
+
+def _get_local_env(path, options, overrides):
+    localEnv = LocalEnv(
+        path, options.get("home"), overrides=overrides, can_be_empty=True
+    )
+    if localEnv.manifestPath:
+        # report validation errors instead of aborting
+        localEnv.get_manifest(skip_validation=True)
+    elif localEnv.project:
+        # found project without an ensemble, try to validate the ensemble-template.yaml
+        template = os.path.join(
+            localEnv.project.projectRoot, DefaultNames.EnsembleTemplate
+        )
+        if not os.path.isfile(template):
+            click.echo(
+                f"No ensemble or ensemble template found in project at {localEnv.project.projectRoot}"
+            )
+        else:
+            overrides["format"] = "blueprint"
+            localEnv = LocalEnv(template, options.get("home"), overrides=overrides)
+            # report validation errors instead of aborting
+            localEnv.get_manifest(skip_validation=True)
+    return localEnv
 
 
 @info_cli.command()
