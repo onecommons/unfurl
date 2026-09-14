@@ -102,6 +102,7 @@ class Project:
         overrides: Optional[dict] = None,
         readonly: Optional[bool] = False,
         register: bool = False,
+        safe_mode: Optional[bool] = None,
     ):
         assert isinstance(path, str), path
         if os.path.isdir(path):
@@ -110,7 +111,11 @@ class Project:
         self.overrides = overrides or {}
         # set by the server (see _make_readonly_localenv): the project being
         # loaded is untrusted, so its includes must not reach out of it
-        safe_mode = self.safe_mode = bool(self.overrides.get("safe_mode"))
+        safe_mode = self.safe_mode = (
+            safe_mode
+            if safe_mode is not None
+            else bool(self.overrides.get("safe_mode"))
+        )
         if os.path.exists(path):
             self.localConfig = LocalConfig(
                 path,
@@ -1435,7 +1440,9 @@ class LocalEnv:
                     self.homeConfigPath,
                 )
             else:
-                homeProject = self.get_project(self.homeConfigPath, None)
+                homeProject = self.get_project(
+                    self.homeConfigPath, None, safe_mode=False
+                )
                 if not homeProject:
                     self.logger.warning(
                         'Could not load home project at: "%s"', self.homeConfigPath
@@ -1520,11 +1527,22 @@ class LocalEnv:
                 self._manifests[self.manifestPath] = manifest
             return manifest
 
-    def get_project(self, path: str, homeProject: Optional[Project]) -> Project:
+    def get_project(
+        self,
+        path: str,
+        homeProject: Optional[Project],
+        safe_mode: Optional[bool] = None,
+    ) -> Project:
         path = Project.normalize_path(path)
         project = self._projects.get(path)
         if not project:
-            project = Project(path, homeProject, self.overrides, readonly=self.readonly)
+            project = Project(
+                path,
+                homeProject,
+                self.overrides,
+                readonly=self.readonly,
+                safe_mode=safe_mode,
+            )
             self._projects[path] = project
         return project
 
