@@ -1351,17 +1351,22 @@ def get_blueprint_from_topology(
     templates = get_deployment_blueprints(manifest, blueprint, root_name, db)
 
     deployment_blueprint_name = manifest.context.get("deployment_blueprint")
-    if deployment_blueprint_name and deployment_blueprint_name in templates:
-        deployment_blueprint = templates[deployment_blueprint_name]
-        template = deployment_blueprint.copy()
-    else:
-        template = DeploymentTemplate()  # type: ignore
+    # Prefer the deployment template that has the current one as its "source" if available
+    template = DeploymentTemplate()  # type: ignore[typeddict-item]
+    if deployment_blueprint_name:
+        for _name, _tpl in templates.items():
+            if _tpl.get("source") == deployment_blueprint_name:
+                deployment_blueprint_name = _name
+                break
+        if deployment_blueprint_name in templates:
+            deployment_blueprint = templates[deployment_blueprint_name]
+            template = deployment_blueprint.copy()
 
     # the deployment template created for this deployment will have a "source" key
     # so if it doesn't (or one wasn't set) create a new one and set the current one as its "source"
     if "source" not in template:
         dt = generate_deployment_template(manifest, db, deployment_blueprint_name)
-        template.update(dt)  # type: ignore
+        template.update(dt)
         templates[dt["name"]] = template
         if not blueprint.get("primaryDeploymentBlueprint"):
             blueprint["primaryDeploymentBlueprint"] = dt["name"]
