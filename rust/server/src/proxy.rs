@@ -5,7 +5,7 @@
 use axum::{
     body::Body,
     extract::Request,
-    http::{HeaderMap, HeaderValue, StatusCode, Uri},
+    http::{header, HeaderMap, HeaderValue, StatusCode, Uri},
     response::{IntoResponse, Response},
 };
 use reqwest::Client;
@@ -95,10 +95,27 @@ fn is_hop_by_hop(name: &str) -> bool {
     )
 }
 
+/// Pseudonym this proxy identifies itself by in `Via`.
+const VIA_PSEUDONYM: &str = "unfurl-server";
+
+/// `received-protocol` for a `Via` entry: the HTTP version the response
+/// arrived on. The protocol name is omitted for HTTP, per RFC 9110.
+fn via_protocol(version: reqwest::Version) -> &'static str {
+    match version {
+        reqwest::Version::HTTP_09 => "0.9",
+        reqwest::Version::HTTP_10 => "1.0",
+        reqwest::Version::HTTP_2 => "2",
+        reqwest::Version::HTTP_3 => "3",
+        // HTTP_11 and anything newer than this match knows about
+        _ => "1.1",
+    }
+}
+
 /// Convert a reqwest::Response into an axum Response.
 async fn convert_response(resp: reqwest::Response) -> Response {
     let status =
         StatusCode::from_u16(resp.status().as_u16()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let via = format!("{} {}", via_protocol(resp.version()), VIA_PSEUDONYM);
     let mut headers = HeaderMap::new();
     for (name, value) in resp.headers().iter() {
         if is_hop_by_hop(name.as_str()) {
@@ -107,6 +124,14 @@ async fn convert_response(resp: reqwest::Response) -> Response {
         if let Ok(v) = HeaderValue::from_bytes(value.as_bytes()) {
             headers.insert(name.clone(), v);
         }
+    }
+    // Appended, not inserted: an upstream that already sent one has its
+    // own entry, and the chain is ordered. Only responses that actually
+    // passed through here get one -- a cache hit or a queue 409 is
+    // produced by this process, which makes it the origin rather than an
+    // intermediary, and `Server` identifies it there instead.
+    if let Ok(v) = HeaderValue::from_str(&via) {
+        headers.append(header::VIA, v);
     }
     let body = resp.bytes().await.unwrap_or_default();
     let mut response = Response::new(Body::from(body));

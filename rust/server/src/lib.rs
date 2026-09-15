@@ -11,12 +11,14 @@ pub mod queue;
 pub mod routes;
 pub mod unfurl_types;
 
+use axum::http::{header, HeaderValue};
 use axum::{
     routing::{get, post},
     Router,
 };
 use std::sync::Arc;
 use tower_http::cors::CorsLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
 
 /// Shared application state available to all handlers.
@@ -27,6 +29,20 @@ pub struct AppState {
     pub redis: Option<redis::aio::MultiplexedConnection>,
     pub cloudmap: Option<cloudmap::CloudMapState>,
 }
+
+/// Value of the `Server` response header on responses this proxy produces
+/// itself -- a cache hit, a queue 409/503, a local cloudmap read.
+///
+/// Set `if_not_present`, so a response proxied from python keeps python's
+/// (`unfurl`, from waitress's `ident`). The header therefore says which
+/// server produced the body; it does not say whether this proxy was in
+/// front, which is what `Via` is for.
+///
+/// No version: RFC 9110 asks origin servers not to put needlessly
+/// fine-grained detail here, and the crate version has been 0.1.0 since
+/// the first commit, so it identifies nothing while still narrowing a
+/// fingerprint.
+const SERVER_IDENT: &str = "unfurl-server";
 
 /// Build the application router.
 ///
@@ -80,5 +96,10 @@ pub fn build_router(state: AppState, cors: Option<CorsLayer>) -> Router {
         Some(layer) => app.layer(layer),
         None => app,
     };
-    app.layer(TraceLayer::new_for_http()).with_state(state)
+    app.layer(SetResponseHeaderLayer::if_not_present(
+        header::SERVER,
+        HeaderValue::from_static(SERVER_IDENT),
+    ))
+    .layer(TraceLayer::new_for_http())
+    .with_state(state)
 }

@@ -190,3 +190,84 @@ fn invalid_origin_is_an_error() {
     let config = config_with_cors(Some("https://ok.test \u{7f}bad"));
     assert!(config.cors_layer().is_err());
 }
+
+/// The `Server` header says which server produced the response.
+///
+/// Set `if_not_present`, so a proxied body keeps python's `unfurl` and
+/// only what this proxy answered itself is labelled `unfurl-server`.
+/// Before this there was no marker at all on the proxy's own responses,
+/// and the two were indistinguishable.
+#[tokio::test]
+async fn server_header_distinguishes_proxy_from_backend() {
+    // Answered by the cors layer, so it never reaches a handler -- the
+    // layer has to sit outside it for this to be labelled.
+    let (_status, headers) = send(Some(ORIGIN), preflight("/export", ORIGIN)).await;
+    assert_eq!(headers.get(header::SERVER).unwrap(), "unfurl-server",);
+
+    // A backend that identifies itself the way waitress's `ident="unfurl"`
+    // does keeps its own header through the proxy.
+    let backend =
+        axum::Router::new().fallback(|| async { ([(header::SERVER, "unfurl")], "from backend") });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, backend).await.unwrap() });
+
+    let config = Config::parse_from(["unfurl-server", "--backend-url", &format!("http://{addr}")]);
+    let app = build_router(state(config), None);
+    let req = Request::builder()
+        .uri("/some/proxied/path")
+        .body(Body::empty())
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+    assert_eq!(
+        res.headers().get(header::SERVER).unwrap(),
+        "unfurl",
+        "a proxied response must not be relabelled as the proxy"
+    );
+    // `Server` alone can't say the proxy was in front of that response --
+    // it looks identical to reaching python directly. This is what does.
+    assert_eq!(res.headers().get(header::VIA).unwrap(), "1.1 unfurl-server");
+}
+
+/// `Via` marks the hop, so it belongs only on responses that took one.
+///
+/// A response this process produced itself is the origin of that
+/// response, not something relayed, and claiming a hop would make a
+/// cache hit indistinguishable from a proxied one.
+#[tokio::test]
+async fn via_is_absent_on_responses_the_proxy_originates() {
+    let (_status, headers) = send(Some(ORIGIN), preflight("/export", ORIGIN)).await;
+    assert_eq!(
+        headers.get(header::SERVER).unwrap(),
+        "unfurl-server",
+        "this is the proxy answering, so the next assertion means something"
+    );
+    assert!(!headers.contains_key(header::VIA));
+}
+
+/// An upstream that already sent a `Via` keeps its entry; ours is added
+/// to the chain rather than replacing it.
+#[tokio::test]
+async fn via_appends_to_an_existing_chain() {
+    let backend = axum::Router::new()
+        .fallback(|| async { ([(header::VIA, "1.1 upstream-gateway")], "from backend") });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move { axum::serve(listener, backend).await.unwrap() });
+
+    let config = Config::parse_from(["unfurl-server", "--backend-url", &format!("http://{addr}")]);
+    let app = build_router(state(config), None);
+    let req = Request::builder()
+        .uri("/some/proxied/path")
+        .body(Body::empty())
+        .unwrap();
+    let res = app.oneshot(req).await.unwrap();
+
+    let chain: Vec<_> = res
+        .headers()
+        .get_all(header::VIA)
+        .iter()
+        .map(|v| v.to_str().unwrap())
+        .collect();
+    assert_eq!(chain, vec!["1.1 upstream-gateway", "1.1 unfurl-server"]);
+}
