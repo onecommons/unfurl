@@ -372,6 +372,17 @@ async fn resolve_queued_request(
     let deadline =
         std::time::Instant::now() + std::time::Duration::from_secs(state.config.proxy_timeout_secs);
     loop {
+        // Checked per iteration, not per outcome: an arm that doesn't
+        // return would otherwise poll forever, and this is the only thing
+        // bounding a request that is holding a connection open.
+        if std::time::Instant::now() >= deadline {
+            tracing::warn!(
+                "queue wait timed out: project={} queueid={}",
+                project_id,
+                request_queueid
+            );
+            return Err(queue_retry_response());
+        }
         tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
         match queue::check_export_queue(&mut conn, &state.config, project_id, lc, request_queueid)
             .await
@@ -380,16 +391,7 @@ async fn resolve_queued_request(
             Ok(ExportQueueCheck::Failed { status, queueid }) => {
                 return Err(write_discarded_response(lc, status, queueid));
             }
-            Ok(ExportQueueCheck::Retry) => {
-                if std::time::Instant::now() >= deadline {
-                    tracing::warn!(
-                        "queue wait timed out: project={} queueid={}",
-                        project_id,
-                        request_queueid
-                    );
-                    return Err(queue_retry_response());
-                }
-            }
+            Ok(ExportQueueCheck::Retry) => {}
             Err(e) => {
                 tracing::error!("check_export_queue Redis error during wait: {}", e);
                 return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
