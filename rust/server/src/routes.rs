@@ -352,6 +352,9 @@ async fn resolve_queued_request(
     {
         Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
         Ok(ExportQueueCheck::Retry) => {} // fall through to kick + wait
+        Ok(ExportQueueCheck::Failed { status, queueid }) => {
+            return Err(write_discarded_response(lc, status, queueid));
+        }
         Err(e) => {
             tracing::error!("check_export_queue Redis error: {}", e);
             return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
@@ -374,6 +377,9 @@ async fn resolve_queued_request(
             .await
         {
             Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
+            Ok(ExportQueueCheck::Failed { status, queueid }) => {
+                return Err(write_discarded_response(lc, status, queueid));
+            }
             Ok(ExportQueueCheck::Retry) => {
                 if std::time::Instant::now() >= deadline {
                     tracing::warn!(
@@ -451,6 +457,30 @@ fn queue_retry_response() -> Response {
         StatusCode::SERVICE_UNAVAILABLE,
         [(header::RETRY_AFTER, "1")],
         body,
+    )
+        .into_response()
+}
+
+/// Build the 409 returned when the queued write a read is waiting on was
+/// discarded.
+///
+/// 409 rather than 503 because retrying is futile and the client already
+/// treats 409 as "clear your stored commit". The distinct `code` is
+/// because the wording differs from a real conflict -- "your last change
+/// wasn't saved", not "someone else changed this". `latest_commit` is in
+/// the body so the client can re-read without a round trip to find out
+/// where it stands. No `Retry-After`.
+fn write_discarded_response(latest_commit: &str, status: u16, queueid: i64) -> Response {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({
+            "code": "WRITE_DISCARDED",
+            "message": format!(
+                "a queued write against this commit was discarded: backend returned {status}"
+            ),
+            "latest_commit": latest_commit,
+            "queueid": queueid,
+        })),
     )
         .into_response()
 }

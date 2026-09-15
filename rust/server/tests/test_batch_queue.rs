@@ -8,12 +8,16 @@
 //! Run with:
 //!   UNFURL_TEST_REDIS_URL="redis://localhost:6379/2" cargo test --test test_batch_queue
 
+use axum::body::Body;
+use axum::http::{Request, StatusCode};
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tokio::net::TcpListener;
+use tower::ServiceExt;
 use unfurl_server::config::Config;
 use unfurl_server::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem};
+use unfurl_server::{build_router, AppState};
 
 /// Return the Redis URL from the environment, or `None` to skip.
 fn redis_url() -> Option<String> {
@@ -39,6 +43,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs,
         worker_poll_interval_secs: 0.05,
+        failed_sentinel_ttl_secs: 3600,
         cloudmap_repo: None,
         cloudmap_db_url: None,
         cloudmap_force: false,
@@ -1169,14 +1174,35 @@ async fn failed_batch_marks_queue_key() {
         },
     );
 
-    // Regression guard: the sentinel must not parse as a commit hash.
-    // `check_export_queue` splits on ',' and treats the left side as a
-    // revision, so a comma in the sentinel would send /export chasing a
-    // commit that was never created.
+    // The read path has to report it too: a create-then-read flow never
+    // issues the second write that inc_queueid above would fail, so
+    // without this /export polls 503 to a timeout and the UI reports
+    // success. Asserting Failed also keeps the "no comma in the
+    // sentinel" guard honest -- a comma would make the left side parse
+    // as a revision and return UseNewCommit for a commit that was never
+    // created.
     let export = queue::check_export_queue(&mut conn, &config, project, commit, 1)
         .await
         .unwrap();
-    assert_eq!(export, ExportQueueCheck::Retry);
+    assert_eq!(
+        export,
+        ExportQueueCheck::Failed {
+            status: 401,
+            queueid: 0
+        },
+    );
+
+    // The sentinel is bounded: a poisoned commit key must not outlive
+    // the clients that could still be holding that commit.
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(&queue_key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!(
+        ttl > 0 && ttl <= config.failed_sentinel_ttl_secs as i64,
+        "sentinel should expire, got TTL {ttl}"
+    );
 
     cleanup_keys(&mut conn, prefix).await;
     handle.abort();
@@ -1257,4 +1283,191 @@ async fn unreachable_backend_marks_queue_key() {
 
     cleanup_keys(&mut conn, prefix).await;
     handle.abort();
+}
+
+// ---------------------------------------------------------------------------
+// The 409 a read gets when the write it is waiting on was discarded
+// ---------------------------------------------------------------------------
+
+/// `GET /export?queueid=N` against the real router, with Redis wired up.
+///
+/// `redis: None` (what the other router tests use) makes
+/// `resolve_queued_request` return before it ever consults the queue, so
+/// reaching the queue paths at all needs a live connection here.
+async fn export_with_queueid(
+    config: &Config,
+    conn: redis::aio::MultiplexedConnection,
+    project: &str,
+    commit: &str,
+    queueid: i64,
+) -> (StatusCode, JsonValue) {
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        client: reqwest::Client::new(),
+        redis: Some(conn),
+        cloudmap: None,
+    };
+    let uri = format!(
+        "/export?auth_project={}&latest_commit={}&queueid={}",
+        urlencoding::encode(project),
+        commit,
+        queueid
+    );
+    let req = Request::builder().uri(uri).body(Body::empty()).unwrap();
+    let res = build_router(state, None).oneshot(req).await.unwrap();
+    let status = res.status();
+    let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let body = serde_json::from_slice(&bytes).unwrap_or(JsonValue::Null);
+    (status, body)
+}
+
+/// The shape the unfurl-gui client matches on.
+///
+/// `check_export_queue` returning `Failed` is only half the fix -- the
+/// route has to turn it into a terminal answer. 409 and not 503 because
+/// retrying is futile, and the client already treats 409 as "clear your
+/// stored commit". `latest_commit` rides along so it can re-read without
+/// a round trip to find out where it stands.
+#[tokio::test]
+async fn discarded_write_answers_export_with_409() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "export_discarded";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_discarded";
+    let commit = "commit_x";
+
+    // No sentinel yet: the request must not be answered 409 on the
+    // strength of a queueid alone, or an ordinary wait looks like a
+    // dropped write. Given its own 1s wait budget because this is the
+    // one case that deliberately runs the budget out.
+    let impatient = Config {
+        proxy_timeout_secs: 1,
+        ..config.clone()
+    };
+    let (status, _) = export_with_queueid(&impatient, conn.clone(), project, commit, 3).await;
+    assert_eq!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "a write still in flight is a retry, not a discard"
+    );
+
+    // What `mark_batch_failed` leaves behind. Written directly so this
+    // test pins the route's behaviour and not the worker's.
+    let queue_key = config.queue_entry_key(project, commit);
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("failed:401:2")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let started = std::time::Instant::now();
+    let (status, body) = export_with_queueid(&config, conn.clone(), project, commit, 3).await;
+    let waited = started.elapsed();
+    assert_eq!(status, StatusCode::CONFLICT, "body: {body}");
+    // Answered by the check before the wait loop, not by the one inside
+    // it. Both arms return the same 409, so elapsed time is what tells
+    // them apart: the loop sleeps a full poll interval (100ms) before its
+    // first look, and the connection is already warm from the request
+    // above.
+    assert!(
+        waited < std::time::Duration::from_millis(100),
+        "a sentinel that is already there should not go through the wait \
+         loop, took {waited:?}"
+    );
+    assert_eq!(body["code"], "WRITE_DISCARDED", "body: {body}");
+    assert_eq!(body["latest_commit"], commit, "body: {body}");
+    assert_eq!(body["queueid"], 2, "body: {body}");
+    // The backend status belongs in the message: "your last change wasn't
+    // saved" reads differently from a real conflict, and the client shows
+    // it verbatim.
+    assert!(
+        body["message"].as_str().unwrap_or_default().contains("401"),
+        "message should name the status that discarded it: {body}"
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// A batch can fail while a client is already blocked in the wait loop.
+///
+/// Creation is a write-then-read flow, so the read usually arrives
+/// *before* the worker has forwarded anything -- it goes past the fast
+/// path into the poll loop, and the failure lands there. Without the arm
+/// inside the loop this polls until `proxy_timeout_secs` and answers 503,
+/// telling the client to retry a write that is already gone.
+#[tokio::test]
+async fn discarded_write_is_reported_to_a_waiting_reader() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "export_discarded_wait";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_waiting";
+    let commit = "commit_y";
+    let queue_key = config.queue_entry_key(project, commit);
+
+    // The pre-batch value a client's write left behind: no commit yet, so
+    // the fast path says Retry and the request enters the loop.
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg("1")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // Fail the batch after the reader is already waiting. The loop polls
+    // every 100ms and `test_config` gives it a 10s budget, so this lands
+    // mid-wait with plenty of room.
+    let mut writer = client.get_multiplexed_async_connection().await.unwrap();
+    let key = queue_key.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let _: () = redis::cmd("SET")
+            .arg(&key)
+            .arg("failed:502:1")
+            .query_async(&mut writer)
+            .await
+            .unwrap();
+    });
+
+    let started = std::time::Instant::now();
+    let (status, body) = export_with_queueid(&config, conn.clone(), project, commit, 1).await;
+    let waited = started.elapsed();
+
+    assert_eq!(status, StatusCode::CONFLICT, "body: {body}");
+    assert_eq!(body["code"], "WRITE_DISCARDED", "body: {body}");
+    // It has to have gone through the loop to be this test rather than a
+    // repeat of the fast-path one, and it has to have come back before the
+    // wait budget or a 503 timeout would be indistinguishable.
+    assert!(
+        waited >= std::time::Duration::from_millis(400),
+        "should have waited for the sentinel, returned after {waited:?}"
+    );
+    assert!(
+        waited < std::time::Duration::from_secs(config.proxy_timeout_secs),
+        "should not have run out the wait budget: {waited:?}"
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
 }

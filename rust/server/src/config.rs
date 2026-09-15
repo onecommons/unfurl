@@ -90,6 +90,14 @@ pub struct Config {
     #[arg(long, env = "UNFURL_WORKER_POLL_INTERVAL_SECS", default_value_t = 0.1)]
     pub worker_poll_interval_secs: f64,
 
+    /// How long the `failed:{status}:{queueid}` sentinel written by a
+    /// rejected batch lives, in seconds.  It only has to outlast clients
+    /// still holding the commit it was written against; once it expires,
+    /// `inc_queueid` reports a conflict for a non-zero queueid rather
+    /// than silent success.  0 disables expiry.  Default: 1 day.
+    #[arg(long, env = "UNFURL_FAILED_SENTINEL_TTL_SECS", default_value_t = 86400)]
+    pub failed_sentinel_ttl_secs: u64,
+
     /// Path to a working directory of a cloudmap git repo.
     /// When set together with `cloudmap_db_url`, GET /cloudmap is served
     /// using the `unfurl-git-sync` crate; otherwise it is proxied to the Python
@@ -287,6 +295,7 @@ mod tests {
             max_body_bytes: 10 * 1024 * 1024,
             batch_window_secs: 3.0,
             worker_poll_interval_secs: 0.1,
+            failed_sentinel_ttl_secs: 86400,
             cloudmap_repo: None,
             cloudmap_db_url: None,
             cloudmap_force: false,

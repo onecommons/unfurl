@@ -15,6 +15,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::config::Config;
 
@@ -138,6 +139,10 @@ return tostring(new_queueid)
 /// This is a safety cap; in practice batch lists are much shorter.
 const DRAIN_BATCH_SIZE: usize = 1000;
 
+/// Batches discarded since this process started; reported on the
+/// warning [`mark_batch_failed`] emits.
+static DISCARDED_BATCHES: AtomicU64 = AtomicU64::new(0);
+
 // ---------------------------------------------------------------------------
 // Enqueue
 // ---------------------------------------------------------------------------
@@ -242,6 +247,9 @@ pub enum ExportQueueCheck {
     /// `last_queueid` is below the client's `queueid`). Caller should
     /// reply 503 with a Retry-After hint.
     Retry,
+    /// The batch queued against this commit was rejected by the backend
+    /// and its writes were discarded. Terminal: waiting cannot help.
+    Failed { status: u16, queueid: i64 },
 }
 
 /// Resolve whether an `/export` (or similar) request with a `queueid`
@@ -255,12 +263,14 @@ pub enum ExportQueueCheck {
 ///     [`ExportQueueCheck::UseNewCommit`]
 ///   * `"{new_commit},{N}"` where `N < request_queueid` →
 ///     [`ExportQueueCheck::Retry`] (more queued writes still pending)
-///   * `failed:{status}:{queueid}` → [`ExportQueueCheck::Retry`], because the
-///     sentinel has no comma. That matches what a failed batch did before
-///     the sentinel existed (the key kept a bare `"N"`), so this path is
-///     unchanged rather than correct: the client polls 503 instead of being
-///     told its write was dropped. `inc_queueid` is what reports the
-///     failure. A `Failed` variant here would be the next improvement.
+///   * `failed:{status}:{queueid}` → [`ExportQueueCheck::Failed`]
+///
+/// The sentinel is checked before the comma split, which is what
+/// distinguishes it from a commit hash. Reporting it here matters for
+/// create-then-read: a client that writes once and then polls `/export`
+/// never issues the second write that `inc_queueid` would fail, so
+/// without this arm a discarded creation polls 503 to a timeout and the
+/// UI reports success.
 pub async fn check_export_queue(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
@@ -273,6 +283,9 @@ pub async fn check_export_queue(
     let Some(val) = val else {
         return Ok(ExportQueueCheck::Retry);
     };
+    if let Some((status, queueid)) = parse_failed_sentinel(&val) {
+        return Ok(ExportQueueCheck::Failed { status, queueid });
+    }
     let Some((new_commit, qid_str)) = val.split_once(',') else {
         return Ok(ExportQueueCheck::Retry);
     };
@@ -439,6 +452,10 @@ struct PartitionedBatch {
 ///
 /// Best-effort: a Redis error here is logged, not propagated. The batch is
 /// already lost and the lock still needs releasing.
+///
+/// The warning carries `discarded_total`, a process-lifetime count, so
+/// dropped batches can be alerted on from the logs. There is no metrics
+/// exporter in this server to publish a real counter to.
 async fn mark_batch_failed(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
@@ -455,15 +472,33 @@ async fn mark_batch_failed(
             }
         }
     }
+    let discarded_total = DISCARDED_BATCHES.fetch_add(1, Ordering::Relaxed) + 1;
     for commit in commits {
         if commit.is_empty() {
             continue;
         }
         let key = config.queue_entry_key(project_id, commit);
-        let res: Result<(), _> = conn.set(&key, &value).await;
+        let ttl = config.failed_sentinel_ttl_secs;
+        let res: Result<(), _> = if ttl > 0 {
+            conn.set_ex(&key, &value, ttl).await
+        } else {
+            conn.set(&key, &value).await
+        };
         match res {
-            Ok(()) => tracing::warn!("marked queue key {} failed: {}", key, value),
-            Err(e) => tracing::error!("failed to mark queue key {} failed: {}", key, e),
+            Ok(()) => tracing::warn!(
+                project_id,
+                status,
+                queue_key = %key,
+                requests = batch.requests.len(),
+                discarded_total,
+                "discarded a queued batch: the backend rejected it"
+            ),
+            Err(e) => tracing::error!(
+                project_id,
+                queue_key = %key,
+                "failed to mark queue key failed: {}",
+                e
+            ),
         }
     }
 }
