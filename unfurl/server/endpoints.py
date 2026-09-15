@@ -1543,14 +1543,14 @@ def batch_patch(
     latest_commit = body.get("latest_commit") or ""
     branch_err, branch = _branch_from_body(body)
     if branch_err:
-        return branch_err
+        return _mark_rolled_back(branch_err)
     # Check every request before applying any: each carries the body it was
     # queued with, and a batch that failed part way through would leave the
     # earlier requests committed with no way for the client to learn which.
     for req in batch_requests:
         branch_err, _ = _branch_from_body(req)
         if branch_err:
-            return branch_err
+            return _mark_rolled_back(branch_err)
     logger.info(
         "batch_patch: project=%s branch=%s requests=%d",
         project_id,
@@ -1566,8 +1566,140 @@ def batch_patch(
         body,
     )
     if err:
-        return err
+        return _mark_rolled_back(err)
     assert readonly_localEnv and readonly_localEnv.project
+    # Get the repo via the same parent-aware fresh LocalEnv that
+    # `_patch_environment` uses internally, so projects with a separate
+    # ensemble subrepo report the *parent* project's HEAD here (which is
+    # where individual patches actually committed) rather than the
+    # cached LocalEnv's ensemble-subrepo HEAD.
+    #
+    # Acquired before anything is applied because the rollback below
+    # needs it, and `repo.revision` needs to be read before the first
+    # patch commits over it.
+    home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
+        "UNFURL_OPTIONS"
+    ].get("home")
+    parent_localEnv = LocalEnv(
+        readonly_localEnv.project.projectRoot,
+        home_dir,
+        parent=readonly_localEnv,
+        can_be_empty=True,
+        overrides=dict(safe_mode=True),
+    )
+    assert parent_localEnv.project
+    repo = parent_localEnv.project.project_repoview.gitrepo
+    assert repo
+    start_revision = repo.revision
+
+    try:
+        result = _apply_batch_requests(
+            body, batch_requests, project_id, readonly_localEnv, repo, latest_commit
+        )
+    except Exception as exc:
+        _rollback_batch(repo, start_revision)
+        logger.error("batch_patch failed, rolled back", exc_info=True)
+        return _mark_rolled_back(
+            create_error_response("INTERNAL_ERROR", "Could not apply batch", exc)
+        )
+    if _is_error_response(result):
+        _rollback_batch(repo, start_revision)
+        return _mark_rolled_back(result)
+    return result
+
+
+def _rollback_batch(repo: GitRepo, start_revision: str) -> None:
+    """Discard everything a failed batch committed locally.
+
+    The requests in a batch commit as they are applied, so an error part
+    way through leaves the earlier ones committed but unpushed. They sit
+    in the persistent working copy under `repos/private/...` and the next
+    batch that pushes successfully carries them along -- landing writes
+    the client was told were discarded.
+
+    `start_revision` is the observed HEAD rather than the request's
+    `latest_commit`: the two differ for a project whose ensemble lives in
+    a subrepo, and HEAD is the one the patches committed against.
+
+    Nothing is rolled back in gui mode, following the push logic: there
+    is no remote to carry the commit anywhere, so the local repository is
+    the record rather than a staging area, and discarding commits would
+    destroy the user's work instead of protecting it.
+    """
+    if not _rolls_back_a_failed_batch():
+        logger.info("not rolling back batch in gui mode, left at %s", repo.revision)
+        return
+    if not start_revision:
+        # Nothing to reset to. `HEAD~1` would be a guess at how many
+        # commits the batch made, and unborn HEAD has no parent at all.
+        logger.error("cannot roll back batch: no starting revision")
+        return
+    if not repo.reset(f"--hard {start_revision}"):
+        logger.error("failed to roll back batch to %s", start_revision)
+        return
+    # `reset --hard` restores tracked files but leaves new ones behind, and
+    # `_patch_ensemble` commits with add_all, so a later batch would sweep
+    # in whatever a half-applied `create_ensemble` wrote. `-x` because the
+    # ignore rules cover state a patch writes (`local`, `jobs`, `tmp`) that
+    # should go back with everything else. `-d` and not `-ff`: git refuses
+    # to descend into an untracked directory that is its own repository, so
+    # cloned dependencies under `tosca_repositories` and an ensemble subrepo
+    # survive either way.
+    status, _out, err = repo.run_cmd(["clean", "-fdx"])
+    if status:
+        logger.error(
+            "rolled back batch to %s but could not remove new files: %s",
+            start_revision,
+            err,
+        )
+        return
+    logger.info("rolled back batch to %s", start_revision)
+
+
+def _rolls_back_a_failed_batch() -> bool:
+    """Whether a failed batch is undone. False in gui mode.
+
+    The one predicate behind both the rollback and the `rolled_back` flag
+    that reports it, so the two can't disagree.
+    """
+    return not app.config.get("UNFURL_GUI_MODE")
+
+
+def _mark_rolled_back(result: ResponseReturnValue) -> ResponseReturnValue:
+    """Record on an error response whether the batch left anything applied.
+
+    `/batch_patch` applies every request or none, so the queue worker can
+    retry a transient failure without compounding it. It reads this rather
+    than inferring retry-safety from the status code.
+
+    Gui mode keeps what a failed batch committed, so this is false there --
+    including for an error raised before anything was applied, where
+    nothing needed undoing. That direction is the safe one to be wrong in:
+    a worker that believes a batch was left half-applied declines to retry
+    it, where the reverse would replay writes that already landed. Gui mode
+    has no queue worker to read it at all.
+    """
+    if isinstance(result, Response) and result.is_json:
+        body = result.get_json(silent=True)
+        if isinstance(body, dict):
+            body["rolled_back"] = _rolls_back_a_failed_batch()
+            result.set_data(json.dumps(body))
+    return result
+
+
+def _apply_batch_requests(
+    body: dict,
+    batch_requests: list,
+    project_id: str,
+    readonly_localEnv: LocalEnv,
+    repo: GitRepo,
+    latest_commit: str,
+) -> ResponseReturnValue:
+    """Apply every request in the batch, then push once.
+
+    Any error return (or exception) leaves the caller to roll back, so
+    this doesn't have to unwind what it already committed.
+    """
     last_body = body  # track last body for credentials
     latest_commits = set()
     for req in batch_requests:
@@ -1602,29 +1734,11 @@ def batch_patch(
             )
             if _is_error_response(result):
                 return result
-    # Get the repo via the same parent-aware fresh LocalEnv that
-    # `_patch_environment` uses internally, so projects with a separate
-    # ensemble subrepo report the *parent* project's HEAD here (which is
-    # where individual patches actually committed) rather than the
-    # cached LocalEnv's ensemble-subrepo HEAD.
-    home_dir = app.config.get("UNFURL_CURRENT_WORKING_DIR") or current_app.config[
-        "UNFURL_OPTIONS"
-    ].get("home")
-    parent_localEnv = LocalEnv(
-        readonly_localEnv.project.projectRoot,
-        home_dir,
-        parent=readonly_localEnv,
-        can_be_empty=True,
-        overrides=dict(safe_mode=True),
-    )
-    assert parent_localEnv.project
-    repo = parent_localEnv.project.project_repoview.gitrepo
-    assert repo
     username = last_body.get("username")
     password = last_body.get("private_token", last_body.get("password"))
     if not app.config.get("UNFURL_GUI_MODE"):
-        # note: if push fails this commit is discarded locally too
-        err = _push_changes(repo, username, password, latest_commit)
+        # the caller's rollback covers a failed push too
+        err = _push_changes(repo, username, password, latest_commit, rollback=False)
         if err:
             return err
     # Update the Redis queue key so subsequent inc_queueid calls
@@ -2187,7 +2301,13 @@ def _push_changes(
     username: Optional[str],
     password: Optional[str],
     starting_revision: str,
+    rollback: bool = True,
 ):
+    """Push, discarding the unpushed commit on failure.
+
+    `rollback=False` is for callers that roll back themselves, so a batch
+    doesn't get reset twice against two different revisions.
+    """
     if password:
         assert username is not None
         url = add_user_to_url(repo.url, username, password)
@@ -2197,10 +2317,11 @@ def _push_changes(
         repo.push(url)
         logger.info("pushed")
     except Exception as err:
-        # discard the last commit that we couldn't push
-        # this is mainly for security if we couldn't push because the user wasn't authorized
-        # XXX starting_revision wrong if not a mono repo
-        repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
+        if rollback:
+            # discard the last commit that we couldn't push
+            # this is mainly for security if we couldn't push because the user wasn't authorized
+            # XXX starting_revision wrong if not a mono repo
+            repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
     return None

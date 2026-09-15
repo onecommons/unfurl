@@ -3745,6 +3745,166 @@ def test_batch_patch_checks_every_request_branch(monkeypatch):
     assert "branch" in res.json["message"]
 
 
+@pytest.mark.parametrize("gui_mode", [False, True])
+def test_rollback_skipped_in_gui_mode(tmp_path, monkeypatch, gui_mode):
+    """Gui mode keeps what a failed batch left; hosted mode discards it.
+
+    Following the push logic: gui mode never pushes, so the local
+    repository is the record rather than a staging area for a remote.
+    Resetting there would throw away the user's work rather than protect
+    a remote from a write that was reported as discarded.
+    """
+    path = tmp_path / "repo"
+    path.mkdir()
+    git_repo = Repo.init(path)
+    (path / "f.yaml").write_text("one\n")
+    (path / ".gitignore").write_text("jobs/\n")
+    git_repo.git.add(A=True)
+    git_repo.git.commit("-m", "first")
+    repo = GitRepo(git_repo)
+    start_revision = repo.revision
+
+    # What the batch committed before it failed.
+    (path / "f.yaml").write_text("two\n")
+    git_repo.git.add(A=True)
+    git_repo.git.commit("-m", "what the failed batch committed")
+    mid_batch = repo.revision
+    assert mid_batch != start_revision
+
+    # ...and what it left uncommitted. A `create_ensemble` that errored
+    # before committing leaves a new directory behind; `reset --hard`
+    # doesn't touch it and `_patch_ensemble` commits with add_all, so a
+    # later batch would commit it.
+    (path / "new-ensemble").mkdir()
+    (path / "new-ensemble" / "ensemble.yaml").write_text("half written\n")
+    # Ignored state a patch writes goes back too -- that is what `-x` is for.
+    (path / "jobs").mkdir()
+    (path / "jobs" / "job.yaml").write_text("mid-batch\n")
+
+    # A cloned dependency, in the layout unfurl actually builds: the clone
+    # sits in the project and `tosca_repositories/<name>` is a symlink to
+    # it (see RepoView.get_link).
+    dep = path / "std"
+    dep.mkdir()
+    Repo.init(dep)
+    (dep / "types.yaml").write_text("cloned\n")
+    links = path / "tosca_repositories"
+    links.mkdir()
+    (links / ".gitignore").write_text("*")
+    (links / "std").symlink_to("../std", target_is_directory=True)
+
+    monkeypatch.setitem(server.app.config, "UNFURL_GUI_MODE", gui_mode)
+    server_endpoints._rollback_batch(repo, start_revision)
+
+    if gui_mode:
+        assert repo.revision == mid_batch, "gui mode must not discard commits"
+        assert (path / "f.yaml").read_text() == "two\n"
+        assert (path / "new-ensemble").exists(), "nor untracked files"
+        assert (path / "jobs" / "job.yaml").exists(), "nor ignored ones"
+    else:
+        assert repo.revision == start_revision, "the commit should be gone"
+        assert (path / "f.yaml").read_text() == "one\n"
+        assert not (path / "new-ensemble").exists(), (
+            "new files survive reset --hard, so a later batch's add_all commits them"
+        )
+        assert not (path / "jobs").exists(), "-x should take ignored state too"
+        # The symlink goes -- `-d` only spares a directory that is itself a
+        # repository, and a symlink isn't one. It is not followed, so the
+        # clone survives, and get_link recreates the link (and
+        # tosca_repositories) on the next manifest load.
+        assert not (links / "std").is_symlink()
+
+    # Whatever the mode, the clone itself must not be destroyed: re-cloning
+    # is expensive and nothing in a failed batch justifies it.
+    assert (dep / "types.yaml").read_text() == "cloned\n"
+    assert (dep / ".git").is_dir()
+
+    # The flag the queue worker reads has to agree with what just happened
+    # to the repository, or a batch left half-applied is reported as safe
+    # to replay.
+    with server.app.test_request_context():  # create_error_response jsonifies
+        err = server.create_error_response("BAD_REQUEST", "boom")
+        marked = server_endpoints._mark_rolled_back(err)
+    assert marked.get_json()["rolled_back"] is not gui_mode
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_batch_patch_rolls_back_a_mid_batch_failure():
+    """A batch that fails part way through leaves nothing behind.
+
+    The requests in a batch commit as they are applied and a single push
+    happens at the end, so an error after the first one has committed used
+    to leave that commit in the server's persistent working copy, unpushed
+    and unreported. The next batch to push carried it along -- landing a
+    write the client was told was discarded.
+
+    The second batch here is what makes that observable. Without the
+    rollback the leftover commit has already moved HEAD, so that batch is
+    answered 409 against the `latest_commit` the client was told to keep
+    using -- and had it been sent with the newer commit instead, its push
+    would have carried "staging" along.
+    """
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), name="batch-rollback"
+            )
+            base = f"http://{HOST}:{port}"
+
+            def env_request(name):
+                return {
+                    "endpoint": "update_environment",
+                    "patch": [{"name": name, "__typename": "DeploymentEnvironment"}],
+                    "latest_commit": last_commit,
+                    "branch": "main",
+                }
+
+            # "tasks" is a reserved folder name, so the second request is
+            # rejected by _patch_environment after the first has committed.
+            res = requests.post(
+                f"{base}/batch_patch?auth_project=remote",
+                json={
+                    "branch": "main",
+                    "latest_commit": last_commit,
+                    "requests": [env_request("staging"), env_request("tasks")],
+                },
+            )
+            assert res.status_code == 400, res.text
+            assert res.json()["code"] == "BAD_REQUEST", res.text
+            assert "reserved" in res.json()["message"], res.text
+            assert res.json().get("rolled_back") is True, (
+                f"the batch worker reads this to decide a retry is safe: {res.text}"
+            )
+
+            # A later batch must not carry the discarded commit with it.
+            res = requests.post(
+                f"{base}/batch_patch?auth_project=remote",
+                json={
+                    "branch": "main",
+                    "latest_commit": last_commit,
+                    "requests": [env_request("prod")],
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["commit"] != last_commit, res.text
+
+            res = requests.get(
+                f"{base}/export?format=environments&auth_project=remote&branch=main"
+            )
+            assert res.status_code == 200, res.text
+            environments = res.json()["DeploymentEnvironment"]
+            assert "prod" in environments, res.text
+            assert "staging" not in environments, (
+                f"the rolled back write landed anyway: {sorted(environments)}"
+            )
+        finally:
+            _dump_server_logs(p, "batch-rollback")
+            if p:
+                _terminate_process(p)
+
+
 def test_errors_report_code_and_message(monkeypatch):
     """Every error is an `ErrorResponse`, including the ones APIFlask raises.
 
