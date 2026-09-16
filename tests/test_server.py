@@ -1,4 +1,5 @@
 import datetime
+import glob
 import html as html_module
 import json
 import os
@@ -3917,6 +3918,131 @@ def test_rollback_skipped_in_gui_mode(tmp_path, monkeypatch, gui_mode):
         err = server.create_error_response("BAD_REQUEST", "boom")
         marked = server_endpoints._mark_rolled_back(err)
     assert marked.get_json()["rolled_back"] is not gui_mode
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_failed_batch_leaves_a_dirty_working_copy_alone():
+    """The dirtiness is observed before the batch applies, not after.
+
+    Pins the `repo.is_dirty()` read in `batch_patch` rather than
+    `_rollback_batch`'s handling of it: taken any later, the batch's own
+    writes are what make the repo dirty, and the answer is about the wrong
+    thing. Here a tracked file is edited behind the server's back, which is
+    what the `was_dirty` branch in `_patch_environment` leaves behind for
+    real -- a patch written to disk, uncommitted, and served by /export.
+    """
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), name="dirty-rollback"
+            )
+            base = f"http://{HOST}:{port}"
+
+            def env_request(name, commit):
+                return {
+                    "endpoint": "update_environment",
+                    "patch": [{"name": name, "__typename": "DeploymentEnvironment"}],
+                    "latest_commit": commit,
+                    "branch": "main",
+                }
+
+            # One good batch so the server has cloned and has a clean copy.
+            res = requests.post(
+                f"{base}/batch_patch?auth_project=remote",
+                json={
+                    "branch": "main",
+                    "latest_commit": last_commit,
+                    "requests": [env_request("staging", last_commit)],
+                },
+            )
+            assert res.status_code == 200, res.text
+            last_commit = res.json()["commit"]
+
+            # Uncommitted work in the server's copy, the way a was_dirty
+            # patch leaves it.
+            found = glob.glob("server/**/unfurl.yaml", recursive=True)
+            assert len(found) == 1, f"expected one server clone, got {found}"
+            server_config = found[0]
+            marker = "# uncommitted work the batch never made\n"
+            with open(server_config, "a") as f:
+                f.write(marker)
+
+            # ...and a batch that fails part way through. "tasks" is a
+            # reserved name, so the second request is rejected after the
+            # first has been applied.
+            res = requests.post(
+                f"{base}/batch_patch?auth_project=remote",
+                json={
+                    "branch": "main",
+                    "latest_commit": last_commit,
+                    "requests": [
+                        env_request("prod", last_commit),
+                        env_request("tasks", last_commit),
+                    ],
+                },
+            )
+            assert res.status_code == 400, res.text
+            assert res.json().get("rolled_back") is False, (
+                f"nothing was rolled back, so the worker must not be told it was: {res.text}"
+            )
+            assert marker in open(server_config).read(), (
+                "the rollback discarded uncommitted work that predated the batch"
+            )
+        finally:
+            _dump_server_logs(p, "dirty-rollback")
+            if p:
+                _terminate_process(p)
+
+
+@pytest.mark.parametrize("started_dirty", [False, True])
+def test_rollback_skipped_when_the_repo_was_already_dirty(tmp_path, started_dirty):
+    """A rollback discards this batch's work, not what it found.
+
+    `_patch_environment` writes the patch to disk and then skips the commit
+    when it finds the repository dirty, returning success anyway, and
+    /export serves that on-disk state -- so the user sees changes git
+    doesn't have. Resetting over them would destroy work the batch never
+    made and nothing would say so.
+    """
+    path = tmp_path / "repo"
+    path.mkdir()
+    git_repo = Repo.init(path)
+    (path / "f.yaml").write_text("committed\n")
+    git_repo.git.add(A=True)
+    git_repo.git.commit("-m", "first")
+    repo = GitRepo(git_repo)
+
+    # Uncommitted work already here when the batch arrives, tracked and not.
+    (path / "f.yaml").write_text("edited but never committed\n")
+    (path / "stray.yaml").write_text("also never committed\n")
+    assert repo.is_dirty()
+
+    start_revision = repo.revision
+    # ...and what this batch commits before failing.
+    (path / "g.yaml").write_text("this batch\n")
+    git_repo.git.add("g.yaml")
+    git_repo.git.commit("-m", "what the failed batch committed")
+    assert repo.revision != start_revision
+
+    server_endpoints._rollback_batch(repo, start_revision, started_dirty)
+
+    if started_dirty:
+        assert repo.revision != start_revision, "left alone entirely"
+        assert (path / "f.yaml").read_text() == "edited but never committed\n"
+        assert (path / "stray.yaml").exists()
+    else:
+        assert repo.revision == start_revision
+        assert (path / "f.yaml").read_text() == "committed\n"
+        assert not (path / "stray.yaml").exists()
+
+    # The flag has to agree, as in gui mode: a worker told the batch was
+    # rolled back would retry writes that are still sitting in the repo.
+    with server.app.test_request_context():
+        err = server.create_error_response("BAD_REQUEST", "boom")
+        marked = server_endpoints._mark_rolled_back(err, started_dirty)
+    assert marked.get_json()["rolled_back"] is not started_dirty
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")

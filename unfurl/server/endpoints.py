@@ -1597,24 +1597,33 @@ def batch_patch(
     repo = parent_localEnv.project.project_repoview.gitrepo
     assert repo
     start_revision = repo.revision
+    # Read before anything is applied: uncommitted work already here isn't
+    # this batch's to discard. A patch that finds the repo dirty writes to
+    # disk without committing (the `was_dirty` branch in
+    # `_patch_environment`) and `/export` serves that state, so a rollback
+    # would destroy what the user can already see.
+    started_dirty = repo.is_dirty()
 
     try:
         result = _apply_batch_requests(
             body, batch_requests, project_id, readonly_localEnv, repo, latest_commit
         )
     except Exception as exc:
-        _rollback_batch(repo, start_revision)
-        logger.error("batch_patch failed, rolled back", exc_info=True)
+        _rollback_batch(repo, start_revision, started_dirty)
+        logger.error("batch_patch failed", exc_info=True)
         return _mark_rolled_back(
-            create_error_response("INTERNAL_ERROR", "Could not apply batch", exc)
+            create_error_response("INTERNAL_ERROR", "Could not apply batch", exc),
+            started_dirty,
         )
     if _is_error_response(result):
-        _rollback_batch(repo, start_revision)
-        return _mark_rolled_back(result)
+        _rollback_batch(repo, start_revision, started_dirty)
+        return _mark_rolled_back(result, started_dirty)
     return result
 
 
-def _rollback_batch(repo: GitRepo, start_revision: str) -> None:
+def _rollback_batch(
+    repo: GitRepo, start_revision: str, started_dirty: bool = False
+) -> None:
     """Discard everything a failed batch committed locally.
 
     The requests in a batch commit as they are applied, so an error part
@@ -1630,10 +1639,18 @@ def _rollback_batch(repo: GitRepo, start_revision: str) -> None:
     Nothing is rolled back in gui mode, following the push logic: there
     is no remote to carry the commit anywhere, so the local repository is
     the record rather than a staging area, and discarding commits would
-    destroy the user's work instead of protecting it.
+    destroy the user's work instead of protecting it. Nor when the working
+    copy was already dirty on entry, where a reset would take uncommitted
+    work this batch never made.
     """
-    if not _rolls_back_a_failed_batch():
-        logger.info("not rolling back batch in gui mode, left at %s", repo.revision)
+    if not _rolls_back_a_failed_batch(started_dirty):
+        logger.warning(
+            "not rolling back batch, left at %s: %s",
+            repo.revision,
+            "gui mode"
+            if app.config.get("UNFURL_GUI_MODE")
+            else f"the working copy at {repo.working_dir} was already dirty",
+        )
         return
     if not start_revision:
         # Nothing to reset to. `HEAD~1` would be a guess at how many
@@ -1662,25 +1679,27 @@ def _rollback_batch(repo: GitRepo, start_revision: str) -> None:
     logger.info("rolled back batch to %s", start_revision)
 
 
-def _rolls_back_a_failed_batch() -> bool:
-    """Whether a failed batch is undone. False in gui mode.
+def _rolls_back_a_failed_batch(started_dirty: bool = False) -> bool:
+    """Whether a failed batch is undone. False in gui mode or on a dirty repo.
 
     The one predicate behind both the rollback and the `rolled_back` flag
     that reports it, so the two can't disagree.
     """
-    return not app.config.get("UNFURL_GUI_MODE")
+    return not app.config.get("UNFURL_GUI_MODE") and not started_dirty
 
 
-def _mark_rolled_back(result: ResponseReturnValue) -> ResponseReturnValue:
+def _mark_rolled_back(
+    result: ResponseReturnValue, started_dirty: bool = False
+) -> ResponseReturnValue:
     """Record on an error response whether the batch left anything applied.
 
     `/batch_patch` applies every request or none, so the queue worker can
     retry a transient failure without compounding it. It reads this rather
     than inferring retry-safety from the status code.
 
-    Gui mode keeps what a failed batch committed, so this is false there --
-    including for an error raised before anything was applied, where
-    nothing needed undoing. That direction is the safe one to be wrong in:
+    Gui mode keeps what a failed batch committed, and so does a repo that
+    was already dirty, so this is false in both -- including for an error
+    raised before anything was applied, where nothing needed undoing. That direction is the safe one to be wrong in:
     a worker that believes a batch was left half-applied declines to retry
     it, where the reverse would replay writes that already landed. Gui mode
     has no queue worker to read it at all.
@@ -1688,7 +1707,7 @@ def _mark_rolled_back(result: ResponseReturnValue) -> ResponseReturnValue:
     if isinstance(result, Response) and result.is_json:
         body = result.get_json(silent=True)
         if isinstance(body, dict):
-            body["rolled_back"] = _rolls_back_a_failed_batch()
+            body["rolled_back"] = _rolls_back_a_failed_batch(started_dirty)
             result.set_data(json.dumps(body))
     return result
 
