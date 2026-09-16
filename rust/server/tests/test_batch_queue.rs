@@ -1471,3 +1471,305 @@ async fn discarded_write_is_reported_to_a_waiting_reader() {
 
     cleanup_keys(&mut conn, prefix).await;
 }
+
+// ---------------------------------------------------------------------------
+// A batch that commits nothing
+// ---------------------------------------------------------------------------
+
+/// The deadlock this fixes, from a real stuck project.
+///
+/// `batch_patch` records `{repo.revision},{queueid}` unconditionally, so a
+/// batch that committed nothing -- a no-op patch, or a working copy that was
+/// already dirty -- writes a value naming the key's own commit. There is then
+/// no newer commit to redirect anyone to, and both branches of the script
+/// rejected every writer: a lower queueid as stale, and an equal or higher one
+/// because `newer_key` resolves to this very key and reads as a patch already
+/// in flight. The commit became permanently unwritable at any queueid, and
+/// re-reading returned the same commit, so no client could recover.
+#[tokio::test]
+async fn settled_queue_key_stays_writable() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "settled_queue";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_settled";
+    let commit = "83b9478d9e7250c91c900faa3b7e5adb935b8683";
+    let queue_key = config.queue_entry_key(project, commit);
+
+    // Every queueid a client can send, including the 0 of a fresh page load.
+    for (sent, expected) in [(0, 2), (1, 2), (5, 2)] {
+        let _: () = redis::cmd("SET")
+            .arg(&queue_key)
+            .arg(format!("{commit},1"))
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        let result = queue::inc_queueid(&mut conn, &config, project, commit, sent)
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            QueueIdResult::Ok {
+                new_queueid: expected
+            },
+            "queueid {sent} against a settled key"
+        );
+        // Collapsed back to a plain counter, so the next writer just INCRs.
+        let value: String = redis::cmd("GET")
+            .arg(&queue_key)
+            .query_async(&mut conn)
+            .await
+            .unwrap();
+        assert_eq!(value, expected.to_string());
+    }
+
+    // ...and the counter keeps advancing from there.
+    let next = queue::inc_queueid(&mut conn, &config, project, commit, 2)
+        .await
+        .unwrap();
+    assert_eq!(next, QueueIdResult::Ok { new_queueid: 3 });
+
+    // A client below the recorded queueid is admitted too. It looks stale,
+    // but the queueid only orders writes against a commit and this batch
+    // produced none: HEAD is what the client already has, so there is
+    // nothing for it to be behind and nothing a 409 would make it re-read.
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg(format!("{commit},3"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let behind = queue::inc_queueid(&mut conn, &config, project, commit, 1)
+        .await
+        .unwrap();
+    assert_eq!(
+        behind,
+        QueueIdResult::Ok { new_queueid: 4 },
+        "queueid 1 against a settled key recording 3"
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// A real redirect must still conflict: the guard is scoped to a value that
+/// names its *own* commit, not to every `{commit},{n}`.
+#[tokio::test]
+async fn redirect_to_a_taken_commit_still_conflicts() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "settled_redirect";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_redirect";
+    let old_commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    let new_commit = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+    // The old commit redirects to a new one that already has a queue.
+    let _: () = redis::cmd("SET")
+        .arg(config.queue_entry_key(project, old_commit))
+        .arg(format!("{new_commit},1"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let _: () = redis::cmd("SET")
+        .arg(config.queue_entry_key(project, new_commit))
+        .arg("1")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let result = queue::inc_queueid(&mut conn, &config, project, old_commit, 1)
+        .await
+        .unwrap();
+    assert_eq!(result, QueueIdResult::Conflict);
+
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// The read half of the settled-key fix. A value naming the key's own commit
+/// means the batch finished without moving HEAD, so the export the reader
+/// already asked for is current and it should be let through. Nothing else
+/// releases it: no further commit is coming, so a `Retry` here polls until
+/// `proxy_timeout_secs` and answers 503.
+#[tokio::test]
+async fn settled_queue_key_releases_waiting_readers() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "settled_reader";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_settled_reader";
+    let commit = "83b9478d9e7250c91c900faa3b7e5adb935b8683";
+    let _: () = redis::cmd("SET")
+        .arg(config.queue_entry_key(project, commit))
+        .arg(format!("{commit},3"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    // Every reader the settled batch covers proceeds at the commit it has.
+    for qid in [1, 2, 3] {
+        let result = queue::check_export_queue(&mut conn, &config, project, commit, qid)
+            .await
+            .unwrap();
+        assert_eq!(
+            result,
+            ExportQueueCheck::UseNewCommit(commit.to_string()),
+            "reader holding queueid {qid}"
+        );
+    }
+
+    // A reader ahead of the settled batch has writes still outstanding.
+    let result = queue::check_export_queue(&mut conn, &config, project, commit, 4)
+        .await
+        .unwrap();
+    assert_eq!(result, ExportQueueCheck::Retry);
+
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// Repairing a settled key resumes above the queueids it already handed out.
+/// A reader holding one of those is released by the next real commit only if
+/// the counter never went backwards: resuming at 1 would record "{next},1",
+/// and every reader at 2 or above would fail `last_queueid < request_queueid`
+/// and poll to its deadline. That is a reader-side timeout caused by a
+/// writer-side constant, so it is pinned here rather than left implied.
+#[tokio::test]
+async fn repaired_queue_key_still_covers_earlier_readers() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "settled_resume";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_resume";
+    let commit = "cccccccccccccccccccccccccccccccccccccccc";
+    let next_commit = "dddddddddddddddddddddddddddddddddddddddd";
+    let queue_key = config.queue_entry_key(project, commit);
+
+    // A settled batch that had issued three queueids; a reader is still
+    // holding the last of them.
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg(format!("{commit},3"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let repaired = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+        .await
+        .unwrap();
+    let QueueIdResult::Ok { new_queueid } = repaired else {
+        panic!("expected the settled key to be repaired, got {repaired:?}");
+    };
+
+    // That write commits for real, recorded the way batch_patch records it.
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg(format!("{next_commit},{new_queueid}"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+
+    let result = queue::check_export_queue(&mut conn, &config, project, commit, 3)
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        ExportQueueCheck::UseNewCommit(next_commit.to_string()),
+        "reader holding a queueid issued before the settled batch"
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
+}
+
+/// Once collapsed back to a counter the key is ordinary again: a later batch
+/// that does produce a commit redirects from it normally, rather than the
+/// repair leaving it in a state the redirect path no longer recognises.
+#[tokio::test]
+async fn repaired_queue_key_redirects_after_a_real_commit() {
+    let url = match redis_url() {
+        Some(u) => u,
+        None => {
+            eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+            return;
+        }
+    };
+    let prefix = "settled_then_commit";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_then_commit";
+    let commit = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+    let next_commit = "ffffffffffffffffffffffffffffffffffffffff";
+    let queue_key = config.queue_entry_key(project, commit);
+
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg(format!("{commit},1"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let repaired = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+        .await
+        .unwrap();
+    assert_eq!(repaired, QueueIdResult::Ok { new_queueid: 2 });
+
+    let _: () = redis::cmd("SET")
+        .arg(&queue_key)
+        .arg(format!("{next_commit},2"))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let result = queue::inc_queueid(&mut conn, &config, project, commit, 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        QueueIdResult::NewCommit {
+            new_commit: next_commit.to_string(),
+            new_queueid: 1,
+        }
+    );
+    let started: String = redis::cmd("GET")
+        .arg(config.queue_entry_key(project, next_commit))
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(started, "1");
+
+    cleanup_keys(&mut conn, prefix).await;
+}

@@ -3745,6 +3745,97 @@ def test_batch_patch_checks_every_request_branch(monkeypatch):
     assert "branch" in res.json["message"]
 
 
+@unittest.skipIf(not UNFURL_TEST_REDIS_URL, "UNFURL_TEST_REDIS_URL not set")
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_noop_batch_records_the_unchanged_commit():
+    """A batch that commits nothing still writes the queue key, naming HEAD.
+
+    The value looks like a redirect to itself, and that is deliberate: the
+    proxy reads it as "batch finished, HEAD unchanged" -- INC_QUEUEID_SCRIPT
+    restarts the queue there and readers proceed at `latest_commit`. Skipping
+    the write instead leaves a bare counter, which strands writers at a
+    queueid no one can advance and makes every reader poll to its deadline.
+
+    `_update_queue_key`'s docstring says so; this is what makes it fail if
+    someone acts on the other reading.
+    """
+    import redis as _redis
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, first_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env="redis", name="noop-q"
+            )
+            base = f"http://{HOST}:{port}"
+            prefix = _variant_prefix("noop-q-redis")
+            client = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
+
+            def queue_value(commit):
+                raw = client.get(f"{prefix}queue:remote:{commit}")
+                return raw.decode() if raw else None
+
+            def batch(reqs, latest_commit, queueid):
+                return requests.post(
+                    f"{base}/batch_patch?auth_project=remote",
+                    json={
+                        "branch": "main",
+                        "latest_commit": latest_commit,
+                        "queueid": queueid,
+                        "requests": reqs,
+                    },
+                )
+
+            def env_request(name, latest_commit):
+                return {
+                    "endpoint": "update_environment",
+                    "patch": [{"name": name, "__typename": "DeploymentEnvironment"}],
+                    "latest_commit": latest_commit,
+                    "branch": "main",
+                }
+
+            # A real write first, so there is a commit to be unchanged from.
+            res = batch([env_request("staging", first_commit)], first_commit, 1)
+            assert res.status_code == 200, res.text
+            second_commit = res.json()["commit"]
+            assert second_commit != first_commit
+            assert queue_value(first_commit) == f"{second_commit},1"
+
+            # The same patch again changes nothing, so nothing is committed.
+            res = batch([env_request("staging", second_commit)], second_commit, 2)
+            assert res.status_code == 200, res.text
+            assert res.json()["commit"] == second_commit, (
+                f"expected a no-op, but it committed: {res.text}"
+            )
+            assert queue_value(second_commit) == f"{second_commit},2", (
+                "a no-op batch must still record HEAD, or writers deadlock and "
+                f"readers poll to their deadline: {queue_value(second_commit)!r}"
+            )
+
+            # A batch can carry requests queued against different commits, and
+            # the key is written per commit. With HEAD unmoved, the entry for
+            # HEAD self-references while an older one is an ordinary redirect
+            # to it -- same value, different meaning, so asserting only one
+            # would miss the other going wrong.
+            res = batch(
+                [
+                    env_request("staging", second_commit),
+                    env_request("staging", first_commit),
+                ],
+                second_commit,
+                3,
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["commit"] == second_commit, res.text
+            assert queue_value(second_commit) == f"{second_commit},3"
+            assert queue_value(first_commit) == f"{second_commit},3"
+        finally:
+            _dump_server_logs(p, "noop-q")
+            if p:
+                _terminate_process(p)
+
+
 @pytest.mark.parametrize("gui_mode", [False, True])
 def test_rollback_skipped_in_gui_mode(tmp_path, monkeypatch, gui_mode):
     """Gui mode keeps what a failed batch left; hosted mode discards it.

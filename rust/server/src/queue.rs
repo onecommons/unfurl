@@ -71,7 +71,8 @@ return len
 ///
 /// The queue key value is either:
 ///   - A plain integer queueid (e.g. "1")
-///   - "{new_commit},{last_queueid}" after batch_patch commits
+///   - "{new_commit},{last_queueid}" after batch_patch commits, where
+///     new_commit is this key's own commit if the batch committed nothing
 ///
 /// Returns one of:
 ///   - "error" on conflict (stale queueid or newer patch in flight)
@@ -110,6 +111,22 @@ if comma then
     last_queueid = tonumber(string.sub(current, comma + 1))
 else
     last_queueid = tonumber(current)
+end
+
+-- A batch that committed nothing records this key's own commit as the new
+-- one. HEAD never moved, so no queueid is behind anything: the counter only
+-- orders writes against a commit, and this batch produced none. Admit every
+-- writer and collapse the value back to a counter -- there is nothing to
+-- redirect to, and the newer_key lookup below resolves to this very key, so
+-- otherwise every queueid conflicts against a commit nothing will move off.
+-- Precedes the staleness test, which would reject the lower ones first.
+if new_commit and new_commit == string.sub(queue_key, #prefix + 1) then
+    -- resume above last_queueid, not at 1: readers still waiting on a
+    -- queueid issued before the no-op batch would never be covered by
+    -- a lower one and would poll until their deadline.
+    local restarted = last_queueid + 1
+    redis.call('SET', queue_key, tostring(restarted))
+    return tostring(restarted)
 end
 
 if last_queueid > queueid then
@@ -240,7 +257,8 @@ pub enum ExportQueueCheck {
     /// The queue key records a new commit produced by `batch_patch`,
     /// and the recorded `last_queueid` is at least as high as the
     /// client's `queueid`. The caller should treat this commit as the
-    /// effective `latest_commit`.
+    /// effective `latest_commit`. A batch that committed nothing records
+    /// `latest_commit` itself, which resolves here to "proceed at it".
     UseNewCommit(String),
     /// The client's queued write hasn't been committed yet (either no
     /// commit recorded against `latest_commit`, or the recorded
@@ -260,7 +278,8 @@ pub enum ExportQueueCheck {
 ///   * Missing key → [`ExportQueueCheck::Retry`]
 ///   * `"N"` (no commit produced yet) → [`ExportQueueCheck::Retry`]
 ///   * `"{new_commit},{N}"` where `N >= request_queueid` →
-///     [`ExportQueueCheck::UseNewCommit`]
+///     [`ExportQueueCheck::UseNewCommit`] (`new_commit` is `latest_commit`
+///     itself when the batch committed nothing)
 ///   * `"{new_commit},{N}"` where `N < request_queueid` →
 ///     [`ExportQueueCheck::Retry`] (more queued writes still pending)
 ///   * `failed:{status}:{queueid}` → [`ExportQueueCheck::Failed`]

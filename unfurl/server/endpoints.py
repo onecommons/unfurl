@@ -1497,6 +1497,12 @@ def _update_queue_key(
     ``"{new_commit},{queueid}"`` so subsequent ``inc_queueid`` calls
     (in the rust proxy) redirect clients to the new commit.
 
+    A batch that commits nothing writes ``latest_commit`` as the new
+    commit. Don't skip that write: the proxy reads the self-reference as
+    "batch finished, HEAD unchanged" (INC_QUEUEID_SCRIPT restarts the
+    queue, readers proceed at ``latest_commit``), whereas leaving the
+    plain integer behind strands both at a queueid no one can advance.
+
     Writes via the raw redis client rather than ``cache.set`` so the
     value lands as a plain UTF-8 string. Flask-Caching would pickle it,
     which the rust proxy's ``check_export_queue`` / ``inc_queueid`` Lua
