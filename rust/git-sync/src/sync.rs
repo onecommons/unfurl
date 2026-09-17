@@ -406,8 +406,8 @@ impl SyncedRepo {
                     // its commit attribution gets refreshed in pass 2.
                     None
                 } else {
-                    match self.parse_and_detect(&tf.rel_path, syntax, &bytes, &mut stats)? {
-                        Some(doc) => Some(doc),
+                    match self.parse_and_detect(&tf.rel_path, syntax, &bytes, &mut stats) {
+                        Ok(Some(doc)) => Some(doc),
                         // KNOWN GAP: if the database has records for
                         // this file but no format claims it anymore
                         // (e.g. its `kind` was removed), those rows go
@@ -422,7 +422,15 @@ impl SyncedRepo {
                         // from tracking orphans its rows the same
                         // way.) Deliberately not applicable to parse
                         // *failures*, which mean broken, not emptied.
-                        None => continue,
+                        Ok(None) => continue,
+                        Err(error) => {
+                            tracing::warn!(file = %tf.rel_path, %error, "file could not be parsed");
+                            stats.unparsed.push(crate::model::ScanFailure {
+                                file_path: tf.rel_path.clone(),
+                                error,
+                            });
+                            continue;
+                        }
                     }
                 };
             walk_paths.push(tf.rel_path.clone());
@@ -513,8 +521,21 @@ impl SyncedRepo {
                     std::fs::read(&c.tf.abs_path),
                     Syntax::for_extension(&extract_ext(&c.tf.rel_path)),
                 ) {
-                    parsed_doc =
-                        self.parse_and_detect(&c.tf.rel_path, syntax, &bytes, &mut stats)?;
+                    match self.parse_and_detect(&c.tf.rel_path, syntax, &bytes, &mut stats) {
+                        Ok(doc) => parsed_doc = doc,
+                        // Reported like any other unparseable file, then
+                        // handled as the trailer having found nothing:
+                        // these are bytes the database already holds, so
+                        // the branch below still has its attribution to
+                        // refresh.
+                        Err(error) => {
+                            tracing::warn!(file = %c.tf.rel_path, %error, "file could not be parsed");
+                            stats.unparsed.push(crate::model::ScanFailure {
+                                file_path: c.tf.rel_path.clone(),
+                                error,
+                            });
+                        }
+                    }
                 }
             }
 

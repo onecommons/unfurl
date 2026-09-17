@@ -3139,13 +3139,16 @@ async fn a_broken_dot_json_reports_the_json_error() {
     .expect("init repo");
     let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
     let sync = open_at(tmp.path(), &db).await;
-    let err = sync
+    let stats = sync
         .update_from_working_dir(ScanOptions::default())
         .await
-        .expect_err("a truncated document cannot parse either way");
+        .expect("a file that cannot parse is reported, not returned");
+    assert_eq!(stats.unparsed.len(), 1, "{stats:?}");
+    assert_eq!(stats.unparsed[0].file_path, "bad.json");
     assert!(
-        matches!(err, unfurl_git_sync::Error::Json { .. }),
-        "expected the strict parser's error, got {err:?}"
+        matches!(stats.unparsed[0].error, unfurl_git_sync::Error::Json { .. }),
+        "expected the strict parser's error, got {:?}",
+        stats.unparsed[0].error
     );
 }
 

@@ -86,8 +86,8 @@ pub use model::{
     canonical_facet_key, canonical_json_text, Alias, Applied, BatchOp, BatchOutcome, CommitRollup,
     ConflictState, Cursor, FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File,
     JsonQuery, QueryOp, Record, RecordConflict, RecordConflictKind, RecordQuery, Resolution,
-    RollupTxn, SaveFailure, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord, WorkingDir,
-    Worktree, WriteFileOutcome, WriteOutcome,
+    RollupTxn, SaveFailure, ScanFailure, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord,
+    WorkingDir, Worktree, WriteFileOutcome, WriteOutcome,
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;

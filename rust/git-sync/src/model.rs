@@ -964,6 +964,16 @@ pub struct SyncOutcome {
     /// this is the only way to learn which files a partly-successful
     /// save left modified on disk.
     pub failed: Vec<SaveFailure>,
+    /// Files a scan could not parse, each with the reason. Reported
+    /// rather than returned as an error because one unreadable file
+    /// says nothing about the rest of the tree: failing the scan over
+    /// it would leave every other file unindexed.
+    ///
+    /// Such a file keeps whatever rows it already had, which now go
+    /// stale — the same gap a file no format claims any more leaves,
+    /// and for the same reason: a parse failure means broken, not
+    /// emptied, so its records cannot be cleared on the strength of it.
+    pub unparsed: Vec<ScanFailure>,
 }
 
 impl SyncOutcome {
@@ -1046,6 +1056,16 @@ pub struct SaveFailure {
     /// Working-tree-relative path of the file.
     pub file_path: String,
     /// Why it could not be written.
+    pub error: crate::Error,
+}
+
+/// One file [`crate::SyncedRepo::update_from_working_dir`] could not
+/// parse.
+#[derive(Debug)]
+pub struct ScanFailure {
+    /// Working-tree-relative path of the file.
+    pub file_path: String,
+    /// Why it could not be parsed.
     pub error: crate::Error,
 }
 
