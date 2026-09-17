@@ -25,6 +25,25 @@ pub enum Order {
     Sort,
 }
 
+/// What one of a format's sections holds.
+///
+/// Returned by [`DataFormat::section_kind`]. Decides how a record in
+/// that section is addressed inside the document — see
+/// [`crate::document::record_in`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SectionKind {
+    /// The section's direct children are records, each keyed by its own
+    /// map key: `value[section][key]`.
+    Map,
+    /// The section is itself one record, keyed by the section's name:
+    /// `value[section]`.
+    ///
+    /// For a section that holds fields rather than records — a
+    /// cloudmap's `metadata` — where treating each field as a record
+    /// would be wrong and leaving it unclaimed makes it unaddressable.
+    Singleton,
+}
+
 /// Defines one JSON/YAML on-disk format the crate can index.
 ///
 /// Implementations classify a parsed value (`is_format`), declare which
@@ -76,13 +95,24 @@ pub trait DataFormat: Send + Sync {
         serde_json::Value::Object(serde_json::Map::new())
     }
 
-    /// Lists the top-level keys whose direct children are individual
-    /// records.
+    /// Lists the top-level keys that hold this format's records.
     ///
     /// During [`crate::SyncedRepo::update_from_working_dir`] each entry
     /// `(prefix, key, value)` under `value[prefix]` becomes one
-    /// [`Record`] with `path = "/{prefix}"` and the literal map `key`.
+    /// [`Record`] with `path = "/{prefix}"` and the literal map `key`
+    /// — unless [`Self::section_kind`] calls the section a
+    /// [`SectionKind::Singleton`], which yields one record for the
+    /// whole section instead.
     fn path_prefixes(&self) -> &[&str];
+
+    /// What the section at `path` holds. The default is
+    /// [`SectionKind::Map`]: its children are the records.
+    ///
+    /// `path` is the section name without a leading slash, as in
+    /// [`Self::get_order`].
+    fn section_kind(&self, _path: &str) -> SectionKind {
+        SectionKind::Map
+    }
 
     /// Returns alternate `(path, key)` lookups that should resolve to
     /// `record`.

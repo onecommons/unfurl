@@ -150,10 +150,11 @@ fn write_if_changed(path: &Path, contents: &str, label: &str) {
 /// declares them.
 ///
 /// Both ends of each entry come from the schema, so neither can drift
-/// from it: the section names are the root object's `properties` whose
-/// `additionalProperties` is a `$ref` (that's what makes a section a map
-/// of records), and the field list is the referenced definition's
-/// properties, with `allOf` branches expanded in the order they appear.
+/// from it: the section names are the root object's `properties` that
+/// `$ref` a definition, either through `additionalProperties` (a map of
+/// records) or directly (a section that is one record), and the field
+/// list is the referenced definition's properties, with `allOf` branches
+/// expanded in the order they appear.
 /// That ordering is load-bearing — `artifact` and `component` position
 /// the shared `relationships` block by placing its `$ref` branch between
 /// their own, so the generated order matches what the Python
@@ -173,11 +174,13 @@ fn field_order_source(schema_text: &str) -> String {
         .and_then(|v| v.as_object())
         .expect("cloudmap-schema.json has top-level properties");
     for (section, node) in sections {
-        // A section is a map of records: `additionalProperties` is the
-        // `$ref` naming the definition each of its values conforms to.
+        // A section is either a map of records -- `additionalProperties`
+        // is the `$ref` naming the definition each of its values conforms
+        // to -- or one record itself, which is a `$ref` directly.
         let Some(name) = node
             .get("additionalProperties")
             .and_then(|v| v.get("$ref"))
+            .or_else(|| node.get("$ref"))
             .and_then(|v| v.as_str())
             .and_then(|r| r.rsplit('/').next())
         else {

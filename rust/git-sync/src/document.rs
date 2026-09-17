@@ -16,6 +16,7 @@ use std::io::Write;
 use std::path::Path;
 
 use crate::error::{Error, Result};
+use crate::format::SectionKind;
 
 /// A parsed file, and whether reading it needed more than strict JSON.
 pub(crate) struct Parsed {
@@ -289,6 +290,11 @@ pub(crate) fn apply_format_ordering(
         return;
     };
     for section_name in touched_sections {
+        // Sorting a singleton's keys would reorder the *record's* fields,
+        // which is `field_order`'s job and not this one's.
+        if fmt.section_kind(section_name) == SectionKind::Singleton {
+            continue;
+        }
         if !matches!(fmt.get_order(section_name), crate::Order::Sort) {
             continue;
         }
@@ -301,16 +307,51 @@ pub(crate) fn apply_format_ordering(
     }
 }
 
-/// Remove `key` from `root_obj[section_name]`. Drops the section
-/// entirely when it becomes empty. Uses `shift_remove` (not
-/// `remove`/`swap_remove`) so the order of the surviving entries is
-/// preserved — critical for the "minimally-edited" output the tests
-/// assert against.
+/// What `format` says the section at `section_name` holds, with the
+/// default for records no registered format claims.
+pub(crate) fn section_kind(
+    format: Option<&dyn crate::DataFormat>,
+    section_name: &str,
+) -> SectionKind {
+    format.map_or(SectionKind::Map, |f| f.section_kind(section_name))
+}
+
+/// The value a document holds for the record at `(section_name, key)`,
+/// or `None` when it holds none.
+///
+/// One of three functions that between them are the only places a
+/// record's position inside a document is known — with
+/// [`apply_insert`] and [`apply_delete`]. They have to agree: a reader
+/// that looked in a different place from the writer would report every
+/// pending edit as a divergence from a file that in fact holds it.
+pub(crate) fn record_in<'a>(
+    doc: &'a serde_json::Value,
+    kind: SectionKind,
+    section_name: &str,
+    key: &str,
+) -> Option<&'a serde_json::Value> {
+    match kind {
+        SectionKind::Map => doc.get(section_name)?.get(key),
+        SectionKind::Singleton => doc.get(section_name),
+    }
+}
+
+/// Remove the record at `(section_name, key)`. Drops a `Map` section
+/// that becomes empty, and a `Singleton` section outright.
+///
+/// Uses `shift_remove` (not `remove`/`swap_remove`) so the order of the
+/// surviving entries is preserved — critical for the
+/// "minimally-edited" output the tests assert against.
 pub(crate) fn apply_delete(
     root_obj: &mut serde_json::Map<String, serde_json::Value>,
+    kind: SectionKind,
     section_name: &str,
     key: &str,
 ) {
+    if kind == SectionKind::Singleton {
+        root_obj.shift_remove(section_name);
+        return;
+    }
     if let Some(section) = root_obj
         .get_mut(section_name)
         .and_then(|v| v.as_object_mut())
@@ -322,15 +363,38 @@ pub(crate) fn apply_delete(
     }
 }
 
-/// Insert or replace `root_obj[section_name][key] = json`, creating
-/// the section if it's missing and replacing any non-object value.
+/// Insert or replace the record at `(section_name, key)`, creating a
+/// `Map` section if it's missing and replacing any non-object value.
 pub(crate) fn apply_insert(
     root_obj: &mut serde_json::Map<String, serde_json::Value>,
+    kind: SectionKind,
     section_name: &str,
     key: String,
     json: serde_json::Value,
     format: Option<&dyn crate::DataFormat>,
 ) {
+    if kind == SectionKind::Singleton {
+        // The section *is* the record, so the format's field order for
+        // it applies to the value going in whether or not the document
+        // already had one -- there is no enclosing map to copy an order
+        // from, as `reorder_like` does for a `Map` section's entries.
+        let previous = root_obj.get(section_name);
+        let json = match previous {
+            Some(previous) => reorder_like(previous, json),
+            None => match format {
+                Some(fmt) => order_fields(json, fmt.field_order(section_name)),
+                None => json,
+            },
+        };
+        root_obj.insert(section_name.to_string(), json);
+        return;
+    }
+    let section = root_obj
+        .entry(section_name.to_string())
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !section.is_object() {
+        *section = serde_json::Value::Object(serde_json::Map::new());
+    }
     let section = root_obj
         .entry(section_name.to_string())
         .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));

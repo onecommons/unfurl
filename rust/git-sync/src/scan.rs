@@ -18,6 +18,7 @@ use crate::conflict::{
 };
 use crate::db;
 use crate::error::{Error, Result};
+use crate::format::SectionKind;
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
 use crate::sync::SyncedRepo;
 
@@ -86,24 +87,40 @@ struct Reconcile<'a> {
 fn base_value<'a>(
     base_docs: &'a HashMap<String, Option<serde_json::Value>>,
     base_commit_id: Option<&str>,
+    format: &dyn crate::format::DataFormat,
     path: &str,
     key: &str,
 ) -> Option<&'a serde_json::Value> {
-    base_docs
-        .get(base_commit_id?)?
-        .as_ref()?
-        .get(path.trim_start_matches('/'))?
-        .get(key)
+    let section = path.trim_start_matches('/');
+    crate::document::record_in(
+        base_docs.get(base_commit_id?)?.as_ref()?,
+        format.section_kind(section),
+        section,
+        key,
+    )
 }
 
 /// The `(path, key, value)` of every record a parsed document holds,
 /// under each path prefix its format claims.
+///
+/// A [`SectionKind::Singleton`] prefix yields one record for the whole
+/// section, keyed by the section's own name; a `Map` prefix yields one
+/// per child.
 fn document_records(
     value: &serde_json::Value,
     format: &dyn crate::format::DataFormat,
 ) -> Vec<(String, String, serde_json::Value)> {
     let mut records: Vec<(String, String, serde_json::Value)> = Vec::new();
     for prefix in format.path_prefixes() {
+        if format.section_kind(prefix) == SectionKind::Singleton {
+            // Absent is the only way a singleton has no record: unlike a
+            // map section there is nothing to enumerate, so whatever is
+            // there is the record, object or not.
+            if let Some(child) = value.get(*prefix) {
+                records.push((format!("/{prefix}"), (*prefix).to_string(), child.clone()));
+            }
+            continue;
+        }
         let Some(section) = value.get(*prefix).and_then(|v| v.as_object()) else {
             continue;
         };
@@ -169,7 +186,13 @@ impl Reconcile<'_> {
             stats.records_preserved += 1;
             return Ok(false);
         }
-        let base = base_value(self.base_docs, p.base_commit_id.as_deref(), path, key);
+        let base = base_value(
+            self.base_docs,
+            p.base_commit_id.as_deref(),
+            self.file.format,
+            path,
+            key,
+        );
         match classify_conflict(
             &p.json,
             p.deleted,
@@ -279,8 +302,14 @@ impl Reconcile<'_> {
                 // The conflict row's json is NOT NULL and the file has no
                 // value to give it, so it holds the one the file dropped —
                 // the same reading a tombstone's json has.
-                let dropped = base_value(self.base_docs, p.base_commit_id.as_deref(), path, key)
-                    .unwrap_or(&p.json);
+                let dropped = base_value(
+                    self.base_docs,
+                    p.base_commit_id.as_deref(),
+                    self.file.format,
+                    path,
+                    key,
+                )
+                .unwrap_or(&p.json);
                 refresh_conflict_row(
                     tx,
                     self.sync,

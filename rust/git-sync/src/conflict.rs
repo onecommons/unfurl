@@ -335,10 +335,9 @@ pub(crate) fn apply_pending_records(
             continue;
         }
         let at = (rec.path.clone(), rec.key.clone());
-        let theirs = root
-            .get(&section_name)
-            .and_then(|s| s.get(&rec.key))
-            .cloned();
+        let section_kind = crate::document::section_kind(format, &section_name);
+        let theirs =
+            crate::document::record_in(root, section_kind, &section_name, &rec.key).cloned();
         let base_commit = bases.get(&at).cloned().flatten();
         let report = |kind, base_commit: &Option<String>, theirs: Option<&serde_json::Value>| {
             RecordConflict {
@@ -403,8 +402,9 @@ pub(crate) fn apply_pending_records(
                         .as_deref()
                         .and_then(|base| check.base_docs.get(base))
                         .and_then(|doc| doc.as_ref())
-                        .and_then(|doc| doc.get(&section_name))
-                        .and_then(|section| section.get(&rec.key));
+                        .and_then(|doc| {
+                            crate::document::record_in(doc, section_kind, &section_name, &rec.key)
+                        });
                     if let Some(kind) = classify_conflict(
                         &rec.json,
                         rec.deleted,
@@ -438,9 +438,16 @@ pub(crate) fn apply_pending_records(
         let root_obj = root.as_object_mut().expect("root is object");
         let (key, deleted) = (rec.key.clone(), rec.deleted);
         if rec.deleted {
-            apply_delete(root_obj, &section_name, &rec.key);
+            apply_delete(root_obj, section_kind, &section_name, &rec.key);
         } else {
-            apply_insert(root_obj, &section_name, rec.key, rec.json, format);
+            apply_insert(
+                root_obj,
+                section_kind,
+                &section_name,
+                rec.key,
+                rec.json,
+                format,
+            );
         }
         out.applied.push(Applied {
             section: section_name.clone(),

@@ -7,6 +7,27 @@
 /// Record field order per top-level section, as declared in the schema.
 pub const FIELD_ORDER: &[(&str, &[&str])] = &[
     (
+        "metadata",
+        &[
+            "title",
+            "description",
+            "topics",
+            "vendor",
+            "version",
+            "fork_of",
+            "documentation_url",
+            "homepage_url",
+            "thumbnail_url",
+            "discussion_url",
+            "spdx_licenses",
+            "created",
+            "source_url",
+            "source_ref",
+            "source_revision",
+            "discovery",
+        ],
+    ),
+    (
         "repositories",
         &[
             "path",

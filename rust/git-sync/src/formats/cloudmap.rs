@@ -26,7 +26,7 @@ use std::collections::BTreeSet;
 
 use url::Url;
 
-use crate::format::DataFormat;
+use crate::format::{DataFormat, SectionKind};
 use crate::formats::cloudmap_types as ct;
 use crate::{Order, Record};
 
@@ -48,7 +48,15 @@ const PATH_PREFIXES: &[&str] = &[
     "artifacts",
     "instantiations",
     "types",
+    "metadata",
 ];
+
+/// Sections of [`PATH_PREFIXES`] that hold fields rather than a map of
+/// records, and so are one record each.
+///
+/// `metadata` is the cloudmap's own — `title`, `description`, `topics`,
+/// `vendor`, `version` per `cloudmap-schema.json`.
+const SINGLETON_SECTIONS: &[&str] = &["metadata"];
 
 /// The CloudMap [`DataFormat`] implementation.
 ///
@@ -105,6 +113,14 @@ impl DataFormat for CloudMapFormat {
 
     fn path_prefixes(&self) -> &[&str] {
         PATH_PREFIXES
+    }
+
+    fn section_kind(&self, path: &str) -> SectionKind {
+        if SINGLETON_SECTIONS.contains(&path) {
+            SectionKind::Singleton
+        } else {
+            SectionKind::Map
+        }
     }
 
     fn find_alias(&self, record: &Record) -> Vec<(String, String)> {
@@ -226,7 +242,7 @@ impl DataFormat for CloudMapFormat {
         // like `apiVersion`/`kind`, or sections added by a future
         // schema extension we don't know about) keeps its existing
         // key order.
-        if PATH_PREFIXES.contains(&path) {
+        if PATH_PREFIXES.contains(&path) && !SINGLETON_SECTIONS.contains(&path) {
             Order::Sort
         } else {
             Order::PreserveOrder
