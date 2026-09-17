@@ -152,6 +152,17 @@ pub struct FormatRegistry {
     formats: Vec<Box<dyn DataFormat>>,
 }
 
+/// The `literate-yaml` front-matter value that names no format: the
+/// document's own content says which it is, so it is classified by
+/// [`FormatRegistry::detect`] like a plain YAML or JSON file rather than
+/// by [`FormatRegistry::detect_literate`].
+///
+/// Front matter is the only thing that can name a format for a literate
+/// document whose fenced YAML carries no header. One that does carry a
+/// header has no need of it, and would otherwise need its own literate
+/// name registered to be indexed at all.
+pub const GENERIC_LITERATE_FORMAT: &str = "generic";
+
 impl FormatRegistry {
     /// Create an empty registry.
     pub fn new() -> Self {
@@ -192,6 +203,10 @@ impl FormatRegistry {
     /// The literate counterpart of [`Self::detect`]: a markdown
     /// document names its format in front matter rather than being
     /// classified by its content.
+    ///
+    /// [`GENERIC_LITERATE_FORMAT`] never reaches here — the caller sends
+    /// those to [`Self::detect`] instead — so a format claiming that
+    /// name would never be asked for it.
     pub fn detect_literate(&self, name: &str) -> Option<&dyn DataFormat> {
         self.formats
             .iter()

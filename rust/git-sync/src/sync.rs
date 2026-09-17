@@ -37,7 +37,7 @@ use crate::crud::{
 use crate::db::{self, Db, DbConfig};
 use crate::document::{extract_ext, new_root, stage_write, Syntax};
 use crate::error::{Error, Result};
-use crate::format::FormatRegistry;
+use crate::format::{FormatRegistry, GENERIC_LITERATE_FORMAT};
 use crate::git;
 use crate::model::{
     BatchOp, BatchOutcome, CommitRollup, Record, RecordQuery, Resolution, RollupTxn, ScanOptions,
@@ -628,13 +628,14 @@ impl SyncedRepo {
                 "file needs json5 syntax; a rewrite will emit strict json and drop comments"
             );
         }
-        // A literate document names its format in front matter. That
-        // substitution is required, not a shortcut: its YAML is spread
-        // across fenced blocks and carries no header, so `detect` would
-        // never claim it.
+        // A literate document names its format in front matter, because
+        // its YAML is spread across fenced blocks and carries no header
+        // for `detect` to inspect. `generic` is the exception: it says
+        // the merged document does carry one after all, so classify it
+        // the way a plain YAML or JSON file is.
         let format = match parsed.literate.as_deref() {
+            Some(GENERIC_LITERATE_FORMAT) | None => self.formats().detect(&parsed.value),
             Some(name) => self.formats().detect_literate(name),
-            None => self.formats().detect(&parsed.value),
         };
         let Some(format) = format else {
             return Ok(None);

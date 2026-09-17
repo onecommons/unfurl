@@ -22,7 +22,7 @@ CRUD, semantic-only YAML round-trip.
 ## Tests
 
 ```bash
-cargo test -p unfurl-git-sync --no-default-features # SQLite
+cargo test -p unfurl-git-sync # SQLite only
 UNFURL_TEST_PG_URL="postgres://localhost/unfurl_test" \
-  cargo test -p unfurl-git-sync --no-default-features --features postgres
+  cargo test -p unfurl-git-sync --features postgres
 ```

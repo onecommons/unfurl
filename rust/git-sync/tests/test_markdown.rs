@@ -414,6 +414,92 @@ async fn a_markdown_file_that_is_not_text_is_skipped(sync: &SyncedRepo, tmp: &Te
     assert_eq!(org_record(sync).await["name"], "onecommons");
 }
 
+/// `literate-yaml: generic` classifies the document by its content
+/// rather than by the front-matter name.
+///
+/// A literate document normally has to name a registered format,
+/// because its YAML is split across fences and the merged value is the
+/// only place a header could be. When the merge *does* produce one --
+/// `kind: CloudMap` here, in a fence of its own -- `generic` says so,
+/// and the document is detected exactly as the same content in a
+/// `.yaml` file would be.
+async fn a_generic_literate_document_is_detected_from_its_content(
+    sync: &SyncedRepo,
+    tmp: &TempDir,
+) {
+    let doc = r#"---
+literate-yaml: generic
+---
+
+# A cloudmap that says what it is
+
+```yaml
+apiVersion: unfurl/v1.0.0
+kind: CloudMap
+```
+
+Prose between the fences, belonging to no record.
+
+```yaml
+repositories:
+  git.example.com/acme/widget:
+    git: https://git.example.com/acme/widget.git
+    name: widget
+    path: acme/widget
+```
+"#;
+    std::fs::write(tmp.path().join("generic.md"), doc).expect("write");
+    git(tmp.path(), &["add", "generic.md"]);
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+
+    let record = sync
+        .get_record("generic.md", "/repositories", "git.example.com/acme/widget")
+        .await
+        .expect("get")
+        .expect("a header in the merged document is enough to detect it");
+    assert_eq!(record.json["name"], "widget");
+}
+
+/// ...and `generic` is not a licence to index anything: a document
+/// whose merged content no format claims is skipped, the same as a
+/// `.yaml` file would be. Without this the front-matter name would
+/// look like it had made the document indexable by itself.
+async fn a_generic_literate_document_with_no_header_is_skipped(sync: &SyncedRepo, tmp: &TempDir) {
+    let doc = r#"---
+literate-yaml: generic
+---
+
+```yaml
+repositories:
+  git.example.com/acme/widget:
+    git: https://git.example.com/acme/widget.git
+    name: widget
+    path: acme/widget
+```
+"#;
+    std::fs::write(tmp.path().join("headerless.md"), doc).expect("write");
+    git(tmp.path(), &["add", "headerless.md"]);
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("an unrecognised document is skipped, not an error");
+
+    assert!(
+        sync.get_record(
+            "headerless.md",
+            "/repositories",
+            "git.example.com/acme/widget"
+        )
+        .await
+        .expect("get")
+        .is_none(),
+        "no format claims this content, so nothing should be indexed"
+    );
+}
+
 crud_test!(a_markdown_file_that_is_not_text_is_skipped);
 crud_test!(a_plain_markdown_file_is_never_indexed);
 crud_test!(creating_a_literate_markdown_file_is_refused);
+crud_test!(a_generic_literate_document_is_detected_from_its_content);
+crud_test!(a_generic_literate_document_with_no_header_is_skipped);
