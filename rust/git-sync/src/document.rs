@@ -17,10 +17,14 @@ use std::path::Path;
 
 use crate::error::{Error, Result};
 
-/// A parsed document, and whether reading it needed more than strict
-/// JSON.
+/// A parsed file, and whether reading it needed more than strict JSON.
 pub(crate) struct Parsed {
-    pub(crate) value: serde_json::Value,
+    /// The documents the file holds, in the order they appear in it.
+    ///
+    /// Every syntax yields exactly one; a multi-document one would yield
+    /// several, which [`fold_chunks`] is what reduces to the single
+    /// value the rest of the crate addresses records in.
+    pub(crate) chunks: Vec<serde_json::Value>,
     /// The file used JSON5 syntax — a comment, a trailing comma, an
     /// unquoted key — that strict JSON rejects.
     ///
@@ -96,10 +100,10 @@ impl Syntax {
         };
         match self {
             Self::Yaml => Ok(Parsed {
-                value: serde_saphyr::from_str(text()?).map_err(|e| Error::Yaml {
+                chunks: vec![serde_saphyr::from_str(text()?).map_err(|e| Error::Yaml {
                     path: file_path.to_string(),
                     message: e.to_string(),
-                })?,
+                })?],
                 extended: false,
                 literate: None,
             }),
@@ -113,20 +117,20 @@ impl Syntax {
                     None => (serde_json::Value::Object(serde_json::Map::new()), None),
                 };
                 Ok(Parsed {
-                    value,
+                    chunks: vec![value],
                     extended: false,
                     literate,
                 })
             }
             Self::Json | Self::Json5 => match serde_json::from_slice(bytes) {
                 Ok(value) => Ok(Parsed {
-                    value,
+                    chunks: vec![value],
                     extended: false,
                     literate: None,
                 }),
                 Err(strict) => match (json5::from_str(text()?), self) {
                     (Ok(value), _) => Ok(Parsed {
-                        value,
+                        chunks: vec![value],
                         extended: true,
                         literate: None,
                     }),
@@ -192,7 +196,7 @@ impl Syntax {
     /// under which the write means anything. The records then overwrite
     /// it, which is deliberate: the file did not hold this format.
     pub(crate) fn into_value(self, file_path: &str, bytes: &[u8]) -> Result<serde_json::Value> {
-        let root = self.parse(file_path, bytes)?.value;
+        let root = fold_chunks(self.parse(file_path, bytes)?.chunks);
         Ok(if root.is_object() {
             root
         } else {
@@ -236,6 +240,17 @@ impl Syntax {
             Self::Markdown => unreachable!("write_file branches before rendering markdown"),
         }
     }
+}
+
+/// The single value a file's records are addressed in, from the
+/// documents [`Syntax::parse`] found in it.
+///
+/// The one place the scan, the write, and the base-commit lookup agree
+/// on what a file's content *is* — they must, because a record found
+/// under one shape is looked up under the others. Every syntax yields
+/// exactly one document today, so this is that document.
+pub(crate) fn fold_chunks(chunks: Vec<serde_json::Value>) -> serde_json::Value {
+    chunks.into_iter().next().unwrap_or_default()
 }
 
 /// Lower-cased extension of `file_path`, or empty when there isn't one.

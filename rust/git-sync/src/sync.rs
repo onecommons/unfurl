@@ -649,22 +649,21 @@ impl SyncedRepo {
                 "file needs json5 syntax; a rewrite will emit strict json and drop comments"
             );
         }
+        let literate = parsed.literate;
+        let value = crate::document::fold_chunks(parsed.chunks);
         // A literate document names its format in front matter, because
         // its YAML is spread across fenced blocks and carries no header
         // for `detect` to inspect. `generic` is the exception: it says
         // the merged document does carry one after all, so classify it
         // the way a plain YAML or JSON file is.
-        let format = match parsed.literate.as_deref() {
-            Some(GENERIC_LITERATE_FORMAT) | None => self.formats().detect(&parsed.value),
+        let format = match literate.as_deref() {
+            Some(GENERIC_LITERATE_FORMAT) | None => self.formats().detect(&value),
             Some(name) => self.formats().detect_literate(name),
         };
         let Some(format) = format else {
             return Ok(None);
         };
-        Ok(Some(ParsedDoc {
-            format,
-            value: parsed.value,
-        }))
+        Ok(Some(ParsedDoc { format, value }))
     }
 
     /// Sync one parsed file into the DB: upsert the file row, upsert

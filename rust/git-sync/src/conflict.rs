@@ -40,7 +40,10 @@ pub(crate) fn doc_at_commit(
 ) -> Option<serde_json::Value> {
     let bytes = git::read_blob_at_commit(repo, commit, rel_path).ok()??;
     let syntax = Syntax::for_extension(&extract_ext(rel_path))?;
-    syntax.parse(rel_path, &bytes).ok().map(|p| p.value)
+    syntax
+        .parse(rel_path, &bytes)
+        .ok()
+        .map(|p| crate::document::fold_chunks(p.chunks))
 }
 
 /// Parse `rel_path` as it was at each commit in `bases`.
