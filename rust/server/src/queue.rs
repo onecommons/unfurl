@@ -174,6 +174,10 @@ const DRAIN_BATCH_SIZE: usize = 1000;
 /// runaway stack cannot fill Redis or an SSE frame.
 const MAX_ERROR_BODY: usize = 8 * 1024;
 
+/// Cap on keys one `/queue_state` scan reports, so a project with a long
+/// tail of base commits cannot make the endpoint unbounded.
+const MAX_SCANNED_KEYS: usize = 256;
+
 /// Batches discarded since this process started; reported on the
 /// warning [`mark_batch_failed`] emits.
 static DISCARDED_BATCHES: AtomicU64 = AtomicU64::new(0);
@@ -291,6 +295,14 @@ pub enum ExportQueueCheck {
     /// The batch queued against this commit was rejected by the backend
     /// and its writes were discarded. Terminal: waiting cannot help.
     Failed { status: u16, queueid: i64 },
+    /// Writes were queued against this commit after the caller's, and
+    /// none of them has committed yet. The caller's view of the commit
+    /// predates them: its own write is still pending, but it was composed
+    /// without theirs and will be applied after them.
+    ///
+    /// `observed` is the counter's current value, which the caller needs
+    /// to tell this from its own write advancing the counter.
+    Superseded { observed: i64 },
 }
 
 /// Resolve whether an `/export` (or similar) request with a `queueid`
@@ -340,7 +352,14 @@ pub fn classify_queue_value(val: Option<&str>, request_queueid: i64) -> ExportQu
         return ExportQueueCheck::Failed { status, queueid };
     }
     let Some((new_commit, qid_str)) = val.split_once(',') else {
-        return ExportQueueCheck::Retry;
+        // A bare counter: queued, nothing committed against it yet. A
+        // value above the caller's says someone else queued after it.
+        let counter: i64 = val.parse().unwrap_or(0);
+        return if counter > request_queueid {
+            ExportQueueCheck::Superseded { observed: counter }
+        } else {
+            ExportQueueCheck::Retry
+        };
     };
     let last_queueid: i64 = qid_str.parse().unwrap_or(0);
     if last_queueid < request_queueid {
@@ -648,6 +667,59 @@ pub async fn read_batch_error(
     let key = config.queue_error_key(project_id, branch, commit);
     let raw: Option<String> = conn.get(&key).await.ok()?;
     serde_json::from_str(&raw?).ok()
+}
+
+/// The queueid a raw queue value records, whatever its shape.
+pub fn recorded_queueid(raw: &str) -> i64 {
+    match raw.split_once(',') {
+        Some((_, qid)) => qid.parse().unwrap_or(0),
+        None => raw.parse().unwrap_or(0),
+    }
+}
+
+/// Every base commit with a live queue key on `(project_id, branch)`,
+/// paired with the key's raw value.
+///
+/// Bounded by the key TTL rather than by the project's history: without
+/// expiry this would grow for the project's lifetime and could not be
+/// scanned at all.
+pub async fn scan_branch_queue(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    branch: &str,
+) -> Result<Vec<(String, String)>, redis::RedisError> {
+    let prefix = config.queue_entry_prefix(project_id, branch);
+    let mut cursor: u64 = 0;
+    let mut keys: Vec<String> = Vec::new();
+    loop {
+        let (next, batch): (u64, Vec<String>) = redis::cmd("SCAN")
+            .arg(cursor)
+            .arg("MATCH")
+            .arg(format!("{prefix}*"))
+            .arg("COUNT")
+            .arg(100)
+            .query_async(conn)
+            .await?;
+        keys.extend(batch);
+        cursor = next;
+        if cursor == 0 || keys.len() >= MAX_SCANNED_KEYS {
+            break;
+        }
+    }
+    keys.truncate(MAX_SCANNED_KEYS);
+    if keys.is_empty() {
+        return Ok(Vec::new());
+    }
+    let vals: Vec<Option<String>> = conn.mget(&keys).await?;
+    Ok(keys
+        .into_iter()
+        .zip(vals)
+        .filter_map(|(key, val)| {
+            let commit = key.strip_prefix(&prefix)?.to_string();
+            Some((commit, val?))
+        })
+        .collect())
 }
 
 /// Extract the endpoint name from a full path+query string.

@@ -380,7 +380,10 @@ async fn resolve_queued_request(
     .await
     {
         Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
-        Ok(ExportQueueCheck::Retry) => {} // fall through to kick + wait
+        // A supersession says someone queued after this caller, not that
+        // its own write landed -- so the wait continues. `/events` is
+        // where that is worth telling a client about.
+        Ok(ExportQueueCheck::Retry | ExportQueueCheck::Superseded { .. }) => {}
         Ok(ExportQueueCheck::Failed { status, queueid }) => {
             let error =
                 queue::read_batch_error(&mut conn, &state.config, project_id, branch, lc).await;
@@ -431,7 +434,7 @@ async fn resolve_queued_request(
                     queue::read_batch_error(&mut conn, &state.config, project_id, branch, lc).await;
                 return Err(write_discarded_response(lc, status, queueid, error));
             }
-            Ok(ExportQueueCheck::Retry) => {}
+            Ok(ExportQueueCheck::Retry | ExportQueueCheck::Superseded { .. }) => {}
             Err(e) => {
                 tracing::error!("check_export_queue Redis error during wait: {}", e);
                 return Err((StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response());
@@ -1130,6 +1133,17 @@ pub async fn handle_events(
                         });
                         continue;
                     }
+                    // Dropped from the watch set rather than repeated every
+                    // poll: the client's answer to a supersession is to
+                    // re-export, which moves its queueid and reopens a
+                    // watch on the new one.
+                    ExportQueueCheck::Superseded { observed } => json!({
+                        "status": "superseded",
+                        "branch": branch,
+                        "latest_commit": commit,
+                        "queueid": queueid,
+                        "observed": observed,
+                    }),
                     ExportQueueCheck::UseNewCommit(new_commit) => json!({
                         "status": "ok",
                         "branch": branch,
@@ -1194,6 +1208,70 @@ pub async fn handle_events(
         .headers_mut()
         .insert("x-accel-buffering", HeaderValue::from_static("no"));
     response
+}
+
+/// Query of `GET /queue_state`.
+#[derive(Debug, serde::Deserialize)]
+pub struct QueueStateQuery {
+    pub auth_project: Option<String>,
+    pub branch: String,
+}
+
+/// `GET /queue_state` -- the write queue's state for one branch.
+///
+/// Answers "has anything been queued against the commit I am about to
+/// write from, and how far has the counter got" without an export. A
+/// client compares the queueid it holds against the one reported for its
+/// commit: unchanged means its view is current, changed means re-read.
+///
+/// Reports every base commit with a live key, because the caller learns
+/// its commit from git and cannot name it in this request -- it matches
+/// the two up itself.
+pub async fn handle_queue_state(
+    State(state): State<AppState>,
+    Query(params): Query<QueueStateQuery>,
+) -> Response {
+    let Some(mut conn) = state.redis.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"code": "NO_QUEUE", "message": "no queue configured"})),
+        )
+            .into_response();
+    };
+    let Some(branch) = non_empty(Some(&params.branch)) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({"code": "BAD_REQUEST", "message": "branch is required"})),
+        )
+            .into_response();
+    };
+    let project_id = params.auth_project.unwrap_or_default();
+    let entries =
+        match queue::scan_branch_queue(&mut conn, &state.config, &project_id, branch).await {
+            Ok(entries) => entries,
+            Err(e) => {
+                tracing::error!("scan_branch_queue Redis error: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, "queue error").into_response();
+            }
+        };
+
+    let mut out = serde_json::Map::new();
+    for (commit, raw) in entries {
+        // Classified against queueid 0, which reports the state itself
+        // rather than any one caller's position in it.
+        let entry = match queue::classify_queue_value(Some(&raw), 0) {
+            ExportQueueCheck::UseNewCommit(new_commit) => {
+                json!({"new_commit": new_commit, "queueid": queue::recorded_queueid(&raw)})
+            }
+            ExportQueueCheck::Failed { status, queueid } => {
+                json!({"status": "discarded", "backend_status": status, "queueid": queueid})
+            }
+            ExportQueueCheck::Superseded { observed } => json!({"queueid": observed}),
+            ExportQueueCheck::Retry => json!({"queueid": queue::recorded_queueid(&raw)}),
+        };
+        out.insert(commit, entry);
+    }
+    Json(json!({"branch": branch, "commits": out})).into_response()
 }
 
 // ---------------------------------------------------------------------------

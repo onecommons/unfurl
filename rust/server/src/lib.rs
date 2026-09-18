@@ -68,6 +68,9 @@ pub fn build_router(state: AppState, cors: Option<CorsLayer>) -> Router {
         .route("/export", get(routes::handle_export))
         // Queue subscription: one SSE event per queued write as it settles.
         .route("/events", get(routes::handle_events))
+        // Cheap "has the queue moved?" probe, so a client can revalidate
+        // without paying for an export.
+        .route("/queue_state", get(routes::handle_queue_state))
         .route("/types", get(routes::handle_types))
         .route("/cloudmap", cloudmap_route)
         // Facet counts over the same records; the handler proxies

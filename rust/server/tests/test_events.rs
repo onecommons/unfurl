@@ -303,6 +303,116 @@ async fn two_branches_off_one_commit_are_independent() {
     }
 }
 
+/// A write queued after the caller's, with nothing committed yet, is
+/// reported as superseded rather than silently waited out.
+///
+/// The counter moving is the earliest signal that the caller's view is
+/// stale: its own write is still pending, but it was composed without the
+/// newer ones and will be applied after them. `observed` is what lets a
+/// client tell this from its own write advancing the counter.
+#[tokio::test]
+async fn a_newer_queued_write_supersedes_the_watch() {
+    let Some((router, mut conn, config)) = fixture("events_superseded").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let key = config.queue_entry_key("proj", "main", "aaa");
+    // A bare counter at 7: seven writes queued, none committed.
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg("7")
+        .query_async(&mut conn)
+        .await
+        .expect("plant");
+
+    let body = body_text(get(&router, "/events?auth_project=proj&watch=main:aaa:3").await).await;
+
+    assert!(body.contains(r#""status":"superseded""#), "{body}");
+    assert!(body.contains(r#""observed":7"#), "{body}");
+    assert!(body.contains(r#""queueid":3"#), "the caller's own: {body}");
+    assert_eq!(
+        body.matches(r#""status":"superseded""#).count(),
+        1,
+        "reported once, not every poll: {body}"
+    );
+
+    let _: () = redis::cmd("DEL")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
+/// A counter that has not passed the caller keeps waiting.
+#[tokio::test]
+async fn an_unmoved_counter_is_not_a_supersession() {
+    let Some((router, mut conn, config)) = fixture("events_unmoved").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let key = config.queue_entry_key("proj", "main", "aaa");
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg("3")
+        .query_async(&mut conn)
+        .await
+        .expect("plant");
+
+    let body = body_text(get(&router, "/events?auth_project=proj&watch=main:aaa:3").await).await;
+
+    assert!(!body.contains("superseded"), "{body}");
+    assert!(body.contains(r#""status":"done""#), "{body}");
+
+    let _: () = redis::cmd("DEL")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
+/// `/queue_state` reports each base commit's position without an export.
+#[tokio::test]
+async fn queue_state_reports_the_branch_without_an_export() {
+    let Some((router, mut conn, config)) = fixture("queue_state").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let pending = config.queue_entry_key("proj", "main", "aaa");
+    let settled = config.queue_entry_key("proj", "main", "bbb");
+    let other_branch = config.queue_entry_key("proj", "dev", "ccc");
+    for (k, v) in [(&pending, "4"), (&settled, "ddd,2"), (&other_branch, "9")] {
+        let _: () = redis::cmd("SET")
+            .arg(k)
+            .arg(v)
+            .query_async(&mut conn)
+            .await
+            .expect("plant");
+    }
+
+    let res = get(&router, "/queue_state?auth_project=proj&branch=main").await;
+    assert_eq!(res.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+        .await
+        .expect("body");
+    let body: serde_json::Value = serde_json::from_slice(&bytes).expect("json");
+
+    assert_eq!(body["commits"]["aaa"]["queueid"], 4, "{body}");
+    assert_eq!(body["commits"]["bbb"]["new_commit"], "ddd", "{body}");
+    assert_eq!(body["commits"]["bbb"]["queueid"], 2, "{body}");
+    assert!(
+        body["commits"]["ccc"].is_null(),
+        "another branch's key must not leak in: {body}"
+    );
+
+    for k in [pending, settled, other_branch] {
+        let _: () = redis::cmd("DEL")
+            .arg(&k)
+            .query_async(&mut conn)
+            .await
+            .expect("cleanup");
+    }
+}
+
 /// A malformed or oversized watch set is refused before any Redis work.
 #[tokio::test]
 async fn a_bad_watch_set_is_refused() {
