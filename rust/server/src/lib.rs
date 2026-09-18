@@ -66,6 +66,8 @@ pub fn build_router(state: AppState, cors: Option<CorsLayer>) -> Router {
     let app = Router::new()
         // Cache-aware read endpoints.
         .route("/export", get(routes::handle_export))
+        // Queue subscription: one SSE event per queued write as it settles.
+        .route("/events", get(routes::handle_events))
         .route("/types", get(routes::handle_types))
         .route("/cloudmap", cloudmap_route)
         // Facet counts over the same records; the handler proxies

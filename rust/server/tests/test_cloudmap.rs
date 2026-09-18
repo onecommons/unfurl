@@ -49,6 +49,7 @@ fn default_config() -> Config {
         batch_window_secs: 0.0,
         worker_poll_interval_secs: 0.05,
         failed_sentinel_ttl_secs: 3600,
+        events_budget_secs: 10,
         cloudmap_repo: None,
         cloudmap_db_url: None,
         cloudmap_force: false,

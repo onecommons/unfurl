@@ -1769,6 +1769,93 @@ def test_server_update_deployment(server_env):
                 _terminate_process(p)
 
 
+def _read_sse(url, params, timeout=25):
+    """Read `data:` frames from an SSE response until its terminal one.
+
+    Returns the decoded payloads in order. Stops at `status: done` rather
+    than at EOF so a server that forgot to close cannot hang the test.
+    """
+    frames = []
+    with requests.get(url, params=params, stream=True, timeout=timeout) as res:
+        assert res.status_code == 200, res.text
+        for line in res.iter_lines(decode_unicode=True):
+            if not line or not line.startswith("data:"):
+                continue
+            frames.append(json.loads(line[len("data:") :].strip()))
+            if frames[-1].get("status") == "done":
+                break
+    return frames
+
+
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_events_reports_a_real_queued_write():
+    """`/events` reports a queued write settling, end to end.
+
+    The whole chain rather than a planted Redis key: a real write is
+    queued by the rust proxy, drained by its batch worker, applied and
+    committed by Python, and the commit recorded by ``_update_queue_key``
+    -- and the event's ``new_commit`` is checked against what the bare
+    repo actually ends up at.
+
+    Deliberately never calls ``/export``. The old path already notifies a
+    client by blocking its read, so a test that exported first would pass
+    whether or not the subscription did anything.
+    """
+    if os.getenv("UNFURL_TEST_RUST_SERVER") == "0":
+        pytest.skip("/events is served by the rust proxy, which is disabled")
+    server_env = "queue-rust"
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner,
+                deployment.format("initial"),
+                server_env=server_env,
+                name="events",
+            )
+
+            res = _post_write(
+                f"http://{HOST}:{port}/update_ensemble?auth_project=remote",
+                {
+                    "patch": json.loads(patch.format("target")),
+                    "latest_commit": last_commit,
+                },
+                server_env,
+                queueid=0,
+            )
+            _, queueid = _assert_commit(res, last_commit, server_env)
+            assert queueid, f"expected a queueid from the queued write: {res.json()}"
+
+            frames = _read_sse(
+                f"http://{HOST}:{port}/events",
+                params={
+                    "auth_project": "remote",
+                    # Repeated param, `{branch}:{latest_commit}:{queueid}`.
+                    "watch": [f"main:{last_commit}:{queueid}"],
+                },
+            )
+
+            settled = [f for f in frames if f.get("status") == "ok"]
+            assert len(settled) == 1, frames
+            event = settled[0]
+            assert event["branch"] == "main", event
+            assert event["latest_commit"] == last_commit, event
+            assert event["queueid"] == queueid, event
+            assert event["new_commit"] != last_commit, event
+            # The commit the client is sent to is the one the write
+            # actually produced, not merely a plausible-looking value.
+            assert event["new_commit"] == _get_latest_commit(), (
+                event,
+                _get_latest_commit(),
+            )
+            assert frames[-1] == {"status": "done"}, frames
+
+        finally:
+            if p:
+                _terminate_process(p)
+
+
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize("server_env", server_env)
 def test_get_types(server_env):

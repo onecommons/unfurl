@@ -180,6 +180,9 @@ fn failed_sentinel(status: u16, queueid: i64) -> String {
 fn parse_failed_sentinel(value: &str) -> Option<(u16, i64)> {
     let rest = value.strip_prefix(FAILED_SENTINEL_PREFIX)?;
     let (status, queueid) = rest.split_once(':')?;
+    // Do not extend this value with a third field: the queueid would
+    // then parse as `"{queueid}:{extra}"`, fail, and become 0 here with
+    // nothing reported anywhere. Carry anything further in its own key.
     Some((status.parse().ok()?, queueid.parse().unwrap_or(0)))
 }
 
@@ -299,20 +302,59 @@ pub async fn check_export_queue(
 ) -> Result<ExportQueueCheck, redis::RedisError> {
     let queue_key = config.queue_entry_key(project_id, latest_commit);
     let val: Option<String> = conn.get(&queue_key).await?;
+    Ok(classify_queue_value(val.as_deref(), request_queueid))
+}
+
+/// Interpret one queue key's value against a client's queueid, per the
+/// table on [`check_export_queue`].
+///
+/// Split out so a batch of keys read in one `MGET` is classified the
+/// same way a single `GET` is -- [`check_export_queues`] and
+/// [`check_export_queue`] must not drift on what a sentinel means.
+pub fn classify_queue_value(val: Option<&str>, request_queueid: i64) -> ExportQueueCheck {
     let Some(val) = val else {
-        return Ok(ExportQueueCheck::Retry);
+        return ExportQueueCheck::Retry;
     };
-    if let Some((status, queueid)) = parse_failed_sentinel(&val) {
-        return Ok(ExportQueueCheck::Failed { status, queueid });
+    if let Some((status, queueid)) = parse_failed_sentinel(val) {
+        return ExportQueueCheck::Failed { status, queueid };
     }
     let Some((new_commit, qid_str)) = val.split_once(',') else {
-        return Ok(ExportQueueCheck::Retry);
+        return ExportQueueCheck::Retry;
     };
     let last_queueid: i64 = qid_str.parse().unwrap_or(0);
     if last_queueid < request_queueid {
-        return Ok(ExportQueueCheck::Retry);
+        return ExportQueueCheck::Retry;
     }
-    Ok(ExportQueueCheck::UseNewCommit(new_commit.to_string()))
+    ExportQueueCheck::UseNewCommit(new_commit.to_string())
+}
+
+/// [`check_export_queue`] for several `(latest_commit, queueid)` pairs
+/// at once, in the order given.
+///
+/// One `MGET` rather than a `GET` per key: the subscription endpoint
+/// re-reads its whole watch set on every poll, so the round trips --
+/// not the key count -- are what its cost scales with.
+pub async fn check_export_queues(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    watches: &[(String, i64)],
+) -> Result<Vec<ExportQueueCheck>, redis::RedisError> {
+    // `MGET` with no keys is an error, and an empty watch set is the
+    // ordinary way a subscription ends.
+    if watches.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keys: Vec<String> = watches
+        .iter()
+        .map(|(commit, _)| config.queue_entry_key(project_id, commit))
+        .collect();
+    let vals: Vec<Option<String>> = conn.mget(&keys).await?;
+    Ok(watches
+        .iter()
+        .enumerate()
+        .map(|(i, (_, qid))| classify_queue_value(vals.get(i).and_then(|v| v.as_deref()), *qid))
+        .collect())
 }
 
 /// Report whether the queue for `(project_id, branch)` is busy: either

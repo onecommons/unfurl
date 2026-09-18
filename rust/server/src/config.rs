@@ -98,6 +98,24 @@ pub struct Config {
     #[arg(long, env = "UNFURL_FAILED_SENTINEL_TTL_SECS", default_value_t = 86400)]
     pub failed_sentinel_ttl_secs: u64,
 
+    /// How long a `GET /events` subscription is held open, in seconds.
+    /// The cap is what stops a client whose queued write never settles --
+    /// a dead worker, a sentinel never written -- from holding a
+    /// connection indefinitely; it reconnects if it still cares.
+    ///
+    /// Defaults to `proxy_timeout_secs`' value rather than something
+    /// longer: that is already how long the `/export` wait path will
+    /// block on a queued write before giving up, so a write this
+    /// outlived is one nothing else waits on either.  Its own knob
+    /// because the two bound different things -- a subscription is idle
+    /// by design, where a blocked proxy request is holding up work.
+    ///
+    /// A test harness must lower this.  A watch the batch has not
+    /// reached holds its connection for the whole budget, so at the
+    /// default a suite reports green and then hangs on the open socket.
+    #[arg(long, env = "UNFURL_EVENTS_BUDGET_SECS", default_value_t = 120)]
+    pub events_budget_secs: u64,
+
     /// Path to a working directory of a cloudmap git repo.
     /// When set together with `cloudmap_db_url`, GET /cloudmap is served
     /// using the `unfurl-git-sync` crate; otherwise it is proxied to the Python
@@ -296,6 +314,7 @@ mod tests {
             batch_window_secs: 3.0,
             worker_poll_interval_secs: 0.1,
             failed_sentinel_ttl_secs: 86400,
+            events_budget_secs: 120,
             cloudmap_repo: None,
             cloudmap_db_url: None,
             cloudmap_force: false,

@@ -52,6 +52,7 @@ oas3-gen-support = "0.25"
 serde_with = "3"
 validator = { version = "0.20", features = ["derive"] }
 axum-extra = { version = "0.12", features = ["query"] }
+tokio-stream = "0.1.19"
 
 [dev-dependencies]
 serde-saphyr = "1.1.0"

@@ -16,11 +16,15 @@ use axum::{
     body::Body,
     extract::{Query, Request, State},
     http::{header, HeaderValue, StatusCode},
-    response::{IntoResponse, Response},
+    response::{
+        sse::{Event, KeepAlive, Sse},
+        IntoResponse, Response,
+    },
     Json,
 };
 use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::cache;
 use crate::proxy;
@@ -937,6 +941,208 @@ where
                 .into_response()),
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Queue subscription
+// ---------------------------------------------------------------------------
+
+/// Most watches a single subscription may carry.
+///
+/// A client watches one key per in-flight base commit, which is almost
+/// always one; the cap is only here because the set arrives in a URL and
+/// becomes an `MGET`.
+const MAX_WATCHES: usize = 32;
+
+/// Query of `GET /events`.
+///
+/// Hand-written rather than generated from `unfurl/server/openapi.json`
+/// like every other endpoint's: the spec describes the Python API, and
+/// this endpoint has no Python counterpart -- it reports on the Redis
+/// queue, which only exists in front of Python.
+#[derive(Debug, serde::Deserialize)]
+pub struct EventsQuery {
+    /// The project whose queue keys are read. Matches the parameter
+    /// every other endpoint spells this way.
+    pub auth_project: Option<String>,
+    /// One `{branch}:{latest_commit}:{queueid}` per write the client is
+    /// waiting on, repeated rather than comma-joined: a branch name may
+    /// contain a comma, and each repetition is percent-decoded on its
+    /// own.
+    #[serde(default)]
+    pub watch: Vec<String>,
+}
+
+/// One write a subscription is waiting on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Watch {
+    /// Carried through and echoed back, not used to read the queue:
+    /// the key is `queue:{project}:{commit}` with no branch in it, so
+    /// the server cannot derive which branch a settled write was on.
+    /// The client needs it because an event arrives detached from the
+    /// request that caused it, and it stores a commit per branch.
+    branch: String,
+    commit: String,
+    queueid: i64,
+}
+
+/// Parse repeated `watch` values into [`Watch`]es.
+///
+/// Rejects a repeated `(branch, commit)`: two queueids against one would
+/// settle it twice, and the second event would name a write the first
+/// already covered. The same commit on *different* branches is allowed
+/// -- that is two clients' writes sharing a queue key, and each branch
+/// wants its own event.
+fn parse_watch_set(watch: &[String]) -> Option<Vec<Watch>> {
+    let mut out: Vec<Watch> = Vec::new();
+    for item in watch.iter().filter(|s| !s.is_empty()) {
+        // From the right: a git branch name cannot contain `:`, but
+        // splitting this way needs no such assumption.
+        let mut parts = item.rsplitn(3, ':');
+        let qid: i64 = parts.next()?.parse().ok()?;
+        let commit = parts.next()?;
+        let branch = parts.next()?;
+        if branch.is_empty()
+            || commit.is_empty()
+            || qid <= 0
+            || out.iter().any(|w| w.branch == branch && w.commit == commit)
+        {
+            return None;
+        }
+        out.push(Watch {
+            branch: branch.to_string(),
+            commit: commit.to_string(),
+            queueid: qid,
+        });
+    }
+    (!out.is_empty() && out.len() <= MAX_WATCHES).then_some(out)
+}
+
+/// One `data:` frame.
+fn settled_event(payload: JsonValue) -> Result<Event, std::convert::Infallible> {
+    Ok(Event::default().data(payload.to_string()))
+}
+
+/// `GET /events` -- stream one event per watched write as it settles.
+///
+/// The same question `resolve_queued_request` answers for a single
+/// blocked `/export`, asked for a set of writes and answered as it goes:
+/// a client that has queued several writes learns about each without
+/// paying for an export to find out.
+///
+/// Ends when every watch has settled (a terminal `{"status":"done"}`
+/// frame, which is the client's cue to close -- `EventSource` reopens a
+/// stream that merely ends) or when `events_budget_secs` runs out.
+pub async fn handle_events(
+    State(state): State<AppState>,
+    axum_extra::extract::Query(params): axum_extra::extract::Query<EventsQuery>,
+) -> Response {
+    let Some(conn) = state.redis.clone() else {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(json!({"code": "NO_QUEUE", "message": "no queue configured"})),
+        )
+            .into_response();
+    };
+    let Some(mut watches) = parse_watch_set(&params.watch) else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "code": "BAD_REQUEST",
+                "message":
+                    "watch must be up to 32 distinct {branch}:{commit}:{queueid} triples",
+            })),
+        )
+            .into_response();
+    };
+    let project_id = params.auth_project.unwrap_or_default();
+    let config = state.config.clone();
+
+    // Bounded so a client that stops reading exerts backpressure rather
+    // than letting the poll task buffer without limit; the task exits
+    // when the receiver drops, which is how a disconnect cancels it.
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(8);
+    tokio::spawn(async move {
+        let mut conn = conn;
+        let deadline =
+            std::time::Instant::now() + std::time::Duration::from_secs(config.events_budget_secs);
+        while !watches.is_empty() && std::time::Instant::now() < deadline {
+            tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
+            let keyed: Vec<(String, i64)> = watches
+                .iter()
+                .map(|w| (w.commit.clone(), w.queueid))
+                .collect();
+            let results =
+                match queue::check_export_queues(&mut conn, &config, &project_id, &keyed).await {
+                    Ok(results) => results,
+                    Err(e) => {
+                        tracing::error!("check_export_queues Redis error: {}", e);
+                        break;
+                    }
+                };
+            let mut pending = Vec::new();
+            for (watch, result) in std::mem::take(&mut watches).into_iter().zip(results) {
+                let Watch {
+                    branch,
+                    commit,
+                    queueid,
+                } = watch;
+                let payload = match result {
+                    ExportQueueCheck::Retry => {
+                        pending.push(Watch {
+                            branch,
+                            commit,
+                            queueid,
+                        });
+                        continue;
+                    }
+                    ExportQueueCheck::UseNewCommit(new_commit) => json!({
+                        "status": "ok",
+                        "branch": branch,
+                        "latest_commit": commit,
+                        "new_commit": new_commit,
+                        "queueid": queueid,
+                    }),
+                    // `queueid` is the client's, not the batch's: the
+                    // client decides whether an event still applies by
+                    // comparing against what it queued, and the batch's
+                    // last queueid says nothing about that. The batch's
+                    // is reported alongside for diagnosis.
+                    ExportQueueCheck::Failed {
+                        status,
+                        queueid: batch_queueid,
+                    } => json!({
+                        "status": "discarded",
+                        "code": "WRITE_DISCARDED",
+                        "branch": branch,
+                        "message": format!(
+                            "a queued write against this commit was discarded: \
+                             backend returned {status}"
+                        ),
+                        "latest_commit": commit,
+                        "queueid": queueid,
+                        "batch_queueid": batch_queueid,
+                    }),
+                };
+                if tx.send(settled_event(payload)).await.is_err() {
+                    return; // client hung up
+                }
+            }
+            watches = pending;
+        }
+        let _ = tx.send(settled_event(json!({"status": "done"}))).await;
+    });
+
+    let mut response = Sse::new(ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default().interval(std::time::Duration::from_secs(15)))
+        .into_response();
+    // nginx and GitLab workhorse buffer a proxied response by default,
+    // which would hold every event until the stream closed and turn this
+    // back into a long poll.
+    response
+        .headers_mut()
+        .insert("x-accel-buffering", HeaderValue::from_static("no"));
+    response
 }
 
 // ---------------------------------------------------------------------------
