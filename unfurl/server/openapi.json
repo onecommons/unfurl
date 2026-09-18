@@ -1988,6 +1988,84 @@
         "title": "PostCloudmapRequest",
         "type": "object"
       },
+      "QueueStateResult": {
+        "description": "Response body for ``GET /queue_state``.",
+        "properties": {
+          "branch": {
+            "title": "Branch",
+            "type": "string"
+          },
+          "commits": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/QueueStateResult.QueueStateEntry"
+            },
+            "description": "Every base commit with a live queue entry on this branch, keyed by commit hash. Empty when nothing is queued -- which is always so when no write queue is configured.",
+            "title": "Commits",
+            "type": "object"
+          }
+        },
+        "required": [
+          "branch",
+          "commits"
+        ],
+        "title": "QueueStateResult",
+        "type": "object"
+      },
+      "QueueStateResult.QueueStateEntry": {
+        "additionalProperties": true,
+        "description": "One base commit's position in the write queue.",
+        "properties": {
+          "backend_status": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Backend HTTP status that discarded the batch.",
+            "title": "Backend Status"
+          },
+          "new_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Commit a batch produced against this one, when it has committed. Absent while writes are still queued.",
+            "title": "New Commit"
+          },
+          "queueid": {
+            "description": "Highest queueid issued against this base commit.",
+            "title": "Queueid",
+            "type": "integer"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "``\"discarded\"`` when the batch here was rejected.",
+            "title": "Status"
+          }
+        },
+        "required": [
+          "queueid"
+        ],
+        "title": "QueueStateEntry",
+        "type": "object"
+      },
       "ValidationError": {
         "description": "Error response returned by all endpoints on failure.",
         "properties": {
@@ -3975,6 +4053,66 @@
         ]
       }
     },
+    "/events": {
+      "get": {
+        "description": "One ``data:`` frame per watched write as it settles, ending with ``{\"status\": \"done\"}``. The client must close the stream on that frame: `EventSource` reopens one that merely ends.\n\nThe body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 cannot express -- the schema below describes one frame, not the body.\n\nServed by the rust proxy when a write queue is configured. This backend has no queue, so nothing is ever pending and it sends ``done`` at once.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "watch",
+            "required": false,
+            "schema": {
+              "description": "One ``{branch}:{latest_commit}:{queueid}`` per queued write to report on, repeated rather than comma-joined because a branch name may contain a comma. Up to 32, each naming a distinct ``(branch, commit)``.",
+              "items": {
+                "type": "string"
+              },
+              "title": "Watch",
+              "type": "array"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {}
+            },
+            "description": "Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.0 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Stream a queued write's outcome",
+        "tags": [
+          "Project"
+        ]
+      }
+    },
     "/export": {
       "get": {
         "description": "Export an ensemble or service template in a JSON format suitable for the frontend. Supports 'deployment', 'blueprint', and 'environments' formats.",
@@ -4529,6 +4667,67 @@
         "summary": "Populate export cache for a project file",
         "tags": [
           "Cache"
+        ]
+      }
+    },
+    "/queue_state": {
+      "get": {
+        "description": "Report each base commit with writes queued against it, so a client can tell whether the queueid it holds is still current without paying for an export.\n\nServed by the rust proxy when a write queue is configured. This backend has no queue, so it answers with no commits -- which is the truthful answer here, not a stub: without a queue no write is ever pending.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          },
+          {
+            "in": "query",
+            "name": "branch",
+            "required": true,
+            "schema": {
+              "description": "Branch whose write queue is reported.",
+              "title": "Branch",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueueStateResult"
+                }
+              }
+            },
+            "description": "Queued writes by base commit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Write queue state for a branch",
+        "tags": [
+          "Project"
         ]
       }
     },

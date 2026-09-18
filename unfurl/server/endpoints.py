@@ -11,7 +11,7 @@ import re
 from urllib.parse import urlparse
 from itertools import product
 from base64 import b64decode
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, cast
+from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union, cast
 
 from flask import Response, current_app, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
@@ -43,17 +43,21 @@ from ..yamlloader import yaml
 from .schemas import (
     BatchPatchBody,
     CloudMapDocQuery,
-    CloudMapResult,
     CloudMapQuery,
     CloudMapResponse,
+    CloudMapResult,
+    EventsQuery,
     FacetsQuery,
     FacetsResult,
+    PATCH_RESPONSES,
     PatchEnsembleBody,
     PatchEnvironmentBody,
     PatchResponse,
-    PATCH_RESPONSES,
     PostCloudmapRequest,
     ProjectAuthQuery,
+    QueueStateQuery,
+    QueueStateResult,
+    QueuedWriteEvent,
 )
 
 # Imported from .serve at the bottom of this file; serve.py imports
@@ -719,6 +723,77 @@ def _canonical_facet_key(value: Any) -> str:
     if isinstance(value, str):
         return value
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+_EVENT_STREAM_RESPONSE: Dict[
+    Union[int, str], Dict[str, Union[str, Dict[str, Dict[str, Any]]]]
+] = {
+    200: {
+        # Plain prose, no backticks or braces: this becomes a doc comment
+        # in the generated unfurl_types.rs, and rustdoc compiles anything
+        # it reads as a code block.
+        "description": (
+            "Stream of data frames, one per watched write as it settles, "
+            "ending with a terminal frame whose status is done. "
+            "Declared without a schema deliberately: OpenAPI 3.0 has no "
+            "way to say a stream of these, since a response schema "
+            "describes the whole body, and oas3-gen generates an "
+            "EventStream wrapper for a typed text/event-stream that does "
+            "not compile. The frame shape is QueuedWriteEvent in "
+            "schemas.py. OpenAPI 3.2 added event streaming and would let "
+            "this be declared properly."
+        ),
+        "content": {"text/event-stream": {}},
+    }
+}
+
+
+@app.get("/events")
+@app.doc(
+    summary="Stream a queued write's outcome",
+    description=(
+        "One ``data:`` frame per watched write as it settles, ending with "
+        "``{\"status\": \"done\"}``. The client must close the stream on "
+        "that frame: `EventSource` reopens one that merely ends.\n\n"
+        "The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 "
+        "cannot express -- the schema below describes one frame, not the "
+        "body.\n\n"
+        "Served by the rust proxy when a write queue is configured. This "
+        "backend has no queue, so nothing is ever pending and it sends "
+        "``done`` at once."
+    ),
+    tags=["Project"],
+    responses=_EVENT_STREAM_RESPONSE,
+)
+@app.input(EventsQuery, location="query", arg_name="query")
+def get_events(query: EventsQuery) -> ResponseReturnValue:
+    # Terminal frame only: with no queue there is nothing to wait on, and
+    # a client that stayed open would wait out its own timeout instead.
+    return Response(
+        f"data: {json.dumps({'status': 'done'})}\n\n",
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/queue_state")
+@app.doc(
+    summary="Write queue state for a branch",
+    description=(
+        "Report each base commit with writes queued against it, so a "
+        "client can tell whether the queueid it holds is still current "
+        "without paying for an export.\n\n"
+        "Served by the rust proxy when a write queue is configured. This "
+        "backend has no queue, so it answers with no commits -- which is "
+        "the truthful answer here, not a stub: without a queue no write "
+        "is ever pending."
+    ),
+    tags=["Project"],
+)
+@app.input(QueueStateQuery, location="query", arg_name="query")
+@app.output(QueueStateResult, description="Queued writes by base commit")
+def get_queue_state(query: QueueStateQuery) -> ResponseReturnValue:
+    return {"branch": query.branch, "commits": {}}
 
 
 @app.get("/cloudmap/facets")

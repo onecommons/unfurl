@@ -1157,6 +1157,44 @@ impl IntoResponse for GetCloudmapResponse {
         }
     }
 }
+/// One ``data:`` frame per watched write as it settles, ending with ``{"status": "done"}``. The client must close the stream on that frame: `EventSource` reopens one that merely ends.
+///
+/// The body is a stream of ``QueuedWriteEvent``, which OpenAPI 3.0 cannot express -- the schema below describes one frame, not the body.
+///
+/// Served by the rust proxy when a write queue is configured. This backend has no queue, so nothing is ever pending and it sends ``done`` at once.
+#[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
+pub struct GetEventsRequest {
+    pub query: GetEventsRequestQuery,
+}
+impl GetEventsRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct GetEventsRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+    /// One ``{branch}:{latest_commit}:{queueid}`` per queued write to report on, repeated rather than comma-joined because a branch name may contain a comma. Up to 32, each naming a distinct ``(branch, commit)``.
+    pub watch: Option<Vec<String>>,
+}
+/// Response types for GetEventsResponse
+#[derive(Debug)]
+pub enum GetEventsResponse {
+    ///200: Stream of data frames, one per watched write as it settles, ending with a terminal frame whose status is done. Declared without a schema deliberately: OpenAPI 3.0 has no way to say a stream of these, since a response schema describes the whole body, and oas3-gen generates an EventStream wrapper for a typed text/event-stream that does not compile. The frame shape is QueuedWriteEvent in schemas.py. OpenAPI 3.2 added event streaming and would let this be declared properly.
+    Ok,
+    ///422: Validation error
+    UnprocessableEntity(ValidationError),
+    ///default: Unknown response
+    Unknown,
+}
+impl IntoResponse for GetEventsResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok => http::StatusCode::OK.into_response(),
+            Self::UnprocessableEntity(data) => {
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
+            }
+            Self::Unknown => http::StatusCode::OK.into_response(),
+        }
+    }
+}
 /// Export an ensemble or service template in a JSON format suitable for the frontend. Supports 'deployment', 'blueprint', and 'environments' formats.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct GetExportRequest {
@@ -1283,6 +1321,44 @@ impl IntoResponse for GetHealthResponse {
     fn into_response(self) -> axum::response::Response {
         match self {
             Self::Ok => http::StatusCode::OK.into_response(),
+            Self::Unknown => http::StatusCode::OK.into_response(),
+        }
+    }
+}
+/// Report each base commit with writes queued against it, so a client can tell whether the queueid it holds is still current without paying for an export.
+///
+/// Served by the rust proxy when a write queue is configured. This backend has no queue, so it answers with no commits -- which is the truthful answer here, not a stub: without a queue no write is ever pending.
+#[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
+pub struct GetQueueStateRequest {
+    #[validate(nested)]
+    pub query: GetQueueStateRequestQuery,
+}
+impl GetQueueStateRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+pub struct GetQueueStateRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+    /// Branch whose write queue is reported.
+    #[validate(length(min = 1u64))]
+    pub branch: String,
+}
+/// Response types for GetQueueStateResponse
+#[derive(Debug, Clone)]
+pub enum GetQueueStateResponse {
+    ///200: Queued writes by base commit
+    Ok(QueueStateResult),
+    ///422: Validation error
+    UnprocessableEntity(ValidationError),
+    ///default: Unknown response
+    Unknown,
+}
+impl IntoResponse for GetQueueStateResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
+            Self::UnprocessableEntity(data) => {
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
+            }
             Self::Unknown => http::StatusCode::OK.into_response(),
         }
     }
@@ -1734,6 +1810,29 @@ impl PostUpdateEnvironmentRequest {}
 pub struct PostUpdateEnvironmentRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
+}
+/// Response body for ``GET /queue_state``.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct QueueStateResult {
+    pub branch: String,
+    /// Every base commit with a live queue entry on this branch, keyed by commit hash. Empty when nothing is queued -- which is always so when no write queue is configured.
+    pub commits: std::collections::HashMap<String, QueueStateResultQueueStateEntry>,
+}
+/// One base commit's position in the write queue.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct QueueStateResultQueueStateEntry {
+    /// Backend HTTP status that discarded the batch.
+    pub backend_status: Option<i64>,
+    /// Commit a batch produced against this one, when it has committed. Absent while writes are still queued.
+    pub new_commit: Option<String>,
+    /// Highest queueid issued against this base commit.
+    pub queueid: i64,
+    /// ``"discarded"`` when the batch here was rejected.
+    pub status: Option<String>,
+    /// Additional properties not defined in the schema.
+    #[serde(flatten)]
+    pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// Error response returned by all endpoints on failure.
 #[serde_with::skip_serializing_none]

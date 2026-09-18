@@ -1008,25 +1008,6 @@ where
 /// becomes an `MGET`.
 const MAX_WATCHES: usize = 32;
 
-/// Query of `GET /events`.
-///
-/// Hand-written rather than generated from `unfurl/server/openapi.json`
-/// like every other endpoint's: the spec describes the Python API, and
-/// this endpoint has no Python counterpart -- it reports on the Redis
-/// queue, which only exists in front of Python.
-#[derive(Debug, serde::Deserialize)]
-pub struct EventsQuery {
-    /// The project whose queue keys are read. Matches the parameter
-    /// every other endpoint spells this way.
-    pub auth_project: Option<String>,
-    /// One `{branch}:{latest_commit}:{queueid}` per write the client is
-    /// waiting on, repeated rather than comma-joined: a branch name may
-    /// contain a comma, and each repetition is percent-decoded on its
-    /// own.
-    #[serde(default)]
-    pub watch: Vec<String>,
-}
-
 /// Parse repeated `watch` values into [`Watch`]es.
 ///
 /// Rejects a repeated `(branch, commit)`: two queueids against one would
@@ -1076,7 +1057,7 @@ fn settled_event(payload: JsonValue) -> Result<Event, std::convert::Infallible> 
 /// stream that merely ends) or when `events_budget_secs` runs out.
 pub async fn handle_events(
     State(state): State<AppState>,
-    axum_extra::extract::Query(params): axum_extra::extract::Query<EventsQuery>,
+    ValidatedRepeatedQuery(params): ValidatedRepeatedQuery<unfurl_types::GetEventsRequestQuery>,
 ) -> Response {
     let Some(conn) = state.redis.clone() else {
         return (
@@ -1085,7 +1066,7 @@ pub async fn handle_events(
         )
             .into_response();
     };
-    let Some(mut watches) = parse_watch_set(&params.watch) else {
+    let Some(mut watches) = parse_watch_set(params.watch.as_deref().unwrap_or_default()) else {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -1210,13 +1191,6 @@ pub async fn handle_events(
     response
 }
 
-/// Query of `GET /queue_state`.
-#[derive(Debug, serde::Deserialize)]
-pub struct QueueStateQuery {
-    pub auth_project: Option<String>,
-    pub branch: String,
-}
-
 /// `GET /queue_state` -- the write queue's state for one branch.
 ///
 /// Answers "has anything been queued against the commit I am about to
@@ -1229,7 +1203,7 @@ pub struct QueueStateQuery {
 /// the two up itself.
 pub async fn handle_queue_state(
     State(state): State<AppState>,
-    Query(params): Query<QueueStateQuery>,
+    ValidatedQuery(params): ValidatedQuery<unfurl_types::GetQueueStateRequestQuery>,
 ) -> Response {
     let Some(mut conn) = state.redis.clone() else {
         return (

@@ -489,6 +489,115 @@ class FacetGroup(BaseModel):
     )
 
 
+class EventsQuery(ProjectAuthQuery):
+    """Query parameters for ``GET /events``."""
+
+    watch: List[str] = Field(
+        default_factory=list,
+        description=(
+            "One ``{branch}:{latest_commit}:{queueid}`` per queued write "
+            "to report on, repeated rather than comma-joined because a "
+            "branch name may contain a comma. Up to 32, each naming a "
+            "distinct ``(branch, commit)``."
+        ),
+    )
+
+
+class QueuedWriteEvent(BaseModel):
+    """One ``data:`` frame of ``GET /events``.
+
+    Not the response body: the body is a stream of these, which OpenAPI
+    3.0 has no way to express. The fields present depend on ``status``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    status: str = Field(
+        description=(
+            "``ok`` -- the batch holding this write committed; "
+            "``discarded`` -- it was rejected and the write is gone; "
+            "``superseded`` -- writes were queued after this one and "
+            "nothing has committed, so re-read before writing again; "
+            "``done`` -- terminal, the client should close the stream."
+        )
+    )
+    branch: Optional[str] = None
+    latest_commit: Optional[str] = Field(
+        default=None, description="Base commit the watch named."
+    )
+    new_commit: Optional[str] = Field(
+        default=None, description="Commit the batch produced (``ok``)."
+    )
+    queueid: Optional[int] = Field(
+        default=None, description="The caller's own queueid, as watched."
+    )
+    observed: Optional[int] = Field(
+        default=None,
+        description=(
+            "Counter's value (``superseded``). Compare against the "
+            "queueid held: not greater means the caller's own write "
+            "moved it."
+        ),
+    )
+    batch_queueid: Optional[int] = Field(
+        default=None, description="The failed batch's last queueid."
+    )
+    code: Optional[str] = None
+    message: Optional[str] = None
+    error: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "The backend's own error for a ``discarded`` write, including "
+            "``details`` (a traceback), ``rolled_back``, and which "
+            "request of the batch failed. Absent when it is not recorded."
+        ),
+    )
+
+
+class QueueStateQuery(ProjectAuthQuery):
+    """Query parameters for ``GET /queue_state``."""
+
+    branch: str = Field(description="Branch whose write queue is reported.")
+
+
+class QueueStateEntry(BaseModel):
+    """One base commit's position in the write queue."""
+
+    model_config = ConfigDict(extra="allow")
+
+    queueid: int = Field(
+        description="Highest queueid issued against this base commit."
+    )
+    new_commit: Optional[str] = Field(
+        default=None,
+        description=(
+            "Commit a batch produced against this one, when it has "
+            "committed. Absent while writes are still queued."
+        ),
+    )
+    status: Optional[str] = Field(
+        default=None,
+        description='``"discarded"`` when the batch here was rejected.',
+    )
+    backend_status: Optional[int] = Field(
+        default=None,
+        description="Backend HTTP status that discarded the batch.",
+    )
+
+
+class QueueStateResult(BaseModel):
+    """Response body for ``GET /queue_state``."""
+
+    branch: str
+    commits: Dict[str, QueueStateEntry] = Field(
+        description=(
+            "Every base commit with a live queue entry on this branch, "
+            "keyed by commit hash. Empty when nothing is queued -- which "
+            "is always so when no write queue is configured."
+        )
+    )
+
+
 class FacetsResult(BaseModel):
     """Response body for ``GET /cloudmap/facets``."""
 
