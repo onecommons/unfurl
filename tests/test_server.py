@@ -4175,13 +4175,18 @@ def test_batch_patch_rolls_back_a_mid_batch_failure():
                 }
 
             # "tasks" is a reserved folder name, so the second request is
-            # rejected by _patch_environment after the first has committed.
+            # rejected by _patch_environment after the first has committed --
+            # and the third never runs at all.
             res = requests.post(
                 f"{base}/batch_patch?auth_project=remote",
                 json={
                     "branch": "main",
                     "latest_commit": last_commit,
-                    "requests": [env_request("staging"), env_request("tasks")],
+                    "requests": [
+                        env_request("staging"),
+                        env_request("tasks"),
+                        env_request("never-applied"),
+                    ],
                 },
             )
             assert res.status_code == 400, res.text
@@ -4190,6 +4195,23 @@ def test_batch_patch_rolls_back_a_mid_batch_failure():
             assert res.json().get("rolled_back") is True, (
                 f"the batch worker reads this to decide a retry is safe: {res.text}"
             )
+            # Which request failed, and that a third never ran. The error is
+            # the failing request's own and says nothing about its position,
+            # so without this a client sees one message and cannot tell the
+            # batch held two other writes.
+            assert res.json().get("failed_request") == {
+                "endpoint": "update_environment",
+                "index": 1,
+                "count": 3,
+                "skipped": 1,
+            }, res.text
+            # What ran before the failure. In server mode the rollback
+            # undoes it, but the report is what lets a client in gui mode
+            # -- where nothing is rolled back -- name the write that
+            # survived instead of calling the whole batch discarded.
+            assert res.json().get("applied") == [
+                {"endpoint": "update_environment", "index": 0}
+            ], res.text
 
             # A later batch must not carry the discarded commit with it.
             res = requests.post(

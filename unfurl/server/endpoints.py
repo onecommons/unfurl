@@ -1649,10 +1649,7 @@ def _rollback_batch(
     `latest_commit`: the two differ for a project whose ensemble lives in
     a subrepo, and HEAD is the one the patches committed against.
 
-    Nothing is rolled back in gui mode, following the push logic: there
-    is no remote to carry the commit anywhere, so the local repository is
-    the record rather than a staging area, and discarding commits would
-    destroy the user's work instead of protecting it. Nor when the working
+    Nothing is rolled back in gui mode, nor when the working
     copy was already dirty on entry, where a reset would take uncommitted
     work this batch never made.
     """
@@ -1665,31 +1662,38 @@ def _rollback_batch(
             else f"the working copy at {repo.working_dir} was already dirty",
         )
         return
+    _discard_local_commits(repo, start_revision, "batch")
+
+
+def _discard_local_commits(repo: GitRepo, start_revision: str, what: str) -> bool:
+    """Reset `repo` working directory back to `start_revision`, both dirty tracked and untracked files."""
     if not start_revision:
-        # Nothing to reset to. `HEAD~1` would be a guess at how many
-        # commits the batch made, and unborn HEAD has no parent at all.
-        logger.error("cannot roll back batch: no starting revision")
-        return
+        # Nothing to reset to, and `HEAD~1` would be a guess at how many
+        # commits were made; unborn HEAD has no parent at all.
+        logger.error("cannot roll back %s: no starting revision", what)
+        return False
     if not repo.reset(f"--hard {start_revision}"):
-        logger.error("failed to roll back batch to %s", start_revision)
-        return
+        logger.error("failed to roll back %s to %s", what, start_revision)
+        return False
     # `reset --hard` restores tracked files but leaves new ones behind, and
-    # `_patch_ensemble` commits with add_all, so a later batch would sweep
-    # in whatever a half-applied `create_ensemble` wrote. `-x` because the
+    # `_patch_ensemble` commits with add_all, so a later write would sweep in
+    # whatever a half-applied `create_ensemble` wrote. `-x` because the
     # ignore rules cover state a patch writes (`local`, `jobs`, `tmp`) that
-    # should go back with everything else. `-d` and not `-ff`: git refuses
-    # to descend into an untracked directory that is its own repository, so
+    # should go back with everything else. `-d` and not `-ff`: git refuses to
+    # descend into an untracked directory that is its own repository, so
     # cloned dependencies under `tosca_repositories` and an ensemble subrepo
     # survive either way.
     status, _out, err = repo.run_cmd(["clean", "-fdx"])
     if status:
         logger.error(
-            "rolled back batch to %s but could not remove new files: %s",
+            "rolled back %s to %s but could not remove new files: %s",
+            what,
             start_revision,
             err,
         )
-        return
-    logger.info("rolled back batch to %s", start_revision)
+        return False
+    logger.info("rolled back %s to %s", what, start_revision)
+    return True
 
 
 def _rolls_back_a_failed_batch(started_dirty: bool = False) -> bool:
@@ -1725,6 +1729,40 @@ def _mark_rolled_back(
     return result
 
 
+def _annotate_failed_request(
+    result: ResponseReturnValue,
+    endpoint: str,
+    index: int,
+    total: int,
+    applied: List[Dict[str, object]],
+) -> ResponseReturnValue:
+    """Name the request a batch failed on, which ran before it, and how
+    many never ran.
+
+    The error `_apply_batch_requests` returns is the failing request's own
+    and says nothing about its position, so a client saw one message with
+    no sign the batch held other writes.
+
+    `applied` is what makes the un-rolled-back case reportable. Where
+    `_rolls_back_a_failed_batch` is false -- gui mode, or a repo already
+    dirty on entry -- the requests before the failure stay committed, so
+    the batch was not "discarded" and `rolled_back` alone says only that
+    something may have survived, not which.
+    """
+    if isinstance(result, Response) and result.is_json:
+        body = result.get_json(silent=True)
+        if isinstance(body, dict):
+            body["failed_request"] = {
+                "endpoint": endpoint,
+                "index": index,
+                "count": total,
+                "skipped": total - index - 1,
+            }
+            body["applied"] = applied
+            result.set_data(json.dumps(body))
+    return result
+
+
 def _apply_batch_requests(
     body: dict,
     batch_requests: list,
@@ -1740,7 +1778,11 @@ def _apply_batch_requests(
     """
     last_body = body  # track last body for credentials
     latest_commits = set()
-    for req in batch_requests:
+    # Requests that committed before any failure. Appended after both
+    # patch calls below, because `create_provider` runs an environment
+    # patch *and* an ensemble one and is one request either way.
+    applied: List[Dict[str, object]] = []
+    for index, req in enumerate(batch_requests):
         endpoint = req.get("endpoint", "")
         latest_commits.add(req.get("latest_commit", ""))
         # The request body is the req dict itself (endpoint + original body fields).
@@ -1762,7 +1804,9 @@ def _apply_batch_requests(
         ):
             result = _patch_environment(req_body, project_id, batched=readonly_localEnv)
             if _is_error_response(result):
-                return result
+                return _annotate_failed_request(
+                    result, endpoint, index, len(batch_requests), applied
+                )
         if create or endpoint == "update_ensemble":
             result = _patch_ensemble(
                 req_body,
@@ -1771,7 +1815,10 @@ def _apply_batch_requests(
                 batched=readonly_localEnv,
             )
             if _is_error_response(result):
-                return result
+                return _annotate_failed_request(
+                    result, endpoint, index, len(batch_requests), applied
+                )
+        applied.append({"endpoint": endpoint, "index": index})
     username = last_body.get("username")
     password = last_body.get("private_token", last_body.get("password"))
     if not app.config.get("UNFURL_GUI_MODE"):
@@ -2358,10 +2405,11 @@ def _push_changes(
         logger.info("pushed")
     except Exception as err:
         if rollback:
-            # discard the last commit that we couldn't push
-            # this is mainly for security if we couldn't push because the user wasn't authorized
-            # XXX starting_revision wrong if not a mono repo
-            repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
+            # Discard the commit we could not push -- mainly for security,
+            # since a push rejected for authorization would otherwise leave
+            # the caller's commit in the server's working copy for a later
+            # write to carry along.
+            _discard_local_commits(repo, starting_revision, "push")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
     return None
