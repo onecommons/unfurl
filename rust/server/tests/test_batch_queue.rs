@@ -43,7 +43,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs,
         worker_poll_interval_secs: 0.05,
-        failed_sentinel_ttl_secs: 3600,
+        queue_key_ttl_secs: 3600,
         events_budget_secs: 10,
         cloudmap_repo: None,
         cloudmap_db_url: None,
@@ -554,7 +554,7 @@ async fn test_inc_queueid_first_patch() {
     cleanup_keys(&mut conn, project).await;
 
     // First patch with queueid=0 should succeed and return 1.
-    let result = queue::inc_queueid(&mut conn, &config, project, "abc123", 0)
+    let result = queue::inc_queueid(&mut conn, &config, project, "main", "abc123", 0)
         .await
         .unwrap();
     assert_eq!(result, QueueIdResult::Ok { new_queueid: 1 });
@@ -579,19 +579,19 @@ async fn test_inc_queueid_sequential_increments() {
     cleanup_keys(&mut conn, project).await;
 
     // First patch.
-    let r1 = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
+    let r1 = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 0)
         .await
         .unwrap();
     assert_eq!(r1, QueueIdResult::Ok { new_queueid: 1 });
 
     // Second patch with queueid=1 should return 2.
-    let r2 = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
+    let r2 = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 1)
         .await
         .unwrap();
     assert_eq!(r2, QueueIdResult::Ok { new_queueid: 2 });
 
     // Third patch with queueid=2 should return 3.
-    let r3 = queue::inc_queueid(&mut conn, &config, project, "abc", 2)
+    let r3 = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 2)
         .await
         .unwrap();
     assert_eq!(r3, QueueIdResult::Ok { new_queueid: 3 });
@@ -616,27 +616,27 @@ async fn test_inc_queueid_stale_conflict() {
     cleanup_keys(&mut conn, project).await;
 
     // Create initial queue.
-    let _ = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 0)
         .await
         .unwrap();
-    let _ = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 1)
         .await
         .unwrap();
 
     // Stale queueid=0 should conflict (current is 2, not 0).
-    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 0)
+    let r = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 0)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
 
     // Stale queueid=1 should also conflict (current is 2, not 1).
-    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 1)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
 
     // Correct queueid=2 should succeed and return 3.
-    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 2)
+    let r = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 2)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Ok { new_queueid: 3 });
@@ -661,7 +661,7 @@ async fn test_inc_queueid_missing_key_with_nonzero() {
     cleanup_keys(&mut conn, project).await;
 
     // queueid > 0 but no key exists → conflict.
-    let r = queue::inc_queueid(&mut conn, &config, project, "abc", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "main", "abc", 1)
         .await
         .unwrap();
     assert_eq!(r, QueueIdResult::Conflict);
@@ -686,12 +686,12 @@ async fn test_inc_queueid_new_commit_redirect() {
     cleanup_keys(&mut conn, project).await;
 
     // Simulate: first patch queued.
-    let _ = queue::inc_queueid(&mut conn, &config, project, "commit_a", 0)
+    let _ = queue::inc_queueid(&mut conn, &config, project, "main", "commit_a", 0)
         .await
         .unwrap();
 
     // Simulate: batch_patch committed and stored "commit_b,1" in the key.
-    let queue_key = config.queue_entry_key(project, "commit_a");
+    let queue_key = config.queue_entry_key(project, "main", "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,1")
@@ -700,7 +700,7 @@ async fn test_inc_queueid_new_commit_redirect() {
         .unwrap();
 
     // Next patch with queueid=1 should get redirected to commit_b.
-    let r = queue::inc_queueid(&mut conn, &config, project, "commit_a", 1)
+    let r = queue::inc_queueid(&mut conn, &config, project, "main", "commit_a", 1)
         .await
         .unwrap();
     assert_eq!(
@@ -712,7 +712,7 @@ async fn test_inc_queueid_new_commit_redirect() {
     );
 
     // Verify the new key was created.
-    let new_key = config.queue_entry_key(project, "commit_b");
+    let new_key = config.queue_entry_key(project, "main", "commit_b");
     let val: String = redis::cmd("GET")
         .arg(&new_key)
         .query_async(&mut conn)
@@ -744,7 +744,7 @@ async fn test_check_export_queue_redirects_to_new_commit() {
     cleanup_keys(&mut conn, project).await;
 
     // Simulate batch_patch having committed: queue key stores "{new_commit},{last_queueid}".
-    let queue_key = config.queue_entry_key(project, "commit_a");
+    let queue_key = config.queue_entry_key(project, "main", "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,5")
@@ -753,14 +753,14 @@ async fn test_check_export_queue_redirects_to_new_commit() {
         .unwrap();
 
     // Request with queueid <= last_queueid (5) should redirect to commit_b.
-    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 5)
+    let r = queue::check_export_queue(&mut conn, &config, project, "main", "commit_a", 5)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
 
     // Earlier queueid (e.g. 3) also redirects: those patches were
     // bundled into the same batch and committed.
-    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 3)
+    let r = queue::check_export_queue(&mut conn, &config, project, "main", "commit_a", 3)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::UseNewCommit("commit_b".into()));
@@ -785,7 +785,7 @@ async fn test_check_export_queue_retry_when_no_commit() {
     cleanup_keys(&mut conn, project).await;
 
     // Queue key exists but no commit produced yet (plain integer).
-    let queue_key = config.queue_entry_key(project, "commit_a");
+    let queue_key = config.queue_entry_key(project, "main", "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("3")
@@ -793,7 +793,7 @@ async fn test_check_export_queue_retry_when_no_commit() {
         .await
         .unwrap();
 
-    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 3)
+    let r = queue::check_export_queue(&mut conn, &config, project, "main", "commit_a", 3)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
@@ -819,7 +819,7 @@ async fn test_check_export_queue_retry_when_queueid_stale() {
 
     // New commit recorded with last_queueid=5; client at queueid=7 is
     // ahead — their patch is still queued past the committed batch.
-    let queue_key = config.queue_entry_key(project, "commit_a");
+    let queue_key = config.queue_entry_key(project, "main", "commit_a");
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("commit_b,5")
@@ -827,7 +827,7 @@ async fn test_check_export_queue_retry_when_queueid_stale() {
         .await
         .unwrap();
 
-    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 7)
+    let r = queue::check_export_queue(&mut conn, &config, project, "main", "commit_a", 7)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
@@ -853,7 +853,7 @@ async fn test_check_export_queue_retry_when_key_missing() {
 
     // No queue key at all → caller should retry; we have no evidence
     // the client's queued write has been processed.
-    let r = queue::check_export_queue(&mut conn, &config, project, "commit_a", 1)
+    let r = queue::check_export_queue(&mut conn, &config, project, "main", "commit_a", 1)
         .await
         .unwrap();
     assert_eq!(r, ExportQueueCheck::Retry);
@@ -1111,7 +1111,7 @@ async fn failed_batch_marks_queue_key() {
 
     // Claim the first queueid the way handle_write does, so the key exists
     // with the pre-batch value a stale client would be handed back.
-    let first = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+    let first = queue::inc_queueid(&mut conn, &config, project, "main", commit, 0)
         .await
         .unwrap();
     assert_eq!(first, QueueIdResult::Ok { new_queueid: 1 });
@@ -1151,7 +1151,7 @@ async fn failed_batch_marks_queue_key() {
         .unwrap();
     assert_eq!(len, 0, "the writes are gone from the list either way");
 
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
     let value: Option<String> = redis::cmd("GET")
         .arg(&queue_key)
         .query_async(&mut conn)
@@ -1164,7 +1164,7 @@ async fn failed_batch_marks_queue_key() {
     );
 
     // What the client's next write sees.
-    let next = queue::inc_queueid(&mut conn, &config, project, commit, 1)
+    let next = queue::inc_queueid(&mut conn, &config, project, "main", commit, 1)
         .await
         .unwrap();
     assert_eq!(
@@ -1182,7 +1182,7 @@ async fn failed_batch_marks_queue_key() {
     // sentinel" guard honest -- a comma would make the left side parse
     // as a revision and return UseNewCommit for a commit that was never
     // created.
-    let export = queue::check_export_queue(&mut conn, &config, project, commit, 1)
+    let export = queue::check_export_queue(&mut conn, &config, project, "main", commit, 1)
         .await
         .unwrap();
     assert_eq!(
@@ -1201,12 +1201,57 @@ async fn failed_batch_marks_queue_key() {
         .await
         .unwrap();
     assert!(
-        ttl > 0 && ttl <= config.failed_sentinel_ttl_secs as i64,
+        ttl > 0 && ttl <= config.queue_key_ttl_secs as i64,
         "sentinel should expire, got TTL {ttl}"
     );
 
     cleanup_keys(&mut conn, prefix).await;
     handle.abort();
+}
+
+/// Every key `inc_queueid` writes expires, not just the failed sentinel.
+///
+/// Without this a project accumulates one key per commit ever written
+/// against it, for its whole life -- the success path never deletes them
+/// and nothing else reaps them.
+#[tokio::test]
+async fn queue_keys_written_by_inc_queueid_expire() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let prefix = "ttl_counter";
+    let config = test_config(prefix, 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let mut conn = client.get_multiplexed_async_connection().await.unwrap();
+    cleanup_keys(&mut conn, prefix).await;
+
+    let project = "proj_ttl";
+    // The first write creates the counter -- the key that used to be
+    // written bare.
+    queue::inc_queueid(&mut conn, &config, project, "main", "commit_ttl", 0)
+        .await
+        .expect("inc_queueid");
+
+    let key = config.queue_entry_key(project, "main", "commit_ttl");
+    let value: Option<String> = redis::cmd("GET")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert_eq!(value.as_deref(), Some("1"), "counter should exist");
+
+    let ttl: i64 = redis::cmd("TTL")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    assert!(
+        ttl > 0 && ttl <= config.queue_key_ttl_secs as i64,
+        "the counter should expire, got TTL {ttl} (-1 means no expiry)"
+    );
+
+    cleanup_keys(&mut conn, prefix).await;
 }
 
 /// The other failure arm: no response at all.
@@ -1263,7 +1308,7 @@ async fn unreachable_backend_marks_queue_key() {
     });
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
 
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
     let value: Option<String> = redis::cmd("GET")
         .arg(&queue_key)
         .query_async(&mut conn)
@@ -1271,7 +1316,7 @@ async fn unreachable_backend_marks_queue_key() {
         .unwrap();
     assert_eq!(value.as_deref(), Some("failed:502:0"));
 
-    let next = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+    let next = queue::inc_queueid(&mut conn, &config, project, "main", commit, 0)
         .await
         .unwrap();
     assert_eq!(
@@ -1309,7 +1354,7 @@ async fn export_with_queueid(
         cloudmap: None,
     };
     let uri = format!(
-        "/export?auth_project={}&latest_commit={}&queueid={}",
+        "/export?auth_project={}&branch=main&latest_commit={}&queueid={}",
         urlencoding::encode(project),
         commit,
         queueid
@@ -1366,7 +1411,7 @@ async fn discarded_write_answers_export_with_409() {
 
     // What `mark_batch_failed` leaves behind. Written directly so this
     // test pins the route's behaviour and not the worker's.
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("failed:401:2")
@@ -1426,7 +1471,7 @@ async fn discarded_write_is_reported_to_a_waiting_reader() {
 
     let project = "proj_waiting";
     let commit = "commit_y";
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
 
     // The pre-batch value a client's write left behind: no commit yet, so
     // the fast path says Retry and the request enters the loop.
@@ -1504,7 +1549,7 @@ async fn settled_queue_key_stays_writable() {
 
     let project = "proj_settled";
     let commit = "83b9478d9e7250c91c900faa3b7e5adb935b8683";
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
 
     // Every queueid a client can send, including the 0 of a fresh page load.
     for (sent, expected) in [(0, 2), (1, 2), (5, 2)] {
@@ -1514,7 +1559,7 @@ async fn settled_queue_key_stays_writable() {
             .query_async(&mut conn)
             .await
             .unwrap();
-        let result = queue::inc_queueid(&mut conn, &config, project, commit, sent)
+        let result = queue::inc_queueid(&mut conn, &config, project, "main", commit, sent)
             .await
             .unwrap();
         assert_eq!(
@@ -1534,7 +1579,7 @@ async fn settled_queue_key_stays_writable() {
     }
 
     // ...and the counter keeps advancing from there.
-    let next = queue::inc_queueid(&mut conn, &config, project, commit, 2)
+    let next = queue::inc_queueid(&mut conn, &config, project, "main", commit, 2)
         .await
         .unwrap();
     assert_eq!(next, QueueIdResult::Ok { new_queueid: 3 });
@@ -1549,7 +1594,7 @@ async fn settled_queue_key_stays_writable() {
         .query_async(&mut conn)
         .await
         .unwrap();
-    let behind = queue::inc_queueid(&mut conn, &config, project, commit, 1)
+    let behind = queue::inc_queueid(&mut conn, &config, project, "main", commit, 1)
         .await
         .unwrap();
     assert_eq!(
@@ -1584,19 +1629,19 @@ async fn redirect_to_a_taken_commit_still_conflicts() {
 
     // The old commit redirects to a new one that already has a queue.
     let _: () = redis::cmd("SET")
-        .arg(config.queue_entry_key(project, old_commit))
+        .arg(config.queue_entry_key(project, "main", old_commit))
         .arg(format!("{new_commit},1"))
         .query_async(&mut conn)
         .await
         .unwrap();
     let _: () = redis::cmd("SET")
-        .arg(config.queue_entry_key(project, new_commit))
+        .arg(config.queue_entry_key(project, "main", new_commit))
         .arg("1")
         .query_async(&mut conn)
         .await
         .unwrap();
 
-    let result = queue::inc_queueid(&mut conn, &config, project, old_commit, 1)
+    let result = queue::inc_queueid(&mut conn, &config, project, "main", old_commit, 1)
         .await
         .unwrap();
     assert_eq!(result, QueueIdResult::Conflict);
@@ -1627,7 +1672,7 @@ async fn settled_queue_key_releases_waiting_readers() {
     let project = "proj_settled_reader";
     let commit = "83b9478d9e7250c91c900faa3b7e5adb935b8683";
     let _: () = redis::cmd("SET")
-        .arg(config.queue_entry_key(project, commit))
+        .arg(config.queue_entry_key(project, "main", commit))
         .arg(format!("{commit},3"))
         .query_async(&mut conn)
         .await
@@ -1635,7 +1680,7 @@ async fn settled_queue_key_releases_waiting_readers() {
 
     // Every reader the settled batch covers proceeds at the commit it has.
     for qid in [1, 2, 3] {
-        let result = queue::check_export_queue(&mut conn, &config, project, commit, qid)
+        let result = queue::check_export_queue(&mut conn, &config, project, "main", commit, qid)
             .await
             .unwrap();
         assert_eq!(
@@ -1646,7 +1691,7 @@ async fn settled_queue_key_releases_waiting_readers() {
     }
 
     // A reader ahead of the settled batch has writes still outstanding.
-    let result = queue::check_export_queue(&mut conn, &config, project, commit, 4)
+    let result = queue::check_export_queue(&mut conn, &config, project, "main", commit, 4)
         .await
         .unwrap();
     assert_eq!(result, ExportQueueCheck::Retry);
@@ -1678,7 +1723,7 @@ async fn repaired_queue_key_still_covers_earlier_readers() {
     let project = "proj_resume";
     let commit = "cccccccccccccccccccccccccccccccccccccccc";
     let next_commit = "dddddddddddddddddddddddddddddddddddddddd";
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
 
     // A settled batch that had issued three queueids; a reader is still
     // holding the last of them.
@@ -1688,7 +1733,7 @@ async fn repaired_queue_key_still_covers_earlier_readers() {
         .query_async(&mut conn)
         .await
         .unwrap();
-    let repaired = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+    let repaired = queue::inc_queueid(&mut conn, &config, project, "main", commit, 0)
         .await
         .unwrap();
     let QueueIdResult::Ok { new_queueid } = repaired else {
@@ -1703,7 +1748,7 @@ async fn repaired_queue_key_still_covers_earlier_readers() {
         .await
         .unwrap();
 
-    let result = queue::check_export_queue(&mut conn, &config, project, commit, 3)
+    let result = queue::check_export_queue(&mut conn, &config, project, "main", commit, 3)
         .await
         .unwrap();
     assert_eq!(
@@ -1736,7 +1781,7 @@ async fn repaired_queue_key_redirects_after_a_real_commit() {
     let project = "proj_then_commit";
     let commit = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
     let next_commit = "ffffffffffffffffffffffffffffffffffffffff";
-    let queue_key = config.queue_entry_key(project, commit);
+    let queue_key = config.queue_entry_key(project, "main", commit);
 
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
@@ -1744,7 +1789,7 @@ async fn repaired_queue_key_redirects_after_a_real_commit() {
         .query_async(&mut conn)
         .await
         .unwrap();
-    let repaired = queue::inc_queueid(&mut conn, &config, project, commit, 0)
+    let repaired = queue::inc_queueid(&mut conn, &config, project, "main", commit, 0)
         .await
         .unwrap();
     assert_eq!(repaired, QueueIdResult::Ok { new_queueid: 2 });
@@ -1755,7 +1800,7 @@ async fn repaired_queue_key_redirects_after_a_real_commit() {
         .query_async(&mut conn)
         .await
         .unwrap();
-    let result = queue::inc_queueid(&mut conn, &config, project, commit, 2)
+    let result = queue::inc_queueid(&mut conn, &config, project, "main", commit, 2)
         .await
         .unwrap();
     assert_eq!(
@@ -1766,7 +1811,7 @@ async fn repaired_queue_key_redirects_after_a_real_commit() {
         }
     );
     let started: String = redis::cmd("GET")
-        .arg(config.queue_entry_key(project, next_commit))
+        .arg(config.queue_entry_key(project, "main", next_commit))
         .query_async(&mut conn)
         .await
         .unwrap();

@@ -1800,6 +1800,12 @@ def test_events_reports_a_real_queued_write():
     Deliberately never calls ``/export``. The old path already notifies a
     client by blocking its read, so a test that exported first would pass
     whether or not the subscription did anything.
+
+    Also the cross-language check on the queue key's shape: the watch
+    names a branch, so an event only arrives if the key rust builds is
+    the key ``_update_queue_key`` wrote. The two are constructed in
+    different languages from the same parts, and nothing else would
+    notice them drifting.
     """
     if os.getenv("UNFURL_TEST_RUST_SERVER") == "0":
         pytest.skip("/events is served by the rust proxy, which is disabled")
@@ -3860,8 +3866,11 @@ def test_noop_batch_records_the_unchanged_commit():
             prefix = _variant_prefix("noop-q-redis")
             client = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
 
-            def queue_value(commit):
-                raw = client.get(f"{prefix}queue:remote:{commit}")
+            def queue_value(commit, branch="main"):
+                # The branch is part of the key: two branches off one
+                # commit are two batches recording their own new commits,
+                # and sharing a key had the second overwrite the first.
+                raw = client.get(f"{prefix}queue:remote:{branch}:{commit}")
                 return raw.decode() if raw else None
 
             def batch(reqs, latest_commit, queueid):

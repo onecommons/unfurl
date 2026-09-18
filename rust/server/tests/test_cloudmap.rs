@@ -48,7 +48,7 @@ fn default_config() -> Config {
         max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs: 0.0,
         worker_poll_interval_secs: 0.05,
-        failed_sentinel_ttl_secs: 3600,
+        queue_key_ttl_secs: 3600,
         events_budget_secs: 10,
         cloudmap_repo: None,
         cloudmap_db_url: None,

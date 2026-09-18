@@ -1489,11 +1489,11 @@ def create_ensemble(
 
 
 def _update_queue_key(
-    project_id: str, latest_commit: str, new_commit: str, queueid: int
+    project_id: str, branch: str, latest_commit: str, new_commit: str, queueid: int
 ) -> None:
     """Update the Redis queue key after batch_patch commits.
 
-    Sets ``{CACHE_KEY_PREFIX}queue:{project_id}:{latest_commit}`` to
+    Sets ``{CACHE_KEY_PREFIX}queue:{project_id}:{branch}:{latest_commit}`` to
     ``"{new_commit},{queueid}"`` so subsequent ``inc_queueid`` calls
     (in the rust proxy) redirect clients to the new commit.
 
@@ -1511,16 +1511,29 @@ def _update_queue_key(
     cache = get_cache()
     assert cache
     prefix = app.config.get("CACHE_KEY_PREFIX", "")
-    queue_key = f"{prefix}queue:{project_id}:{latest_commit}"
+    # The branch is in the key because a batch is partitioned by
+    # (latest_commit, branch): two branches off one commit each commit
+    # their own, and sharing a key would have the second overwrite the
+    # first. Must match `Config::queue_entry_key` in the rust proxy.
+    queue_key = f"{prefix}queue:{project_id}:{branch}:{latest_commit}"
     value = f"{new_commit},{queueid}"
     backend = getattr(cache, "cache", None)
     redis_client = backend and getattr(backend, "_write_client", None)
     if redis_client is None:
         cache.set(queue_key, value)
         return
+    # Expire it, or a project accumulates one key per commit ever written
+    # against it. Must match the rust proxy's `queue_key_ttl_secs`, which
+    # governs the keys its Lua writes -- the two take turns writing the
+    # same key and a mismatch would have one side's write outlive the
+    # other's.
+    ttl = int(os.environ.get("UNFURL_QUEUE_KEY_TTL_SECS") or 86400)
     try:
-        redis_client.set(queue_key, value)
-        logger.debug("updated queue key %s = %s", queue_key, value)
+        if ttl > 0:
+            redis_client.set(queue_key, value, ex=ttl)
+        else:
+            redis_client.set(queue_key, value)
+        logger.debug("updated queue key %s = %s (ttl=%s)", queue_key, value, ttl)
     except Exception as exc:
         logger.error("failed to update queue key %s: %s", queue_key, exc)
 
@@ -1773,7 +1786,9 @@ def _apply_batch_requests(
         new_commit = repo.revision
         for lc in latest_commits:
             if lc:  # skip empty latest_commit values
-                _update_queue_key(project_id, lc, new_commit, batch_queueid)
+                _update_queue_key(
+                    project_id, body["branch"], lc, new_commit, batch_queueid
+                )
     return _patch_response(repo)
 
 

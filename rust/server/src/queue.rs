@@ -13,7 +13,7 @@ use once_cell::sync::Lazy;
 use redis::AsyncCommands;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -83,6 +83,17 @@ const INC_QUEUEID_SCRIPT: &str = r#"
 local queue_key = KEYS[1]
 local queueid = tonumber(ARGV[1])
 local prefix = ARGV[2]
+local ttl = tonumber(ARGV[3])
+
+-- Every key this writes expires, or a project accumulates one per commit
+-- ever written against it, forever. 0 disables.
+local function setk(key, value)
+    if ttl and ttl > 0 then
+        redis.call('SET', key, value, 'EX', ttl)
+    else
+        redis.call('SET', key, value)
+    end
+end
 
 local current = redis.call('GET', queue_key)
 if not current then
@@ -91,7 +102,7 @@ if not current then
         return "error"
     end
     -- first patch: create and set to 1
-    redis.call('SET', queue_key, '1')
+    setk(queue_key, '1')
     return "1"
 end
 
@@ -125,7 +136,7 @@ if new_commit and new_commit == string.sub(queue_key, #prefix + 1) then
     -- queueid issued before the no-op batch would never be covered by
     -- a lower one and would poll until their deadline.
     local restarted = last_queueid + 1
-    redis.call('SET', queue_key, tostring(restarted))
+    setk(queue_key, tostring(restarted))
     return tostring(restarted)
 end
 
@@ -143,7 +154,7 @@ if new_commit then
         return "error"
     end
     -- start a new queue on the new commit
-    redis.call('SET', newer_key, '1')
+    setk(newer_key, '1')
     return new_commit .. ',1'
 end
 
@@ -155,6 +166,13 @@ return tostring(new_queueid)
 /// Maximum number of items to drain in a single LPOP call.
 /// This is a safety cap; in practice batch lists are much shorter.
 const DRAIN_BATCH_SIZE: usize = 1000;
+
+/// Cap on the backend error body carried to the client, in bytes.
+///
+/// The body is a Python error response whose `details` is a full
+/// traceback; generous enough to keep one whole, small enough that a
+/// runaway stack cannot fill Redis or an SSE frame.
+const MAX_ERROR_BODY: usize = 8 * 1024;
 
 /// Batches discarded since this process started; reported on the
 /// warning [`mark_batch_failed`] emits.
@@ -216,16 +234,18 @@ pub async fn inc_queueid(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
     project_id: &str,
+    branch: &str,
     latest_commit: &str,
     queueid: i64,
 ) -> Result<QueueIdResult, redis::RedisError> {
-    let queue_key = config.queue_entry_key(project_id, latest_commit);
-    let prefix = config.queue_entry_prefix(project_id);
+    let queue_key = config.queue_entry_key(project_id, branch, latest_commit);
+    let prefix = config.queue_entry_prefix(project_id, branch);
 
     let result: String = INC_QUEUEID
         .key(&queue_key)
         .arg(queueid)
         .arg(&prefix)
+        .arg(config.queue_key_ttl_secs)
         .invoke_async(conn)
         .await?;
 
@@ -297,10 +317,11 @@ pub async fn check_export_queue(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
     project_id: &str,
+    branch: &str,
     latest_commit: &str,
     request_queueid: i64,
 ) -> Result<ExportQueueCheck, redis::RedisError> {
-    let queue_key = config.queue_entry_key(project_id, latest_commit);
+    let queue_key = config.queue_entry_key(project_id, branch, latest_commit);
     let val: Option<String> = conn.get(&queue_key).await?;
     Ok(classify_queue_value(val.as_deref(), request_queueid))
 }
@@ -338,7 +359,7 @@ pub async fn check_export_queues(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,
     project_id: &str,
-    watches: &[(String, i64)],
+    watches: &[Watch],
 ) -> Result<Vec<ExportQueueCheck>, redis::RedisError> {
     // `MGET` with no keys is an error, and an empty watch set is the
     // ordinary way a subscription ends.
@@ -347,14 +368,25 @@ pub async fn check_export_queues(
     }
     let keys: Vec<String> = watches
         .iter()
-        .map(|(commit, _)| config.queue_entry_key(project_id, commit))
+        .map(|w| config.queue_entry_key(project_id, &w.branch, &w.commit))
         .collect();
     let vals: Vec<Option<String>> = conn.mget(&keys).await?;
     Ok(watches
         .iter()
         .enumerate()
-        .map(|(i, (_, qid))| classify_queue_value(vals.get(i).and_then(|v| v.as_deref()), *qid))
+        .map(|(i, w)| classify_queue_value(vals.get(i).and_then(|v| v.as_deref()), w.queueid))
         .collect())
+}
+
+/// One write a subscription is waiting on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Watch {
+    /// Names the queue key along with the commit, and is echoed back in
+    /// the event: a client stores a commit per branch, and the event
+    /// arrives detached from the request that caused it.
+    pub branch: String,
+    pub commit: String,
+    pub queueid: i64,
 }
 
 /// Report whether the queue for `(project_id, branch)` is busy: either
@@ -523,8 +555,10 @@ async fn mark_batch_failed(
     project_id: &str,
     batch: &PartitionedBatch,
     status: u16,
+    body: &str,
 ) {
     let value = failed_sentinel(status, batch.queueid.unwrap_or(0));
+    let error_body = batch_error_payload(status, body).to_string();
     let mut commits: Vec<&str> = vec![batch.latest_commit.as_str()];
     for req in &batch.requests {
         if let Some(lc) = req.body.get("latest_commit").and_then(|v| v.as_str()) {
@@ -538,8 +572,16 @@ async fn mark_batch_failed(
         if commit.is_empty() {
             continue;
         }
-        let key = config.queue_entry_key(project_id, commit);
-        let ttl = config.failed_sentinel_ttl_secs;
+        let key = config.queue_entry_key(project_id, &batch.branch, commit);
+        let ttl = config.queue_key_ttl_secs;
+        // Written before the sentinel, because a reader that sees the
+        // sentinel goes looking for this and the other order would race.
+        let error_key = config.queue_error_key(project_id, &batch.branch, commit);
+        let _: Result<(), _> = if ttl > 0 {
+            conn.set_ex(&error_key, &error_body, ttl).await
+        } else {
+            conn.set(&error_key, &error_body).await
+        };
         let res: Result<(), _> = if ttl > 0 {
             conn.set_ex(&key, &value, ttl).await
         } else {
@@ -562,6 +604,50 @@ async fn mark_batch_failed(
             ),
         }
     }
+}
+
+/// The backend's error body, as the event will carry it.
+///
+/// Parsed as the `{code, message, details}` `create_error_response`
+/// produces; anything else -- an HTML 502 from something in front of
+/// Python, an empty body -- becomes a `message`, so the client always
+/// has one field to show.
+///
+/// `details` is a Python traceback and is forwarded whole: it is what
+/// makes a discarded batch diagnosable from the browser rather than only
+/// from the server log. Truncated at [`MAX_ERROR_BODY`].
+fn batch_error_payload(status: u16, body: &str) -> JsonValue {
+    let body = if body.len() > MAX_ERROR_BODY {
+        let mut end = MAX_ERROR_BODY;
+        while !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}... [truncated]", &body[..end])
+    } else {
+        body.to_string()
+    };
+    match serde_json::from_str::<JsonValue>(&body) {
+        Ok(JsonValue::Object(mut map)) => {
+            map.insert("status".to_string(), JsonValue::from(status));
+            JsonValue::Object(map)
+        }
+        _ => json!({ "status": status, "message": body }),
+    }
+}
+
+/// The stored error body for a discarded batch, or `None` when there
+/// isn't one -- a sentinel written before this key existed, or one whose
+/// error expired first.
+pub async fn read_batch_error(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    branch: &str,
+    commit: &str,
+) -> Option<JsonValue> {
+    let key = config.queue_error_key(project_id, branch, commit);
+    let raw: Option<String> = conn.get(&key).await.ok()?;
+    serde_json::from_str(&raw?).ok()
 }
 
 /// Extract the endpoint name from a full path+query string.
@@ -806,6 +892,7 @@ pub async fn run_worker(
                                 project_id,
                                 &batch,
                                 status.as_u16(),
+                                &body,
                             )
                             .await;
                         }
@@ -818,7 +905,15 @@ pub async fn run_worker(
                         );
                         // No response to report, so use the status that says
                         // exactly that: the proxy could not reach upstream.
-                        mark_batch_failed(&mut conn, &config, project_id, &batch, 502).await;
+                        mark_batch_failed(
+                            &mut conn,
+                            &config,
+                            project_id,
+                            &batch,
+                            502,
+                            &format!("could not reach the backend: {e}"),
+                        )
+                        .await;
                     }
                 }
             }

@@ -90,13 +90,19 @@ pub struct Config {
     #[arg(long, env = "UNFURL_WORKER_POLL_INTERVAL_SECS", default_value_t = 0.1)]
     pub worker_poll_interval_secs: f64,
 
-    /// How long the `failed:{status}:{queueid}` sentinel written by a
-    /// rejected batch lives, in seconds.  It only has to outlast clients
-    /// still holding the commit it was written against; once it expires,
-    /// `inc_queueid` reports a conflict for a non-zero queueid rather
-    /// than silent success.  0 disables expiry.  Default: 1 day.
-    #[arg(long, env = "UNFURL_FAILED_SENTINEL_TTL_SECS", default_value_t = 86400)]
-    pub failed_sentinel_ttl_secs: u64,
+    /// How long a write-queue key lives, in seconds -- the counter, the
+    /// `{new_commit},{queueid}` a batch records, and the
+    /// `failed:{status}:{queueid}` sentinel alike.  Each only has to
+    /// outlast clients still holding the commit it was written against.
+    ///
+    /// Without it these never expire: one key accumulates per commit
+    /// ever written against, for the life of the project.  It must still
+    /// outlast a slow batch by a wide margin -- a key that expires while
+    /// its writes are in flight leaves `inc_queueid` reporting `error`
+    /// for the next write, since a non-zero queueid with no key reads as
+    /// a lost predecessor.  0 disables expiry.  Default: 1 day.
+    #[arg(long, env = "UNFURL_QUEUE_KEY_TTL_SECS", default_value_t = 86400)]
+    pub queue_key_ttl_secs: u64,
 
     /// How long a `GET /events` subscription is held open, in seconds.
     /// The cap is what stops a client whose queued write never settles --
@@ -249,20 +255,47 @@ impl Config {
     }
 
     /// Redis key for the inc_queueid / check_export_queue queue entry
-    /// (per `(project_id, latest_commit)`). Must match the prefix
+    /// (per `(project_id, branch, latest_commit)`). Must match the prefix
     /// Flask-Caching applies on the Python side so both ends read/write
     /// the same key (see `_update_queue_key` in
     /// `unfurl/server/endpoints.py`).
-    pub fn queue_entry_key(&self, project_id: &str, latest_commit: &str) -> String {
+    ///
+    /// The branch is part of the key because the batch worker partitions
+    /// by `(latest_commit, branch)`: two branches off one commit produce
+    /// two batches, each recording its own new commit. Sharing a key
+    /// would have the second overwrite the first, and a client waiting on
+    /// one branch would be sent to the other branch's commit.
+    ///
+    /// A git ref cannot contain `:`, so the extra segment leaves the key
+    /// unambiguous.
+    pub fn queue_entry_key(&self, project_id: &str, branch: &str, latest_commit: &str) -> String {
         format!(
-            "{}queue:{}:{}",
-            self.cache_key_prefix, project_id, latest_commit
+            "{}queue:{}:{}:{}",
+            self.cache_key_prefix, project_id, branch, latest_commit
         )
     }
 
-    /// Redis key prefix for newer-queue lookups in the inc_queueid Lua script.
-    pub fn queue_entry_prefix(&self, project_id: &str) -> String {
-        format!("{}queue:{}:", self.cache_key_prefix, project_id)
+    /// Redis key prefix for newer-queue lookups in the inc_queueid Lua
+    /// script, which both strips it to recover the commit and appends to
+    /// it to address a sibling -- so it must be everything the key has
+    /// before the commit.
+    pub fn queue_entry_prefix(&self, project_id: &str, branch: &str) -> String {
+        format!("{}queue:{}:{}:", self.cache_key_prefix, project_id, branch)
+    }
+
+    /// Redis key holding the backend's error body for a discarded batch,
+    /// sibling to its [`Self::queue_entry_key`].
+    ///
+    /// Separate from the `failed:{status}:{queueid}` sentinel rather than
+    /// folded into it: the sentinel is parsed by two `split_once` calls
+    /// here and by a prefix test in the `inc_queueid` Lua, and a third
+    /// field would make the queueid parse as `"{queueid}:{extra}"` and
+    /// silently read as 0.
+    pub fn queue_error_key(&self, project_id: &str, branch: &str, commit: &str) -> String {
+        format!(
+            "{}queue_error:{}:{}:{}",
+            self.cache_key_prefix, project_id, branch, commit
+        )
     }
 
     /// Return the effective Redis URL with any password redacted for logging.
@@ -313,7 +346,7 @@ mod tests {
             max_body_bytes: 10 * 1024 * 1024,
             batch_window_secs: 3.0,
             worker_poll_interval_secs: 0.1,
-            failed_sentinel_ttl_secs: 86400,
+            queue_key_ttl_secs: 86400,
             events_budget_secs: 120,
             cloudmap_repo: None,
             cloudmap_db_url: None,

@@ -28,7 +28,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use crate::cache;
 use crate::proxy;
-use crate::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem};
+use crate::queue::{self, ExportQueueCheck, QueueIdResult, QueueItem, Watch};
 use crate::unfurl_types;
 use crate::AppState;
 
@@ -267,6 +267,7 @@ pub async fn handle_export(
     let resolved = match resolve_queued_request(
         &state,
         params.queueid,
+        params.branch.as_deref(),
         params.latest_commit.as_deref(),
         params.auth_project.as_deref(),
     )
@@ -332,16 +333,26 @@ const QUEUE_WAIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_
 ///     stuck-worker territory anyway).
 ///
 /// Returns `Ok(None)` when there's nothing to wait on: no queueid (or
-/// `queueid == 0`), or no Redis configured. The caller passes the
-/// original request through unchanged.  Redis errors surface as
+/// `queueid == 0`), no branch, or no Redis configured. The caller passes
+/// the original request through unchanged.  Redis errors surface as
 /// **500**.
+///
+/// A queueid without a branch cannot name a queue key, and the client
+/// sends exactly that shape whenever its branch resolves falsy -- where
+/// it also omits `latest_commit`, so the request was never going to
+/// resolve against a real key. Passed through rather than rejected: a
+/// 400 would break a path that currently limps.
 async fn resolve_queued_request(
     state: &AppState,
     queueid: Option<i64>,
+    branch: Option<&str>,
     latest_commit: Option<&str>,
     auth_project: Option<&str>,
 ) -> Result<Option<String>, Response> {
     let Some(request_queueid) = queueid.filter(|q| *q > 0) else {
+        return Ok(None);
+    };
+    let Some(branch) = non_empty(branch) else {
         return Ok(None);
     };
     let Some(ref redis) = state.redis else {
@@ -352,7 +363,15 @@ async fn resolve_queued_request(
     let mut conn = redis.clone();
 
     // Fast path: queue key already records a commit covering the client.
-    match queue::check_export_queue(&mut conn, &state.config, project_id, lc, request_queueid).await
+    match queue::check_export_queue(
+        &mut conn,
+        &state.config,
+        project_id,
+        branch,
+        lc,
+        request_queueid,
+    )
+    .await
     {
         Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
         Ok(ExportQueueCheck::Retry) => {} // fall through to kick + wait
@@ -388,8 +407,15 @@ async fn resolve_queued_request(
             return Err(queue_retry_response());
         }
         tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
-        match queue::check_export_queue(&mut conn, &state.config, project_id, lc, request_queueid)
-            .await
+        match queue::check_export_queue(
+            &mut conn,
+            &state.config,
+            project_id,
+            branch,
+            lc,
+            request_queueid,
+        )
+        .await
         {
             Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
             Ok(ExportQueueCheck::Failed { status, queueid }) => {
@@ -507,6 +533,7 @@ pub async fn handle_types(
     let resolved = match resolve_queued_request(
         &state,
         params.queueid,
+        params.branch.as_deref(),
         params.latest_commit.as_deref(),
         params.auth_project.as_deref(),
     )
@@ -613,13 +640,12 @@ async fn handle_write(
     // ...and which branch it goes to. Python rejects a write that names none
     // rather than committing to `main`, so check it here too: a queued write is
     // answered before it is applied, and the client would never see that error.
-    if body
+    let branch = body
         .get("branch")
         .and_then(|v| v.as_str())
         .unwrap_or("")
-        .trim()
-        .is_empty()
-    {
+        .trim();
+    if branch.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({
@@ -642,6 +668,7 @@ async fn handle_write(
                 &mut conn,
                 &state.config,
                 &project_id,
+                branch,
                 latest_commit,
                 queueid,
             )
@@ -973,19 +1000,6 @@ pub struct EventsQuery {
     pub watch: Vec<String>,
 }
 
-/// One write a subscription is waiting on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Watch {
-    /// Carried through and echoed back, not used to read the queue:
-    /// the key is `queue:{project}:{commit}` with no branch in it, so
-    /// the server cannot derive which branch a settled write was on.
-    /// The client needs it because an event arrives detached from the
-    /// request that caused it, and it stores a commit per branch.
-    branch: String,
-    commit: String,
-    queueid: i64,
-}
-
 /// Parse repeated `watch` values into [`Watch`]es.
 ///
 /// Rejects a repeated `(branch, commit)`: two queueids against one would
@@ -1068,12 +1082,8 @@ pub async fn handle_events(
             std::time::Instant::now() + std::time::Duration::from_secs(config.events_budget_secs);
         while !watches.is_empty() && std::time::Instant::now() < deadline {
             tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
-            let keyed: Vec<(String, i64)> = watches
-                .iter()
-                .map(|w| (w.commit.clone(), w.queueid))
-                .collect();
             let results =
-                match queue::check_export_queues(&mut conn, &config, &project_id, &keyed).await {
+                match queue::check_export_queues(&mut conn, &config, &project_id, &watches).await {
                     Ok(results) => results,
                     Err(e) => {
                         tracing::error!("check_export_queues Redis error: {}", e);
@@ -1111,18 +1121,35 @@ pub async fn handle_events(
                     ExportQueueCheck::Failed {
                         status,
                         queueid: batch_queueid,
-                    } => json!({
-                        "status": "discarded",
-                        "code": "WRITE_DISCARDED",
-                        "branch": branch,
-                        "message": format!(
-                            "a queued write against this commit was discarded: \
-                             backend returned {status}"
-                        ),
-                        "latest_commit": commit,
-                        "queueid": queueid,
-                        "batch_queueid": batch_queueid,
-                    }),
+                    } => {
+                        // Nested rather than flattened: `code` and
+                        // `message` here are the proxy's own, and the
+                        // backend's are its report of what actually
+                        // failed -- including the traceback, which is
+                        // what makes a discarded batch diagnosable from
+                        // the browser.
+                        let error = queue::read_batch_error(
+                            &mut conn,
+                            &config,
+                            &project_id,
+                            &branch,
+                            &commit,
+                        )
+                        .await;
+                        json!({
+                            "status": "discarded",
+                            "code": "WRITE_DISCARDED",
+                            "branch": branch,
+                            "message": format!(
+                                "a queued write against this commit was discarded: \
+                                 backend returned {status}"
+                            ),
+                            "latest_commit": commit,
+                            "queueid": queueid,
+                            "batch_queueid": batch_queueid,
+                            "error": error,
+                        })
+                    }
                 };
                 if tx.send(settled_event(payload)).await.is_err() {
                     return; // client hung up

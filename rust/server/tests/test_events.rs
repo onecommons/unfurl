@@ -37,7 +37,7 @@ fn test_config(prefix: &str) -> Config {
         max_body_bytes: 10 * 1024 * 1024,
         batch_window_secs: 0.05,
         worker_poll_interval_secs: 0.05,
-        failed_sentinel_ttl_secs: 3600,
+        queue_key_ttl_secs: 3600,
         events_budget_secs: 3,
         cloudmap_repo: None,
         cloudmap_db_url: None,
@@ -92,7 +92,7 @@ async fn a_settled_write_is_reported_once() {
         eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
         return;
     };
-    let key = config.queue_entry_key("proj", "aaa");
+    let key = config.queue_entry_key("proj", "main", "aaa");
     let _: () = redis::cmd("SET")
         .arg(&key)
         .arg("bbb,4")
@@ -132,13 +132,25 @@ async fn a_discarded_write_reports_the_clients_queueid() {
         eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
         return;
     };
-    let key = config.queue_entry_key("proj", "aaa");
+    let key = config.queue_entry_key("proj", "main", "aaa");
     let _: () = redis::cmd("SET")
         .arg(&key)
         .arg("failed:500:9")
         .query_async(&mut conn)
         .await
         .expect("plant sentinel");
+    // What `mark_batch_failed` stores alongside it: the body Python
+    // returned, shaped by `create_error_response`.
+    let error_key = config.queue_error_key("proj", "main", "aaa");
+    let _: () = redis::cmd("SET")
+        .arg(&error_key)
+        .arg(
+            r#"{"status":500,"code":"INTERNAL_ERROR","message":"Could not apply batch",
+                "details":"Traceback (most recent call last):\n  File \"x.py\", line 1\n"}"#,
+        )
+        .query_async(&mut conn)
+        .await
+        .expect("plant error");
 
     let body = body_text(get(&router, "/events?auth_project=proj&watch=main:aaa:3").await).await;
 
@@ -152,12 +164,26 @@ async fn a_discarded_write_reports_the_clients_queueid() {
         body.contains(r#""batch_queueid":9"#),
         "the batch's, for diagnosis: {body}"
     );
+    // The backend's own report of what failed, nested so the proxy's
+    // `code`/`message` and the backend's cannot collide -- and carrying
+    // the traceback, which is what makes this diagnosable from a browser
+    // rather than only from the server log.
+    assert!(
+        body.contains(r#""error":{"#) && body.contains(r#""details":"Traceback"#),
+        "the backend's error, traceback included: {body}"
+    );
+    assert!(
+        body.contains(r#""code":"INTERNAL_ERROR""#),
+        "the backend's code, distinct from WRITE_DISCARDED: {body}"
+    );
 
-    let _: () = redis::cmd("DEL")
-        .arg(&key)
-        .query_async(&mut conn)
-        .await
-        .expect("cleanup");
+    for k in [&key, &error_key] {
+        let _: () = redis::cmd("DEL")
+            .arg(k)
+            .query_async(&mut conn)
+            .await
+            .expect("cleanup");
+    }
 }
 
 /// Several watches settle independently, each reported once, and the
@@ -168,8 +194,8 @@ async fn watches_settle_independently() {
         eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
         return;
     };
-    let settled = config.queue_entry_key("proj", "aaa");
-    let pending = config.queue_entry_key("proj", "ccc");
+    let settled = config.queue_entry_key("proj", "main", "aaa");
+    let pending = config.queue_entry_key("proj", "main", "ccc");
     let _: () = redis::cmd("SET")
         .arg(&settled)
         .arg("bbb,2")
@@ -218,25 +244,31 @@ async fn watches_settle_independently() {
     }
 }
 
-/// Two branches off the same commit share one queue key, and each gets
-/// its own event naming its own branch.
+/// Two branches off the same commit are independent: each has its own
+/// queue key and is told its own new commit.
 ///
-/// The case the branch exists for: the key is
-/// `queue:{project}:{commit}` with no branch in it, so nothing the
-/// server reads can say which branch a settled write belonged to.
+/// The case the branch in the key exists for. The batch worker
+/// partitions by `(latest_commit, branch)`, so these are two batches
+/// committing separately -- and when they shared a key, whichever
+/// committed last overwrote the other and a client waiting on one
+/// branch was sent to the other branch's commit.
 #[tokio::test]
-async fn two_branches_sharing_a_commit_each_get_an_event() {
+async fn two_branches_off_one_commit_are_independent() {
     let Some((router, mut conn, config)) = fixture("events_branches").await else {
         eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
         return;
     };
-    let key = config.queue_entry_key("proj", "aaa");
-    let _: () = redis::cmd("SET")
-        .arg(&key)
-        .arg("bbb,5")
-        .query_async(&mut conn)
-        .await
-        .expect("plant");
+    let on_main = config.queue_entry_key("proj", "main", "aaa");
+    let on_dev = config.queue_entry_key("proj", "dev", "aaa");
+    assert_ne!(on_main, on_dev, "one commit, two branches, two keys");
+    for (key, value) in [(&on_main, "from-main,2"), (&on_dev, "from-dev,3")] {
+        let _: () = redis::cmd("SET")
+            .arg(key)
+            .arg(value)
+            .query_async(&mut conn)
+            .await
+            .expect("plant");
+    }
 
     let body = body_text(
         get(
@@ -247,19 +279,28 @@ async fn two_branches_sharing_a_commit_each_get_an_event() {
     )
     .await;
 
-    assert!(body.contains(r#""branch":"main""#), "{body}");
-    assert!(body.contains(r#""branch":"dev""#), "{body}");
     assert_eq!(
         body.matches(r#""status":"ok""#).count(),
         2,
         "one event per branch: {body}"
     );
+    // Each branch is sent to the commit *its* batch produced.
+    assert!(
+        body.contains(r#""branch":"main","latest_commit":"aaa","new_commit":"from-main""#),
+        "{body}"
+    );
+    assert!(
+        body.contains(r#""branch":"dev","latest_commit":"aaa","new_commit":"from-dev""#),
+        "{body}"
+    );
 
-    let _: () = redis::cmd("DEL")
-        .arg(&key)
-        .query_async(&mut conn)
-        .await
-        .expect("cleanup");
+    for key in [on_main, on_dev] {
+        let _: () = redis::cmd("DEL")
+            .arg(&key)
+            .query_async(&mut conn)
+            .await
+            .expect("cleanup");
+    }
 }
 
 /// A malformed or oversized watch set is refused before any Redis work.
