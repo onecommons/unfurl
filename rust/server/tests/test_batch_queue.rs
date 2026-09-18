@@ -1369,6 +1369,52 @@ async fn export_with_queueid(
     (status, body)
 }
 
+/// A queueid with no branch is refused, not answered from the stale
+/// commit it arrived with.
+///
+/// The queue key is per branch, so such a request cannot be resolved.
+/// Passing it through instead looks like success and serves the
+/// pre-write state -- which is how a real CI failure presented: the
+/// export returned "initial" where the test had patched "target", with
+/// no error anywhere.
+#[tokio::test]
+async fn a_queueid_without_a_branch_is_refused() {
+    let Some(url) = redis_url() else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let config = test_config("no_branch", 1.0);
+    let client = redis::Client::open(url.as_str()).unwrap();
+    let conn = client.get_multiplexed_async_connection().await.unwrap();
+    let state = AppState {
+        config: Arc::new(config),
+        client: reqwest::Client::new(),
+        redis: Some(conn),
+        cloudmap: None,
+    };
+    let res = build_router(state, None)
+        .oneshot(
+            Request::builder()
+                .uri("/export?auth_project=proj&latest_commit=aaa&queueid=3&format=deployment")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(res.into_body(), 64 * 1024)
+        .await
+        .unwrap();
+    let body: JsonValue = serde_json::from_slice(&bytes).unwrap_or(JsonValue::Null);
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("branch"),
+        "{body}"
+    );
+}
+
 /// The shape the unfurl-gui client matches on.
 ///
 /// `check_export_queue` returning `Failed` is only half the fix -- the

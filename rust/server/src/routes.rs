@@ -333,15 +333,14 @@ const QUEUE_WAIT_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_
 ///     stuck-worker territory anyway).
 ///
 /// Returns `Ok(None)` when there's nothing to wait on: no queueid (or
-/// `queueid == 0`), no branch, or no Redis configured. The caller passes
-/// the original request through unchanged.  Redis errors surface as
-/// **500**.
+/// `queueid == 0`), or no Redis configured. The caller passes the
+/// original request through unchanged.  Redis errors surface as **500**.
 ///
-/// A queueid without a branch cannot name a queue key, and the client
-/// sends exactly that shape whenever its branch resolves falsy -- where
-/// it also omits `latest_commit`, so the request was never going to
-/// resolve against a real key. Passed through rather than rejected: a
-/// 400 would break a path that currently limps.
+/// A queueid with no branch is **400**, not a pass-through. The queue key
+/// is `queue:{project}:{branch}:{commit}`, so such a request cannot be
+/// resolved -- and passing it through answers it from the stale
+/// `latest_commit` it arrived with, which looks like success and serves
+/// the pre-write state.
 async fn resolve_queued_request(
     state: &AppState,
     queueid: Option<i64>,
@@ -353,7 +352,14 @@ async fn resolve_queued_request(
         return Ok(None);
     };
     let Some(branch) = non_empty(branch) else {
-        return Ok(None);
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "code": "BAD_REQUEST",
+                "message": "queueid requires branch: the write queue is keyed by branch",
+            })),
+        )
+            .into_response());
     };
     let Some(ref redis) = state.redis else {
         return Ok(None);

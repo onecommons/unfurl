@@ -1587,6 +1587,9 @@ def test_server_update_deployment(server_env):
                     f"http://{HOST}:{port}/export",
                     params={
                         "auth_project": "remote",
+                        # The queue key is per branch, so a queueid
+                        # without one cannot be resolved and is refused.
+                        "branch": "main",
                         "latest_commit": last_commit,  # old commit
                         "queueid": queueid,
                         "format": "deployment",
