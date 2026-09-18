@@ -2453,6 +2453,17 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     # (e.g. when the test runner calls p.terminate()).  Without this handler
     # Python exits immediately on SIGTERM without running the finally block,
     # leaving the Rust process as an orphan that holds onto the port.
+    #
+    # SIGINT deliberately keeps its default.  Python's raises KeyboardInterrupt,
+    # which unwinds and so *does* run `serve`'s finally -- and a Ctrl-C reaches
+    # the whole foreground process group, so the child gets it directly anyway.
+    # Handling it here would only replace KeyboardInterrupt with SystemExit.
+    #
+    # That holds while SIGINT is at its default when this process starts --
+    # true of anything Node spawns, of a foreground command, and of `cmd &`
+    # under job control; false inside `( cmd & )`, where the subshell has no
+    # job control and sets SIG_IGN on its background children.  Such a process
+    # never receives SIGINT at all, and only SIGTERM stops it.
     _prev_sigterm = signal.getsignal(signal.SIGTERM)
 
     def _sigterm_handler(signum: int, frame: object) -> None:
