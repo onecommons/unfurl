@@ -1455,12 +1455,20 @@ async fn discarded_write_answers_export_with_409() {
         "a write still in flight is a retry, not a discard"
     );
 
-    // What `mark_batch_failed` leaves behind. Written directly so this
-    // test pins the route's behaviour and not the worker's.
+    // What `mark_batch_failed` leaves behind -- the sentinel and the
+    // backend's error body beside it. Written directly so this test pins
+    // the route's behaviour and not the worker's.
     let queue_key = config.queue_entry_key(project, "main", commit);
     let _: () = redis::cmd("SET")
         .arg(&queue_key)
         .arg("failed:401:2")
+        .query_async(&mut conn)
+        .await
+        .unwrap();
+    let error_key = config.queue_error_key(project, "main", commit);
+    let _: () = redis::cmd("SET")
+        .arg(&error_key)
+        .arg(r#"{"status":401,"code":"UNAUTHORIZED","message":"nope","rolled_back":true}"#)
         .query_async(&mut conn)
         .await
         .unwrap();
@@ -1480,6 +1488,11 @@ async fn discarded_write_answers_export_with_409() {
          loop, took {waited:?}"
     );
     assert_eq!(body["code"], "WRITE_DISCARDED", "body: {body}");
+    // The backend's own report travels with it, nested so its `code` and
+    // the proxy's do not collide, and carrying `rolled_back` -- how a
+    // client tells "nothing survived" from "something did".
+    assert_eq!(body["error"]["code"], "UNAUTHORIZED", "body: {body}");
+    assert_eq!(body["error"]["rolled_back"], true, "body: {body}");
     assert_eq!(body["latest_commit"], commit, "body: {body}");
     assert_eq!(body["queueid"], 2, "body: {body}");
     // The backend status belongs in the message: "your last change wasn't

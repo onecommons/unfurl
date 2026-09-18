@@ -382,7 +382,9 @@ async fn resolve_queued_request(
         Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
         Ok(ExportQueueCheck::Retry) => {} // fall through to kick + wait
         Ok(ExportQueueCheck::Failed { status, queueid }) => {
-            return Err(write_discarded_response(lc, status, queueid));
+            let error =
+                queue::read_batch_error(&mut conn, &state.config, project_id, branch, lc).await;
+            return Err(write_discarded_response(lc, status, queueid, error));
         }
         Err(e) => {
             tracing::error!("check_export_queue Redis error: {}", e);
@@ -425,7 +427,9 @@ async fn resolve_queued_request(
         {
             Ok(ExportQueueCheck::UseNewCommit(new_commit)) => return Ok(Some(new_commit)),
             Ok(ExportQueueCheck::Failed { status, queueid }) => {
-                return Err(write_discarded_response(lc, status, queueid));
+                let error =
+                    queue::read_batch_error(&mut conn, &state.config, project_id, branch, lc).await;
+                return Err(write_discarded_response(lc, status, queueid, error));
             }
             Ok(ExportQueueCheck::Retry) => {}
             Err(e) => {
@@ -508,7 +512,12 @@ fn queue_retry_response() -> Response {
 /// wasn't saved", not "someone else changed this". `latest_commit` is in
 /// the body so the client can re-read without a round trip to find out
 /// where it stands. No `Retry-After`.
-fn write_discarded_response(latest_commit: &str, status: u16, queueid: i64) -> Response {
+fn write_discarded_response(
+    latest_commit: &str,
+    status: u16,
+    queueid: i64,
+    error: Option<JsonValue>,
+) -> Response {
     (
         StatusCode::CONFLICT,
         Json(json!({
@@ -518,6 +527,10 @@ fn write_discarded_response(latest_commit: &str, status: u16, queueid: i64) -> R
             ),
             "latest_commit": latest_commit,
             "queueid": queueid,
+            // The backend's own report, nested so its `code` and this
+            // one's cannot collide. `None` when the sentinel outlived the
+            // error beside it, so a client treats it as optional.
+            "error": error,
         })),
     )
         .into_response()
@@ -705,16 +718,21 @@ async fn handle_write(
                         status,
                         queueid
                     );
-                    return (
-                        StatusCode::CONFLICT,
-                        Json(json!({
-                            "code": "CONFLICT",
-                            "message": format!(
-                                "a queued write against this commit was discarded: backend returned {status}"
-                            ),
-                        })),
+                    // WRITE_DISCARDED and not CONFLICT: this is the
+                    // backend having dropped an earlier batch, which the
+                    // arm below -- a queueid that lost a race -- is not.
+                    // They shared a code, so a client could only tell
+                    // "something broke" from "you were beaten to it" by
+                    // reading the message text.
+                    let error = queue::read_batch_error(
+                        &mut conn,
+                        &state.config,
+                        &project_id,
+                        branch,
+                        latest_commit,
                     )
-                        .into_response();
+                    .await;
+                    return write_discarded_response(latest_commit, status, queueid, error);
                 }
                 QueueIdResult::Conflict => {
                     tracing::info!(
