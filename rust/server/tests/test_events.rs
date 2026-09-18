@@ -39,6 +39,7 @@ fn test_config(prefix: &str) -> Config {
         worker_poll_interval_secs: 0.05,
         queue_key_ttl_secs: 3600,
         events_budget_secs: 3,
+        branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
         cloudmap_force: false,
@@ -460,6 +461,42 @@ async fn a_superseded_watch_still_hears_the_failure() {
 
     let _: () = redis::cmd("DEL")
         .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
+/// A client with nothing queued is told when the branch moves.
+///
+/// The per-commit keys are addressable only by someone who already knows
+/// the base commit a write was made against, which an idle client does
+/// not. The head key is the one it can name.
+#[tokio::test]
+async fn a_branch_watch_reports_the_head_moving() {
+    let Some((router, mut conn, config)) = fixture("events_branch_watch").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let head = config.head_key("proj", "main");
+    let _: () = redis::cmd("SET")
+        .arg(&head)
+        .arg("bbb")
+        .query_async(&mut conn)
+        .await
+        .expect("plant");
+
+    // Sitting on `aaa`, which the branch has moved off.
+    let moved = body_text(get(&router, "/events?auth_project=proj&watch=main:aaa:").await).await;
+    assert!(moved.contains(r#""status":"moved""#), "{moved}");
+    assert!(moved.contains(r#""new_commit":"bbb""#), "{moved}");
+
+    // Sitting on the head itself: nothing to report.
+    let still = body_text(get(&router, "/events?auth_project=proj&watch=main:bbb:").await).await;
+    assert!(!still.contains(r#""status":"moved""#), "{still}");
+    assert!(still.contains(r#""status":"done""#), "{still}");
+
+    let _: () = redis::cmd("DEL")
+        .arg(&head)
         .query_async(&mut conn)
         .await
         .expect("cleanup");

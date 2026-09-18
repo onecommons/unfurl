@@ -1020,13 +1020,25 @@ fn parse_watch_set(watch: &[String]) -> Option<Vec<Watch>> {
     for item in watch.iter().filter(|s| !s.is_empty()) {
         // From the right: a git branch name cannot contain `:`, but
         // splitting this way needs no such assumption.
+        //
+        // `{branch}:{commit}:` -- a trailing empty queueid -- is a client
+        // with nothing queued asking to be told when the branch moves off
+        // that commit. Spelled with the empty field rather than as two
+        // parts, because `a:b` cannot be told from a three-part watch
+        // whose branch was omitted, and guessing there would answer a
+        // malformed watch with a plausible wrong one.
         let mut parts = item.rsplitn(3, ':');
-        let qid: i64 = parts.next()?.parse().ok()?;
+        let qid_str = parts.next()?;
         let commit = parts.next()?;
         let branch = parts.next()?;
+        let qid: i64 = if qid_str.is_empty() {
+            0
+        } else {
+            qid_str.parse().ok()?
+        };
         if branch.is_empty()
             || commit.is_empty()
-            || qid <= 0
+            || (qid <= 0 && !qid_str.is_empty())
             || out.iter().any(|w| w.branch == branch && w.commit == commit)
         {
             return None;
@@ -1039,6 +1051,20 @@ fn parse_watch_set(watch: &[String]) -> Option<Vec<Watch>> {
         });
     }
     (!out.is_empty() && out.len() <= MAX_WATCHES).then_some(out)
+}
+
+/// How long to wait before re-reading a subscription's keys.
+///
+/// A subscription carrying only branch watches polls at its own rate:
+/// nothing is blocking on it, where a write watch is holding up a
+/// client's save. One write watch in the set is enough to want the
+/// fast interval for all of them.
+fn poll_interval(watches: &[Watch], config: &crate::config::Config) -> std::time::Duration {
+    if !watches.is_empty() && watches.iter().all(|w| w.queueid == 0) {
+        std::time::Duration::from_millis(config.branch_poll_interval_ms)
+    } else {
+        QUEUE_WAIT_POLL_INTERVAL
+    }
 }
 
 /// One `data:` frame.
@@ -1090,7 +1116,44 @@ pub async fn handle_events(
         let deadline =
             std::time::Instant::now() + std::time::Duration::from_secs(config.events_budget_secs);
         while !watches.is_empty() && std::time::Instant::now() < deadline {
-            tokio::time::sleep(QUEUE_WAIT_POLL_INTERVAL).await;
+            tokio::time::sleep(poll_interval(&watches, &config)).await;
+            let mut pending = Vec::new();
+            // Branch watches read a different key, so they are polled
+            // apart and folded back into the same pass.
+            let (branch_watches, write_watches): (Vec<Watch>, Vec<Watch>) =
+                std::mem::take(&mut watches)
+                    .into_iter()
+                    .partition(|w| w.queueid == 0);
+            let branches: Vec<String> = branch_watches.iter().map(|w| w.branch.clone()).collect();
+            let heads =
+                match queue::read_branch_heads(&mut conn, &config, &project_id, &branches).await {
+                    Ok(heads) => heads,
+                    Err(e) => {
+                        tracing::error!("read_branch_heads Redis error: {}", e);
+                        break;
+                    }
+                };
+            for (watch, head) in branch_watches.into_iter().zip(heads) {
+                // Reported when the branch has moved off the commit the
+                // client named. Dropped after, because that commit is no
+                // longer what the client holds and the watch would be
+                // asking about a baseline it has left.
+                match head {
+                    Some(head) if head != watch.commit => {
+                        let payload = json!({
+                            "status": "moved",
+                            "branch": watch.branch,
+                            "latest_commit": watch.commit,
+                            "new_commit": head,
+                        });
+                        if tx.send(settled_event(payload)).await.is_err() {
+                            return;
+                        }
+                    }
+                    _ => pending.push(watch),
+                }
+            }
+            watches = write_watches;
             let results =
                 match queue::check_export_queues(&mut conn, &config, &project_id, &watches).await {
                     Ok(results) => results,
@@ -1099,7 +1162,6 @@ pub async fn handle_events(
                         break;
                     }
                 };
-            let mut pending = Vec::new();
             for (watch, result) in std::mem::take(&mut watches).into_iter().zip(results) {
                 let Watch {
                     branch,
@@ -1449,5 +1511,34 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![&("latest_commit".to_string(), "b".to_string())]
         );
+    }
+
+    fn watch(queueid: i64) -> Watch {
+        Watch {
+            branch: "main".into(),
+            commit: "aaa".into(),
+            queueid,
+            superseded_reported: false,
+        }
+    }
+
+    #[test]
+    fn only_branch_watches_get_the_slower_poll() {
+        use clap::Parser as _;
+        let mut config = crate::config::Config::parse_from(["unfurl-server"]);
+        config.branch_poll_interval_ms = 2500;
+        let slow = std::time::Duration::from_millis(2500);
+
+        assert_eq!(poll_interval(&[watch(0)], &config), slow);
+        // One write watch is blocking a save, so the whole set is fast.
+        assert_eq!(
+            poll_interval(&[watch(0), watch(3)], &config),
+            QUEUE_WAIT_POLL_INTERVAL
+        );
+        assert_eq!(
+            poll_interval(&[watch(3)], &config),
+            QUEUE_WAIT_POLL_INTERVAL
+        );
+        assert_eq!(poll_interval(&[], &config), QUEUE_WAIT_POLL_INTERVAL);
     }
 }

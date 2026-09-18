@@ -678,6 +678,28 @@ pub async fn read_batch_error(
     serde_json::from_str(&raw?).ok()
 }
 
+/// A branch's head as last recorded by a committed batch, for each
+/// watch, in the order given.
+///
+/// `None` where the key is absent: nothing has committed on that branch
+/// inside the key's lifetime, so there is nothing to report movement
+/// against.
+pub async fn read_branch_heads(
+    conn: &mut redis::aio::MultiplexedConnection,
+    config: &Config,
+    project_id: &str,
+    branches: &[String],
+) -> Result<Vec<Option<String>>, redis::RedisError> {
+    if branches.is_empty() {
+        return Ok(Vec::new());
+    }
+    let keys: Vec<String> = branches
+        .iter()
+        .map(|b| config.head_key(project_id, b))
+        .collect();
+    conn.mget(&keys).await
+}
+
 /// The queueid a raw queue value records, whatever its shape.
 pub fn recorded_queueid(raw: &str) -> i64 {
     match raw.split_once(',') {

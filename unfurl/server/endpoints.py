@@ -1603,11 +1603,17 @@ def _update_queue_key(
     # same key and a mismatch would have one side's write outlive the
     # other's.
     ttl = int(os.environ.get("UNFURL_QUEUE_KEY_TTL_SECS") or 86400)
+    # Also the branch's head, which is the only key a client with nothing
+    # queued can watch: the per-commit keys above are addressable only by
+    # someone who already knows the base commit a write was made against.
+    head_key = f"{prefix}head:{project_id}:{branch}"
     try:
         if ttl > 0:
             redis_client.set(queue_key, value, ex=ttl)
+            redis_client.set(head_key, new_commit, ex=ttl)
         else:
             redis_client.set(queue_key, value)
+            redis_client.set(head_key, new_commit)
         logger.debug("updated queue key %s = %s (ttl=%s)", queue_key, value, ttl)
     except Exception as exc:
         logger.error("failed to update queue key %s: %s", queue_key, exc)

@@ -45,6 +45,7 @@ fn test_config(prefix: &str, batch_window_secs: f64) -> Config {
         worker_poll_interval_secs: 0.05,
         queue_key_ttl_secs: 3600,
         events_budget_secs: 10,
+        branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
         cloudmap_force: false,

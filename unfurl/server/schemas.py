@@ -516,8 +516,9 @@ class QueuedWriteEvent(BaseModel):
         description=(
             "``ok`` -- the batch holding this write committed; "
             "``discarded`` -- it was rejected and the write is gone; "
-            "``superseded`` -- writes were queued after this one and "
-            "nothing has committed, so re-read before writing again; "
+            "``superseded`` -- more writes were queued against the same "
+            "base commit after this one and nothing has committed, so "
+            "re-read before writing again; "
             "``done`` -- terminal, the client should close the stream."
         )
     )
@@ -534,9 +535,11 @@ class QueuedWriteEvent(BaseModel):
     observed: Optional[int] = Field(
         default=None,
         description=(
-            "Counter's value (``superseded``). Compare against the "
-            "queueid held: not greater means the caller's own write "
-            "moved it."
+            "Counter's value (``superseded``). Counters are per base "
+            "commit, so this is comparable only with a queueid issued "
+            "against the same one -- against any other it is an "
+            "unrelated number. Not greater than the queueid held means "
+            "the caller's own write moved it."
         ),
     )
     batch_queueid: Optional[int] = Field(

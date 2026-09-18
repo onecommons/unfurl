@@ -122,6 +122,16 @@ pub struct Config {
     #[arg(long, env = "UNFURL_EVENTS_BUDGET_SECS", default_value_t = 120)]
     pub events_budget_secs: u64,
 
+    /// How often a branch watch re-reads the head key, in milliseconds.
+    ///
+    /// Slower than the write-watch poll, which is fixed at 100ms because
+    /// a client watching its own write is blocking a save. A branch watch
+    /// reports someone else committing -- a human-scale event -- and an
+    /// idle tab holds one continuously, so this is the interval that
+    /// scales with tabs open rather than with writes made.
+    #[arg(long, env = "UNFURL_BRANCH_POLL_INTERVAL_MS", default_value_t = 1000)]
+    pub branch_poll_interval_ms: u64,
+
     /// Path to a working directory of a cloudmap git repo.
     /// When set together with `cloudmap_db_url`, GET /cloudmap is served
     /// using the `unfurl-git-sync` crate; otherwise it is proxied to the Python
@@ -283,6 +293,18 @@ impl Config {
         format!("{}queue:{}:{}:", self.cache_key_prefix, project_id, branch)
     }
 
+    /// Redis key holding a branch's head commit, as last recorded by a
+    /// batch that committed.
+    ///
+    /// The only queue key addressable without already knowing a base
+    /// commit, which is what lets a client with nothing queued watch a
+    /// branch at all. Not authoritative for the branch -- a push that
+    /// bypassed the queue leaves it stale -- so it reports movement, not
+    /// truth.
+    pub fn head_key(&self, project_id: &str, branch: &str) -> String {
+        format!("{}head:{}:{}", self.cache_key_prefix, project_id, branch)
+    }
+
     /// Redis key holding the backend's error body for a discarded batch,
     /// sibling to its [`Self::queue_entry_key`].
     ///
@@ -348,6 +370,7 @@ mod tests {
             worker_poll_interval_secs: 0.1,
             queue_key_ttl_secs: 86400,
             events_budget_secs: 120,
+            branch_poll_interval_ms: 1000,
             cloudmap_repo: None,
             cloudmap_db_url: None,
             cloudmap_force: false,
