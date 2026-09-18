@@ -413,6 +413,58 @@ async fn queue_state_reports_the_branch_without_an_export() {
     }
 }
 
+/// A superseded watch still hears that the batch failed.
+///
+/// Every queueid below the counter is superseded, so if the watch closed
+/// on that frame the client that wrote *first* would be told only
+/// "recompose" and never that its write was lost with the batch. The
+/// supersession is still sent once, not on every poll.
+#[tokio::test]
+async fn a_superseded_watch_still_hears_the_failure() {
+    let Some((router, mut conn, config)) = fixture("events_super_fail").await else {
+        eprintln!("UNFURL_TEST_REDIS_URL not set, skipping");
+        return;
+    };
+    let key = config.queue_entry_key("proj", "main", "aaa");
+    // Counter at 7 with nothing committed: a watch on 2 is behind it.
+    let _: () = redis::cmd("SET")
+        .arg(&key)
+        .arg("7")
+        .query_async(&mut conn)
+        .await
+        .expect("plant");
+
+    // The batch fails while the watch is open.
+    let failing = key.clone();
+    let mut writer = conn.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+        let _: Result<(), _> = redis::cmd("SET")
+            .arg(&failing)
+            .arg("failed:500:7")
+            .query_async(&mut writer)
+            .await;
+    });
+
+    let body = body_text(get(&router, "/events?auth_project=proj&watch=main:aaa:2").await).await;
+
+    assert_eq!(
+        body.matches(r#""status":"superseded""#).count(),
+        1,
+        "reported once, not every poll: {body}"
+    );
+    assert!(
+        body.contains(r#""status":"discarded""#),
+        "the watch must outlive its supersession to hear this: {body}"
+    );
+
+    let _: () = redis::cmd("DEL")
+        .arg(&key)
+        .query_async(&mut conn)
+        .await
+        .expect("cleanup");
+}
+
 /// A malformed or oversized watch set is refused before any Redis work.
 #[tokio::test]
 async fn a_bad_watch_set_is_refused() {

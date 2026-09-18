@@ -1035,6 +1035,7 @@ fn parse_watch_set(watch: &[String]) -> Option<Vec<Watch>> {
             branch: branch.to_string(),
             commit: commit.to_string(),
             queueid: qid,
+            superseded_reported: false,
         });
     }
     (!out.is_empty() && out.len() <= MAX_WATCHES).then_some(out)
@@ -1104,6 +1105,7 @@ pub async fn handle_events(
                     branch,
                     commit,
                     queueid,
+                    superseded_reported,
                 } = watch;
                 let payload = match result {
                     ExportQueueCheck::Retry => {
@@ -1111,20 +1113,33 @@ pub async fn handle_events(
                             branch,
                             commit,
                             queueid,
+                            superseded_reported,
                         });
                         continue;
                     }
-                    // Dropped from the watch set rather than repeated every
-                    // poll: the client's answer to a supersession is to
-                    // re-export, which moves its queueid and reopens a
-                    // watch on the new one.
-                    ExportQueueCheck::Superseded { observed } => json!({
-                        "status": "superseded",
-                        "branch": branch,
-                        "latest_commit": commit,
-                        "queueid": queueid,
-                        "observed": observed,
-                    }),
+                    // Reported once, then kept: every queueid below the
+                    // counter is superseded, so if the watch closed here a
+                    // client that wrote first would never learn the batch
+                    // holding its write had failed.
+                    ExportQueueCheck::Superseded { observed } => {
+                        let first = !superseded_reported;
+                        pending.push(Watch {
+                            branch: branch.clone(),
+                            commit: commit.clone(),
+                            queueid,
+                            superseded_reported: true,
+                        });
+                        if !first {
+                            continue;
+                        }
+                        json!({
+                            "status": "superseded",
+                            "branch": branch,
+                            "latest_commit": commit,
+                            "queueid": queueid,
+                            "observed": observed,
+                        })
+                    }
                     ExportQueueCheck::UseNewCommit(new_commit) => json!({
                         "status": "ok",
                         "branch": branch,

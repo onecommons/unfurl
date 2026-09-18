@@ -406,6 +406,15 @@ pub struct Watch {
     pub branch: String,
     pub commit: String,
     pub queueid: i64,
+    /// Whether a supersession has already been reported for this watch.
+    ///
+    /// A superseded watch is kept rather than closed, because the batch
+    /// holding its write can still fail and that failure reaches no other
+    /// watch: every queueid below the counter is superseded, so a client
+    /// that wrote first would otherwise be told only "recompose" and
+    /// never that its write was lost. The flag is what stops the same
+    /// supersession being re-sent on every poll.
+    pub superseded_reported: bool,
 }
 
 /// Report whether the queue for `(project_id, branch)` is busy: either

@@ -1838,6 +1838,33 @@ def _annotate_failed_request(
     return result
 
 
+def _apply_one_batch_request(
+    req_body: dict,
+    project_id: str,
+    readonly_localEnv: LocalEnv,
+    endpoint: str,
+    create: bool,
+) -> ResponseReturnValue:
+    """Apply one request of a batch, or return its error response.
+
+    `create_provider` patches an environment and an ensemble, so both
+    branches can run for one request.
+    """
+    result: ResponseReturnValue = {}
+    if endpoint in (
+        "create_provider",
+        "update_environment",
+        "delete_environment",
+        "delete_deployment",
+    ):
+        result = _patch_environment(req_body, project_id, batched=readonly_localEnv)
+        if _is_error_response(result):
+            return result
+    if create or endpoint == "update_ensemble":
+        result = _patch_ensemble(req_body, create, project_id, batched=readonly_localEnv)
+    return result
+
+
 def _apply_batch_requests(
     body: dict,
     batch_requests: list,
@@ -1871,28 +1898,29 @@ def _apply_batch_requests(
                 req_body[cred] = body[cred]
         last_body = req_body
         create = endpoint in ("create_ensemble", "create_provider")
-        if endpoint in (
-            "create_provider",
-            "update_environment",
-            "delete_environment",
-            "delete_deployment",
-        ):
-            result = _patch_environment(req_body, project_id, batched=readonly_localEnv)
-            if _is_error_response(result):
-                return _annotate_failed_request(
-                    result, endpoint, index, len(batch_requests), applied
-                )
-        if create or endpoint == "update_ensemble":
-            result = _patch_ensemble(
-                req_body,
-                create,
-                project_id,
-                batched=readonly_localEnv,
+        # Caught per request so an exception says which one, like a returned
+        # error does. Without this the two carried disjoint halves of the
+        # story: an annotated error and no traceback, or a traceback and no
+        # idea which request raised or what had already committed.
+        # Re-raised as an error response, which the caller rolls back
+        # exactly as it does the returned kind.
+        try:
+            result = _apply_one_batch_request(
+                req_body, project_id, readonly_localEnv, endpoint, create
             )
-            if _is_error_response(result):
-                return _annotate_failed_request(
-                    result, endpoint, index, len(batch_requests), applied
-                )
+        except Exception as exc:
+            logger.error("batch request %s raised", endpoint, exc_info=True)
+            return _annotate_failed_request(
+                create_error_response("INTERNAL_ERROR", "Could not apply batch", exc),
+                endpoint,
+                index,
+                len(batch_requests),
+                applied,
+            )
+        if _is_error_response(result):
+            return _annotate_failed_request(
+                result, endpoint, index, len(batch_requests), applied
+            )
         applied.append({"endpoint": endpoint, "index": index})
     username = last_body.get("username")
     password = last_body.get("private_token", last_body.get("password"))
