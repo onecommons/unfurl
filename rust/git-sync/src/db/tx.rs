@@ -924,6 +924,7 @@ pub(crate) async fn delete_missing<DB: Dialect>(
     worktree_id: i64,
     file_path: &str,
     keep: &BTreeSet<(String, String)>,
+    skip_paths: &BTreeSet<String>,
 ) -> Result<usize>
 where
     for<'q> i64: Encode<'q, DB> + Type<DB>,
@@ -941,6 +942,12 @@ where
     let mut removed = 0usize;
     for pk in rows {
         if keep.contains(&pk) {
+            continue;
+        }
+        // A section whose records could not be enumerated: its keys are
+        // unknown, so absence from `keep` is no evidence of absence from
+        // the file.
+        if skip_paths.contains(&pk.0) {
             continue;
         }
         let deleted: Vec<(i64,)> = sqlx::query_as(DB::DELETE_RECORD_BY_KEY)

@@ -974,6 +974,22 @@ pub struct SyncOutcome {
     /// and for the same reason: a parse failure means broken, not
     /// emptied, so its records cannot be cleared on the strength of it.
     pub unparsed: Vec<ScanFailure>,
+    /// Files that do not conform to the schema of the format that claimed
+    /// them, each with what was found and at what grade.
+    ///
+    /// What the scan did about it is graded per complaint -- see
+    /// [`crate::Validation`]. A `fatal` file was skipped whole; a section
+    /// or record in `errors` was left out of the index *and* left
+    /// un-pruned, so the row already there survives; `warnings` changed
+    /// nothing. Distinct from [`Self::unparsed`], which could not be read
+    /// at all.
+    ///
+    /// Worth reading even for a record that was indexed: the typed walk
+    /// behind [`crate::SyncedRepo::find_records_follow`] deserializes
+    /// each record into the same schema shape and silently emits no
+    /// edges for one that doesn't fit, so a record reported here is
+    /// missing from the graph whether or not it reached the index.
+    pub invalid: Vec<ValidationFailure>,
 }
 
 impl SyncOutcome {
@@ -1057,6 +1073,23 @@ pub struct SaveFailure {
     pub file_path: String,
     /// Why it could not be written.
     pub error: crate::Error,
+}
+
+/// One file that does not conform to the schema of the format that
+/// claimed it, as reported by [`crate::DataFormat::validate_document`].
+#[derive(Debug)]
+pub struct ValidationFailure {
+    /// Working-tree-relative path of the file.
+    pub file_path: String,
+    /// Name of the format that validated it.
+    pub format: String,
+    /// What the format found, graded by blast radius.
+    ///
+    /// Shared rather than owned because the scan acts on this very
+    /// validation while the report is being accumulated: the outcome
+    /// cannot hand out a borrow into itself, and a
+    /// [`crate::ValidationError`] is not `Clone`.
+    pub validation: std::sync::Arc<crate::Validation>,
 }
 
 /// One file [`crate::SyncedRepo::update_from_working_dir`] could not

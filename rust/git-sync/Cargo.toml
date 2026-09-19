@@ -50,6 +50,7 @@ tempfile = "3"
 regress = "0.10"
 json5 = "1.3.1"
 unfurl-merge = { version = "0.1.0", path = "../merge" }
+serde_path_to_error = "0.1.20"
 
 [build-dependencies]
 # Generates Rust types from `unfurl/cloudmap/cloudmap-schema.json` so

@@ -7,7 +7,80 @@
 //! each other. The crate ships [`crate::CloudMapFormat`]; callers can
 //! plug in additional implementations.
 
+use std::collections::BTreeMap;
+
 use crate::Record;
+
+/// One validation complaint from [`DataFormat::validate_document`].
+///
+/// `Send + Sync` because it leaves via [`crate::SyncOutcome`], which is
+/// returned across await points and handled on a threaded runtime.
+pub type ValidationError = Box<dyn std::error::Error + Send + Sync>;
+
+/// What a complaint is about: the section, and the record within it when
+/// the complaint belongs to one record rather than the whole section.
+///
+/// The section carries no leading slash, as in
+/// [`DataFormat::path_prefixes`] and [`DataFormat::section_kind`].
+/// `(section, None)` is a fault no record can own -- a section that is
+/// not a mapping, so nothing under it is enumerable. A
+/// [`SectionKind::Singleton`] section is always addressed that way: the
+/// section *is* the record, so there is no sub-key to name it by.
+pub type ValidationAt = (String, Option<String>);
+
+/// What [`DataFormat::validate_document`] found, graded by how much of
+/// the document each complaint implicates.
+///
+/// The grades exist so a document that is wrong in one place still
+/// contributes everything it gets right, and so the scan never reads a
+/// violation as evidence that records were deleted.
+#[derive(Debug, Default)]
+pub struct Validation {
+    /// The document cannot be read as this format at all. The scan skips
+    /// the file whole: nothing indexed, and nothing deleted either,
+    /// because a document it cannot interpret says nothing about which
+    /// records are gone.
+    pub fatal: Vec<ValidationError>,
+    /// Sections and records that do not conform. Each is skipped: not
+    /// indexed, so a row already in the database is never replaced by a
+    /// value known to be wrong, and not pruned either, so a section that
+    /// enumerates as empty because it is malformed does not read as
+    /// "every record here was removed".
+    pub errors: BTreeMap<ValidationAt, ValidationError>,
+    /// Complaints that do not stop a section or record being indexed.
+    /// Reported in [`crate::SyncOutcome::invalid`] and nothing more.
+    pub warnings: BTreeMap<ValidationAt, ValidationError>,
+}
+
+impl Validation {
+    /// Nothing to report at any grade.
+    pub fn is_empty(&self) -> bool {
+        self.fatal.is_empty() && self.errors.is_empty() && self.warnings.is_empty()
+    }
+
+    /// The document cannot be read as this format; the scan skips it.
+    pub fn is_fatal(&self) -> bool {
+        !self.fatal.is_empty()
+    }
+
+    /// Whether the record at `(section, key)` was rejected, either in its
+    /// own right or by its section being rejected whole.
+    pub fn rejects(&self, section: &str, key: &str) -> bool {
+        self.errors.contains_key(&(section.to_string(), None))
+            || self
+                .errors
+                .contains_key(&(section.to_string(), Some(key.to_string())))
+    }
+
+    /// Sections rejected whole, without a leading slash. Their existing
+    /// rows are the ones a scan must not prune.
+    pub fn rejected_sections(&self) -> impl Iterator<Item = &str> {
+        self.errors
+            .iter()
+            .filter(|((_, key), _)| key.is_none())
+            .map(|((section, _), _)| section.as_str())
+    }
+}
 
 /// Per-section ordering policy for serialized output.
 ///
@@ -93,6 +166,16 @@ pub trait DataFormat: Send + Sync {
     /// formats identified some other way.
     fn new_document(&self) -> serde_json::Value {
         serde_json::Value::Object(serde_json::Map::new())
+    }
+
+    /// Checks `json` against the format's schema.
+    ///
+    /// Complaints are graded by what the scan should do about them --
+    /// skip the file, skip a section or record, or only report. See
+    /// [`Validation`]. The default declares no schema and accepts
+    /// everything.
+    fn validate_document(&self, _json: &serde_json::Value) -> Validation {
+        Validation::default()
     }
 
     /// Lists the top-level keys that hold this format's records.

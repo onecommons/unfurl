@@ -52,6 +52,16 @@ pub(crate) struct ScannedFile<'a> {
     /// the path: in-flight rows at `version <= N` are the file author's
     /// to overwrite. `None` when the commit carries no such trailer.
     pub(crate) resolves_version: Option<i64>,
+    /// What the format made of the document — see
+    /// [`crate::DataFormat::validate_document`].
+    ///
+    /// Sections and records it rejected are left out of the index and out
+    /// of the prune: a rejected record keeps whatever row it already had
+    /// rather than being overwritten by a value known to be wrong, and a
+    /// rejected *section* keeps all of its rows, because a section that
+    /// isn't a mapping enumerates as empty and would otherwise read as
+    /// "every record here was removed".
+    pub(crate) validation: &'a crate::Validation,
 }
 
 /// A parsed document plus the format that claimed it, as
@@ -60,6 +70,9 @@ pub(crate) struct ScannedFile<'a> {
 pub(crate) struct ParsedDoc<'a> {
     pub(crate) format: &'a dyn crate::format::DataFormat,
     pub(crate) value: serde_json::Value,
+    /// What [`crate::DataFormat::validate_document`] made of it. A
+    /// `fatal` document never gets this far — the scan skips the file.
+    pub(crate) validation: std::sync::Arc<crate::Validation>,
 }
 
 /// What deciding one record's fate needs beyond the transaction.
@@ -109,14 +122,20 @@ fn base_value<'a>(
 fn document_records(
     value: &serde_json::Value,
     format: &dyn crate::format::DataFormat,
+    validation: &crate::Validation,
 ) -> Vec<(String, String, serde_json::Value)> {
     let mut records: Vec<(String, String, serde_json::Value)> = Vec::new();
     for prefix in format.path_prefixes() {
         if format.section_kind(prefix) == SectionKind::Singleton {
             // Absent is the only way a singleton has no record: unlike a
             // map section there is nothing to enumerate, so whatever is
-            // there is the record, object or not.
+            // there is the record, object or not. A singleton's key is the
+            // section's own name, and so is the only way validation can
+            // have addressed it.
             if let Some(child) = value.get(*prefix) {
+                if validation.rejects(prefix, prefix) {
+                    continue;
+                }
                 records.push((format!("/{prefix}"), (*prefix).to_string(), child.clone()));
             }
             continue;
@@ -125,10 +144,30 @@ fn document_records(
             continue;
         };
         for (key, child) in section {
+            // A rejected record is not extracted, so it cannot overwrite
+            // the row already there; `upsert_file_and_records_inner` also
+            // keeps that row out of the prune, or skipping would delete
+            // it instead of preserving it.
+            if validation.rejects(prefix, key) {
+                continue;
+            }
             records.push((format!("/{prefix}"), key.clone(), child.clone()));
         }
     }
     records
+}
+
+/// Every `(section, key)` validation rejected as a single record.
+///
+/// Section-level rejections are excluded: they have no key, and the prune
+/// skips their whole path rather than listing keys it cannot enumerate.
+fn validation_rejected_records(
+    validation: &crate::Validation,
+) -> impl Iterator<Item = (&str, String)> {
+    validation
+        .errors
+        .keys()
+        .filter_map(|(section, key)| key.as_ref().map(|k| (section.as_str(), k.clone())))
 }
 
 impl Reconcile<'_> {
@@ -466,7 +505,7 @@ where
 
     // Extracting the records from the parsed document depends only on
     // the document and its format.
-    let to_upsert = document_records(file.value, file.format);
+    let to_upsert = document_records(file.value, file.format, file.validation);
 
     // Base-commit content for the file's in-flight rows. Whether the
     // file diverges from a pending edit is a *three-way* question —
@@ -539,6 +578,19 @@ where
         .iter()
         .map(|(path, key, _)| (path.clone(), key.clone()))
         .collect();
+    // A record validation rejected was never extracted, so it is absent
+    // from `to_upsert` and would read as dropped from the file. It wasn't
+    // dropped -- it was refused -- so its row stays.
+    for (section, key) in validation_rejected_records(file.validation) {
+        keep.insert((format!("/{section}"), key));
+    }
+    // A rejected section's keys cannot be enumerated at all, so there is
+    // nothing to add to `keep`; the prune skips the whole path instead.
+    let skip_paths: BTreeSet<String> = file
+        .validation
+        .rejected_sections()
+        .map(|section| format!("/{section}"))
+        .collect();
 
     for (path, key, child) in to_upsert {
         let at = (path, key);
@@ -591,8 +643,17 @@ where
         }
     }
 
-    // Delete records that used to be in the file but are gone now.
-    let removed = db::tx::delete_missing(&mut tx, sync.worktree_id(), file.rel_path, &keep).await?;
+    // Delete records that used to be in the file but are gone now,
+    // skipping any section validation rejected: those enumerate as empty
+    // because they are malformed, not because they were emptied.
+    let removed = db::tx::delete_missing(
+        &mut tx,
+        sync.worktree_id(),
+        file.rel_path,
+        &keep,
+        &skip_paths,
+    )
+    .await?;
     stats.records_deleted += removed;
 
     tx.commit().await?;

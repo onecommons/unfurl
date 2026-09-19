@@ -26,7 +26,7 @@ use std::collections::BTreeSet;
 
 use url::Url;
 
-use crate::format::{DataFormat, SectionKind};
+use crate::format::{DataFormat, SectionKind, Validation, ValidationError};
 use crate::formats::cloudmap_types as ct;
 use crate::{Order, Record};
 
@@ -90,6 +90,70 @@ impl CloudMapFormat {
     }
 }
 
+/// Deserializes one record of `section` into its schema type, returning
+/// the failure if it does not fit.
+///
+/// The same six types [`CloudMapFormat::follow`] walks, so a record this
+/// rejects is exactly a record the graph walk would silently contribute
+/// no edges for. Only the first fault in a record is reported: serde
+/// returns one error and stops, and the path inside it is what names the
+/// offending field.
+fn validate_record(section: &str, json: &serde_json::Value) -> Option<ValidationError> {
+    fn check<T: serde::de::DeserializeOwned>(json: &serde_json::Value) -> Option<ValidationError> {
+        // `serde_path_to_error` because serde reports a `Value` failure as
+        // "line 0 column 0"; the path is the only thing naming the field.
+        match serde_path_to_error::deserialize::<_, T>(json) {
+            Ok(_) => None,
+            Err(err) => {
+                let path = err.path().to_string();
+                Some(if path.is_empty() || path == "." {
+                    format!("{}", err.inner()).into()
+                } else {
+                    format!("{}: {}", path, err.inner()).into()
+                })
+            }
+        }
+    }
+    match section {
+        "repositories" => check::<ct::Repository>(json),
+        "artifacts" => check::<ct::Artifact>(json),
+        "components" => check::<ct::Component>(json),
+        "services" => check::<ct::Service>(json),
+        "instantiations" => check::<ct::Instantiation>(json),
+        "types" => check::<ct::Type>(json),
+        "metadata" => check::<ct::Metadata>(json),
+        // A section the format claims but this function does not know is
+        // a section added to `PATH_PREFIXES` without a type to check it
+        // against. Unvalidated rather than rejected: refusing records
+        // over a gap here would be the one outcome nobody wants.
+        _ => None,
+    }
+}
+
+/// Checks a section key against the pattern its schema declares for it.
+///
+/// A key is faulted as its own record rather than as the section: the
+/// section's other keys are unaffected, and rejecting the section would
+/// discard every good record in it as well.
+fn validate_key(section: &str, key: &str) -> Option<ValidationError> {
+    fn check<T: serde::de::DeserializeOwned>(key: &str) -> Option<ValidationError> {
+        let as_json = serde_json::Value::String(key.to_string());
+        match serde_json::from_value::<T>(as_json) {
+            Ok(_) => None,
+            Err(err) => Some(format!("key {key:?}: {err}").into()),
+        }
+    }
+    match section {
+        "repositories" => check::<ct::CloudMapSchemaRepositoriesKey>(key),
+        "artifacts" => check::<ct::CloudMapSchemaArtifactsKey>(key),
+        "components" => check::<ct::CloudMapSchemaComponentsKey>(key),
+        "services" => check::<ct::CloudMapSchemaServicesKey>(key),
+        "instantiations" => check::<ct::CloudMapSchemaInstantiationsKey>(key),
+        "types" => check::<ct::CloudMapSchemaTypesKey>(key),
+        _ => None,
+    }
+}
+
 impl DataFormat for CloudMapFormat {
     fn name(&self) -> &str {
         "cloudmap"
@@ -102,6 +166,63 @@ impl DataFormat for CloudMapFormat {
 
     fn is_literate_format(&self, name: &str) -> bool {
         name == LITERATE_NAME
+    }
+
+    fn validate_document(&self, json: &serde_json::Value) -> Validation {
+        let mut v = Validation::default();
+        let Some(obj) = json.as_object() else {
+            v.fatal.push(format!("not a mapping: {json}").into());
+            return v;
+        };
+
+        // A document whose `apiVersion` names a schema we don't know is
+        // one we cannot read: every section below is interpreted against
+        // *this* version's shape, so a wrong guess is worse than no
+        // answer. Absence is not a fault -- a literate document is named
+        // by its front matter, which carries the version, and `is_format`
+        // gates every other route here on `kind`.
+        if let Some(declared) = obj.get("apiVersion") {
+            if let Err(err) =
+                serde_json::from_value::<ct::CloudMapSchemaApiVersion>(declared.clone())
+            {
+                v.fatal.push(format!("apiVersion: {err}").into());
+                return v;
+            }
+        }
+
+        for prefix in PATH_PREFIXES {
+            let Some(section) = obj.get(*prefix) else {
+                continue;
+            };
+            let at = |key: Option<&str>| ((*prefix).to_string(), key.map(str::to_string));
+            // A singleton section is itself the record, so it has no
+            // sub-key to be faulted by: whatever is wrong with it is the
+            // section's.
+            if SINGLETON_SECTIONS.contains(prefix) {
+                if let Some(err) = validate_record(prefix, section) {
+                    v.errors.insert(at(None), err);
+                }
+                continue;
+            }
+            // Not a mapping: no record can own this, and nothing under it
+            // is enumerable -- which is exactly the shape that would
+            // otherwise read as "every record here was removed".
+            let Some(records) = section.as_object() else {
+                v.errors
+                    .insert(at(None), format!("not a mapping: {section}").into());
+                continue;
+            };
+            for (key, child) in records {
+                if let Some(err) = validate_key(prefix, key) {
+                    v.errors.insert(at(Some(key)), err);
+                    continue;
+                }
+                if let Some(err) = validate_record(prefix, child) {
+                    v.errors.insert(at(Some(key)), err);
+                }
+            }
+        }
+        v
     }
 
     fn new_document(&self) -> serde_json::Value {

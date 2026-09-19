@@ -59,9 +59,15 @@ async fn org_record(sync: &SyncedRepo) -> serde_json::Value {
 /// holding no record section all contribute nothing.
 async fn literate_markdown_is_indexed(sync: &SyncedRepo, tmp: &TempDir) {
     seed_literate(tmp);
-    sync.update_from_working_dir(ScanOptions::default())
+    let outcome = sync
+        .update_from_working_dir(ScanOptions::default())
         .await
         .expect("scan");
+
+    // Validated as the document the fences merge to, not block by block:
+    // `apiVersion` and `kind` live in one fence, so per-chunk validation
+    // would call every other block an invalid cloudmap.
+    assert!(outcome.invalid.is_empty(), "{:?}", outcome.invalid);
 
     let org = org_record(sync).await;
     assert!(org["type"].get("RealWorldEntity").is_some(), "{org:?}");
@@ -503,3 +509,76 @@ crud_test!(a_plain_markdown_file_is_never_indexed);
 crud_test!(creating_a_literate_markdown_file_is_refused);
 crud_test!(a_generic_literate_document_is_detected_from_its_content);
 crud_test!(a_generic_literate_document_with_no_header_is_skipped);
+
+/// A literate document's violations are reported with a usable path.
+///
+/// The header a literate document lacks is supplied as borrowed entries
+/// chained ahead of its own, rather than by cloning the whole document to
+/// insert two keys. That swaps the deserializer under the validation, so
+/// this pins what the swap must not cost: the message still names the
+/// record, not just the file.
+async fn an_invalid_literate_document_names_the_record(sync: &SyncedRepo, tmp: &TempDir) {
+    let src = seed_literate(tmp);
+    // The same violation class as the 23 stale artifacts in
+    // `onecommons/cloudmap`: a bare string where `typeRef` wants a map
+    // keyed by type name. Still valid YAML, so it reaches validation.
+    let broken = src.replace(
+        "    type: # the kind of thing this is\n      RealWorldEntity:\n",
+        "    type: RealWorldEntity\n",
+    );
+    assert_ne!(
+        broken, src,
+        "fixture shape changed; the edit matched nothing"
+    );
+    std::fs::write(tmp.path().join("cloudmap.md"), &broken).expect("write");
+
+    let outcome = sync
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+
+    assert_eq!(outcome.invalid.len(), 1, "{:?}", outcome.invalid);
+    let failure = &outcome.invalid[0];
+    assert_eq!(failure.file_path, "cloudmap.md");
+    // A literate document carries no `kind`. Validating it per record
+    // never asks for the header at all, so its absence cannot become a
+    // complaint -- and nothing here is fatal.
+    assert!(
+        failure.validation.fatal.is_empty(),
+        "a literate document is not unreadable: {:?}",
+        failure.validation.fatal
+    );
+    let at = ("components".to_string(), Some(ORG.to_string()));
+    let err = failure
+        .validation
+        .errors
+        .get(&at)
+        .unwrap_or_else(|| panic!("keyed by (section, key): {:?}", failure.validation.errors));
+    assert!(
+        err.to_string().contains("type"),
+        "a literate violation must name the offending field: {err}"
+    );
+    // Refused, and nothing was there to preserve: this document was
+    // broken before its first scan, so the record simply never enters the
+    // index. Only conforming records do.
+    assert!(
+        sync.get_record("cloudmap.md", "/components", ORG)
+            .await
+            .expect("get")
+            .is_none(),
+        "a record rejected on a first scan must not be indexed"
+    );
+    // Per record, not per file: its neighbours in the same section are
+    // indexed as usual.
+    for other in [DOCUMENTED, RETIRED] {
+        assert!(
+            sync.get_record("cloudmap.md", "/components", other)
+                .await
+                .expect("get")
+                .is_some(),
+            "{other} shares the section and is valid; it must still index"
+        );
+    }
+}
+
+crud_test!(an_invalid_literate_document_names_the_record);

@@ -78,7 +78,9 @@ pub use db::{Db, DbConfig};
 #[doc(inline)]
 pub use error::{Error, Result};
 #[doc(inline)]
-pub use format::{DataFormat, FormatRegistry, Order, SectionKind};
+pub use format::{
+    DataFormat, FormatRegistry, Order, SectionKind, Validation, ValidationAt, ValidationError,
+};
 #[doc(inline)]
 pub use formats::cloudmap::CloudMapFormat;
 #[doc(inline)]
@@ -87,7 +89,7 @@ pub use model::{
     ConflictState, Cursor, FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File,
     JsonQuery, QueryOp, Record, RecordConflict, RecordConflictKind, RecordQuery, Resolution,
     RollupTxn, SaveFailure, ScanFailure, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord,
-    WorkingDir, Worktree, WriteFileOutcome, WriteOutcome,
+    ValidationFailure, WorkingDir, Worktree, WriteFileOutcome, WriteOutcome,
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;

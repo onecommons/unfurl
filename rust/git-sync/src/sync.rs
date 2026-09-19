@@ -574,6 +574,7 @@ impl SyncedRepo {
                     format: doc.format,
                     force: options.force,
                     resolves_version,
+                    validation: &doc.validation,
                 },
                 &mut stats,
             )
@@ -604,6 +605,7 @@ impl SyncedRepo {
         tracing::info!(file = %rel_path, "file is gone from the working tree");
         if let Some(format) = self.formats().by_name(&row.format) {
             let empty = serde_json::Value::Object(serde_json::Map::new());
+            let no_validation = crate::Validation::default();
             self.upsert_file_and_records(
                 ScannedFile {
                     rel_path,
@@ -617,6 +619,9 @@ impl SyncedRepo {
                     format,
                     force: false,
                     resolves_version: None,
+                    // A tracked file that is gone: there is no document to
+                    // have violated anything, and its rows are meant to go.
+                    validation: &no_validation,
                 },
                 stats,
             )
@@ -663,7 +668,39 @@ impl SyncedRepo {
         let Some(format) = format else {
             return Ok(None);
         };
-        Ok(Some(ParsedDoc { format, value }))
+        // After `fold_chunks`, so a literate document is validated as the
+        // document it merges to rather than per fenced block.
+        let validation = format.validate_document(&value);
+        if !validation.is_empty() {
+            tracing::warn!(
+                file = %rel_path,
+                format = format.name(),
+                fatal = ?validation.fatal,
+                errors = ?validation.errors,
+                warnings = ?validation.warnings,
+                "document does not conform to its format's schema"
+            );
+        }
+        let validation = std::sync::Arc::new(validation);
+        if !validation.is_empty() {
+            stats.invalid.push(crate::ValidationFailure {
+                file_path: rel_path.to_string(),
+                format: format.name().to_string(),
+                validation: std::sync::Arc::clone(&validation),
+            });
+        }
+        if validation.is_fatal() {
+            // Unreadable as this format, so it is skipped exactly as an
+            // unparseable file is: its rows go stale rather than being
+            // cleared, because a document we cannot interpret is no
+            // evidence that its records are gone.
+            return Ok(None);
+        }
+        Ok(Some(ParsedDoc {
+            format,
+            value,
+            validation,
+        }))
     }
 
     /// Sync one parsed file into the DB: upsert the file row, upsert
