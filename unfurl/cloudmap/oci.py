@@ -84,6 +84,23 @@ class ImageMetadataFetch(NamedTuple):
     artifact_fetch: Optional[ArtifactFetch] = None
 
 
+def _slsa1_source(build_definition: Dict[str, Any]) -> Optional[Dict[str, str]]:
+    """The source repository recorded in a SLSA v1 ``resolvedDependencies`` list.
+
+    It is the entry digested by ``gitCommit``; the others describe artifacts --
+    a base image, say -- and carry a ``sha256``. Returned in buildkit's ``vcs``
+    shape so both provenance versions share one consumer.
+    """
+    for dependency in build_definition.get("resolvedDependencies") or []:
+        if not isinstance(dependency, dict):
+            continue
+        digest = dependency.get("digest")
+        revision = digest.get("gitCommit") if isinstance(digest, dict) else None
+        if revision:
+            return {"source": dependency.get("uri") or "", "revision": revision}
+    return None
+
+
 def create_oci_artifact(
     image: ContainerImage, fetch_tags: Optional[bool] = None
 ) -> Tuple[Artifact, Optional[Instantiation], Optional[ArtifactFetch]]:
@@ -148,12 +165,16 @@ def create_oci_artifact(
             inst_type.add(
                 ArtifactMappings.get(attestation_artifact.get("predicateType", ""))
             )
+            # both slsa and spdx use this:
             predicate = attestation_artifact.get("predicate")
             if isinstance(predicate, dict):
-                # both slsa and spdx use this:
-                inst_type.add(
-                    ArtifactMappings.get(attestation_artifact.get("buildType", ""))
-                )
+                # buildType lives inside the predicate, at a different depth per
+                # provenance version; spdx documents have none.
+                build_definition = predicate.get("buildDefinition")
+                build_type = predicate.get("buildType")  # SlsaProvenance 0.2
+                if not build_type and isinstance(build_definition, dict):
+                    build_type = build_definition.get("buildType")  # SlsaProvenance 1
+                inst_type.add(ArtifactMappings.get(build_type or ""))
                 instantiation = Instantiation(
                     url=artifact_fetch.manifest_url,
                     type=inst_type,
@@ -164,31 +185,34 @@ def create_oci_artifact(
                         purl: None
                     }),  # link instantiation to artifact
                 )
+                vcs_info: Optional[Dict[str, Any]] = None
                 if "metadata" in predicate:  # SlsaProvenance 0.2
                     artifact_metadata = predicate["metadata"].get(
                         "https://mobyproject.org/buildkit@v1#metadata"
                     )
                     metadata.created = predicate["metadata"].get("buildFinishedOn")
                     # predicate["metadata"]["reproducible"] is 0.2 only
+                    if isinstance(artifact_metadata, dict):
+                        vcs_info = artifact_metadata.get("vcs")
                 elif "runDetails" in predicate:  # SlsaProvenance 1
                     run_metadata = predicate["runDetails"].get("metadata", {})
                     metadata.created = run_metadata.get("finishedOn")
                     artifact_metadata = run_metadata.get("buildkit_metadata")
-                else:
-                    artifact_metadata = None
-                if isinstance(artifact_metadata, dict):
-                    vcs_info = artifact_metadata.get("vcs")
-                    if isinstance(vcs_info, dict):
-                        # Add the artifact's manifest URL to sources
-                        # Extract VCS info for build instantiation
-                        source_revision = vcs_info.get("revision", "")
-                        source_location = vcs_info.get("source")
-                        if source_location or source_revision:
-                            instantiation.source = source_location or ""
-                            instantiation.source_revision = source_revision
-                        if source_location and not metadata.source_url:
-                            source_urls.append(artifact_fetch.manifest_url)
-                            metadata.source_url = source_location
+                    if isinstance(artifact_metadata, dict):
+                        vcs_info = artifact_metadata.get("vcs")
+                    elif isinstance(build_definition, dict):
+                        vcs_info = _slsa1_source(build_definition)
+                if isinstance(vcs_info, dict):
+                    # Add the artifact's manifest URL to sources
+                    # Extract VCS info for build instantiation
+                    source_revision = vcs_info.get("revision", "")
+                    source_location = vcs_info.get("source")
+                    if source_location or source_revision:
+                        instantiation.source = source_location or ""
+                        instantiation.source_revision = source_revision
+                    if source_location and not metadata.source_url:
+                        source_urls.append(artifact_fetch.manifest_url)
+                        metadata.source_url = source_location
 
     if ref.host == "registry-1.docker.io":
         namespace = ref.namespace or "library"

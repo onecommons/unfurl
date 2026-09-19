@@ -7,6 +7,7 @@ from dataclasses import replace
 from unfurl.cloudmap import oci
 from unfurl.tosca_plugins.cloudmap_defs import (
      Artifact,
+     ArtifactMappings,
      ArtifactMetadata,
      Discovery,
     Instantiation,
@@ -59,6 +60,7 @@ artifact_keys = [
     "ghcr.io/onecommons/unfurl:v1.1.0-server-cached",
     "ghcr.io/actions/actions-runner:latest",
     "registry.gitlab.com/gitlab-org/build/cng/gitlab-toolbox-ce:master",
+    "registry.gitlab.com/gitlab-org/gitlab-runner:latest",
     "registry.unfurl.cloud/onecommons/unfurl-gui@sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
 ]
 
@@ -98,6 +100,7 @@ artifact_keys = [
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance02": None,
+                        "cloudmap.artifacts.BuildkitProvenance": None,
                     }
                 ),
                 source="https://github.com/baserow/baserow",
@@ -194,6 +197,7 @@ artifact_keys = [
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance02": None,
+                        "cloudmap.artifacts.BuildkitProvenance": None,
                     }
                 ),
                 source="https://github.com/onecommons/unfurl",
@@ -232,6 +236,7 @@ artifact_keys = [
                     {
                         "cloudmap.artifacts.InTotoAttestation": None,
                         "cloudmap.artifacts.SlsaProvenance1": None,
+                        "cloudmap.artifacts.BuildkitProvenance": None,
                     }
                 ),
                 source="https://github.com/actions/runner",
@@ -266,6 +271,50 @@ artifact_keys = [
                 ),
             ),
             None,  # no artifact
+        ),
+        (
+            # the gitlab.com counterpart to gitlab-toolbox-ce above: same registry,
+            # but built by buildkit, so it has provenance to classify
+            "registry.gitlab.com/gitlab-org/gitlab-runner:latest",
+            ContainerImageParts(
+                full_name="gitlab-org/gitlab-runner",
+                tag="latest",
+                digest="",
+                registry="registry.gitlab.com",
+            ),
+            Artifact(
+                url="pkg:oci/gitlab-runner?repository_url=registry.gitlab.com/gitlab-org/gitlab-runner&tag=latest",
+                type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
+                digest="",  # Will be replaced in test
+                metadata=ArtifactMetadata(
+                    source_url="https://gitlab.com/gitlab-org/gitlab-runner.git",
+                    description="IGNORE",  # ignore because this will change
+                    title="",
+                    platforms=[
+                        {"architecture": "amd64", "os": "linux"},
+                        {"architecture": "arm64", "os": "linux"},
+                        {"architecture": "s390x", "os": "linux"},
+                        {"architecture": "ppc64le", "os": "linux"},
+                        {"architecture": "riscv64", "os": "linux"},
+                    ],
+                    spdx_licenses="",
+                    vendor="",
+                    version="IGNORE",  # tracks the base image, will change
+                    homepage_url="https://gitlab.com/gitlab-org/gitlab-runner",
+                    documentation_url="",
+                ),
+            ),
+            Instantiation(
+                type=TypeRefs(
+                    {
+                        "cloudmap.artifacts.InTotoAttestation": None,
+                        "cloudmap.artifacts.SlsaProvenance1": None,
+                        "cloudmap.artifacts.BuildkitProvenance": None,
+                    }
+                ),
+                source="https://gitlab.com/gitlab-org/gitlab-runner.git",
+                source_revision="IGNORE",  # extracted from in-toto artifact, will change with new builds
+            ),
         ),
         (
             "registry.unfurl.cloud/onecommons/unfurl-gui@sha256:c21af1741b31f33ccd44f096003dfcd576adda854415fffa21290796a0689d32",
@@ -327,6 +376,40 @@ def test_resolve_image_ref(
         assert instantiation is not None, (
             f"Expected instantiation for {image_url} with VCS info"
         )
+        # The statement's shape, which is what the type mapping reads. Only
+        # schema constants are asserted here -- anything a rebuild changes
+        # belongs in the fixture above, marked IGNORE.
+        statement = artifact_fetch.artifact
+        assert instantiation.digest == artifact_fetch.artifact_digest
+        assert statement["_type"] in (
+            "https://in-toto.io/Statement/v0.1",
+            "https://in-toto.io/Statement/v1",
+        ), f"Unexpected statement type for {image_url}: {statement['_type']}"
+        # buildType is never at the statement root; reading it there classifies
+        # nothing and fails silently, which is what this guards against.
+        assert "buildType" not in statement, (
+            f"buildType at the statement root for {image_url}"
+        )
+        predicate = statement["predicate"]
+        predicate_type = statement["predicateType"]
+        if predicate_type == "https://slsa.dev/provenance/v1":
+            build_type = predicate["buildDefinition"]["buildType"]
+        elif predicate_type == "https://slsa.dev/provenance/v0.2":
+            build_type = predicate["buildType"]
+        else:
+            # an spdx predicate is the document itself, and has no buildType
+            build_type = None
+            assert predicate["spdxVersion"].startswith("SPDX-"), (
+                f"Unexpected spdxVersion for {image_url}"
+            )
+            assert "buildType" not in predicate
+        if build_type is not None:
+            assert build_type in ArtifactMappings, (
+                f"Unmapped buildType for {image_url}: {build_type}"
+            )
+            assert ArtifactMappings[build_type] in instantiation.type.types, (
+                f"buildType {build_type} not classified for {image_url}"
+            )
         assert instantiation.type.types == expected_instantiation.type.types, (
             f"Instantiation type mismatch {instantiation.type.types} for {image_url}"
         )
@@ -546,3 +629,31 @@ def test_registry_v2_bearer_challenge_flow(mock_requests_get):
 
     out = oci.registry_v2_fetch(ref)
     assert out[2] == "sha256:man"
+
+
+def test_slsa1_source_from_resolved_dependencies():
+    """Producers other than buildkit record the source in resolvedDependencies.
+
+    GitLab's own SLSA attestations look like this. The source is the entry
+    digested by gitCommit -- the sha256 one is a base image, and picking it
+    would report a dependency as the thing that was built.
+    """
+    build_definition = {
+        "buildType": "https://docs.gitlab.com/ci/pipeline_security/slsa/provenance_v1",
+        "resolvedDependencies": [
+            {
+                "uri": "pkg:docker/registry.example.com/base/runner@0.0.50",
+                "digest": {"sha256": "6d0a5f8bdc280a8799bf7fcb56b9d7f9b918e21c0"},
+            },
+            {
+                "uri": "https://gitlab.example.com/acme/widget-api",
+                "digest": {"gitCommit": "a288201509dd9a85da4141e07522bad412938dbe"},
+            },
+        ],
+    }
+    assert oci._slsa1_source(build_definition) == {
+        "source": "https://gitlab.example.com/acme/widget-api",
+        "revision": "a288201509dd9a85da4141e07522bad412938dbe",
+    }
+    assert oci._slsa1_source({"resolvedDependencies": []}) is None
+    assert oci._slsa1_source({}) is None
