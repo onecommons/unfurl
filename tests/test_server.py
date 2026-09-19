@@ -3876,6 +3876,11 @@ def test_noop_batch_records_the_unchanged_commit():
                 raw = client.get(f"{prefix}queue:remote:{branch}:{commit}")
                 return raw.decode() if raw else None
 
+            def head_value(branch="main"):
+                # Must match `Config::head_key` in the rust proxy.
+                raw = client.get(f"{prefix}head:remote:{branch}")
+                return raw.decode() if raw else None
+
             def batch(reqs, latest_commit, queueid):
                 return requests.post(
                     f"{base}/batch_patch?auth_project=remote",
@@ -3901,6 +3906,10 @@ def test_noop_batch_records_the_unchanged_commit():
             second_commit = res.json()["commit"]
             assert second_commit != first_commit
             assert queue_value(first_commit) == f"{second_commit},1"
+            assert head_value() == second_commit, (
+                "a committed batch must record the branch head, or an idle "
+                f"client watching the branch never hears it move: {head_value()!r}"
+            )
 
             # The same patch again changes nothing, so nothing is committed.
             res = batch([env_request("staging", second_commit)], second_commit, 2)
@@ -3911,6 +3920,9 @@ def test_noop_batch_records_the_unchanged_commit():
             assert queue_value(second_commit) == f"{second_commit},2", (
                 "a no-op batch must still record HEAD, or writers deadlock and "
                 f"readers poll to their deadline: {queue_value(second_commit)!r}"
+            )
+            assert head_value() == second_commit, (
+                f"a no-op must leave the head where it is: {head_value()!r}"
             )
 
             # A batch can carry requests queued against different commits, and
@@ -3932,6 +3944,80 @@ def test_noop_batch_records_the_unchanged_commit():
             assert queue_value(first_commit) == f"{second_commit},3"
         finally:
             _dump_server_logs(p, "noop-q")
+            if p:
+                _terminate_process(p)
+
+
+@unittest.skipIf(not UNFURL_TEST_REDIS_URL, "UNFURL_TEST_REDIS_URL not set")
+@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
+def test_an_unbatched_write_records_the_branch_head():
+    """A write that doesn't go through the queue still records the head.
+
+    The `redis` variant has no write queue, so these commits reach
+    `_commit_and_push` and `_push_changes` directly. Nothing else records
+    the head on that path, and an idle client watching the branch is told
+    to refetch by that key alone.
+    """
+    import redis as _redis
+
+    runner = CliRunner()
+    with runner.isolated_filesystem():
+        p = None
+        try:
+            p, port, last_commit = set_up_deployment(
+                runner, deployment.format("initial"), server_env="redis", name="unb-q"
+            )
+            base = f"http://{HOST}:{port}"
+            prefix = _variant_prefix("unb-q-redis")
+            client = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
+
+            def head_value(branch="main"):
+                raw = client.get(f"{prefix}head:remote:{branch}")
+                return raw.decode() if raw else None
+
+            # _commit_and_push: /update_environment writes unfurl.yaml.
+            res = _post_write(
+                f"{base}/update_environment?auth_project=remote",
+                {
+                    "patch": [
+                        {"name": "staging", "__typename": "DeploymentEnvironment"}
+                    ],
+                    "latest_commit": last_commit,
+                },
+                "redis",
+            )
+            assert res.status_code == 200, res.text
+            env_commit = res.json()["commit"]
+            assert env_commit != last_commit, res.text
+            assert head_value() == env_commit, (
+                "_commit_and_push must record the head it pushed: "
+                f"{head_value()!r} != {env_commit!r}"
+            )
+
+            # _push_changes: /update_ensemble commits the ensemble, then pushes.
+            res = _post_write(
+                f"{base}/update_ensemble?auth_project=remote",
+                {
+                    "patch": [
+                        {
+                            "name": "container_service",
+                            "__typename": "ResourceTemplate",
+                            "title": "renamed",
+                        }
+                    ],
+                    "latest_commit": env_commit,
+                },
+                "redis",
+            )
+            assert res.status_code == 200, res.text
+            ens_commit = res.json()["commit"]
+            assert ens_commit != env_commit, res.text
+            assert head_value() == ens_commit, (
+                "_push_changes must record the head it pushed: "
+                f"{head_value()!r} != {ens_commit!r}"
+            )
+        finally:
+            _dump_server_logs(p, "unb-q")
             if p:
                 _terminate_process(p)
 

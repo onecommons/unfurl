@@ -678,12 +678,12 @@ pub async fn read_batch_error(
     serde_json::from_str(&raw?).ok()
 }
 
-/// A branch's head as last recorded by a committed batch, for each
-/// watch, in the order given.
+/// A branch's head as last reported to the backend, for each watch, in
+/// the order given.
 ///
-/// `None` where the key is absent: nothing has committed on that branch
-/// inside the key's lifetime, so there is nothing to report movement
-/// against.
+/// `None` where the key is absent: nothing has been reported on that
+/// branch inside the key's lifetime, so there is nothing to report
+/// movement against.
 pub async fn read_branch_heads(
     conn: &mut redis::aio::MultiplexedConnection,
     config: &Config,

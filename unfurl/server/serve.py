@@ -268,6 +268,36 @@ def clear_all(cache, prefix) -> None:
         clear_cache(cache, "")
 
 
+def queue_key_ttl() -> int:
+    """Seconds the write-queue keys live for."""
+    # The rust proxy's `queue_key_ttl_secs` must match: the two take turns
+    # writing the same keys and a mismatch outlives the other's write.
+    return int(os.environ.get("UNFURL_QUEUE_KEY_TTL_SECS") or 86400)
+
+
+def set_branch_head(project_id: str, branch: str, commit: str) -> None:
+    """Record `commit` as the head of `branch` for clients watching it."""
+    cache = get_cache()
+    backend = cache and getattr(cache, "cache", None)
+    redis_client = backend and getattr(backend, "_write_client", None)
+    if redis_client is None:
+        # Only the rust proxy reads this key and it needs redis to run, so
+        # with any other backend there is no reader to write for.
+        return
+    prefix = app.config.get("CACHE_KEY_PREFIX", "")
+    # Must match `Config::head_key` in the rust proxy.
+    key = f"{prefix}head:{project_id}:{branch}"
+    ttl = queue_key_ttl()
+    try:
+        if ttl > 0:
+            redis_client.set(key, commit, ex=ttl)
+        else:
+            redis_client.set(key, commit)
+        logger.debug("set branch head %s = %s (ttl=%s)", key, commit, ttl)
+    except Exception as exc:
+        logger.error("failed to set branch head %s: %s", key, exc)
+
+
 def _set_local_projects(
     repo_views: Iterable[RepoView], local_projects: Dict[str, str], clone_root, gui
 ):

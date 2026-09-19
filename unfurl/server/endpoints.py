@@ -75,7 +75,9 @@ from .serve import (
     get_cache,
     get_project_id,
     get_project_id_or_abort,
+    queue_key_ttl,
     serving_local_path,
+    set_branch_head,
     refresh_current_localenv,
 )
 
@@ -1125,6 +1127,8 @@ def post_cloudmap(
         cast(str, username or ""),
         cast(str, password or ""),
         starting_revision,
+        project_id,
+        branch,
         batched=True,
         author=_get_author(request),
     )
@@ -1312,7 +1316,9 @@ def create_provider(
     if not app.config.get("UNFURL_GUI_MODE"):
         username = cast(str, body.get("username"))
         password = cast(str, body.get("private_token", body.get("password")))
-        push_err = _push_changes(repo, username, password, latest_commit)
+        push_err = _push_changes(
+            repo, username, password, latest_commit, project_id, branch
+        )
         if push_err:
             return push_err
     return ensemble_result
@@ -1598,25 +1604,20 @@ def _update_queue_key(
         cache.set(queue_key, value)
         return
     # Expire it, or a project accumulates one key per commit ever written
-    # against it. Must match the rust proxy's `queue_key_ttl_secs`, which
-    # governs the keys its Lua writes -- the two take turns writing the
-    # same key and a mismatch would have one side's write outlive the
-    # other's.
-    ttl = int(os.environ.get("UNFURL_QUEUE_KEY_TTL_SECS") or 86400)
-    # Also the branch's head, which is the only key a client with nothing
-    # queued can watch: the per-commit keys above are addressable only by
-    # someone who already knows the base commit a write was made against.
-    head_key = f"{prefix}head:{project_id}:{branch}"
+    # against it.
+    ttl = queue_key_ttl()
     try:
         if ttl > 0:
             redis_client.set(queue_key, value, ex=ttl)
-            redis_client.set(head_key, new_commit, ex=ttl)
         else:
             redis_client.set(queue_key, value)
-            redis_client.set(head_key, new_commit)
         logger.debug("updated queue key %s = %s (ttl=%s)", queue_key, value, ttl)
     except Exception as exc:
         logger.error("failed to update queue key %s: %s", queue_key, exc)
+    # The branch's head is the only key a client with nothing queued can
+    # watch: the per-commit key above is addressable only by someone who
+    # already knows the base commit a write was made against.
+    set_branch_head(project_id, branch, new_commit)
 
 
 @app.post("/batch_patch")
@@ -1932,7 +1933,15 @@ def _apply_batch_requests(
     password = last_body.get("private_token", last_body.get("password"))
     if not app.config.get("UNFURL_GUI_MODE"):
         # the caller's rollback covers a failed push too
-        err = _push_changes(repo, username, password, latest_commit, rollback=False)
+        err = _push_changes(
+            repo,
+            username,
+            password,
+            latest_commit,
+            project_id,
+            body["branch"],
+            rollback=False,
+        )
         if err:
             return err
     # Update the Redis queue key so subsequent inc_queueid calls
@@ -2107,7 +2116,9 @@ def _patch_environment(
                 username,
                 password,
                 starting_revision,
-                bool(batched),
+                project_id,
+                branch,
+                batched=bool(batched),
                 author=_get_author(request),
             )
             if err:
@@ -2413,7 +2424,12 @@ def _patch_ensemble(
                 and not batched
             ):
                 err = _push_changes(
-                    manifest.repo, username, password, starting_revision
+                    manifest.repo,
+                    username,
+                    password,
+                    starting_revision,
+                    project_id,
+                    branch,
                 )
                 if err:
                     return err
@@ -2497,6 +2513,8 @@ def _push_changes(
     username: Optional[str],
     password: Optional[str],
     starting_revision: str,
+    project_id: str,
+    branch: str,
     rollback: bool = True,
 ):
     """Push, discarding the unpushed commit on failure.
@@ -2521,6 +2539,9 @@ def _push_changes(
             _discard_local_commits(repo, starting_revision, "push")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
+    # Reached only on a successful push, which is the point the commit
+    # becomes what a reader would fetch.
+    set_branch_head(project_id, branch, repo.revision)
     return None
 
 
@@ -2593,6 +2614,8 @@ def _commit_and_push(
     username: str,
     password: str,
     starting_revision: str,
+    project_id: str,
+    branch: str,
     batched: bool = False,
     author: Optional[str] = None,
 ):
@@ -2600,8 +2623,12 @@ def _commit_and_push(
     # XXX catch exception and run git restore to rollback working dir
     repo.commit_files([full_path], commit_msg, author)
     logger.info("committed %s: %s (author: %s)", full_path, commit_msg, author or "-")
-    if app.config.get("UNFURL_GUI_MODE") or batched:
-        return None  # don't push
+    if batched:
+        return None  # the batch pushes once at the end, and records the head there
+    if app.config.get("UNFURL_GUI_MODE"):
+        # Nothing is pushed, so the local repository is what readers read.
+        set_branch_head(project_id, branch, repo.revision)
+        return None
     if password:
         url = add_user_to_url(repo.url, username, password)
     else:
@@ -2615,4 +2642,5 @@ def _commit_and_push(
         repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
+    set_branch_head(project_id, branch, repo.revision)
     return None
