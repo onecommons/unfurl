@@ -2637,9 +2637,11 @@ def _commit_and_push(
         repo.push(url)
         logger.info("pushed")
     except Exception as err:
-        # discard the last commit that we couldn't push
-        # this is mainly for security if we couldn't push because the user wasn't authorized
-        repo.reset(f"--hard {starting_revision or 'HEAD~1'}")
+        # Discard the commit we could not push -- mainly for security,
+        # since a push rejected for authorization would otherwise leave
+        # the caller's commit in the server's working copy for a later
+        # write to carry along.
+        _discard_local_commits(repo, starting_revision, "push")
         logger.error("push failed", exc_info=True)
         return create_error_response("INTERNAL_ERROR", "Could not push repository", err)
     set_branch_head(project_id, branch, repo.revision)

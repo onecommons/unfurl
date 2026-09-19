@@ -4022,6 +4022,57 @@ def test_an_unbatched_write_records_the_branch_head():
                 _terminate_process(p)
 
 
+def test_a_failed_push_discards_more_than_the_commit(tmp_path, monkeypatch):
+    """`_commit_and_push` cleans what it could not push, not just the commit.
+
+    It reset only tracked files until it shared `_discard_local_commits`
+    with the batch path. New files survive `reset --hard`, and the next
+    write commits with add_all, so a rejected push left them to be
+    carried along by whoever wrote next.
+    """
+    path = tmp_path / "repo"
+    path.mkdir()
+    git_repo = Repo.init(path)
+    (path / "f.yaml").write_text("one\n")
+    (path / ".gitignore").write_text("jobs/\n")
+    git_repo.git.add(A=True)
+    git_repo.git.commit("-m", "first")
+    repo = GitRepo(git_repo)
+    start_revision = repo.revision
+
+    # The change to commit, plus what a half-applied patch left around it.
+    (path / "f.yaml").write_text("two\n")
+    (path / "new-ensemble").mkdir()
+    (path / "new-ensemble" / "ensemble.yaml").write_text("half written\n")
+    (path / "jobs").mkdir()
+    (path / "jobs" / "job.yaml").write_text("mid-write\n")
+
+    # A remote that isn't there fails the push the way a rejected one does.
+    # Without a remote at all `GitRepo._push` is a silent no-op.
+    git_repo.create_remote("origin", str(tmp_path / "nowhere.git"))
+
+    monkeypatch.setitem(server.app.config, "UNFURL_GUI_MODE", False)
+    with server.app.app_context():
+        err = server_endpoints._commit_and_push(
+            repo,
+            str(path / "f.yaml"),
+            "a write that cannot be pushed",
+            "",
+            "",
+            start_revision,
+            "remote",
+            "main",
+        )
+
+    assert err is not None, "a repo with no remote must fail to push"
+    assert repo.revision == start_revision, "the unpushable commit should be gone"
+    assert (path / "f.yaml").read_text() == "one\n"
+    assert not (path / "new-ensemble").exists(), (
+        "new files survive reset --hard, so a later write's add_all commits them"
+    )
+    assert not (path / "jobs").exists(), "-x should take ignored state too"
+
+
 @pytest.mark.parametrize("gui_mode", [False, True])
 def test_rollback_skipped_in_gui_mode(tmp_path, monkeypatch, gui_mode):
     """Gui mode keeps what a failed batch left; hosted mode discards it.
