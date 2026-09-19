@@ -75,6 +75,7 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ghcr-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.arch }}
 
@@ -169,6 +170,7 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ghcr-server-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-server-${{ matrix.arch }}
 
@@ -269,6 +271,7 @@ jobs:
           build-args: |
             FROM_TAG=${{ steps.extract.outputs.sha_short }}-server
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=ghcr-server-cached-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-server-cached-${{ matrix.arch }}
 

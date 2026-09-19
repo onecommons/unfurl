@@ -203,6 +203,7 @@ jobs:
             GCLOUD_VERSION=${{ env.GCLOUD_VERSION }}
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -251,6 +252,7 @@ jobs:
           file: ./docker/Dockerfile.server
           push: true
           tags: ${{ steps.meta_server.outputs.tags }}
+          labels: ${{ steps.meta_server.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -302,6 +304,7 @@ jobs:
             FROM_IMAGE=docker.io/onecommons/unfurl
             FROM_TAG=${{ steps.get_tag_name.outputs.tag }}-server
           tags: ${{ steps.meta_server.outputs.tags }}
+          labels: ${{ steps.meta_server.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -356,6 +359,7 @@ jobs:
             KOMPOSE_VERSION=${{ env.KOMPOSE_VERSION }}
             UNFURL_TAG=${{ steps.get_tag_name.outputs.tag }}
           tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
