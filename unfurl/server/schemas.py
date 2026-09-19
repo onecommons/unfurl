@@ -502,6 +502,18 @@ class EventsQuery(ProjectAuthQuery):
         ),
     )
 
+    @field_validator("watch", mode="before")
+    @classmethod
+    def _coerce_single_watch(cls, value: object) -> object:
+        # APIFlask's pydantic adapter binds query params via
+        # ``request.args.to_dict()``, which yields a single *string* for
+        # a repeated key -- rejected by ``List[str]`` before the handler
+        # runs. Accept it here so validation passes; the handlers read
+        # the real, repeatable values via ``request.args.getlist``.
+        if isinstance(value, str):
+            return [value]
+        return value
+
 
 class QueuedWriteEvent(BaseModel):
     """One ``data:`` frame of ``GET /events``.

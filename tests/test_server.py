@@ -3951,24 +3951,37 @@ def test_noop_batch_records_the_unchanged_commit():
 @unittest.skipIf(not UNFURL_TEST_REDIS_URL, "UNFURL_TEST_REDIS_URL not set")
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 def test_populate_cache_sets_the_branch_head_only_when_asked():
-    """`sethead` is what writes the head key, and it is written before the
-    early returns -- a push that only deleted files still moved the branch.
+    """`sethead` is what writes the head key, and the rust proxy reads it back.
 
-    Without the parameter nothing is written: any caller can reach
-    /populate_cache, and an untrue head tells every watcher of that branch
-    to refetch.
+    Two halves of one claim, so one server serves both. The gate: nothing
+    is written unless asked, because any caller can reach /populate_cache
+    and an untrue head tells every watcher of that branch to refetch. And
+    the round trip: python and the proxy build that key from a comment
+    telling each to match the other, so only running them against one
+    Redis proves they agree -- the `moved` frame arrives if and only if
+    the shapes are identical.
+
+    The variant is picked rather than skipped. `/events` needs the proxy,
+    but the gate does not, so a run with the proxy turned off still
+    checks it against python alone.
     """
     import redis as _redis
+
+    proxied = os.getenv("UNFURL_TEST_RUST_SERVER") != "0"
+    variant = "queue-rust" if proxied else "redis"
 
     runner = CliRunner()
     with runner.isolated_filesystem():
         p = None
         try:
             p, port, first_commit = set_up_deployment(
-                runner, deployment.format("initial"), server_env="redis", name="head-q"
+                runner,
+                deployment.format("initial"),
+                server_env=variant,
+                name="head-q",
             )
             base = f"http://{HOST}:{port}"
-            prefix = _variant_prefix("head-q-redis")
+            prefix = _variant_prefix(f"head-q-{variant}")
             client = _redis.Redis.from_url(UNFURL_TEST_REDIS_URL)
             # Must match `Config::head_key` in the rust proxy.
             head_key = f"{prefix}head:remote:main"
@@ -3981,6 +3994,9 @@ def test_populate_cache_sets_the_branch_head_only_when_asked():
                     "latest_commit": first_commit,
                     "path": "ensemble/ensemble.yaml",
                     "visibility": "public",
+                    # `removed` returns early, which is where the head write
+                    # has to already have happened: a push that only deleted
+                    # files still moved the branch.
                     "removed": "1",
                 }
                 params.update(extra)
@@ -4018,48 +4034,6 @@ def test_populate_cache_sets_the_branch_head_only_when_asked():
                 f"expected {first_commit} at {head_key}, got {raw!r}"
             )
             assert client.ttl(head_key) > 0, "the head key must expire"
-        finally:
-            _dump_server_logs(p, "head-q")
-            if p:
-                _terminate_process(p)
-
-
-@unittest.skipIf(not UNFURL_TEST_REDIS_URL, "UNFURL_TEST_REDIS_URL not set")
-@unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
-def test_sethead_reaches_a_branch_watcher():
-    """A head written by /populate_cache is read back by the rust proxy's watch.
-
-    Both sides build the head key from a comment that says to match the
-    other. Only running them against one Redis proves they agree: the
-    `moved` frame arrives at all if and only if the shapes are identical.
-    """
-    if os.getenv("UNFURL_TEST_RUST_SERVER") == "0":
-        pytest.skip("Skipping Rust server tests, UNFURL_TEST_RUST_SERVER=0 is set")
-
-    runner = CliRunner()
-    with runner.isolated_filesystem():
-        p = None
-        try:
-            p, port, first_commit = set_up_deployment(
-                runner,
-                deployment.format("initial"),
-                server_env="queue-rust",
-                name="sse-head",
-            )
-            base = f"http://{HOST}:{port}"
-            res = requests.post(
-                f"{base}/populate_cache",
-                params={
-                    "auth_project": "remote",
-                    "branch": "refs/heads/main",
-                    "latest_commit": first_commit,
-                    "path": "ensemble/ensemble.yaml",
-                    "visibility": "public",
-                    "removed": "1",
-                    "sethead": "1",
-                },
-            )
-            assert res.status_code == 200, res.text
 
             # A branch watch is a trailing empty queueid: nothing in flight.
             stale = "0" * 40
@@ -4084,6 +4058,11 @@ def test_sethead_reaches_a_branch_watcher():
                     if time.monotonic() > deadline:
                         break
 
+            if not proxied:
+                # No proxy, so nothing serves a watch: python's /events is a
+                # no-op that reports the stream finished and closes.
+                assert [f.get("status") for f in frames] == ["done"], frames
+                return
             moved = [f for f in frames if f.get("status") == "moved"]
             assert moved, (
                 "no 'moved' frame: the rust proxy did not read the head key "
@@ -4092,7 +4071,7 @@ def test_sethead_reaches_a_branch_watcher():
             assert moved[0]["new_commit"] == first_commit, moved[0]
             assert moved[0]["branch"] == "main", moved[0]
         finally:
-            _dump_server_logs(p, "sse-head")
+            _dump_server_logs(p, "head-q")
             if p:
                 _terminate_process(p)
 
