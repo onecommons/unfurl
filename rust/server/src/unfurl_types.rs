@@ -1784,6 +1784,8 @@ pub struct PostPopulateCacheRequestQuery {
     pub removed: Option<String>,
     /// Repository visibility; private repositories are not cloned automatically
     pub visibility: Option<String>,
+    /// If truthy (not '0' or 'false'), also record latest_commit as the head of branch for clients watching it for movement. The caller must report only a commit that is still the head of that ref: the key carries no ordering, so a late report moves it backwards and every watcher of the branch refetches until something corrects it. Opt-in because any caller can reach this endpoint.
+    pub sethead: Option<String>,
 }
 /// Update an existing ensemble
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]

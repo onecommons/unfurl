@@ -1857,7 +1857,8 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
 @app.input(PopulateCacheQuery, location="query", arg_name="query")
 def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
     project_id = get_project_id_or_abort(request)
-    branch = request.args.get("branch", DEFAULT_BRANCH)
+    req_branch = request.args.get("branch")
+    branch = req_branch or DEFAULT_BRANCH
     for prefix in ["refs/heads/", "refs/tags/"]:
         if branch.startswith(prefix):
             branch = branch[len(prefix) :]
@@ -1866,6 +1867,12 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
     latest_commit = request.args["latest_commit"]
     requested_format = format_from_path(path)
     removed = request.args.get("removed")
+    sethead = request.args.get("sethead")
+    # sethead only if branch was explicitly specified
+    if req_branch and sethead and sethead not in ["0", "false"]:
+        # Ahead of the early returns below: the push happened whether or not
+        # there is a cache entry to populate here.
+        set_branch_head(project_id, branch, latest_commit)
     cache_entry = CacheEntry(
         project_id, branch, path, requested_format, args=dict(request.args)
     )

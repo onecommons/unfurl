@@ -519,7 +519,21 @@ class QueuedWriteEvent(BaseModel):
             "``superseded`` -- more writes were queued against the same "
             "base commit after this one and nothing has committed, so "
             "re-read before writing again; "
-            "``done`` -- terminal, the client should close the stream."
+            "``moved`` -- the branch has moved off the commit watched, "
+            "for a client with nothing queued. Reports movement, not "
+            "truth: the head is recorded by any write the server commits "
+            "and by a ``/populate_cache?sethead=1`` call, so a push that "
+            "reached neither leaves it stale and a client that treats this "
+            "as the definition of the branch head will be wrong in the case "
+            "it most wants to be right; "
+            "``done`` -- terminal, the client should close the stream.\n\n"
+            "No frame should advance a stored commit unless the client "
+            "also refetched the content. ``superseded`` and ``moved`` "
+            "both say the view is stale and neither settles a write: "
+            "taking the commit without re-reading leaves a current "
+            "pointer over stale content, which is the one state that "
+            "lets a later write pass the ``latest_commit`` check while "
+            "carrying values composed before the writes it missed."
         )
     )
     branch: Optional[str] = None
@@ -992,6 +1006,17 @@ class PopulateCacheQuery(ProjectQuery):
     visibility: Optional[Literal["public", "private"]] = Field(
         default=None,
         description="Repository visibility; private repositories are not cloned automatically",
+    )
+    sethead: Optional[str] = Field(
+        default=None,
+        description=(
+            "If truthy (not '0' or 'false'), also record latest_commit as the "
+            "head of branch for clients watching it for movement. The caller "
+            "must report only a commit that is still the head of that ref: "
+            "the key carries no ordering, so a late report moves it backwards "
+            "and every watcher of the branch refetches until something "
+            "corrects it. Opt-in because any caller can reach this endpoint."
+        ),
     )
 
 

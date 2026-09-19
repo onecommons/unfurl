@@ -293,13 +293,14 @@ impl Config {
         format!("{}queue:{}:{}:", self.cache_key_prefix, project_id, branch)
     }
 
-    /// Redis key holding a branch's head commit, as last recorded by a
-    /// write the backend committed.
+    /// Redis key holding a branch's head commit, as last reported to the
+    /// backend: by any write it commits, or by a push the host announced
+    /// to `/populate_cache?sethead=1`.
     ///
     /// The only queue key addressable without already knowing a base
     /// commit, which is what lets a client with nothing queued watch a
     /// branch at all. Not authoritative for the branch -- a push that
-    /// bypassed the server leaves it stale -- so it reports movement,
+    /// reached neither path leaves it stale -- so it reports movement,
     /// not truth.
     pub fn head_key(&self, project_id: &str, branch: &str) -> String {
         format!("{}head:{}:{}", self.cache_key_prefix, project_id, branch)
