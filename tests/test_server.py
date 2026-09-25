@@ -24,7 +24,7 @@ from multiprocessing import Process, set_start_method, get_context, Queue
 # assertion, the server exits before it binds, and the test fails with
 # "server process exited prematurely". Spawn re-imports serve.py, so the
 # child always gets a clean app.
-from typing import Optional
+from typing import List, Optional
 
 import requests
 from click.testing import CliRunner
@@ -1491,6 +1491,53 @@ def test_cache_value_shape_tolerance():
         assert value is None, bad
         assert stale is None, bad
         assert not entry.hit, bad
+
+
+def test_failed_export_is_not_cached():
+    """An export that reports a failure in its payload must not be cached.
+
+    ``to_environments`` records a per-environment exception as an ``error``
+    entry instead of raising, so the export itself succeeds. The cache key is
+    invalidated only by a new commit, so storing that result replays the
+    failure until one arrives -- long after whatever caused it was fixed.
+    """
+    broken = {"DeploymentEnvironment": {"prod": {"error": "Internal Error"}}}
+    clean = {"DeploymentEnvironment": {"prod": {"name": "prod"}}}
+
+    assert server._has_embedded_errors(broken)
+    assert not server._has_embedded_errors(clean)
+    assert not server._has_embedded_errors({"DeploymentPath": []})
+    assert not server._has_embedded_errors("not a dict")
+
+    class _Cache:
+        """Stands in for flask-caching; ``set_cache`` only calls these two."""
+
+        def __init__(self):
+            self.stored: List[str] = []
+            self.deleted: List[str] = []
+
+        def set(self, key, value, timeout=None):
+            self.stored.append(key)
+
+        def delete(self, key):
+            self.deleted.append(key)
+            return True
+
+    entry = server.CacheEntry("proj", "main", "unfurl.yaml", "environments")
+    entry.last_commit = "abc123"  # skip the git lookup in _set_commit_info
+    cache = _Cache()
+
+    entry.set_cache(
+        cache,
+        server.CacheDirective(latest_commit="def456", store=False),
+        broken,
+    )
+
+    # deleted, not marked: whatever was already under the key would otherwise
+    # outlive the condition that made this result uncacheable, and the rust
+    # front end reads these entries without knowing any python-side marker.
+    assert cache.deleted == [entry.cache_key()]
+    assert not cache.stored
 
 
 def test_fixture_is_current(tmp_path):

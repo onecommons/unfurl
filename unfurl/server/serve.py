@@ -12,7 +12,7 @@ The server manage local clones of remote git repositories and uses a in-memory o
 # So it is important that a http request can't be manipulated into accessing a cloned local git repository the initiator doesn't have access to.
 # To wit, the following rules apply:
 # * Export requests evaluate expressions in safe mode and limit file system access to the current project or a referenced repository (enforced by ``ImportResolver._has_path_escaped()``)
-# * Patch requests never expressions and commits are pushed upstream only using transient credentials supplied with the request.
+# * Patch requests evaluate expressions in safe mode and commits are pushed upstream only using transient credentials supplied with the request.
 # * Request results maybe be cached whether private or public and retrieved without authorization because the cache key is always derived from the ``auth_project`` url parameter
 # and assumption is that an upstream api proxy has already authorized the requestor access to that project.
 # * But processing a request (loading the project) it may access content in other repositories and it is not assumed that the requestor has access to those repositories.
@@ -562,6 +562,7 @@ def _clone_repo(
         args.get("username"),
         args.get("private_token", args.get("password")),
     )
+    # note: adding credentials to the git URL permanently so pull works with private repositories
     git_url = get_project_url(project_id, username, password)
     clone_lock_path = repo_path + ".lock"
     try:
@@ -997,7 +998,13 @@ class CacheEntry:
             )
             return latest_commit or ""
         if not directives.store:
-            value = "not_stored"  # XXX
+            # Drop any value already under this key rather than leaving it to
+            # be served: the entry is only invalidated by a new commit, so a
+            # stale one would outlive whatever made this result uncacheable.
+            # Deleted rather than marked, because the Rust front end reads
+            # these entries too and knows nothing of a Python-side marker.
+            self.delete_cache(cache)
+            return latest_commit or ""
         self.value = CacheValue(
             value,
             self.last_commit or "",
@@ -1551,6 +1558,24 @@ def format_from_path(path: str) -> str:
         return "deployment"
 
 
+def _has_embedded_errors(val: Any) -> bool:
+    """Whether an export payload reports a failure it did not raise.
+
+    ``to_environments`` turns a per-environment exception into an ``error``
+    entry so one broken environment does not lose the others. The export then
+    succeeds, which would otherwise cache the failure until a new commit
+    arrives -- long after whatever caused it was fixed.
+    """
+    if not isinstance(val, dict):
+        return False
+    environments = val.get("DeploymentEnvironment")
+    if not isinstance(environments, dict):
+        return False
+    return any(
+        isinstance(env, dict) and "error" in env for env in environments.values()
+    )
+
+
 def _export_cache_work(
     cache_entry: CacheEntry, latest_commit: Optional[str]
 ) -> Tuple[CacheError, Any, bool]:
@@ -1563,7 +1588,8 @@ def _export_cache_work(
         latest_commit,
         cache_entry.args or {},
     )
-    return err, _to_plain_types(val), True
+    plain = _to_plain_types(val)
+    return err, plain, not _has_embedded_errors(plain)
 
 
 def _make_etag(latest_commit: str) -> str:
