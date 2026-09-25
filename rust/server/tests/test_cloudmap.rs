@@ -54,6 +54,9 @@ fn default_config() -> Config {
         cloudmap_repo: None,
         cloudmap_db_url: None,
         cloudmap_force: false,
+        cloudmap_skip_scan: false,
+        scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
+        log_style: None,
         // These fixtures stand in for a server started on a local checkout
         // (`unfurl serve <path>`), which is what turns off the auth_project
         // check. The auth_project tests below build a strict config instead.
@@ -2972,4 +2975,72 @@ async fn post_reports_conflicts_it_could_not_land() {
     });
     let (_, echo) = post_json(router(make_state(cm)), body).await;
     assert!(echo.get("conflicts").is_none(), "{echo:?}");
+}
+
+/// `CloudMapState::open` with no `ScanOptions` serves the index as it
+/// stands, and the next scan catches up.
+///
+/// A file-backed database, because the point is that the index outlives
+/// the process that built it — with `sqlite::memory:` there would be
+/// nothing for a skipped scan to serve.
+#[tokio::test]
+async fn skipping_the_scan_serves_the_index_as_it_stands() {
+    const KEY: &str = "git://unfurl.cloud/feb20a/dashboard.git";
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("cloudmap.yaml".to_string(), fixture.clone())],
+        "initial",
+    )
+    .expect("init repo");
+
+    let db = tmp.path().join("index.db");
+    let db_url = format!("sqlite://{}?mode=rwc", db.display());
+    let repo = tmp.path().to_str().expect("utf-8 path");
+    let name_of = |cm: &CloudMapState| {
+        let cm = cm.synced().clone();
+        async move {
+            cm.get_record("cloudmap.yaml", "/repositories", KEY)
+                .await
+                .expect("get")
+                .map(|r| r.json["name"].as_str().unwrap_or_default().to_string())
+        }
+    };
+
+    // A scan populates it.
+    let (cm, outcome) = CloudMapState::open(repo, &db_url, Some(Default::default()))
+        .await
+        .expect("open and scan");
+    assert!(outcome.is_some(), "a scan must report what it found");
+    assert_eq!(name_of(&cm).await.as_deref(), Some("dashboard"));
+    drop(cm);
+
+    // The file now says something else.
+    let edited = String::from_utf8(fixture)
+        .expect("utf-8 fixture")
+        .replace("\n    name: dashboard\n", "\n    name: renamed-on-disk\n");
+    std::fs::write(tmp.path().join("cloudmap.yaml"), &edited).expect("write");
+
+    // Skipped: the index still holds what the first scan put there, and
+    // there is no outcome to report or threshold on.
+    let (cm, outcome) = CloudMapState::open(repo, &db_url, None)
+        .await
+        .expect("open without scanning");
+    assert!(outcome.is_none(), "no scan, nothing to report");
+    assert_eq!(
+        name_of(&cm).await.as_deref(),
+        Some("dashboard"),
+        "a skipped scan must not take in the file's change"
+    );
+    drop(cm);
+
+    // Scanned: it catches up, which is what makes the case above a skip
+    // rather than the edit simply not being visible.
+    let (cm, _) = CloudMapState::open(repo, &db_url, Some(Default::default()))
+        .await
+        .expect("open and scan");
+    assert_eq!(name_of(&cm).await.as_deref(), Some("renamed-on-disk"));
 }

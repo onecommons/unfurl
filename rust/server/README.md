@@ -1,63 +1,6 @@
 # Unfurl Server
 
-A Rust HTTP api server that acts as caching proxy to the `unfurl server` Python backend and as a front-end to a cloudmap repository using the git-sync crate. 
-
-## Build prerequisites
-
-OpenAPI type generation is driven by the [`oas3-gen`](https://crates.io/crates/oas3-gen)
-CLI tool. `build.rs` shells out to it when available, post-processes
-the output, and writes the result directly to `src/unfurl_types.rs`,
-which is committed to git. **Builds without `oas3-gen` installed use
-the committed file and succeed without it.**
-
-To regenerate after OpenAPI spec changes, install `oas3-gen` at the
-pinned version and rebuild:
-
-```bash
-cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
-cargo build -p unfurl-server
-```
-
-The binary lands in `~/.cargo/bin`, which must be on `PATH`. The
-pinned version lives in `rust/server/.oas3-gen-version` and is also
-the single source of truth used by `.github/workflows/on_push.yml`
-and `docker/Dockerfile.server`. `build.rs` enforces the pin at compile
-time: a mismatched generator fails the build with the exact reinstall
-command. (Builds without `oas3-gen` installed at all skip the check
-and use the committed `src/unfurl_types.rs` as-is.)
-
-### Bumping `oas3-gen`
-
-1. Edit `rust/server/.oas3-gen-version` and replace the version with the
-   new `X.Y.Z`.
-2. Reinstall the pinned binary:
-   ```bash
-   cargo install oas3-gen --version X.Y.Z --locked --force
-   ```
-3. Rebuild — `build.rs` regenerates `src/unfurl_types.rs` against the
-   new generator:
-   ```bash
-   cargo build -p unfurl-server
-   ```
-4. Inspect the diff in `src/unfurl_types.rs`. If a generator release
-   introduces new external crate references (e.g. 0.26+ switched maps
-   to `indexmap::IndexMap`), add the corresponding dependency to
-   `rust/server/Cargo.toml`. Adjust any handler that names a renamed
-   type.
-5. Commit `.oas3-gen-version` and `src/unfurl_types.rs` together.
-
-## Generated types
-
-`build.rs` runs:
-
-```
-oas3-gen generate --input ../../unfurl/server/openapi.json
-    --output $OUT_DIR/oas3out --all-schemas server-mod
-```
-
-Post-processes the output and writes it to `src/unfurl_types.rs`,
-committed to git as a normal Rust module.
-Commit `src/unfurl_types.rs` whenever the OpenAPI spec changes.
+A Rust HTTP api server that acts as caching proxy to the `unfurl server` Python backend and as a front-end to a cloudmap repository using the git-sync crate.
 
 ## Running the server
 
@@ -84,7 +27,11 @@ Pass `--help` for the canonical list. The most-used knobs:
 | Package digest for ETags | `--package-digest` | `UNFURL_PACKAGE_DIGEST` | (empty) |
 | Allowed CORS origins | `--cors-origins` | `UNFURL_SERVE_CORS` | (unset — no CORS layer) |
 | Log file (else stderr) | — | `UNFURL_LOGFILE` | (unset) |
+| Log style (`text`, `json`) | `--log-style` | `UNFURL_LOG_STYLE` | `text` on a terminal, else `json` |
 | Log filter | — | `RUST_LOG` | `info` |
+| Write-queue key lifetime | `--queue-key-ttl-secs` | `UNFURL_QUEUE_KEY_TTL_SECS` | `86400` |
+| How long `/events` is held open | `--events-budget-secs` | `UNFURL_EVENTS_BUDGET_SECS` | `120` |
+| Branch-watch poll interval | `--branch-poll-interval-ms` | `UNFURL_BRANCH_POLL_INTERVAL_MS` | `1000` |
 
 `--cors-origins` takes origins separated by whitespace or commas, or
 `*` for any origin; an origin that isn't a valid header value is a
@@ -97,6 +44,33 @@ resolved for its own flask-cors setup — including the
 preflights for the same set. Preflights matter here because routes such
 as `/export` are registered `GET`-only: without the layer a browser's
 `OPTIONS` gets a 405 from the method router.
+
+**Cloudmap fast path** (optional — when both are set, `GET / POST
+/cloudmap` are served locally via the `unfurl-git-sync` crate;
+otherwise `/cloudmap` is proxied to Python):
+
+| Setting | CLI flag | Env var | Default |
+|---|---|---|---|
+| Path to a checked-out cloudmap repo | `--cloudmap-repo` | `UNFURL_CLOUDMAP_REPO` | (unset) |
+| Index DB URL (`sqlite::memory:`, `sqlite:///path/to.db`, `postgres://...`) | `--cloudmap-db-url` | `UNFURL_CLOUDMAP_DB_URL` | (unset) |
+| Working tree wins over in-flight edits on the startup scan | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
+| Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
+| Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
+
+The startup scan validates every record against the cloudmap schema,
+reports what it refused, and summarises it in one line.
+`--scan-abort-level` decides whether that also stops the server coming
+up: `report` (the default) serves anyway, `file` aborts on a file skipped
+whole, `record` aborts on even one refused record. Validation always runs -- the levels
+choose what aborts, not whether records are checked -- because refusing a
+record is what keeps an invalid value from overwriting the row already
+indexed. `AGENTS.md` has the grades.
+
+`--cloudmap-skip-scan` serves the index as it stands. Nothing else
+triggers a scan, so the index is then only as fresh as whoever last wrote
+it, and `--cloudmap-force` and `--scan-abort-level` have nothing to act
+on — each of those is warned about at startup, as is an in-memory index,
+which the skipped scan leaves empty.
 
 **Redis** (optional — required for `GET /export`/`/types` caching
 and for the write-queue fast path on the patch endpoints):
@@ -122,14 +96,58 @@ to Python.
 > `0.5`).  `--proxy-timeout-secs` and `--redis-timeout-secs` are
 > whole-second integers only.
 
-**Cloudmap fast path** (optional — when both are set, `GET / POST
-/cloudmap` are served locally via the `unfurl-git-sync` crate;
-otherwise `/cloudmap` is proxied to Python):
+### Logging
 
-| Setting | CLI flag | Env var |
-|---|---|---|
-| Path to a checked-out cloudmap repo | `--cloudmap-repo` | `UNFURL_CLOUDMAP_REPO` |
-| Index DB URL (`sqlite::memory:`, `sqlite:///path/to.db`, `postgres://...`) | `--cloudmap-db-url` | `UNFURL_CLOUDMAP_DB_URL` |
+`--log-style json` (or `UNFURL_LOG_STYLE=json` — not
+`UNFURL_LOG_FORMAT`, which is python's `logging.Formatter` string) puts
+every field through a serializer; `text` is the
+readable form. Both emit exactly one event per line — a file name with a
+space in it, or a parser diagnostic spanning several lines, is quoted and
+escaped rather than running into the next field:
+
+```
+WARN file could not be parsed file="my broken file.yaml" syntax=Yaml
+  error="yaml error in my broken file.yaml: …unclosed bracket '['\n --> <input>:1:1\n…"
+```
+
+Values that can hold arbitrary text — `file`, `path`, `key`, `error` — are
+always quoted. Ones that cannot, like `syntax` and the counts, are bare.
+So `grep 'file="x y.yaml"'` matches a whole field rather than a prefix.
+
+Each message is a fixed string, chosen so a log can be filtered by what
+the scan *did* rather than by parsing fields out of a shared line. The
+startup scan of a cloudmap repo emits:
+
+| Level | Message | What it means | Fields |
+|---|---|---|---|
+| WARN | `file could not be parsed` | Not valid YAML/JSON; the file is skipped and its existing records kept — broken, not emptied | `file`, `syntax`, `error` |
+| WARN | `document is unreadable as this format; skipping the file` | Schema violation the whole document turns on, e.g. an unknown `apiVersion`; skipped the same way, nothing deleted | `file`, `format`, `error` |
+| WARN | `section refused; the records it holds are left as they are` | A section is not a mapping, so nothing under it is enumerable; its rows are neither replaced nor pruned | `file`, `format`, `path`, `error` |
+| WARN | `record refused; the row already indexed is left as it is` | One record does not fit its schema; the row already there survives rather than being overwritten | `file`, `format`, `path`, `key`, `error` |
+| INFO | `schema warning; indexed anyway` | A complaint that does not stop the record being indexed | `file`, `format`, `path`, `key`, `error` |
+| WARN | `document does not conform to its schema` | One summary per file, with counts rather than contents — the line to grep first | `file`, `format`, `fatal`, `refused_sections`, `refused_records`, `warnings` |
+| WARN | `file needs json5 syntax; a rewrite will emit strict json and drop comments` | Read fine; the first write to it normalises the file | `file` |
+| INFO | `file is gone from the working tree` | A tracked file was removed | `file` |
+| INFO | `cloudmap startup scan complete` | The aggregate, emitted once | `files_seen`, `records_upserted`, `records_deleted`, `unparsed`, `invalid_files`, `skipped_files`, `refused` |
+| ERROR | `cloudmap does not conform to its schema; refusing to start` | `--scan-abort-level` was set above what the scan found | `abort_level`, `skipped_files`, `refused` |
+
+Everything the scan acted on is WARN, including a skipped file: a document
+skipped for a bad header and one skipped for bad syntax have the same
+consequence, so they log at the same level. Only the advisory grade is
+INFO. A scan reports at most ten findings per grade per file and leaves
+the rest to the summary's counts, so one badly broken document cannot bury
+everything else.
+
+Divergence between a file and an in-flight edit logs separately —
+`file diverges from a pending edit; keeping both sides` and
+`record deleted from file under a pending edit; keeping both sides`, with
+their `Git-Sync-Resolves-Version` counterparts at INFO — carrying the same
+`file`, `path` and `key` fields, so a refusal and a conflict on one record
+line up.
+
+Scan events come from the `unfurl_git_sync::sync` and
+`unfurl_git_sync::scan` targets, so `RUST_LOG=unfurl_git_sync=warn` keeps
+them without the proxy's request logging.
 
 ### Examples
 
@@ -161,15 +179,73 @@ UNFURL_BATCH_WINDOW_SECS=10 \
 unfurl-server
 ```
 
-## Regenerating after schema changes
+## Development
 
-When `unfurl/server/serve.py`, `unfurl/server/schemas.py`, or `unfurl/cloudmap/cloudmap-schema.json` change, regenerate the OpenAPI spec on the Python side:
+`src/unfurl_types.rs` is generated from the OpenAPI spec, but it is
+**committed to git**: building this crate needs nothing beyond a Rust
+toolchain. Only changing the spec needs the generator below.
+
+### Regenerating the types
+
+Type generation is driven by the
+[`oas3-gen`](https://crates.io/crates/oas3-gen) CLI. `build.rs` shells
+out to it when it is installed, post-processes the output, and writes
+`src/unfurl_types.rs` directly; when it isn't installed the committed
+file is used as-is and the build succeeds without it.
+
+When `unfurl/server/serve.py`, `unfurl/server/schemas.py`, or
+`unfurl/cloudmap/cloudmap-schema.json` change, regenerate the spec on the
+Python side first:
 
 ```bash
 OPENAPI_VERSION=3.0.3 FLASK_APP=unfurl.server.serve UNFURL_HOME="" \
     .tox/py314/bin/flask spec --output unfurl/server/openapi.json --format json
 ```
 
-`build.rs` declares `cargo:rerun-if-changed` on the spec, so the next
-`cargo build` (with `oas3-gen` installed) regenerates and updates
-`src/unfurl_types.rs` automatically. Commit that file alongside the spec change.
+Then install the pinned generator and rebuild. `build.rs` declares
+`cargo:rerun-if-changed` on the spec, so the rebuild is what regenerates:
+
+```bash
+cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
+cargo build -p unfurl-server
+```
+
+Commit `src/unfurl_types.rs` alongside the spec change. The generator
+binary lands in `~/.cargo/bin`, which must be on `PATH`.
+
+`build.rs` invokes it as:
+
+```
+oas3-gen generate --input ../../unfurl/server/openapi.json
+    --output $OUT_DIR/oas3out --all-schemas server-mod
+```
+
+The pinned version lives in `rust/server/.oas3-gen-version` and is the
+single source of truth, also read by `.github/workflows/on_push.yml` and
+`docker/Dockerfile.server`. `build.rs` enforces the pin at compile time:
+a mismatched generator fails the build with the exact reinstall command.
+(With no `oas3-gen` installed at all the check is skipped.)
+
+### Bumping `oas3-gen`
+
+1. Edit `rust/server/.oas3-gen-version` and replace the version with the
+   new `X.Y.Z`.
+2. Reinstall the pinned binary:
+   ```bash
+   cargo install oas3-gen --version X.Y.Z --locked --force
+   ```
+3. Rebuild — `build.rs` regenerates `src/unfurl_types.rs` against the
+   new generator:
+   ```bash
+   cargo build -p unfurl-server
+   ```
+4. Inspect the diff in `src/unfurl_types.rs`. If a generator release
+   introduces new external crate references (e.g. 0.26+ switched maps
+   to `indexmap::IndexMap`), add the corresponding dependency to
+   `rust/server/Cargo.toml`. Adjust any handler that names a renamed
+   type.
+5. Commit `.oas3-gen-version` and `src/unfurl_types.rs` together.
+
+The write-queue protocol these endpoints implement — the subscription
+endpoints, the SSE frame kinds and the Redis key shapes — is documented
+in `AGENTS.md` next to this file.

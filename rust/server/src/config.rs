@@ -11,6 +11,72 @@ use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 /// Sits in front of the Python (waitress) backend, adding Redis cache
 /// look-ups for GET /export and GET /types, and enqueuing POST write
 /// operations to a Redis list.
+/// The smallest thing whose refusal aborts the startup scan. See
+/// [`Config::scan_abort_level`].
+///
+/// Named for the unit that trips it, not for a severity: `record` is
+/// stricter than `file` because one refused record is a smaller thing to
+/// trip on. An `error`/`fatal` pair would have read the other way round.
+///
+/// Only aborting is affected -- every record is validated at every level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum ScanAbortLevel {
+    /// Nothing stops startup: report what was found and serve.
+    Report,
+    /// A whole file being skipped stops startup -- sections of the index
+    /// would be silently missing.
+    File,
+    /// One refused record is enough to stop startup, for a deployment that
+    /// would rather not serve an index it knows is incomplete.
+    Record,
+}
+
+impl ScanAbortLevel {
+    /// Whether a scan that found this much should stop the server coming
+    /// up.
+    pub fn aborts(&self, fatal: usize, refused: usize) -> bool {
+        match self {
+            Self::Report => false,
+            Self::File => fatal > 0,
+            Self::Record => fatal > 0 || refused > 0,
+        }
+    }
+}
+
+impl std::fmt::Display for ScanAbortLevel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Report => "report",
+            Self::File => "file",
+            Self::Record => "record",
+        })
+    }
+}
+
+/// How log events are rendered. See [`Config::log_style`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum LogStyle {
+    /// Human-readable, one line per event.
+    Text,
+    /// One JSON object per event.
+    Json,
+}
+
+impl LogStyle {
+    /// The style to use, given what was asked for and where the log is
+    /// going.
+    ///
+    /// Unasked, a log file or a redirected stderr is being read by
+    /// something and a terminal by someone.
+    pub fn resolve(asked: Option<Self>, has_log_file: bool, stderr_is_terminal: bool) -> Self {
+        match asked {
+            Some(format) => format,
+            None if has_log_file || !stderr_is_terminal => Self::Json,
+            None => Self::Text,
+        }
+    }
+}
+
 #[derive(Parser, Debug, Clone)]
 #[command(version, about)]
 pub struct Config {
@@ -132,6 +198,23 @@ pub struct Config {
     #[arg(long, env = "UNFURL_BRANCH_POLL_INTERVAL_MS", default_value_t = 1000)]
     pub branch_poll_interval_ms: u64,
 
+    /// How log events are rendered.
+    ///
+    /// `json` puts every field through a serializer, so a value holding a
+    /// space or a newline -- a file name, a record key, a parser
+    /// diagnostic -- cannot run into the next field or split one event
+    /// across lines. `text` is the readable form for a terminal.
+    ///
+    /// Defaults to `text` when stderr is a terminal and `json` when it is
+    /// not, which makes an interactive run readable and a redirected one
+    /// machine-readable without being told.
+    // Not `UNFURL_LOG_FORMAT`: python's means a `logging.Formatter`
+    // format string (`unfurl/logs.py`), and `unfurl serve` hands this
+    // process its environment -- clap would fail to parse it and the
+    // server would not start.
+    #[arg(long, env = "UNFURL_LOG_STYLE", value_enum)]
+    pub log_style: Option<LogStyle>,
+
     /// Path to a working directory of a cloudmap git repo.
     /// When set together with `cloudmap_db_url`, GET /cloudmap is served
     /// using the `unfurl-git-sync` crate; otherwise it is proxied to the Python
@@ -155,6 +238,38 @@ pub struct Config {
     /// the process decides, not a request.
     #[arg(long, env = "UNFURL_CLOUDMAP_FORCE")]
     pub cloudmap_force: bool,
+
+    /// Serve whatever the index already holds instead of scanning the
+    /// working tree at startup.
+    ///
+    /// For a persistent index kept current some other way, where the scan
+    /// is a startup cost rather than the thing that populates it. Nothing
+    /// else triggers a scan, so the index is then only as fresh as
+    /// whoever last wrote it -- and with an in-memory database it stays
+    /// empty, since the scan was the only thing that would have filled
+    /// it.
+    #[arg(long, env = "UNFURL_CLOUDMAP_SKIP_SCAN")]
+    pub cloudmap_skip_scan: bool,
+
+    /// How small a schema violation has to be before the startup scan of
+    /// the cloudmap repo aborts instead of serving.
+    ///
+    /// Validation itself always runs -- this chooses what aborts, not
+    /// whether records are checked. A refusal is data protection (an
+    /// invalid record does not overwrite the row already indexed, and a
+    /// malformed section is not read as a mass deletion), so there is no
+    /// setting that turns it off.
+    ///
+    /// Startup-only, like `cloudmap_force`: turning a bad record pushed
+    /// later into an outage is worse than serving an index that reports
+    /// itself incomplete.
+    #[arg(
+        long,
+        env = "UNFURL_SCAN_ABORT_LEVEL",
+        default_value_t = ScanAbortLevel::Report,
+        value_enum
+    )]
+    pub scan_abort_level: ScanAbortLevel,
 
     /// The local checkout this server was started on, if any.
     ///
@@ -375,6 +490,9 @@ mod tests {
             cloudmap_repo: None,
             cloudmap_db_url: None,
             cloudmap_force: false,
+            cloudmap_skip_scan: false,
+            scan_abort_level: ScanAbortLevel::Report,
+            log_style: None,
             local: None,
             cors_origins: None,
         }
@@ -471,5 +589,57 @@ mod local_mode_tests {
         // Matches python's `bool(os.getenv("UNFURL_SERVE_PATH"))`: an empty
         // value is not a serve path.
         assert!(!config_with_local(Some("")).dev_mode());
+    }
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::{LogStyle, ScanAbortLevel};
+
+    /// Every level against every shape of finding, because the whole
+    /// point of the option is that the three differ.
+    #[test]
+    fn scan_abort_level_decides_what_aborts() {
+        // Nothing found: nothing aborts, whatever was asked for.
+        for level in [
+            ScanAbortLevel::Report,
+            ScanAbortLevel::File,
+            ScanAbortLevel::Record,
+        ] {
+            assert!(!level.aborts(0, 0), "{level} aborted on a clean scan");
+        }
+        // `report` serves regardless.
+        assert!(!ScanAbortLevel::Report.aborts(1, 0));
+        assert!(!ScanAbortLevel::Report.aborts(0, 1));
+        // `file` trips on skipped files only: a refused record still
+        // leaves an index that reports itself, which is what `record` is
+        // for.
+        assert!(ScanAbortLevel::File.aborts(1, 0));
+        assert!(!ScanAbortLevel::File.aborts(0, 1));
+        // `record` covers both.
+        assert!(ScanAbortLevel::Record.aborts(0, 1));
+        assert!(ScanAbortLevel::Record.aborts(1, 0));
+    }
+
+    #[test]
+    fn log_style_defaults_to_who_is_reading() {
+        // Asked for explicitly, the destination does not matter -- this is
+        // the case a CLI flag that never reached the subscriber got wrong.
+        for (has_file, tty) in [(true, true), (true, false), (false, true), (false, false)] {
+            assert_eq!(
+                LogStyle::resolve(Some(LogStyle::Text), has_file, tty),
+                LogStyle::Text
+            );
+            assert_eq!(
+                LogStyle::resolve(Some(LogStyle::Json), has_file, tty),
+                LogStyle::Json
+            );
+        }
+        // Unasked: a terminal is read by someone, anything else by
+        // something.
+        assert_eq!(LogStyle::resolve(None, false, true), LogStyle::Text);
+        assert_eq!(LogStyle::resolve(None, false, false), LogStyle::Json);
+        assert_eq!(LogStyle::resolve(None, true, true), LogStyle::Json);
+        assert_eq!(LogStyle::resolve(None, true, false), LogStyle::Json);
     }
 }

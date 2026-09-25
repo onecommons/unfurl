@@ -174,8 +174,13 @@ struct TypesCache {
 }
 
 impl CloudMapState {
-    /// Open the working dir, run an initial scan, and return a handle
-    /// suitable for stashing in [`crate::AppState`].
+    /// Open the working dir, scan it unless `scan` is `None`, and return a
+    /// handle suitable for stashing in [`crate::AppState`] plus what the
+    /// scan found.
+    ///
+    /// `None` serves the index as it stands. The outcome is `None` too --
+    /// there is nothing to report, and nothing for a caller to threshold
+    /// on.
     ///
     /// Both `repo_path` and `db_url` must be set. The DB URL is parsed
     /// to pick the right backend: anything starting with `postgres://`
@@ -185,8 +190,11 @@ impl CloudMapState {
     pub async fn open(
         repo_path: &str,
         db_url: &str,
-        scan: ScanOptions,
-    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        scan: Option<ScanOptions>,
+    ) -> Result<
+        (Self, Option<unfurl_git_sync::SyncOutcome>),
+        Box<dyn std::error::Error + Send + Sync>,
+    > {
         let db_cfg = if db_url.starts_with("postgres://") || db_url.starts_with("postgresql://") {
             #[cfg(feature = "postgres")]
             {
@@ -206,11 +214,20 @@ impl CloudMapState {
 
         let registry = FormatRegistry::with_builtins();
         let synced = SyncedRepo::open(repo_path, db_cfg, registry).await?;
-        synced.update_from_working_dir(scan).await?;
-        Ok(Self {
-            inner: Arc::new(synced),
-            types_cache: Arc::new(Mutex::new(HashMap::new())),
-        })
+        // Returned rather than dropped: the caller decides what a schema
+        // violation means for startup, and nothing else ever sees this
+        // scan's report.
+        let outcome = match scan {
+            Some(scan) => Some(synced.update_from_working_dir(scan).await?),
+            None => None,
+        };
+        Ok((
+            Self {
+                inner: Arc::new(synced),
+                types_cache: Arc::new(Mutex::new(HashMap::new())),
+            },
+            outcome,
+        ))
     }
 
     /// The repository this state reads from.
