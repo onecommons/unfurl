@@ -275,6 +275,7 @@ def _cli(
     # ensure that ctx.obj exists and is a dict (in case `_cli()` is called
     # by means other than the `if` block below
     ctx.ensure_object(dict)
+    kw["_user_logfile"] = kw.get("logfile") or ""
     if not kw.get("logfile"):
         kw["logfile"] = logs.get_tmplog_path()
     ctx.obj.update(kw)
@@ -849,7 +850,8 @@ def yesno(prompt):
     return c in ("y", "Y")
 
 
-def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary, folder):
+def _stop_logging(job: Optional[Job], options, verbose, summary, folder):
+    tmplogfile = options["logfile"]
     if summary:
         with open(tmplogfile, "a") as f:
             f.write(summary)
@@ -858,11 +860,15 @@ def _stop_logging(job: Optional[Job], options, verbose, tmplogfile, summary, fol
         dir = os.path.dirname(log_path)
         if not os.path.exists(dir):
             os.makedirs(dir)
-        try:
-            os.rename(tmplogfile, log_path)
-        except OSError:
-            # handle [Errno 18] Invalid cross-device link
+        if options.get("_user_logfile"):
+            # retain the user-specified logfile by copying it
             shutil.copy(tmplogfile, log_path)
+        else:
+            try:
+                os.rename(tmplogfile, log_path)
+            except OSError:
+                # handle [Errno 18] Invalid cross-device link
+                shutil.copy(tmplogfile, log_path)
     else:
         log_path = tmplogfile
     if verbose > -1:
@@ -873,7 +879,6 @@ def _run_local(ensemble: Optional[str], options: dict):
     logger = logging.getLogger("unfurl")
     logger.verbose("Running command: %s", sys.argv[1:])  # type: ignore
     verbose = options.get("verbose", 0)
-    tmplogfile = options["logfile"]
     job, rendered, proceed = start_job(ensemble, options)
     _latestJobs.append(job)  # testing only
     summary = ""
@@ -901,7 +906,7 @@ def _run_local(ensemble: Optional[str], options: dict):
     else:
         click.echo("Unable to create job")
 
-    _stop_logging(job, options, verbose, tmplogfile, summary, folder)
+    _stop_logging(job, options, verbose, summary, folder)
     return _exit(job, options)
 
 
