@@ -242,7 +242,9 @@ impl Reconcile<'_> {
             // The author of the file's last commit settled this one.
             Some(_) if self.resolved_by_trailer(p) => {
                 tracing::info!(
-                    file = %self.file.rel_path, path = %path, key = %key,
+                    file = self.file.rel_path,
+                    path,
+                    key,
                     "conflict resolved by the file's Git-Sync-Resolves-Version trailer"
                 );
                 drop_conflict_row(tx, self.sync, id, existing).await?;
@@ -251,7 +253,7 @@ impl Reconcile<'_> {
             Some(kind) => {
                 stats.records_preserved += 1;
                 tracing::warn!(
-                    file = %self.file.rel_path, path = %path, key = %key, kind = ?kind,
+                    file = self.file.rel_path, path, key, kind = ?kind,
                     "file diverges from a pending edit; keeping both sides"
                 );
                 refresh_conflict_row(
@@ -326,7 +328,9 @@ impl Reconcile<'_> {
             // said that settles it.
             Some(_) if self.resolved_by_trailer(p) => {
                 tracing::info!(
-                    file = %self.file.rel_path, path = %path, key = %key,
+                    file = self.file.rel_path,
+                    path,
+                    key,
                     "deletion resolved by the file's Git-Sync-Resolves-Version trailer"
                 );
                 drop_conflict_row(tx, self.sync, id, existing).await?;
@@ -335,7 +339,9 @@ impl Reconcile<'_> {
             Some(kind) => {
                 stats.records_preserved += 1;
                 tracing::warn!(
-                    file = %self.file.rel_path, path = %path, key = %key,
+                    file = self.file.rel_path,
+                    path,
+                    key,
                     "record deleted from file under a pending edit; keeping both sides"
                 );
                 // The conflict row's json is NOT NULL and the file has no

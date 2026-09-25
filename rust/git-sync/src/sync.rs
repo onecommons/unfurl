@@ -102,6 +102,97 @@ struct SyncedRepoInner {
     family_id: i64,
 }
 
+/// How many findings of one grade are logged individually before the rest
+/// are left to the count in the summary.
+///
+/// A document can be wrong in every record it has, and one log line each
+/// would bury everything else the scan reported.
+const MAX_LOGGED_FINDINGS: usize = 10;
+
+/// Emits one event per validation finding, plus a summary line.
+///
+/// `warn` for anything the scan acted on, `info` for the advisory grade:
+/// a document skipped for a bad header and one skipped for bad syntax
+/// have the same consequence, so they log at the same level.
+fn log_validation(rel_path: &str, format: &str, validation: &crate::Validation) {
+    if validation.is_empty() {
+        return;
+    }
+    for error in validation.fatal.iter().take(MAX_LOGGED_FINDINGS) {
+        tracing::warn!(
+            file = rel_path,
+            format,
+            error = error.to_string().as_str(),
+            "document is unreadable as this format; skipping the file"
+        );
+    }
+    let mut refused_sections = 0usize;
+    let mut refused_records = 0usize;
+    for ((section, key), error) in &validation.errors {
+        match key {
+            None => {
+                refused_sections += 1;
+                if refused_sections <= MAX_LOGGED_FINDINGS {
+                    tracing::warn!(
+                        file = rel_path,
+                        format,
+                        path = format!("/{section}").as_str(),
+                        error = error.to_string().as_str(),
+                        "section refused; the records it holds are left as they are"
+                    );
+                }
+            }
+            Some(key) => {
+                refused_records += 1;
+                if refused_records <= MAX_LOGGED_FINDINGS {
+                    tracing::warn!(
+                        file = rel_path,
+                        format,
+                        path = format!("/{section}").as_str(),
+                        key = key.as_str(),
+                        error = error.to_string().as_str(),
+                        "record refused; the row already indexed is left as it is"
+                    );
+                }
+            }
+        }
+    }
+    for ((section, key), error) in validation.warnings.iter().take(MAX_LOGGED_FINDINGS) {
+        // `key` omitted rather than empty when the warning is the whole
+        // section's: a field that is always present but sometimes blank is
+        // one a filter cannot use.
+        match key {
+            None => tracing::info!(
+                file = rel_path,
+                format,
+                path = format!("/{section}").as_str(),
+                error = error.to_string().as_str(),
+                "schema warning; indexed anyway"
+            ),
+            Some(key) => tracing::info!(
+                file = rel_path,
+                format,
+                path = format!("/{section}").as_str(),
+                key = key.as_str(),
+                error = error.to_string().as_str(),
+                "schema warning; indexed anyway"
+            ),
+        }
+    }
+    // The line to grep first: one per file, with counts rather than
+    // contents, and the only one emitted for a file whose findings ran
+    // past the per-grade cap.
+    tracing::warn!(
+        file = rel_path,
+        format,
+        fatal = validation.fatal.len(),
+        refused_sections,
+        refused_records,
+        warnings = validation.warnings.len(),
+        "document does not conform to its schema"
+    );
+}
+
 impl SyncedRepo {
     /// Open a working tree and a database, returning a [`SyncedRepo`].
     ///
@@ -424,7 +515,15 @@ impl SyncedRepo {
                         // *failures*, which mean broken, not emptied.
                         Ok(None) => continue,
                         Err(error) => {
-                            tracing::warn!(file = %tf.rel_path, %error, "file could not be parsed");
+                            // Not `%`: a parser diagnostic spans lines and
+                            // a path may hold spaces, either of which splits
+                            // an unquoted event into what reads as two.
+                            tracing::warn!(
+                                file = tf.rel_path.as_str(),
+                                syntax = ?syntax,
+                                error = error.to_string().as_str(),
+                                "file could not be parsed"
+                            );
                             stats.unparsed.push(crate::model::ScanFailure {
                                 file_path: tf.rel_path.clone(),
                                 error,
@@ -529,7 +628,12 @@ impl SyncedRepo {
                         // the branch below still has its attribution to
                         // refresh.
                         Err(error) => {
-                            tracing::warn!(file = %c.tf.rel_path, %error, "file could not be parsed");
+                            tracing::warn!(
+                                file = c.tf.rel_path.as_str(),
+                                syntax = ?syntax,
+                                error = error.to_string().as_str(),
+                                "file could not be parsed"
+                            );
                             stats.unparsed.push(crate::model::ScanFailure {
                                 file_path: c.tf.rel_path.clone(),
                                 error,
@@ -602,7 +706,7 @@ impl SyncedRepo {
         row: &crate::model::File,
         stats: &mut SyncOutcome,
     ) -> Result<()> {
-        tracing::info!(file = %rel_path, "file is gone from the working tree");
+        tracing::info!(file = rel_path, "file is gone from the working tree");
         if let Some(format) = self.formats().by_name(&row.format) {
             let empty = serde_json::Value::Object(serde_json::Map::new());
             let no_validation = crate::Validation::default();
@@ -650,7 +754,7 @@ impl SyncedRepo {
             // changes.
             stats.files_needing_json5 += 1;
             tracing::warn!(
-                file = %rel_path,
+                file = rel_path,
                 "file needs json5 syntax; a rewrite will emit strict json and drop comments"
             );
         }
@@ -671,16 +775,7 @@ impl SyncedRepo {
         // After `fold_chunks`, so a literate document is validated as the
         // document it merges to rather than per fenced block.
         let validation = format.validate_document(&value);
-        if !validation.is_empty() {
-            tracing::warn!(
-                file = %rel_path,
-                format = format.name(),
-                fatal = ?validation.fatal,
-                errors = ?validation.errors,
-                warnings = ?validation.warnings,
-                "document does not conform to its format's schema"
-            );
-        }
+        log_validation(rel_path, format.name(), &validation);
         let validation = std::sync::Arc::new(validation);
         if !validation.is_empty() {
             stats.invalid.push(crate::ValidationFailure {
