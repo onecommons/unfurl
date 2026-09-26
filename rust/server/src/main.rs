@@ -70,15 +70,10 @@ fn report_scan(scan: &unfurl_git_sync::SyncOutcome, level: ScanAbortLevel) {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    // Initialise tracing.  If UNFURL_LOGFILE is set, write directly to that
-    // file (line-buffered) so readers can see output immediately.  Otherwise
-    // write to stderr so Python can redirect it via subprocess.Popen(stderr=…).
-    // Parsed before the subscriber exists so `--log-style` reaches it:
-    // reading the env var alone left the flag inert. Clap reports its own
-    // argument errors, so nothing is lost by logging slightly later.
-    let config = Config::parse();
+/// Initialises tracing.  If UNFURL_LOGFILE is set, write directly to that
+/// file (line-buffered) so readers can see output immediately.  Otherwise
+/// write to stderr so Python can redirect it via subprocess.Popen(stderr=…).
+fn init_tracing(config: &Config) {
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let log_file = std::env::var("UNFURL_LOGFILE").ok();
     let style = LogStyle::resolve(
@@ -118,124 +113,74 @@ async fn main() {
                 .init(),
         }
     }
+}
 
-    tracing::info!(
-        "unfurl-server starting on {}:{} -> backend {} (RUST_LOG={:?}, cache_prefix={:?})",
-        config.host,
-        config.port,
-        config.backend_url(),
-        std::env::var("RUST_LOG").unwrap_or_default(),
-        config.cache_key_prefix,
-    );
-
-    // Optional Redis connection for cache lookups.
-    //
-    // IMPORTANT: The queue worker MUST use a *separate* redis::Client / connection.
-    // Using a clone() of MultiplexedConnection shares the same underlying socket,
-    // and BLPOP 0 (infinite timeout) on that socket would block every subsequent
-    // GET/SET command, causing all cache lookups to hang indefinitely.
+/// Connects to Redis for cache lookups, if configured, and spawns the batch
+/// worker on a connection of its own.
+///
+/// The queue worker MUST use a *separate* connection: a clone() of
+/// MultiplexedConnection shares the same underlying socket, and BLPOP 0
+/// (infinite timeout) on that socket would block every subsequent GET/SET
+/// command, causing all cache lookups to hang indefinitely.
+async fn connect_redis(config: &Config) -> Option<redis::aio::MultiplexedConnection> {
     let redacted_url = config.redacted_redis_url();
-    let redis_client_opt: Option<redis::Client> = match config.effective_redis_url() {
-        Some(url) => match redis::Client::open(url.as_str()) {
-            Ok(c) => {
-                tracing::info!("using Redis: {}", redacted_url.as_deref().unwrap_or(""));
-                Some(c)
-            }
-            Err(e) => {
-                tracing::error!(
-                    "invalid Redis URL {}: {}",
-                    redacted_url.as_deref().unwrap_or(""),
-                    e
-                );
-                std::process::exit(1);
-            }
-        },
-        None => {
-            tracing::info!("no Redis config set, caching disabled");
-            None
-        }
+    let redacted_url = redacted_url.as_deref().unwrap_or("");
+    let Some(url) = config.effective_redis_url() else {
+        tracing::info!("no Redis config set, caching disabled");
+        return None;
     };
+    let client = redis::Client::open(url.as_str()).unwrap_or_else(|e| {
+        tracing::error!("invalid Redis URL {}: {}", redacted_url, e);
+        std::process::exit(1);
+    });
+    tracing::info!("using Redis: {}", redacted_url);
 
-    let redis_conn = match redis_client_opt.as_ref() {
-        Some(client) => match client.get_multiplexed_async_connection().await {
-            Ok(conn) => {
-                tracing::info!("connected to Redis (cache)");
-                Some(conn)
-            }
-            Err(e) => {
-                tracing::error!("Redis connection failed: {}", e);
-                std::process::exit(1);
-            }
-        },
-        None => None,
-    };
+    let conn = client
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Redis connection failed: {}", e);
+            std::process::exit(1);
+        });
+    tracing::info!("connected to Redis (cache)");
 
-    // Spawn batch worker with its own *separate* connection so that its
-    // polling loop does not block the shared cache connection.
-    if redis_conn.is_some() {
-        if let Some(ref client) = redis_client_opt {
-            match client.get_multiplexed_async_connection().await {
-                Ok(worker_conn) => {
-                    let worker_config = config.clone();
-                    let backend = config.backend_url();
-                    let http_client = reqwest::Client::new();
-                    tokio::spawn(async move {
-                        queue::run_worker(worker_conn, worker_config, backend, http_client).await;
-                    });
-                    tracing::debug!("batch worker started");
-                }
-                Err(e) => {
-                    tracing::error!("Redis worker connection failed: {}", e);
-                    std::process::exit(1);
-                }
-            }
-        }
+    let worker_conn = client
+        .get_multiplexed_async_connection()
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!("Redis worker connection failed: {}", e);
+            std::process::exit(1);
+        });
+    let worker_config = config.clone();
+    let backend = config.backend_url();
+    let http_client = reqwest::Client::new();
+    tokio::spawn(async move {
+        queue::run_worker(worker_conn, worker_config, backend, http_client).await;
+    });
+    tracing::debug!("batch worker started");
+    Some(conn)
+}
+
+/// Builds the HTTP client used for proxying.  Apply a request timeout when
+/// configured so the server doesn't block indefinitely waiting for a slow
+/// Python backend.
+fn build_http_client(config: &Config) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder();
+    if config.proxy_timeout_secs > 0 {
+        builder = builder.timeout(std::time::Duration::from_secs(config.proxy_timeout_secs));
     }
+    builder.build().expect("failed to build HTTP client")
+}
 
-    // Build the HTTP client used for proxying.  Apply a request timeout when
-    // configured so the server doesn't block indefinitely waiting for a slow
-    // Python backend.
-    let http_client = {
-        let mut builder = reqwest::Client::builder();
-        if config.proxy_timeout_secs > 0 {
-            builder = builder.timeout(std::time::Duration::from_secs(config.proxy_timeout_secs));
-        }
-        builder.build().expect("failed to build HTTP client")
-    };
-
-    // Optional cloudmap fast-path: when both cloudmap_repo and
-    // cloudmap_db_url are set, open a SyncedRepo and serve GET /cloudmap
-    // locally; otherwise it falls through to the proxy.
-    let cloudmap_state = match (
+/// Optional cloudmap fast-path: when both cloudmap_repo and
+/// cloudmap_db_url are set, open a SyncedRepo and serve GET /cloudmap
+/// locally; otherwise it falls through to the proxy.
+async fn open_cloudmap(config: &Config) -> Option<cloudmap::CloudMapState> {
+    let (repo, db_url) = match (
         config.cloudmap_repo.as_deref(),
         config.cloudmap_db_url.as_deref(),
     ) {
-        (Some(repo), Some(db_url)) => {
-            tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
-            let scan = if config.cloudmap_skip_scan {
-                warn_about_skipped_scan(&config, db_url);
-                None
-            } else {
-                Some(unfurl_git_sync::ScanOptions {
-                    force: config.cloudmap_force,
-                })
-            };
-            match cloudmap::CloudMapState::open(repo, db_url, scan).await {
-                Ok((cm, outcome)) => {
-                    if let Some(outcome) = outcome {
-                        report_scan(&outcome, config.scan_abort_level);
-                    }
-                    Some(cm)
-                }
-                Err(e) => {
-                    tracing::error!(
-                        error = e.to_string().as_str(),
-                        "failed to open cloudmap repo"
-                    );
-                    std::process::exit(1);
-                }
-            }
-        }
+        (Some(repo), Some(db_url)) => (repo, db_url),
         // Exactly one of the pair given: almost certainly a typo or a
         // half-finished deployment, so say which is missing rather than
         // claiming neither was set.
@@ -244,49 +189,51 @@ async fn main() {
                 "cloudmap_repo is set but cloudmap_db_url is not; \
                  GET /cloudmap will be proxied"
             );
-            None
+            return None;
         }
         (None, Some(_)) => {
             tracing::warn!(
                 "cloudmap_db_url is set but cloudmap_repo is not; \
                  GET /cloudmap will be proxied"
             );
-            None
+            return None;
         }
-        _ => None,
+        (None, None) => return None,
     };
-
-    let state = AppState {
-        config: Arc::new(config.clone()),
-        client: http_client,
-        redis: redis_conn,
-        cloudmap: cloudmap_state,
+    tracing::info!("opening cloudmap repo at {} (db={})", repo, db_url);
+    let scan = if config.cloudmap_skip_scan {
+        warn_about_skipped_scan(config, db_url);
+        None
+    } else {
+        Some(unfurl_git_sync::ScanOptions {
+            force: config.cloudmap_force,
+        })
     };
-
-    let cors = match config.cors_layer() {
-        Ok(layer) => {
-            if layer.is_some() {
-                tracing::info!(
-                    "CORS enabled for origins: {}",
-                    config.cors_origins.as_deref().unwrap_or("")
-                );
+    match cloudmap::CloudMapState::open(repo, db_url, scan).await {
+        Ok((cm, outcome)) => {
+            if let Some(outcome) = outcome {
+                report_scan(&outcome, config.scan_abort_level);
             }
-            layer
+            Some(cm)
         }
         Err(e) => {
-            tracing::error!("{}", e);
+            tracing::error!(
+                error = e.to_string().as_str(),
+                "failed to open cloudmap repo"
+            );
             std::process::exit(1);
         }
-    };
+    }
+}
 
-    let app = unfurl_server::build_router(state, cors);
-
-    // Resolve `host:port` to every address the OS hands back via
-    // getaddrinfo and bind a listener on each one we can.  This is what
-    // makes `UNFURL_HOST=localhost` listen on both 127.0.0.1 *and*
-    // [::1]: `TcpListener::bind(hostname)` otherwise tries each address
-    // in order and stops after the first success — on macOS that's
-    // typically the IPv6 entry, leaving IPv4 clients unreachable.
+/// Resolves `host:port` to every address the OS hands back via getaddrinfo
+/// and serves `app` on each one that binds.
+///
+/// This is what makes `UNFURL_HOST=localhost` listen on both 127.0.0.1 *and*
+/// [::1]: `TcpListener::bind(hostname)` otherwise tries each address in order
+/// and stops after the first success — on macOS that's typically the IPv6
+/// entry, leaving IPv4 clients unreachable.
+async fn serve(app: axum::Router, config: &Config) {
     let addr = format!("{}:{}", config.host, config.port);
     let resolved: Vec<std::net::SocketAddr> = match tokio::net::lookup_host(&addr).await {
         Ok(iter) => iter.collect(),
@@ -323,6 +270,49 @@ async fn main() {
     for task in tasks {
         task.await.expect("server task panicked");
     }
+}
+
+#[tokio::main]
+async fn main() {
+    // Parsed before the subscriber exists so `--log-style` reaches it:
+    // reading the env var alone left the flag inert. Clap reports its own
+    // argument errors, so nothing is lost by logging slightly later.
+    let config = Config::parse();
+    init_tracing(&config);
+
+    tracing::info!(
+        "unfurl-server starting on {}:{} -> backend {} (RUST_LOG={:?}, cache_prefix={:?})",
+        config.host,
+        config.port,
+        config.backend_url(),
+        std::env::var("RUST_LOG").unwrap_or_default(),
+        config.cache_key_prefix,
+    );
+
+    let state = AppState {
+        config: Arc::new(config.clone()),
+        redis: connect_redis(&config).await,
+        client: build_http_client(&config),
+        cloudmap: open_cloudmap(&config).await,
+    };
+
+    let cors = match config.cors_layer() {
+        Ok(layer) => {
+            if layer.is_some() {
+                tracing::info!(
+                    "CORS enabled for origins: {}",
+                    config.cors_origins.as_deref().unwrap_or("")
+                );
+            }
+            layer
+        }
+        Err(e) => {
+            tracing::error!("{}", e);
+            std::process::exit(1);
+        }
+    };
+
+    serve(unfurl_server::build_router(state, cors), &config).await;
 }
 
 /// Resolves when the process receives SIGINT (Ctrl-C) or SIGTERM
