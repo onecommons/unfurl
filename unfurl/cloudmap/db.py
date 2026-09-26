@@ -54,7 +54,9 @@ from ..tosca_plugins.cloudmap_defs import (
     RepositoryDict,
     Service,
     ServiceDict,
+    CLOUDMAP_RECORD_TYPES,
     get_repository_url,
+    split_cloudmap_ref,
 )
 from ..util import API_VERSION, UnfurlError
 from ..yamlloader import YamlConfig
@@ -68,73 +70,6 @@ logger = getLogger("unfurl")
 
 
 _basepath = os.path.abspath(os.path.dirname(__file__))
-
-# maps the "record-type" of a CloudMap pseudo-URL (e.g. "service:https://example.com/")
-# to the top-level section of the cloudmap document that the record lives in.
-CLOUDMAP_RECORD_TYPES: Dict[str, str] = {
-    "repository": "repositories",
-    "artifact": "artifacts",
-    "component": "components",
-    "service": "services",
-    "instantiation": "instantiations",
-    "type": "types",
-}
-
-CLOUDMAP_REF_PREFIX = "cloudmap:"
-
-
-def _find_matching_bracket(s: str) -> int:
-    """Return the index of the "]" matching the "[" that starts ``s``, or -1.
-
-    Brackets can be nested as long as they are balanced -- the closing "]" is
-    the one that matches the opening "[".
-    """
-    depth = 0
-    for i, c in enumerate(s):
-        if c == "[":
-            depth += 1
-        elif c == "]":
-            depth -= 1
-            if not depth:
-                return i
-    return -1
-
-
-def _split_cloudmap_keys(path: str) -> Optional[List[str]]:
-    """Split the ``path`` of a CloudMap pseudo-URL into its keys.
-
-    Keys are separated by "/" but a key delimited by "[" and "]" (an
-    ``embedded-ref``) is taken verbatim, so that the "/" and "#" characters of
-    a URL or a nested pseudo-URL aren't misread. Undelimited keys are
-    percent-decoded.
-
-    Returns None if ``path`` is malformed (unbalanced or misplaced brackets,
-    or an empty key).
-    """
-    keys: List[str] = []
-    while path:
-        if path.startswith("["):
-            end = _find_matching_bracket(path)
-            if end < 0:
-                return None
-            key = path[1:end]
-            if not key:
-                return None  # an empty key
-            rest = path[end + 1 :]
-            if rest and not rest.startswith("/"):
-                return None  # trailing characters after a delimited key
-        else:
-            key, sep, remainder = path.partition("/")
-            if not key or "[" in key or "]" in key:
-                return None  # an empty key or an undelimited bracket
-            key = unquote(key)
-            rest = sep + remainder
-        keys.append(key)
-        if not rest:
-            return keys
-        path = rest[1:]  # skip the "/"
-    return None  # empty or trailing "/"
-
 
 def extends_children(
     types: Mapping[str, Union[CloudType, Mapping[str, object]]],
@@ -281,30 +216,10 @@ class CloudMapDB(CloudMapStore):
         if url.startswith(prefix):
             keys = [_json_pointer_unescape(k) for k in url[len(prefix) :].split("/")]
             return "", keys[0], keys[1:]
-        cloudmap_url = ""
-        ref = url
-        if ref.startswith(CLOUDMAP_REF_PREFIX):
-            ref = ref[len(CLOUDMAP_REF_PREFIX) :]
-            if ref.startswith("["):
-                # the cloudmap document containing the record is named explicitly
-                end = _find_matching_bracket(ref)
-                # end < 2 is a missing "]" or an empty url
-                if end < 2 or not ref[end + 1 :].startswith(":"):
-                    return "", url, []
-                cloudmap_url = ref[1:end]
-                ref = ref[end + 2 :]
-        record_type, sep, rest = ref.partition(":")
-        if not sep or not rest or CLOUDMAP_RECORD_TYPES.get(record_type) != section:
+        parsed = split_cloudmap_ref(url)
+        if not parsed or CLOUDMAP_RECORD_TYPES[parsed.record_type] != section:
             return "", url, []
-        if not rest.startswith("["):
-            first = rest.partition("/")[0]
-            if ":" in first or "@" in first:
-                # opaque-key shorthand: the rest of the reference is the key
-                return cloudmap_url, rest, []
-        keys = _split_cloudmap_keys(rest) or []
-        if not keys:
-            return "", url, []
-        return cloudmap_url, keys[0], keys[1:]
+        return parsed.cloudmap_url, parsed.key, parsed.path
 
     def _matches_cloudmap_url(self, cloudmap_url: str) -> bool:
         """Return True if ``cloudmap_url`` refers to this cloudmap document.

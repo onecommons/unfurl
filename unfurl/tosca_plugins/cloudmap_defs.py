@@ -25,6 +25,7 @@ from typing import (
     Iterable,
     List,
     Mapping,
+    NamedTuple,
     Optional,
     Sequence,
     Type,
@@ -33,7 +34,15 @@ from typing import (
     cast,
 )
 from typing_extensions import Literal, Protocol, Required, TypedDict, Unpack, Self
-from urllib.parse import ParseResult, quote, urlparse, urlunparse, parse_qsl, urlencode
+from urllib.parse import (
+    ParseResult,
+    quote,
+    unquote,
+    urlparse,
+    urlunparse,
+    parse_qsl,
+    urlencode,
+)
 
 from unfurl.repo import normalize_git_url, split_git_url, git_url_join
 from unfurl.util import (
@@ -1226,7 +1235,8 @@ class Repository(CloudMapRecord):
                 v = filter_metadata(v)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
-            if v:
+            # private is tri-state: False (public) differs from None (unknown)
+            if v or (k == "private" and v is not None):
                 result[k] = v
         return result
 
@@ -1457,6 +1467,117 @@ RepositoryDict = Dict[str, Repository]
 T = TypeVar("T", bound="RepositoryAnalyzer")
 
 
+# maps the "record-type" of a CloudMap pseudo-URL (e.g. "service:https://example.com/")
+# to the top-level section of the cloudmap document that the record lives in.
+CLOUDMAP_RECORD_TYPES: Dict[str, str] = {
+    "repository": "repositories",
+    "artifact": "artifacts",
+    "component": "components",
+    "service": "services",
+    "instantiation": "instantiations",
+    "type": "types",
+}
+
+CLOUDMAP_REF_PREFIX = "cloudmap:"
+
+
+def _find_matching_bracket(s: str) -> int:
+    """Return the index of the "]" matching the "[" that starts ``s``, or -1.
+
+    Brackets can be nested as long as they are balanced -- the closing "]" is
+    the one that matches the opening "[".
+    """
+    depth = 0
+    for i, c in enumerate(s):
+        if c == "[":
+            depth += 1
+        elif c == "]":
+            depth -= 1
+            if not depth:
+                return i
+    return -1
+
+
+def _split_cloudmap_keys(path: str) -> Optional[List[str]]:
+    """Split the ``path`` of a CloudMap pseudo-URL into its keys.
+
+    Keys are separated by "/" but a key delimited by "[" and "]" (an
+    ``embedded-ref``) is taken verbatim, so that the "/" and "#" characters of
+    a URL or a nested pseudo-URL aren't misread. Undelimited keys are
+    percent-decoded.
+
+    Returns None if ``path`` is malformed (unbalanced or misplaced brackets,
+    or an empty key).
+    """
+    keys: List[str] = []
+    while path:
+        if path.startswith("["):
+            end = _find_matching_bracket(path)
+            if end < 0:
+                return None
+            key = path[1:end]
+            if not key:
+                return None  # an empty key
+            rest = path[end + 1 :]
+            if rest and not rest.startswith("/"):
+                return None  # trailing characters after a delimited key
+        else:
+            key, sep, remainder = path.partition("/")
+            if not key or "[" in key or "]" in key:
+                return None  # an empty key or an undelimited bracket
+            key = unquote(key)
+            rest = sep + remainder
+        keys.append(key)
+        if not rest:
+            return keys
+        path = rest[1:]  # skip the "/"
+    return None  # empty or trailing "/"
+
+
+class CloudMapRef(NamedTuple):
+    """A CloudMap pseudo-URL split into its parts."""
+
+    cloudmap_url: str
+    """The cloudmap document named by ``cloudmap:[<url>]:``, or "" if none."""
+    record_type: str
+    """A key of :data:`CLOUDMAP_RECORD_TYPES`, e.g. "instantiation"."""
+    key: str
+    """The record's key within its section."""
+    path: List[str]
+    """Keys of the element referenced inside the record."""
+
+
+def split_cloudmap_ref(ref: str) -> Optional[CloudMapRef]:
+    """Split a CloudMap pseudo-URL (e.g. ``cloudmap:instantiation:<url>``).
+
+    Returns None if ``ref`` doesn't name a record type or is malformed (see
+    :func:`_split_cloudmap_keys`).
+    """
+    cloudmap_url = ""
+    if ref.startswith(CLOUDMAP_REF_PREFIX):
+        ref = ref[len(CLOUDMAP_REF_PREFIX) :]
+        if ref.startswith("["):
+            # the cloudmap document containing the record is named explicitly
+            end = _find_matching_bracket(ref)
+            # end < 2 is a missing "]" or an empty url
+            if end < 2 or not ref[end + 1 :].startswith(":"):
+                return None
+            cloudmap_url = ref[1:end]
+            ref = ref[end + 2 :]
+    record_type, sep, rest = ref.partition(":")
+    if not sep or not rest or record_type not in CLOUDMAP_RECORD_TYPES:
+        return None
+    if not rest.startswith("["):
+        first = rest.partition("/")[0]
+        if ":" in first or "@" in first:
+            # opaque-key shorthand: the rest of the reference is the key
+            return CloudMapRef(cloudmap_url, record_type, rest, [])
+    keys = _split_cloudmap_keys(rest)
+    if not keys:
+        return None
+    return CloudMapRef(cloudmap_url, record_type, keys[0], keys[1:])
+
+
 class CloudMapView(ABC):
     """Abstract base class for cloudmap views."""
 
@@ -1509,22 +1630,38 @@ class CloudMapView(ABC):
     def find_repositories(self) -> Iterable["Repository"]: ...
 
     def resolve_cloudmap_url(self, cloudmap_url: str) -> Optional[str]:
-        "Convert 'cloudmap:<package_id>' pseudo-URLs to resolvable (e.g. https://) git URL."
-        # call split_git_url to parse the #fragment
-        repo_url, filePath, revision = split_git_url(cloudmap_url)
-        found_prefix = ""
-        for prefix in ("cloudmap:", "repository:", "artifact:", "instantiation:"):
-            if repo_url.startswith(prefix):
-                found_prefix = prefix
-                repo_url = repo_url[len(prefix) :]
-        repo_record = self.get_repository(repo_url)
-        if repo_record:
-            repo_url = repo_record.git_url()
-        else:
-            # XXX if found_prefix = artifact or instantiation, get source from record
-            repo_url = repo_url.replace("git://", "https://")
-        return git_url_join(repo_url, filePath, revision)
+        """Convert a CloudMap pseudo-URL to a resolvable (e.g. https://) git URL.
 
+        Handles ``cloudmap:<package_id>`` and ``repository:``, ``artifact:`` and
+        ``instantiation:`` references. An instantiation resolves to the
+        artifact it is keyed by, but only if that artifact's repository is
+        recorded as public; otherwise returns None.
+        """
+        ref = split_cloudmap_ref(cloudmap_url)
+        if ref is None:
+            package_id = cloudmap_url
+            if package_id.startswith(CLOUDMAP_REF_PREFIX):
+                package_id = package_id[len(CLOUDMAP_REF_PREFIX) :]
+            return self._resolve_git_url(package_id, False)
+        if ref.record_type == "instantiation":
+            instantiation = self.get_instantiation(cloudmap_url)
+            if instantiation is None:
+                return None
+            return self._resolve_git_url(instantiation.url, True)
+        if ref.record_type in ("repository", "artifact"):
+            return self._resolve_git_url(ref.key, False)
+        return None
+
+    def _resolve_git_url(self, url: str, public_only: bool) -> Optional[str]:
+        # call split_git_url to parse the #fragment
+        repo_url, file_path, revision = split_git_url(url)
+        repo_record = self.get_repository(repo_url)
+        if public_only and (repo_record is None or repo_record.private is not False):
+            return None
+        clone_url = repo_record.git_url() if repo_record else ""
+        if not clone_url:
+            clone_url = repo_url.replace("git://", "https://", 1)
+        return git_url_join(clone_url, file_path, revision)
 
 def section_of(record: "CloudMapRecord") -> str:
     """The top-level cloudmap section ``record`` belongs in.

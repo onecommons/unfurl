@@ -41,6 +41,7 @@ from toscaparser.prereq.csar import CSAR, TOSCA_META
 
 if TYPE_CHECKING:
     from . import yamlmanifest
+    from .cloudmap.analyzers import EnsembleDoc
 logger = getLogger("unfurl")
 
 _skeleton_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "skeletons")
@@ -799,6 +800,8 @@ class EnsembleBuilder:
         self.source_project: Optional[Project] = None  # step 1
         self.source_path: Optional[str] = None  # step 1 relative path in source_project
         self.source_revision: Optional[str] = None  # step 1
+        # set when the source is a cloudmap instantiation that can't be cloned
+        self.ensemble_doc: Optional["EnsembleDoc"] = None  # step 1
 
         self.template_vars: Optional[Dict[str, Any]] = None  # step 2
         self.environment: Optional[str] = None  # step 2 environment name
@@ -902,8 +905,6 @@ class EnsembleBuilder:
             return get_input_vars(self.skeleton_vars)
 
     def _create_ensemble_from_template(self, project: Project, destDir, manifestName):
-        from unfurl import yamlmanifest
-
         specProject = assert_not_none(self.dest_project)
         source_project = assert_not_none(self.source_project)
         assert self.template_vars is not None
@@ -929,6 +930,13 @@ class EnsembleBuilder:
             skeleton_vars,
             self.options.get("skeleton"),
         )
+        return self._load_new_ensemble(project, manifestPath)
+
+    def _load_new_ensemble(
+        self, project: Project, manifestPath: str
+    ) -> Tuple[LocalEnv, "yamlmanifest.ReadOnlyManifest"]:
+        from unfurl import yamlmanifest
+
         self.logger.info("Creating new ensemble as %s", manifestPath)
         use_environment = self.options.get("use_environment")
         if project and use_environment not in project.contexts:
@@ -943,6 +951,14 @@ class EnsembleBuilder:
             localEnv=localEnv, vault=localEnv.get_vault()
         )
         return localEnv, manifest
+
+    def _create_ensemble_from_doc(
+        self, project: Project, manifestPath: str
+    ) -> Tuple[LocalEnv, "yamlmanifest.ReadOnlyManifest"]:
+        os.makedirs(os.path.dirname(manifestPath), exist_ok=True)
+        with open(manifestPath, "w") as f:
+            yaml.dump(self.ensemble_doc, f)
+        return self._load_new_ensemble(project, manifestPath)
 
     def create_new_ensemble(self) -> str:
         """
@@ -982,7 +998,11 @@ class EnsembleBuilder:
         template_vars = self.template_vars
         localEnv = None
         manifest = None
-        if "localEnv" in template_vars:
+        if self.ensemble_doc is not None:
+            localEnv, manifest = self._create_ensemble_from_doc(
+                ensemble_project, targetPath
+            )
+        elif "localEnv" in template_vars:
             # look for an ensemble at the given path or use the source project's default
             localEnv = template_vars["localEnv"]
             try:
@@ -1001,7 +1021,7 @@ class EnsembleBuilder:
                     del template_vars["localEnv"]
                 else:
                     raise
-        if "localEnv" not in template_vars:
+        if self.ensemble_doc is None and "localEnv" not in template_vars:
             # we found a template file to clone
             template_vars["inputs"] = self._get_inputs_template()
             localEnv, manifest = self._create_ensemble_from_template(
@@ -1077,6 +1097,8 @@ class EnsembleBuilder:
     def resolve_input_source(self, current_project: Optional[Project]) -> str:
         if self.input_source.startswith("cloudmap:"):
             from .cloudmap import CloudMap
+            from .cloudmap.analyzers import ensemble_from_instantiation
+            from .tosca_plugins.cloudmap_defs import split_cloudmap_ref
 
             # note: if not project file is found, the home project is used if there is one, otherwise an error is raised
             local_env = LocalEnv(
@@ -1087,14 +1109,48 @@ class EnsembleBuilder:
             )
             # only resolving a url, so skip analysis and don't commit
             cloudmap = CloudMap.from_name(
-                local_env, "cloudmap", "", "", True, False
+                local_env, "cloudmap", "", "", True, False, use_server=True
             ).directory.store
             repo_key = cloudmap.resolve_cloudmap_url(self.input_source)
             if repo_key:
                 self.input_source = repo_key
-            else:
-                raise UnfurlError(f'Could not find "{repo_key}" in the cloud map.')
+                return repo_key
+            ref = split_cloudmap_ref(self.input_source)
+            instantiation = None
+            if ref and ref.record_type == "instantiation":
+                instantiation = cloudmap.get_instantiation(self.input_source)
+            if instantiation is None:
+                raise UnfurlError(
+                    f'Could not find "{self.input_source}" in the cloud map.'
+                )
+            self.logger.info(
+                'The repository of "%s" is not recorded as public in the cloud map,'
+                " reconstructing the ensemble from its instantiation record.",
+                instantiation.url,
+            )
+            self.ensemble_doc = ensemble_from_instantiation(instantiation, cloudmap)
         return self.input_source
+
+    def set_source_for_ensemble_doc(
+        self, currentProject: Optional[Project], dest: str
+    ) -> str:
+        """Set the project that ``self.ensemble_doc`` will be written into,
+        creating one at ``dest`` if not cloning into ``currentProject``."""
+        self.template_vars = dict(instantiation=self.input_source)
+        if currentProject:
+            self.source_project = currentProject
+            return os.path.abspath(dest)
+        if os.path.exists(dest) and os.listdir(dest):
+            raise UnfurlError(
+                f'Can not clone project into "{dest}": folder is not empty'
+            )
+        options = self.options.copy()
+        options.pop("empty", None)
+        homePath, projectPath, repo = create_project(
+            os.path.abspath(dest), empty=True, ensemble_template=False, **options
+        )
+        self.source_project = find_project(projectPath, self.home_path)
+        return dest
 
     def clone_remote_project(
         self, currentProject: Optional[Project], destDir: str
@@ -1379,6 +1435,9 @@ def clone(
     ``source`` can be a git URL or a path inside a local git repository.
     Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file/path>``.
     You can use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
+    ``cloudmap:instantiation:<url>`` clones the ensemble an instantiation record is keyed by
+    if its repository is recorded as public in the cloud map, otherwise a new ensemble
+    is reconstructed from the record.
 
     If ``source`` can point to an Unfurl project, an ensemble template, a service template, an existing ensemble, or a folder containing one of those.
 
@@ -1425,9 +1484,11 @@ def clone(
 
     ### step 1: clone the source repository and set the the source path
     sourceProject: Optional[Project] = None
-    isRemote = is_url_or_git_path(source)
+    isRemote = builder.ensemble_doc is None and is_url_or_git_path(source)
     from_csar = False
-    if isRemote:
+    if builder.ensemble_doc is not None:
+        dest = builder.set_source_for_ensemble_doc(currentProject, dest)
+    elif isRemote:
         builder.clone_remote_project(currentProject, dest)
     elif (
         csar_dest := builder.clone_from_csar(source, currentProject, dest)
