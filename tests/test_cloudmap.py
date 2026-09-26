@@ -1128,6 +1128,24 @@ class TestGithubManager:
 
     @patch("unfurl.cloudmap.github.Github")
     @patch("unfurl.cloudmap.github.Auth")
+    def test_create_project_private_unset_is_public(self, mock_auth, mock_github_class):
+        """A record only records ``private`` when it's true, so unset is public."""
+        config = {"type": "github", "url": "https://github.com", "password": "token"}
+        mock_user = Mock()
+        mock_user.login = "testuser"
+        mock_user.create_repo.return_value = Mock(get_topics=Mock(return_value=[]))
+        manager = GithubManager("test", config)
+        manager.dryrun = False
+        repo_info = Repository(
+            name="user-repo",
+            url="git://github.com/testuser/user-repo.git",
+            path="testuser/user-repo",
+        )
+        manager.create_project(repo_info, mock_user)
+        assert mock_user.create_repo.call_args.kwargs["private"] is False
+
+    @patch("unfurl.cloudmap.github.Github")
+    @patch("unfurl.cloudmap.github.Auth")
     def test_update_project_metadata(self, mock_auth, mock_github_class):
         """Test updating repository metadata."""
         config = {"type": "github", "url": "https://github.com", "password": "token"}

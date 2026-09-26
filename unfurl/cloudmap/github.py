@@ -350,7 +350,8 @@ else:
             """Create new GitHub repository."""
             name = repo_info.name
             description = repo_info.metadata.description or ""
-            private = repo_info.private if repo_info.private is not None else True
+            # a record not recorded as private is public
+            private = bool(repo_info.private)
 
             # Create repo in organization or user
             repo = dest_group.create_repo(

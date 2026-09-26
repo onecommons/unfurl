@@ -1243,8 +1243,7 @@ class Repository(CloudMapRecord):
                 v = filter_metadata(v)
             elif k == "contains":
                 v = TypeRefs.urls_asdict(v)
-            # private is tri-state: False (public) differs from None (unknown)
-            if v or (k == "private" and v is not None):
+            if v:
                 result[k] = v
         return result
 
@@ -1642,8 +1641,8 @@ class CloudMapView(ABC):
 
         Handles ``cloudmap:<package_id>`` and ``repository:``, ``artifact:`` and
         ``instantiation:`` references. An instantiation resolves to the
-        artifact it is keyed by, but only if that artifact's repository is
-        recorded as public; otherwise returns None.
+        artifact it is keyed by, but only if that artifact's repository is in
+        the cloudmap and not recorded as private; otherwise returns None.
         """
         ref = split_cloudmap_ref(cloudmap_url)
         if ref is None:
@@ -1664,7 +1663,7 @@ class CloudMapView(ABC):
         # call split_git_url to parse the #fragment
         repo_url, file_path, revision = split_git_url(url)
         repo_record = self.get_repository(repo_url)
-        if public_only and (repo_record is None or repo_record.private is not False):
+        if public_only and (repo_record is None or repo_record.private):
             return None
         clone_url = repo_record.git_url() if repo_record else ""
         if not clone_url:

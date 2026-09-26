@@ -1124,7 +1124,7 @@ class EnsembleBuilder:
                     f'Could not find "{self.input_source}" in the cloud map.'
                 )
             self.logger.info(
-                'The repository of "%s" is not recorded as public in the cloud map,'
+                'The repository of "%s" is private or not in the cloud map,'
                 " reconstructing the ensemble from its instantiation record.",
                 instantiation.url,
             )
@@ -1436,7 +1436,7 @@ def clone(
     Git URLs can specify a particular file in the repository using an URL fragment like ``#<branch_or_tag>:<file/path>``.
     You can use cloudmap url like ``cloudmap:<package_id>``, which will resolve to a git URL.
     ``cloudmap:instantiation:<url>`` clones the ensemble an instantiation record is keyed by
-    if its repository is recorded as public in the cloud map, otherwise a new ensemble
+    if its repository is in the cloud map and not recorded as private, otherwise a new ensemble
     is reconstructed from the record.
 
     If ``source`` can point to an Unfurl project, an ensemble template, a service template, an existing ensemble, or a folder containing one of those.

@@ -96,8 +96,9 @@ def test_reconstruct_ensemble_from_instantiation(workspace):
     ensemble_url = _git_url(project / "deployments") + "#:ensemble/ensemble.yaml"
     _write_cloudmap(
         cloudmap_path,
-        # no "private: false", so it isn't known to be public
-        Repository(url=_git_url(project / "deployments"), path="deployments"),
+        Repository(
+            url=_git_url(project / "deployments"), path="deployments", private=True
+        ),
         Repository(url=_git_url(blueprint), path="blueprint", protocols=["file"]),
         Instantiation(
             url=ensemble_url,
@@ -181,14 +182,15 @@ def test_resolve_cloudmap_url():
         path="onecommons/std",
         protocols=["https"],
     )
-    public = Repository(
-        url="git://example.com/public.git", path="public", private=False
+    # not recorded as private is public
+    public = Repository(url="git://example.com/public.git", path="public")
+    private = Repository(
+        url="git://example.com/private.git", path="private", private=True
     )
-    unknown = Repository(url="git://example.com/unknown.git", path="unknown")
     public_inst = Instantiation(url="git://example.com/public.git#:ensemble.yaml")
-    unknown_inst = Instantiation(url="git://example.com/unknown.git#:ensemble.yaml")
+    private_inst = Instantiation(url="git://example.com/private.git#:ensemble.yaml")
     db = CloudMapDB("", contents={}, validate=False)
-    for record in (std, public, unknown, public_inst, unknown_inst):
+    for record in (std, public, private, public_inst, private_inst):
         db.add_record(record)
 
     # the package id form
@@ -208,8 +210,8 @@ def test_resolve_cloudmap_url():
         db.resolve_cloudmap_url("cloudmap:instantiation:" + public_inst.url)
         == "https://example.com/public.git#:ensemble.yaml"
     )
-    # not known to be public, or not in the cloudmap
-    assert db.resolve_cloudmap_url("cloudmap:instantiation:" + unknown_inst.url) is None
+    # private, or not in the cloudmap
+    assert db.resolve_cloudmap_url("cloudmap:instantiation:" + private_inst.url) is None
     assert db.resolve_cloudmap_url("cloudmap:instantiation:git://x.com/y.git#:e.yaml") is None
     # a record type with no git url
     assert db.resolve_cloudmap_url("cloudmap:type:Foo@example.com") is None
