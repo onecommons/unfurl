@@ -224,6 +224,7 @@ else:
                 if repo.fork and repo.parent
                 else None,
                 private=repo.private,
+                status="archived" if repo.archived else None,
                 branches=self._branches(repo),
                 tags={
                     t.name: t.commit.sha

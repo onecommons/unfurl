@@ -1110,6 +1110,8 @@ class Namespace:
             )
 
 
+RepositoryStatus = Literal["active", "archived", "moved", "deleted"]
+
 ProjectStatus = Literal[
     "concept",
     "WIP",
@@ -1181,6 +1183,8 @@ class Repository(CloudMapRecord):
     "URL of the original repository if this is a fork"
     private: Optional[bool] = None
     "True if the repository not publicly accessible."
+    status: Optional[RepositoryStatus] = None
+    "Status of the repository (e.g., active, deleted, archived)."
     default_branch: str = ""
     'The default branch of the repository (e.g. "main").'
     branches: Dict[str, str] = field(default_factory=dict)
@@ -2051,6 +2055,7 @@ __all__ = [
     "TypeRefJson",
     "TypedUrls",
     "LifecycleStatus",
+    "RepositoryStatus",
     "ArtifactDict",
     "ServiceDict",
     "ComponentDict",

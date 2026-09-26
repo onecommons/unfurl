@@ -42,6 +42,25 @@ skip_integration = pytest.mark.skipif(
 )
 
 
+@pytest.mark.parametrize(
+    "attrs, status",
+    [
+        ({"archived": False}, None),
+        ({"archived": True}, "archived"),
+        ({"archived": True, "marked_for_deletion_at": "2026-10-01"}, "deleted"),
+        ({"archived": False, "marked_for_deletion_on": "2026-10-01"}, "deleted"),
+        ({}, None),
+    ],
+)
+def test_gitlab_project_status(attrs, status):
+    import gitlab
+    from gitlab.v4.objects import Project
+    from unfurl.cloudmap.gitlab import _project_status
+
+    manager = gitlab.Gitlab("https://gitlab.example.com").projects
+    assert _project_status(Project(manager, {"id": 1, **attrs})) == status
+
+
 def test_is_label():
     # labels: word chars, '-', '.'
     assert is_label("web")
@@ -806,6 +825,7 @@ class TestGithubManager:
         mock_repo.full_name = "testuser/test-repo"
         mock_repo.description = "Test repository"
         mock_repo.private = False
+        mock_repo.archived = False
         mock_repo.clone_url = "https://github.com/testuser/test-repo.git"
         mock_repo.ssh_url = "git@github.com:testuser/test-repo.git"
         mock_repo.html_url = "https://github.com/testuser/test-repo"
@@ -858,6 +878,7 @@ class TestGithubManager:
         assert result.url == "git://github.com/testuser/test-repo.git"
         assert result.path == "testuser/test-repo"
         assert result.private is False
+        assert result.status is None
         assert result.default_branch == "main"
         assert result.metadata.description == "Test repository"
         assert result.metadata.topics == ["python", "testing"]
@@ -951,6 +972,7 @@ class TestGithubManager:
         mock_repo.full_name = "testuser/test-repo"
         mock_repo.description = "Test repository with all features"
         mock_repo.private = True
+        mock_repo.archived = True
         mock_repo.clone_url = "https://github.com/testuser/test-repo.git"
         mock_repo.ssh_url = "git@github.com:testuser/test-repo.git"
         mock_repo.html_url = "https://github.com/testuser/test-repo"
@@ -997,6 +1019,7 @@ class TestGithubManager:
         assert result.url == "git://github.com/testuser/test-repo.git"
         assert result.path == "testuser/test-repo"
         assert result.private is True
+        assert result.status == "archived"
         assert result.default_branch == "develop"
         assert result.metadata.description == "Test repository with all features"
         assert result.metadata.topics == ["python", "testing"]

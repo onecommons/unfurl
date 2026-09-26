@@ -2447,6 +2447,16 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "      \"description\": \"URL of the service hosting this repository.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"status\": {"]
+#[doc = "      \"description\": \"Status of the repository (e.g., active, deleted, archived).\","]
+#[doc = "      \"type\": \"string\","]
+#[doc = "      \"enum\": ["]
+#[doc = "        \"active\","]
+#[doc = "        \"archived\","]
+#[doc = "        \"moved\","]
+#[doc = "        \"deleted\""]
+#[doc = "      ]"]
+#[doc = "    },"]
 #[doc = "    \"tags\": {"]
 #[doc = "      \"description\": \"Map of tag names to their commit SHA hashes.\","]
 #[doc = "      \"type\": \"object\","]
@@ -2507,6 +2517,9 @@ pub struct Repository {
     #[doc = "URL of the service hosting this repository."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub service: ::std::option::Option<::std::string::String>,
+    #[doc = "Status of the repository (e.g., active, deleted, archived)."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub status: ::std::option::Option<RepositoryStatus>,
     #[doc = "Map of tag names to their commit SHA hashes."]
     #[serde(
         default,
@@ -2531,6 +2544,7 @@ impl ::std::default::Default for Repository {
             project_url: Default::default(),
             protocols: Default::default(),
             service: Default::default(),
+            status: Default::default(),
             tags: Default::default(),
         }
     }
@@ -2824,6 +2838,89 @@ impl ::std::fmt::Display for RepositoryMetadataVersion {
 impl ::std::convert::From<f64> for RepositoryMetadataVersion {
     fn from(value: f64) -> Self {
         Self::Number(value)
+    }
+}
+#[doc = "Status of the repository (e.g., active, deleted, archived)."]
+#[doc = r""]
+#[doc = r" <details><summary>JSON schema</summary>"]
+#[doc = r""]
+#[doc = r" ```json"]
+#[doc = "{"]
+#[doc = "  \"description\": \"Status of the repository (e.g., active, deleted, archived).\","]
+#[doc = "  \"type\": \"string\","]
+#[doc = "  \"enum\": ["]
+#[doc = "    \"active\","]
+#[doc = "    \"archived\","]
+#[doc = "    \"moved\","]
+#[doc = "    \"deleted\""]
+#[doc = "  ]"]
+#[doc = "}"]
+#[doc = r" ```"]
+#[doc = r" </details>"]
+#[derive(
+    :: serde :: Deserialize,
+    :: serde :: Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum RepositoryStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "archived")]
+    Archived,
+    #[serde(rename = "moved")]
+    Moved,
+    #[serde(rename = "deleted")]
+    Deleted,
+}
+impl ::std::fmt::Display for RepositoryStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Active => f.write_str("active"),
+            Self::Archived => f.write_str("archived"),
+            Self::Moved => f.write_str("moved"),
+            Self::Deleted => f.write_str("deleted"),
+        }
+    }
+}
+impl ::std::str::FromStr for RepositoryStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "active" => Ok(Self::Active),
+            "archived" => Ok(Self::Archived),
+            "moved" => Ok(Self::Moved),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RepositoryStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<&::std::string::String> for RepositoryStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: &::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::convert::TryFrom<::std::string::String> for RepositoryStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(
+        value: ::std::string::String,
+    ) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 #[doc = "`Service`"]

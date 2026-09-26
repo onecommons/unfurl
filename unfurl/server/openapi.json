@@ -2718,6 +2718,16 @@
             "description": "URL of the service hosting this repository.",
             "type": "string"
           },
+          "status": {
+            "description": "Status of the repository (e.g., active, deleted, archived).",
+            "enum": [
+              "active",
+              "archived",
+              "moved",
+              "deleted"
+            ],
+            "type": "string"
+          },
           "tags": {
             "additionalProperties": {
               "description": "Commit SHA hash for the tag.",

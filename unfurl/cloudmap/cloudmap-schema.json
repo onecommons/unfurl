@@ -719,6 +719,16 @@
           "type": "boolean",
           "description": "True if the repository is not publicly accessible."
         },
+        "status": {
+          "type": "string",
+          "description": "Status of the repository (e.g., active, deleted, archived).",
+          "enum": [
+            "active",
+            "archived",
+            "moved",
+            "deleted"
+          ]
+        },
         "default_branch": {
           "type": "string",
           "description": "Default branch name (e.g., main, master)."

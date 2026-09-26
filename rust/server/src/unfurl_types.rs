@@ -438,11 +438,51 @@ pub struct CloudmapRepository {
     pub protocols: Option<Vec<String>>,
     /// URL of the service hosting this repository.
     pub service: Option<String>,
+    /// Status of the repository (e.g., active, deleted, archived).
+    pub status: Option<CloudmapRepositoryStatus>,
     /// Map of tag names to their commit SHA hashes.
     pub tags: Option<std::collections::HashMap<String, String>>,
     /// Additional properties not defined in the schema.
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
+}
+/// Status of the repository (e.g., active, deleted, archived).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, oas3_gen_support::Default)]
+pub enum CloudmapRepositoryStatus {
+    #[serde(rename = "active")]
+    #[default]
+    Active,
+    #[serde(rename = "archived")]
+    Archived,
+    #[serde(rename = "moved")]
+    Moved,
+    #[serde(rename = "deleted")]
+    Deleted,
+}
+impl core::fmt::Display for CloudmapRepositoryStatus {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Active => write!(f, "active"),
+            Self::Archived => write!(f, "archived"),
+            Self::Moved => write!(f, "moved"),
+            Self::Deleted => write!(f, "deleted"),
+        }
+    }
+}
+impl core::str::FromStr for CloudmapRepositoryStatus {
+    type Err = String;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "archived" => Ok(Self::Archived),
+            "moved" => Ok(Self::Moved),
+            "deleted" => Ok(Self::Deleted),
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "active, archived, moved, deleted"
+            )),
+        }
+    }
 }
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]

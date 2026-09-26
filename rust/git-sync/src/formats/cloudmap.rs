@@ -946,6 +946,7 @@ mod tests {
                 "mirror_of",
                 "fork_of",
                 "private",
+                "status",
                 "default_branch",
                 "branches",
                 "tags",

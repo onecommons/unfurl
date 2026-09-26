@@ -31,6 +31,7 @@ from ..tosca_plugins.cloudmap_defs import (
     PipelineVariable,
     Repository,
     RepositoryMetadata,
+    RepositoryStatus,
     TypeRefConstraint,
     TypeRefs,
     get_repository_url,
@@ -42,6 +43,19 @@ if TYPE_CHECKING:
     from . import Directory
 
 logger = getLogger("unfurl")
+
+
+def _project_status(project: Project) -> Optional[RepositoryStatus]:
+    # marked_for_deletion_at (marked_for_deletion_on before GitLab 16) is only
+    # set while a delayed deletion is pending
+    attributes = project.attributes
+    if attributes.get("marked_for_deletion_at") or attributes.get(
+        "marked_for_deletion_on"
+    ):
+        return "deleted"
+    if attributes.get("archived"):
+        return "archived"
+    return None
 
 
 def _clean_ci_var(envvar):
@@ -448,6 +462,7 @@ class GitlabManager(RepositoryHost):
             if forked_from
             else None,
             private=self._get_project_visibility(project) != "public",
+            status=_project_status(project),
             branches=self._branches(project),
             tags={
                 t.name: t.commit["id"]
