@@ -14,6 +14,7 @@ from typing import (
     Callable,
 )
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
+import copy
 import os
 
 from ..cloudmap import CloudMapDB, EntitySchema
@@ -51,6 +52,9 @@ from ..yamlloader import (
     is_inside,
 )
 from ..packages import is_semver
+
+if TYPE_CHECKING:
+    from ..cloudmap.proxy import CloudMapProxy
 
 logger = getLogger("unfurl.server")
 CLOUDMAP_BRANCH = "main"
@@ -122,6 +126,85 @@ def load_cloudmap_local(
     return err, doc, CloudMapDB(file_name, doc, validate)
 
 
+def get_cloudmap_proxy(
+    project_id: str,
+    file_name: Optional[str] = None,
+    latest_commit: Optional[str] = None,
+) -> Optional["CloudMapProxy"]:
+    """A :class:`CloudMapProxy` for ``file_name`` if the app is configured with
+    ``UNFURL_LOCAL_CLOUDMAP_URL`` (the local Rust proxy server has a
+    cloudmap-sync DB attached), otherwise None.
+
+    The Rust process then owns the authoritative cloudmap. The proxy sends the
+    inbound request's auth headers with every request it makes.
+    """
+    syncing_url = (
+        cast(str, current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"))
+        if has_app_context()
+        else None
+    )
+    if not syncing_url:
+        return None
+    from ..cloudmap.proxy import CloudMapProxy
+
+    # CloudMapProxy preserves query params from base_url on every request.
+    extra: List[Tuple[str, str]] = []
+    if project_id:
+        extra.append(("auth_project", project_id))
+    if latest_commit:
+        extra.append(("latest_commit", latest_commit))
+    if file_name:
+        extra.append(("cloudmap_path", file_name))
+    if extra:
+        parsed = urlparse(syncing_url)
+        existing = parse_qsl(parsed.query, keep_blank_values=True)
+        new_query = urlencode(existing + extra)
+        syncing_url = urlunparse(parsed._replace(query=new_query))
+    session = requests.Session()
+    for header in (
+        "X-Git-Credentials",
+        "Authorization",
+        "WWW-Authenticate",
+        "Private-Token",
+    ):
+        value = request.headers.get(header)
+        if value:
+            session.headers[header] = value
+    logger.verbose(
+        "routing CloudMapView through CloudMapProxy at %s (forwarded headers: %s)",
+        syncing_url,
+        sorted(session.headers.keys()),
+    )
+    return CloudMapProxy(syncing_url, session=session, logger=logger)
+
+
+def load_cloudmap_db(
+    project_id: str,
+    branch: str = CLOUDMAP_BRANCH,
+    file_name: Optional[str] = None,
+    root_entry: Optional["CacheEntry"] = None,
+    latest_commit: Optional[str] = None,
+    validate: bool = False,
+    copy_doc: bool = False,
+) -> Tuple[CacheError, Optional[CloudMapDB]]:
+    """Load ``file_name`` from cache and wrap it in a :class:`CloudMapDB`.
+
+    Set ``copy_doc`` if the db will be modified: the cached document is
+    otherwise shared, down to the records' nested values.
+
+    Returns ``(err, db)``. When the YAML couldn't be loaded, ``db`` is ``None``.
+    """
+    cloudmap_path = file_name or CLOUDMAP_PATH
+    err, doc = load_yaml_from_cache(
+        project_id, branch, cloudmap_path, root_entry, latest_commit
+    )
+    if doc is None:
+        return err, None
+    if copy_doc:
+        doc = copy.deepcopy(doc)
+    return err, CloudMapDB(cloudmap_path, doc, validate)
+
+
 def get_cloudmap_view(
     project_id: str,
     branch: str = CLOUDMAP_BRANCH,
@@ -130,65 +213,15 @@ def get_cloudmap_view(
     latest_commit: Optional[str] = None,
     validate: bool = False,
 ) -> Tuple[CacheError, Optional[CloudMapView]]:
-    """Load ``file_name`` from cache and wrap it in a :class:`CloudMapDB`.
-
-    When the app is configured with ``UNFURL_LOCAL_CLOUDMAP_URL`` (the local
-    Rust proxy server has a cloudmap-sync DB attached) read access is
-    routed through a :class:`CloudMapProxy` against that URL instead of
-    a local YAML clone — the Rust process owns the authoritative
-    cloudmap.
-
-    Returns ``(err, db)``. When the YAML couldn't be loaded, ``db``
-    is ``None``.
-    """
+    """The cloudmap at ``file_name``: through :func:`get_cloudmap_proxy` if
+    there is one, otherwise from :func:`load_cloudmap_db`."""
     # called by /get_types and /graph because they have python only logic.
-    syncing_url = (
-        cast(str, current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"))
-        if has_app_context()
-        else None
+    proxy = get_cloudmap_proxy(project_id, file_name, latest_commit)
+    if proxy is not None:
+        return None, proxy
+    return load_cloudmap_db(
+        project_id, branch, file_name, root_entry, latest_commit, validate
     )
-    if syncing_url:
-        from ..cloudmap.proxy import CloudMapProxy
-
-        # CloudMapProxy preserves query params from base_url on every request.
-        extra: List[Tuple[str, str]] = []
-        if project_id:
-            extra.append(("auth_project", project_id))
-        if latest_commit:
-            extra.append(("latest_commit", latest_commit))
-        if file_name:
-            extra.append(("cloudmap_path", file_name))
-        if extra:
-            parsed = urlparse(syncing_url)
-            existing = parse_qsl(parsed.query, keep_blank_values=True)
-            new_query = urlencode(existing + extra)
-            syncing_url = urlunparse(parsed._replace(query=new_query))
-        # Forward auth headers from the inbound request onto the
-        # session so they're attached to every request the proxy makes.
-        session = requests.Session()
-        for header in (
-            "X-Git-Credentials",
-            "Authorization",
-            "WWW-Authenticate",
-            "Private-Token",
-        ):
-            value = request.headers.get(header)
-            if value:
-                session.headers[header] = value
-        logger.verbose(
-            "routing CloudMapView through CloudMapProxy at %s (forwarded headers: %s)",
-            syncing_url,
-            sorted(session.headers.keys()),
-        )
-        return None, CloudMapProxy(syncing_url, session=session, logger=logger)
-
-    cloudmap_path = file_name or CLOUDMAP_PATH
-    err, doc = load_yaml_from_cache(
-        project_id, branch, cloudmap_path, root_entry, latest_commit
-    )
-    if doc is None:
-        return err, None
-    return err, CloudMapDB(cloudmap_path, doc, validate)
 
 
 def get_cloudmap_types(

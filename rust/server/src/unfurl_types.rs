@@ -29,6 +29,95 @@ pub struct BatchPatchBody {
     #[serde(flatten)]
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
+/// Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+#[serde(default)]
+pub struct CloudMapAnalyzeRequest {
+    /// URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.
+    pub add: Option<Vec<String>>,
+    /// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
+    #[default(Some(Default::default()))]
+    pub analyze: Option<CloudMapAnalyzeRequestAnalyze>,
+    /// Branch to write to; defaults to ``main``.
+    pub branch: Option<String>,
+    /// Path of the cloudmap file inside the repo.
+    pub cloudmap_path: Option<String>,
+    /// Whether to commit the new records to git; defaults to true, as for ``POST /cloudmap``.
+    pub commit: Option<bool>,
+    /// Commit message; falls back to one listing the records added.
+    pub commit_msg: Option<String>,
+    /// Last commit oid the client observed. Forwarded to git-level OCC checks.
+    pub latest_commit: Option<String>,
+    /// Git credential token; can also be sent via the ``X-Git-Credentials`` header.
+    pub private_token: Option<String>,
+    /// Like ``add``, but also remove records previously discovered from the URL that it no longer produces.
+    pub replace: Option<Vec<String>>,
+    /// Git credential username; can also be sent via the ``X-Git-Credentials`` header.
+    pub username: Option<String>,
+}
+/// Whether to analyze repository contents. "save-only" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. "metadata" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like "no"; a URL whose record didn't change is reported as skipped.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Deserialize, Serialize, oas3_gen_support::Default)]
+pub enum CloudMapAnalyzeRequestAnalyze {
+    #[serde(rename = "default")]
+    #[default]
+    Default,
+    #[serde(rename = "yes")]
+    Yes,
+    #[serde(rename = "no")]
+    No,
+    #[serde(rename = "save-only")]
+    SaveOnly,
+    #[serde(rename = "metadata")]
+    Metadata,
+}
+impl core::fmt::Display for CloudMapAnalyzeRequestAnalyze {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Default => write!(f, "default"),
+            Self::Yes => write!(f, "yes"),
+            Self::No => write!(f, "no"),
+            Self::SaveOnly => write!(f, "save-only"),
+            Self::Metadata => write!(f, "metadata"),
+        }
+    }
+}
+impl core::str::FromStr for CloudMapAnalyzeRequestAnalyze {
+    type Err = String;
+    fn from_str(s: &str) -> core::result::Result<Self, Self::Err> {
+        match s {
+            "default" => Ok(Self::Default),
+            "yes" => Ok(Self::Yes),
+            "no" => Ok(Self::No),
+            "save-only" => Ok(Self::SaveOnly),
+            "metadata" => Ok(Self::Metadata),
+            _ => Err(format!(
+                "unknown variant '{}', expected one of: {}",
+                s, "default, yes, no, save-only, metadata"
+            )),
+        }
+    }
+}
+/// Response from ``POST /cloudmap/analyze``.
+#[serde_with::skip_serializing_none]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudMapAnalyzeResponse {
+    /// The record each URL that was added or updated resolved to.
+    pub added: Option<Vec<CloudMapAnalyzeResponseAnalyzedRecord>>,
+    /// The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD.
+    pub commit: Option<String>,
+    /// URLs that were already in the cloudmap or that failed to produce a record.
+    pub skipped: Option<Vec<String>>,
+}
+/// The record a URL passed to ``POST /cloudmap/analyze`` resolved to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
+pub struct CloudMapAnalyzeResponseAnalyzedRecord {
+    /// Record key within the section.
+    pub key: String,
+    /// CloudMap section, e.g. ``repositories``.
+    pub section: String,
+    /// The URL as given in the request.
+    pub url: String,
+}
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 #[serde(default)]
@@ -1653,6 +1742,39 @@ impl PostClearProjectFileCacheRequest {}
 pub struct PostClearProjectFileCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
+}
+/// Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.
+#[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
+pub struct PostCloudmapAnalyzeRequest {
+    pub query: PostCloudmapAnalyzeRequestQuery,
+    pub body: Option<CloudMapAnalyzeRequest>,
+}
+impl PostCloudmapAnalyzeRequest {}
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+pub struct PostCloudmapAnalyzeRequestQuery {
+    /// Project ID for authorization and cache key scoping
+    pub auth_project: Option<String>,
+}
+/// Response types for PostCloudmapAnalyzeResponse
+#[derive(Debug, Clone)]
+pub enum PostCloudmapAnalyzeResponse {
+    ///200: the records added and the resulting commit
+    Ok(CloudMapAnalyzeResponse),
+    ///422: Validation error
+    UnprocessableEntity(ValidationError),
+    ///default: Unknown response
+    Unknown,
+}
+impl IntoResponse for PostCloudmapAnalyzeResponse {
+    fn into_response(self) -> axum::response::Response {
+        match self {
+            Self::Ok(data) => (http::StatusCode::OK, axum::Json(data)).into_response(),
+            Self::UnprocessableEntity(data) => {
+                (http::StatusCode::UNPROCESSABLE_ENTITY, axum::Json(data)).into_response()
+            }
+            Self::Unknown => http::StatusCode::OK.into_response(),
+        }
+    }
 }
 /// Request body for ``POST /cloudmap``.
 ///

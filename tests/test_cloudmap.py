@@ -3189,6 +3189,30 @@ def test_graph_walk_follows_moved_to():
     walk_cloudmap_graph_from(db, visitor, [old_url])
     assert list(visitor.result.get("repositories", {})) == [new_url]
 
+
+def test_analyze_endpoint_url_guard():
+    from unfurl.server.endpoints import _analyzable_url
+
+    assert _analyzable_url("https://example.com/app") == "https://example.com/app"
+    assert _analyzable_url("git://example.com/repo.git") == "git://example.com/repo.git"
+    # a bare name is a container image, never a local path
+    assert _analyzable_url("/etc").startswith("pkg:oci/")
+    assert _analyzable_url("library/nginx").startswith("pkg:oci/nginx")
+    for url in ("file:///etc", "git-local://abc:/x", "git+file:///srv/repo"):
+        assert _analyzable_url(url) is None, url
+
+
+def test_analyze_endpoint_changed_sections():
+    from unfurl.server.endpoints import _changed_sections
+
+    before = {"services": {"a": {"x": 1}, "b": {"x": 2}}, "types": {"T": {}}}
+    after = {"services": {"a": {"x": 1}, "b": {"x": 3}, "c": {}}, "types": {}}
+    assert _changed_sections(before, after) == {
+        "services": {"b": {"x": 3}, "c": {}},
+        "types": {"T": {"unfurl.server.deleted": True}},
+    }
+
+
 class TestAnalyzeMetadata:
     """``CloudMap.analyze_url(url, "metadata")`` refreshes a repository record
     from its host without cloning it."""
@@ -3270,3 +3294,24 @@ class TestAnalyzeMetadata:
             assert cloud_map.analyze_url(self.SENT, "metadata") is None
         assert db.get_repository(self.CANONICAL) is before
 
+
+def test_analyze_endpoint_clone_root():
+    from unfurl.server.endpoints import _analysis_clone_root
+    from unfurl.server.serve import app
+
+    configured = Mock()
+    configured.get_context.return_value = {
+        "cloudmaps": {
+            "repositories": {
+                "cloudmap": {"url": "https://example.com/cloudmap.git", "clone_root": "repos"}
+            }
+        }
+    }
+    unconfigured = Mock()
+    unconfigured.get_context.return_value = {
+        "cloudmaps": {"repositories": {"cloudmap": {"url": "https://example.com/cloudmap.git"}}}
+    }
+    with app.app_context(), patch.dict(app.config, UNFURL_CLONE_ROOT="/srv/clones"):
+        assert _analysis_clone_root(configured) == "repos"
+        assert _analysis_clone_root(unconfigured) == "/srv/clones/.cloudmap-repos"
+        assert _analysis_clone_root(None) == "/srv/clones/.cloudmap-repos"

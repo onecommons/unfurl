@@ -53,6 +53,196 @@
         "title": "BatchPatchBody",
         "type": "object"
       },
+      "CloudMapAnalyzeRequest": {
+        "description": "Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``.",
+        "properties": {
+          "add": {
+            "description": "URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Add",
+            "type": "array"
+          },
+          "analyze": {
+            "default": "default",
+            "description": "Whether to analyze repository contents. \"save-only\" clones the repository without analyzing it; the default analyzes a file named in the URL but not a whole repository. \"metadata\" refreshes an existing repository record from its host without cloning, keeping what earlier analysis found, and otherwise acts like \"no\"; a URL whose record didn't change is reported as skipped.",
+            "enum": [
+              "default",
+              "yes",
+              "no",
+              "save-only",
+              "metadata"
+            ],
+            "title": "Analyze",
+            "type": "string"
+          },
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Branch to write to; defaults to ``main``.",
+            "title": "Branch"
+          },
+          "cloudmap_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Path of the cloudmap file inside the repo.",
+            "title": "Cloudmap Path"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Whether to commit the new records to git; defaults to true, as for ``POST /cloudmap``.",
+            "title": "Commit"
+          },
+          "commit_msg": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Commit message; falls back to one listing the records added.",
+            "title": "Commit Msg"
+          },
+          "latest_commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Last commit oid the client observed. Forwarded to git-level OCC checks.",
+            "title": "Latest Commit"
+          },
+          "private_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential token; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Private Token"
+          },
+          "replace": {
+            "description": "Like ``add``, but also remove records previously discovered from the URL that it no longer produces.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Replace",
+            "type": "array"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Git credential username; can also be sent via the ``X-Git-Credentials`` header.",
+            "title": "Username"
+          }
+        },
+        "title": "CloudMapAnalyzeRequest",
+        "type": "object"
+      },
+      "CloudMapAnalyzeResponse": {
+        "description": "Response from ``POST /cloudmap/analyze``.",
+        "properties": {
+          "added": {
+            "description": "The record each URL that was added or updated resolved to.",
+            "items": {
+              "$ref": "#/components/schemas/CloudMapAnalyzeResponse.AnalyzedRecord"
+            },
+            "title": "Added",
+            "type": "array"
+          },
+          "commit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD.",
+            "title": "Commit"
+          },
+          "skipped": {
+            "description": "URLs that were already in the cloudmap or that failed to produce a record.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Skipped",
+            "type": "array"
+          }
+        },
+        "title": "CloudMapAnalyzeResponse",
+        "type": "object"
+      },
+      "CloudMapAnalyzeResponse.AnalyzedRecord": {
+        "description": "The record a URL passed to ``POST /cloudmap/analyze`` resolved to.",
+        "properties": {
+          "key": {
+            "description": "Record key within the section.",
+            "title": "Key",
+            "type": "string"
+          },
+          "section": {
+            "description": "CloudMap section, e.g. ``repositories``.",
+            "title": "Section",
+            "type": "string"
+          },
+          "url": {
+            "description": "The URL as given in the request.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url",
+          "section",
+          "key"
+        ],
+        "title": "AnalyzedRecord",
+        "type": "object"
+      },
       "CloudMapDocument": {
         "properties": {
           "apiVersion": {
@@ -3472,6 +3662,66 @@
           }
         },
         "summary": "Modify the CloudMap document",
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/cloudmap/analyze": {
+      "post": {
+        "description": "Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "auth_project",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "Project ID for authorization and cache key scoping",
+              "title": "Auth Project"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CloudMapAnalyzeRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CloudMapAnalyzeResponse"
+                }
+              }
+            },
+            "description": "the records added and the resulting commit"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationError"
+                }
+              }
+            },
+            "description": "Validation error"
+          }
+        },
+        "summary": "Add records to the CloudMap by analyzing URLs",
         "tags": [
           "Export"
         ]

@@ -836,6 +836,89 @@ class PostCloudmapRequest(BaseModel):
         return self
 
 
+
+class CloudMapAnalyzeRequest(BaseModel):
+    """Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``."""
+
+    add: List[str] = Field(
+        default_factory=list,
+        description="URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.",
+    )
+    replace: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Like ``add``, but also remove records previously discovered from the URL "
+            "that it no longer produces."
+        ),
+    )
+    analyze: Literal["default", "yes", "no", "save-only", "metadata"] = Field(
+        default="default",
+        description=(
+            'Whether to analyze repository contents. "save-only" clones the '
+            "repository without analyzing it; the default analyzes a file named "
+            'in the URL but not a whole repository. "metadata" refreshes an '
+            "existing repository record from its host without cloning, keeping "
+            'what earlier analysis found, and otherwise acts like "no"; a URL '
+            "whose record didn't change is reported as skipped."
+        ),
+    )
+    latest_commit: Optional[str] = Field(
+        default=None,
+        description="Last commit oid the client observed. Forwarded to git-level OCC checks.",
+    )
+    branch: Optional[str] = Field(
+        default=None,
+        description="Branch to write to; defaults to ``main``.",
+    )
+    cloudmap_path: Optional[str] = Field(
+        default=None,
+        description="Path of the cloudmap file inside the repo.",
+    )
+    commit: Optional[bool] = Field(
+        default=None,
+        description="Whether to commit the new records to git; defaults to true, as for ``POST /cloudmap``.",
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="Git credential username; can also be sent via the ``X-Git-Credentials`` header.",
+    )
+    private_token: Optional[str] = Field(
+        default=None,
+        description="Git credential token; can also be sent via the ``X-Git-Credentials`` header.",
+    )
+    commit_msg: Optional[str] = Field(
+        default=None,
+        description="Commit message; falls back to one listing the records added.",
+    )
+
+
+class AnalyzedRecord(BaseModel):
+    """The record a URL passed to ``POST /cloudmap/analyze`` resolved to."""
+
+    url: str = Field(description="The URL as given in the request.")
+    section: str = Field(description="CloudMap section, e.g. ``repositories``.")
+    key: str = Field(description="Record key within the section.")
+
+
+class CloudMapAnalyzeResponse(BaseModel):
+    """Response from ``POST /cloudmap/analyze``."""
+
+    commit: Optional[str] = Field(
+        default=None,
+        description=(
+            "The repository's commit hash after the request was handled: the new "
+            "commit when one was made, otherwise the unchanged HEAD."
+        ),
+    )
+    added: List[AnalyzedRecord] = Field(
+        default_factory=list,
+        description="The record each URL that was added or updated resolved to.",
+    )
+    skipped: List[str] = Field(
+        default_factory=list,
+        description="URLs that were already in the cloudmap or that failed to produce a record.",
+    )
+
 class CloudMapResult(BaseModel):
     """Placeholder for the ``GET /cloudmap`` response object.
 

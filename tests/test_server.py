@@ -3608,6 +3608,50 @@ def test_server_cloudmap(server_env):
             )
             assert res.status_code == 200, res.text
             assert res.json()["result"]["repositories"][new_url]["name"] == "brand-new"
+
+            # 8. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
+            #    service url produces a record without touching the network.
+            analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"
+            service_url = "https://analyze.example.com/app"
+            head_before = repo.revision
+            res = requests.post(analyze_url, json={"add": [service_url]})
+            assert res.status_code == 200, res.text
+            assert res.json()["added"] == [
+                {"url": service_url, "section": "services", "key": service_url}
+            ], res.text
+            assert res.json()["skipped"] == []
+            assert repo.revision != head_before, "analyze commits by default"
+            assert res.json()["commit"] == repo.revision
+            read_back = requests.get(
+                cloudmap_url, params={"kind": "services", "key": service_url}
+            )
+            assert read_back.status_code == 200, read_back.text
+            if not rust_cloudmap_local:
+                on_disk_doc = _yaml.safe_load(Path(cloudmap_path).read_text())
+                assert service_url in on_disk_doc["services"]
+                # the rest of the document is untouched
+                assert existing_key in on_disk_doc["repositories"]
+
+            # already present: skipped, as `--add` does without --analyze yes
+            head_before = repo.revision
+            res = requests.post(analyze_url, json={"add": [service_url]})
+            assert res.status_code == 200, res.text
+            assert res.json()["added"] == [] and res.json()["skipped"] == [service_url]
+            assert repo.revision == head_before, "nothing added -> no commit"
+
+            # replace re-analyzes it
+            res = requests.post(
+                analyze_url,
+                json={"replace": [service_url], "commit_msg": "re-analyze the service"},
+            )
+            assert res.status_code == 200, res.text
+            assert [r["key"] for r in res.json()["added"]] == [service_url]
+
+            # the server's own filesystem is off limits
+            res = requests.post(analyze_url, json={"add": ["file:///etc"]})
+            assert res.status_code == 400, res.text
+            res = requests.post(analyze_url, json={})
+            assert res.status_code == 400, res.text
         finally:
             _terminate_process(p)
 

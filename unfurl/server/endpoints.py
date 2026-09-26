@@ -11,7 +11,19 @@ import re
 from urllib.parse import urlparse
 from itertools import product
 from base64 import b64decode
-from typing import Any, Callable, Dict, Iterator, List, Optional, Set, Tuple, Union, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 
 from flask import Response, current_app, jsonify, make_response, request
 from flask.typing import ResponseReturnValue
@@ -28,7 +40,7 @@ from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..manifest import relabel_dict
 from ..projectpaths import Folders
-from ..cloudmap.db import extends_children, subtype_closure
+from ..cloudmap.db import CloudMapDB, CloudMapStore, extends_children, subtype_closure
 from ..repo import (
     GitRepo,
     Repo,
@@ -36,12 +48,14 @@ from ..repo import (
     normalize_git_url_hard,
     sanitize_url,
 )
-from ..util import API_VERSION, assert_not_none, unique_name
+from ..util import API_VERSION, UnfurlError, assert_not_none, unique_name
 from ..yamlmanifest import YamlManifest
 from ..yamlloader import yaml
 
 from .schemas import (
     BatchPatchBody,
+    CloudMapAnalyzeRequest,
+    CloudMapAnalyzeResponse,
     CloudMapDocQuery,
     CloudMapQuery,
     CloudMapResponse,
@@ -80,6 +94,9 @@ from .serve import (
     set_branch_head,
     refresh_current_localenv,
 )
+
+if TYPE_CHECKING:
+    from ..cloudmap import CloudMap
 
 logger = getLogger("unfurl.server")
 
@@ -1004,7 +1021,7 @@ def post_cloudmap(
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
     so the ``latest_commit`` check is the only concurrency control in place.
     """
-    from .cache import CLOUDMAP_BRANCH, load_yaml_from_cache
+    from .cache import CLOUDMAP_BRANCH
 
     raw = _get_body(request)
     cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
@@ -1028,6 +1045,34 @@ def post_cloudmap(
                 "BAD_REQUEST", f"section {section!r} must be a JSON object"
             )
         body_sections[section] = entries
+
+    return _apply_cloudmap_sections(
+        project_id,
+        branch,
+        cloudmap_path,
+        body_sections,
+        commit_requested,
+        latest_commit,
+        cast(str, username or ""),
+        cast(str, password or ""),
+        _get_commit_msg(raw, f"Update {cloudmap_path}"),
+    )
+
+
+def _apply_cloudmap_sections(
+    project_id: str,
+    branch: str,
+    cloudmap_path: str,
+    body_sections: Dict[str, Dict[str, Any]],
+    commit_requested: Optional[bool],
+    latest_commit: Optional[str],
+    username: str,
+    password: str,
+    commit_msg: str,
+) -> ResponseReturnValue:
+    """Write ``body_sections`` into the cloudmap at ``cloudmap_path`` and commit it,
+    as ``POST /cloudmap`` does. See :func:`post_cloudmap` for the request semantics."""
+    from .cache import load_yaml_from_cache
 
     # Resolve the on-disk path and the GitRepo for `_commit_and_push` first, so a
     # `cloudmap_path` that doesn't exist yet can be told apart from a load failure.
@@ -1119,13 +1164,12 @@ def post_cloudmap(
 
     # Commit locally (no push). Everything above guarantees the working tree
     # is dirty, so no further `is_dirty()` check is required here.
-    commit_msg = _get_commit_msg(raw, f"Update {cloudmap_path}")
     commit_err = _commit_and_push(
         repo,
         full_path,
         commit_msg,
-        cast(str, username or ""),
-        cast(str, password or ""),
+        username,
+        password,
         starting_revision,
         project_id,
         branch,
@@ -1137,6 +1181,208 @@ def post_cloudmap(
     new_commit = repo.revision
 
     return {"commit": new_commit, "applied": applied}
+
+
+
+def _analyzable_url(url: str) -> Optional[str]:
+    """``url`` as ``POST /cloudmap/analyze`` passes it to ``CloudMap.analyze_url``,
+    or None if it names the server's own filesystem.
+
+    ``analyze_url`` treats a bare name as a local path when one exists, so bare
+    names are converted to the container image PURL it would otherwise make of
+    them -- unconditionally, so a response doesn't reveal which paths exist.
+    """
+    from ..support import ContainerImageParts
+    from ..tosca_plugins.cloudmap_defs import build_oci_purl
+
+    scheme = urlparse(url).scheme
+    if not scheme:
+        return build_oci_purl(ContainerImageParts.split(url))
+    if scheme in ("file", "git-local") or scheme.endswith("+file"):
+        return None
+    return url
+
+
+def _cloudmap_local_env() -> Optional[LocalEnv]:
+    """The environment ``POST /cloudmap/analyze`` finds repository hosts and
+    custom analyzers in: the server's own, not the cloudmap project's, which
+    needn't be an Unfurl project. None if the server has neither a project nor
+    a home project."""
+    gui_env = current_app.config.get("UNFURL_GUI_MODE")
+    if isinstance(gui_env, LocalEnv):
+        return gui_env
+    options = current_app.config.get("UNFURL_OPTIONS") or {}
+    try:
+        return LocalEnv(
+            current_app.config.get("UNFURL_CURRENT_WORKING_DIR"),
+            options.get("home"),
+            can_be_empty=True,
+            readonly=True,
+        )
+    except UnfurlError as e:
+        logger.verbose("analyzing without repository hosts: %s", e)
+        return None
+
+
+def _analysis_clone_root(local_env: Optional[LocalEnv]) -> str:
+    """Where ``POST /cloudmap/analyze`` clones the repositories it analyzes: the
+    ``clone_root`` configured for the cloudmap, as ``CloudMap.from_name`` uses."""
+    from ..cloudmap import CloudMap
+
+    if local_env:
+        clone_root = CloudMap.get_config(local_env, "cloudmap")[3].get("clone_root")
+        if clone_root:
+            return str(clone_root)
+    return os.path.join(
+        current_app.config.get("UNFURL_CLONE_ROOT", "."), ".cloudmap-repos"
+    )
+
+
+def _cloudmap_sections(db: CloudMapDB) -> Dict[str, Dict[str, Any]]:
+    """Copy of ``db``'s record sections in the form they're saved in."""
+    import copy
+
+    db.save()  # a cloudmap loaded from the cache has no file: this only serializes
+    return copy.deepcopy(
+        {section: dict(db.db.get(section) or {}) for section in _CLOUDMAP_SECTIONS}
+    )
+
+
+def _changed_sections(
+    before: Dict[str, Dict[str, Any]], after: Dict[str, Dict[str, Any]]
+) -> Dict[str, Dict[str, Any]]:
+    """The ``POST /cloudmap`` body that turns ``before`` into ``after``."""
+    changes: Dict[str, Dict[str, Any]] = {}
+    for section in _CLOUDMAP_SECTIONS:
+        old, new = before.get(section, {}), after.get(section, {})
+        changed = {key: value for key, value in new.items() if old.get(key) != value}
+        changed.update(
+            (key, {"unfurl.server.deleted": True}) for key in old if key not in new
+        )
+        if changed:
+            changes[section] = changed
+    return changes
+
+
+def _analyze_urls(
+    cloud_map: "CloudMap",
+    requested: List[Tuple[str, bool]],
+    body: CloudMapAnalyzeRequest,
+) -> Tuple[List[Dict[str, str]], List[str], str]:
+    """Analyze each ``(url, replacing)`` as ``unfurl cloudmap --add/--replace``
+    does. Returns the records added, the urls skipped and a commit message."""
+    from ..tosca_plugins.cloudmap_defs import section_of
+
+    added: List[Dict[str, str]] = []
+    skipped: List[str] = []
+    for url, replacing in requested:
+        analyzable = assert_not_none(_analyzable_url(url))
+        record = cloud_map.analyze_url(analyzable, body.analyze, replacing)
+        if record is None:
+            skipped.append(url)
+        else:
+            added.append(dict(url=url, section=section_of(record), key=record.key))
+    verb = "Updated" if body.replace else "Added"
+    names = ", ".join(r["key"] for r in added)
+    return added, skipped, body.commit_msg or f"{verb} {len(added)} record(s): {names}"
+
+
+@app.post("/cloudmap/analyze")
+@app.doc(
+    summary="Add records to the CloudMap by analyzing URLs",
+    description=(
+        "Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add "
+        "the records it produces to ``cloudmap.yaml``. Records are written the "
+        "same way as ``POST /cloudmap``, through the rust cloudmap server when "
+        "one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a "
+        "bare name is always taken to be a container image."
+    ),
+    tags=["Export"],
+)
+@app.input(ProjectAuthQuery, location="query", arg_name="query")
+@app.input(CloudMapAnalyzeRequest, location="json", arg_name="body")
+@app.output(CloudMapAnalyzeResponse, description="the records added and the resulting commit")
+def post_cloudmap_analyze(
+    query: ProjectAuthQuery, body: CloudMapAnalyzeRequest
+) -> ResponseReturnValue:
+    from .cache import CLOUDMAP_BRANCH, get_cloudmap_proxy, load_cloudmap_db
+    from ..cloudmap import CloudMap
+    from ..cloudmap.proxy import CloudMapProxyConflict, CloudMapProxyError
+
+    project_id = get_project_id_or_abort(request)
+    cloudmap_path = body.cloudmap_path or "cloudmap.yaml"
+    # a url given to both is replaced, which is a superset of adding it
+    requested = [(u, False) for u in body.add if u not in body.replace]
+    requested += [(u, True) for u in body.replace]
+    if not requested:
+        return create_error_response("BAD_REQUEST", "no add or replace urls given")
+    for url, _ in requested:
+        if _analyzable_url(url) is None:
+            return create_error_response(
+                "BAD_REQUEST", f"{url}: local file urls can't be analyzed"
+            )
+
+    branch = body.branch or CLOUDMAP_BRANCH
+    proxy = get_cloudmap_proxy(project_id, cloudmap_path, body.latest_commit)
+    db: Optional[CloudMapDB] = None
+    before: Dict[str, Dict[str, Any]] = {}
+    store: CloudMapStore
+    if proxy is not None:
+        store = proxy
+    else:
+        err, db = load_cloudmap_db(
+            project_id,
+            branch,
+            cloudmap_path,
+            latest_commit=body.latest_commit,
+            copy_doc=True,
+        )
+        if db is None:
+            if isinstance(err, Response):
+                return err
+            return create_error_response("INTERNAL_ERROR", str(err))
+        store = db
+        before = _cloudmap_sections(db)
+
+    local_env = _cloudmap_local_env()
+    cloud_map = CloudMap(
+        None,  # records are saved through the store, not committed by the CloudMap
+        "",
+        localrepo_root=_analysis_clone_root(local_env),
+        skip_analysis=body.analyze in ("no", "metadata"),
+        commit=body.commit is not False,
+        logger=logger,
+        local_env=local_env,
+        db=store,
+    )
+    added, skipped, commit_msg = _analyze_urls(cloud_map, requested, body)
+
+    if proxy is not None:
+        new_commit = None
+        if added:
+            try:
+                new_commit = proxy.save(commit_msg, commit=body.commit is not False)
+            except CloudMapProxyConflict as e:
+                return create_error_response("CONFLICT", str(e))
+            except CloudMapProxyError as e:
+                return create_error_response("INTERNAL_ERROR", str(e))
+        return {"commit": new_commit, "added": added, "skipped": skipped}
+
+    db = assert_not_none(db)  # loaded above when there's no proxy
+    result = _apply_cloudmap_sections(
+        project_id,
+        branch,
+        cloudmap_path,
+        _changed_sections(before, _cloudmap_sections(db)),
+        body.commit,
+        body.latest_commit,
+        body.username or "",
+        body.private_token or "",
+        commit_msg,
+    )
+    if not isinstance(result, dict):
+        return result  # an error response
+    return {"commit": result.get("commit"), "added": added, "skipped": skipped}
 
 
 @app.get("/graph")
