@@ -17,6 +17,7 @@ from typing import (
     Optional,
     Set,
     Tuple,
+    Union,
     cast,
 )
 from urllib.parse import urlparse
@@ -879,6 +880,14 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
         "schema-validates as the corresponding cloudmap entity. To "
         "delete a record, send the object with "
         "``unfurl.server.deleted: true``.\n\n"
+        "``unfurl.server.if_exists: true`` applies the write only if the "
+        "record already exists; otherwise the record is skipped and left out "
+        "of ``applied``. ``unfurl.server.merge: true`` merges the object into "
+        "the existing record instead of replacing it: objects are merged "
+        "recursively and any other value replaces the existing one. Instead "
+        "of true, ``unfurl.server.merge`` can be an object of merge directives: "
+        "``delete``, a list of field names or JSON pointers, removes those "
+        "fields after merging.\n\n"
         "When an edit POSTed to this endpoint is contradicted by a change in the "
         "file itself, neither side overwrites the other: a GET keeps "
         "returning the edit, the file keeps its own version, and the "
@@ -944,6 +953,54 @@ def post_cloudmap(
         cast(str, password or ""),
         _get_commit_msg(raw, f"Update {cloudmap_path}"),
     )
+
+
+def _merge_record(base: Dict[str, Any], patch: Dict[str, Any]) -> Dict[str, Any]:
+    """``patch`` merged into ``base``: objects are merged recursively, any other
+    value replaces the one in ``base``."""
+    merged = dict(base)
+    for key, value in patch.items():
+        current = merged.get(key)
+        if isinstance(value, dict) and isinstance(current, dict):
+            merged[key] = _merge_record(current, value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _merge_deletes(directive: Union[bool, Dict[str, Any]]) -> List[List[str]]:
+    """The fields an ``unfurl.server.merge`` directive deletes, as JSON
+    pointer tokens. ``true`` merges and deletes nothing.
+
+    Raises:
+        ValueError: if the directive isn't ``true``, ``false`` or an object
+            with only a ``delete`` list of field names or JSON pointers.
+    """
+    if isinstance(directive, bool):
+        return []
+    if not isinstance(directive, dict):
+        raise ValueError("unfurl.server.merge must be true or an object")
+    unknown = set(directive) - {"delete"}
+    if unknown:
+        raise ValueError(f"unknown unfurl.server.merge directive {sorted(unknown)}")
+    fields = directive.get("delete", [])
+    if not isinstance(fields, list) or not all(isinstance(f, str) for f in fields):
+        raise ValueError("unfurl.server.merge delete must be a list of strings")
+    return [_pointer_tokens(f) for f in fields]
+
+
+def _without_field(record: Dict[str, Any], tokens: List[str]) -> Dict[str, Any]:
+    """``record`` without the field at ``tokens``, copying the objects on the
+    path rather than modifying them."""
+    head, rest = tokens[0], tokens[1:]
+    if head not in record:
+        return record
+    copy = dict(record)
+    if not rest:
+        del copy[head]
+    elif isinstance(copy[head], dict):
+        copy[head] = _without_field(copy[head], rest)
+    return copy
 
 
 def _apply_cloudmap_sections(
@@ -1012,6 +1069,15 @@ def _apply_cloudmap_sections(
                     "BAD_REQUEST", f"{section}.{key}: value must be a JSON object"
                 )
             payload = dict(value)
+            if_exists = payload.pop("unfurl.server.if_exists", False)
+            merge = payload.pop("unfurl.server.merge", False)
+            try:
+                deletes = _merge_deletes(merge)
+            except ValueError as e:
+                return create_error_response("BAD_REQUEST", f"{section}.{key}: {e}")
+            existing = section_doc.get(key)
+            if if_exists and existing is None:
+                continue
             if payload.pop("unfurl.server.deleted", False):
                 if section_doc.pop(key, None) is not None:
                     applied.append({"section": section, "key": key, "version": 0})
@@ -1019,6 +1085,10 @@ def _apply_cloudmap_sections(
                 # Strip OCC keys so they don't leak into the persisted YAML.
                 payload.pop("unfurl.server.commit", None)
                 payload.pop("unfurl.server.version", None)
+                if merge and isinstance(existing, dict):
+                    payload = _merge_record(existing, payload)
+                for tokens in deletes:
+                    payload = _without_field(payload, tokens)
                 if section_doc.get(key) != payload:
                     section_doc[key] = payload
                     applied.append({"section": section, "key": key, "version": 0})

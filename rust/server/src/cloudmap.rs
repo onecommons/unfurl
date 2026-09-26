@@ -1581,6 +1581,12 @@ fn pop_commit_ref(map: &mut Map<String, Value>) -> Option<CommitRef> {
 ///   favour of this write. Absent leaves the conflict standing, so a
 ///   client that never looked at it cannot drop the file's value by
 ///   accident.
+/// - `unfurl.server.if_exists: true` — skip the record if it doesn't
+///   exist (it is left out of `applied`).
+/// - `unfurl.server.merge: true` — merge into the existing record
+///   instead of replacing it (see [`merge_json`]). Instead of `true`, an
+///   object of merge directives: `delete`, a list of field names or JSON
+///   pointers, removes those fields after merging.
 ///
 /// Unknown top-level sections produce a **400 Bad Request** with an
 /// `error: "unknown section <name>"` body, matching the Python
@@ -2014,6 +2020,11 @@ async fn apply_writes(
                             $section, key
                         ))
                     })?;
+                    let Some(value) =
+                        resolve_conditional_write(synced, $path, &key, value, file_path).await?
+                    else {
+                        continue;
+                    };
                     let op = build_batch_op($section, $path, key, value, file_path)?;
                     ops.push(op);
                     sections.push($section);
@@ -2095,6 +2106,141 @@ async fn apply_writes(
     })
 }
 
+/// Applies the `unfurl.server.{if_exists,merge}` markers, which need the
+/// record's current value. Returns `None` to skip the record, otherwise the
+/// value to write.
+///
+/// Unless the client sent its own OCC token, the write is gated on the
+/// version read here, so a record changed or deleted in between fails as a
+/// conflict instead of being overwritten.
+async fn resolve_conditional_write(
+    synced: &SyncedRepo,
+    path: &str,
+    key: &str,
+    value: Value,
+    file_path: Option<&str>,
+) -> Result<Option<Value>, WriteError> {
+    let Value::Object(mut map) = value else {
+        return Ok(Some(value));
+    };
+    let if_exists = matches!(
+        map.remove("unfurl.server.if_exists"),
+        Some(Value::Bool(true))
+    );
+    let deletes = merge_deletes(key, map.remove("unfurl.server.merge"))?;
+    let merge = deletes.is_some();
+    if !if_exists && !merge {
+        return Ok(Some(Value::Object(map)));
+    }
+    let existing = synced
+        .find_records(&RecordQuery {
+            file_path: file_path.map(str::to_string),
+            path: Some(path.to_string()),
+            key: Some(key.to_string()),
+            ..Default::default()
+        })
+        .await
+        .map_err(|e| WriteError::Internal(format!("find_records: {e}")))?
+        .into_iter()
+        .next();
+    let Some(existing) = existing else {
+        if if_exists {
+            return Ok(None);
+        }
+        let mut created = Value::Object(map);
+        for pointer in deletes.iter().flatten() {
+            delete_pointer(&mut created, pointer);
+        }
+        return Ok(Some(created));
+    };
+    if !map.contains_key("unfurl.server.commit") && !map.contains_key("unfurl.server.version") {
+        map.insert(
+            "unfurl.server.version".to_string(),
+            Value::from(existing.version),
+        );
+    }
+    let deleting = matches!(map.get("unfurl.server.deleted"), Some(Value::Bool(true)));
+    if merge && !deleting {
+        let mut merged = existing.json;
+        merge_json(&mut merged, Value::Object(map));
+        for pointer in deletes.iter().flatten() {
+            delete_pointer(&mut merged, pointer);
+        }
+        return Ok(Some(merged));
+    }
+    Ok(Some(Value::Object(map)))
+}
+
+/// Parses an `unfurl.server.merge` value: `None` when the record isn't
+/// merged, otherwise the JSON pointers of the fields its `delete` directive
+/// removes (a field name is a pointer without the leading `/`).
+fn merge_deletes(key: &str, directive: Option<Value>) -> Result<Option<Vec<String>>, WriteError> {
+    let bad = |msg: &str| WriteError::BadRequest(format!("{key}: {msg}"));
+    let mut directive = match directive {
+        None | Some(Value::Bool(false)) => return Ok(None),
+        Some(Value::Bool(true)) => return Ok(Some(Vec::new())),
+        Some(Value::Object(directive)) => directive,
+        Some(_) => return Err(bad("unfurl.server.merge must be true or an object")),
+    };
+    let fields = match directive.remove("delete") {
+        None => Vec::new(),
+        Some(Value::Array(fields)) => fields,
+        Some(_) => return Err(bad("unfurl.server.merge delete must be a list of strings")),
+    };
+    if let Some(unknown) = directive.keys().next() {
+        return Err(bad(&format!(
+            "unknown unfurl.server.merge directive {unknown:?}"
+        )));
+    }
+    let mut pointers = Vec::with_capacity(fields.len());
+    for field in fields {
+        let Value::String(field) = field else {
+            return Err(bad("unfurl.server.merge delete must be a list of strings"));
+        };
+        let pointer = if field.starts_with('/') {
+            field
+        } else {
+            format!("/{field}")
+        };
+        if pointer.split('/').skip(1).any(str::is_empty) {
+            return Err(bad(&format!("path {pointer:?} needs non-empty segments")));
+        }
+        pointers.push(pointer);
+    }
+    Ok(Some(pointers))
+}
+
+/// Removes the field at the JSON `pointer`, if there is one.
+fn delete_pointer(value: &mut Value, pointer: &str) {
+    let Some((parent, field)) = pointer.rsplit_once('/') else {
+        return;
+    };
+    let field = field.replace("~1", "/").replace("~0", "~");
+    if let Some(Value::Object(parent)) = value.pointer_mut(parent) {
+        parent.remove(&field);
+    }
+}
+
+/// Merges `patch` into `base`: objects are merged recursively, any other
+/// value replaces the one in `base`.
+fn merge_json(base: &mut Value, patch: Value) {
+    match (base, patch) {
+        (Value::Object(base), Value::Object(patch)) => {
+            for (key, value) in patch {
+                match base.get_mut(&key) {
+                    Some(current) if current.is_object() && value.is_object() => {
+                        merge_json(current, value);
+                    }
+                    _ => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, patch) => *base = patch,
+    }
+}
+
 /// Convert a single ``(section, path, key, value)`` triple into a
 /// [`BatchOp`]. The OCC marker keys (``unfurl.server.{commit,version,
 /// id}``) and the ``unfurl.server.{deleted,resolve}`` flags are popped
@@ -2156,7 +2302,64 @@ fn classify_failure(err: &unfurl_git_sync::Error) -> (Option<String>, Option<Str
 
 #[cfg(test)]
 mod tests {
-    use super::{branch_matches, origin_matches};
+    use super::{branch_matches, delete_pointer, merge_deletes, merge_json, origin_matches};
+    use serde_json::json;
+
+    #[test]
+    fn merge_directive_deletes_fields() {
+        let Ok(Some(deletes)) = merge_deletes(
+            "k",
+            Some(json!({"delete": ["moved_to", "/metadata/description", "/a~1b"]})),
+        ) else {
+            panic!("a valid directive");
+        };
+        assert_eq!(deletes, ["/moved_to", "/metadata/description", "/a~1b"]);
+        let mut record = json!({
+            "path": "p",
+            "moved_to": "git://x",
+            "a/b": 1,
+            "metadata": {"description": "d", "title": "t"},
+        });
+        for pointer in &deletes {
+            delete_pointer(&mut record, pointer);
+        }
+        assert_eq!(record, json!({"path": "p", "metadata": {"title": "t"}}));
+
+        assert!(matches!(merge_deletes("k", None), Ok(None)));
+        assert!(matches!(merge_deletes("k", Some(json!(true))), Ok(Some(d)) if d.is_empty()));
+        for bad in [
+            json!("yes"),
+            json!({"remove": ["x"]}),
+            json!({"delete": "x"}),
+            json!({"delete": [1]}),
+            json!({"delete": ["a//b"]}),
+        ] {
+            assert!(merge_deletes("k", Some(bad.clone())).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn merge_json_merges_objects_recursively() {
+        let mut base = json!({
+            "path": "a/b",
+            "metadata": {"description": "old", "topics": ["x"]},
+            "protocols": ["https", "ssh"],
+        });
+        merge_json(
+            &mut base,
+            json!({"status": "deleted", "metadata": {"description": "new"}, "protocols": ["https"]}),
+        );
+        assert_eq!(
+            base,
+            json!({
+                "path": "a/b",
+                "status": "deleted",
+                "metadata": {"description": "new", "topics": ["x"]},
+                // arrays are replaced, not merged
+                "protocols": ["https"],
+            })
+        );
+    }
 
     #[test]
     fn branch_matches_either_spelling() {

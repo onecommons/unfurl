@@ -3610,7 +3610,93 @@ def test_server_cloudmap(server_env):
             assert res.status_code == 200, res.text
             assert res.json()["result"]["repositories"][new_url]["name"] == "brand-new"
 
-            # 8. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
+            # 8. `unfurl.server.merge` merges into the existing record and
+            #    `unfurl.server.if_exists` skips a record that doesn't exist.
+            before_merge = requests.get(
+                cloudmap_url, params={"kind": "repositories", "key": existing_key}
+            ).json()["result"]["repositories"][existing_key]
+            missing_key = "git://example.com/no-such-repo.git"
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "commit": True,
+                    "repositories": {
+                        existing_key: {
+                            "status": "archived",
+                            "unfurl.server.merge": True,
+                            "unfurl.server.if_exists": True,
+                        },
+                        missing_key: {
+                            "status": "deleted",
+                            "unfurl.server.merge": True,
+                            "unfurl.server.if_exists": True,
+                        },
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert [r["key"] for r in res.json()["applied"]] == [existing_key], res.text
+            merged = requests.get(
+                cloudmap_url, params={"kind": "repositories", "key": existing_key}
+            ).json()["result"]["repositories"][existing_key]
+            assert merged["status"] == "archived"
+            for field in ("path", "name"):
+                assert merged[field] == before_merge[field], merged
+            assert (
+                requests.get(
+                    cloudmap_url, params={"kind": "repositories", "key": missing_key}
+                ).status_code
+                == 404
+            )
+            # a merge directive can delete fields
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "commit": True,
+                    "repositories": {
+                        existing_key: {"unfurl.server.merge": {"delete": ["status"]}}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            unmerged = requests.get(
+                cloudmap_url, params={"kind": "repositories", "key": existing_key}
+            ).json()["result"]["repositories"][existing_key]
+            assert "status" not in unmerged, unmerged
+            assert unmerged["path"] == before_merge["path"]
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "repositories": {
+                        existing_key: {"unfurl.server.merge": {"strategy": "replace"}}
+                    }
+                },
+            )
+            assert res.status_code == 400, res.text
+            # merge without if_exists creates a record that's missing
+            res = requests.post(
+                cloudmap_url,
+                json={
+                    "commit": True,
+                    "repositories": {
+                        missing_key: {"path": "no-such-repo", "unfurl.server.merge": True}
+                    },
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert [r["key"] for r in res.json()["applied"]] == [missing_key], res.text
+            created = requests.get(
+                cloudmap_url, params={"kind": "repositories", "key": missing_key}
+            ).json()["result"]["repositories"][missing_key]
+            assert created["path"] == "no-such-repo"
+            if not rust_cloudmap_local:
+                on_disk_doc = _yaml.safe_load(Path(cloudmap_path).read_text())
+                on_disk = on_disk_doc["repositories"][existing_key]
+                # merged, then its status deleted again by the merge directive
+                assert "status" not in on_disk and on_disk["path"] == before_merge["path"]
+                assert "unfurl.server.merge" not in on_disk
+
+            # 9. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
             #    service url produces a record without touching the network.
             analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"
             service_url = "https://analyze.example.com/app"

@@ -3295,6 +3295,27 @@ class TestAnalyzeMetadata:
         assert db.get_repository(self.CANONICAL) is before
 
 
+def test_post_cloudmap_merge_directive():
+    from unfurl.server.cloudmap import _merge_deletes, _merge_record, _without_field
+
+    assert _merge_deletes(True) == []
+    assert _merge_deletes({"delete": ["moved_to", "/metadata/description"]}) == [
+        ["moved_to"],
+        ["metadata", "description"],
+    ]
+    for bad in ("yes", {"strategy": "replace"}, {"delete": "x"}, {"delete": ["a//b"]}):
+        with pytest.raises(ValueError):
+            _merge_deletes(bad)
+
+    existing = {"path": "p", "moved_to": "git://x", "metadata": {"description": "d", "title": "t"}}
+    merged = _merge_record(existing, {"status": "active"})
+    for tokens in _merge_deletes({"delete": ["moved_to", "/metadata/description"]}):
+        merged = _without_field(merged, tokens)
+    assert merged == {"path": "p", "status": "active", "metadata": {"title": "t"}}
+    # the existing record is left as it was
+    assert existing["metadata"] == {"description": "d", "title": "t"}
+
+
 def test_analyze_endpoint_clone_root():
     from unfurl.server.cloudmap import _analysis_clone_root
     from unfurl.server.serve import app
