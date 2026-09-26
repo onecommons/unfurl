@@ -1105,7 +1105,7 @@ async fn paged_response(
 
 /// Parse a JSON Pointer (RFC 6901, leading "/" optional) into
 /// unescaped reference tokens — the same rule as `_pointer_tokens` in
-/// `unfurl/server/endpoints.py`, so `group_by` and `facet` paths mean
+/// `unfurl/server/cloudmap.py`, so `group_by` and `facet` paths mean
 /// the same thing on both servers.
 fn pointer_tokens(path: &str) -> Result<Vec<String>, LocalError> {
     let trimmed = path.trim();
@@ -1288,7 +1288,7 @@ async fn build_facets_response(
 
 /// Parse the `filter` param: `<json pointer>=<value>`.
 ///
-/// Ports `_parse_json_filter` in `unfurl/server/endpoints.py`. The path is a
+/// Ports `_parse_json_filter` in `unfurl/server/cloudmap.py`. The path is a
 /// JSON Pointer (RFC 6901, leading "/" optional); the value is read as JSON --
 /// `true`, `false`, `null` and numbers keep their type, anything else is a
 /// string, and a double-quoted value is always a string.

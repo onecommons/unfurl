@@ -2263,7 +2263,7 @@ def test_cloudmap_endpoint_paging_rejects_bad_token(cloudmap_test_client):
 def test_cloudmap_endpoint_paging_survives_deleted_anchor(cloudmap_test_client):
     """The cursor is a value, not a row reference: dropping the record it
     names still resumes at the right place."""
-    from unfurl.server.endpoints import _encode_page_token
+    from unfurl.server.cloudmap import _encode_page_token
 
     unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
     keys = sorted(unpaged["repositories"])
@@ -2280,7 +2280,7 @@ def test_cloudmap_endpoint_paging_survives_deleted_anchor(cloudmap_test_client):
 def test_page_token_round_trips_and_is_stable():
     """The wire format is pinned: the rust server mints byte-identical
     tokens, and a walk can cross between the two implementations."""
-    from unfurl.server.endpoints import _decode_page_token, _encode_page_token
+    from unfurl.server.cloudmap import _decode_page_token, _encode_page_token
 
     assert _encode_page_token("/artifacts", "pkg:x") == "artifacts/pkg:x"
     assert _decode_page_token(_encode_page_token("/artifacts", "pkg:x")) == (
@@ -3191,7 +3191,7 @@ def test_graph_walk_follows_moved_to():
 
 
 def test_analyze_endpoint_url_guard():
-    from unfurl.server.endpoints import _analyzable_url
+    from unfurl.server.cloudmap import _analyzable_url
 
     assert _analyzable_url("https://example.com/app") == "https://example.com/app"
     assert _analyzable_url("git://example.com/repo.git") == "git://example.com/repo.git"
@@ -3203,7 +3203,7 @@ def test_analyze_endpoint_url_guard():
 
 
 def test_analyze_endpoint_changed_sections():
-    from unfurl.server.endpoints import _changed_sections
+    from unfurl.server.cloudmap import _changed_sections
 
     before = {"services": {"a": {"x": 1}, "b": {"x": 2}}, "types": {"T": {}}}
     after = {"services": {"a": {"x": 1}, "b": {"x": 3}, "c": {}}, "types": {}}
@@ -3296,7 +3296,7 @@ class TestAnalyzeMetadata:
 
 
 def test_analyze_endpoint_clone_root():
-    from unfurl.server.endpoints import _analysis_clone_root
+    from unfurl.server.cloudmap import _analysis_clone_root
     from unfurl.server.serve import app
 
     configured = Mock()

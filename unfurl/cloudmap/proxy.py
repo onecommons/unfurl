@@ -934,7 +934,7 @@ class CloudMapProxy(CloudMapStore):
         # delete marker so the next POST tombstones the record on the
         # server. The endpoint signals deletes via
         # `unfurl.server.deleted: true` on the record payload (see
-        # endpoints.py post_cloudmap); OCC tokens still round-trip so
+        # server/cloudmap.py post_cloudmap); OCC tokens still round-trip so
         # the server's per-record concurrency check applies to the
         # delete the same way it does to a write.
         section = self._section_for(record)
@@ -1006,7 +1006,7 @@ class CloudMapProxy(CloudMapStore):
         ``commit`` asks the server to commit the records to its clone rather
         than leave them staged. It is always sent, never omitted: the two
         server implementations disagree on what an absent key means -- the
-        python handler commits (`endpoints.py`, ``raw.get("commit")`` is None)
+        python handler commits (`server/cloudmap.py`, ``raw.get("commit")`` is None)
         while the rust one only stages (`cloudmap.rs`,
         ``body.commit.unwrap_or(false)``) -- so the intent has to be explicit.
 

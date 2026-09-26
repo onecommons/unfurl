@@ -2435,11 +2435,11 @@ if os.getenv("SERVER_SOFTWARE"):
     enter_safe_mode()
 
 
-# Register the /cloudmap and patch endpoints (decorators on `app` run
-# at import time). Must come after every name `endpoints` imports
-# from this module is defined — `app`, `CacheEntry`,
+# Register the patch and /cloudmap endpoints (decorators on `app` run
+# at import time). Must come after every name `endpoints` and `cloudmap`
+# import from this module is defined — `app`, `CacheEntry`,
 # `create_error_response`, `localenv_from_cache_checked`, etc.
-from . import endpoints  # noqa: E402, F401
+from . import endpoints, cloudmap  # noqa: E402, F401
 
 
 def _backend_port(main_port: int) -> int:

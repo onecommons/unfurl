@@ -31,6 +31,7 @@ from click.testing import CliRunner
 from git import Repo
 from werkzeug.exceptions import HTTPException
 from unfurl.server import endpoints as server_endpoints
+from unfurl.server import cloudmap as server_cloudmap
 from unfurl.server import serve as server
 from unfurl.server import gui
 from unfurl.packages import is_semver_compatible_with
@@ -4733,7 +4734,7 @@ def test_cloudmap_project_id_resolution(monkeypatch):
         else:
             monkeypatch.setenv("UNFURL_SERVE_PATH", serve_path)
         request = EnvironBuilder(query_string=query).get_request()
-        return server_endpoints._cloudmap_project_id(request)
+        return server_cloudmap._cloudmap_project_id(request)
 
     # an explicit auth_project always wins
     assert resolve("auth_project=me/proj", None) == "me/proj"
@@ -4741,7 +4742,7 @@ def test_cloudmap_project_id_resolution(monkeypatch):
     # serving a local path -> "" so the request resolves to that project
     assert resolve("", ".") == ""
     # otherwise fall back to the public cloudmap
-    assert resolve("", None) == server_endpoints.CLOUDMAP_PROJECT
+    assert resolve("", None) == server_cloudmap.CLOUDMAP_PROJECT
 
 
 def test_clone_repo_without_project_id(monkeypatch, tmp_path):
