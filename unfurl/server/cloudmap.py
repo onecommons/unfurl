@@ -60,6 +60,7 @@ from .endpoints import _commit_and_push, _get_author, _get_body, _get_commit_msg
 
 if TYPE_CHECKING:
     from ..cloudmap import CloudMap
+    from ..tosca_plugins.cloudmap_defs import CloudMapRecord
 
 logger = getLogger("unfurl.server")
 
@@ -1227,19 +1228,33 @@ def _analyze_urls(
     body: CloudMapAnalyzeRequest,
 ) -> Tuple[List[Dict[str, str]], List[str], str]:
     """Analyze each ``(url, replacing)`` as ``unfurl cloudmap --add/--replace``
-    does. Returns the records added, the urls skipped and a commit message."""
+    does, then record the ``deleted``, ``private`` and ``moved`` repositories.
+    Returns the records added or updated, the urls skipped and a commit message."""
     from ..tosca_plugins.cloudmap_defs import section_of
 
     added: List[Dict[str, str]] = []
     skipped: List[str] = []
-    for url, replacing in requested:
-        analyzable = assert_not_none(_analyzable_url(url))
-        record = cloud_map.analyze_url(analyzable, body.analyze, replacing)
+
+    def report(url: str, record: Optional["CloudMapRecord"]) -> None:
         if record is None:
             skipped.append(url)
         else:
             added.append(dict(url=url, section=section_of(record), key=record.key))
-    verb = "Updated" if body.replace else "Added"
+
+    for url, replacing in requested:
+        analyzable = assert_not_none(_analyzable_url(url))
+        report(url, cloud_map.analyze_url(analyzable, body.analyze, replacing))
+    for url in body.deleted:
+        report(url, cloud_map.update_repository(url, status="deleted"))
+    for url in body.private:
+        report(url, cloud_map.update_repository(url, private=True))
+    for move in body.moved:
+        report(
+            move.from_,
+            cloud_map.update_repository(move.from_, status="moved", moved_to=move.to),
+        )
+    only_added = not (body.replace or body.deleted or body.private or body.moved)
+    verb = "Added" if only_added else "Updated"
     names = ", ".join(r["key"] for r in added)
     return added, skipped, body.commit_msg or f"{verb} {len(added)} record(s): {names}"
 
@@ -1252,7 +1267,10 @@ def _analyze_urls(
         "the records it produces to ``cloudmap.yaml``. Records are written the "
         "same way as ``POST /cloudmap``, through the rust cloudmap server when "
         "one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a "
-        "bare name is always taken to be a container image."
+        "bare name is always taken to be a container image.\n\n"
+        "``deleted``, ``private`` and ``moved`` report what happened to "
+        "repositories already in the cloudmap; their records are updated, "
+        "never removed."
     ),
     tags=["Export"],
 )
@@ -1271,9 +1289,11 @@ def post_cloudmap_analyze(
     # a url given to both is replaced, which is a superset of adding it
     requested = [(u, False) for u in body.add if u not in body.replace]
     requested += [(u, True) for u in body.replace]
-    if not requested:
-        return create_error_response("BAD_REQUEST", "no add or replace urls given")
-    for url, _ in requested:
+    events = body.deleted + body.private + [m.from_ for m in body.moved]
+    if not requested and not events:
+        return create_error_response("BAD_REQUEST", "no urls given")
+    urls = [u for u, _ in requested] + events + [m.to for m in body.moved]
+    for url in urls:
         if _analyzable_url(url) is None:
             return create_error_response(
                 "BAD_REQUEST", f"{url}: local file urls can't be analyzed"

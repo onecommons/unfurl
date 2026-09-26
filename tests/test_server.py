@@ -3739,6 +3739,50 @@ def test_server_cloudmap(server_env):
             assert res.status_code == 400, res.text
             res = requests.post(analyze_url, json={})
             assert res.status_code == 400, res.text
+
+            # deleted / private / moved update the records, never remove them
+            types_key = "git://unfurl.cloud/onecommons/unfurl-types.git"
+            odoo_key = "git://unfurl.cloud/onecommons/blueprints/odoo.git"
+            std_key = "git://unfurl.cloud/onecommons/std.git"
+            res = requests.post(
+                analyze_url,
+                json={
+                    "deleted": [
+                        "https://unfurl.cloud/onecommons/unfurl-types.git",
+                        "https://example.com/never-added.git",
+                    ],
+                    "private": ["https://unfurl.cloud/onecommons/blueprints/odoo.git"],
+                    "moved": [
+                        {
+                            "from": "https://unfurl.cloud/onecommons/std.git",
+                            "to": "https://unfurl.cloud/onecommons/std-lib.git",
+                        }
+                    ],
+                },
+            )
+            assert res.status_code == 200, res.text
+            assert sorted(r["key"] for r in res.json()["added"]) == sorted(
+                [types_key, odoo_key, std_key]
+            ), res.text
+            assert res.json()["skipped"] == ["https://example.com/never-added.git"]
+
+            def repository(key):
+                res = requests.get(cloudmap_url, params={"kind": "repositories", "key": key})
+                assert res.status_code == 200, res.text
+                return res.json()["result"]["repositories"][key]
+
+            assert repository(types_key)["status"] == "deleted"
+            assert repository(odoo_key)["private"] is True
+            std = repository(std_key)
+            assert std["status"] == "moved"
+            assert std["moved_to"] == "git://unfurl.cloud/onecommons/std-lib.git"
+            # nothing left to change the second time
+            res = requests.post(
+                analyze_url,
+                json={"deleted": ["https://unfurl.cloud/onecommons/unfurl-types.git"]},
+            )
+            assert res.status_code == 200, res.text
+            assert res.json()["added"] == []
         finally:
             _terminate_process(p)
 

@@ -129,6 +129,14 @@
             "description": "Commit message; falls back to one listing the records added.",
             "title": "Commit Msg"
           },
+          "deleted": {
+            "description": "URLs of repositories that no longer exist: their records are kept with ``status: deleted``.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Deleted",
+            "type": "array"
+          },
           "latest_commit": {
             "anyOf": [
               {
@@ -141,6 +149,22 @@
             "default": null,
             "description": "Last commit oid the client observed. Forwarded to git-level OCC checks.",
             "title": "Latest Commit"
+          },
+          "moved": {
+            "description": "Renamed or transferred repositories: the record at the previous URL is kept with ``status: moved`` and ``moved_to`` set. Add the new URL to ``add`` to record the repository there.",
+            "items": {
+              "$ref": "#/components/schemas/CloudMapAnalyzeRequest.RepositoryMove"
+            },
+            "title": "Moved",
+            "type": "array"
+          },
+          "private": {
+            "description": "URLs of repositories that are no longer publicly accessible: their records are kept with ``private: true``.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Private",
+            "type": "array"
           },
           "private_token": {
             "anyOf": [
@@ -180,11 +204,32 @@
         "title": "CloudMapAnalyzeRequest",
         "type": "object"
       },
+      "CloudMapAnalyzeRequest.RepositoryMove": {
+        "description": "A repository that was renamed or transferred.",
+        "properties": {
+          "from": {
+            "description": "The repository's previous URL.",
+            "title": "From",
+            "type": "string"
+          },
+          "to": {
+            "description": "The repository's new URL.",
+            "title": "To",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from",
+          "to"
+        ],
+        "title": "RepositoryMove",
+        "type": "object"
+      },
       "CloudMapAnalyzeResponse": {
         "description": "Response from ``POST /cloudmap/analyze``.",
         "properties": {
           "added": {
-            "description": "The record each URL that was added or updated resolved to.",
+            "description": "The record each URL that was added or updated resolved to; for a ``moved`` repository, its previous URL.",
             "items": {
               "$ref": "#/components/schemas/CloudMapAnalyzeResponse.AnalyzedRecord"
             },
@@ -205,7 +250,7 @@
             "title": "Commit"
           },
           "skipped": {
-            "description": "URLs that were already in the cloudmap or that failed to produce a record.",
+            "description": "URLs that were already in the cloudmap, that failed to produce a record, or (for ``deleted``, ``private`` and ``moved``) whose record isn't in the cloudmap or already said so.",
             "items": {
               "type": "string"
             },
@@ -3669,7 +3714,7 @@
     },
     "/cloudmap/analyze": {
       "post": {
-        "description": "Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.",
+        "description": "Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.\n\n``deleted``, ``private`` and ``moved`` report what happened to repositories already in the cloudmap; their records are updated, never removed.",
         "parameters": [
           {
             "in": "query",

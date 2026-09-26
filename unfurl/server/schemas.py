@@ -837,6 +837,15 @@ class PostCloudmapRequest(BaseModel):
 
 
 
+class RepositoryMove(BaseModel):
+    """A repository that was renamed or transferred."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: str = Field(alias="from", description="The repository's previous URL.")
+    to: str = Field(description="The repository's new URL.")
+
+
 class CloudMapAnalyzeRequest(BaseModel):
     """Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``."""
 
@@ -849,6 +858,28 @@ class CloudMapAnalyzeRequest(BaseModel):
         description=(
             "Like ``add``, but also remove records previously discovered from the URL "
             "that it no longer produces."
+        ),
+    )
+    deleted: List[str] = Field(
+        default_factory=list,
+        description=(
+            "URLs of repositories that no longer exist: their records are kept "
+            "with ``status: deleted``."
+        ),
+    )
+    private: List[str] = Field(
+        default_factory=list,
+        description=(
+            "URLs of repositories that are no longer publicly accessible: their "
+            "records are kept with ``private: true``."
+        ),
+    )
+    moved: List[RepositoryMove] = Field(
+        default_factory=list,
+        description=(
+            "Renamed or transferred repositories: the record at the previous URL "
+            "is kept with ``status: moved`` and ``moved_to`` set. Add the new URL "
+            "to ``add`` to record the repository there."
         ),
     )
     analyze: Literal["default", "yes", "no", "save-only", "metadata"] = Field(
@@ -912,11 +943,18 @@ class CloudMapAnalyzeResponse(BaseModel):
     )
     added: List[AnalyzedRecord] = Field(
         default_factory=list,
-        description="The record each URL that was added or updated resolved to.",
+        description=(
+            "The record each URL that was added or updated resolved to; for a "
+            "``moved`` repository, its previous URL."
+        ),
     )
     skipped: List[str] = Field(
         default_factory=list,
-        description="URLs that were already in the cloudmap or that failed to produce a record.",
+        description=(
+            "URLs that were already in the cloudmap, that failed to produce a "
+            "record, or (for ``deleted``, ``private`` and ``moved``) whose record "
+            "isn't in the cloudmap or already said so."
+        ),
     )
 
 class CloudMapResult(BaseModel):

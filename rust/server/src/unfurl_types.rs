@@ -30,7 +30,7 @@ pub struct BatchPatchBody {
     pub additional_properties: std::collections::HashMap<String, serde_json::Value>,
 }
 /// Request body for ``POST /cloudmap/analyze``; mirrors ``unfurl cloudmap --add``.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
 #[serde(default)]
 pub struct CloudMapAnalyzeRequest {
     /// URLs to add a record for: a git URL, a ``pkg:`` PURL, a container image name or a service URL.
@@ -46,8 +46,15 @@ pub struct CloudMapAnalyzeRequest {
     pub commit: Option<bool>,
     /// Commit message; falls back to one listing the records added.
     pub commit_msg: Option<String>,
+    /// URLs of repositories that no longer exist: their records are kept with ``status: deleted``.
+    pub deleted: Option<Vec<String>>,
     /// Last commit oid the client observed. Forwarded to git-level OCC checks.
     pub latest_commit: Option<String>,
+    /// Renamed or transferred repositories: the record at the previous URL is kept with ``status: moved`` and ``moved_to`` set. Add the new URL to ``add`` to record the repository there.
+    #[validate(nested)]
+    pub moved: Option<Vec<CloudMapAnalyzeRequestRepositoryMove>>,
+    /// URLs of repositories that are no longer publicly accessible: their records are kept with ``private: true``.
+    pub private: Option<Vec<String>>,
     /// Git credential token; can also be sent via the ``X-Git-Credentials`` header.
     pub private_token: Option<String>,
     /// Like ``add``, but also remove records previously discovered from the URL that it no longer produces.
@@ -97,15 +104,25 @@ impl core::str::FromStr for CloudMapAnalyzeRequestAnalyze {
         }
     }
 }
+/// A repository that was renamed or transferred.
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+pub struct CloudMapAnalyzeRequestRepositoryMove {
+    /// The repository's previous URL.
+    #[validate(length(min = 1u64))]
+    pub from: String,
+    /// The repository's new URL.
+    #[validate(length(min = 1u64))]
+    pub to: String,
+}
 /// Response from ``POST /cloudmap/analyze``.
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudMapAnalyzeResponse {
-    /// The record each URL that was added or updated resolved to.
+    /// The record each URL that was added or updated resolved to; for a ``moved`` repository, its previous URL.
     pub added: Option<Vec<CloudMapAnalyzeResponseAnalyzedRecord>>,
     /// The repository's commit hash after the request was handled: the new commit when one was made, otherwise the unchanged HEAD.
     pub commit: Option<String>,
-    /// URLs that were already in the cloudmap or that failed to produce a record.
+    /// URLs that were already in the cloudmap, that failed to produce a record, or (for ``deleted``, ``private`` and ``moved``) whose record isn't in the cloudmap or already said so.
     pub skipped: Option<Vec<String>>,
 }
 /// The record a URL passed to ``POST /cloudmap/analyze`` resolved to.
@@ -1744,9 +1761,12 @@ pub struct PostClearProjectFileCacheRequestQuery {
     pub auth_project: Option<String>,
 }
 /// Like ``unfurl cloudmap --add`` / ``--replace``: analyze each URL and add the records it produces to ``cloudmap.yaml``. Records are written the same way as ``POST /cloudmap``, through the rust cloudmap server when one is configured. ``file:`` and ``git-local:`` URLs are rejected, and a bare name is always taken to be a container image.
+///
+/// ``deleted``, ``private`` and ``moved`` report what happened to repositories already in the cloudmap; their records are updated, never removed.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostCloudmapAnalyzeRequest {
     pub query: PostCloudmapAnalyzeRequestQuery,
+    #[validate(nested)]
     pub body: Option<CloudMapAnalyzeRequest>,
 }
 impl PostCloudmapAnalyzeRequest {}

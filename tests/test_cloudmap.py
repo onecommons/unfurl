@@ -3213,9 +3213,9 @@ def test_analyze_endpoint_changed_sections():
     }
 
 
-class TestAnalyzeMetadata:
-    """``CloudMap.analyze_url(url, "metadata")`` refreshes a repository record
-    from its host without cloning it."""
+class _GitlabHostFixture:
+    """A cloudmap whose GitLab host keys records under a canonical url that
+    differs from the urls GitLab itself reports."""
 
     CANONICAL = "git://unfurl.cloud/group/project.git"
     # what a GitLab instance with canonical_url https://unfurl.cloud sends
@@ -3231,13 +3231,6 @@ class TestAnalyzeMetadata:
         manager.canonical_url = "https://unfurl.cloud"
         manager.logger = Mock()
         return cloud_map, manager
-
-    def _analyze(self, db: CloudMapDB, fresh: Repository, with_host: bool = True):
-        cloud_map, manager = self._cloudmap(db, with_host)
-        with patch.object(CloudMap, "get_host", return_value=manager), patch.object(
-            GitlabManager, "gitlab_project_to_repository", return_value=fresh
-        ):
-            return cloud_map.analyze_url(self.SENT, "metadata")
 
     def _record(self, description: str, **kw) -> Repository:
         return Repository(
@@ -3256,6 +3249,18 @@ class TestAnalyzeMetadata:
         )
         db.add_record(existing)
         return db
+
+
+class TestAnalyzeMetadata(_GitlabHostFixture):
+    """``CloudMap.analyze_url(url, "metadata")`` refreshes a repository record
+    from its host without cloning it."""
+
+    def _analyze(self, db: CloudMapDB, fresh: Repository, with_host: bool = True):
+        cloud_map, manager = self._cloudmap(db, with_host)
+        with patch.object(CloudMap, "get_host", return_value=manager), patch.object(
+            GitlabManager, "gitlab_project_to_repository", return_value=fresh
+        ):
+            return cloud_map.analyze_url(self.SENT, "metadata")
 
     def test_refreshes_existing_record_and_keeps_contains(self):
         db = self._db_with_existing()
@@ -3293,6 +3298,51 @@ class TestAnalyzeMetadata:
         ):
             assert cloud_map.analyze_url(self.SENT, "metadata") is None
         assert db.get_repository(self.CANONICAL) is before
+
+
+class TestUpdateRepository(_GitlabHostFixture):
+    """``CloudMap.update_repository`` records what happened to a repository
+    without contacting its host, under the key the host gives it."""
+
+    def _update(self, db: CloudMapDB, url: str, **kw):
+        cloud_map, manager = self._cloudmap(db)
+        with patch.object(CloudMap, "get_host", return_value=manager):
+            return cloud_map.update_repository(url, **kw)
+
+    def test_deleted_keeps_the_record(self):
+        db = self._db_with_existing()
+        record = self._update(db, self.SENT, status="deleted")
+        assert record is not None and record.key == self.CANONICAL
+        stored = db.get_repository(self.CANONICAL)
+        assert stored and stored.status == "deleted"
+        assert ("", "ensemble.yaml") in stored.contains
+        # already deleted: nothing to change
+        assert self._update(db, self.SENT, status="deleted") is None
+
+    def test_private(self):
+        db = self._db_with_existing()
+        assert self._update(db, self.SENT, private=True) is not None
+        stored = db.get_repository(self.CANONICAL)
+        assert stored and stored.private is True and stored.status is None
+
+    def test_moved_to_is_the_canonical_key(self):
+        db = self._db_with_existing()
+        record = self._update(
+            db,
+            self.SENT,
+            status="moved",
+            moved_to="http://gdk.test:3000/other/project.git",
+        )
+        assert record is not None
+        assert (record.status, record.moved_to) == (
+            "moved",
+            "git://unfurl.cloud/other/project.git",
+        )
+
+    def test_missing_record_is_skipped(self):
+        db = CloudMapDB("", contents={}, validate=False)
+        assert self._update(db, self.SENT, status="deleted") is None
+        assert db.get_repository(self.CANONICAL) is None
 
 
 def test_post_cloudmap_merge_directive():

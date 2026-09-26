@@ -85,6 +85,7 @@ from ..tosca_plugins.cloudmap_defs import (
     EntitySchema,
     RepositoryAnalyzer,
     Repository,
+    RepositoryStatus,
     Service,
     TypedUrls,
     TypeRefs,
@@ -1181,6 +1182,55 @@ class CloudMap:
         if replace:
             tracked.replace_from_source(source, provenance)
         return record
+
+    def update_repository(
+        self,
+        url: str,
+        status: Optional[RepositoryStatus] = None,
+        private: Optional[bool] = None,
+        moved_to: str = "",
+    ) -> Optional[Repository]:
+        """Set the given fields on the repository record for ``url`` without
+        contacting its host; ``moved_to`` is a URL, recorded under its key.
+
+        Returns:
+            The record, or None if it isn't in the cloudmap or already had
+            those values.
+        """
+        context = self.directory.context
+        repo_url = split_git_url_with_commit(url)[0]
+        record = context.get_repository(self._repository_key(url)) or context.get_repository(
+            get_repository_url(repo_url)
+        )
+        if record is None:
+            return None
+        before = record.asdict()
+        if status is not None:
+            record.status = status
+        if private is not None:
+            record.private = private
+        if moved_to:
+            record.moved_to = self._repository_key(moved_to)
+        if record.asdict() == before:
+            return None
+        context.add_record(record)
+        return record
+
+    def _repository_key(self, url: str) -> str:
+        """The key of the repository record for ``url``: a repository host
+        keys it under its canonical url."""
+        repo_url = split_git_url_with_commit(url)[0]
+        canonical_url = get_repository_url(repo_url)
+        if not self.local_env:
+            return canonical_url
+        host = CloudMap.get_host(
+            self.local_env,
+            repo_url,
+            namespace="",
+            repos_root=self.directory.repos_root,
+            repo_filter=canonical_url,
+        )
+        return get_repository_url(host.canonize(repo_url))
 
     @classmethod
     def _canonical_source(cls, url: str) -> str:
