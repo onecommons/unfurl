@@ -1218,6 +1218,9 @@ class Repository(CloudMapRecord):
             self.metadata = RepositoryMetadata(**(md or {}))
         # contains keys are repo-relative file paths (url-parts), not labels
         self.contains = TypeRefs.urls_fromdict(self.contains, keys_are_urls=True)
+        # The branch being analyzed, if not the default branch. Not saved: it
+        # qualifies the artifact urls and ``contains`` keys an analysis makes.
+        self.revision = ""
 
     def get_current_commit(self) -> str:
         """Return the current commit for the default branch."""
@@ -1259,9 +1262,34 @@ class Repository(CloudMapRecord):
                     return scheme + "://" + url
         return ""
 
-    def artifact_url(self, file_path: str) -> str:
-        "URL to reference a file in the repository as an artifact"
-        return f"{self.url}#:{quote(file_path)}"
+    def artifact_url(self, file_path: str, revision: Optional[str] = None) -> str:
+        """URL to reference a file in the repository as an artifact, on
+        ``revision`` (by default :attr:`revision`)."""
+        if revision is None:
+            revision = self.revision
+        return f"{self.url}#{revision}:{quote(file_path)}"
+
+    def source_url(self) -> str:
+        """The url records found by analyzing this repository are discovered
+        from: its url, qualified by the branch being analyzed if there is one."""
+        return f"{self.url}#{self.revision}" if self.revision else self.url
+
+    def contains_key(self, file_path: str) -> str:
+        """The ``contains`` key for ``file_path``: the path itself on the
+        default branch, ``#<branch>:<path>`` on the branch being analyzed."""
+        return f"#{self.revision}:{file_path}" if self.revision else file_path
+
+    def contains_artifact_url(self, key: str) -> str:
+        """The artifact url a ``contains`` key refers to."""
+        if key.startswith("#"):
+            revision, _, file_path = key[1:].partition(":")
+            return self.artifact_url(file_path, revision)
+        return self.artifact_url(key, "")
+
+    def _in_revision(self, key: str) -> bool:
+        if self.revision:
+            return key.startswith(f"#{self.revision}:")
+        return not key.startswith("#")
 
     def match_path(self, path: str) -> bool:
         return _match_namespace(self.path, path)
@@ -1284,7 +1312,23 @@ class Repository(CloudMapRecord):
         self.branches[branch] = repo.revision
 
     def add_notables(self, notables: List["RepositoryAnalyzer"]) -> None:
-        notables.sort(key=attrgetter("path"))
+        """Replace the ``contains`` entries for the branch being analyzed with
+        those of ``notables``."""
+        contains = self._notable_entries(notables)
+        for (_, key), type_refs in self.contains.items():
+            if not self._in_revision(key):
+                contains[key] = type_refs
+        self._set_contains(contains)
+
+    def update_notables(self, notables: List["RepositoryAnalyzer"]) -> None:
+        """Add or update the ``contains`` entries of ``notables``."""
+        contains = {key: type_refs for (_, key), type_refs in self.contains.items()}
+        contains.update(self._notable_entries(notables))
+        self._set_contains(contains)
+
+    def _notable_entries(
+        self, notables: List["RepositoryAnalyzer"]
+    ) -> Dict[str, Optional[TypeRefs]]:
         # analyzers contribute entries keyed by repo-relative file path
         contains: Dict[str, Optional[TypeRefs]] = {}
         for n in notables:
@@ -1295,7 +1339,10 @@ class Repository(CloudMapRecord):
                 type_refs = (
                     TypeRefs({n.artifact_type: None}) if n.artifact_type else None
                 )
-                contains[n.path] = type_refs
+                contains[self.contains_key(n.path)] = type_refs
+        return contains
+
+    def _set_contains(self, contains: Dict[str, Optional[TypeRefs]]) -> None:
         # keep entries ordered by path even when an analyzer contributed several,
         # normalizing the file-path keys into ("", url) form
         self.contains = TypeRefs.urls_fromdict(

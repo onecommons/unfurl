@@ -150,6 +150,7 @@ def configure_app(app: APIFlask = app) -> Cache:
      - CACHE_REDIS_URL or CACHE_REDIS_HOST, CACHE_REDIS_PORT, etc. for RedisCache configuration
      - UNFURL_CLONE_ROOT: root directory for cloning git repositories (default: current directory)
      - UNFURL_CLOUD_SERVER: URL of the unfurl cloud server (default: https://unfurl.cloud)
+     - UNFURL_DEFAULT_CLOUDMAP_PROJECT: project whose cloudmap a request that names none reads, and that pushes are analyzed into; if unset, pushes aren't analyzed
      - UNFURL_SERVE_SECRET: optional secret for authenticating requests
      - UNFURL_SERVE_CORS: optional whitespace-separated list of allowed CORS origins, or "*" (default: origin of UNFURL_CLOUD_SERVER)
      - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries, -1: never pull, 0: always pull (default: 120)
@@ -197,6 +198,9 @@ def configure_app(app: APIFlask = app) -> Cache:
     )
     app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
     app.config["UNFURL_LOCAL_CLOUDMAP_URL"] = os.getenv("UNFURL_LOCAL_CLOUDMAP_URL")
+    app.config["UNFURL_DEFAULT_CLOUDMAP_PROJECT"] = os.getenv(
+        "UNFURL_DEFAULT_CLOUDMAP_PROJECT"
+    )
     app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
         os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
     )
@@ -1957,11 +1961,23 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
         logger.info("skipping populate cache for private repository %s", project_id)
         return "OK"
 
+    # get_or_set only calls the work on a cache miss
+    exported: Set[str] = set()
+
+    def export_work(
+        cache_entry: CacheEntry, latest_commit: Optional[str]
+    ) -> Tuple[CacheError, Any, bool]:
+        exported.add(cache_entry.file_path)
+        return _export_cache_work(cache_entry, latest_commit)
+
     first_error = None
+    analyzable: List[str] = []
     for path in to_populate:
         err, json_summary = entry_for(path).get_or_set(
-            cache, _export_cache_work, latest_commit
+            cache, export_work, latest_commit
         )
+        if path in exported and not err:
+            analyzable.append(path)
         # One unexportable file must not leave the rest of the push stale, so
         # the loop finishes and the first failure is what gets reported.
         if err and first_error is None:
@@ -1972,6 +1988,10 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
             else:
                 first_error = err
 
+    if visibility == "public":
+        from .cloudmap import analyze_pushed_files
+
+        analyze_pushed_files(project_id, branch, project_dir, analyzable)
     return first_error or "OK"
 
 

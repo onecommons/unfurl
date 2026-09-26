@@ -22,6 +22,7 @@ from typing import (
 )
 from urllib.parse import urlparse
 
+import git
 from flask import Response, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
 
@@ -29,6 +30,7 @@ from ..cloudmap.db import CloudMapDB, CloudMapStore, extends_children, subtype_c
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..repo import GitRepo
+from ..tosca_plugins.cloudmap_defs import get_repository_url
 from ..util import API_VERSION, UnfurlError, assert_not_none
 from ..yamlloader import yaml
 
@@ -54,12 +56,14 @@ from .serve import (
     create_error_response,
     get_project_id,
     get_project_id_or_abort,
+    get_project_url,
     serving_local_path,
+    _get_project_repo_dir,
 )
 from .endpoints import _commit_and_push, _get_author, _get_body, _get_commit_msg
 
 if TYPE_CHECKING:
-    from ..cloudmap import CloudMap
+    from ..cloudmap import CloudMap, RepoLocator
     from ..tosca_plugins.cloudmap_defs import CloudMapRecord
 
 logger = getLogger("unfurl.server")
@@ -79,6 +83,16 @@ def _cloudmap_project_id(request) -> str:
     project_id = get_project_id(request)
     if project_id:
         return project_id
+    return default_cloudmap_project()
+
+
+def default_cloudmap_project() -> str:
+    """The cloudmap to use when none is named: ``UNFURL_DEFAULT_CLOUDMAP_PROJECT``
+    if set, otherwise the one in the local project a server was started on, or
+    else the public cloudmap."""
+    configured = current_app.config.get("UNFURL_DEFAULT_CLOUDMAP_PROJECT")
+    if configured:
+        return str(configured)
     return "" if serving_local_path() else CLOUDMAP_PROJECT
 
 
@@ -1183,17 +1197,35 @@ def _cloudmap_local_env() -> Optional[LocalEnv]:
 
 
 def _analysis_clone_root(local_env: Optional[LocalEnv]) -> str:
-    """Where ``POST /cloudmap/analyze`` clones the repositories it analyzes: the
-    ``clone_root`` configured for the cloudmap, as ``CloudMap.from_name`` uses."""
+    """Where ``POST /cloudmap/analyze`` clones repositories that aren't on the
+    unfurl cloud server: the ``clone_root`` configured for the cloudmap, as
+    ``CloudMap.from_name`` uses, otherwise the server's own clone root."""
     from ..cloudmap import CloudMap
 
     if local_env:
         clone_root = CloudMap.get_config(local_env, "cloudmap")[3].get("clone_root")
         if clone_root:
             return str(clone_root)
-    return os.path.join(
-        current_app.config.get("UNFURL_CLONE_ROOT", "."), ".cloudmap-repos"
-    )
+    return str(current_app.config.get("UNFURL_CLONE_ROOT", "."))
+
+
+def _analysis_repo_locator(clone_root: str) -> "RepoLocator":
+    """Where analysis finds and clones a repository: the server's own checkout
+    of a project on the unfurl cloud server (see `_get_project_repo_dir`),
+    otherwise ``<clone_root>/<host>/<path>``."""
+    server_host = urlparse(current_app.config["UNFURL_CLOUD_SERVER"]).hostname
+
+    def locate(url: str, branch: str, private: bool) -> str:
+        parts = urlparse(url)
+        path = parts.path.strip("/")
+        if path.endswith(".git"):
+            path = path[: -len(".git")]
+        if parts.hostname == server_host:
+            visibility = "private" if private else "public"
+            return _get_project_repo_dir(path, branch, dict(visibility=visibility))
+        return os.path.join(clone_root, parts.hostname or "", path)
+
+    return locate
 
 
 def _cloudmap_sections(db: CloudMapDB) -> Dict[str, Dict[str, Any]]:
@@ -1280,12 +1312,13 @@ def _analyze_urls(
 def post_cloudmap_analyze(
     query: ProjectAuthQuery, body: CloudMapAnalyzeRequest
 ) -> ResponseReturnValue:
-    from .cache import CLOUDMAP_BRANCH, get_cloudmap_proxy, load_cloudmap_db
-    from ..cloudmap import CloudMap
-    from ..cloudmap.proxy import CloudMapProxyConflict, CloudMapProxyError
+    return analyze_into_cloudmap(get_project_id_or_abort(request), body)
 
-    project_id = get_project_id_or_abort(request)
-    cloudmap_path = body.cloudmap_path or "cloudmap.yaml"
+
+def analyze_into_cloudmap(
+    project_id: str, body: CloudMapAnalyzeRequest
+) -> ResponseReturnValue:
+    """Do what ``POST /cloudmap/analyze`` does to the cloudmap in ``project_id``."""
     # a url given to both is replaced, which is a superset of adding it
     requested = [(u, False) for u in body.add if u not in body.replace]
     requested += [(u, True) for u in body.replace]
@@ -1298,7 +1331,24 @@ def post_cloudmap_analyze(
             return create_error_response(
                 "BAD_REQUEST", f"{url}: local file urls can't be analyzed"
             )
+    return update_cloudmap(
+        project_id, body, lambda cloud_map: _analyze_urls(cloud_map, requested, body)
+    )
 
+
+def update_cloudmap(
+    project_id: str,
+    body: CloudMapAnalyzeRequest,
+    update: Callable[["CloudMap"], Tuple[List[Dict[str, str]], List[str], str]],
+) -> ResponseReturnValue:
+    """Open the cloudmap in ``project_id`` and save what ``update`` does to it,
+    as ``POST /cloudmap/analyze`` does. ``update`` returns the records added,
+    the urls skipped and a commit message."""
+    from .cache import CLOUDMAP_BRANCH, get_cloudmap_proxy, load_cloudmap_db
+    from ..cloudmap import CloudMap
+    from ..cloudmap.proxy import CloudMapProxyConflict, CloudMapProxyError
+
+    cloudmap_path = body.cloudmap_path or "cloudmap.yaml"
     branch = body.branch or CLOUDMAP_BRANCH
     proxy = get_cloudmap_proxy(project_id, cloudmap_path, body.latest_commit)
     db: Optional[CloudMapDB] = None
@@ -1322,17 +1372,19 @@ def post_cloudmap_analyze(
         before = _cloudmap_sections(db)
 
     local_env = _cloudmap_local_env()
+    clone_root = _analysis_clone_root(local_env)
     cloud_map = CloudMap(
         None,  # records are saved through the store, not committed by the CloudMap
         "",
-        localrepo_root=_analysis_clone_root(local_env),
+        localrepo_root=clone_root,
+        repo_locator=_analysis_repo_locator(clone_root),
         skip_analysis=body.analyze in ("no", "metadata"),
         commit=body.commit is not False,
         logger=logger,
         local_env=local_env,
         db=store,
     )
-    added, skipped, commit_msg = _analyze_urls(cloud_map, requested, body)
+    added, skipped, commit_msg = update(cloud_map)
 
     if proxy is not None:
         new_commit = None
@@ -1361,6 +1413,44 @@ def post_cloudmap_analyze(
         return result  # an error response
     return {"commit": result.get("commit"), "added": added, "skipped": skipped}
 
+
+def analyze_pushed_files(
+    project_id: str, branch: str, project_dir: str, paths: List[str]
+) -> None:
+    """Analyze the files a push changed into the cloudmap named by
+    ``UNFURL_DEFAULT_CLOUDMAP_PROJECT``, using the checkout at ``project_dir``.
+    Not analyzed unless that is set.
+
+    Only for public projects, since the cloudmap is public. A failure is
+    logged rather than failing the push.
+    """
+    cloudmap_project = current_app.config.get("UNFURL_DEFAULT_CLOUDMAP_PROJECT")
+    if not cloudmap_project or not paths or project_id.startswith("local:"):
+        return
+    repo_url = get_repository_url(get_project_url(project_id))
+    repo = GitRepo(git.Repo(project_dir))
+
+    def update(cloud_map: "CloudMap") -> Tuple[List[Dict[str, str]], List[str], str]:
+        record = cloud_map.analyze_checkout(repo_url, repo, branch, paths)
+        if record is None:
+            return [], [repo_url], ""
+        added = [dict(url=repo_url, section="repositories", key=record.key)]
+        return added, [], f"Analyzed {', '.join(paths)} pushed to {repo_url}#{branch}"
+
+    try:
+        result = update_cloudmap(
+            cloudmap_project, CloudMapAnalyzeRequest(analyze="yes"), update
+        )
+    except Exception:
+        logger.warning("cloudmap analysis of %s failed", repo_url, exc_info=True)
+        return
+    if isinstance(result, Response):
+        logger.warning(
+            "cloudmap analysis of %s failed: %s %s",
+            repo_url,
+            result.status_code,
+            result.get_data(as_text=True),
+        )
 
 @app.get("/graph")
 @app.doc(

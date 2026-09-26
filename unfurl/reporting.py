@@ -721,7 +721,7 @@ class CloudMapGraphWalker:
                 # (optionally followed by ``#<fragment>``); derive the artifact
                 # URL for navigation, preserving the entry's label
                 contains_urls = {
-                    (entry_label, record.artifact_url(url) if url else ""): type_refs
+                    (entry_label, record.contains_artifact_url(url) if url else ""): type_refs
                     for (entry_label, url), type_refs in record.contains.items()
                 }
                 self._walk_typed_urls("contains", contains_urls, visited)

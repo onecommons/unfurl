@@ -480,13 +480,19 @@ fn extend_url_keys(out: &mut Vec<String>, typed: Option<&ct::TypedUrLs>) {
 /// Mirrors `Repository.artifact_url()` in
 /// `unfurl/tosca_plugins/cloudmap_defs.py`.
 fn derive_artifact_url(repo_url: &str, file_path: &str) -> String {
+    // A `#<branch>:<path>` key is a file on a branch other than the default,
+    // as `Repository.contains_key` makes them.
+    let (revision, file_path) = match file_path.strip_prefix('#') {
+        Some(rest) => rest.split_once(':').unwrap_or((rest, "")),
+        None => ("", file_path),
+    };
     // `quote()` in Python encodes `#` and most special chars; for the
     // small set of characters typically found in a repo file path
     // (alphanum + `/._-`), only `#` actually needs encoding here. The
     // walker is lenient — if the derived URL doesn't match any record,
     // `_walk_child` simply emits a missing-ref and moves on.
     let encoded = file_path.replace('#', "%23");
-    format!("{repo_url}#:{encoded}")
+    format!("{repo_url}#{revision}:{encoded}")
 }
 
 /// JSON-pointer escape per RFC 6901 § 4: `~` → `~0`, `/` → `~1`.
@@ -906,6 +912,18 @@ fn set_path_preserving(u: &mut Url, new_path: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn derive_artifact_url_for_branch_keys() {
+        assert_eq!(
+            derive_artifact_url("git://x/r.git", "ensemble-template.yaml#spec"),
+            "git://x/r.git#:ensemble-template.yaml%23spec"
+        );
+        assert_eq!(
+            derive_artifact_url("git://x/r.git", "#feature:ensemble/ensemble.yaml"),
+            "git://x/r.git#feature:ensemble/ensemble.yaml"
+        );
+    }
 
     #[test]
     fn follow_repository_links() {

@@ -56,6 +56,7 @@ import tempfile
 import os
 import os.path
 from typing import (
+    Callable,
     Iterator,
     Optional,
     List,
@@ -273,6 +274,9 @@ class AnalyzerRegistry:
 
 Analyze_Options = Literal["yes", "no", "save-only", "default", "metadata"]
 
+# (repository url, branch, private) -> the path of its checkout
+RepoLocator = Callable[[str, str, bool], str]
+
 
 def _refreshed_unchanged(previous: Repository, refreshed: Repository) -> bool:
     """True if a metadata refresh left the record as it was, ignoring what only
@@ -303,7 +307,10 @@ class Directory(_LocalGitRepos):
         db: CloudMapStore,
         local_repo_root: str = "",
         skip_analysis=False,
+        repo_locator: Optional[RepoLocator] = None,
     ) -> None:
+        # Where a repository's checkout goes, instead of under local_repo_root.
+        self.repo_locator = repo_locator
         # `store` is where records live: a local document, or a
         # `CloudMapProxy` standing in for one when the cloudmap is served by an
         # upstream server, so nothing here has to know the difference.
@@ -336,7 +343,9 @@ class Directory(_LocalGitRepos):
         self.analyzer = AnalyzerRegistry(notable_classes, self.logger)
 
     def _set_repos(self, root: str) -> None:
-        super()._set_repos(root)
+        # with a locator there's no need to search the whole root for repositories
+        super()._set_repos("" if self.repo_locator else root)
+        self.repos_root = root
         if self.cloudmap.local_env:
             for repo in self.cloudmap.local_env._get_repos():
                 if isinstance(repo, GitRepo):
@@ -389,10 +398,29 @@ class Directory(_LocalGitRepos):
         if self.tmp_dir:
             self.tmp_dir.cleanup()
 
+    def _locate(self, url: str) -> str:
+        assert self.repo_locator
+        record = self.context.get_repository(url)
+        branch = record.get_default_branch() if record else "main"
+        return self.repo_locator(url, branch, bool(record and record.private))
+
+    def find_repo(self, url: str, hint: str) -> Optional[GitRepo]:
+        repo = super().find_repo(url, hint)
+        if repo or not self.repo_locator:
+            return repo
+        path = self._locate(url)
+        if not os.path.isdir(os.path.join(path, ".git")):
+            return None
+        self._add_repo(GitRepo(git.Repo(path)))
+        return super().find_repo(url, hint)
+
     def clone_repo(self, repo_info: Repository, url: str) -> GitRepo:
-        # XXX handle conflict when same path, different host
-        assert self.repos_root
-        download_path = str(Path(self.repos_root) / repo_info.path)
+        if self.repo_locator:
+            download_path = self._locate(repo_info.url)
+        else:
+            # XXX handle conflict when same path, different host
+            assert self.repos_root
+            download_path = str(Path(self.repos_root) / repo_info.path)
         self.logger.verbose(f"cloning {sanitize_url(url)} to {download_path}")
         repo = git.Repo.clone_from(url or repo_info.git_url(), download_path)
         gitrepo = GitRepo(repo)
@@ -428,10 +456,11 @@ class Directory(_LocalGitRepos):
         repo_info: Repository,
         repo: GitRepo,
         previous_contains: TypedUrls,
+        paths: Optional[List[str]] = None,
     ) -> Optional[List[RepositoryAnalyzer]]:
         if self.do_analysis:
             try:
-                return self.analyze(repo_info, repo)
+                return self.analyze(repo_info, repo, paths)
             except Exception:
                 self.context._mark_failed()
                 # restore previous
@@ -443,24 +472,50 @@ class Directory(_LocalGitRepos):
         repo_info.contains = previous_contains
         return None
 
-    def analyze(self, repo_info: Repository, repo: GitRepo) -> List[RepositoryAnalyzer]:
-        """Run the analyzers matching this repository's files.
+    def analyze(
+        self,
+        repo_info: Repository,
+        repo: GitRepo,
+        paths: Optional[List[str]] = None,
+        keep_existing: bool = False,
+    ) -> List[RepositoryAnalyzer]:
+        """Run the analyzers matching this repository's files, or just the
+        files at ``paths``.
 
-        Records are attributed to the repository and to the file that produced
-        them, whether this runs as part of analyzing a url or as part of a
-        repository host sync -- the same files produce the same records either
-        way, so they get the same provenance.
+        Records are attributed to the file that produced them, and when the
+        whole repository is analyzed to the repository too, whether this runs
+        as part of analyzing a url or as part of a repository host sync -- the
+        same files produce the same records either way, so they get the same
+        provenance. A file no analyzer matches is a generic file artifact.
+
+        ``keep_existing`` keeps an artifact already in the cloudmap (it has the
+        git digest) instead of replacing it.
         """
-        self.logger.verbose("analyzing %s", repo_info.url)
-        analyze_queue = self.analyze_repo(repo_info, repo)
-        with self.context._tracking_provenance(repo_info.url):
-            return self._analyze_notables(repo_info, repo, analyze_queue)
+        if paths is None:
+            self.logger.verbose("analyzing %s", repo_info.url)
+            analyze_queue = self.analyze_repo(repo_info, repo)
+            with self.context._tracking_provenance(repo_info.source_url()):
+                notables = self._analyze_notables(
+                    repo_info, repo, analyze_queue, keep_existing
+                )
+            repo_info.add_notables(notables)
+            return notables
+        analyze_queue = [
+            notable
+            for path in paths
+            for notable in self.analyzer.analyze_path(path, repo.working_dir)
+            or [RepositoryAnalyzer(*os.path.split(path))]
+        ]
+        notables = self._analyze_notables(repo_info, repo, analyze_queue, keep_existing)
+        repo_info.update_notables(notables)
+        return notables
 
     def _analyze_notables(
         self,
         repo_info: Repository,
         repo: GitRepo,
         analyze_queue: List[RepositoryAnalyzer],
+        keep_existing: bool,
     ) -> List[RepositoryAnalyzer]:
         notables: List[RepositoryAnalyzer] = []
         context = self.context
@@ -470,9 +525,10 @@ class Directory(_LocalGitRepos):
                 # well as from the repository the file is in
                 with context._tracking_provenance(repo_info.artifact_url(n.path)):
                     artifact = n.analyze(context, repo_info, repo.working_dir)
-                if artifact:
-                    # XXX what to do if self.context.get_artifact(artifact.url)?
-                    # (currently we want to give this priority for the git digest)
+                # looking an existing record up marks it as still in use
+                if artifact and not (
+                    keep_existing and context.get_artifact(artifact.url)
+                ):
                     context.add_record(artifact)
                     url = artifact.metadata.source_url
                     if (
@@ -491,7 +547,6 @@ class Directory(_LocalGitRepos):
                 )
             else:
                 notables.append(n)
-        repo_info.add_notables(notables)
         return notables
 
 
@@ -513,6 +568,7 @@ class CloudMap:
         logger=logger,
         local_env: Optional["LocalEnv"] = None,
         db: Optional[CloudMapStore] = None,
+        repo_locator: Optional[RepoLocator] = None,
     ):
         """Initialize a CloudMap bound to a local cloudmap git checkout.
 
@@ -529,6 +585,8 @@ class CloudMap:
             db: The record store this cloudmap reads and writes. Defaults to
                 the local document at ``path``; :py:meth:`_get_server` passes a
                 :py:class:`~unfurl.cloudmap.proxy.CloudMapProxy`.
+            repo_locator: Where to find and clone repositories, instead of
+                under ``localrepo_root``.
         """
         self.logger = logger
         self.host_branch = host_branch or source_branch
@@ -569,7 +627,9 @@ class CloudMap:
         if db is None:
             db = CloudMapDB(filepath)
         db.set_cloudmap(self)
-        self.directory = Directory(self, db, localrepo_root, skip_analysis)
+        self.directory = Directory(
+            self, db, localrepo_root, skip_analysis, repo_locator
+        )
 
     def register_url_analyzer(self, cls: Type[URLAnalyzer]) -> None:
         """Register a :class:`URLAnalyzer` subclass for each of its ``url_schemes``."""
@@ -1183,6 +1243,54 @@ class CloudMap:
             tracked.replace_from_source(source, provenance)
         return record
 
+    def analyze_checkout(
+        self, repo_url: str, repo: GitRepo, branch: str, paths: List[str]
+    ) -> Optional[Repository]:
+        """Analyze a checkout of ``repo_url`` on ``branch`` as it is, without
+        fetching or checking out anything.
+
+        Re-analyzes just the files at ``paths`` if each is already an artifact
+        in the cloudmap, otherwise the whole repository, and collects the
+        records what was re-analyzed no longer produces (see
+        :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`).
+        Off the repository's default branch, artifact urls, ``contains`` keys
+        and provenance name ``branch``.
+
+        Returns:
+            The repository record, or None if one couldn't be made.
+        """
+        context = self.directory.context
+        self.directory._add_repo(repo)
+        repo_info = context.get_repository(self._repository_key(repo_url))
+        if repo_info is None:
+            record = self.analyze_url(repo_url, "no")
+            if not isinstance(record, Repository):
+                return None
+            repo_info = record
+        default_branch = repo_info.default_branch or repo.default_branch or "main"
+        repo_info.revision = "" if branch == default_branch else branch
+        try:
+            source = repo_info.source_url()
+            with context._tracking_provenance(source) as provenance:
+                if paths and all(
+                    context.get_artifact(repo_info.artifact_url(path)) for path in paths
+                ):
+                    # records they no longer produce are collected per file
+                    replaced = [repo_info.artifact_url(path) for path in paths]
+                    analyzed: Optional[List[str]] = paths
+                else:
+                    replaced = [source]
+                    analyzed = None
+                self.directory.maybe_analyze(
+                    repo_info, repo, dict(repo_info.contains), analyzed
+                )
+                context.add_record(repo_info)
+            for url in replaced:
+                context.replace_from_source(url, provenance)
+        finally:
+            repo_info.revision = ""
+        return repo_info
+
     def update_repository(
         self,
         url: str,
@@ -1450,43 +1558,7 @@ class CloudMap:
                     url,
                 )
                 return repo_info
-            root_path = local_repo.working_dir
-            notables = (
-                root_path
-                and self.directory.analyzer.analyze_path(file_path, root_path)
-                or []
-            )
-            if notables:
-                for n in notables:
-                    try:
-                        with context._tracking_provenance(
-                            repo_info.artifact_url(n.path)
-                        ):
-                            artifact = n.analyze(context, repo_info, root_path)
-                        # keep an existing record (it has the git digest);
-                        # looking it up marks it as still in use
-                        if artifact and not context.get_artifact(artifact.url):
-                            context.add_record(artifact)
-                    except Exception:
-                        context._mark_failed()
-                        self.logger.error(
-                            "Unexpected error analyzing %s.",
-                            repo_info.url,
-                            exc_info=True,
-                        )
-                    repo_info.contains[("", n.path)] = (
-                        TypeRefs({n.artifact_type: None}) if n.artifact_type else None
-                    )
-            else:
-                artifact_url = repo_info.artifact_url(file_path)
-                if not context.get_artifact(artifact_url):
-                    artifact = Artifact(
-                        url=artifact_url,
-                        type=TypeRefs({EntitySchema.GenericFile: None}),
-                    )
-                    context.add_record(artifact)
-                if ("", file_path) not in repo_info.contains:
-                    repo_info.contains[("", file_path)] = None
+            self.directory.analyze(repo_info, local_repo, [file_path], True)
 
         # Fetch pipeline runs if a ref or commit was specified in the URL
         if repo_info and (revision or commit):

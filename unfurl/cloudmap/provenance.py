@@ -427,11 +427,17 @@ class ProvenanceTrackingContext(AnalyzerContext):
 
         Exact matches, plus the artifacts of a repository's own files:
         analyzing ``git://host/repo.git`` runs the file analyzers, and those
-        records are attributed to ``git://host/repo.git#:<path>``. Without the
-        prefix a repository-level replace would never collect the records for
-        files that have since been deleted.
+        records are attributed to ``git://host/repo.git#:<path>`` -- or, for a
+        branch, analyzing ``git://host/repo.git#<branch>`` attributes them to
+        ``git://host/repo.git#<branch>:<path>``. Without the prefix a
+        repository-level replace would never collect the records for files that
+        have since been deleted.
         """
-        return source == url or source.startswith(url + "#:")
+        if source == url or source.startswith(url + "#:"):
+            return True
+        # likewise the files of a branch: ``repo#branch`` -> ``repo#branch:<path>``
+        revision = url.partition("#")[2]
+        return bool(revision) and ":" not in revision and source.startswith(url + ":")
 
     def find_by_source(self, url: str) -> Dict[Tuple[str, str], CloudMapRecord]:
         """Every record attributed to ``url``, keyed by ``record_identity``.

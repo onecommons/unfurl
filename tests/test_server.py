@@ -4855,20 +4855,28 @@ def test_errors_report_code_and_message(monkeypatch):
 
 
 def test_cloudmap_project_id_resolution(monkeypatch):
-    """`_cloudmap_project_id`: explicit > local project > the public cloudmap."""
+    """`_cloudmap_project_id`: explicit > configured default > local project >
+    the public cloudmap."""
     from werkzeug.test import EnvironBuilder
 
-    def resolve(query, serve_path):
+    def resolve(query, serve_path, configured=None):
         if serve_path is None:
             monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
         else:
             monkeypatch.setenv("UNFURL_SERVE_PATH", serve_path)
+        monkeypatch.setitem(
+            server.app.config, "UNFURL_DEFAULT_CLOUDMAP_PROJECT", configured
+        )
         request = EnvironBuilder(query_string=query).get_request()
-        return server_cloudmap._cloudmap_project_id(request)
+        with server.app.app_context():
+            return server_cloudmap._cloudmap_project_id(request)
 
     # an explicit auth_project always wins
     assert resolve("auth_project=me/proj", None) == "me/proj"
-    assert resolve("auth_project=me/proj", ".") == "me/proj"
+    assert resolve("auth_project=me/proj", ".", "org/cloudmap") == "me/proj"
+    # then the configured default
+    assert resolve("", None, "org/cloudmap") == "org/cloudmap"
+    assert resolve("", ".", "org/cloudmap") == "org/cloudmap"
     # serving a local path -> "" so the request resolves to that project
     assert resolve("", ".") == ""
     # otherwise fall back to the public cloudmap
@@ -5047,3 +5055,100 @@ def test_cloud_vars_url_rejected_with_400():
         finally:
             if p:
                 _terminate_process(p)
+
+
+@pytest.mark.parametrize(
+    "visibility, branch, configured, analyzed",
+    [
+        ("public", "main", True, True),
+        ("public", "feature", True, True),
+        ("private", "main", True, False),
+        ("public", "main", False, False),
+    ],
+)
+def test_populate_cache_analyzes_exported_files(
+    monkeypatch, tmp_path, visibility, branch, configured, analyzed
+):
+    """A cache miss in populate_cache analyzes the exported files, in the
+    checkout it already has, into the cloudmap the server is configured with."""
+    import uuid
+    from unittest.mock import MagicMock
+    from flask_caching import Cache
+
+    project_id = f"test/populate-{uuid.uuid4().hex}"
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path))
+    monkeypatch.setitem(
+        server.app.config,
+        "UNFURL_DEFAULT_CLOUDMAP_PROJECT",
+        "onecommons/cloudmap" if configured else None,
+    )
+
+    # the project's checkout, where populate_cache expects it
+    project_dir = tmp_path / visibility / project_id / branch
+    git_repo = Repo.init(project_dir, initial_branch=branch)
+    names = ["ensemble/ensemble.yaml", "a b.yaml", "c.yaml"]
+    for name in names:
+        (project_dir / name).parent.mkdir(parents=True, exist_ok=True)
+        (project_dir / name).write_text("{}")
+    git_repo.index.add(names)
+    latest_commit = git_repo.index.commit("push").hexsha
+
+    def set_repo(self):
+        self.repo = GitRepo(git_repo)
+        return self.repo
+
+    monkeypatch.setattr(server.CacheEntry, "_set_project_repo", set_repo)
+    monkeypatch.setattr(
+        server, "_export_cache_work", lambda entry, commit: (None, {"ok": 1}, True)
+    )
+    update_cloudmap = MagicMock(return_value={"commit": None, "added": [], "skipped": []})
+    import unfurl.server.cloudmap as server_cloudmap_module
+
+    monkeypatch.setattr(server_cloudmap_module, "update_cloudmap", update_cloudmap)
+    cache = Cache(config={"CACHE_TYPE": "SimpleCache"})
+    cache.init_app(server.app)
+    monkeypatch.setattr(server, "_cache", cache)
+    client = server.app.test_client()
+
+    def push(files=("ensemble/ensemble.yaml", "a b.yaml")):
+        res = client.post(
+            "/populate_cache",
+            query_string=dict(
+                auth_project=project_id,
+                latest_commit=latest_commit,
+                branch=branch,
+                visibility=visibility,
+            ),
+            json={"files": [{"path": path} for path in files]},
+        )
+        assert res.status_code == 200, res.get_data(as_text=True)
+
+    push()
+    if not analyzed:
+        update_cloudmap.assert_not_called()
+        return
+    update_cloudmap.assert_called_once()
+    cloudmap_project, body, update = update_cloudmap.call_args.args
+    assert cloudmap_project == "onecommons/cloudmap"
+    assert body.analyze == "yes"
+    # the update analyzes the checkout populate_cache has
+    cloud_map = MagicMock()
+    cloud_map.analyze_checkout.return_value.key = "git://unfurl.cloud/x.git"
+    update(cloud_map)
+    repo_url, repo, pushed_branch, paths = cloud_map.analyze_checkout.call_args.args
+    assert repo_url == f"git://unfurl.cloud/{project_id}.git"
+    assert os.path.samefile(repo.working_dir, project_dir)
+    assert pushed_branch == branch
+    assert paths == ["ensemble/ensemble.yaml", "a b.yaml"]
+
+    # the same push again is a cache hit: nothing exported, nothing analyzed
+    update_cloudmap.reset_mock()
+    push()
+    update_cloudmap.assert_not_called()
+
+    # a failed analysis doesn't fail the push
+    update_cloudmap.side_effect = RuntimeError("cloudmap unavailable")
+    push(["c.yaml"])
+    update_cloudmap.assert_called_once()

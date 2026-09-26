@@ -3402,5 +3402,178 @@ def test_analyze_endpoint_clone_root():
     }
     with app.app_context(), patch.dict(app.config, UNFURL_CLONE_ROOT="/srv/clones"):
         assert _analysis_clone_root(configured) == "repos"
-        assert _analysis_clone_root(unconfigured) == "/srv/clones/.cloudmap-repos"
-        assert _analysis_clone_root(None) == "/srv/clones/.cloudmap-repos"
+        assert _analysis_clone_root(unconfigured) == "/srv/clones"
+        assert _analysis_clone_root(None) == "/srv/clones"
+
+
+class TestAnalyzeCheckout:
+    """``CloudMap.analyze_checkout`` analyzes a checkout as it is."""
+
+    URL = "git://unfurl.cloud/group/project.git"
+
+    def _checkout(self, tmp_path):
+        repo = git.Repo.init(tmp_path / "project", initial_branch="main")
+        repo.create_remote("origin", "https://unfurl.cloud/group/project.git")
+        (tmp_path / "project" / "Dockerfile").write_text("FROM scratch\n")
+        (tmp_path / "project" / ".gitlab-ci.yml").write_text("{}\n")
+        repo.index.add(["Dockerfile", ".gitlab-ci.yml"])
+        repo.index.commit("initial")
+        return repo
+
+    def _analyze(self, db, repo, branch, paths):
+        from unfurl.repo import GitRepo
+
+        cloud_map = CloudMap(None, "", db=db)
+        return cloud_map.analyze_checkout(self.URL, GitRepo(repo), branch, paths)
+
+    def _db(self):
+        db = CloudMapDB("", contents={}, validate=False)
+        db.add_record(Repository(url=self.URL, path="group/project", default_branch="main"))
+        return db
+
+    def test_new_file_analyzes_the_whole_repository(self, tmp_path):
+        db = self._db()
+        record = self._analyze(db, self._checkout(tmp_path), "main", ["Dockerfile"])
+        assert record is not None
+        assert db.get_artifact(f"{self.URL}#:Dockerfile")
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
+        assert {key for _, key in record.contains} == {"Dockerfile", ".gitlab-ci.yml"}
+
+    def test_known_files_are_reanalyzed_alone(self, tmp_path):
+        db = self._db()
+        repo = self._checkout(tmp_path)
+        self._analyze(db, repo, "main", [])
+        ci = db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
+        assert ci
+        db.delete_record(ci)
+        record = self._analyze(db, repo, "main", ["Dockerfile"])
+        assert db.get_artifact(f"{self.URL}#:Dockerfile")
+        # the whole repository wasn't re-analyzed
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml") is None
+        # and the other files' entries are left in contains
+        assert record and ("", ".gitlab-ci.yml") in record.contains
+        # a path that isn't an artifact yet: the whole repository is
+        (tmp_path / "project" / "notes.txt").write_text("x")
+        self._analyze(db, repo, "main", ["Dockerfile", "notes.txt"])
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
+
+    def test_replace_collects_deleted_files(self, tmp_path):
+        db = self._db()
+        repo = self._checkout(tmp_path)
+        self._analyze(db, repo, "main", [])
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
+        repo.index.remove([".gitlab-ci.yml"], working_tree=True)
+        (tmp_path / "project" / "notes.txt").write_text("x")
+        repo.index.add(["notes.txt"])
+        repo.index.commit("delete ci")
+        self._analyze(db, repo, "main", ["notes.txt"])
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml") is None
+        assert db.get_artifact(f"{self.URL}#:Dockerfile")
+
+    def test_replace_keeps_to_its_branch(self, tmp_path):
+        db = self._db()
+        repo = self._checkout(tmp_path)
+        self._analyze(db, repo, "main", [])
+        repo.git.checkout("-b", "feature")
+        self._analyze(db, repo, "feature", [])
+        assert db.get_artifact(f"{self.URL}#feature:.gitlab-ci.yml")
+        repo.index.remove([".gitlab-ci.yml"], working_tree=True)
+        repo.index.commit("delete ci on the branch")
+        self._analyze(db, repo, "feature", [])
+        assert db.get_artifact(f"{self.URL}#feature:Dockerfile")
+        assert db.get_artifact(f"{self.URL}#feature:.gitlab-ci.yml") is None
+        # the default branch's artifacts aren't the branch's to collect
+        assert db.get_artifact(f"{self.URL}#:.gitlab-ci.yml")
+        repo.git.checkout("main")
+        self._analyze(db, repo, "main", [])
+        # nor the branch's the default branch's
+        assert db.get_artifact(f"{self.URL}#feature:Dockerfile")
+
+    def test_other_branches_are_qualified(self, tmp_path):
+        db = self._db()
+        repo = self._checkout(tmp_path)
+        self._analyze(db, repo, "main", [])
+        repo.git.checkout("-b", "feature")
+        record = self._analyze(db, repo, "feature", ["Dockerfile"])
+        assert record is not None
+        assert db.get_artifact(f"{self.URL}#feature:Dockerfile")
+        assert {key for _, key in record.contains} == {
+            "Dockerfile",
+            ".gitlab-ci.yml",
+            "#feature:Dockerfile",
+            "#feature:.gitlab-ci.yml",
+        }
+        assert record.revision == ""
+        assert record.contains_artifact_url("#feature:Dockerfile") == (
+            f"{self.URL}#feature:Dockerfile"
+        )
+
+
+def test_analyze_endpoint_repo_locator():
+    from unfurl.server.cloudmap import _analysis_repo_locator
+    from unfurl.server.serve import app
+
+    config = dict(UNFURL_CLONE_ROOT="/srv/clones", UNFURL_CLOUD_SERVER="https://unfurl.cloud")
+    with app.app_context(), patch.dict(app.config, config):
+        locate = _analysis_repo_locator("/srv/other")
+        # the server's own checkout of a project on the unfurl cloud server
+        assert locate("git://unfurl.cloud/group/project.git", "main", False) == (
+            "/srv/clones/public/group/project/main"
+        )
+        assert locate("git://unfurl.cloud/group/project.git", "trunk", True) == (
+            "/srv/clones/private/group/project/trunk"
+        )
+        # anything else by host and path
+        assert locate("git://github.com/owner/repo.git", "main", False) == (
+            "/srv/other/github.com/owner/repo"
+        )
+
+
+def test_directory_repo_locator(tmp_path):
+    """With a locator, a directory finds and clones repositories where the
+    locator says rather than searching its root."""
+    url = "git://example.com/group/project.git"
+    located = tmp_path / "located"
+
+    def locate(repo_url, branch, private):
+        assert (repo_url, branch, private) == (url, "main", False)
+        return str(located)
+
+    upstream = git.Repo.init(tmp_path / "upstream", initial_branch="main")
+    (tmp_path / "upstream" / "f").write_text("x")
+    upstream.index.add(["f"])
+    upstream.index.commit("initial")
+    # a checkout under the root that only a search would find
+    stray = git.Repo.clone_from(str(tmp_path / "upstream"), tmp_path / "root" / "stray")
+    stray.remotes.origin.set_url("https://example.com/group/project.git")
+
+    db = CloudMapDB("", contents={}, validate=False)
+    cloud_map = CloudMap(
+        None, "", localrepo_root=str(tmp_path / "root"), db=db, repo_locator=locate
+    )
+    directory = cloud_map.directory
+    assert directory.find_repo(url, "") is None
+
+    repo_info = Repository(url=url, path="group/project")
+    cloned = directory.clone_repo(repo_info, str(tmp_path / "upstream"))
+    assert os.path.samefile(cloned.working_dir, located)
+    cloned.repo.remotes.origin.set_url("https://example.com/group/project.git")
+    found = CloudMap(
+        None, "", localrepo_root=str(tmp_path / "root"), db=db, repo_locator=locate
+    ).directory.find_repo(url, "")
+    assert found and os.path.samefile(found.working_dir, located)
+
+
+def test_matches_source_by_branch():
+    from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+    matches = ProvenanceTrackingContext.matches_source
+    repo = "git://example.com/r.git"
+    assert matches(f"{repo}#:f.yaml", repo)
+    assert matches(f"{repo}#feature:f.yaml", f"{repo}#feature")
+    # each branch collects only its own files
+    assert not matches(f"{repo}#feature:f.yaml", repo)
+    assert not matches(f"{repo}#:f.yaml", f"{repo}#feature")
+    assert not matches(f"{repo}#feature2:f.yaml", f"{repo}#feature")
+    # a file's url doesn't collect other paths
+    assert not matches(f"{repo}#feature:f.yaml.bak", f"{repo}#feature:f.yaml")

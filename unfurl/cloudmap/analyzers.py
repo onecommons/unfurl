@@ -745,7 +745,7 @@ class GitHubWorkflowAnalyzer(RepositoryAnalyzer):
                     type=TypeRefs({self.artifact_type: None}),
                 )
             )
-            self.contains[rel_path] = type_refs
+            self.contains[repo_info.contains_key(rel_path)] = type_refs
         # artifacts were added above via context.add_record
         return None
 
