@@ -27,6 +27,7 @@ from unfurl.cloudmap.analyzers import (
     GitLabPipelineAnalyzer,
     UnfurlAnalyzer,
     Analyzers,
+    ensemble_from_instantiation,
 )
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
@@ -261,6 +262,96 @@ class TestEnsembleInstantiation:
         assert self._status(inst) is None
         assert inst.metadata.created == ""
         assert inst.metadata.description == "deploy: partial"
+
+
+
+class TestEnsembleFromInstantiation:
+    """ensemble_from_instantiation() rebuilds an ensemble.yaml from the
+    Instantiation that UnfurlAnalyzer records for it."""
+
+    SPEC_URL = "git://example.com/blueprint.git"
+
+    def _instantiation(self, revision_tag, references):
+        analyzer = UnfurlAnalyzer(".", "ensemble.yaml")
+        spec_view = MagicMock()
+        spec_view.url = "https://example.com/blueprint.git"
+        spec_view.revision_tag = revision_tag
+        spec_view.get_current_commit.return_value = "def456"
+        manifest = MagicMock()
+        manifest.repositories.get.return_value = spec_view
+        manifest.lastJob = None
+        manifest.uri = ""
+        manifest.tosca.fragment = "spec/service_template"
+        directory = MagicMock()
+        directory.do_analysis = False
+        directory.get_artifact.return_value = None
+        artifact = MagicMock()
+        artifact.url = "git://example.com/dashboard.git#:ensemble/ensemble.yaml"
+        artifact.references = references
+        with patch(
+            "unfurl.cloudmap.analyzers.get_deployment_url", return_value=None
+        ), patch(
+            "unfurl.cloudmap.analyzers.get_blueprint_path",
+            return_value="ensemble-template.yaml",
+        ):
+            analyzer._create_ensemble_instantiation_and_service(
+                manifest, MagicMock(), directory, "test.Type", artifact
+            )
+        added = [c.args[0] for c in directory.add_record.call_args_list]
+        insts = [r for r in added if isinstance(r, Instantiation)]
+        assert len(insts) == 1
+        return insts[0]
+
+    def test_round_trip_pinned_spec(self):
+        references = {
+            ("", "git://example.com/std.git#v1.1.1:."): None,
+            ("", "pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest"): None,
+        }
+        inst = self._instantiation("v2.0.0", references)
+        assert inst.source_ref == "v2.0.0"
+
+        context = MagicMock()
+        spec_record = Repository(
+            url=self.SPEC_URL, path="blueprint", protocols=["ssh", "https"]
+        )
+        context.get_repository.side_effect = lambda url: (
+            spec_record if url == self.SPEC_URL else None
+        )
+        assert ensemble_from_instantiation(inst, context) == {
+            "apiVersion": API_VERSION,
+            "kind": "Ensemble",
+            # the fragment is dropped: +include-blueprint takes the whole file
+            "+include-blueprint": {
+                "file": "ensemble-template.yaml",
+                "repository": "spec",
+            },
+            "spec": {
+                "service_template": {
+                    "repositories": {
+                        # no Repository record: falls back to https
+                        "std": {
+                            "url": "https://example.com/std.git",
+                            "revision": "v1.1.1",
+                        },
+                        # the record's preferred protocol is used
+                        "spec": {
+                            "url": "git@example.com:blueprint.git",
+                            "revision": "v2.0.0",
+                        },
+                    }
+                }
+            },
+        }
+
+    def test_unpinned_spec_has_no_revision(self):
+        inst = self._instantiation("", {})
+        assert inst.source_ref == ""
+        context = MagicMock()
+        context.get_repository.return_value = None
+        doc = ensemble_from_instantiation(inst, context)
+        assert doc["spec"]["service_template"]["repositories"] == {
+            "spec": {"url": "https://example.com/blueprint.git"}
+        }
 
 
 class TestGenericRepositoryAnalyzerFallback:

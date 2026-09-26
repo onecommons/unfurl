@@ -321,6 +321,7 @@ instantiations:
       cloudmap.artifacts.unfurl.Ensemble:
     revision: 4551885dfab39991cfdb958cb79fcb6aa282481d
     source: git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
+    source_ref: v1.0.0
     source_revision: 2e57b3251bd9f8e292385b9f31774f6408abc4d7
     instantiated:
       https://example.com/oodo:

@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, cast
-from typing_extensions import Literal, Self
+from typing_extensions import Literal, Required, Self, TypedDict
 from toscaparser.nodetemplate import NodeTemplate
 from toscaparser.elements.statefulentitytype import StatefulEntityType
 
@@ -32,6 +32,7 @@ from ..support import ContainerImage, Status
 from ..tosca_plugins.cloudmap_defs import (
     Artifact,
     ArtifactMetadata,
+    CloudMapView,
     CloudType,
     TypeRefStatus,
     TypeRefConstraint,
@@ -45,11 +46,11 @@ from ..tosca_plugins.cloudmap_defs import (
     build_oci_purl,
 )
 from ..to_json import get_blueprint_path, node_type_to_graphql
-from ..util import UnfurlError, assert_not_none
+from ..util import API_VERSION, UnfurlError, assert_not_none
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from .. import DefaultNames
-from ..repo import RepoView
+from ..repo import RepoView, split_git_url
 
 if TYPE_CHECKING:
     from ..yamlmanifest import YamlManifest
@@ -381,6 +382,7 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
             instantiation.source = (
                 get_repository_url(spec_repo_view.url) + f"#:{quote(blueprint_path)}"
             )
+            instantiation.source_ref = spec_repo_view.revision_tag
             instantiation.source_revision = spec_repo_view.get_current_commit()
 
         # Get deployment URL from manifest
@@ -450,6 +452,86 @@ class UnfurlAnalyzer(RepositoryAnalyzer):
             assert spec.topology
             return spec.topology.get_node_template(node)
         return None
+
+
+class RepositoryDef(TypedDict, total=False):
+    url: Required[str]
+    revision: str
+
+
+class IncludeDirective(TypedDict):
+    file: str
+    repository: str
+
+
+class ServiceTemplateDef(TypedDict):
+    repositories: Dict[str, RepositoryDef]
+
+
+class EnsembleSpecDef(TypedDict):
+    service_template: ServiceTemplateDef
+
+
+EnsembleDoc = TypedDict(
+    "EnsembleDoc",
+    {
+        "apiVersion": Required[str],
+        "kind": Required[str],
+        "+include-blueprint": IncludeDirective,
+        "spec": EnsembleSpecDef,
+    },
+    total=False,
+)
+
+
+def _repository_def(
+    context: CloudMapView, repo_url: str, revision: str
+) -> RepositoryDef:
+    record = context.get_repository(repo_url)
+    url = (record and record.git_url()) or repo_url.replace("git://", "https://", 1)
+    repo_def: RepositoryDef = {"url": url}
+    if revision:
+        repo_def["revision"] = revision
+    return repo_def
+
+
+def ensemble_from_instantiation(
+    instantiation: Instantiation, context: CloudMapView
+) -> EnsembleDoc:
+    """Build an ensemble.yaml document from an Instantiation created by
+    :class:`UnfurlAnalyzer`, including the blueprint from the "spec" repository.
+
+    Lossy: inputs, the lock section, resource state and the names of
+    repositories other than "spec" are not recorded in the Instantiation.
+    """
+    repositories: Dict[str, RepositoryDef] = {}
+    for _, input_url in instantiation.inputs:
+        if not input_url.startswith("git://"):
+            continue  # e.g. a container image purl
+        repo_url, _, revision = split_git_url(input_url)
+        base = os.path.basename(repo_url)
+        if base.endswith(".git"):
+            base = base[: -len(".git")]
+        name = base = base or "repo"
+        suffix = 1
+        while name in repositories or name in ("spec", "self", "project", "unfurl"):
+            suffix += 1
+            name = f"{base}{suffix}"
+        repositories[name] = _repository_def(context, repo_url, revision)
+
+    doc: EnsembleDoc = {"apiVersion": API_VERSION, "kind": "Ensemble"}
+    if instantiation.source:
+        repo_url, blueprint_path, _ = split_git_url(instantiation.source)
+        repositories["spec"] = _repository_def(
+            context, repo_url, instantiation.source_ref
+        )
+        # +include-blueprint includes the whole file, so drop the fragment
+        doc["+include-blueprint"] = {
+            "file": blueprint_path.partition("#")[0],
+            "repository": "spec",
+        }
+    doc["spec"] = {"service_template": {"repositories": repositories}}
+    return doc
 
 
 def create_cloud_type_from_type_info(
