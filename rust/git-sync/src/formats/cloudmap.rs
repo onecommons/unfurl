@@ -288,6 +288,7 @@ impl DataFormat for CloudMapFormat {
                 if let Ok(repo) = serde_json::from_value::<ct::Repository>(json.clone()) {
                     push_opt(&mut urls, repo.fork_of);
                     push_opt(&mut urls, repo.mirror_of);
+                    push_opt(&mut urls, repo.moved_to);
                     push_opt(&mut urls, repo.service);
                     // `Repository.contains` keys are repo-relative file
                     // paths (with optional `#fragment`); the artifact URL
@@ -906,6 +907,34 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    #[test]
+    fn follow_repository_links() {
+        let record = Record {
+            id: 1,
+            worktree_id: 1,
+            file_path: "cloudmap.yaml".into(),
+            path: "/repositories".into(),
+            key: "git://example.com/old/repo.git".into(),
+            commit_id: None,
+            json: json!({
+                "path": "old/repo",
+                "fork_of": "git://example.com/upstream/repo.git",
+                "status": "moved",
+                "moved_to": "git://example.com/new/repo.git",
+            }),
+            deleted: false,
+            version: 1,
+            conflict: None,
+        };
+        assert_eq!(
+            CloudMapFormat.follow(&record),
+            [
+                "git://example.com/new/repo.git",
+                "git://example.com/upstream/repo.git",
+            ]
+        );
+    }
+
     /// Every section this format claims must have a canonical field
     /// order, or records created through the API land in whatever order
     /// the database handed back. The generated table is keyed off the
@@ -947,6 +976,7 @@ mod tests {
                 "fork_of",
                 "private",
                 "status",
+                "moved_to",
                 "default_branch",
                 "branches",
                 "tags",

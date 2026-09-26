@@ -301,6 +301,7 @@ else:
         ) -> Repository:
             # Convert and add to directory
             repo_info = self.github_repository_to_repository(repo)
+            self._record_move(repo_info, directory)
             previous = directory.context.get_repository(repo_info)
             directory.context.add_record(repo_info)
             if download:

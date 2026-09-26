@@ -2420,6 +2420,10 @@ impl ::std::convert::From<f64> for ReleaseScheduleItemVersion {
 #[doc = "      \"description\": \"URL of the repository that this repository is a mirror of.\","]
 #[doc = "      \"type\": \"string\""]
 #[doc = "    },"]
+#[doc = "    \"moved_to\": {"]
+#[doc = "      \"description\": \"URL of the repository this repository was moved to, if its status is moved.\","]
+#[doc = "      \"type\": \"string\""]
+#[doc = "    },"]
 #[doc = "    \"name\": {"]
 #[doc = "      \"description\": \"Repository name.\","]
 #[doc = "      \"type\": \"string\""]
@@ -2499,6 +2503,9 @@ pub struct Repository {
     #[doc = "URL of the repository that this repository is a mirror of."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub mirror_of: ::std::option::Option<::std::string::String>,
+    #[doc = "URL of the repository this repository was moved to, if its status is moved."]
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub moved_to: ::std::option::Option<::std::string::String>,
     #[doc = "Repository name."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub name: ::std::option::Option<::std::string::String>,
@@ -2538,6 +2545,7 @@ impl ::std::default::Default for Repository {
             internal_id: Default::default(),
             metadata: Default::default(),
             mirror_of: Default::default(),
+            moved_to: Default::default(),
             name: Default::default(),
             path: Default::default(),
             private: Default::default(),

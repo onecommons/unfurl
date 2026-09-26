@@ -426,6 +426,8 @@ pub struct CloudmapRepository {
     pub metadata: Option<serde_json::Value>,
     /// URL of the repository that this repository is a mirror of.
     pub mirror_of: Option<String>,
+    /// URL of the repository this repository was moved to, if its status is moved.
+    pub moved_to: Option<String>,
     /// Repository name.
     pub name: Option<String>,
     /// Project path relative to base location of git repositories on the host.

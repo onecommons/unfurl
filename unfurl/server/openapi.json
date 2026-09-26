@@ -2691,6 +2691,10 @@
             "description": "URL of the repository that this repository is a mirror of.",
             "type": "string"
           },
+          "moved_to": {
+            "description": "URL of the repository this repository was moved to, if its status is moved.",
+            "type": "string"
+          },
           "name": {
             "description": "Repository name.",
             "type": "string"

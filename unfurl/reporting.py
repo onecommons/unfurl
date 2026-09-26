@@ -712,6 +712,8 @@ class CloudMapGraphWalker:
                 edges.append(("fork_of", [record.fork_of]))
             if record.mirror_of:
                 edges.append(("mirror_of", [record.mirror_of]))
+            if record.moved_to:
+                edges.append(("moved_to", [record.moved_to]))
             if record.service:
                 edges.append(("service", [record.service]))
             if record.contains:

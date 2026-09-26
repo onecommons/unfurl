@@ -178,6 +178,8 @@ class RepositoryHost:
     dryrun: bool = False
     repo_filter: str = ""
     hostname: str = ""
+    # the directory the index was built from and its repositories by internal_id
+    _internal_ids: Optional[Tuple["Directory", Dict[str, List[Repository]]]] = None
 
     MAX_GIT_REFS = 100
     DEFAULT_PIPELINE_LIMIT = 50
@@ -221,6 +223,44 @@ class RepositoryHost:
     ) -> Optional[Repository]:
         """Import a project from the given URL into the directory."""
         return None
+
+    def _repositories_by_internal_id(
+        self, directory: Directory
+    ) -> Dict[str, List[Repository]]:
+        if self._internal_ids is None or self._internal_ids[0] is not directory:
+            index: Dict[str, List[Repository]] = {}
+            for repository in directory.context.find_repositories():
+                if repository.internal_id:
+                    index.setdefault(repository.internal_id, []).append(repository)
+            self._internal_ids = (directory, index)
+        return self._internal_ids[1]
+
+    def _record_move(self, repo_info: Repository, directory: Directory) -> None:
+        """Mark the records of ``repo_info`` at its other URLs as moved to it.
+
+        A repository keeps its ``internal_id`` when it is renamed or
+        transferred, so records with the same id on the same host but at a
+        different URL are where it used to be. Requires ``save_internal``.
+        """
+        if not repo_info.internal_id:
+            return
+        host = urlparse(repo_info.url).netloc
+        records = self._repositories_by_internal_id(directory).setdefault(
+            repo_info.internal_id, []
+        )
+        for old in records:
+            if (
+                old.url == repo_info.url
+                or urlparse(old.url).netloc != host
+                or (old.status == "moved" and old.moved_to == repo_info.url)
+            ):
+                continue
+            old.status = "moved"
+            old.moved_to = repo_info.url
+            directory.context.add_record(old)
+            self.logger.info("%s moved to %s", old.url, repo_info.url)
+        records[:] = [r for r in records if r.url != repo_info.url]
+        records.append(repo_info)
 
     def extract_project_path(self, url: str) -> str:
         if ":" in url:

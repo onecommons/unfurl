@@ -3098,3 +3098,93 @@ if __name__ == "__main__":
 
         Path(__file__).write_text(src)
         print(f"\nUpdated {Path(__file__).name}")
+
+
+def _host_repo(url: str, internal_id: str = "7", **kw) -> Repository:
+    return Repository(url=url, path=url.split("/", 3)[-1], internal_id=internal_id, **kw)
+
+
+class _SyncSession:
+    """Imports repositories the way one host sync does: through the host's own
+    import method, reusing one host and directory, with only the host API
+    conversion stubbed out."""
+
+    def __init__(self, manager_cls, db: CloudMapDB) -> None:
+        self.manager_cls = manager_cls
+        self.manager = manager_cls.__new__(manager_cls)
+        self.manager.logger = Mock()
+        self.directory = Mock()
+        self.directory.context = db
+
+    def import_repo(self, repo_info: Repository) -> None:
+        if self.manager_cls is GitlabManager:
+            with patch.object(
+                GitlabManager, "gitlab_project_to_repository", return_value=repo_info
+            ):
+                self.manager._import_project(Mock(), self.directory, False)
+        else:
+            with patch.object(
+                GithubManager, "github_repository_to_repository", return_value=repo_info
+            ):
+                self.manager._import_repository(
+                    Mock(full_name="x"), self.directory, False
+                )
+
+
+@pytest.mark.parametrize("manager_cls", [GitlabManager, GithubManager])
+def test_sync_records_moved_repository(manager_cls):
+    old_url = "git://example.com/team/old.git"
+    new_url = "git://example.com/team/new.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    db.add_record(_host_repo(old_url))
+    # same id on another host is a different repository
+    db.add_record(_host_repo("git://other.com/team/old.git"))
+    sync = _SyncSession(manager_cls, db)
+
+    sync.import_repo(_host_repo(new_url))
+    old = db.get_repository(old_url)
+    assert old and (old.status, old.moved_to) == ("moved", new_url)
+    other = db.get_repository("git://other.com/team/old.git")
+    assert other and other.status is None
+    new = db.get_repository(new_url)
+    assert new and new.status is None
+
+    # moved back: the record it left behind is marked instead
+    sync.import_repo(_host_repo(old_url))
+    new = db.get_repository(new_url)
+    assert new and (new.status, new.moved_to) == ("moved", old_url)
+    old = db.get_repository(old_url)
+    assert old and (old.status, old.moved_to) == (None, None)
+
+
+def test_sync_without_internal_id_records_no_move():
+    old_url = "git://example.com/team/old.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    db.add_record(_host_repo(old_url))
+    _SyncSession(GitlabManager, db).import_repo(
+        _host_repo("git://example.com/team/new.git", internal_id="")
+    )
+    old = db.get_repository(old_url)
+    assert old and old.status is None
+
+
+def test_resync_records_no_move():
+    url = "git://example.com/team/repo.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    db.add_record(_host_repo(url))
+    _SyncSession(GitlabManager, db).import_repo(_host_repo(url))
+    repo = db.get_repository(url)
+    assert repo and (repo.status, repo.moved_to) == (None, None)
+
+
+def test_graph_walk_follows_moved_to():
+    from unfurl.reporting import CollectVisitor, walk_cloudmap_graph_from
+
+    old_url = "git://example.com/team/old.git"
+    new_url = "git://example.com/team/new.git"
+    db = CloudMapDB("", contents={}, validate=False)
+    db.add_record(_host_repo(old_url, status="moved", moved_to=new_url))
+    db.add_record(_host_repo(new_url))
+    visitor = CollectVisitor({old_url}, limit=10)
+    walk_cloudmap_graph_from(db, visitor, [old_url])
+    assert list(visitor.result.get("repositories", {})) == [new_url]

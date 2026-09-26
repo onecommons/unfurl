@@ -1185,6 +1185,8 @@ class Repository(CloudMapRecord):
     "True if the repository not publicly accessible."
     status: Optional[RepositoryStatus] = None
     "Status of the repository (e.g., active, deleted, archived)."
+    moved_to: Optional[str] = None
+    "URL of the repository this repository was moved to, if its status is moved."
     default_branch: str = ""
     'The default branch of the repository (e.g. "main").'
     branches: Dict[str, str] = field(default_factory=dict)
@@ -1206,6 +1208,8 @@ class Repository(CloudMapRecord):
             self.mirror_of = validate_url(self.mirror_of, "Repository.mirror_of")
         if self.fork_of:
             self.fork_of = validate_url(self.fork_of, "Repository.fork_of")
+        if self.moved_to:
+            self.moved_to = validate_url(self.moved_to, "Repository.moved_to")
         if not isinstance(self.metadata, RepositoryMetadata):
             md = self.metadata
             if isinstance(md, dict) and "avatar_url" in md:

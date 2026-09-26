@@ -729,6 +729,10 @@
             "deleted"
           ]
         },
+        "moved_to": {
+          "type": "string",
+          "description": "URL of the repository this repository was moved to, if its status is moved."
+        },
         "default_branch": {
           "type": "string",
           "description": "Default branch name (e.g., main, master)."

@@ -42,6 +42,7 @@ pub const FIELD_ORDER: &[(&str, &[&str])] = &[
             "fork_of",
             "private",
             "status",
+            "moved_to",
             "default_branch",
             "branches",
             "tags",
