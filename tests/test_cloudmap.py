@@ -3188,3 +3188,85 @@ def test_graph_walk_follows_moved_to():
     visitor = CollectVisitor({old_url}, limit=10)
     walk_cloudmap_graph_from(db, visitor, [old_url])
     assert list(visitor.result.get("repositories", {})) == [new_url]
+
+class TestAnalyzeMetadata:
+    """``CloudMap.analyze_url(url, "metadata")`` refreshes a repository record
+    from its host without cloning it."""
+
+    CANONICAL = "git://unfurl.cloud/group/project.git"
+    # what a GitLab instance with canonical_url https://unfurl.cloud sends
+    SENT = "http://gdk.test:3000/group/project.git"
+
+    def _cloudmap(self, db: CloudMapDB, with_host: bool = True):
+        cloud_map = CloudMap(None, "", db=db)
+        if with_host:
+            cloud_map.local_env = Mock()
+        manager = GitlabManager.__new__(GitlabManager)
+        manager.gitlab = Mock()
+        manager.hostname = "gdk.test"
+        manager.canonical_url = "https://unfurl.cloud"
+        manager.logger = Mock()
+        return cloud_map, manager
+
+    def _analyze(self, db: CloudMapDB, fresh: Repository, with_host: bool = True):
+        cloud_map, manager = self._cloudmap(db, with_host)
+        with patch.object(CloudMap, "get_host", return_value=manager), patch.object(
+            GitlabManager, "gitlab_project_to_repository", return_value=fresh
+        ):
+            return cloud_map.analyze_url(self.SENT, "metadata")
+
+    def _record(self, description: str, **kw) -> Repository:
+        return Repository(
+            url=self.CANONICAL,
+            path="group/project",
+            name="project",
+            metadata=RepositoryMetadata(description=description),
+            **kw,
+        )
+
+    def _db_with_existing(self) -> CloudMapDB:
+        db = CloudMapDB("", contents={}, validate=False)
+        existing = self._record("old")
+        existing.contains = TypeRefs.urls_fromdict(
+            {"ensemble.yaml": None}, keys_are_urls=True
+        )
+        db.add_record(existing)
+        return db
+
+    def test_refreshes_existing_record_and_keeps_contains(self):
+        db = self._db_with_existing()
+        record = self._analyze(db, self._record("new", status="archived"))
+        assert record is not None and record.key == self.CANONICAL
+        stored = db.get_repository(self.CANONICAL)
+        assert stored and stored.metadata.description == "new"
+        assert stored.status == "archived"
+        assert ("", "ensemble.yaml") in stored.contains
+
+    def test_unchanged_record_is_skipped(self):
+        db = self._db_with_existing()
+        before = db.get_repository(self.CANONICAL)
+        assert self._analyze(db, self._record("old")) is None
+        assert db.get_repository(self.CANONICAL) is before
+
+    def test_new_url_is_added(self):
+        db = CloudMapDB("", contents={}, validate=False)
+        record = self._analyze(db, self._record("new"))
+        assert record is not None
+        assert db.get_repository(self.CANONICAL)
+
+    def test_without_a_host_the_record_is_left_alone(self):
+        db = self._db_with_existing()
+        before = db.get_repository(self.CANONICAL)
+        assert self._analyze(db, self._record("new"), with_host=False) is None
+        assert db.get_repository(self.CANONICAL) is before
+
+    def test_host_without_the_project_leaves_the_record_alone(self):
+        db = self._db_with_existing()
+        before = db.get_repository(self.CANONICAL)
+        cloud_map, manager = self._cloudmap(db)
+        with patch.object(CloudMap, "get_host", return_value=manager), patch.object(
+            GitlabManager, "import_project_url", return_value=None
+        ):
+            assert cloud_map.analyze_url(self.SENT, "metadata") is None
+        assert db.get_repository(self.CANONICAL) is before
+

@@ -270,7 +270,21 @@ class AnalyzerRegistry:
         return descend
 
 
-Analyze_Options = Literal["yes", "no", "save-only", "default"]
+Analyze_Options = Literal["yes", "no", "save-only", "default", "metadata"]
+
+
+def _refreshed_unchanged(previous: Repository, refreshed: Repository) -> bool:
+    """True if a metadata refresh left the record as it was, ignoring what only
+    analysis sets (``contains``) and the record's provenance."""
+
+    before, after = previous.asdict(), refreshed.asdict()
+    for record in (before, after):
+        record.pop("contains", None)
+        metadata = record.get("metadata")
+        if isinstance(metadata, dict):
+            metadata.pop("discovery", None)
+    return before == after
+
 
 class Directory(_LocalGitRepos):
     """Drives analysis: clones repositories, runs the analyzers matching their
@@ -1142,6 +1156,8 @@ class CloudMap:
         Args:
             url: The URL to add. Can be a git URL, pkg: PURL, or a service URL.
             analyze: Whether to analyze the repository ("yes", "no", "save-only", "default") (default: "default").
+                "metadata" refreshes an existing repository record from its host without
+                cloning it, and otherwise acts like "no".
             replace: Also remove records that were previously discovered from
                 ``url`` but that it no longer produces -- see
                 :py:meth:`~unfurl.cloudmap.provenance.ProvenanceTrackingContext.replace_from_source`.
@@ -1274,7 +1290,7 @@ class CloudMap:
             # don't analyze the whole repo if a file path is specified, just analyze the file
             self.directory.do_analysis = False
         repo_info = context.get_repository(canonical_url)
-        if analyze != "yes" and repo_info is not None:
+        if analyze not in ("yes", "metadata") and repo_info is not None:
             # if not analyzing, return None if the repository already exists
             return None
 
@@ -1293,8 +1309,15 @@ class CloudMap:
 
             else:
                 download = True
+        previous: Optional[Repository] = None
+        if analyze == "metadata" and not self.local_env:
+            self.logger.warning(
+                "Can't refresh %s: no repository host to read its metadata from",
+                sanitize_url(repo_url),
+            )
+            return None
         # re-import the repository if need to analyze it
-        if repo_info is None or download:
+        if repo_info is None or download or analyze == "metadata":
             # Try to import via a matching repository host
             if self.local_env:
                 host = CloudMap.get_host(
@@ -1304,6 +1327,12 @@ class CloudMap:
                     repos_root=self.directory.repos_root,
                     repo_filter=canonical_url,
                 )
+                if analyze == "metadata":
+                    # the import replaces the record, so keep the one it replaces;
+                    # the host may key it under its canonical url
+                    previous = context.get_repository(
+                        get_repository_url(host.canonize(repo_url))
+                    ) or context.get_repository(canonical_url)
                 try:
                     repo_info = host.import_project_url(
                         repo_url,
@@ -1317,6 +1346,21 @@ class CloudMap:
                         exc_info=True,
                     )
                     return None
+
+            if repo_info is None and analyze == "metadata" and previous is not None:
+                # the fallback below would replace the record with a bare one
+                self.logger.warning(
+                    "Can't refresh %s: no repository host to read its metadata from",
+                    sanitize_url(repo_url),
+                )
+                return None
+
+            if previous is not None and repo_info is not None:
+                if _refreshed_unchanged(previous, repo_info):
+                    context.add_record(previous)
+                    return None
+                # a host builds the record afresh: keep what analysis found
+                repo_info.contains = previous.contains
 
             if repo_info is None:
                 # Fallback: build a minimal Repository from URL components

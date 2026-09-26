@@ -2178,8 +2178,8 @@ def serve(
 @click.option(
     "--analyze",
     default="default",
-    type=click.Choice(["default", "yes", "no", "save-only"]),
-    help='Analyze files. "save-only" means save locally but don\'t analyze; default is "yes" with --import, "no" with --add',
+    type=click.Choice(["default", "yes", "no", "save-only", "metadata"]),
+    help='Analyze files. "save-only": save locally but don\'t analyze; "metadata": analyze but don\'t save; default is "yes" with --import, "no" with --add',
 )
 @click.option(
     "--force",
@@ -2241,7 +2241,7 @@ def cloudmap(
     commit: bool = False,
     add: Tuple[str, ...] = (),
     replace: Tuple[str, ...] = (),
-    analyze: Literal["yes", "no", "save-only", "default"] = "default",
+    analyze: Literal["yes", "no", "save-only", "default", "metadata"] = "default",
     graph: Optional[str] = None,
     graph_format: str = "text",
     **options,
@@ -2299,7 +2299,7 @@ def cloudmap(
         cloudmap,
         clone_root,
         host.host_branch if host else "",
-        skip_analysis or analyze == "no",
+        skip_analysis or analyze in ("no", "metadata"),
         commit,
         # adding records can go straight to a cloudmap server; syncing with a
         # repository host can't, since that merges and commits a local clone
