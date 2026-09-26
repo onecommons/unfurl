@@ -85,6 +85,7 @@ from .schemas import (
     PopulateCacheQuery,
     TypesQuery,
     EXPORT_RESPONSES,
+    describe_populate_cache_body,
     hoist_cloudmap_definitions,
 )
 from ..packages import Package, get_package_from_url, ProxiedRepo
@@ -126,13 +127,18 @@ logger = getLogger("unfurl.server")
 app = APIFlask(__name__, title="Unfurl Server API", version=__version__())
 
 
+# One processor, not one per concern: APIFlask keeps a single
+# `spec_callback`, so a second `@app.spec_processor` silently replaces the
+# first rather than chaining.
 @app.spec_processor
-def _hoist_cloudmap_defs(spec):
-    """Lift CloudMap schema definitions into components.schemas so that
-    the canonical cloudmap-schema.json definitions appear as named
-    OpenAPI components and ``$ref`` arrows resolve.
+def _process_spec(spec):
+    """Lift CloudMap schema definitions into components.schemas so that the
+    canonical cloudmap-schema.json definitions appear as named OpenAPI
+    components and ``$ref`` arrows resolve, and document /populate_cache's
+    optional JSON body, which cannot be declared as an input without rejecting
+    callers that send no Content-Type.
     """
-    return hoist_cloudmap_definitions(spec)
+    return describe_populate_cache_body(hoist_cloudmap_definitions(spec))
 
 
 def configure_app(app: APIFlask = app) -> Cache:
@@ -1550,7 +1556,12 @@ def _get_filepath(format: str, deployment_path: str) -> str:
 
 
 def format_from_path(path: str) -> str:
-    if path.endswith("ensemble-template.yaml"):
+    # A service template is an input to the blueprint export rather than a
+    # deployment of its own, so a change to one stales the entry that
+    # ensemble-template.yaml stales.
+    if path.endswith(
+        ("ensemble-template.yaml", "service_template.yaml", "service_template.py")
+    ):
         return "blueprint"
     elif path.endswith("unfurl.yaml"):
         return "environments"
@@ -1879,7 +1890,16 @@ def get_types(query: TypesQuery) -> ResponseReturnValue:
 
 
 @app.post("/populate_cache")
-@app.doc(summary="Populate export cache for a project file", tags=["Cache"])
+@app.doc(
+    summary="Populate export cache for a project's changed files",
+    description=(
+        "Send the files a push touched as a `files` batch in the body, so one "
+        "push is one request. The `path` and `removed` query parameters remain "
+        "accepted for a single file, which is what a caller predating the "
+        "batch sends."
+    ),
+    tags=["Cache"],
+)
 @app.input(PopulateCacheQuery, location="query", arg_name="query")
 def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
     project_id = get_project_id_or_abort(request)
@@ -1889,48 +1909,93 @@ def populate_cache(query: PopulateCacheQuery) -> ResponseReturnValue:
         if branch.startswith(prefix):
             branch = branch[len(prefix) :]
             break
-    path = request.args["path"]
     latest_commit = request.args["latest_commit"]
-    requested_format = format_from_path(path)
-    removed = request.args.get("removed")
     sethead = request.args.get("sethead")
     # sethead only if branch was explicitly specified
     if req_branch and sethead and sethead not in ["0", "false"]:
         # Ahead of the early returns below: the push happened whether or not
         # there is a cache entry to populate here.
         set_branch_head(project_id, branch, latest_commit)
-    cache_entry = CacheEntry(
-        project_id, branch, path, requested_format, args=dict(request.args)
-    )
+
+    files = _populate_cache_files(request)
+    if not files:
+        return create_error_response(
+            "BAD_REQUEST", "populate_cache needs either a files batch or a path"
+        )
+
     visibility = request.args.get("visibility")
-    logger.debug(
-        "populate cache with %s at %s, (removed: %s visibility: %s)",
-        cache_entry.cache_key(),
-        latest_commit,
-        removed,
-        visibility,
-    )
     cache = assert_not_none(get_cache())
-    if removed and removed not in ["0", "false"]:
+
+    def entry_for(path: str) -> CacheEntry:
+        cache_entry = CacheEntry(
+            project_id, branch, path, format_from_path(path), args=dict(request.args)
+        )
+        logger.debug(
+            "populate cache with %s at %s, (visibility: %s)",
+            cache_entry.cache_key(),
+            latest_commit,
+            visibility,
+        )
+        return cache_entry
+
+    # Deletions first, and unconditionally: they need no clone, so a batch that
+    # also populates must not lose them to the private-repository return below.
+    # One request per file used to give each its own chance at this.
+    for path in [path for path, removed in files if removed]:
+        cache_entry = entry_for(path)
         cache_entry.delete_cache(cache)
         cache_entry._cancel_inflight(cache)
+
+    to_populate = [path for path, removed in files if not removed]
+    if not to_populate:
         return "OK"
+
+    # A property of the request rather than of each file, so asked once.
     project_dir = _get_project_repo_dir(project_id, branch, dict(visibility=visibility))
-    if not os.path.isdir(project_dir):
+    if not os.path.isdir(project_dir) and visibility != "public":
         # don't try to clone private repository
-        if visibility != "public":
-            logger.info("skipping populate cache for private repository %s", project_id)
-            return "OK"
-    err, json_summary = cache_entry.get_or_set(cache, _export_cache_work, latest_commit)
-    if err:
-        if isinstance(err, Exception):
-            return create_error_response(
-                "INTERNAL_ERROR", "An internal error occurred", err
-            )
-        else:
-            return err
-    else:
+        logger.info("skipping populate cache for private repository %s", project_id)
         return "OK"
+
+    first_error = None
+    for path in to_populate:
+        err, json_summary = entry_for(path).get_or_set(
+            cache, _export_cache_work, latest_commit
+        )
+        # One unexportable file must not leave the rest of the push stale, so
+        # the loop finishes and the first failure is what gets reported.
+        if err and first_error is None:
+            if isinstance(err, Exception):
+                first_error = create_error_response(
+                    "INTERNAL_ERROR", "An internal error occurred", err
+                )
+            else:
+                first_error = err
+
+    return first_error or "OK"
+
+
+def _populate_cache_files(request) -> List[Tuple[str, bool]]:
+    """The (path, removed) pairs a /populate_cache request names.
+
+    Prefers a ``files`` batch in the body; falls back to the ``path`` and
+    ``removed`` query parameters a single-file caller sends.
+    """
+    body = request.get_json(silent=True) or {}
+    batch = body.get("files")
+    if batch:
+        return [
+            (entry["path"], bool(entry.get("removed")))
+            for entry in batch
+            if entry.get("path")
+        ]
+
+    path = request.args.get("path")
+    if not path:
+        return []
+
+    removed = request.args.get("removed")
+    return [(path, bool(removed) and removed not in ["0", "false"])]
 
 
 @app.post("/empty_cache")

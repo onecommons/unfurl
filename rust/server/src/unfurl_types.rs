@@ -1529,6 +1529,31 @@ pub struct PatchResponseAppliedRecord {
     /// ``unfurl.server.version`` stamped on the row by this write.
     pub version: i64,
 }
+/// JSON body for /populate_cache.
+///
+/// A push touches whatever files it touches, and all of them share the commit,
+/// branch and visibility that decide what their cache entries are -- so they
+/// travel together and a push is one request.
+///
+/// Optional, because the per-file `path` and `removed` query parameters remain
+/// accepted: that is what a caller predating the batch sends.
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+pub struct PopulateCacheBody {
+    /// The files whose cache entries to populate or delete
+    #[validate(nested)]
+    pub files: Option<Vec<PopulateCacheFile>>,
+}
+/// One file in a /populate_cache batch.
+#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+#[serde(default)]
+pub struct PopulateCacheFile {
+    /// File path relative to the project root
+    #[validate(length(min = 1u64))]
+    pub path: String,
+    /// Delete this path's cache entry instead of populating it
+    #[default(Some(false))]
+    pub removed: Option<bool>,
+}
 /// Used by the Rust proxy to forward a batch of write requests that share the same branch and latest_commit.  Each request in the ``requests`` list is applied in order; a single push is performed at the end.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostBatchPatchRequest {
@@ -1762,14 +1787,15 @@ impl IntoResponse for PostEmptyCacheResponse {
         }
     }
 }
-/// Populate export cache for a project file
+/// Send the files a push touched as a `files` batch in the body, so one push is one request. The `path` and `removed` query parameters remain accepted for a single file, which is what a caller predating the batch sends.
 #[derive(Debug, Clone, validator::Validate, oas3_gen_support::Default)]
 pub struct PostPopulateCacheRequest {
-    #[validate(nested)]
     pub query: PostPopulateCacheRequestQuery,
+    #[validate(nested)]
+    pub body: Option<PopulateCacheBody>,
 }
 impl PostPopulateCacheRequest {}
-#[derive(Debug, Clone, PartialEq, Deserialize, validator::Validate, oas3_gen_support::Default)]
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize, oas3_gen_support::Default)]
 pub struct PostPopulateCacheRequestQuery {
     /// Project ID for authorization and cache key scoping
     pub auth_project: Option<String>,
@@ -1777,10 +1803,9 @@ pub struct PostPopulateCacheRequestQuery {
     pub latest_commit: Option<String>,
     /// Git branch name
     pub branch: Option<String>,
-    /// File path relative to the project root
-    #[validate(length(min = 1u64))]
-    pub path: String,
-    /// If truthy (not '0' or 'false'), delete the cache entry instead of populating it
+    /// File path relative to the project root. Omit when sending a `files` batch in the body, which is preferred.
+    pub path: Option<String>,
+    /// If truthy (not '0' or 'false'), delete the cache entry instead of populating it. Applies to `path`; a `files` batch carries its own.
     pub removed: Option<String>,
     /// Repository visibility; private repositories are not cloned automatically
     pub visibility: Option<String>,

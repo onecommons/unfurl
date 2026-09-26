@@ -891,6 +891,43 @@ def _conflicts_schema(description: str) -> Dict[str, Any]:
     }
 
 
+def describe_populate_cache_body(spec: Dict[str, Any]) -> Dict[str, Any]:
+    """APIFlask ``spec_processor``: document /populate_cache's optional body.
+
+    :class:`PopulateCacheBody` cannot be declared with
+    ``@app.input(..., location="json")``, even with every field optional: a
+    caller that sends only query parameters carries no ``Content-Type:
+    application/json``, ``request.get_json()`` raises 415, and APIFlask renders
+    that as a 400. The single-file form is what a caller predating the batch
+    sends, so the endpoint reads the body itself and the spec is told about it
+    here.
+
+    Without this the generated clients cannot express the batch at all: the
+    spec would describe only the query while the endpoint's own description
+    tells the caller to put files in the body.
+    """
+    operation = spec.get("paths", {}).get("/populate_cache", {}).get("post")
+    if not operation:
+        return spec
+
+    schema = PopulateCacheBody.model_json_schema(
+        ref_template="#/components/schemas/{model}"
+    )
+    schemas = spec.setdefault("components", {}).setdefault("schemas", {})
+    schemas.update(schema.pop("$defs", {}))
+    schemas["PopulateCacheBody"] = schema
+
+    operation["requestBody"] = {
+        "required": False,
+        "content": {
+            "application/json": {
+                "schema": {"$ref": "#/components/schemas/PopulateCacheBody"}
+            }
+        },
+    }
+    return spec
+
+
 def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     """APIFlask ``spec_processor``: replace the placeholder
     ``CloudMapDocument`` schema with the canonical CloudMap schema and
@@ -1007,13 +1044,53 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
     return spec
 
 
-class PopulateCacheQuery(ProjectQuery):
-    """Query parameters for /populate_cache."""
+class PopulateCacheFile(BaseModel):
+    """One file in a /populate_cache batch."""
 
     path: str = Field(description="File path relative to the project root")
+    removed: bool = Field(
+        default=False,
+        description="Delete this path's cache entry instead of populating it",
+    )
+
+
+class PopulateCacheBody(BaseModel):
+    """JSON body for /populate_cache.
+
+    A push touches whatever files it touches, and all of them share the commit,
+    branch and visibility that decide what their cache entries are -- so they
+    travel together and a push is one request.
+
+    Optional, because the per-file `path` and `removed` query parameters remain
+    accepted: that is what a caller predating the batch sends.
+    """
+
+    files: List[PopulateCacheFile] = Field(
+        default_factory=list,
+        description="The files whose cache entries to populate or delete",
+    )
+
+
+class PopulateCacheQuery(ProjectQuery):
+    """Query parameters for /populate_cache.
+
+    The files themselves belong in a PopulateCacheBody, so that one push is one
+    request; `path` and `removed` below are the single-file form.
+    """
+
+    path: Optional[str] = Field(
+        default=None,
+        description=(
+            "File path relative to the project root. Omit when sending a "
+            "`files` batch in the body, which is preferred."
+        ),
+    )
     removed: Optional[str] = Field(
         default=None,
-        description="If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
+        description=(
+            "If truthy (not '0' or 'false'), delete the cache entry instead of "
+            "populating it. Applies to `path`; a `files` batch carries its own."
+        ),
     )
     visibility: Optional[Literal["public", "private"]] = Field(
         default=None,

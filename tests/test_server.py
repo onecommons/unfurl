@@ -1595,6 +1595,93 @@ def test_populate_cache(runner: Process):
         assert res.status_code == 200
         assert res.content == b"OK"
 
+
+def test_populate_cache_accepts_a_files_batch(runner: Process):
+    """A push is one request carrying every file it touched.
+
+    The per-file query form above still works, so a caller that predates the
+    batch keeps functioning; this is the form the GitLab worker sends.
+    """
+    port = _static_server_port
+    res = requests.post(
+        f"http://{HOST}:{port}/populate_cache",
+        params={
+            "secret": "secret",
+            "auth_project": "onecommons/project-templates/dashboard",
+            "latest_commit": "HEAD",
+            "visibility": "public",
+        },
+        json={
+            "files": [
+                {"path": "unfurl.yaml"},
+                {"path": "ensemble/ensemble.yaml"},
+            ]
+        },
+    )
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+
+def test_populate_cache_deletes_the_entries_a_batch_marks_removed(runner: Process):
+    """A push that deletes a file and changes another carries both outcomes.
+
+    Only one flag existed per request before, so a push doing both needed two
+    requests and the deletion could not travel with the change.
+    """
+    port = _static_server_port
+    res = requests.post(
+        f"http://{HOST}:{port}/populate_cache",
+        params={
+            "secret": "secret",
+            "auth_project": "onecommons/project-templates/dashboard",
+            "latest_commit": "HEAD",
+            "visibility": "public",
+        },
+        json={
+            "files": [
+                {"path": "unfurl.yaml", "removed": True},
+                {"path": "ensemble/ensemble.yaml", "removed": False},
+            ]
+        },
+    )
+    assert res.status_code == 200
+    assert res.content == b"OK"
+
+
+def test_populate_cache_refuses_an_empty_files_batch(runner: Process):
+    """The body path gives the same answer as the query path.
+
+    The test below sends no body at all; this one sends a well-formed body that
+    names nothing, which reaches the same check by a different route.
+    """
+    port = _static_server_port
+    res = requests.post(
+        f"http://{HOST}:{port}/populate_cache",
+        params={
+            "secret": "secret",
+            "auth_project": "onecommons/project-templates/dashboard",
+            "latest_commit": "HEAD",
+            "visibility": "public",
+        },
+        json={"files": []},
+    )
+    assert res.status_code == 400
+
+
+def test_populate_cache_refuses_a_request_naming_no_files(runner: Process):
+    port = _static_server_port
+    res = requests.post(
+        f"http://{HOST}:{port}/populate_cache",
+        params={
+            "secret": "secret",
+            "auth_project": "onecommons/project-templates/dashboard",
+            "latest_commit": "HEAD",
+            "visibility": "public",
+        },
+    )
+    assert res.status_code == 400
+
+
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")
 @pytest.mark.parametrize("server_env", server_env)
 def test_server_update_deployment(server_env):

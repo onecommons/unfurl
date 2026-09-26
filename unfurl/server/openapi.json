@@ -1773,6 +1773,42 @@
         "title": "AppliedRecord",
         "type": "object"
       },
+      "PopulateCacheBody": {
+        "description": "JSON body for /populate_cache.\n\nA push touches whatever files it touches, and all of them share the commit,\nbranch and visibility that decide what their cache entries are -- so they\ntravel together and a push is one request.\n\nOptional, because the per-file `path` and `removed` query parameters remain\naccepted: that is what a caller predating the batch sends.",
+        "properties": {
+          "files": {
+            "description": "The files whose cache entries to populate or delete",
+            "items": {
+              "$ref": "#/components/schemas/PopulateCacheFile"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "title": "PopulateCacheBody",
+        "type": "object"
+      },
+      "PopulateCacheFile": {
+        "description": "One file in a /populate_cache batch.",
+        "properties": {
+          "path": {
+            "description": "File path relative to the project root",
+            "title": "Path",
+            "type": "string"
+          },
+          "removed": {
+            "default": false,
+            "description": "Delete this path's cache entry instead of populating it",
+            "title": "Removed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "PopulateCacheFile",
+        "type": "object"
+      },
       "PostCloudmapRequest": {
         "additionalProperties": true,
         "description": "Request body for ``POST /cloudmap``.\n\nA CloudMap document portion plus request-only envelope/control fields\n(``atomic`` / ``latest_commit`` / ``cloudmap_path`` / ``username``\n/ ``private_token`` / ``commit_msg``).\n\nDeclared as a flat object \u2014 the cloudmap section maps and the\nenvelope keys live side-by-side at the top level. The endpoint\nsplits them apart by name; the JSON-Schema validation only runs on\nthe cloudmap-document subset.",
@@ -4538,6 +4574,7 @@
     },
     "/populate_cache": {
       "post": {
+        "description": "Send the files a push touched as a `files` batch in the body, so one push is one request. The `path` and `removed` query parameters remain accepted for a single file, which is what a caller predating the batch sends.",
         "parameters": [
           {
             "in": "query",
@@ -4596,11 +4633,19 @@
           {
             "in": "query",
             "name": "path",
-            "required": true,
+            "required": false,
             "schema": {
-              "description": "File path relative to the project root",
-              "title": "Path",
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "File path relative to the project root. Omit when sending a `files` batch in the body, which is preferred.",
+              "title": "Path"
             }
           },
           {
@@ -4617,7 +4662,7 @@
                 }
               ],
               "default": null,
-              "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it",
+              "description": "If truthy (not '0' or 'false'), delete the cache entry instead of populating it. Applies to `path`; a `files` batch carries its own.",
               "title": "Removed"
             }
           },
@@ -4662,6 +4707,16 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PopulateCacheBody"
+              }
+            }
+          },
+          "required": false
+        },
         "responses": {
           "200": {
             "content": {
@@ -4682,7 +4737,7 @@
             "description": "Validation error"
           }
         },
-        "summary": "Populate export cache for a project file",
+        "summary": "Populate export cache for a project's changed files",
         "tags": [
           "Cache"
         ]
