@@ -1697,7 +1697,6 @@ class CloudMap:
         self.repo.repo.index.add([path])
         if self.repo.is_dirty(False, path):
             self.repo.commit_files([path], msg)
-            self.repo.repo.index.commit(msg)
             self.logger.verbose(f"committed: {msg}")
             return True
         self.logger.verbose(f'nothing to commit for "{msg}"')
