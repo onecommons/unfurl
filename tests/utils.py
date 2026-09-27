@@ -30,7 +30,9 @@ class MotoTest(unittest.TestCase):
         self.p = Process(target=main, args=(["-p5001"],))
         self.p.start()
 
-        for n in range(5):
+        # under load, a forkserver child takes a while to import moto
+        deadline = time.monotonic() + 15
+        while self.p.is_alive() and time.monotonic() < deadline:
             time.sleep(0.2)
             try:
                 url = "http://localhost:5001/moto-api"  # UI lives here
