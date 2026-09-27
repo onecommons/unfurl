@@ -4922,6 +4922,23 @@ def test_cloudmap_project_id_resolution(monkeypatch):
     assert resolve("", None) == server_cloudmap.CLOUDMAP_PROJECT
 
 
+def test_clone_repo_leaves_another_clones_lock(monkeypatch, tmp_path):
+    """A clone that finds the repository locked by another fails, and leaves
+    that lock in place."""
+    monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path))
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    with server.app.app_context():
+        repo_path = server._get_project_repo_dir("org/proj", "main", {})
+        lock = f"{repo_path}.lock"
+        os.makedirs(os.path.dirname(lock))
+        with open(lock, "w") as f:
+            f.write("12345")
+        with pytest.raises(FileExistsError):
+            server._clone_repo("org/proj", "main", None, {})
+    with open(lock) as f:
+        assert f.read() == "12345"
+
+
 def test_clone_repo_without_project_id(monkeypatch, tmp_path):
     """A server serving a local path that isn't a repo must fail cleanly.
 

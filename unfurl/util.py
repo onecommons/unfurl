@@ -606,6 +606,18 @@ def change_cwd(
         os.chdir(old_path)
 
 
+@contextmanager
+def lock_file(path: str) -> Iterator[None]:
+    """Hold ``path`` as a lock file: created exclusively with this process's
+    pid in it, and removed on exit. FileExistsError if something holds it."""
+    with open(path, "xb", buffering=0) as f:
+        f.write(str(os.getpid()).encode("ascii"))
+    try:
+        yield
+    finally:
+        os.unlink(path)
+
+
 # XXX unused because this breaks check_schema
 # see https://python-jsonschema.readthedocs.io/en/latest/faq/#why-doesn-t-my-schema-s-default-property-set-the-default-on-my-instance
 # def extend_with_default(validator_class: Draft7Validator) -> Draft7Validator:

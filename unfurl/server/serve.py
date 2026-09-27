@@ -102,6 +102,7 @@ from ..util import (
     UnfurlError,
     get_package_digest,
     is_relative_to,
+    lock_file,
     unique_name,
     assert_not_none,
 )
@@ -574,10 +575,7 @@ def _clone_repo(
     )
     # note: adding credentials to the git URL permanently so pull works with private repositories
     git_url = get_project_url(project_id, username, password)
-    clone_lock_path = repo_path + ".lock"
-    try:
-        with open(clone_lock_path, "xb", buffering=0) as lockfile:
-            lockfile.write(bytes(str(os.getpid()), "ascii"))  # type: ignore
+    with lock_file(repo_path + ".lock"):  # see _get_project_repo
         return Repo.create_working_dir(
             git_url,
             repo_path,
@@ -587,9 +585,6 @@ def _clone_repo(
             # expose an arbitrary file through the checked-out tree
             symlinks=not _safe_mode(),
         )
-    finally:
-        if os.path.exists(clone_lock_path):
-            os.unlink(clone_lock_path)
 
 
 _cache_inflight_sleep_duration = 0.2
