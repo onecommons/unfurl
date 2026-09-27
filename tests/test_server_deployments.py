@@ -8,6 +8,7 @@ from git import Repo
 from unfurl.repo import GitRepo
 from unfurl.yamlloader import yaml
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     HOST,
     _assert_commit,
     _dump_server_logs,
@@ -24,6 +25,8 @@ from tests.server_utils import (
     server_env,
     set_up_deployment,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 @unittest.skipIf("slow" in os.getenv("UNFURL_TEST_SKIP", ""), "UNFURL_TEST_SKIP set")

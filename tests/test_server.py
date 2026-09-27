@@ -17,6 +17,7 @@ from unfurl.repo import GitRepo
 from unfurl.server import gui, serve as server
 from werkzeug.exceptions import HTTPException
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     _missing_auth_project_client,
     CLOUD_TEST_SERVER,
     HOST,
@@ -33,6 +34,8 @@ from tests.server_utils import (
     set_up_deployment,
     start_server_process,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 def test_server_health(runner: Process):

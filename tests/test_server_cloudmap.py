@@ -8,6 +8,7 @@ from multiprocessing import get_context
 from unfurl.repo import GitRepo
 from unfurl.server import cloudmap as server_cloudmap, serve as server
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     HOST,
     _canonical,
     _cloudmap_db_url,
@@ -19,6 +20,8 @@ from tests.server_utils import (
     server_env,
     start_server_process,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 @pytest.mark.parametrize("server_env", server_env)

@@ -8,6 +8,7 @@ from git import Repo
 from unfurl.repo import GitRepo
 from unfurl.server import endpoints as server_endpoints, serve as server
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     _missing_auth_project_client,
     HOST,
     UNFURL_TEST_REDIS_URL,
@@ -19,6 +20,8 @@ from tests.server_utils import (
     runner,
     set_up_deployment,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 class TestDoPatch:

@@ -11,6 +11,7 @@ from typing import List
 from unfurl.repo import GitRepo
 from unfurl.server import serve as server
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     HOST,
     UNFURL_TEST_REDIS_URL,
     _dump_server_logs,
@@ -22,6 +23,8 @@ from tests.server_utils import (
     runner,
     set_up_deployment,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 def test_remote_refs_cached_as_plain_tuple(monkeypatch):

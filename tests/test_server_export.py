@@ -14,6 +14,7 @@ from unfurl.repo import GitRepo, Repo as UnfurlRepo
 from unfurl.server import serve as server
 from unfurl.util import clean_output, get_package_digest
 from tests.server_utils import (
+    RERUN_ON_SERVER_ERROR,
     CLOUD_TEST_SERVER,
     HOST,
     UNFURL_TEST_REDIS_URL,
@@ -30,6 +31,8 @@ from tests.server_utils import (
     start_server_process,
     wait_for_status,
 )
+
+pytestmark = RERUN_ON_SERVER_ERROR
 
 
 @pytest.mark.parametrize("server_env", server_env)
