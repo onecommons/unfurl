@@ -151,7 +151,6 @@ def configure_app(app: APIFlask = app) -> Cache:
      - CACHE_REDIS_URL or CACHE_REDIS_HOST, CACHE_REDIS_PORT, etc. for RedisCache configuration
      - UNFURL_CLONE_ROOT: root directory for cloning git repositories (default: current directory)
      - UNFURL_CLOUD_SERVER: URL of the unfurl cloud server (default: https://unfurl.cloud)
-     - UNFURL_DEFAULT_CLOUDMAP_PROJECT: project whose cloudmap a request that names none reads, and that pushes are analyzed into; if unset, pushes aren't analyzed
      - UNFURL_SERVE_SECRET: optional secret for authenticating requests
      - UNFURL_SERVE_CORS: optional whitespace-separated list of allowed CORS origins, or "*" (default: origin of UNFURL_CLOUD_SERVER)
      - CACHE_DEFAULT_PULL_TIMEOUT: default timeout in seconds for pulling git repositories when validating cache entries, -1: never pull, 0: always pull (default: 120)
@@ -199,9 +198,10 @@ def configure_app(app: APIFlask = app) -> Cache:
     )
     app.config["UNFURL_SECRET"] = os.getenv("UNFURL_SERVE_SECRET")
     app.config["UNFURL_LOCAL_CLOUDMAP_URL"] = os.getenv("UNFURL_LOCAL_CLOUDMAP_URL")
-    app.config["UNFURL_DEFAULT_CLOUDMAP_PROJECT"] = os.getenv(
-        "UNFURL_DEFAULT_CLOUDMAP_PROJECT"
-    )
+    # the LocalEnv of the project the server was started on, if any
+    app.config["UNFURL_LOCAL_ENV"] = None
+    # the cloudmap that LocalEnv configures, resolved on first use (cloudmap.py)
+    app.config["UNFURL_CURRENT_CLOUDMAP"] = None
     app.config["CACHE_DEFAULT_PULL_TIMEOUT"] = int(
         os.environ.get("CACHE_DEFAULT_PULL_TIMEOUT") or 120
     )
@@ -421,6 +421,10 @@ def refresh_current_localenv():
     refreshed = set_current_ensemble_git_url(gui=True)
     if refreshed:
         app.config["UNFURL_GUI_MODE"] = refreshed
+        app.config["UNFURL_LOCAL_ENV"] = refreshed
+        current_cloudmap = app.config.get("UNFURL_CURRENT_CLOUDMAP")
+        if current_cloudmap:
+            current_cloudmap.local_env = refreshed
 
 
 _cache: Optional[Cache] = None
@@ -433,7 +437,7 @@ def get_cache() -> Optional[Cache]:
 # SERVER_SOFTWARE will be set if this process is invoked by a front-end http server like apache or gunicorn
 if os.getenv("SERVER_SOFTWARE"):
     _cache = configure_app()
-    set_current_ensemble_git_url()
+    app.config["UNFURL_LOCAL_ENV"] = set_current_ensemble_git_url()
 
 
 def serving_local_path() -> bool:
@@ -2667,6 +2671,7 @@ def serve(
                 return
         app.config["UNFURL_CLOUD_SERVER"] = cloud_server
     local_env = set_current_ensemble_git_url(gui)
+    app.config["UNFURL_LOCAL_ENV"] = local_env
     if local_env:
         set_local_projects(local_env, clone_root, gui)
 

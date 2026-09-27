@@ -23,7 +23,7 @@ from typing import (
 from urllib.parse import urlparse
 
 import git
-from flask import Response, current_app, jsonify, request
+from flask import Response, abort, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
 
 from ..cloudmap.db import CloudMapDB, CloudMapStore, extends_children, subtype_closure
@@ -32,7 +32,7 @@ from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..repo import GitRepo
 from ..tosca_plugins.cloudmap_defs import get_repository_url
-from ..util import API_VERSION, UnfurlError, assert_not_none
+from ..util import API_VERSION, UnfurlError, assert_not_none, lock_file
 from ..yamlloader import yaml
 
 from .schemas import (
@@ -77,9 +77,8 @@ def _cloudmap_project_id(request) -> str:
     """Which project to read the cloudmap from.
 
     Unlike the other endpoints, the cloudmap reads have somewhere to go when a request
-    names no project, so they use this instead of `get_project_id_or_abort`: a server
-    started on a local path serves that project's own ``cloudmap.yaml``, and any other
-    server falls back to the public cloudmap.
+    names no project, so they use this instead of `get_project_id_or_abort`: see
+    :func:`default_cloudmap_project`.
     """
     project_id = get_project_id(request)
     if project_id:
@@ -88,13 +87,136 @@ def _cloudmap_project_id(request) -> str:
 
 
 def default_cloudmap_project() -> str:
-    """The cloudmap to use when none is named: ``UNFURL_DEFAULT_CLOUDMAP_PROJECT``
-    if set, otherwise the one in the local project a server was started on, or
-    else the public cloudmap."""
-    configured = current_app.config.get("UNFURL_DEFAULT_CLOUDMAP_PROJECT")
-    if configured:
-        return str(configured)
+    """The cloudmap to use when none is named.
+
+    Behind a rust server with a cloudmap worktree, that worktree, and on a
+    server whose local environment configures a cloudmap, that one -- as
+    ``""`` when either is proxied (see :func:`_proxied_default`), which
+    `get_cloudmap_proxy` sends there, or as the ``local:`` project of the
+    checkout :func:`current_cloudmap` makes. Otherwise a server started on a
+    local path uses that project's own ``cloudmap.yaml`` and any other server
+    falls back to the public cloudmap.
+    """
+    if _proxied_default():
+        return ""
+    cloud_map = current_cloudmap()
+    if cloud_map is not None and cloud_map.repo:
+        return _checkout_project_id(cloud_map.repo)
     return "" if serving_local_path() else CLOUDMAP_PROJECT
+
+
+def _proxied_default() -> bool:
+    """Whether the server's own cloudmap is served over http: by the rust
+    server's worktree or the upstream server its local environment
+    configures."""
+    if current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"):
+        return True
+    local_env = current_app.config.get("UNFURL_LOCAL_ENV")
+    if local_env is None:
+        return False
+    servers = local_env.get_context().get("cloudmaps", {}).get("servers", {})
+    return "cloudmap" in servers
+
+
+def current_cloudmap() -> Optional["CloudMap"]:
+    """The checkout of the cloudmap repository the local environment the
+    server was started with configures, if it configures one, as
+    ``CloudMap.from_name`` finds it.
+
+    Resolved on first use and saved. It's registered as a local project (see
+    `_get_project_repo_dir`), so it's read and written like any other.
+    """
+    from ..cloudmap import CloudMap
+
+    cloud_map = current_app.config.get("UNFURL_CURRENT_CLOUDMAP")
+    if cloud_map is not None:
+        return cloud_map
+    local_env = current_app.config.get("UNFURL_LOCAL_ENV")
+    if local_env is None or not CloudMap.get_config(local_env, "cloudmap")[3]:
+        return None
+    clone_root = _analysis_clone_root(local_env)
+    os.makedirs(clone_root, exist_ok=True)
+    # resolving can clone: locked like a project being cloned (see
+    # _get_project_repo), and a request that finds it locked fails the same way
+    lock_path = os.path.join(clone_root, ".cloudmap.lock")
+    try:
+        with lock_file(lock_path):
+            return _resolve_current_cloudmap(local_env, clone_root)
+    except FileExistsError as e:
+        if e.filename != lock_path:
+            raise
+        logger.warning("can't get the cloudmap: %s found", lock_path)
+        abort(
+            create_error_response(
+                "BAD_REPOSITORY", "The cloudmap is being cloned, try again"
+            )
+        )
+
+
+def _resolve_current_cloudmap(local_env: LocalEnv, clone_root: str) -> "CloudMap":
+    from ..cloudmap import CloudMap
+
+    # it may have been resolved since `current_cloudmap` looked
+    cloud_map = current_app.config.get("UNFURL_CURRENT_CLOUDMAP")
+    if cloud_map is None:
+        cloud_map = CloudMap.from_name(
+            local_env,
+            "cloudmap",
+            clone_root,
+            "",
+            skip_analysis=True,
+            commit=False,
+            logger=logger,
+        )
+        if cloud_map.repo:
+            local_projects = current_app.config.get("UNFURL_LOCAL_PROJECTS")
+            if local_projects is None:
+                local_projects = current_app.config["UNFURL_LOCAL_PROJECTS"] = {}
+            local_projects[_checkout_project_id(cloud_map.repo)] = (
+                cloud_map.repo.working_dir
+            )
+        current_app.config["UNFURL_CURRENT_CLOUDMAP"] = cloud_map
+    return cloud_map
+
+
+def _checkout_project_id(repo: GitRepo) -> str:
+    return "local:" + repo.working_dir
+
+
+def _current_cloudmap_local_path(project_id: str) -> Optional[str]:
+    """The path of the current cloudmap's file in its checkout, when
+    ``project_id`` is that checkout: it needn't be ``cloudmap.yaml``."""
+    cloud_map = current_app.config.get("UNFURL_CURRENT_CLOUDMAP")
+    if cloud_map is None or not cloud_map.repo:
+        return None
+    if project_id != _checkout_project_id(cloud_map.repo):
+        return None
+    store = cloud_map.directory.store
+    assert isinstance(store, CloudMapDB)
+    return os.path.relpath(
+        assert_not_none(store.config.path), cloud_map.repo.working_dir
+    )
+
+
+def _forward_default(path: str) -> Optional[Response]:
+    """Send a request naming no project on to the server its cloudmap is
+    proxied to, if it is, and answer with that server's response.
+
+    Only for a request naming no project: the rust server proxies the
+    projects it doesn't have to this one, so forwarding those would loop."""
+    from .cache import get_cloudmap_proxy
+
+    proxy = get_cloudmap_proxy("")
+    if proxy is None:
+        return None
+    params = [(k, v) for k, v in request.args.items(multi=True) if k != "auth_project"]
+    body = _get_body(request) if request.method == "POST" else None
+    r = proxy.forward(request.method, path, params, body)
+    return Response(
+        r.content,
+        status=r.status_code,
+        content_type=r.headers.get("Content-Type", "application/json"),
+    )
 
 
 def _subtype_names(types_section: Dict[str, Any], type_name: str) -> Set[str]:
@@ -458,6 +580,10 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
 
     project_id = _cloudmap_project_id(request)
+    if not project_id:
+        forwarded = _forward_default("")
+        if forwarded is not None:
+            return forwarded
     branch = query.branch or CLOUDMAP_BRANCH
     kind = query.kind
     key = query.key
@@ -477,7 +603,9 @@ def get_cloudmap(query: CloudMapDocQuery) -> ResponseReturnValue:
     err, doc, db = load_cloudmap_local(
         project_id,
         branch=branch,
-        file_name=query.cloudmap_path or CLOUDMAP_PATH,
+        file_name=query.cloudmap_path
+        or _current_cloudmap_local_path(project_id)
+        or CLOUDMAP_PATH,
         latest_commit=query.latest_commit,
         create_db=need_db,
     )
@@ -737,6 +865,10 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
     from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, load_cloudmap_local
 
     project_id = _cloudmap_project_id(request)
+    if not project_id:
+        forwarded = _forward_default("/facets")
+        if forwarded is not None:
+            return forwarded
     branch = query.branch or CLOUDMAP_BRANCH
     try:
         group_tokens = _pointer_tokens(query.group_by)
@@ -762,7 +894,9 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
     err, doc, _db = load_cloudmap_local(
         project_id,
         branch=branch,
-        file_name=query.cloudmap_path or CLOUDMAP_PATH,
+        file_name=query.cloudmap_path
+        or _current_cloudmap_local_path(project_id)
+        or CLOUDMAP_PATH,
         latest_commit=query.latest_commit,
         create_db=False,
     )
@@ -938,16 +1072,24 @@ def post_cloudmap(
     Also per-record optimistic concurrency (via ``unfurl.server.{commit,version}`` keys) is not supported by this handler,
     so the ``latest_commit`` check is the only concurrency control in place.
     """
-    from .cache import CLOUDMAP_BRANCH
+    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH
 
+    project_id = get_project_id_or_abort(request) or default_cloudmap_project()
+    if not project_id:
+        forwarded = _forward_default("")
+        if forwarded is not None:
+            return forwarded
     raw = _get_body(request)
-    cloudmap_path = raw.get("cloudmap_path") or "cloudmap.yaml"
+    cloudmap_path = (
+        raw.get("cloudmap_path")
+        or _current_cloudmap_local_path(project_id)
+        or CLOUDMAP_PATH
+    )
     # None means "this handler's default", which is to commit.
     commit_requested = raw.get("commit")
     latest_commit = raw.get("latest_commit")
     username = raw.get("username")
     password = raw.get("private_token", raw.get("password"))
-    project_id = get_project_id_or_abort(request)
     branch = raw.get("branch", CLOUDMAP_BRANCH)
 
     # Split the body: envelope keys vs cloudmap sections.
@@ -1194,9 +1336,9 @@ def _cloudmap_local_env() -> Optional[LocalEnv]:
     custom analyzers in: the server's own, not the cloudmap project's, which
     needn't be an Unfurl project. None if the server has neither a project nor
     a home project."""
-    gui_env = current_app.config.get("UNFURL_GUI_MODE")
-    if isinstance(gui_env, LocalEnv):
-        return gui_env
+    server_env = current_app.config.get("UNFURL_LOCAL_ENV")
+    if isinstance(server_env, LocalEnv):
+        return server_env
     options = current_app.config.get("UNFURL_OPTIONS") or {}
     try:
         return LocalEnv(
@@ -1326,7 +1468,8 @@ def _analyze_urls(
 def post_cloudmap_analyze(
     query: ProjectAuthQuery, body: CloudMapAnalyzeRequest
 ) -> ResponseReturnValue:
-    return analyze_into_cloudmap(get_project_id_or_abort(request), body)
+    project_id = get_project_id_or_abort(request) or default_cloudmap_project()
+    return analyze_into_cloudmap(project_id, body)
 
 
 def analyze_into_cloudmap(
@@ -1358,11 +1501,13 @@ def update_cloudmap(
     """Open the cloudmap in ``project_id`` and save what ``update`` does to it,
     as ``POST /cloudmap/analyze`` does. ``update`` returns the records added,
     the urls skipped and a commit message."""
-    from .cache import CLOUDMAP_BRANCH, get_cloudmap_proxy, load_cloudmap_db
+    from .cache import CLOUDMAP_BRANCH, CLOUDMAP_PATH, get_cloudmap_proxy, load_cloudmap_db
     from ..cloudmap import CloudMap
     from ..cloudmap.proxy import CloudMapProxyConflict, CloudMapProxyError
 
-    cloudmap_path = body.cloudmap_path or "cloudmap.yaml"
+    cloudmap_path = (
+        body.cloudmap_path or _current_cloudmap_local_path(project_id) or CLOUDMAP_PATH
+    )
     branch = body.branch or CLOUDMAP_BRANCH
     proxy = get_cloudmap_proxy(project_id, cloudmap_path, body.latest_commit)
     db: Optional[CloudMapDB] = None
@@ -1432,16 +1577,19 @@ def update_cloudmap(
 def analyze_pushed_files(
     project_id: str, branch: str, project_dir: str, paths: List[str]
 ) -> None:
-    """Analyze the files a push changed into the cloudmap named by
-    ``UNFURL_DEFAULT_CLOUDMAP_PROJECT``, using the checkout at ``project_dir``.
-    Not analyzed unless that is set.
+    """Analyze the files a push changed into the server's default cloudmap --
+    the rust server's worktree or the cloudmap its local environment
+    configures (see :func:`default_cloudmap_project`) -- using the checkout
+    at ``project_dir``. Not analyzed when it has neither.
 
     Only for public projects, since the cloudmap is public. A failure is
     logged rather than failing the push.
     """
-    cloudmap_project = current_app.config.get("UNFURL_DEFAULT_CLOUDMAP_PROJECT")
-    if not cloudmap_project or not paths or project_id.startswith("local:"):
+    if not paths or project_id.startswith("local:"):
         return
+    if not _proxied_default() and not current_cloudmap():
+        return
+    cloudmap_project = default_cloudmap_project()
     repo_url = get_repository_url(get_project_url(project_id))
     repo = GitRepo(git.Repo(project_dir))
 
@@ -1481,7 +1629,10 @@ def get_cloudmap_graph(query: CloudMapQuery) -> ResponseReturnValue:
 
     project_id = _cloudmap_project_id(request)
     # NB: rust server doesn't filter by CLOUDMAP_PATH when cloudmap_path is not specified
-    err, db = get_cloudmap_view(project_id, file_name=query.cloudmap_path)
+    err, db = get_cloudmap_view(
+        project_id,
+        file_name=query.cloudmap_path or _current_cloudmap_local_path(project_id),
+    )
     if db is None:
         if isinstance(err, Response):
             return err

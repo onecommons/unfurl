@@ -23,6 +23,7 @@ from typing import (
     Iterator,
     List,
     Optional,
+    Sequence,
     Set,
     Tuple,
     Union,
@@ -435,6 +436,7 @@ class CloudMapProxy(CloudMapStore):
         session: Optional[requests.Session] = None,
         timeout: Optional[float] = None,
         page_size: int = DEFAULT_PAGE_SIZE,
+        params: Sequence[Tuple[str, str]] = (),
         logger: UnfurlLogger = logger,
     ) -> None:
         # ``base_url`` may carry query parameters (e.g.
@@ -447,7 +449,7 @@ class CloudMapProxy(CloudMapStore):
         )
         self._base_query: List[Tuple[str, str]] = parse_qsl(
             parsed.query, keep_blank_values=True
-        )
+        ) + list(params)
         self._username = username
         self._private_token = private_token
         self._follow_depth = follow_depth
@@ -499,6 +501,27 @@ class CloudMapProxy(CloudMapStore):
                 f"GET {self._endpoint} -> {r.status_code}: {r.text}"
             )
         return r.json()
+
+    def forward(
+        self,
+        method: str,
+        path: str,
+        params: List[Tuple[str, str]],
+        body: Optional[Dict[str, Any]] = None,
+    ) -> requests.Response:
+        """Send a request to ``path`` under the server's ``/cloudmap`` endpoint
+        (``""`` for the endpoint itself) with ``params`` -- except those this
+        proxy's own query parameters set -- and this proxy's credentials, and
+        return the server's response as is."""
+        own = {key for key, _ in self._base_query}
+        return self._session.request(
+            method,
+            self._endpoint + path,
+            params=list(self._base_query) + [p for p in params if p[0] not in own],
+            json=body,
+            headers=self._headers(),
+            timeout=self._timeout,
+        )
 
     def _post(self, body: Dict[str, Any]) -> Dict[str, Any]:
         # ``cloudmap_path`` scopes reads via the query string but writes via the

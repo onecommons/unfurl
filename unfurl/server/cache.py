@@ -133,17 +133,15 @@ def get_cloudmap_proxy(
 ) -> Optional["CloudMapProxy"]:
     """A :class:`CloudMapProxy` for ``file_name`` if the app is configured with
     ``UNFURL_LOCAL_CLOUDMAP_URL`` (the local Rust proxy server has a
-    cloudmap-sync DB attached), otherwise None.
+    cloudmap-sync DB attached), otherwise None -- except for the server's own
+    cloudmap (``project_id`` ``""``) when its local environment configures an
+    upstream server for it.
 
     The Rust process then owns the authoritative cloudmap. The proxy sends the
-    inbound request's auth headers with every request it makes.
+    inbound request's auth headers with every request it makes; one to an
+    upstream server sends the credentials configured for it instead.
     """
-    syncing_url = (
-        cast(str, current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"))
-        if has_app_context()
-        else None
-    )
-    if not syncing_url:
+    if not has_app_context():
         return None
     from ..cloudmap.proxy import CloudMapProxy
 
@@ -155,6 +153,14 @@ def get_cloudmap_proxy(
         extra.append(("latest_commit", latest_commit))
     if file_name:
         extra.append(("cloudmap_path", file_name))
+    syncing_url = cast(str, current_app.config.get("UNFURL_LOCAL_CLOUDMAP_URL"))
+    if not syncing_url:
+        local_env = current_app.config.get("UNFURL_LOCAL_ENV")
+        if project_id or local_env is None:
+            return None
+        from ..cloudmap import CloudMap
+
+        return CloudMap.server_proxy(local_env, "cloudmap", extra, logger)
     if extra:
         parsed = urlparse(syncing_url)
         existing = parse_qsl(parsed.query, keep_blank_values=True)

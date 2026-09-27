@@ -4893,33 +4893,289 @@ def test_errors_report_code_and_message(monkeypatch):
     assert res.json == {"code": "NOT_FOUND", "message": "Not Found"}
 
 
-def test_cloudmap_project_id_resolution(monkeypatch):
-    """`_cloudmap_project_id`: explicit > configured default > local project >
-    the public cloudmap."""
-    from werkzeug.test import EnvironBuilder
+def test_default_cloudmap_resolution(monkeypatch):
+    """A request naming no project reads the rust server's worktree when there
+    is one, else the public cloudmap; a server not started by the cli refuses
+    to write without one either way."""
+    import flask
 
-    def resolve(query, serve_path, configured=None):
-        if serve_path is None:
-            monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
-        else:
-            monkeypatch.setenv("UNFURL_SERVE_PATH", serve_path)
-        monkeypatch.setitem(
-            server.app.config, "UNFURL_DEFAULT_CLOUDMAP_PROJECT", configured
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_ENV", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_CLOUDMAP", None)
+
+    def resolve(query, rust_url=None):
+        monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", rust_url)
+        with server.app.test_request_context(query_string=query):
+            return server_cloudmap._cloudmap_project_id(flask.request)
+
+    rust_url = "http://127.0.0.1:8081"
+    assert resolve("auth_project=me/proj", rust_url) == "me/proj"
+    assert resolve("", rust_url) == ""  # get_cloudmap_proxy sends it there
+    assert resolve("") == server_cloudmap.CLOUDMAP_PROJECT
+
+    client = server.app.test_client()
+    for url in (None, rust_url):
+        monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", url)
+        res = client.post("/cloudmap", json={"repositories": {}})
+        assert res.status_code == 400, res.json
+        assert "auth_project" in res.json["message"]
+
+
+def test_cli_server_uses_its_local_environments_cloudmap(monkeypatch, tmp_path):
+    """A server started by the cli with no rust worktree reads and writes the
+    cloudmap its local environment configures."""
+    import yaml as pyyaml
+    from unfurl.localenv import LocalEnv
+
+    project = tmp_path / "project"
+    project.mkdir()
+    cloudmap_file = project / "maps" / "cloudmap.yaml"
+    cloudmap_file.parent.mkdir()
+    cloudmap_file.write_text(
+        pyyaml.safe_dump(
+            {
+                "apiVersion": "unfurl/v1.0.0",
+                "kind": "CloudMap",
+                "repositories": {
+                    "git://example.com/org/a.git": {"name": "a", "path": "org/a"}
+                },
+            }
         )
-        request = EnvironBuilder(query_string=query).get_request()
-        with server.app.app_context():
-            return server_cloudmap._cloudmap_project_id(request)
+    )
+    (project / "unfurl.yaml").write_text(
+        pyyaml.safe_dump(
+            {
+                "apiVersion": "unfurl/v1.0.0",
+                "kind": "Project",
+                "environments": {
+                    "defaults": {
+                        "cloudmaps": {
+                            "repositories": {"cloudmap": {"url": str(cloudmap_file)}}
+                        }
+                    }
+                },
+            }
+        )
+    )
+    # the served directory's own cloudmap, which the configured one overrides
+    (project / "cloudmap.yaml").write_text(
+        pyyaml.safe_dump({"apiVersion": "unfurl/v1.0.0", "kind": "CloudMap"})
+    )
+    repo = Repo.init(project)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "test")
+    repo.git.add(A=True)
+    repo.git.commit("-m", "init")
 
-    # an explicit auth_project always wins
-    assert resolve("auth_project=me/proj", None) == "me/proj"
-    assert resolve("auth_project=me/proj", ".", "org/cloudmap") == "me/proj"
-    # then the configured default
-    assert resolve("", None, "org/cloudmap") == "org/cloudmap"
-    assert resolve("", ".", "org/cloudmap") == "org/cloudmap"
-    # serving a local path -> "" so the request resolves to that project
-    assert resolve("", ".") == ""
-    # otherwise fall back to the public cloudmap
-    assert resolve("", None) == server_cloudmap.CLOUDMAP_PROJECT
+    monkeypatch.setenv("UNFURL_SERVE_PATH", str(project))
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_WORKING_DIR", str(project))
+    monkeypatch.setitem(
+        server.app.config,
+        "UNFURL_LOCAL_ENV",
+        LocalEnv(str(project), homePath="", can_be_empty=True),
+    )
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_CLOUDMAP", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_PROJECTS", {})
+    monkeypatch.setitem(server.app.config, "CACHE_DEFAULT_PULL_TIMEOUT", 120)
+    monkeypatch.setitem(server.app.config, "UNFURL_CLOUD_SERVER", "https://unfurl.cloud")
+    monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path / "clones"))
+    client = server.app.test_client()
+
+    # resolving it is locked like cloning a project: a request that finds it
+    # locked fails rather than using another cloudmap
+    lock = tmp_path / "clones" / ".cloudmap.lock"
+    lock.parent.mkdir()
+    lock.write_text("1")
+    res = client.get("/cloudmap?kind=repositories")
+    assert res.status_code == 500, res.get_data(as_text=True)
+    assert res.json["code"] == "BAD_REPOSITORY"
+    lock.unlink()
+
+    res = client.get("/cloudmap?kind=repositories")
+    assert res.status_code == 200, res.get_data(as_text=True)
+    assert "git://example.com/org/a.git" in res.json["result"]["repositories"]
+    assert not lock.exists()
+
+    commits = len(list(repo.iter_commits()))
+    res = client.post(
+        "/cloudmap",
+        json={"repositories": {"git://example.com/org/b.git": {"name": "b", "path": "org/b"}}},
+    )
+    assert res.status_code == 200, res.get_data(as_text=True)
+    assert "git://example.com/org/b.git" in pyyaml.safe_load(cloudmap_file.read_text())[
+        "repositories"
+    ]
+    assert len(list(repo.iter_commits())) == commits + 1
+    assert res.json["commit"] == repo.head.commit.hexsha
+
+    # analysis saves through the CloudMap, also as one commit
+    res = client.post(
+        "/cloudmap/analyze",
+        json={"add": ["pkg:generic/example@1.0"], "analyze": "no"},
+    )
+    assert res.status_code == 200, res.get_data(as_text=True)
+    assert res.json["added"], res.json
+    assert len(list(repo.iter_commits())) == commits + 2
+    assert res.json["commit"] == repo.head.commit.hexsha
+    assert "artifacts" in pyyaml.safe_load(cloudmap_file.read_text())
+
+
+def test_cli_server_without_a_configured_cloudmap_uses_its_own(monkeypatch, tmp_path):
+    """A server started by the cli whose local environment configures no
+    cloudmap reads the one in the project it serves, rather than
+    ``CloudMap.from_name``'s default."""
+    import yaml as pyyaml
+    from unfurl.cloudmap import CloudMap
+    from unfurl.localenv import LocalEnv
+
+    (tmp_path / "unfurl.yaml").write_text(
+        pyyaml.safe_dump({"apiVersion": "unfurl/v1.0.0", "kind": "Project"})
+    )
+    (tmp_path / "cloudmap.yaml").write_text(
+        pyyaml.safe_dump(
+            {
+                "apiVersion": "unfurl/v1.0.0",
+                "kind": "CloudMap",
+                "repositories": {
+                    "git://example.com/org/own.git": {"name": "own", "path": "org/own"}
+                },
+            }
+        )
+    )
+    repo = Repo.init(tmp_path)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "test")
+    repo.git.add(A=True)
+    repo.git.commit("-m", "init")
+
+    def from_name(*args, **kw):
+        raise AssertionError("resolved a default cloudmap")
+
+    monkeypatch.setattr(CloudMap, "from_name", from_name)
+    monkeypatch.setenv("UNFURL_SERVE_PATH", str(tmp_path))
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_WORKING_DIR", str(tmp_path))
+    monkeypatch.setitem(
+        server.app.config,
+        "UNFURL_LOCAL_ENV",
+        LocalEnv(str(tmp_path), homePath="", can_be_empty=True),
+    )
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_CLOUDMAP", None)
+    monkeypatch.setitem(server.app.config, "CACHE_DEFAULT_PULL_TIMEOUT", 120)
+    res = server.app.test_client().get("/cloudmap?kind=repositories")
+    assert res.status_code == 200, res.get_data(as_text=True)
+    assert "git://example.com/org/own.git" in res.json["result"]["repositories"]
+
+
+def test_default_rust_worktree_is_forwarded_to(monkeypatch):
+    """Without a project, reads and writes are forwarded to the rust server's
+    worktree with the request's own parameters."""
+    from unfurl.cloudmap.proxy import CloudMapProxy
+
+    monkeypatch.delenv("UNFURL_SERVE_PATH", raising=False)
+    monkeypatch.setitem(
+        server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", "http://127.0.0.1:8081"
+    )
+    sent = []
+
+    class Answer:
+        content = b'{"forwarded": true}'
+        status_code = 200
+        headers = {"Content-Type": "application/json"}
+
+    def forward(self, method, path, params, body=None):
+        sent.append((method, path, params, body))
+        return Answer()
+
+    monkeypatch.setattr(CloudMapProxy, "forward", forward)
+    client = server.app.test_client()
+    res = client.get("/cloudmap/facets?group_by=type&facet=type")
+    assert res.json == {"forwarded": True}
+    # a server started by the cli writes without a project too
+    monkeypatch.setenv("UNFURL_SERVE_PATH", ".")
+    res = client.post("/cloudmap", json={"repositories": {}})
+    assert res.json == {"forwarded": True}
+    assert sent == [
+        ("GET", "/facets", [("group_by", "type"), ("facet", "type")], None),
+        ("POST", "", [], {"repositories": {}}),
+    ]
+
+
+def test_refreshing_the_local_env_updates_the_current_cloudmap(monkeypatch):
+    """The saved LocalEnv, and the default cloudmap resolved from it, follow a
+    refresh."""
+    from types import SimpleNamespace
+
+    refreshed = object()
+    default = SimpleNamespace(local_env=object())
+    monkeypatch.setattr(server, "set_current_ensemble_git_url", lambda gui: refreshed)
+    monkeypatch.setitem(server.app.config, "UNFURL_GUI_MODE", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_ENV", None)
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_CLOUDMAP", default)
+    server.refresh_current_localenv()
+    assert server.app.config["UNFURL_LOCAL_ENV"] is refreshed
+    assert default.local_env is refreshed
+
+
+def test_default_upstream_cloudmap_is_forwarded_to(monkeypatch, tmp_path):
+    """Without a project, a server whose local environment configures an
+    upstream cloudmap server forwards to it, with the credentials configured
+    for it, through a new proxy for each request."""
+    import yaml as pyyaml
+    from unfurl.cloudmap.proxy import CloudMapProxy
+    from unfurl.localenv import LocalEnv
+
+    upstream = {
+        "url": "https://upstream.example/?auth_project=org/cloudmap",
+        "username": "user",
+        "password": "token",
+    }
+    (tmp_path / "unfurl.yaml").write_text(
+        pyyaml.safe_dump(
+            {
+                "apiVersion": "unfurl/v1.0.0",
+                "kind": "Project",
+                "environments": {
+                    "defaults": {"cloudmaps": {"servers": {"cloudmap": upstream}}}
+                },
+            }
+        )
+    )
+    monkeypatch.setenv("UNFURL_SERVE_PATH", str(tmp_path))
+    monkeypatch.setitem(server.app.config, "UNFURL_LOCAL_CLOUDMAP_URL", None)
+    monkeypatch.setitem(
+        server.app.config,
+        "UNFURL_LOCAL_ENV",
+        LocalEnv(str(tmp_path), homePath="", can_be_empty=True),
+    )
+    monkeypatch.setitem(server.app.config, "UNFURL_CURRENT_CLOUDMAP", None)
+    sent = []
+
+    class Answer:
+        content = b'{"forwarded": true}'
+        status_code = 200
+        headers = {"Content-Type": "application/json"}
+
+    def forward(self, method, path, params, body=None):
+        sent.append((self, self._endpoint, self._base_query, self._headers()))
+        return Answer()
+
+    monkeypatch.setattr(CloudMapProxy, "forward", forward)
+    client = server.app.test_client()
+    for _ in range(2):
+        res = client.get("/cloudmap?kind=repositories")
+        assert res.json == {"forwarded": True}
+    (first, endpoint, query, headers), (second, *_) = sent
+    assert first is not second
+    assert endpoint == "https://upstream.example/cloudmap"
+    assert query == [("auth_project", "org/cloudmap")]
+    assert "X-Git-Credentials" in headers
+    # so pushes are analyzed into it too
+    with server.app.app_context():
+        assert server_cloudmap._proxied_default()
 
 
 def test_clone_repo_leaves_another_clones_lock(monkeypatch, tmp_path):
@@ -5146,7 +5402,8 @@ def test_populate_cache_analyzes_exported_files(
     monkeypatch, tmp_path, visibility, branch, configured, analyzed
 ):
     """A cache miss in populate_cache analyzes the exported files, in the
-    checkout it already has, into the cloudmap the server is configured with."""
+    checkout it already has, into the server's default cloudmap -- here the
+    rust server's worktree; a server without one analyzes nothing."""
     import uuid
     from unittest.mock import MagicMock
     from flask_caching import Cache
@@ -5157,8 +5414,8 @@ def test_populate_cache_analyzes_exported_files(
     monkeypatch.setitem(server.app.config, "UNFURL_CLONE_ROOT", str(tmp_path))
     monkeypatch.setitem(
         server.app.config,
-        "UNFURL_DEFAULT_CLOUDMAP_PROJECT",
-        "onecommons/cloudmap" if configured else None,
+        "UNFURL_LOCAL_CLOUDMAP_URL",
+        "http://127.0.0.1:8081" if configured else None,
     )
 
     # the project's checkout, where populate_cache expects it
@@ -5207,7 +5464,7 @@ def test_populate_cache_analyzes_exported_files(
         return
     update_cloudmap.assert_called_once()
     cloudmap_project, body, update = update_cloudmap.call_args.args
-    assert cloudmap_project == "onecommons/cloudmap"
+    assert cloudmap_project == ""  # the rust server's worktree
     assert body.analyze == "yes"
     # the update analyzes the checkout populate_cache has
     cloud_map = MagicMock()

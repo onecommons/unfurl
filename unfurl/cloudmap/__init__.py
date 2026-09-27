@@ -56,6 +56,7 @@ import tempfile
 import os
 import os.path
 from typing import (
+    TYPE_CHECKING,
     Callable,
     Iterator,
     Optional,
@@ -68,6 +69,9 @@ from typing import (
     cast,
 )
 from typing_extensions import Required, Literal, Protocol
+
+if TYPE_CHECKING:
+    from .proxy import CloudMapProxy
 from urllib.parse import ParseResult, urlparse, quote
 import git
 import git.cmd
@@ -814,6 +818,46 @@ class CloudMap:
 
         return repo, branch
 
+    @staticmethod
+    def server_proxy(
+        local_env: "LocalEnv",
+        name: str,
+        params: Sequence[Tuple[str, str]] = (),
+        logger=logger,
+    ) -> Optional["CloudMapProxy"]:
+        """A new proxy to the upstream server configured for ``name``, whose
+        requests also carry the query parameters ``params``, or None when no
+        server is configured for it."""
+        env_context = local_env.get_context()
+        environment = env_context.get("cloudmaps", {})
+        server = environment.get("servers", {}).get(name)
+        url = ""
+        if server:
+            server = local_env.map_value(server, env_context.get("variables"))
+            url = server.get("url")
+        else:
+            server = {}
+            if name != "cloudmap":
+                parts = urlparse(name)
+                if (
+                    parts.scheme
+                    and not CloudMap._is_git_url(name)
+                    and parts.hostname not in ("github.com", "gitlab.com")
+                ):
+                    url = name
+        if not url:
+            return None
+        from .proxy import CloudMapProxy
+
+        return CloudMapProxy(
+            url,
+            username=server.get("username"),
+            private_token=server.get("password"),
+            timeout=server.get("timeout"),
+            params=params,
+            logger=logger,
+        )
+
     @classmethod
     def _get_server(
         cls,
@@ -833,27 +877,9 @@ class CloudMap:
 
         Returns None when no server is configured for ``name``.
         """
-        env_context = local_env.get_context()
-        environment = env_context.get("cloudmaps", {})
-        server = environment.get("servers", {}).get(name)
-        url = ""
-        if server:
-            server = local_env.map_value(server, env_context.get("variables"))
-            url = server.get("url")
-        else:
-            server = {}
-            if name != "cloudmap":
-                parts = urlparse(name)
-                if (
-                    parts.scheme
-                    and not cls._is_git_url(name)
-                    and parts.hostname not in ("github.com", "gitlab.com")
-                ):
-                    url = name
-        if not url:
+        proxy = cls.server_proxy(local_env, name, logger=logger)
+        if proxy is None:
             return None
-        from .proxy import CloudMapProxy
-
         return CloudMap(
             None,  # nothing to clone: the cloudmap is on the server
             host_branch,
@@ -862,13 +888,7 @@ class CloudMap:
             commit=commit,
             logger=logger,
             local_env=local_env,
-            db=CloudMapProxy(
-                url,
-                username=server.get("username"),
-                private_token=server.get("password"),
-                timeout=server.get("timeout"),
-                logger=logger,
-            ),
+            db=proxy,
         )
 
     @classmethod
