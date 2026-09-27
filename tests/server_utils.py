@@ -718,7 +718,6 @@ def runner(request):
     server_env = request.param
     runner = CliRunner()
     with runner.isolated_filesystem() as tmpdir:
-        os.environ["UNFURL_LOGGING"] = "TRACE"
         ctx = get_context("spawn")
         error_queue = ctx.Queue()
         server_process = ctx.Process(
@@ -726,7 +725,10 @@ def runner(request):
             args=(HOST, _static_server_port, "secret", ".", "", {}, CLOUD_TEST_SERVER),
             kwargs={
                 "error_queue": error_queue,
-                "extra_env": _env_for(server_env, "runner"),
+                "extra_env": {
+                    **_env_for(server_env, "runner"),
+                    "UNFURL_LOGGING": "TRACE",
+                },
             },
         )
         server_process._error_queue = error_queue
@@ -784,7 +786,8 @@ def set_up_deployment(runner, deployment, server_env=None, name=""):
         )
         os.close(rust_log_fd)
         extra_env["UNFURL_LOGFILE"] = rust_log_file
-        extra_env["UNFURL_LOGGING"] = os.environ.get("UNFURL_LOGGING", "debug")
+        # tests assert on the Rust server's debug-level log lines
+        extra_env["UNFURL_LOGGING"] = "debug"
 
     os.makedirs("server")
     ctx = get_context("spawn")
