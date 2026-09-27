@@ -15,6 +15,7 @@ from typing import (
     MutableMapping,
     Optional,
     Sequence,
+    Set,
     Tuple,
     Type,
     TypeVar,
@@ -689,6 +690,10 @@ def validate_tosca_def(
     return None
 
 
+# schema files are checked once: they don't change while unfurl runs
+_checked_schema_paths: Set[str] = set()
+
+
 def find_schema_errors(
     obj: Any, schema: Mapping, schema_path: Optional[str] = None
 ) -> Optional[Tuple[str, List[object]]]:
@@ -727,7 +732,10 @@ def find_schema_errors(
     else:
         registry = Registry()
 
-    Draft7Validator.check_schema(schema)
+    if schema_path not in _checked_schema_paths:
+        Draft7Validator.check_schema(schema)
+        if schema_path is not None:
+            _checked_schema_paths.add(schema_path)
     validator = Draft7Validator(schema, registry=registry)
     errors = list(validator.iter_errors(obj))
     error = jsonschema.exceptions.best_match(errors)

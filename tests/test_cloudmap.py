@@ -3816,3 +3816,21 @@ class TestAppliedOwnership:
             "metadata/description",
             "metadata/title",
         ]
+
+
+def test_schema_files_are_checked_once(monkeypatch, tmp_path):
+    """A schema read from a file is checked against the metaschema the first
+    time only; one without a file, every time."""
+    from jsonschema import Draft7Validator
+    from unfurl.util import find_schema_errors
+
+    checked = []
+    monkeypatch.setattr(Draft7Validator, "check_schema", checked.append)
+    schema = {"type": "object"}
+    path = str(tmp_path / "schema.json")
+    for _ in range(2):
+        assert find_schema_errors({}, schema, path) is None
+    assert len(checked) == 1
+    for _ in range(2):
+        assert find_schema_errors({}, schema) is None
+    assert len(checked) == 3
