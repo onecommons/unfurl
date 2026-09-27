@@ -1165,3 +1165,36 @@ def test_normalize_git_url_case_folding_scope():
     assert normalize_git_url("https://User:pw@HOST/a/b.git", hard=1) == "https://User@host/a/b.git"
     # hard=0 is untouched -- callers using it want the URL as given.
     assert normalize_git_url("https://HOST/A/b.git") == "https://HOST/A/b.git"
+
+
+@pytest.mark.parametrize("remote", ["", "https://example.com/org/outer.git"])
+def test_saving_keeps_a_nested_projects_spec_url(tmp_path, monkeypatch, remote):
+    """A project inside a larger git repo still loads after its manifest is
+    saved: the save doesn't drop the project's folder from the ``spec``
+    repository's url."""
+    outer = tmp_path / "outer"
+    (outer / "sub").mkdir(parents=True)
+    repo = Repo.init(outer)
+    with repo.config_writer() as cw:
+        cw.set_value("user", "email", "test@example.com")
+        cw.set_value("user", "name", "test")
+    (outer / "README").write_text("readme")
+    repo.git.add(A=True)
+    repo.git.commit("-m", "init")
+    monkeypatch.chdir(outer / "sub")
+    run_cmd(CliRunner(), ["--home", "", "init", ".", "--existing"])
+    if remote:
+        # added later, which is what updating the url is for
+        repo.create_remote("origin", remote)
+
+    ensemble_path = str(outer / "sub" / "ensemble" / "ensemble.yaml")
+    manifest = LocalEnv(ensemble_path, homePath="").get_manifest()
+    manifest.update_repositories()  # as saving a job does
+    manifest.manifest.save()
+
+    reloaded = LocalEnv(ensemble_path, homePath="").get_manifest()
+    spec_url = reloaded.repositories["spec"].url
+    if remote:
+        assert spec_url == remote + "#:sub"
+    else:
+        assert spec_url.startswith("git-local://") and spec_url.endswith("/sub")

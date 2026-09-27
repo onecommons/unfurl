@@ -1177,8 +1177,17 @@ class YamlManifest(ReadOnlyManifest):
             url = tpl.get("url")
             repo_view = self.repositories.get(name)
             if repo_view and repo_view.repo:
-                if not url or not repo_view.repo.find_remote_url(url=url):
-                    new_url = normalize_git_url(repo_view.repo.url)
+                repo = repo_view.repo
+                if repo.is_local_only():
+                    continue  # no remote url to update to
+                if not url or not repo.find_remote_url(url=url):
+                    if repo_view.path:
+                        # the repository is a folder inside the git repo
+                        new_url = repo.get_url_with_path(
+                            repo_view.path, revision=repo_view.revision or ""
+                        )
+                    else:
+                        new_url = normalize_git_url(repo.url)
                     logger.verbose(
                         "updating repository %s's url from %s to %s",
                         name,
