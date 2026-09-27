@@ -2540,6 +2540,11 @@ def _start_proxy_server(host: str, port: int) -> Optional[subprocess.Popen[bytes
     serve_cors = app.config.get("UNFURL_SERVE_CORS")
     if serve_cors:
         env["UNFURL_SERVE_CORS"] = serve_cors
+    # `--cloud-server` sets only the app config; the cloudmap reads resolve
+    # `auth_project` against it
+    cloud_server = app.config.get("UNFURL_CLOUD_SERVER")
+    if cloud_server:
+        env["UNFURL_CLOUD_SERVER"] = cloud_server
     # Map UNFURL_LOGGING to RUST_LOG so Rust tracing picks up the same level.
     # At debug/trace, scope the verbose level to our crate and keep the
     # chatty dependencies (reqwest, hyper, tower_http, h2, want, mio) at

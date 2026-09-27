@@ -228,6 +228,17 @@ pub struct Config {
     #[arg(long, env = "UNFURL_CLOUDMAP_DB_URL")]
     pub cloudmap_db_url: Option<String>,
 
+    /// URL of the Unfurl Cloud server a request's `auth_project` names a
+    /// project on: a cloudmap read for it is answered from the worktree
+    /// whose origin is `{cloud_server}/{auth_project}`. `unfurl serve`
+    /// passes its own `--cloud-server`.
+    #[arg(
+        long,
+        env = "UNFURL_CLOUD_SERVER",
+        default_value = "https://unfurl.cloud"
+    )]
+    pub cloud_server: String,
+
     /// Let the working tree win over every in-flight cloudmap edit on
     /// the startup scan: pending records are overwritten from disk and
     /// their conflicts dropped.
@@ -489,6 +500,7 @@ mod tests {
             branch_poll_interval_ms: 1000,
             cloudmap_repo: None,
             cloudmap_db_url: None,
+            cloud_server: "https://unfurl.cloud".into(),
             cloudmap_force: false,
             cloudmap_skip_scan: false,
             scan_abort_level: ScanAbortLevel::Report,

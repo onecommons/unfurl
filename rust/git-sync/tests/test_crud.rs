@@ -18,6 +18,7 @@ use tempfile::TempDir;
 use unfurl_git_sync::DbConfig;
 use unfurl_git_sync::{
     BatchOp, CommitRef, Error, JsonQuery, RecordQuery, ScanOptions, SyncedRepo, TxnMeta,
+    WorktreeFilter,
 };
 
 // ---------------------------------------------------------------------------
@@ -673,8 +674,8 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     // The section-stat probe moves when (and only when) the section
     // changes: an upsert into /types bumps its pair, and leaves other
     // sections' pairs alone.
-    let types_before = sync.section_stat("/types").await.expect("stat");
-    let artifacts_before = sync.section_stat("/artifacts").await.expect("stat");
+    let types_before = sync.section_stat("/types", None).await.expect("stat");
+    let artifacts_before = sync.section_stat("/artifacts", None).await.expect("stat");
     assert!(types_before.0 > 0, "fixture has type records");
     sync.upsert_record(
         Some("cloudmap.yaml"),
@@ -686,8 +687,11 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     )
     .await
     .expect("upsert type record");
-    let types_after = sync.section_stat("/types").await.expect("stat after");
-    let artifacts_after = sync.section_stat("/artifacts").await.expect("stat after");
+    let types_after = sync.section_stat("/types", None).await.expect("stat after");
+    let artifacts_after = sync
+        .section_stat("/artifacts", None)
+        .await
+        .expect("stat after");
     assert_ne!(types_before, types_after, "types probe must move");
     assert_eq!(
         artifacts_before, artifacts_after,
@@ -2592,6 +2596,154 @@ async fn url_spellings_resolve_to_one_worktree() {
         .expect("query");
     assert_eq!(rows.len(), 1, "one repository, one row: {rows:?}");
     assert_eq!(rows[0].1, "unfurl.cloud/onecommons/cloudmap");
+}
+
+/// One database holds several worktrees, and a handle for one reads the
+/// others by origin and branch -- without a checkout of them.
+#[tokio::test]
+async fn reads_other_worktrees_in_the_same_database() {
+    let db_dir = tempfile::tempdir().expect("tempdir");
+    let db = format!(
+        "sqlite://{}?mode=rwc",
+        db_dir.path().join("sync.db").display()
+    );
+    let mut checkouts = Vec::new();
+    for origin in [
+        "https://unfurl.cloud/org/a.git",
+        "https://unfurl.cloud/org/b.git",
+    ] {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        common::init_repo_with_fixture(tmp.path()).await;
+        git(tmp.path(), &["remote", "add", "origin", origin]);
+        let sync = open_at(tmp.path(), &db).await;
+        sync.update_from_working_dir(ScanOptions::default())
+            .await
+            .expect("sync");
+        checkouts.push((sync, tmp));
+    }
+    let (a, b) = (&checkouts[0].0, &checkouts[1].0);
+    let b_row = b.get_worktree().await.expect("worktree");
+    let in_b = WorktreeFilter {
+        // any spelling of the url, either form of the branch
+        origin: Some("git@unfurl.cloud:org/b".into()),
+        branch: Some(format!("refs/heads/{}", b_row.branch)),
+    };
+
+    let ids = |rows: Vec<unfurl_git_sync::Worktree>| rows.iter().map(|w| w.id).collect::<Vec<_>>();
+    assert_eq!(ids(a.worktrees(&in_b).await.expect("list")), [b_row.id]);
+    assert_eq!(
+        ids(a.worktrees(&WorktreeFilter::default()).await.expect("list")).len(),
+        2
+    );
+    let elsewhere = WorktreeFilter {
+        branch: Some("no-such-branch".into()),
+        ..in_b.clone()
+    };
+    assert!(a.worktrees(&elsewhere).await.expect("list").is_empty());
+
+    let write_b = |name: &'static str| {
+        b.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "only-in-b",
+            serde_json::json!({ "name": name }),
+            None,
+            false,
+        )
+    };
+    write_b("only-in-b").await.expect("write");
+    // a's versions run ahead of b's, so updating b's record changes neither
+    // the count nor the highest version across both
+    for n in 0..3 {
+        a.upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "only-in-a",
+            serde_json::json!({ "name": format!("only-in-a-{n}") }),
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    }
+    let all = WorktreeFilter::default();
+    let all_before = a
+        .section_stat("/repositories", Some(&all))
+        .await
+        .expect("stat");
+    let stat_before = a
+        .section_stat("/repositories", Some(&in_b))
+        .await
+        .expect("stat");
+    let own_stat_before = a.section_stat("/repositories", None).await.expect("stat");
+    write_b("renamed").await.expect("write");
+    assert_ne!(
+        a.section_stat("/repositories", Some(&in_b))
+            .await
+            .expect("stat"),
+        stat_before
+    );
+    assert_eq!(
+        a.section_stat("/repositories", None).await.expect("stat"),
+        own_stat_before
+    );
+    assert_ne!(
+        a.section_stat("/repositories", Some(&all))
+            .await
+            .expect("stat"),
+        all_before
+    );
+
+    let only_in_b = RecordQuery {
+        key: Some("only-in-b".into()),
+        ..Default::default()
+    };
+    assert!(a.find_records(&only_in_b).await.expect("find").is_empty());
+    let found = a
+        .find_records(&RecordQuery {
+            worktrees: Some(in_b.clone()),
+            ..only_in_b
+        })
+        .await
+        .expect("find");
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].worktree_id, b_row.id);
+
+    // both checkouts hold the fixture, so every worktree has this record
+    let odoo = RecordQuery {
+        path: Some("/repositories".into()),
+        key: Some("git://unfurl.cloud/onecommons/blueprints/odoo.git".into()),
+        ..Default::default()
+    };
+    let everywhere = a
+        .find_records(&RecordQuery {
+            worktrees: Some(WorktreeFilter::default()),
+            ..odoo.clone()
+        })
+        .await
+        .expect("find");
+    let mut worktree_ids: Vec<i64> = everywhere.iter().map(|r| r.worktree_id).collect();
+    worktree_ids.sort();
+    assert_eq!(worktree_ids, [a.worktree_id(), b_row.id]);
+
+    // the follow walk stays in the worktrees read
+    let (initial, followed) = a
+        .find_records_follow(
+            &RecordQuery {
+                worktrees: Some(in_b),
+                ..odoo
+            },
+            10,
+            Vec::new(),
+        )
+        .await
+        .expect("follow");
+    assert_eq!(initial.len(), 1);
+    assert!(!followed.is_empty());
+    assert!(
+        followed.iter().all(|r| r.worktree_id == b_row.id),
+        "{followed:?}"
+    );
 }
 
 /// Two files holding the same `(path, key)` are two records, and paging

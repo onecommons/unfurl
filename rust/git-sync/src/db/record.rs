@@ -6,6 +6,7 @@ use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::model::{
     ConflictState, FacetColumnRow, FacetPath, FacetRows, FacetSpec, QueryOp, Record, RecordQuery,
+    WorktreeFilter,
 };
 
 /// `(id, worktree_id, file_path, path, key, commit_id, json_text,
@@ -288,6 +289,48 @@ fn arg_err(err: sqlx::error::BoxDynError) -> Error {
     Error::Other(format!("failed to encode query argument: {err}"))
 }
 
+/// The worktrees a read covers, bound as parameters 1-3 of
+/// [`WORKTREE_CLAUSE_SQLITE`] / [`WORKTREE_CLAUSE_PG`]: the handle's own
+/// worktree, or every one `filter` matches.
+struct WorktreeScope {
+    id: Option<i64>,
+    origin: Option<String>,
+    branch: Option<String>,
+}
+
+impl WorktreeScope {
+    fn new(worktree_id: i64, filter: Option<&WorktreeFilter>) -> Self {
+        match filter {
+            None => Self {
+                id: Some(worktree_id),
+                origin: None,
+                branch: None,
+            },
+            Some(f) => {
+                let (origin, branch) = f.normalized();
+                Self {
+                    id: None,
+                    origin,
+                    branch,
+                }
+            }
+        }
+    }
+}
+
+/// Selects `record r`'s rows in the [`WorktreeScope`] bound as `?1`-`?3`.
+/// Worktrees are few, so the `IS NULL OR` tests only ever scan that table.
+const WORKTREE_CLAUSE_SQLITE: &str = "r.worktree_id IN (SELECT w.id FROM worktree w \
+     WHERE (?1 IS NULL OR w.id = ?1) AND (?2 IS NULL OR w.origin = ?2) \
+     AND (?3 IS NULL OR w.branch = ?3))";
+
+/// Postgres twin of [`WORKTREE_CLAUSE_SQLITE`], typed because postgres
+/// can't infer a parameter's type from `IS NULL`.
+#[cfg(feature = "postgres")]
+const WORKTREE_CLAUSE_PG: &str = "r.worktree_id IN (SELECT w.id FROM worktree w \
+     WHERE ($1::bigint IS NULL OR w.id = $1) AND ($2::text IS NULL OR w.origin = $2) \
+     AND ($3::text IS NULL OR w.branch = $3))";
+
 /// Append the record-filter clauses shared by [`find`] and [`facet`] to
 /// `sql`, numbering placeholders from `*idx` in exactly the order
 /// [`add_filter_args_sqlite`] encodes their values. `after` and `limit`
@@ -464,10 +507,11 @@ async fn find_sqlite(
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version, \
-         r.deleted, r.conflict FROM record r WHERE r.worktree_id = ?1",
+        "SELECT r.id, r.worktree_id, r.file_path, r.path, r.key, r.commit_id, json(r.json), \
+         r.version, r.deleted, r.conflict FROM record r WHERE ",
     );
-    let mut idx: usize = 2;
+    sql.push_str(WORKTREE_CLAUSE_SQLITE);
+    let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     if after.is_some() {
         // Keyset cursor over the `ORDER BY` below. Row-value comparison
@@ -503,7 +547,10 @@ async fn find_sqlite(
     let _ = idx; // silence unused-assignment lint when the last bind isn't used
 
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
     if let Some(c) = after {
         args.add(c.path.as_str()).map_err(arg_err)?;
@@ -524,6 +571,7 @@ async fn find_sqlite(
         _,
         (
             i64,
+            i64,
             String,
             String,
             String,
@@ -539,7 +587,9 @@ async fn find_sqlite(
     .await?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, file_path, path, key, commit_id, json_text, version, deleted, conflict) in rows {
+    for (id, worktree_id, file_path, path, key, commit_id, json_text, version, deleted, conflict) in
+        rows
+    {
         let json: serde_json::Value =
             serde_json::from_str(&json_text).map_err(|e| Error::Json {
                 path: path.clone(),
@@ -670,10 +720,11 @@ async fn find_pg(
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version, r.deleted, \
-         r.conflict FROM record r WHERE r.worktree_id = $1",
+        "SELECT r.id, r.worktree_id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version, \
+         r.deleted, r.conflict FROM record r WHERE ",
     );
-    let mut idx: usize = 2;
+    sql.push_str(WORKTREE_CLAUSE_PG);
+    let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     if after.is_some() {
         // Keyset cursor; see the sqlite arm. `COLLATE "C"` here and on
@@ -715,7 +766,10 @@ async fn find_pg(
     let _ = idx;
 
     let mut args = sqlx::postgres::PgArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     if let Some(c) = after {
         args.add(c.path.as_str()).map_err(arg_err)?;
@@ -736,6 +790,7 @@ async fn find_pg(
         _,
         (
             i64,
+            i64,
             String,
             String,
             String,
@@ -752,7 +807,7 @@ async fn find_pg(
     Ok(rows
         .into_iter()
         .map(
-            |(id, fp, p, k, cid, json, version, deleted, conflict)| Record {
+            |(id, worktree_id, fp, p, k, cid, json, version, deleted, conflict)| Record {
                 id,
                 worktree_id,
                 file_path: fp,
@@ -820,12 +875,15 @@ async fn facet_sqlite(
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
     use sqlx::Arguments;
-    let mut sql = String::from("SELECT COUNT(*) FROM record r WHERE r.worktree_id = ?1");
-    let mut idx: usize = 2;
+    let mut sql = format!("SELECT COUNT(*) FROM record r WHERE {WORKTREE_CLAUSE_SQLITE}");
+    let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut sql, query, &mut idx);
     let _ = idx;
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
     let (total,): (i64,) = sqlx::query_as_with(&sql, args).fetch_one(pool).await?;
 
@@ -875,7 +933,7 @@ async fn facet_aggregate_sqlite(
     // first so the filters take the low indexes, then spliced in after
     // the joins -- `?N` placeholders don't care about textual position.
     let mut where_sql = String::new();
-    let mut idx: usize = 2;
+    let mut idx: usize = 4;
     push_filter_sql_sqlite(&mut where_sql, query, &mut idx);
     let group_idx = idx;
     idx += 1;
@@ -939,7 +997,8 @@ async fn facet_aggregate_sqlite(
             ));
         }
     }
-    sql.push_str(" WHERE r.worktree_id = ?1");
+    sql.push_str(" WHERE ");
+    sql.push_str(WORKTREE_CLAUSE_SQLITE);
     sql.push_str(&where_sql);
     sql.push_str(" GROUP BY g0");
     for i in 0..members.len() {
@@ -947,7 +1006,10 @@ async fn facet_aggregate_sqlite(
     }
 
     let mut args = sqlx::sqlite::SqliteArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_sqlite(&mut args, query)?;
     args.add(group.sql_path()).map_err(arg_err)?;
     for member in members {
@@ -998,12 +1060,15 @@ async fn facet_pg(
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
     use sqlx::Arguments;
-    let mut sql = String::from("SELECT COUNT(*) FROM record r WHERE r.worktree_id = $1");
-    let mut idx: usize = 2;
+    let mut sql = format!("SELECT COUNT(*) FROM record r WHERE {WORKTREE_CLAUSE_PG}");
+    let mut idx: usize = 4;
     push_filter_sql_pg(&mut sql, query, &mut idx);
     let _ = idx;
     let mut args = sqlx::postgres::PgArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     let (total,): (i64,) = sqlx::query_as_with(&sql, args).fetch_one(pool).await?;
 
@@ -1044,7 +1109,7 @@ async fn facet_aggregate_pg(
     // Placeholder allocation order is bind order: worktree, filters,
     // group path, member paths, pair members, pair buckets.
     let mut where_sql = String::new();
-    let mut idx: usize = 2;
+    let mut idx: usize = 4;
     push_filter_sql_pg(&mut where_sql, query, &mut idx);
     let group_idx = idx;
     idx += 1;
@@ -1098,7 +1163,8 @@ async fn facet_aggregate_pg(
             }
         }
     }
-    sql.push_str(" WHERE r.worktree_id = $1");
+    sql.push_str(" WHERE ");
+    sql.push_str(WORKTREE_CLAUSE_PG);
     sql.push_str(&where_sql);
     sql.push_str(" GROUP BY g0");
     for i in 0..members.len() {
@@ -1106,7 +1172,10 @@ async fn facet_aggregate_pg(
     }
 
     let mut args = sqlx::postgres::PgArguments::default();
-    args.add(worktree_id).map_err(arg_err)?;
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    args.add(scope.id).map_err(arg_err)?;
+    args.add(scope.origin).map_err(arg_err)?;
+    args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
     args.add(&group.tokens).map_err(arg_err)?;
     for member in members {
@@ -1147,6 +1216,7 @@ async fn facet_aggregate_pg(
 pub(crate) async fn find_many(
     db: &Db,
     worktree_id: i64,
+    worktrees: Option<&WorktreeFilter>,
     keys: &[&str],
     alias: bool,
     exclude_ids: &[i64],
@@ -1155,30 +1225,33 @@ pub(crate) async fn find_many(
     if keys.is_empty() {
         return Ok(Vec::new());
     }
+    let scope = WorktreeScope::new(worktree_id, worktrees);
     match db {
         Db::Sqlite(pool) => {
-            find_many_sqlite(pool, worktree_id, keys, alias, exclude_ids, since_version).await
+            find_many_sqlite(pool, scope, keys, alias, exclude_ids, since_version).await
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            find_many_pg(pool, worktree_id, keys, alias, exclude_ids, since_version).await
+            find_many_pg(pool, scope, keys, alias, exclude_ids, since_version).await
         }
     }
 }
 
 async fn find_many_sqlite(
     pool: &sqlx::Pool<sqlx::Sqlite>,
-    worktree_id: i64,
+    scope: WorktreeScope,
     keys: &[&str],
     alias: bool,
     exclude_ids: &[i64],
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, json(r.json), r.version FROM record r \
-         WHERE r.worktree_id = ?1 AND r.deleted = 0 AND r.conflict IS NULL",
+        "SELECT r.id, r.worktree_id, r.file_path, r.path, r.key, r.commit_id, json(r.json), \
+         r.version FROM record r WHERE ",
     );
-    let mut idx: usize = 2;
+    sql.push_str(WORKTREE_CLAUSE_SQLITE);
+    sql.push_str(" AND r.deleted = 0 AND r.conflict IS NULL");
+    let mut idx: usize = 4;
 
     let key_start = idx;
     let key_phs: Vec<String> = (0..keys.len())
@@ -1213,12 +1286,25 @@ async fn find_many_sqlite(
         sql.push_str(&format!(" AND r.version > ?{idx}"));
         idx += 1;
     }
-    sql.push_str(" ORDER BY r.path, r.key");
+    sql.push_str(" ORDER BY r.path, r.key, r.worktree_id");
     let _ = idx;
 
-    let mut q =
-        sqlx::query_as::<_, (i64, String, String, String, Option<String>, String, i64)>(&sql)
-            .bind(worktree_id);
+    let mut q = sqlx::query_as::<
+        _,
+        (
+            i64,
+            i64,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            i64,
+        ),
+    >(&sql)
+    .bind(scope.id)
+    .bind(scope.origin)
+    .bind(scope.branch);
     for k in keys {
         q = q.bind(*k);
     }
@@ -1236,7 +1322,7 @@ async fn find_many_sqlite(
     let rows = q.fetch_all(pool).await?;
 
     let mut out = Vec::with_capacity(rows.len());
-    for (id, file_path, path, key, commit_id, json_text, version) in rows {
+    for (id, worktree_id, file_path, path, key, commit_id, json_text, version) in rows {
         let json: serde_json::Value =
             serde_json::from_str(&json_text).map_err(|e| Error::Json {
                 path: path.clone(),
@@ -1261,17 +1347,19 @@ async fn find_many_sqlite(
 #[cfg(feature = "postgres")]
 async fn find_many_pg(
     pool: &sqlx::Pool<sqlx::Postgres>,
-    worktree_id: i64,
+    scope: WorktreeScope,
     keys: &[&str],
     alias: bool,
     exclude_ids: &[i64],
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version FROM record r \
-         WHERE r.worktree_id = $1 AND r.deleted = FALSE AND r.conflict IS NULL",
+        "SELECT r.id, r.worktree_id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version \
+         FROM record r WHERE ",
     );
-    let mut idx: usize = 2;
+    sql.push_str(WORKTREE_CLAUSE_PG);
+    sql.push_str(" AND r.deleted = FALSE AND r.conflict IS NULL");
+    let mut idx: usize = 4;
 
     let key_start = idx;
     let key_phs: Vec<String> = (0..keys.len())
@@ -1307,12 +1395,13 @@ async fn find_many_pg(
         idx += 1;
     }
     // byte-wise, as in `find_pg`, whatever the database's collation
-    sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\"");
+    sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", r.worktree_id");
     let _ = idx;
 
     let mut q = sqlx::query_as::<
         _,
         (
+            i64,
             i64,
             String,
             String,
@@ -1322,7 +1411,9 @@ async fn find_many_pg(
             i64,
         ),
     >(&sql)
-    .bind(worktree_id);
+    .bind(scope.id)
+    .bind(scope.origin)
+    .bind(scope.branch);
     for k in keys {
         q = q.bind(*k);
     }
@@ -1340,7 +1431,7 @@ async fn find_many_pg(
     let rows = q.fetch_all(pool).await?;
     Ok(rows
         .into_iter()
-        .map(|(id, fp, p, k, cid, json, version)| Record {
+        .map(|(id, worktree_id, fp, p, k, cid, json, version)| Record {
             id,
             worktree_id,
             file_path: fp,
@@ -1501,28 +1592,33 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
     }
 }
 
-/// Change-detection probe for a section: `(COUNT(*), MAX(version))`
-/// over every row with `record.path = path`, **tombstones included**
-/// (no `deleted` filter).
+/// Change-detection probe for a section: `(COUNT(*), SUM(version))`
+/// over every row with `record.path = path` in the worktrees read,
+/// **tombstones included** (no `deleted` filter).
 ///
 /// The pair moves whenever the section's contents change: an upsert
-/// or CRUD delete bumps that row's `version` (moving `MAX`), and a
-/// hard delete during re-sync ([`delete_missing`]) drops `COUNT` —
-/// while a simultaneous delete + add still moves `MAX` via the added
-/// row's fresh version. Writes to other sections touch neither.
-/// Satisfiable from the `(worktree_id, path, key)` index.
+/// or CRUD delete gives that row a higher `version` (raising `SUM`), and
+/// a hard delete during re-sync ([`delete_missing`]) drops `COUNT` --
+/// while a simultaneous delete + add still raises `SUM` via the added
+/// row's fresh version. Writes to other sections touch neither. `MAX`
+/// would do within one worktree, but versions are counted per family, so
+/// across worktrees a write to one with lower versions wouldn't move it.
 pub(crate) async fn section_stat(
     db: &Db,
     worktree_id: i64,
+    worktrees: Option<&WorktreeFilter>,
     path: &str,
 ) -> Result<(i64, Option<i64>)> {
+    let scope = WorktreeScope::new(worktree_id, worktrees);
     match db {
         Db::Sqlite(pool) => {
-            let row: (i64, Option<i64>) = sqlx::query_as(
-                "SELECT COUNT(*), MAX(version) FROM record \
-                 WHERE worktree_id = ?1 AND path = ?2 AND conflict IS NULL",
-            )
-            .bind(worktree_id)
+            let row: (i64, Option<i64>) = sqlx::query_as(&format!(
+                "SELECT COUNT(*), SUM(r.version) FROM record r \
+                 WHERE {WORKTREE_CLAUSE_SQLITE} AND r.path = ?4 AND r.conflict IS NULL"
+            ))
+            .bind(scope.id)
+            .bind(scope.origin)
+            .bind(scope.branch)
             .bind(path)
             .fetch_one(pool)
             .await?;
@@ -1530,11 +1626,13 @@ pub(crate) async fn section_stat(
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
-            let row: (i64, Option<i64>) = sqlx::query_as(
-                "SELECT COUNT(*), MAX(version) FROM record \
-                 WHERE worktree_id = $1 AND path = $2 AND conflict IS NULL",
-            )
-            .bind(worktree_id)
+            let row: (i64, Option<i64>) = sqlx::query_as(&format!(
+                "SELECT COUNT(*), SUM(r.version)::bigint FROM record r \
+                 WHERE {WORKTREE_CLAUSE_PG} AND r.path = $4 AND r.conflict IS NULL"
+            ))
+            .bind(scope.id)
+            .bind(scope.origin)
+            .bind(scope.branch)
             .bind(path)
             .fetch_one(pool)
             .await?;

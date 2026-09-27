@@ -97,8 +97,54 @@ pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str
     Ok(())
 }
 
+/// A `worktree` row: `id, origin, branch, commit_id, default_file_path`.
+type WorktreeRow = (i64, String, String, Option<String>, Option<String>);
+
+fn into_worktree(row: WorktreeRow) -> crate::model::Worktree {
+    crate::model::Worktree {
+        id: row.0,
+        origin: row.1,
+        branch: row.2,
+        commit_id: row.3,
+        default_file_path: row.4,
+    }
+}
+
+/// Every worktree `filter` matches, by id.
+pub(crate) async fn matching(
+    db: &Db,
+    filter: &crate::model::WorktreeFilter,
+) -> Result<Vec<crate::model::Worktree>> {
+    let (origin, branch) = filter.normalized();
+    let rows: Vec<WorktreeRow> = match db {
+        Db::Sqlite(pool) => {
+            sqlx::query_as(
+                "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
+                 WHERE (?1 IS NULL OR origin = ?1) AND (?2 IS NULL OR branch = ?2) ORDER BY id",
+            )
+            .bind(origin)
+            .bind(branch)
+            .fetch_all(pool)
+            .await?
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            sqlx::query_as(
+                "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
+                 WHERE ($1::text IS NULL OR origin = $1) AND ($2::text IS NULL OR branch = $2) \
+                 ORDER BY id",
+            )
+            .bind(origin)
+            .bind(branch)
+            .fetch_all(pool)
+            .await?
+        }
+    };
+    Ok(rows.into_iter().map(into_worktree).collect())
+}
+
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
-    let row: (i64, String, String, Option<String>, Option<String>) = match db {
+    let row: WorktreeRow = match db {
         Db::Sqlite(pool) => {
             sqlx::query_as(
                 "SELECT id, origin, branch, commit_id, default_file_path \
@@ -119,13 +165,7 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
             .await?
         }
     };
-    Ok(crate::model::Worktree {
-        id: row.0,
-        origin: row.1,
-        branch: row.2,
-        commit_id: row.3,
-        default_file_path: row.4,
-    })
+    Ok(into_worktree(row))
 }
 
 /// The root worktree of `worktree_id`'s family: the upstream it and its

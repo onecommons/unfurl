@@ -89,7 +89,7 @@ pub use model::{
     ConflictState, Cursor, FacetColumnRow, FacetPath, FacetRows, FacetSpec, Failed, File,
     JsonQuery, QueryOp, Record, RecordConflict, RecordConflictKind, RecordQuery, Resolution,
     RollupTxn, SaveFailure, ScanFailure, ScanOptions, SyncOutcome, Txn, TxnMeta, TxnRecord,
-    ValidationFailure, WorkingDir, Worktree, WriteFileOutcome, WriteOutcome,
+    ValidationFailure, WorkingDir, Worktree, WorktreeFilter, WriteFileOutcome, WriteOutcome,
 };
 #[doc(inline)]
 pub use rollup::parse_commit_rollup;

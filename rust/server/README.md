@@ -56,6 +56,16 @@ otherwise `/cloudmap` is proxied to Python):
 | Working tree wins over in-flight edits on the startup scan | `--cloudmap-force` | `UNFURL_CLOUDMAP_FORCE` | `false` |
 | Serve the index as it stands, without scanning at startup | `--cloudmap-skip-scan` | `UNFURL_CLOUDMAP_SKIP_SCAN` | `false` |
 | Smallest refusal that aborts the startup scan (`report`, `file`, `record`) | `--scan-abort-level` | `UNFURL_SCAN_ABORT_LEVEL` | `report` |
+| Cloud server whose projects `auth_project` names | `--cloud-server` | `UNFURL_CLOUD_SERVER` | `https://unfurl.cloud` |
+
+The database can index several cloudmaps, one worktree per repository
+and branch; only the checked-out one can be written to. A read naming
+neither `auth_project` nor `branch` is answered from the checked-out
+worktree. Otherwise it is answered from the worktree whose origin is
+`{cloud server}/{auth_project}` (the checked-out worktree's origin
+without `auth_project`) on `branch`, `main` without one: with no records
+when that origin has no such branch, and by Python when the database has
+no worktree for the origin at all.
 
 The startup scan validates every record against the cloudmap schema,
 reports what it refused, and summarises it in one line.

@@ -268,7 +268,8 @@ impl SyncedRepo {
         git::open_repo(&self.inner.repo_path)
     }
 
-    pub(crate) fn worktree_id(&self) -> i64 {
+    /// The id of the worktree this handle is bound to.
+    pub fn worktree_id(&self) -> i64 {
         self.inner.worktree_id
     }
 
@@ -897,14 +898,19 @@ impl SyncedRepo {
     }
 
     /// Change-detection probe for a section: `(COUNT(*),
-    /// MAX(version))` over every row (tombstones included) whose
-    /// `record.path` equals `path`.
+    /// SUM(version))` over every row (tombstones included) whose
+    /// `record.path` equals `path`, in this worktree or those
+    /// `worktrees` matches (see [`RecordQuery::worktrees`]).
     ///
     /// The pair moves whenever the section's contents change and only
     /// then — suitable as a cache key for derived data (e.g. the
     /// `extends` closure of the `/types` section).
-    pub async fn section_stat(&self, path: &str) -> Result<(i64, Option<i64>)> {
-        db::record::section_stat(self.db(), self.worktree_id(), path).await
+    pub async fn section_stat(
+        &self,
+        path: &str,
+        worktrees: Option<&crate::model::WorktreeFilter>,
+    ) -> Result<(i64, Option<i64>)> {
+        db::record::section_stat(self.db(), self.worktree_id(), worktrees, path).await
     }
 
     /// Like [`Self::find_records`], but also walks
@@ -937,7 +943,13 @@ impl SyncedRepo {
     ) -> Result<(Vec<Record>, Vec<Record>)> {
         let initial = self.find_records(query).await?;
         let followed = self
-            .follow_records(&initial, follow, exclude, query.since_version)
+            .follow_records(
+                &initial,
+                follow,
+                exclude,
+                query.since_version,
+                query.worktrees.as_ref(),
+            )
             .await?;
         Ok((initial, followed))
     }
@@ -953,6 +965,7 @@ impl SyncedRepo {
         follow: u32,
         exclude: Vec<i64>,
         since_version: Option<i64>,
+        worktrees: Option<&crate::model::WorktreeFilter>,
     ) -> Result<Vec<Record>> {
         // Soft cap on the size of a single batched `key IN (...)`
         // query. Each follow batch binds `2 * keys` parameters (the
@@ -976,7 +989,7 @@ impl SyncedRepo {
 
         // Memoize file_path → format-name so we don't query `file` once
         // per visited record.
-        let mut format_cache: std::collections::HashMap<String, Option<String>> =
+        let mut format_cache: std::collections::HashMap<(i64, String), Option<String>> =
             std::collections::HashMap::new();
 
         // (path, key) tracking dedupes the followed Vec; id tracking
@@ -1004,13 +1017,14 @@ impl SyncedRepo {
         // out of every result set.
         loop {
             while let Some(rec) = queue.pop_front() {
-                let format_name = match format_cache.get(&rec.file_path) {
+                // the record's own worktree: the walk may span several
+                let file = (rec.worktree_id, rec.file_path.clone());
+                let format_name = match format_cache.get(&file) {
                     Some(v) => v.clone(),
                     None => {
-                        let f =
-                            db::file::get(self.db(), self.worktree_id(), &rec.file_path).await?;
+                        let f = db::file::get(self.db(), rec.worktree_id, &rec.file_path).await?;
                         let name = f.map(|f| f.format);
-                        format_cache.insert(rec.file_path.clone(), name.clone());
+                        format_cache.insert(file, name.clone());
                         name
                     }
                 };
@@ -1046,6 +1060,7 @@ impl SyncedRepo {
             let hits = db::record::find_many(
                 self.db(),
                 self.worktree_id(),
+                worktrees,
                 &key_refs,
                 true,
                 &exclude_ids,
@@ -1094,6 +1109,14 @@ impl SyncedRepo {
     /// this worktree, or `None` if no row exists.
     pub async fn get_file(&self, file_path: &str) -> Result<Option<crate::model::File>> {
         db::file::get(self.db(), self.worktree_id(), file_path).await
+    }
+
+    /// Every worktree in the database `filter` matches.
+    pub async fn worktrees(
+        &self,
+        filter: &crate::model::WorktreeFilter,
+    ) -> Result<Vec<crate::model::Worktree>> {
+        db::worktree::matching(self.db(), filter).await
     }
 
     /// Returns the [`crate::model::Worktree`] row this `SyncedRepo` is

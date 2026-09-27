@@ -25,7 +25,7 @@ use tokio::sync::Mutex;
 use unfurl_git_sync::{
     canonical_facet_key, canonical_json_text, BatchOp, CommitRef, ConflictState, DbConfig,
     FacetPath, FacetSpec, FormatRegistry, JsonQuery, Record, RecordQuery, ScanOptions, SyncedRepo,
-    TxnMeta,
+    TxnMeta, WorktreeFilter,
 };
 
 use crate::proxy;
@@ -152,15 +152,18 @@ fn path_for_kind(kind: &str) -> Option<&'static str> {
 pub struct CloudMapState {
     inner: Arc<SyncedRepo>,
     /// Lazily-built reverse `extends` adjacency of the `/types`
-    /// section, used by the `type` query filter, keyed by the
-    /// request's `cloudmap_path` (`None` = every file). See
+    /// section, used by the `type` query filter. See
     /// [`CloudMapState::subtype_names`].
-    types_cache: Arc<Mutex<HashMap<Option<String>, TypesCache>>>,
+    types_cache: Arc<Mutex<HashMap<TypesCacheKey, TypesCache>>>,
 }
+
+/// The worktrees read (`None` = the checked-out one) and the request's
+/// `cloudmap_path` (`None` = every file).
+type TypesCacheKey = (Option<WorktreeFilter>, Option<String>);
 
 /// Cached reverse `extends` adjacency of the `/types` section.
 struct TypesCache {
-    /// `(COUNT(*), MAX(version))` of the `/types` section at build
+    /// `(COUNT(*), SUM(version))` of the `/types` section at build
     /// time ([`SyncedRepo::section_stat`]). The cache is stale exactly
     /// when a fresh probe returns a different pair.
     stat: (i64, Option<i64>),
@@ -314,6 +317,52 @@ impl CloudMapState {
         })
     }
 
+    /// Which worktrees in the database a read request is answered from:
+    /// `Read(None)` for the checked-out one, which a request naming neither
+    /// `auth_project` nor `branch` reads.
+    ///
+    /// Otherwise the worktree whose origin is `auth_project` on
+    /// `cloud_server` (or the checked-out worktree's origin, without
+    /// `auth_project`), on `branch`, or `main` without one. `HEAD` names no
+    /// branch, as in [`crate::routes`]'s cache keys. A known origin without
+    /// that branch reads as having no records; an origin the database has no
+    /// worktree for is proxied to python. `dev_mode` always reads the
+    /// checked-out worktree, as [`Self::project_check`] does.
+    pub async fn resolve_read(
+        &self,
+        project_id: Option<&str>,
+        branch: Option<&str>,
+        dev_mode: bool,
+        cloud_server: &str,
+    ) -> Result<ReadTarget, unfurl_git_sync::Error> {
+        let project = project_id.map(str::trim).filter(|p| !p.is_empty());
+        let branch = branch
+            .map(str::trim)
+            .filter(|b| !b.is_empty() && *b != "HEAD");
+        if dev_mode || (project.is_none() && branch.is_none()) {
+            return Ok(ReadTarget::Read(None));
+        }
+        let origin = match project {
+            Some(p) => format!(
+                "{}/{}",
+                cloud_server.trim_end_matches('/'),
+                p.trim_matches('/')
+            ),
+            None => self.inner.get_worktree().await?.origin,
+        };
+        let of_origin = WorktreeFilter {
+            origin: Some(origin),
+            branch: None,
+        };
+        if self.inner.worktrees(&of_origin).await?.is_empty() {
+            return Ok(ReadTarget::Proxy);
+        }
+        Ok(ReadTarget::Read(Some(WorktreeFilter {
+            branch: Some(branch.unwrap_or("main").to_string()),
+            ..of_origin
+        })))
+    }
+
     /// The repository's HEAD commit as the recorded in the database.
     ///
     /// Read from the `worktree` row rather than from git. It can be stale if
@@ -332,11 +381,12 @@ impl CloudMapState {
     /// ([`Self::rollup_pairs`]), which therefore can't drift.
     async fn with_types_cache<T>(
         &self,
+        worktrees: Option<&WorktreeFilter>,
         file_path: Option<&str>,
         read: impl FnOnce(&TypesCache) -> T,
     ) -> Result<T, unfurl_git_sync::Error> {
-        let stat = self.inner.section_stat("/types").await?;
-        let cache_key = file_path.map(str::to_string);
+        let stat = self.inner.section_stat("/types", worktrees).await?;
+        let cache_key = (worktrees.cloned(), file_path.map(str::to_string));
         let mut guard = self.types_cache.lock().await;
         // (`Option::is_none_or` reads better but is stable only since
         // Rust 1.82; MSRV is 1.70.)
@@ -349,7 +399,8 @@ impl CloudMapState {
             let records = self
                 .inner
                 .find_records(&RecordQuery {
-                    file_path: cache_key.clone(),
+                    worktrees: cache_key.0.clone(),
+                    file_path: cache_key.1.clone(),
                     path: Some("/types".into()),
                     ..Default::default()
                 })
@@ -390,10 +441,11 @@ impl CloudMapState {
     /// just the name itself.
     async fn subtype_names(
         &self,
+        worktrees: Option<&WorktreeFilter>,
         type_name: &str,
         file_path: Option<&str>,
     ) -> Result<Vec<String>, unfurl_git_sync::Error> {
-        self.with_types_cache(file_path, |cache| {
+        self.with_types_cache(worktrees, file_path, |cache| {
             // BFS over the reverse edges, starting at (and including) the
             // requested name. `extends` lists are often pre-flattened
             // (full ancestor closure) — the walk handles both that and
@@ -423,9 +475,10 @@ impl CloudMapState {
     /// records `?type=T` matches.
     async fn rollup_pairs(
         &self,
+        worktrees: Option<&WorktreeFilter>,
         file_path: Option<&str>,
     ) -> Result<Vec<(String, String)>, unfurl_git_sync::Error> {
-        self.with_types_cache(file_path, |cache| cache.rollup_pairs.clone())
+        self.with_types_cache(worktrees, file_path, |cache| cache.rollup_pairs.clone())
             .await
     }
 }
@@ -481,7 +534,7 @@ pub async fn handle_cloudmap(
         )
         .await;
     };
-    if let Err(answered) = serve_or_proxy(
+    let worktrees = match serve_or_proxy(
         &state,
         &cm,
         params.auth_project.as_deref(),
@@ -490,23 +543,20 @@ pub async fn handle_cloudmap(
     )
     .await
     {
-        return answered;
-    }
+        Ok(worktrees) => worktrees,
+        Err(answered) => return answered,
+    };
 
-    match build_response(&cm, &params).await {
+    match build_response(&cm, worktrees, &params).await {
         Ok(body) => Json(body).into_response(),
         Err(err) => local_error_response(err),
     }
 }
 
-/// The routing gate shared by the cloudmap read handlers: a request
-/// naming a different project — or a branch other than the one checked
-/// out — must not be answered from the one working tree this handler
-/// serves; hand it to python, which routes per project and resolves any
-/// branch. A request naming neither keeps the previous behaviour (reads
-/// resolve to the configured repo, as they always have). `Ok(())`
-/// means serve locally; `Err` carries the already-built response
-/// (proxied or errored).
+/// The routing gate shared by the cloudmap read handlers: the worktrees to
+/// read (see [`CloudMapState::resolve_read`]), or `Err` with the
+/// already-built response when the request is proxied to python or the
+/// lookup failed.
 // axum's `Response` is ~128 bytes, so `Result<_, Response>` trips
 // `result_large_err`. Boxing it would obscure the signature without
 // changing wire behaviour — the same call `routes.rs` makes at module
@@ -518,29 +568,21 @@ async fn serve_or_proxy(
     auth_project: Option<&str>,
     branch: Option<&str>,
     req: Request<axum::body::Body>,
-) -> Result<(), Response> {
+) -> Result<Option<WorktreeFilter>, Response> {
     match cm
-        .project_check(auth_project, branch, state.config.dev_mode())
+        .resolve_read(
+            auth_project,
+            branch,
+            state.config.dev_mode(),
+            &state.config.cloud_server,
+        )
         .await
     {
-        Ok(ProjectCheck::Serve) | Ok(ProjectCheck::Missing) => Ok(()),
-        Ok(ProjectCheck::OtherProject) => {
+        Ok(ReadTarget::Read(worktrees)) => Ok(worktrees),
+        Ok(ReadTarget::Proxy) => {
             tracing::debug!(
-                "auth_project {:?} is not the configured cloudmap repo; proxying",
+                "no cloudmap worktree for auth_project {:?}; proxying",
                 auth_project
-            );
-            Err(proxy::forward(
-                &state.client,
-                &state.config.backend_url(),
-                req,
-                state.config.max_body_bytes,
-            )
-            .await)
-        }
-        Ok(ProjectCheck::OtherBranch) => {
-            tracing::debug!(
-                "branch {:?} is not the branch the cloudmap worktree is on; proxying",
-                branch
             );
             Err(proxy::forward(
                 &state.client,
@@ -582,7 +624,7 @@ pub async fn handle_cloudmap_facets(
         )
         .await;
     };
-    if let Err(answered) = serve_or_proxy(
+    let worktrees = match serve_or_proxy(
         &state,
         &cm,
         params.auth_project.as_deref(),
@@ -591,10 +633,11 @@ pub async fn handle_cloudmap_facets(
     )
     .await
     {
-        return answered;
-    }
+        Ok(worktrees) => worktrees,
+        Err(answered) => return answered,
+    };
 
-    match build_facets_response(&cm, &params).await {
+    match build_facets_response(&cm, worktrees, &params).await {
         Ok(body) => Json(body).into_response(),
         Err(err) => local_error_response(err),
     }
@@ -643,6 +686,15 @@ enum LocalError {
     Internal(String),
 }
 
+/// Outcome of [`CloudMapState::resolve_read`].
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReadTarget {
+    /// Read these worktrees: `None` is the checked-out one.
+    Read(Option<WorktreeFilter>),
+    /// The database has no worktree for the origin; python resolves it.
+    Proxy,
+}
+
 /// Outcome of [`CloudMapState::project_check`].
 #[derive(Debug, PartialEq, Eq)]
 pub enum ProjectCheck {
@@ -682,6 +734,8 @@ pub enum ProjectCheck {
 /// both endpoints, so a change to the selection parameters — say, a
 /// repeatable `filter` — lands in both at once.
 struct Selection {
+    /// See [`RecordQuery::worktrees`].
+    worktrees: Option<WorktreeFilter>,
     file_path: Option<String>,
     path: Option<&'static str>,
     type_names: Option<Vec<String>>,
@@ -691,6 +745,7 @@ struct Selection {
 impl Selection {
     async fn resolve(
         cm: &CloudMapState,
+        worktrees: Option<WorktreeFilter>,
         kind: Option<&str>,
         type_param: Option<&str>,
         filters: &[String],
@@ -716,7 +771,7 @@ impl Selection {
         // push the name set down into the SQL record match.
         let type_names: Option<Vec<String>> = match type_param {
             Some(t) if !t.is_empty() => Some(
-                cm.subtype_names(t, file_path)
+                cm.subtype_names(worktrees.as_ref(), t, file_path)
                     .await
                     .map_err(|e| LocalError::Internal(format!("subtype_names: {e}")))?,
             ),
@@ -734,6 +789,7 @@ impl Selection {
             .collect::<Result<_, _>>()?;
 
         Ok(Self {
+            worktrees,
             file_path: file_path.map(str::to_string),
             path,
             type_names,
@@ -745,6 +801,7 @@ impl Selection {
     /// own key / paging / versioning fields.
     fn into_query(self) -> RecordQuery {
         RecordQuery {
+            worktrees: self.worktrees,
             file_path: self.file_path,
             path: self.path.map(str::to_string),
             type_names: self.type_names,
@@ -847,6 +904,7 @@ async fn attach_conflicts(
 
 async fn build_response(
     cm: &CloudMapState,
+    worktrees: Option<WorktreeFilter>,
     params: &unfurl_types::GetCloudmapRequestQuery,
 ) -> Result<Value, LocalError> {
     let synced = cm.inner.as_ref();
@@ -854,6 +912,7 @@ async fn build_response(
     let key = params.key.as_deref();
     let selection = Selection::resolve(
         cm,
+        worktrees,
         kind,
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
@@ -1078,7 +1137,13 @@ async fn paged_response(
 
     let followed = if follow > 0 {
         synced
-            .follow_records(&rows, follow, exclude_ids, query.since_version)
+            .follow_records(
+                &rows,
+                follow,
+                exclude_ids,
+                query.since_version,
+                query.worktrees.as_ref(),
+            )
             .await
             .map_err(|e| LocalError::Internal(format!("follow_records: {e}")))?
     } else {
@@ -1146,10 +1211,12 @@ fn pointer_text(tokens: &[String]) -> String {
 /// within one array, which we accept.
 async fn build_facets_response(
     cm: &CloudMapState,
+    worktrees: Option<WorktreeFilter>,
     params: &unfurl_types::GetCloudmapFacetsRequestQuery,
 ) -> Result<Value, LocalError> {
     let selection = Selection::resolve(
         cm,
+        worktrees,
         params.kind.as_deref(),
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
@@ -1192,7 +1259,7 @@ async fn build_facets_response(
         .collect();
     let rollup_applied = group_rollup || member_rollup.iter().any(|flags| flags.contains(&true));
     let rollup_pairs = if rollup_applied {
-        cm.rollup_pairs(selection.file_path.as_deref())
+        cm.rollup_pairs(selection.worktrees.as_ref(), selection.file_path.as_deref())
             .await
             .map_err(|e| LocalError::Internal(format!("rollup_pairs: {e}")))?
     } else {

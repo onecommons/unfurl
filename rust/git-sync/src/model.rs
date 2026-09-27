@@ -133,6 +133,9 @@ pub enum QueryOp {
 /// filter doesn't ripple through every call site.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct RecordQuery {
+    /// The worktrees to read: `None` is the handle's own, otherwise every
+    /// worktree the filter matches.
+    pub worktrees: Option<WorktreeFilter>,
     /// Restrict to one cloudmap file; `None` spans every file in the worktree.
     pub file_path: Option<String>,
     /// Restrict to one section, e.g. `/artifacts`.
@@ -188,6 +191,30 @@ pub struct RecordQuery {
     /// database's own. Turn it on to see both sides at once, and read
     /// [`Record::conflict`] to tell them apart.
     pub include_conflicts: bool,
+}
+
+/// Which worktrees in the database a read covers: those matching every
+/// field set, so the default matches all of them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
+pub struct WorktreeFilter {
+    /// The repository, in any spelling of its url.
+    pub origin: Option<String>,
+    /// The branch, with or without `refs/heads/`.
+    pub branch: Option<String>,
+}
+
+impl WorktreeFilter {
+    /// `origin` and `branch` as the `worktree` table stores them.
+    pub(crate) fn normalized(&self) -> (Option<String>, Option<String>) {
+        (
+            self.origin
+                .as_deref()
+                .map(crate::git::normalize_git_url_hard),
+            self.branch
+                .as_deref()
+                .map(|b| b.strip_prefix("refs/heads/").unwrap_or(b).to_string()),
+        )
+    }
 }
 
 /// Where a page of [`crate::SyncedRepo::find_records`] resumes.

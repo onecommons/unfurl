@@ -53,6 +53,7 @@ fn default_config() -> Config {
         branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
@@ -1903,44 +1904,206 @@ async fn branch_naming_the_checked_out_ref_is_served_locally() {
 }
 
 #[tokio::test]
-async fn requests_for_another_branch_are_proxied() {
+async fn another_branch_of_a_known_origin_has_no_records() {
+    // The origin is in the database, so the read is answered from it rather
+    // than proxied -- as a worktree with no records, since none is on that
+    // branch.
     let (cm, _tmp) = open_state_with_remote().await;
-    // As in `requests_for_another_project_are_proxied`: no python backend runs
-    // here, so the 502 is how we observe the handler declined to answer from
-    // its own working tree — which is checked out on one branch only.
     let app = router(make_strict_state(cm.clone()));
-    let (status, _body) = get_json(
+    let (status, body) = get_json(
         app,
         &format!("/cloudmap?auth_project={REMOTE_PROJECT}&branch=some-other-branch"),
     )
     .await;
-    assert_eq!(
-        status,
-        StatusCode::BAD_GATEWAY,
-        "a read for another branch must go to python, not the local worktree"
-    );
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["result"], serde_json::json!({}), "{body:?}");
 
-    // Selection on /cloudmap/facets is documented to work exactly as on
-    // /cloudmap, so it routes the same way.
     let app = router(make_strict_state(cm.clone()));
-    let (status, _body) = get_json(
+    let (status, body) = get_json(
         app,
         &format!(
             "/cloudmap/facets?group_by=type&auth_project={REMOTE_PROJECT}&branch=some-other-branch"
         ),
     )
     .await;
-    assert_eq!(
-        status,
-        StatusCode::BAD_GATEWAY,
-        "facets must route on branch the same way /cloudmap does"
-    );
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["total"], 0, "{body:?}");
 
-    // A branch mismatch is decided before the project check, so a request that
-    // names no project doesn't get served from the wrong ref either.
+    // Naming a record that's on the checked-out branch finds nothing here.
+    let app = router(make_strict_state(cm.clone()));
+    let (status, _body) = get_json(
+        app,
+        &format!(
+            "/cloudmap?kind=repositories&key={}&branch=some-other-branch",
+            urlencoding::encode("git://unfurl.cloud/onecommons/std.git")
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+/// A checkout of `project` on `branch`, indexed in the database at `db`.
+async fn checkout(project: &str, branch: &str, db: &str) -> (SyncedRepo, TempDir) {
+    let fixture =
+        std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
+    let tmp = tempfile::tempdir().expect("tempdir");
+    unfurl_git_sync::git::init_with_files(
+        tmp.path(),
+        &[("cloudmap.yaml".to_string(), fixture)],
+        "initial",
+    )
+    .expect("init repo");
+    for args in [
+        vec![
+            "remote".to_string(),
+            "add".into(),
+            "origin".into(),
+            format!("https://unfurl.cloud/{project}.git"),
+        ],
+        vec!["checkout".into(), "-B".into(), branch.into()],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(&args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "{out:?}");
+    }
+    let synced = SyncedRepo::open(
+        tmp.path(),
+        DbConfig::Sqlite { url: db.into() },
+        FormatRegistry::with_builtins(),
+    )
+    .await
+    .expect("open SyncedRepo");
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("update");
+    (synced, tmp)
+}
+
+/// The url of a sqlite database file in `dir`.
+fn db_url(dir: &TempDir) -> String {
+    format!("sqlite://{}?mode=rwc", dir.path().join("sync.db").display())
+}
+
+/// Checkouts of `REMOTE_PROJECT` and of `onecommons/other`, both on `main`
+/// and indexed in one database, and a state serving the first.
+async fn two_worktrees() -> (CloudMapState, Vec<(SyncedRepo, TempDir)>, TempDir) {
+    let db_dir = tempfile::tempdir().expect("tempdir");
+    let mut checkouts = Vec::new();
+    for project in [REMOTE_PROJECT, "onecommons/other"] {
+        checkouts.push(checkout(project, "main", &db_url(&db_dir)).await);
+    }
+    let cm = CloudMapState::from_synced(checkouts[0].0.clone());
+    (cm, checkouts, db_dir)
+}
+
+async fn upsert(synced: &SyncedRepo, path: &str, key: &str, json: Value) {
+    synced
+        .upsert_record(Some("cloudmap.yaml"), path, key, json, None, false)
+        .await
+        .expect("write");
+}
+
+/// Several cloudmaps in one database: `auth_project` picks the worktree whose
+/// origin is that project on the cloud server, checked out here or not.
+#[tokio::test]
+async fn auth_project_reads_its_own_worktree() {
+    let (cm, checkouts, db_dir) = two_worktrees().await;
+    let key = "git://unfurl.cloud/onecommons/only-in-other.git";
+    upsert(
+        &checkouts[1].0,
+        "/repositories",
+        key,
+        serde_json::json!({"name": "only-in-other"}),
+    )
+    .await;
+    // another branch of the same project, which a request naming no branch
+    // doesn't read
+    let (feature, _feature_tmp) = checkout("onecommons/other", "feature", &db_url(&db_dir)).await;
+    let on_feature = "git://unfurl.cloud/onecommons/only-on-feature.git";
+    upsert(
+        &feature,
+        "/repositories",
+        on_feature,
+        serde_json::json!({"name": "only-on-feature"}),
+    )
+    .await;
+
+    let other = "&auth_project=onecommons/other";
+    let this = format!("&auth_project={REMOTE_PROJECT}");
+    for (key, query, expected) in [
+        (key, other.to_string(), StatusCode::OK),
+        (key, format!("{other}&branch=main"), StatusCode::OK),
+        (key, this, StatusCode::NOT_FOUND),
+        (key, String::new(), StatusCode::NOT_FOUND),
+        (on_feature, other.to_string(), StatusCode::NOT_FOUND),
+        (
+            on_feature,
+            format!("{other}&branch=feature"),
+            StatusCode::OK,
+        ),
+    ] {
+        let app = router(make_strict_state(cm.clone()));
+        let uri = format!(
+            "/cloudmap?kind=repositories&key={}{query}",
+            urlencoding::encode(key)
+        );
+        let (status, body) = get_json(app, &uri).await;
+        assert_eq!(status, expected, "{uri}: {body:?}");
+    }
+}
+
+/// A `type` filter expands subtypes from the `/types` of the worktree read,
+/// even when another worktree's types were cached first and their
+/// `(count, version sum)` matches.
+#[tokio::test]
+async fn type_filter_uses_the_worktree_reads_own_types() {
+    let (cm, checkouts, _db) = two_worktrees().await;
+    // the same writes in both, so the two `/types` stats agree
+    for (synced, child_extends) in [
+        (&checkouts[0].0, vec![]),
+        (&checkouts[1].0, vec!["test.Parent"]),
+    ] {
+        upsert(
+            synced,
+            "/types",
+            "test.Parent",
+            serde_json::json!({"name": "test.Parent", "extends": []}),
+        )
+        .await;
+        upsert(
+            synced,
+            "/types",
+            "test.Child",
+            serde_json::json!({"name": "test.Child", "extends": child_extends}),
+        )
+        .await;
+        upsert(
+            synced,
+            "/artifacts",
+            "git://example.com/child.git",
+            serde_json::json!({"url": "git://example.com/child.git", "type": {"test.Child": null}}),
+        )
+        .await;
+    }
+    let of_parent = "/cloudmap?kind=artifacts&type=test.Parent";
+    let app = router(make_strict_state(cm.clone()));
+    let (status, body) = get_json(app, of_parent).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(body["result"].get("artifacts").is_none(), "{body:?}");
+
     let app = router(make_strict_state(cm));
-    let (status, _body) = get_json(app, "/cloudmap?branch=some-other-branch").await;
-    assert_eq!(status, StatusCode::BAD_GATEWAY, "{status:?}");
+    let (status, body) = get_json(app, &format!("{of_parent}&auth_project=onecommons/other")).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert!(
+        body["result"]["artifacts"]
+            .get("git://example.com/child.git")
+            .is_some(),
+        "{body:?}"
+    );
 }
 
 #[tokio::test]

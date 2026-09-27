@@ -42,6 +42,7 @@ fn test_config(prefix: &str) -> Config {
         branch_poll_interval_ms: 50,
         cloudmap_repo: None,
         cloudmap_db_url: None,
+        cloud_server: "https://unfurl.cloud".into(),
         cloudmap_force: false,
         cloudmap_skip_scan: false,
         scan_abort_level: unfurl_server::config::ScanAbortLevel::Report,
