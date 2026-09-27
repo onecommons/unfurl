@@ -34,7 +34,7 @@ from unfurl.yamlloader import yaml
 from tests.utils import init_project
 
 # the server fixtures live with the other server tests
-from tests.test_server import HOST, _start_gui_server, _terminate_process
+from tests.server_utils import HOST, _start_gui_server, _terminate_process
 
 
 def _make_git_repo(path) -> str:

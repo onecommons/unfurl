@@ -3,7 +3,7 @@
 """Unit tests for :class:`unfurl.cloudmap.CloudMapProxy` with HTTP mocked.
 
 Integration coverage that exercises the live rust server lives in
-``tests/test_server.py`` (see the ``test_cloudmap_proxy_*`` cases).
+``tests/test_server_cloudmap.py`` (see ``test_cloudmap_proxy_round_trip``).
 """
 
 from __future__ import annotations
