@@ -17,6 +17,7 @@ from unfurl.packages import (
     reverse_rules_for_canonical,
     find_canonical,
     package_id_to_url,
+    resolve_package,
 )
 from unfurl.repo import Repo, get_remote_refs, get_remote_tags
 from unfurl.util import UnfurlError, taketwo
@@ -869,3 +870,34 @@ if __name__ == "__main__":
         package, package_specs = _apply_package_rules(test_url, env_package_spec)
         print("applying specs", package_specs)
         print(f"converted {test_url} to {package.url}")
+
+
+@pytest.mark.parametrize(
+    "tag, revision",
+    [
+        ("v1.0.0", "1.0.0"),
+        ("v0.3.0", "0.3.0"),
+        # not a version: the package is left unversioned rather than refused
+        ("vnext", ""),
+        ("", ""),
+    ],
+)
+def test_skipped_upstream_check_uses_the_local_tag(tag, revision):
+    """With the upstream check skipped, an existing checkout's version tag
+    stands in for the remote's."""
+    from types import SimpleNamespace
+    from unfurl.repo import RepoView
+    from unfurl.yamlloader import ImportResolver
+
+    checkout = SimpleNamespace(current_tag=tag)
+    local_env = SimpleNamespace(
+        overrides={"UNFURL_SKIP_UPSTREAM_CHECK": True},
+        readonly=False,
+        find_repo=lambda url: checkout,
+    )
+    resolver = ImportResolver(None, local_env=local_env)
+    repo_view = RepoView(dict(name="", url="https://unfurl.test/org/pkg.git"), None)
+    packages = {}
+    package = resolve_package(repo_view, packages, [], resolver.get_remote_tags)
+    assert package, "an existing checkout is a package, versioned or not"
+    assert package.revision == revision

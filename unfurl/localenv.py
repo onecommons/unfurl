@@ -1881,6 +1881,8 @@ class LocalEnv:
             created = True
             if not repo:
                 return None, None, None
+            if checkout_args and isinstance(repo, GitRepo):
+                repo.checkout(revision or "", **checkout_args)
 
         return repo, repo.revision, created
 

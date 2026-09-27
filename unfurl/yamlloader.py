@@ -932,10 +932,20 @@ class ImportResolver(toscaparser.imports.ImportResolver):
 
     def get_remote_tags(self, url, pattern="*") -> Optional[List[str]]:
         if self.local_env:
-            if self.local_env.overrides.get(
-                "UNFURL_SKIP_UPSTREAM_CHECK"
-            ) and self.local_env.find_repo(url):
-                return None  # skip if repo exists and skip_check is set
+            if self.local_env.overrides.get("UNFURL_SKIP_UPSTREAM_CHECK"):
+                repo = self.local_env.find_repo(url)
+                if repo:
+                    # skip the remote if the repo exists, but go by the version
+                    # tag it's at, if find_latest_semver_from_repo would take it
+                    tag = repo.current_tag
+                    prefix = pattern.rstrip("*")
+                    if (
+                        tag
+                        and fnmatch.fnmatch(tag, pattern)
+                        and is_semver(tag[len(prefix) :], True)
+                    ):
+                        return [tag]
+                    return None
         elif os.getenv("UNFURL_SKIP_UPSTREAM_CHECK"):
             return None
         # apply credentials to url like find_repo_from_git_url() does
