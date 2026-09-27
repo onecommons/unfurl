@@ -1306,7 +1306,8 @@ async fn find_many_pg(
         sql.push_str(&format!(" AND r.version > ${idx}"));
         idx += 1;
     }
-    sql.push_str(" ORDER BY r.path, r.key");
+    // byte-wise, as in `find_pg`, whatever the database's collation
+    sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\"");
     let _ = idx;
 
     let mut q = sqlx::query_as::<
