@@ -60,3 +60,34 @@ async fn cloudmap_end_to_end_postgres() {
     drop(tmp);
     scope.teardown().await;
 }
+
+/// The planner takes `facet_values` at its declared row count rather than
+/// inlining it and guessing 100 rows per expansion, which put a facet
+/// query's estimate high enough to trigger JIT compilation.
+#[tokio::test]
+async fn facet_values_is_estimated_at_its_declared_rows() {
+    use sqlx::Row as _;
+
+    let Some((sync, tmp, scope)) = pg_fixture().await else {
+        eprintln!("skip: UNFURL_TEST_PG_URL not set");
+        return;
+    };
+    let unfurl_git_sync::DbConfig::Postgres { url } = scope.db_config() else {
+        unreachable!("pg_fixture configures postgres");
+    };
+    let pool = sqlx::PgPool::connect(&url).await.expect("connect");
+    let plan: serde_json::Value = sqlx::query(
+        "EXPLAIN (FORMAT JSON) SELECT * FROM facet_values('{\"a\": 1, \"b\": 2}'::jsonb)",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("explain")
+    .get(0);
+    assert_eq!(plan[0]["Plan"]["Node Type"], "Function Scan", "{plan}");
+    assert_eq!(plan[0]["Plan"]["Plan Rows"], 2, "{plan}");
+
+    pool.close().await;
+    drop(sync);
+    drop(tmp);
+    scope.teardown().await;
+}

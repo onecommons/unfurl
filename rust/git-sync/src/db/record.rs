@@ -981,31 +981,13 @@ async fn facet_aggregate_sqlite(
     Ok(out)
 }
 
-/// The two laterals extracting one path's facet values on postgres.
-///
-/// The first lateral hoists `r.json #> $N::text[]` so the (possibly
-/// TOASTed) value is extracted once; the second unwraps it per the
-/// extraction rule as a `UNION ALL` of the three shapes. The `CASE`
-/// guards are load-bearing: a set-returning function is evaluated
-/// before any `WHERE` could filter it, so each branch has to feed
-/// itself an empty container when the shape doesn't match. A missing
-/// path (`jsonb_typeof` of NULL is NULL) falls through all three
-/// branches, dropping the record -- the same as sqlite's `json_each`
-/// returning no rows.
+/// The lateral extracting one path's facet values on postgres, through
+/// the `facet_values` function (see its migration): an array's elements,
+/// an object's keys, or a scalar itself. A missing path yields no rows,
+/// dropping the record -- the same as sqlite's `json_each` returning none.
 #[cfg(feature = "postgres")]
-fn facet_lateral_pg(hoist: &str, alias: &str, param_idx: usize) -> String {
-    format!(
-        " CROSS JOIN LATERAL (SELECT r.json #> ${param_idx}::text[] AS v) {hoist} \
-         CROSS JOIN LATERAL (\
-         SELECT e FROM jsonb_array_elements(CASE WHEN jsonb_typeof({hoist}.v) = 'array' \
-         THEN {hoist}.v ELSE '[]'::jsonb END) e \
-         UNION ALL \
-         SELECT to_jsonb(k) FROM jsonb_object_keys(CASE WHEN jsonb_typeof({hoist}.v) = 'object' \
-         THEN {hoist}.v ELSE '{{}}'::jsonb END) k \
-         UNION ALL \
-         SELECT {hoist}.v WHERE jsonb_typeof({hoist}.v) NOT IN ('array','object')\
-         ) {alias}(val)"
-    )
+fn facet_lateral_pg(alias: &str, param_idx: usize) -> String {
+    format!(" CROSS JOIN LATERAL facet_values(r.json #> ${param_idx}::text[]) {alias}(val)")
 }
 
 #[cfg(feature = "postgres")]
@@ -1096,7 +1078,7 @@ async fn facet_aggregate_pg(
         sql.push_str(&format!(", {out} AS v{i}"));
     }
     sql.push_str(", COUNT(DISTINCT r.id) AS n FROM record r");
-    sql.push_str(&facet_lateral_pg("hg", "jg", group_idx));
+    sql.push_str(&facet_lateral_pg("jg", group_idx));
     if let Some((d_idx, a_idx)) = pairs_idx {
         if group.rollup {
             sql.push_str(&format!(
@@ -1106,11 +1088,7 @@ async fn facet_aggregate_pg(
         }
     }
     for (i, member) in members.iter().enumerate() {
-        sql.push_str(&facet_lateral_pg(
-            &format!("h{i}"),
-            &format!("j{i}"),
-            member_idx[i],
-        ));
+        sql.push_str(&facet_lateral_pg(&format!("j{i}"), member_idx[i]));
         if let Some((d_idx, a_idx)) = pairs_idx {
             if member.rollup {
                 sql.push_str(&format!(
