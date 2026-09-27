@@ -19,6 +19,16 @@
           "items": {
             "type": "string"
           }
+        },
+        "applied": {
+          "type": "object",
+          "description": "For each source that analysis wrote this record from, the keys it last wrote, as JSON pointers to the record's leaves without the leading \"/\" (e.g. \"metadata/title\"). A write that changes one of these keys removes it, so the next analysis of that source leaves it alone.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
         }
       }
     },

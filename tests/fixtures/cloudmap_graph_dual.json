@@ -263,7 +263,13 @@
               "kind": "Artifact",
               "type_refs": [
                 {
-                  "type": "cloudmap.artifacts.tosca.ServiceTemplate"
+                  "type": "cloudmap.artifacts.tosca.ServiceTemplate",
+                  "constraints": {
+                    "version": 0.1
+                  }
+                },
+                {
+                  "type": "tosca.artifacts.File"
                 }
               ]
             },
@@ -324,7 +330,13 @@
               "kind": "Artifact",
               "type_refs": [
                 {
-                  "type": "cloudmap.artifacts.tosca.ServiceTemplate"
+                  "type": "cloudmap.artifacts.tosca.ServiceTemplate",
+                  "constraints": {
+                    "version": 0.1
+                  }
+                },
+                {
+                  "type": "tosca.artifacts.File"
                 }
               ]
             },

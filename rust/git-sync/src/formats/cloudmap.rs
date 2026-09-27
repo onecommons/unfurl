@@ -22,7 +22,7 @@
 //!   field surfaces as a compile error here rather than silently
 //!   producing empty follow-edges.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use url::Url;
 
@@ -166,6 +166,28 @@ impl DataFormat for CloudMapFormat {
 
     fn is_literate_format(&self, name: &str) -> bool {
         name == LITERATE_NAME
+    }
+
+    /// A write that changes a field listed in the record's
+    /// `metadata.discovery.applied` takes it over from the analysis that
+    /// wrote it, so it's removed from there -- unless the writer maintains
+    /// `applied` itself, as it says with `unfurl.server.keep_applied`.
+    fn prepare_write(
+        &self,
+        _path: &str,
+        previous: Option<&serde_json::Value>,
+        json: &mut serde_json::Value,
+    ) {
+        let keep = match json {
+            serde_json::Value::Object(map) => matches!(
+                map.remove(KEEP_APPLIED),
+                Some(serde_json::Value::Bool(true))
+            ),
+            _ => return,
+        };
+        if let (false, Some(previous)) = (keep, previous) {
+            strip_applied(previous, json);
+        }
     }
 
     fn validate_document(&self, json: &serde_json::Value) -> Validation {
@@ -479,6 +501,87 @@ fn extend_url_keys(out: &mut Vec<String>, typed: Option<&ct::TypedUrLs>) {
 /// URL-encoding the path and appending it to the repo URL with `#:`.
 /// Mirrors `Repository.artifact_url()` in
 /// `unfurl/tosca_plugins/cloudmap_defs.py`.
+/// The record marker a writer sends when it maintains
+/// `metadata.discovery.applied` itself.
+const KEEP_APPLIED: &str = "unfurl.server.keep_applied";
+
+fn escape_pointer(token: &str) -> String {
+    token.replace('~', "~0").replace('/', "~1")
+}
+
+/// Fields that are one leaf however they're structured: a repository host's
+/// refs, which change wholesale and aren't edited one at a time.
+const WHOLE_FIELDS: [&str; 2] = ["branches", "tags"];
+
+/// The leaves of a record, by JSON pointer without the leading "/", as
+/// `metadata.discovery.applied` names them: every value that isn't a
+/// non-empty object -- so an array is one leaf, and so are the top-level
+/// `branches` and `tags` -- except `metadata.discovery`.
+///
+/// Must match `field_pointers` in `unfurl/cloudmap/provenance.py`.
+fn field_pointers(record: &serde_json::Value) -> BTreeMap<String, &serde_json::Value> {
+    fn walk<'a>(
+        value: &'a serde_json::Value,
+        pointer: String,
+        fields: &mut BTreeMap<String, &'a serde_json::Value>,
+    ) {
+        match value.as_object() {
+            Some(members) if !members.is_empty() && !WHOLE_FIELDS.contains(&pointer.as_str()) => {
+                for (key, member) in members {
+                    if pointer == "metadata" && key == "discovery" {
+                        continue;
+                    }
+                    walk(member, format!("{pointer}/{}", escape_pointer(key)), fields);
+                }
+            }
+            _ => {
+                fields.insert(pointer, value);
+            }
+        }
+    }
+    let mut fields = BTreeMap::new();
+    if let Some(record) = record.as_object() {
+        for (key, value) in record {
+            walk(value, escape_pointer(key), &mut fields);
+        }
+    }
+    fields
+}
+
+/// Removes the fields `record` changes from `previous` from its
+/// `metadata.discovery.applied`.
+fn strip_applied(previous: &serde_json::Value, record: &mut serde_json::Value) {
+    let changed: BTreeSet<String> = {
+        let before = field_pointers(previous);
+        let after = field_pointers(record);
+        before
+            .keys()
+            .chain(after.keys())
+            .filter(|p| before.get(*p) != after.get(*p))
+            .cloned()
+            .collect()
+    };
+    let Some(discovery) = record
+        .pointer_mut("/metadata/discovery")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    let Some(applied) = discovery
+        .get_mut("applied")
+        .and_then(serde_json::Value::as_object_mut)
+    else {
+        return;
+    };
+    // a source left with no fields keeps its entry: a record without
+    // `applied` is one analysis has never tracked
+    for fields in applied.values_mut() {
+        if let Some(fields) = fields.as_array_mut() {
+            fields.retain(|p| p.as_str().is_none_or(|p| !changed.contains(p)));
+        }
+    }
+}
+
 fn derive_artifact_url(repo_url: &str, file_path: &str) -> String {
     // A `#<branch>:<path>` key is a file on a branch other than the default,
     // as `Repository.contains_key` makes them.
@@ -912,6 +1015,75 @@ fn set_path_preserving(u: &mut Url, new_path: &str) {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// Shared with `tests/test_cloudmap.py`, so the two implementations
+    /// agree on which fields `metadata.discovery.applied` names.
+    #[test]
+    fn field_pointers_match_python() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/field_pointers.json"
+        ))
+        .expect("fixture is json");
+        let pointers: Vec<String> = field_pointers(&fixture["record"]).into_keys().collect();
+        let expected: Vec<&str> = fixture["pointers"]
+            .as_array()
+            .expect("pointers")
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .collect();
+        assert_eq!(pointers, expected);
+    }
+
+    #[test]
+    fn writes_take_over_the_fields_they_change() {
+        let previous = json!({
+            "path": "p",
+            "status": "active",
+            "metadata": {
+                "description": "old",
+                "discovery": {"applied": {"git://x/r.git": ["metadata/description", "status"]}},
+            },
+        });
+        let changed = |description: &str| {
+            let mut next = previous.clone();
+            next["metadata"]["description"] = json!(description);
+            next
+        };
+
+        let mut next = changed("edited");
+        CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut next);
+        assert_eq!(
+            next["metadata"]["discovery"]["applied"],
+            json!({"git://x/r.git": ["status"]})
+        );
+
+        // a writer that maintains `applied` itself says so
+        let mut kept = changed("edited");
+        kept[KEEP_APPLIED] = json!(true);
+        CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut kept);
+        assert!(kept.get(KEEP_APPLIED).is_none());
+        assert_eq!(
+            kept["metadata"]["discovery"],
+            previous["metadata"]["discovery"]
+        );
+
+        // taking over every field leaves the source with none
+        let mut all = changed("edited");
+        all["status"] = json!("archived");
+        CloudMapFormat.prepare_write("/repositories", Some(&previous), &mut all);
+        assert_eq!(
+            all["metadata"]["discovery"]["applied"],
+            json!({"git://x/r.git": []})
+        );
+
+        // nothing to take over from a new record
+        let mut created = changed("edited");
+        CloudMapFormat.prepare_write("/repositories", None, &mut created);
+        assert_eq!(
+            created["metadata"]["discovery"],
+            previous["metadata"]["discovery"]
+        );
+    }
 
     #[test]
     fn derive_artifact_url_for_branch_keys() {

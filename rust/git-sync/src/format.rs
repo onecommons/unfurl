@@ -138,6 +138,19 @@ pub trait DataFormat: Send + Sync {
     /// header.
     fn is_format(&self, json: &serde_json::Value) -> bool;
 
+    /// Adjusts a record written through the CRUD api before it's stored,
+    /// given the record it replaces, if any.
+    ///
+    /// Not called for records a scan reads from a file. The default leaves
+    /// the record as it is.
+    fn prepare_write(
+        &self,
+        _path: &str,
+        _previous: Option<&serde_json::Value>,
+        _json: &mut serde_json::Value,
+    ) {
+    }
+
     /// Returns `true` if `name` — the `literate-yaml` front-matter value
     /// of a markdown document — names this format.
     ///

@@ -1492,11 +1492,16 @@ class CloudMap:
                         get_repository_url(host.canonize(repo_url))
                     ) or context.get_repository(canonical_url)
                 try:
-                    repo_info = host.import_project_url(
-                        repo_url,
-                        self.directory,
-                        download=download,
-                    )
+                    # what the host reports is the repository's own record, under
+                    # the key the host gives it, whatever url was analyzed
+                    with context._tracking_provenance(
+                        get_repository_url(host.canonize(repo_url))
+                    ):
+                        repo_info = host.import_project_url(
+                            repo_url,
+                            self.directory,
+                            download=download,
+                        )
                 except Exception as e:
                     self.logger.error(
                         "Failed to import project URL %s",

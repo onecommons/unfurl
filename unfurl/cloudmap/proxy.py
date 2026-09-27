@@ -897,6 +897,10 @@ class CloudMapProxy(CloudMapStore):
             payload[_OCC_VERSION_KEY] = version
         if commit is not None:
             payload[_OCC_COMMIT_KEY] = commit
+        # the records' `applied` bookkeeping was maintained by the writer
+        # (see ProvenanceTrackingContext.add_record), so the server mustn't
+        # redo it as though this were someone else's edit
+        payload["unfurl.server.keep_applied"] = True
         self._pending_writes.setdefault(section, {})[key] = payload
 
     @staticmethod

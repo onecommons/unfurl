@@ -19,6 +19,7 @@ reading or writing the document keeps the document's own vocabulary
 """
 
 from contextlib import contextmanager
+import dataclasses
 from typing import (
     Any,
     Dict,
@@ -84,7 +85,8 @@ def discovery_sources(record: "CloudMapRecord") -> List[str]:
 
 
 def _replace_discovery_sources(record: "CloudMapRecord", sources: List[str]) -> None:
-    """Replace the record's discovery sources.
+    """Replace the record's discovery sources, dropping the ``applied`` fields
+    of any source that's gone.
 
     The counterpart to :py:func:`discovery_sources`; a no-op when the record has
     no discovery metadata, since there would be nothing to replace.
@@ -94,6 +96,246 @@ def _replace_discovery_sources(record: "CloudMapRecord", sources: List[str]) -> 
     metadata = cast(CommonMetadata, record.metadata)  # type: ignore[attr-defined]
     if discovery is not None:
         discovery.sources = sources
+        discovery.applied = {
+            source: fields
+            for source, fields in discovery.applied.items()
+            if source in sources or _source_matches_key(source, record)
+        }
+
+
+def _escape_pointer(token: str) -> str:
+    return token.replace("~", "~0").replace("/", "~1")
+
+
+def _unescape_pointer(token: str) -> str:
+    return token.replace("~1", "/").replace("~0", "~")
+
+
+# fields that are one leaf however they're structured: a repository host's
+# refs, which change wholesale and aren't edited one at a time
+_WHOLE_FIELDS = ("branches", "tags")
+
+
+def field_pointers(record: Dict[str, Any]) -> Dict[str, Any]:
+    """The leaves of a serialized record, by JSON pointer without the leading
+    "/", as ``metadata.discovery.applied`` names them: every value that isn't a
+    non-empty object -- so a list is one leaf, and so are the top-level
+    ``branches`` and ``tags`` -- except ``metadata.discovery``.
+
+    Must match ``field_pointers`` in ``rust/git-sync/src/formats/cloudmap.rs``.
+    """
+    fields: Dict[str, Any] = {}
+
+    def walk(value: Any, tokens: List[str]) -> None:
+        whole = len(tokens) == 1 and tokens[0] in _WHOLE_FIELDS
+        if isinstance(value, dict) and value and not whole:
+            for key, member in value.items():
+                if tokens == ["metadata"] and key == "discovery":
+                    continue
+                walk(member, tokens + [key])
+        else:
+            fields["/".join(_escape_pointer(t) for t in tokens)] = value
+
+    for key, value in record.items():
+        walk(value, [key])
+    return fields
+
+
+def _tokens(pointer: str) -> List[str]:
+    return [_unescape_pointer(t) for t in pointer.split("/")]
+
+
+def _assemble(fields: Dict[str, Any]) -> Dict[str, Any]:
+    """The inverse of :py:func:`field_pointers`."""
+    record: Dict[str, Any] = {}
+    for pointer, value in fields.items():
+        *parents, last = _tokens(pointer)
+        container = record
+        for token in parents:
+            container = container.setdefault(token, {})
+        container[last] = value
+    return record
+
+
+def _default_leaves(record_type: type) -> Dict[str, Any]:
+    """The serialized default value of each field of ``record_type`` that has
+    one, by pointer, descending into fields whose default is a dataclass."""
+    leaves: Dict[str, Any] = {}
+
+    def walk(cls: type, prefix: str) -> None:
+        for f in dataclasses.fields(cls):
+            if f.default is not dataclasses.MISSING:
+                value = f.default
+            elif f.default_factory is not dataclasses.MISSING:
+                value = f.default_factory()
+            else:
+                continue
+            pointer = prefix + _escape_pointer(f.name)
+            if pointer == "metadata/discovery":
+                continue
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                walk(type(value), pointer + "/")
+            else:
+                asdict = getattr(value, "asdict", None)
+                leaves[pointer] = asdict() if callable(asdict) else value
+
+    walk(record_type, "")
+    return leaves
+
+
+def _related(pointer: str, pointers: Iterable[str]) -> bool:
+    """Is one of ``pointers`` ``pointer`` itself, or inside or around it?"""
+    return any(
+        p == pointer or p.startswith(pointer + "/") or pointer.startswith(p + "/")
+        for p in pointers
+    )
+
+
+def _applied(record: Dict[str, Any]) -> Dict[str, List[str]]:
+    discovery = (record.get("metadata") or {}).get("discovery") or {}
+    return discovery.get("applied") or {}
+
+
+def _changed(before: Dict[str, Any], after: Dict[str, Any]) -> Set[str]:
+    """The pointers added, removed or changed between ``before`` and ``after``."""
+    return {
+        p
+        for p in before.keys() | after.keys()
+        if p not in before or p not in after or before[p] != after[p]
+    }
+
+
+def strip_applied(previous: Dict[str, Any], record: Dict[str, Any]) -> Dict[str, Any]:
+    """``record`` without the fields it changes from ``previous`` in its
+    ``metadata.discovery.applied``, so analysis leaves them alone. The objects
+    on the path are copied rather than modified."""
+    applied = _applied(record)
+    if not applied:
+        return record
+    changed = _changed(field_pointers(previous), field_pointers(record))
+    # a source left with no fields keeps its entry: a record without
+    # `applied` is one analysis has never tracked (see `_merge_owned`)
+    remaining = {
+        source: [p for p in fields if p not in changed]
+        for source, fields in applied.items()
+    }
+    if remaining == applied:
+        return record
+    record = dict(record)
+    metadata = dict(record["metadata"])
+    discovery = dict(metadata["discovery"])
+    discovery["applied"] = remaining
+    metadata["discovery"] = discovery
+    record["metadata"] = metadata
+    return record
+
+
+def _ownership(
+    previous: Dict[str, Any],
+    pointers: Dict[str, Any],
+    source: str,
+    produced_before: bool,
+) -> Tuple[Set[str], Set[str]]:
+    """The keys of ``previous`` (whose leaves are ``pointers``) that ``source``
+    applied, and those any source applied. A record with no ``applied`` at all
+    counts as applied entirely by ``source`` if it ``produced_before``."""
+    applied = _applied(previous)
+    if applied:
+        owned = set(applied.get(source, []))
+        return owned, {p for keys in applied.values() for p in keys}
+    return (set(pointers) if produced_before else set()), set()
+
+
+def _take_over(
+    previous: Dict[str, Any],
+    record: Dict[str, Any],
+    source: str,
+    produced_before: bool,
+) -> Dict[str, List[str]]:
+    """The ``applied`` lists after ``source`` writes ``record`` over
+    ``previous`` unmerged: it applied the keys it changed along with the ones
+    it had, and the other sources lose the keys it changed."""
+    old, new = field_pointers(previous), field_pointers(record)
+    changed = _changed(old, new)
+    owned, _ = _ownership(previous, old, source, produced_before)
+    applied = {
+        s: [p for p in keys if p not in changed]
+        for s, keys in _applied(previous).items()
+        if s != source
+    }
+    applied[source] = sorted((owned & new.keys()) | (changed & new.keys()))
+    return applied
+
+
+def _merge_owned(
+    previous: Dict[str, Any],
+    incoming: Dict[str, Any],
+    source: str,
+    defaults: Dict[str, Any],
+    produced_before: bool,
+) -> Tuple[Dict[str, Any], List[str]]:
+    """Merge what analyzing ``source`` produced into the record as it was.
+
+    ``source`` can add keys the record doesn't have, but can only update or
+    delete keys it applied last time, or keys no source has applied that
+    still have their default value (``defaults``); any other key keeps its
+    value. A record with no ``applied`` bookkeeping at all -- one written
+    before it was kept -- counts as applied entirely by ``source`` if
+    ``source`` produced it (``produced_before``).
+
+    Returns:
+        The merged record (without ``metadata.discovery``) and the keys
+        ``source`` wrote.
+    """
+    old, new = field_pointers(previous), field_pointers(incoming)
+    owned, claimed = _ownership(previous, old, source, produced_before)
+
+    def changeable(pointer: str) -> bool:
+        return pointer in owned or (
+            pointer not in claimed
+            and pointer in defaults
+            and old[pointer] == defaults[pointer]
+        )
+
+    merged = {p: value for p, value in old.items() if not changeable(p)}
+    written: List[str] = []
+    for pointer, value in new.items():
+        if pointer in old:
+            if not changeable(pointer):
+                continue
+        elif _related(pointer, merged):
+            continue  # it would replace or go inside a key that's kept
+        merged[pointer] = value
+        written.append(pointer)
+    return _assemble(merged), sorted(written)
+
+
+def _set_applied(record: "CloudMapRecord", applied: Dict[str, List[str]]) -> None:
+    metadata = getattr(record, "metadata", None)
+    if not isinstance(metadata, CommonMetadata):
+        return
+    if metadata.discovery is None:
+        if not applied:
+            return
+        metadata.discovery = Discovery()
+    metadata.discovery.applied = applied
+
+
+def _transplant(record: "CloudMapRecord", data: Dict[str, Any]) -> None:
+    """Set ``record``'s fields to the serialized ``data``, keeping its own
+    ``metadata.discovery``, without replacing the object callers may hold."""
+    assert dataclasses.is_dataclass(record) and not isinstance(record, type)
+    data = dict(data)
+    metadata = data.setdefault("metadata", {})
+    discovery = getattr(getattr(record, "metadata", None), "discovery", None)
+    if discovery is not None:
+        metadata["discovery"] = discovery.asdict()
+    record_fields = dataclasses.fields(record)
+    # the key field comes first: `url`, or `name` for a CloudType
+    data[record_fields[0].name] = record.key
+    rebuilt = type(record)(**data)
+    for f in record_fields:
+        setattr(record, f.name, getattr(rebuilt, f.name))
 
 
 def _source_matches_key(source: str, record: "CloudMapRecord") -> bool:
@@ -257,6 +499,10 @@ class ProvenanceTrackingContext(AnalyzerContext):
         # analysis touches counts for the enclosing one too, or the outer
         # sweep would collect records the run just confirmed are in use.
         self.provenance = Provenance()
+        # Each record as it was when first read through this context. Callers
+        # modify the records they read before adding them back, so the store
+        # can't tell what a write changes -- this can.
+        self._snapshots: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # --- Tracking ---
 
@@ -292,6 +538,13 @@ class ProvenanceTrackingContext(AnalyzerContext):
         if record is not None:
             self.provenance.touched.add(record_identity(record))
 
+    def _read(self, record: Optional[CloudMapRecord]) -> None:
+        """Note that ``record`` was looked up: it's still in use, and this is
+        how it was before whoever looked it up changes it."""
+        if record is not None:
+            self._mark_seen(record)
+            self._snapshots.setdefault(record_identity(record), record.asdict())
+
     def _mark_failed(self) -> None:
         """Note that an analyzer raised, making this analysis incomplete.
 
@@ -305,20 +558,70 @@ class ProvenanceTrackingContext(AnalyzerContext):
     # --- AnalyzerContext methods: ---
 
     def add_record(self, record: CloudMapRecord) -> None:
-        """Add ``record``, attributing it to every URL being analyzed."""
+        """Add ``record``, attributing it to every URL being analyzed.
+
+        During analysis the record is merged with the one it replaces by field
+        ownership (see ``metadata.discovery.applied``): the innermost source
+        being analyzed only overwrites the fields it wrote last time, unless
+        ``record`` is the stored record itself, retrieved and updated. Any other
+        write gives up the ownership of the fields it changes.
+        """
+        identity = record_identity(record)
+        stored = self.__context.get_record(section_of(record), record.key)
+        previous = self._snapshots.get(identity)
+        if previous is None and stored is not None:
+            previous = stored.asdict()
         if self._sources:
+            # the url being analyzed, which can be the record's own
+            source = self._sources[-1]
+            if previous is None:
+                applied = {source: sorted(field_pointers(record.asdict()))}
+            else:
+                incoming = record.asdict()
+                discovery = (previous.get("metadata") or {}).get("discovery") or {}
+                produced_before = _source_matches_key(
+                    source, record
+                ) or source in discovery.get("sources", [])
+                if record is stored:
+                    # the analyzer updated the record it retrieved rather than
+                    # producing a new one, so its changes are deliberate
+                    applied = _take_over(previous, incoming, source, produced_before)
+                else:
+                    merged, written = _merge_owned(
+                        previous,
+                        incoming,
+                        source,
+                        _default_leaves(type(record)),
+                        produced_before,
+                    )
+                    if field_pointers(merged) != field_pointers(incoming):
+                        _transplant(record, merged)
+                    applied = {
+                        s: fields
+                        for s, fields in _applied(previous).items()
+                        if s != source
+                    }
+                    applied[source] = written
             record_discovery_source(
                 record,
                 self._sources,
                 # Analyzers may rebuild a record from scratch; merge the
                 # sources of the one being replaced so other analyzers'
                 # provenance isn't dropped.
-                previous=self.__context.get_record(section_of(record), record.key),
+                previous=stored,
             )
+            _set_applied(record, applied)
+        elif previous is not None:
+            data = record.asdict()
+            stripped = strip_applied(previous, data)
+            if stripped is not data:
+                _set_applied(record, _applied(stripped))
         self._mark_seen(record)
+        self._snapshots[identity] = record.asdict()
         self.__context.add_record(record)
 
     def delete_record(self, record: CloudMapRecord) -> None:
+        self._snapshots.pop(record_identity(record), None)
         self.__context.delete_record(record)
 
     def add_image_artifact(self, image: ContainerImage) -> Artifact:
@@ -344,32 +647,32 @@ class ProvenanceTrackingContext(AnalyzerContext):
 
     def get_repository(self, r: Union[str, Repository]) -> Optional[Repository]:
         found = self.__context.get_repository(r)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     def get_artifact(self, url: str) -> Optional[Artifact]:
         found = self.__context.get_artifact(url)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     def get_service(self, url: str) -> Optional[Service]:
         found = self.__context.get_service(url)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     def get_component(self, url: str) -> Optional[Component]:
         found = self.__context.get_component(url)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     def get_instantiation(self, url: str) -> Optional[Instantiation]:
         found = self.__context.get_instantiation(url)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     def get_type(self, name: str) -> Optional[CloudType]:
         found = self.__context.get_type(name)
-        self._mark_seen(found)
+        self._read(found)
         return found
 
     # --- Iterate records ---

@@ -1,0 +1,48 @@
+{
+  "record": {
+    "path": "group/project",
+    "private": true,
+    "protocols": [
+      "https",
+      "ssh"
+    ],
+    "empty": {},
+    "metadata": {
+      "title": "Project",
+      "topics": [
+        "a",
+        "b"
+      ],
+      "discovery": {
+        "sources": [
+          "git://example.com/group/project.git"
+        ]
+      }
+    },
+    "contains": {
+      "ensemble/ensemble.yaml": null,
+      "#feature:a~b/c.yaml": {
+        "tosca.artifacts.File": null
+      }
+    },
+    "branches": {
+      "main": "abc123",
+      "feature/x": "def456"
+    },
+    "tags": {
+      "v1.0": "abc123"
+    }
+  },
+  "pointers": [
+    "branches",
+    "contains/#feature:a~0b~1c.yaml/tosca.artifacts.File",
+    "contains/ensemble~1ensemble.yaml",
+    "empty",
+    "metadata/title",
+    "metadata/topics",
+    "path",
+    "private",
+    "protocols",
+    "tags"
+  ]
+}

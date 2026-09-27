@@ -1274,6 +1274,16 @@ impl<'de> ::serde::Deserialize<'de> for ComponentVersionsKey {
 #[doc = "  \"description\": \"Metadata discovery information.\","]
 #[doc = "  \"type\": \"object\","]
 #[doc = "  \"properties\": {"]
+#[doc = "    \"applied\": {"]
+#[doc = "      \"description\": \"For each source that analysis wrote this record from, the keys it last wrote, as JSON pointers to the record's leaves without the leading \\\"/\\\" (e.g. \\\"metadata/title\\\"). A write that changes one of these keys removes it, so the next analysis of that source leaves it alone.\","]
+#[doc = "      \"type\": \"object\","]
+#[doc = "      \"additionalProperties\": {"]
+#[doc = "        \"type\": \"array\","]
+#[doc = "        \"items\": {"]
+#[doc = "          \"type\": \"string\""]
+#[doc = "        }"]
+#[doc = "      }"]
+#[doc = "    },"]
 #[doc = "    \"last_checked\": {"]
 #[doc = "      \"description\": \"Date and time of the last metadata check, conforming to RFC 3339.\","]
 #[doc = "      \"type\": \"string\","]
@@ -1293,6 +1303,13 @@ impl<'de> ::serde::Deserialize<'de> for ComponentVersionsKey {
 #[doc = r" </details>"]
 #[derive(:: serde :: Deserialize, :: serde :: Serialize, Clone, Debug)]
 pub struct Discovery {
+    #[doc = "For each source that analysis wrote this record from, the keys it last wrote, as JSON pointers to the record's leaves without the leading \"/\" (e.g. \"metadata/title\"). A write that changes one of these keys removes it, so the next analysis of that source leaves it alone."]
+    #[serde(
+        default,
+        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
+    )]
+    pub applied:
+        ::std::collections::HashMap<::std::string::String, ::std::vec::Vec<::std::string::String>>,
     #[doc = "Date and time of the last metadata check, conforming to RFC 3339."]
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub last_checked: ::std::option::Option<::chrono::DateTime<::chrono::offset::Utc>>,
@@ -1303,6 +1320,7 @@ pub struct Discovery {
 impl ::std::default::Default for Discovery {
     fn default() -> Self {
         Self {
+            applied: Default::default(),
             last_checked: Default::default(),
             sources: Default::default(),
         }

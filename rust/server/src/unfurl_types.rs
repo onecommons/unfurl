@@ -322,6 +322,8 @@ pub struct CloudmapComponent {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudmapDiscovery {
+    /// For each source that analysis wrote this record from, the keys it last wrote, as JSON pointers to the record's leaves without the leading "/" (e.g. "metadata/title"). A write that changes one of these keys removes it, so the next analysis of that source leaves it alone.
+    pub applied: Option<std::collections::HashMap<String, Vec<String>>>,
     /// Date and time of the last metadata check, conforming to RFC 3339.
     pub last_checked: Option<chrono::DateTime<chrono::Utc>>,
     /// List of URLs that were used for metadata discovery, such as API URLs or PR URLs for manual edits.
@@ -1849,6 +1851,8 @@ pub struct PostCloudmapRequest {
 /// Each section maps record keys to a JSON object that schema-validates as the corresponding cloudmap entity. To delete a record, send the object with ``unfurl.server.deleted: true``.
 ///
 /// ``unfurl.server.if_exists: true`` applies the write only if the record already exists; otherwise the record is skipped and left out of ``applied``. ``unfurl.server.merge: true`` merges the object into the existing record instead of replacing it: objects are merged recursively and any other value replaces the existing one. Instead of true, ``unfurl.server.merge`` can be an object of merge directives: ``delete``, a list of field names or JSON pointers, removes those fields after merging.
+///
+/// A write that changes a field listed in the record's ``metadata.discovery.applied`` removes it from there, so the analysis that wrote it leaves the new value alone. ``unfurl.server.keep_applied: true`` skips that, for a writer that maintains ``applied`` itself.
 ///
 /// When an edit POSTed to this endpoint is contradicted by a change in the file itself, neither side overwrites the other: a GET keeps returning the edit, the file keeps its own version, and the record is not written back to the file until the conflict is settled. Send ``unfurl.server.resolve: true`` on the record to resolve any conflicting changes in favour of this write. Leaving the flag off updates the record but leaves the conflict outstanding.
 ///

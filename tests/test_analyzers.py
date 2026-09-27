@@ -1829,10 +1829,12 @@ kind: Project
     repo_url = "git://gitrepos.org/someorg/somerepo.git"
     repo = cm.analyze_url(repo_url, "no")
     assert isinstance(repo, Repository)
-    expected_repo = Repository(
-        url=repo_url,
-        path="someorg/somerepo",
-        name="somerepo",
+    expected_repo = _analyzed(
+        Repository(
+            url=repo_url,
+            path="someorg/somerepo",
+            name="somerepo",
+        )
     )
     assert repo == expected_repo
     assert db.repositories[repo_url] is repo
@@ -1861,7 +1863,12 @@ kind: Project
         # form, so the spelling used to request it doesn't matter.
         metadata=ArtifactMetadata(
             discovery=Discovery(
-                sources=["git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"]
+                sources=["git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile"],
+                applied={
+                    "git://github.com/nginxinc/docker-nginx.git#:modules/Dockerfile": [
+                        "type/cloudmap.artifacts.Containerfile"
+                    ]
+                },
             )
         ),
     )
@@ -1871,7 +1878,7 @@ kind: Project
     pkg_url = "pkg:oci/nginx?repository_url=docker.io/library/nginx&tag=1.27.4"
     oci_artifact = cm.analyze_url(pkg_url, "yes")
     instantiation_url = "https://registry-1.docker.io/v2/library/nginx/blobs/sha256:96536756f4a7391a16ef8abf336c7f7ac73cc94fb2b77ab406add4a8bcaa3635"
-    expected_oci = Artifact(
+    expected_oci = _analyzed(Artifact(
         url=pkg_url,
         type=TypeRefs({"cloudmap.artifacts.oci.Image": None}),
         instantiated_by={instantiation_url: None},
@@ -1900,7 +1907,7 @@ kind: Project
                 ],
             ),
         ),
-    )
+    ))
     assert oci_artifact == expected_oci
     assert db.artifacts[pkg_url] is oci_artifact
 
@@ -1924,7 +1931,7 @@ kind: Project
     # Case 4: regular HTTPS URL → creates a Service
     svc_url = "https://example.com/myservice"
     service = cm.analyze_url(svc_url, "no")
-    expected_service = Service(url=svc_url)
+    expected_service = _analyzed(Service(url=svc_url))
     assert service == expected_service
     assert db.services[svc_url] is service
     # Calling again is idempotent
@@ -1936,13 +1943,23 @@ kind: Project
 
     # Case 6: git+https scheme URL → treated as git repository
     gitplus_repo = cm.analyze_url("git+https://rando.com/org/repo.git", "no")
-    expected_gitplus = Repository(
+    expected_gitplus = _analyzed(Repository(
         url="git://rando.com/org/repo.git",
         path="org/repo",
         name="repo",
         protocols=["https"],
-    )
+    ))
     assert gitplus_repo == expected_gitplus
+
+
+def _analyzed(record):
+    """``record`` as analyzing its own url leaves it: owning its fields."""
+    from unfurl.cloudmap.provenance import field_pointers
+
+    discovery = record.metadata.discovery or Discovery()
+    discovery.applied = {record.key: sorted(field_pointers(record.asdict()))}
+    record.metadata.discovery = discovery
+    return record
 
 
 def test_analyze_url_generic_purl(tmp_path):
@@ -1963,7 +1980,7 @@ def test_analyze_url_generic_purl(tmp_path):
         type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="express", version="4.18.2"),
     )
-    assert npm_art == expected_npm
+    assert npm_art == _analyzed(expected_npm)
     assert db.artifacts[npm_url] is npm_art
 
     # PURL with namespace
@@ -1974,7 +1991,7 @@ def test_analyze_url_generic_purl(tmp_path):
         type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="batik-anim", version="1.9.1"),
     )
-    assert maven_art == expected_maven
+    assert maven_art == _analyzed(expected_maven)
 
     # PURL without version
     pypi_url = "pkg:pypi/requests"
@@ -1984,7 +2001,7 @@ def test_analyze_url_generic_purl(tmp_path):
         type=TypeRefs({EntitySchema.GenericPackage: None}),
         metadata=ArtifactMetadata(title="requests"),
     )
-    assert pypi_art == expected_pypi
+    assert pypi_art == _analyzed(expected_pypi)
 
     # # Idempotent
     # pypi_art2 = cm.analyze_url(pypi_url, "no")

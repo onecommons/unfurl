@@ -27,6 +27,7 @@ from flask import Response, current_app, jsonify, request
 from flask.typing import ResponseReturnValue
 
 from ..cloudmap.db import CloudMapDB, CloudMapStore, extends_children, subtype_closure
+from ..cloudmap.provenance import strip_applied
 from ..localenv import LocalEnv
 from ..logs import getLogger
 from ..repo import GitRepo
@@ -903,6 +904,11 @@ def get_cloudmap_facets(query: FacetsQuery) -> ResponseReturnValue:
         "of true, ``unfurl.server.merge`` can be an object of merge directives: "
         "``delete``, a list of field names or JSON pointers, removes those "
         "fields after merging.\n\n"
+        "A write that changes a field listed in the record's "
+        "``metadata.discovery.applied`` removes it from there, so the analysis "
+        "that wrote it leaves the new value alone. "
+        "``unfurl.server.keep_applied: true`` skips that, for a writer that "
+        "maintains ``applied`` itself.\n\n"
         "When an edit POSTed to this endpoint is contradicted by a change in the "
         "file itself, neither side overwrites the other: a GET keeps "
         "returning the edit, the file keeps its own version, and the "
@@ -1028,9 +1034,13 @@ def _apply_cloudmap_sections(
     username: str,
     password: str,
     commit_msg: str,
+    keep_applied: bool = False,
 ) -> ResponseReturnValue:
     """Write ``body_sections`` into the cloudmap at ``cloudmap_path`` and commit it,
-    as ``POST /cloudmap`` does. See :func:`post_cloudmap` for the request semantics."""
+    as ``POST /cloudmap`` does. See :func:`post_cloudmap` for the request semantics.
+
+    ``keep_applied`` is for records whose ``metadata.discovery.applied`` the
+    caller has already maintained, as for ``unfurl.server.keep_applied``."""
     from .cache import load_yaml_from_cache
 
     # Resolve the on-disk path and the GitRepo for `_commit_and_push` first, so a
@@ -1086,6 +1096,7 @@ def _apply_cloudmap_sections(
             payload = dict(value)
             if_exists = payload.pop("unfurl.server.if_exists", False)
             merge = payload.pop("unfurl.server.merge", False)
+            keep = payload.pop("unfurl.server.keep_applied", False) or keep_applied
             try:
                 deletes = _merge_deletes(merge)
             except ValueError as e:
@@ -1104,6 +1115,9 @@ def _apply_cloudmap_sections(
                     payload = _merge_record(existing, payload)
                 for tokens in deletes:
                     payload = _without_field(payload, tokens)
+                if not keep and isinstance(existing, dict):
+                    # whoever changes a field analysis wrote takes it over
+                    payload = strip_applied(existing, payload)
                 if section_doc.get(key) != payload:
                     section_doc[key] = payload
                     applied.append({"section": section, "key": key, "version": 0})
@@ -1408,6 +1422,7 @@ def update_cloudmap(
         body.username or "",
         body.private_token or "",
         commit_msg,
+        keep_applied=True,  # the records were made through the cloudmap api
     )
     if not isinstance(result, dict):
         return result  # an error response

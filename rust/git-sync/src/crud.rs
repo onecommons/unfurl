@@ -129,12 +129,14 @@ where
         path,
         key,
     } = at;
+    let mut json = json;
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    prepare_json(sync, &mut tx, path, lookup.record_id, &mut json).await?;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let mut tx = pool.begin().await?;
-    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
     // Resolve the effective file_path: caller-supplied, then existing
     // record's file, then worktree default. NotFound when none of those
     // yield a value (e.g. brand-new key and no `default_file_path` set).
@@ -237,12 +239,14 @@ where
         path,
         key,
     } = at;
+    let mut json = json;
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    prepare_json(sync, &mut tx, path, lookup.record_id, &mut json).await?;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let mut tx = pool.begin().await?;
-    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
     // Resolve the effective file_path: caller-supplied, then existing
     // record's file. update/delete don't fall back to the worktree
     // default — they require an existing record, and the
@@ -326,12 +330,14 @@ where
         path,
         key,
     } = at;
+    let mut json = json;
+    let mut tx = pool.begin().await?;
+    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
+    prepare_json(sync, &mut tx, path, lookup.record_id, &mut json).await?;
     let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
         path: path.to_string(),
         source: e,
     })?;
-    let mut tx = pool.begin().await?;
-    let lookup = db::tx::lookup_commits(&mut tx, sync.worktree_id(), file_path, path, key).await?;
     // Resolve the effective file_path: caller-supplied, then existing
     // record's file, then worktree default. NotFound when none of those
     // yield a value (e.g. brand-new key and no `default_file_path` set).
@@ -509,10 +515,7 @@ where
             expected,
             resolve,
         } => {
-            let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
-                path: op_path.clone(),
-                source: e,
-            })?;
+            let mut json = json;
             let lookup = db::tx::lookup_commits(
                 tx,
                 sync.worktree_id(),
@@ -521,6 +524,11 @@ where
                 &op_key,
             )
             .await?;
+            prepare_json(sync, tx, &op_path, lookup.record_id, &mut json).await?;
+            let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
+                path: op_path.clone(),
+                source: e,
+            })?;
             // Resolve the effective file_path: caller-supplied, then
             // existing record's file, then worktree default. NotFound
             // when none of those yield a value (e.g. brand-new key
@@ -788,6 +796,40 @@ where
         .to_string();
     db::tx::ensure_file(tx, sync.worktree_id(), file_path, &format).await?;
     Ok(Some(format))
+}
+
+/// Lets the format of the record at `path` adjust `json` before it's written,
+/// given the live record `record_id` it replaces (see
+/// [`crate::DataFormat::prepare_write`]).
+async fn prepare_json<DB>(
+    sync: &SyncedRepo,
+    tx: &mut sqlx::Transaction<'_, DB>,
+    path: &str,
+    record_id: Option<i64>,
+    json: &mut serde_json::Value,
+) -> Result<()>
+where
+    DB: db::tx::Dialect,
+    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
+    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
+{
+    let Some(format) = sync.formats().for_path(path) else {
+        return Ok(());
+    };
+    let previous = match record_id {
+        Some(id) => match db::tx::record_json(tx, id).await? {
+            Some(text) => Some(serde_json::from_str(&text).map_err(|e| Error::Json {
+                path: path.to_string(),
+                source: e,
+            })?),
+            None => None,
+        },
+        None => None,
+    };
+    format.prepare_write(path, previous.as_ref(), json);
+    Ok(())
 }
 
 pub(crate) fn compute_aliases(

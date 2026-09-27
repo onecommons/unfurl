@@ -787,12 +787,20 @@ class Discovery:
     """Date and time of the last metadata check"""
     sources: List[str] = field(default_factory=list)
     """List of URLs that were used for metadata discovery"""
+    applied: Dict[str, List[str]] = field(default_factory=dict)
+    """For each source analysis wrote this record from, the keys it last wrote,
+    as JSON pointers to the record's leaves without the leading "/"."""
 
     def __post_init__(self):
         if self.sources:
             self.sources = [
                 validate_url(url, "Discovery.sources") for url in self.sources
             ]
+        if self.applied:
+            self.applied = {
+                validate_url(url, "Discovery.applied"): list(fields)
+                for url, fields in self.applied.items()
+            }
 
     def asdict(self) -> Dict[str, Any]:
         # exclude empty values

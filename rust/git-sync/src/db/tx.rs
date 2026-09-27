@@ -78,6 +78,8 @@ pub(crate) trait Dialect: Database {
     const LOOKUP_COMMITS: &'static str;
     /// `SELECT format FROM file WHERE worktree_id = ? AND path = ?`.
     const FILE_FORMAT: &'static str;
+    /// `SELECT json FROM record WHERE id = ?`, as text.
+    const RECORD_JSON: &'static str;
     /// `INSERT INTO file (...) … <conflict-skipping clause>`. Registers a
     /// file the worktree hasn't scanned yet so record rows can satisfy the
     /// `record -> file` foreign key; an existing row is left untouched.
@@ -188,6 +190,7 @@ impl Dialect for sqlx::Sqlite {
          LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = ?1 AND path = ?2";
+    const RECORD_JSON: &'static str = "SELECT json(json) FROM record WHERE id = ?1";
     const INSERT_FILE: &'static str =
         "INSERT OR IGNORE INTO file (worktree_id, path, format, commit_id) \
          VALUES (?1, ?2, ?3, NULL)";
@@ -318,6 +321,7 @@ impl Dialect for sqlx::Postgres {
          LIMIT 1";
     const FILE_FORMAT: &'static str =
         "SELECT format FROM file WHERE worktree_id = $1 AND path = $2";
+    const RECORD_JSON: &'static str = "SELECT json::text FROM record WHERE id = $1";
     const INSERT_FILE: &'static str = "INSERT INTO file (worktree_id, path, format, commit_id) \
          VALUES ($1, $2, $3, NULL) ON CONFLICT (worktree_id, path) DO NOTHING";
     const DELETE_ALIASES: &'static str = "DELETE FROM alias WHERE record_id = $1";
@@ -554,6 +558,24 @@ where
         .fetch_optional(&mut **tx)
         .await?;
     Ok(row.map(|(f,)| f))
+}
+
+/// The JSON text of the record with primary key `id`, if there is one.
+pub(crate) async fn record_json<DB: Dialect>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    id: i64,
+) -> Result<Option<String>>
+where
+    for<'q> i64: Encode<'q, DB> + Type<DB>,
+    for<'q> <DB as Database>::Arguments<'q>: IntoArguments<'q, DB>,
+    for<'c> &'c mut <DB as Database>::Connection: Executor<'c, Database = DB>,
+    (String,): for<'r> sqlx::FromRow<'r, <DB as Database>::Row> + Send + Unpin,
+{
+    let row: Option<(String,)> = sqlx::query_as(DB::RECORD_JSON)
+        .bind(id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    Ok(row.map(|(json,)| json))
 }
 
 /// Register `file_path` in the `file` table if it isn't there already.

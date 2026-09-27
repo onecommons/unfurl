@@ -19,11 +19,12 @@ from unfurl.tosca_plugins.cloudmap_defs import (
     Repository,
     RepositoryMetadata,
     TypeRefs,
+    TypeRefConstraint,
     Service,
 )
 from unfurl.util import change_cwd, API_VERSION
 from unfurl.repo import sanitize_url
-from tests.utils import init_project, run_cmd, run_job_cmd
+from unfurl.testing import init_project, run_cmd, run_job_cmd
 from unittest.mock import Mock, patch
 from unfurl.cloudmap import (
     CloudMap,
@@ -31,7 +32,102 @@ from unfurl.cloudmap import (
     GithubManager,
     CloudMapDB,
 )
-from unfurl.localenv import LocalEnv
+
+# The cloudmap `test_create` expects after syncing with the test provider, and
+# the source the graph fixtures are derived from. Rebuild it by running
+# `test_create[]` with $UNFURL_TEST_TMPDIR set and passing the resulting
+# cloudmap.yaml to this file's __main__ block -- see its docstring.
+EXPECTED_CLOUDMAP_FIXTURE = (
+    Path(__file__).parent / "fixtures" / "expected_cloudmap.yaml"
+)
+expected_cloudmap = EXPECTED_CLOUDMAP_FIXTURE.read_text()
+
+def _capture_graph(db: CloudMapDB, start_url: str = "") -> str:
+    """Capture cloudmap_graph_console output as plain text (no color/markup)."""
+    from unfurl.reporting import cloudmap_graph_console
+    from rich.console import Console
+    from io import StringIO
+
+    buf = StringIO()
+    console = Console(file=buf, force_terminal=False, no_color=True, width=200)
+    cloudmap_graph_console(db, start_url, console=console)
+    return buf.getvalue()
+
+def main():
+    """Update this file in-place.
+
+    Usage:
+        python tests/test_cloudmap.py                  # regenerate expected graph outputs
+        python tests/test_cloudmap.py cloudmap.yaml    # update expected_cloudmap.yaml from file contents
+
+    To rebuild "expected_cloudmap" run test_create[] with $UNFURL_TEST_TMPDIR set, the cloudmap.yaml path will look like:
+    $UNFURL_TEST_TMPDIR/tmpkjk37eir/project/cloudmap/cloudmap.yaml
+    """
+    import json
+    import re
+    import sys
+    from pathlib import Path
+
+    src = Path(__file__).read_text()
+
+    if len(sys.argv) > 1:
+        # `expected_cloudmap` is read from this fixture, so updating it is the
+        # whole job -- no source rewriting needed.
+        cloudmap_file = Path(sys.argv[1])
+        EXPECTED_CLOUDMAP_FIXTURE.write_text(cloudmap_file.read_text())
+        print(f"expected_cloudmap.yaml: updated from {cloudmap_file}")
+        print("now re-run without arguments to regenerate the graph fixtures")
+    else:
+        # Regenerate expected graph outputs from expected_cloudmap
+        fixture_dir = Path(__file__).parent / "fixtures"
+        fixture_dir.mkdir(exist_ok=True)
+        cloudmap_fixture = EXPECTED_CLOUDMAP_FIXTURE
+        db = CloudMapDB(str(cloudmap_fixture))
+
+        graphs = {
+            "expected_full_graph": _capture_graph(db),
+            "expected_artifact_graph": _capture_graph(
+                db,
+                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
+            ),
+            "expected_dual_record_graph": _capture_graph(
+                db,
+                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+            ),
+        }
+
+        # Regenerate JSON graph fixtures
+        from unfurl.reporting import cloudmap_graph_json
+
+        for name, start_url in [
+            ("cloudmap_graph.json", None),
+            (
+                "cloudmap_graph_artifact.json",
+                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
+            ),
+            (
+                "cloudmap_graph_dual.json",
+                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
+            ),
+        ]:
+            result = cloudmap_graph_json(db, start_url)
+            fixture_path = fixture_dir / name
+            fixture_path.write_text(json.dumps(result, indent=2) + "\n")
+            print(f"{name}: updated ({fixture_path})")
+
+        for name, value in graphs.items():
+            pattern = rf'({re.escape(name)} = """\\)\n.*?(?=""")'
+            replacement = f'{name} = """\\\n{value}'
+            src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
+            status = "updated" if count else "NOT FOUND"
+            print(f"{name}: {status}")
+
+        Path(__file__).write_text(src)
+        print(f"\nUpdated {Path(__file__).name}")
+
+
+if __name__ == "__main__":
+    main()
 
 UNFURL_TEST_CLOUDMAP_URL = os.getenv("UNFURL_TEST_CLOUDMAP_URL")
 
@@ -573,12 +669,6 @@ def runner():
 
             yield runner
 
-# The cloudmap `test_create` expects after syncing with the test provider, and
-# the source the graph fixtures are derived from. Rebuild it by running
-# `test_create[]` with $UNFURL_TEST_TMPDIR set and passing the resulting
-# cloudmap.yaml to this file's __main__ block -- see its docstring.
-EXPECTED_CLOUDMAP_FIXTURE = Path(__file__).parent / "fixtures" / "expected_cloudmap.yaml"
-expected_cloudmap = EXPECTED_CLOUDMAP_FIXTURE.read_text()
 
 @skip_integration
 @pytest.mark.parametrize("commit", ["", "--commit"])
@@ -623,6 +713,7 @@ def test_sync(runner, caplog):
         'nothing to commit for "synced to testProvider"',
     ]:
         assert msg in caplog.text
+
 
 @skip_integration
 def test_configurator(runner, caplog):
@@ -740,9 +831,7 @@ types:
 """
 
 
-@pytest.mark.skipif(
-    GithubManager is None, reason="PyGithub not installed"
-)
+@pytest.mark.skipif(GithubManager is None, reason="PyGithub not installed")
 class TestGithubManager:
     """Unit tests for GithubManager using mock GitHub API objects."""
 
@@ -1436,7 +1525,9 @@ def test_join_resource_url_uri_template_version_keys():
         "git://a.com/x.git#{version}:f.yaml"
     )
     # the operators RFC 6570 reserves aren't valid, so those keys are plain too
-    assert join_resource_url("git://a.com/x.git", "{=var}") == "git://a.com/x.git#{=var}"
+    assert (
+        join_resource_url("git://a.com/x.git", "{=var}") == "git://a.com/x.git#{=var}"
+    )
     assert join_resource_url("https://example.com/app", "{,var}") == "{,var}"
 
 
@@ -2078,9 +2169,7 @@ def test_cloudmap_endpoint_follow_without_key_walks_from_the_matches(
     followed = body["followed"]
     assert followed, "the repositories reference records in other sections"
     # The roots are already in `result`; `followed` is what they reach.
-    assert "repositories" not in followed or not (
-        set(followed["repositories"]) & roots
-    )
+    assert "repositories" not in followed or not (set(followed["repositories"]) & roots)
     assert set(followed) - {"repositories"}, (
         f"should reach other sections: {list(followed)}"
     )
@@ -2147,7 +2236,9 @@ def _walk_pages(client, url, page_size):
 
 def test_cloudmap_endpoint_paged_walk_matches_unpaged(cloudmap_test_client):
     """Pages concatenate to exactly the unpaged section: no gaps, no repeats."""
-    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()[
+        "result"
+    ]
     expected = sorted(unpaged["repositories"])
 
     seen, requests = _walk_pages(cloudmap_test_client, "/cloudmap?kind=repositories", 2)
@@ -2179,7 +2270,9 @@ def test_cloudmap_endpoint_paged_full_document(cloudmap_test_client):
 
 def test_cloudmap_endpoint_paging_last_page_has_no_token(cloudmap_test_client):
     """A limit at or above the section size answers in one page."""
-    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()[
+        "result"
+    ]
     size = len(unpaged["repositories"])
     for limit in (size, size + 5):
         body = cloudmap_test_client.get(
@@ -2283,7 +2376,9 @@ def test_cloudmap_endpoint_paging_survives_deleted_anchor(cloudmap_test_client):
     names still resumes at the right place."""
     from unfurl.server.cloudmap import _encode_page_token
 
-    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()["result"]
+    unpaged = cloudmap_test_client.get("/cloudmap?kind=repositories").get_json()[
+        "result"
+    ]
     keys = sorted(unpaged["repositories"])
     assert len(keys) > 2
     # a token naming a key that was never in the document at all
@@ -2483,18 +2578,6 @@ def test_find_host_config_longest_path_match():
     assert name == "only"
 
 
-def _capture_graph(db: CloudMapDB, start_url: str = "") -> str:
-    """Capture cloudmap_graph_console output as plain text (no color/markup)."""
-    from unfurl.reporting import cloudmap_graph_console
-    from rich.console import Console
-    from io import StringIO
-
-    buf = StringIO()
-    console = Console(file=buf, force_terminal=False, no_color=True, width=200)
-    cloudmap_graph_console(db, start_url, console=console)
-    return buf.getvalue()
-
-
 # fmt: off
 expected_full_graph = """\
 CloudMap
@@ -2524,7 +2607,7 @@ CloudMap
 │   │           │       │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
 │   │           │       │           │   │        (cloudmap.artifacts.GitLabPipeline)
 │   │           │       │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-│   │           │       │           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│   │           │       │           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
 │   │           │       │           └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
 │   │           │       │               │        (cloudmap.artifacts.unfurl.Project)
 │   │           │       ├── dependencies
@@ -2546,7 +2629,7 @@ CloudMap
 │   │           │                   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
 │   │           │                   │   │        (cloudmap.artifacts.GitLabPipeline) [seen]
 │   │           │                   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-│   │           │                   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│   │           │                   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
 │   │           │                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
 │   │           │                       │        (cloudmap.artifacts.unfurl.Project) [seen]
 │   │           ├── instantiated
@@ -2623,7 +2706,7 @@ Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.ya
 │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
 │           │   │        (cloudmap.artifacts.GitLabPipeline)
 │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-│           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
 │           └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
 │               │        (cloudmap.artifacts.unfurl.Project)
 ├── dependencies
@@ -2645,7 +2728,7 @@ Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.ya
             ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
             │   │        (cloudmap.artifacts.GitLabPipeline) [seen]
             ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-            │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+            │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
             └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
                 │        (cloudmap.artifacts.unfurl.Project) [seen]
 """
@@ -2667,7 +2750,7 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │       │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
 │       │           │   │        (cloudmap.artifacts.GitLabPipeline)
 │       │           ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-│       │           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│       │           │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
 │       │           └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
 │       │               │        (cloudmap.artifacts.unfurl.Project)
 │       ├── dependencies
@@ -2689,7 +2772,7 @@ Instantiation git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommo
 │                   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml
 │                   │   │        (cloudmap.artifacts.GitLabPipeline) [seen]
 │                   ├── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
-│                   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate) [seen]
+│                   │   │        Odoo (cloudmap.artifacts.tosca.ServiceTemplate v0.1, tosca.artifacts.File) [seen]
 │                   └── Artifact git://unfurl.cloud/onecommons/blueprints/odoo.git#:unfurl.yaml
 │                       │        (cloudmap.artifacts.unfurl.Project) [seen]
 ├── instantiated
@@ -2787,9 +2870,7 @@ def test_cloudmap_graph_json(tmp_path):
         db,
         "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
     )
-    expected_dual = json.loads(
-        (fixture_dir / "cloudmap_graph_dual.json").read_text()
-    )
+    expected_dual = json.loads((fixture_dir / "cloudmap_graph_dual.json").read_text())
     assert dual_result == expected_dual
 
     # Not found
@@ -2867,7 +2948,9 @@ def facet_test_client():
 
 
 def test_cloudmap_facets_group_by_topics(facet_test_client):
-    resp = facet_test_client.get("/cloudmap/facets?kind=artifacts&group_by=metadata/topics")
+    resp = facet_test_client.get(
+        "/cloudmap/facets?kind=artifacts&group_by=metadata/topics"
+    )
     assert resp.status_code == 200, resp.get_json()
     body = resp.get_json()
     assert body["meta"] == {
@@ -2973,8 +3056,10 @@ def test_cloudmap_endpoint_repeated_filters(cloudmap_test_client):
     from urllib.parse import quote
 
     both = (
-        "/cloudmap?filter=" + quote("/private=true")
-        + "&filter=" + quote("/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d")
+        "/cloudmap?filter="
+        + quote("/private=true")
+        + "&filter="
+        + quote("/branches/main=4551885dfab39991cfdb958cb79fcb6aa282481d")
     )
     resp = cloudmap_test_client.get(both)
     assert resp.status_code == 200
@@ -2984,9 +3069,12 @@ def test_cloudmap_endpoint_repeated_filters(cloudmap_test_client):
 
     # Each filter matches a record on its own, but no record matches both.
     exclusive = (
-        "/cloudmap?filter=" + quote("/private=true")
+        "/cloudmap?filter="
+        + quote("/private=true")
         + "&filter="
-        + quote("/metadata/homepage_url=https://unfurl.cloud/onecommons/blueprints/odoo")
+        + quote(
+            "/metadata/homepage_url=https://unfurl.cloud/onecommons/blueprints/odoo"
+        )
     )
     resp = cloudmap_test_client.get(exclusive)
     assert resp.status_code == 200
@@ -3000,8 +3088,10 @@ def test_cloudmap_facets_repeated_filters(facet_test_client):
 
     resp = facet_test_client.get(
         "/cloudmap/facets?kind=artifacts&group_by=metadata/topics"
-        + "&filter=" + quote("/metadata/topics=db")
-        + "&filter=" + quote("/metadata/topics=web")
+        + "&filter="
+        + quote("/metadata/topics=db")
+        + "&filter="
+        + quote("/metadata/topics=web")
     )
     assert resp.status_code == 200, resp.get_json()
     body = resp.get_json()
@@ -3032,9 +3122,7 @@ def test_cloudmap_facets_non_ascii_canonical_keys():
             )
             assert resp.status_code == 200, resp.get_json()
             body = resp.get_json()
-            assert body["groups"] == {
-                '{"os":"linux","variant":"café"}': {"count": 1}
-            }
+            assert body["groups"] == {'{"os":"linux","variant":"café"}': {"count": 1}}
 
 
 def test_cloudmap_facets_missing_group_path(facet_test_client):
@@ -3044,78 +3132,6 @@ def test_cloudmap_facets_missing_group_path(facet_test_client):
     assert body["groups"] == {}
     # records without the path still count toward total
     assert body["total"] > 0
-
-
-if __name__ == "__main__":
-    """Update this file in-place.
-
-    Usage:
-        python tests/test_cloudmap.py                  # regenerate expected graph outputs
-        python tests/test_cloudmap.py cloudmap.yaml    # update expected_cloudmap.yaml from file contents
-
-    To rebuild "expected_cloudmap" run test_create[] with $UNFURL_TEST_TMPDIR set, the cloudmap.yaml path will look like:
-    $UNFURL_TEST_TMPDIR/tmpkjk37eir/project/cloudmap/cloudmap.yaml
-    """
-    import json
-    import re
-    import sys
-    from pathlib import Path
-
-    src = Path(__file__).read_text()
-
-    if len(sys.argv) > 1:
-        # `expected_cloudmap` is read from this fixture, so updating it is the
-        # whole job -- no source rewriting needed.
-        cloudmap_file = Path(sys.argv[1])
-        EXPECTED_CLOUDMAP_FIXTURE.write_text(cloudmap_file.read_text())
-        print(f"expected_cloudmap.yaml: updated from {cloudmap_file}")
-        print("now re-run without arguments to regenerate the graph fixtures")
-    else:
-        # Regenerate expected graph outputs from expected_cloudmap
-        fixture_dir = Path(__file__).parent / "fixtures"
-        fixture_dir.mkdir(exist_ok=True)
-        cloudmap_fixture = EXPECTED_CLOUDMAP_FIXTURE
-        db = CloudMapDB(str(cloudmap_fixture))
-
-        graphs = {
-            "expected_full_graph": _capture_graph(db),
-            "expected_artifact_graph": _capture_graph(
-                db,
-                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
-            ),
-            "expected_dual_record_graph": _capture_graph(
-                db,
-                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
-            ),
-        }
-
-        # Regenerate JSON graph fixtures
-        from unfurl.reporting import cloudmap_graph_json
-        for name, start_url in [
-            ("cloudmap_graph.json", None),
-            (
-                "cloudmap_graph_artifact.json",
-                "git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template",
-            ),
-            (
-                "cloudmap_graph_dual.json",
-                "git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml",
-            ),
-        ]:
-            result = cloudmap_graph_json(db, start_url)
-            fixture_path = fixture_dir / name
-            fixture_path.write_text(json.dumps(result, indent=2) + "\n")
-            print(f"{name}: updated ({fixture_path})")
-
-        for name, value in graphs.items():
-            pattern = rf'({re.escape(name)} = """\\)\n.*?(?=""")'
-            replacement = f'{name} = """\\\n{value}'
-            src, count = re.subn(pattern, replacement, src, flags=re.DOTALL)
-            status = "updated" if count else "NOT FOUND"
-            print(f"{name}: {status}")
-
-        Path(__file__).write_text(src)
-        print(f"\nUpdated {Path(__file__).name}")
 
 
 def _host_repo(url: str, internal_id: str = "7", **kw) -> Repository:
@@ -3577,3 +3593,226 @@ def test_matches_source_by_branch():
     assert not matches(f"{repo}#feature2:f.yaml", f"{repo}#feature")
     # a file's url doesn't collect other paths
     assert not matches(f"{repo}#feature:f.yaml.bak", f"{repo}#feature:f.yaml")
+
+
+def test_field_pointers_match_rust():
+    """Shared with `field_pointers_match_python` in
+    rust/git-sync/src/formats/cloudmap.rs."""
+    import json
+    from unfurl.cloudmap.provenance import field_pointers
+
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "field_pointers.json").read_text()
+    )
+    assert sorted(field_pointers(fixture["record"])) == fixture["pointers"]
+
+
+class TestAppliedOwnership:
+    """Analysis only overwrites the fields it wrote last time
+    (``metadata.discovery.applied``); any other write takes over the fields it
+    changes."""
+
+    REPO = "git://example.com/repo.git"
+    KEY = "git://example.com/repo.git#:a.yaml"
+
+    def _context(self):
+        from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+        return ProvenanceTrackingContext(CloudMapDB("", contents={}, validate=False))
+
+    def _analyze(self, context, source, **metadata):
+        with context._tracking_provenance(source):
+            context.add_record(
+                Artifact(url=self.KEY, metadata=ArtifactMetadata(**metadata))
+            )
+        return context.get_artifact(self.KEY)
+
+    def _applied(self, record, source):
+        return record.metadata.discovery.applied.get(source, [])
+
+    def test_a_manual_change_survives_reanalysis(self):
+        context = self._context()
+        record = self._analyze(context, self.REPO, title="T", description="analyzed")
+        assert self._applied(record, self.REPO) == [
+            "metadata/description",
+            "metadata/title",
+        ]
+        record.metadata.description = "edited"
+        context.add_record(record)
+        assert self._applied(record, self.REPO) == ["metadata/title"]
+
+        record = self._analyze(context, self.REPO, title="T2", description="reanalyzed")
+        assert record.metadata.description == "edited"
+        assert record.metadata.title == "T2"
+        assert self._applied(record, self.REPO) == ["metadata/title"]
+
+    def test_taking_over_every_field_isnt_forgotten(self):
+        # a record left with no fields analysis owns isn't one analysis has
+        # never tracked, which it would own entirely
+        context = self._context()
+        record = self._analyze(context, self.REPO, title="analyzed")
+        record.metadata.title = "edited"
+        context.add_record(record)
+        assert record.metadata.discovery.applied == {self.REPO: []}
+        record = self._analyze(context, self.REPO, title="reanalyzed")
+        assert record.metadata.title == "edited"
+
+    def test_a_manual_change_to_a_nested_key_is_kept(self):
+        context = self._context()
+        record = self._analyze_type(context, version="1.0", status="present")
+        assert self._applied(record, self.REPO) == [
+            "type/unfurl.nodes.App/status",
+            "type/unfurl.nodes.App/version",
+        ]
+        record.type = TypeRefs(
+            {"unfurl.nodes.App": TypeRefConstraint(version="1.0", status="failed")}
+        )
+        context.add_record(record)
+        assert self._applied(record, self.REPO) == ["type/unfurl.nodes.App/version"]
+        record = self._analyze_type(context, version="2.0", status="present")
+        constraint = record.type.types["unfurl.nodes.App"]
+        assert (constraint["version"], constraint["status"]) == ("2.0", "failed")
+
+    def _analyze_type(self, context, **constraint):
+        with context._tracking_provenance(self.REPO):
+            context.add_record(
+                Artifact(
+                    url=self.KEY,
+                    type=TypeRefs({"unfurl.nodes.App": TypeRefConstraint(**constraint)}),
+                )
+            )
+        return context.get_artifact(self.KEY)
+
+    def test_unapplied_keys_change_only_at_their_default(self):
+        from unfurl.cloudmap.provenance import _default_leaves, _merge_owned
+
+        defaults = _default_leaves(Artifact)
+        source = self.REPO
+        previous = {
+            "metadata": {
+                "title": "",  # the default, so analysis can set it
+                "description": "someone's",
+                "discovery": {"applied": {"https://api.example.com/a": []}},
+            },
+            # an entry of a map is never a default, even with no constraint
+            "type": {"unfurl.nodes.App": None},
+        }
+        incoming = {
+            "metadata": {"title": "T", "description": "analyzed"},
+            "type": {"unfurl.nodes.App": {"version": "1.0"}},
+        }
+        merged, written = _merge_owned(previous, incoming, source, defaults, False)
+        assert merged == {
+            "metadata": {"title": "T", "description": "someone's"},
+            "type": {"unfurl.nodes.App": None},
+        }
+        assert written == ["metadata/title"]
+
+    def test_untracked_records(self):
+        # a record written before `applied` was kept is its producer's...
+        from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+        for source, sources, expected in (
+            (self.REPO, [self.REPO], "reanalyzed"),
+            # a record analyzed from its own url doesn't list it
+            (self.KEY, [], "reanalyzed"),
+            # ...but not a record another source, or a person, wrote
+            (self.REPO, ["https://api.example.com/a"], "untracked"),
+            (self.REPO, [], "untracked"),
+        ):
+            db = CloudMapDB("", contents={}, validate=False)
+            db.add_record(
+                Artifact(
+                    url=self.KEY,
+                    metadata=ArtifactMetadata(
+                        title="untracked", discovery=Discovery(sources=sources)
+                    ),
+                )
+            )
+            record = self._analyze(
+                ProvenanceTrackingContext(db), source, title="reanalyzed"
+            )
+            assert record.metadata.title == expected, (source, sources)
+
+    def test_a_field_no_longer_produced_is_removed(self):
+        context = self._context()
+        self._analyze(context, self.REPO, title="T", description="analyzed")
+        record = self._analyze(context, self.REPO, title="T")
+        assert record.metadata.title == "T"
+        assert not record.metadata.description
+
+    def test_sources_keep_to_their_own_fields(self):
+        context = self._context()
+        other = "https://api.example.com/a"
+        self._analyze(context, self.REPO, title="T")
+        record = self._analyze(context, other, title="other", description="D")
+        # the title was the repository's, so the other source leaves it
+        assert (record.metadata.title, record.metadata.description) == ("T", "D")
+        assert self._applied(record, other) == ["metadata/description"]
+        record = self._analyze(context, self.REPO, title="T2")
+        assert (record.metadata.title, record.metadata.description) == ("T2", "D")
+        assert self._applied(record, self.REPO) == ["metadata/title"]
+
+    def test_changes_made_in_place_are_seen(self):
+        from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+        db = CloudMapDB("", contents={}, validate=False)
+        other = "https://api.example.com/repo"
+        db.add_record(
+            Repository(
+                url=self.REPO,
+                path="repo",
+                metadata=RepositoryMetadata(
+                    discovery=Discovery(applied={other: ["path"]})
+                ),
+            )
+        )
+        context = ProvenanceTrackingContext(db)
+        stored = context.get_repository(self.REPO)
+        assert stored is not None
+        # modified as read, before being added back
+        stored.contains = TypeRefs.urls_fromdict({"a.yaml": None}, keys_are_urls=True)
+        with context._tracking_provenance(self.REPO):
+            context.add_record(stored)
+        assert self._applied(stored, self.REPO) == ["contains/a.yaml"]
+        assert self._applied(stored, other) == ["path"]
+
+    def test_updating_the_stored_record_isnt_restricted(self):
+        context = self._context()
+        other = "https://api.example.com/a"
+        self._analyze(context, other, title="other's", description="D")
+        stored = self._analyze(context, self.REPO, title="T")
+        assert stored.metadata.title == "other's"
+        # retrieved and updated rather than produced anew
+        stored.metadata.title = "T"
+        stored.metadata.description = ""
+        with context._tracking_provenance(self.REPO):
+            context.add_record(stored)
+        record = context.get_artifact(self.KEY)
+        assert (record.metadata.title, record.metadata.description) == ("T", "")
+        assert self._applied(record, self.REPO) == ["metadata/title"]
+        assert self._applied(record, other) == []
+
+    def test_updating_an_untracked_record_keeps_its_fields(self):
+        # the untracked record was the source's, so the fields it leaves as
+        # they were stay its own
+        db = CloudMapDB("", contents={}, validate=False)
+        db.add_record(
+            Artifact(
+                url=self.KEY,
+                metadata=ArtifactMetadata(
+                    title="T", description="D", discovery=Discovery(sources=[self.REPO])
+                ),
+            )
+        )
+        from unfurl.cloudmap.provenance import ProvenanceTrackingContext
+
+        context = ProvenanceTrackingContext(db)
+        stored = context.get_artifact(self.KEY)
+        stored.metadata.title = "T2"
+        with context._tracking_provenance(self.REPO):
+            context.add_record(stored)
+        assert self._applied(stored, self.REPO) == [
+            "metadata/description",
+            "metadata/title",
+        ]

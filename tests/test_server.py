@@ -3696,6 +3696,45 @@ def test_server_cloudmap(server_env):
                 assert "status" not in on_disk and on_disk["path"] == before_merge["path"]
                 assert "unfurl.server.merge" not in on_disk
 
+            # 8b. a write takes over the fields it changes from the analysis
+            #     that wrote them (metadata.discovery.applied), unless it
+            #     says it maintains `applied` itself
+            owned_key = "git://example.com/owned.git"
+
+            def owned(description, path="owned", **markers):
+                record = {
+                    "path": path,
+                    "metadata": {
+                        "description": description,
+                        "discovery": {
+                            "applied": {
+                                owned_key: ["metadata/description", "path"]
+                            }
+                        },
+                    },
+                    **markers,
+                }
+                res = requests.post(
+                    cloudmap_url,
+                    json={"commit": True, "repositories": {owned_key: record}},
+                )
+                assert res.status_code == 200, res.text
+                res = requests.get(
+                    cloudmap_url, params={"kind": "repositories", "key": owned_key}
+                )
+                assert res.status_code == 200, res.text
+                record = res.json()["result"]["repositories"][owned_key]
+                return record["metadata"]["discovery"].get("applied")
+
+            keep = {"unfurl.server.keep_applied": True}
+            assert owned("a", **keep) == {
+                owned_key: ["metadata/description", "path"]
+            }
+            assert owned("b") == {owned_key: ["path"]}
+            assert owned("b", path="moved", **keep) == {
+                owned_key: ["metadata/description", "path"]
+            }
+
             # 9. POST /cloudmap/analyze mirrors `unfurl cloudmap --add`; a
             #    service url produces a record without touching the network.
             analyze_url = f"http://{HOST}:{port}/cloudmap/analyze"

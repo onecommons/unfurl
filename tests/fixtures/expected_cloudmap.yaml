@@ -39,6 +39,22 @@ repositories:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/onecommons/blueprints/odoo.git:
+          - branches
+          - default_branch
+          - metadata/description
+          - metadata/homepage_url
+          - metadata/issues_url
+          - name
+          - path
+          - project_url
+          - protocols
+          - tags
+          git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
+          - contains/.gitlab-ci.yml/cloudmap.artifacts.GitLabPipeline
+          - contains/ensemble-template.yaml#spec~1service_template/cloudmap.artifacts.tosca.ServiceTemplate
+          - contains/unfurl.yaml/cloudmap.artifacts.unfurl.Project
       issues_url: https://unfurl.cloud/onecommons/blueprints/odoo/-/issues
     default_branch: main
     branches:
@@ -50,7 +66,7 @@ repositories:
       .gitlab-ci.yml:
         cloudmap.artifacts.GitLabPipeline:
       ensemble-template.yaml#spec/service_template:
-        cloudmap.artifacts.tosca.ServiceTemplate:
+        tosca.artifacts.File:
       unfurl.yaml:
         cloudmap.artifacts.unfurl.Project:
   git://unfurl.cloud/onecommons/std.git:
@@ -71,6 +87,22 @@ repositories:
         - git://unfurl.cloud/feb20a/dashboard.git#:unfurl.yaml
         - git://unfurl.cloud/feb20a/dashboard.git#:ensemble
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/onecommons/std.git:
+          - branches
+          - default_branch
+          - metadata/homepage_url
+          - metadata/issues_url
+          - metadata/topics
+          - name
+          - path
+          - project_url
+          - protocols
+          - tags
+          git://unfurl.cloud/onecommons/std.git#v1.1.1:.:
+          - contains/.devcontainer~1Containerfile/cloudmap.artifacts.Containerfile
+          - contains/.gitlab-ci.yml/cloudmap.artifacts.GitLabPipeline
+          - contains/dummy-ensemble.yaml/cloudmap.artifacts.tosca.TypeLibrary
       issues_url: https://unfurl.cloud/onecommons/std/-/issues
     default_branch: main
     branches:
@@ -108,6 +140,20 @@ repositories:
         - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
         - git://unfurl.cloud/onecommons/blueprints/odoo.git
         - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
+        applied:
+          git://unfurl.cloud/onecommons/unfurl-types:
+          - branches
+          - default_branch
+          - metadata/homepage_url
+          - metadata/issues_url
+          - name
+          - path
+          - project_url
+          - protocols
+          - tags
+          git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.:
+          - contains/.gitlab-ci.yml/cloudmap.artifacts.GitLabPipeline
+          - contains/dummy-ensemble.yaml/cloudmap.artifacts.tosca.TypeLibrary
       issues_url: https://unfurl.cloud/onecommons/unfurl-types/-/issues
     default_branch: main
     branches:
@@ -156,6 +202,9 @@ artifacts:
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git:
+          - type/cloudmap.artifacts.GitLabPipeline
   git://unfurl.cloud/feb20a/dashboard.git#:ensemble/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
@@ -168,6 +217,11 @@ artifacts:
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git:
+          - digest
+          - references/git:~1~1unfurl.cloud~1onecommons~1std.git#v1.1.1:./cloudmap.artifacts.unfurl.Package/version
+          - type/cloudmap.artifacts.unfurl.Ensemble
   git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
     type:
       cloudmap.artifacts.unfurl.Ensemble:
@@ -194,6 +248,18 @@ artifacts:
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git:
+          - dependencies/aws/unfurl.relationships.ConnectsTo.AWSAccount
+          - dependencies/gcp/unfurl.relationships.ConnectsTo.GoogleCloudProject
+          - dependencies/odoo-aws-1/unfurl.relationships.ConnectsTo.AWSAccount
+          - digest
+          - instantiates/the_app/Odoo@unfurl.cloud~1onecommons~1blueprints~1odoo
+          - metadata/title
+          - metadata/version
+          - references/git:~1~1unfurl.cloud~1onecommons~1std.git#v1.1.1:./cloudmap.artifacts.unfurl.Package/version
+          - references/pkg:oci~1odoo?repository_url=docker.io~1bitnami~1odoo&tag=latest
+          - type/cloudmap.artifacts.unfurl.Ensemble/version
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
@@ -204,6 +270,9 @@ artifacts:
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
         - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template
         - git://unfurl.cloud/onecommons/blueprints/odoo.git
+        applied:
+          git://unfurl.cloud/onecommons/blueprints/odoo.git:
+          - type/cloudmap.artifacts.GitLabPipeline
   git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml%23spec/service_template:
     type:
       cloudmap.artifacts.tosca.ServiceTemplate:
@@ -232,6 +301,18 @@ artifacts:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
         - git://unfurl.cloud/onecommons/blueprints/odoo.git
+        applied:
+          git://unfurl.cloud/onecommons/blueprints/odoo.git:
+          - dependencies/Database/PostgresDB@unfurl.cloud~1onecommons~1unfurl-types
+          - dependencies/aws/unfurl.relationships.ConnectsTo.AWSAccount
+          - dependencies/gcp/unfurl.relationships.ConnectsTo.GoogleCloudProject
+          - digest
+          - instantiates/the_app/Odoo@unfurl.cloud~1onecommons~1blueprints~1odoo
+          - metadata/title
+          - metadata/version
+          - references/git:~1~1unfurl.cloud~1onecommons~1unfurl-types#v0.7.7:./cloudmap.artifacts.unfurl.Package/version
+          - references/pkg:oci~1odoo?repository_url=docker.io~1bitnami~1odoo&tag=latest
+          - type/cloudmap.artifacts.tosca.ServiceTemplate/version
   git://unfurl.cloud/onecommons/std.git#:.devcontainer/Containerfile:
     type:
       cloudmap.artifacts.Containerfile:
@@ -244,6 +325,9 @@ artifacts:
         - git://unfurl.cloud/onecommons/std.git
         - git://unfurl.cloud/feb20a/dashboard.git#:ensemble
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/onecommons/std.git:
+          - type/cloudmap.artifacts.Containerfile
   git://unfurl.cloud/onecommons/std.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
@@ -256,6 +340,9 @@ artifacts:
         - git://unfurl.cloud/onecommons/std.git
         - git://unfurl.cloud/feb20a/dashboard.git#:ensemble
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/onecommons/std.git:
+          - type/cloudmap.artifacts.GitLabPipeline
   git://unfurl.cloud/onecommons/std.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
@@ -269,6 +356,10 @@ artifacts:
         - git://unfurl.cloud/onecommons/std.git
         - git://unfurl.cloud/feb20a/dashboard.git#:ensemble
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/onecommons/std.git:
+          - digest
+          - type/cloudmap.artifacts.tosca.TypeLibrary
   git://unfurl.cloud/onecommons/unfurl-types.git#:.gitlab-ci.yml:
     type:
       cloudmap.artifacts.GitLabPipeline:
@@ -281,7 +372,11 @@ artifacts:
         - git://unfurl.cloud/onecommons/blueprints/odoo.git
         - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
         - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
+        - git://unfurl.cloud/onecommons/unfurl-types
         - git://unfurl.cloud/onecommons/unfurl-types.git
+        applied:
+          git://unfurl.cloud/onecommons/unfurl-types.git:
+          - type/cloudmap.artifacts.GitLabPipeline
   git://unfurl.cloud/onecommons/unfurl-types.git#:dummy-ensemble.yaml:
     type:
       cloudmap.artifacts.tosca.TypeLibrary:
@@ -295,7 +390,12 @@ artifacts:
         - git://unfurl.cloud/onecommons/blueprints/odoo.git
         - git://unfurl.cloud/onecommons/blueprints/odoo.git#:ensemble-template.yaml
         - git://unfurl.cloud/onecommons/unfurl-types#v0.7.7:.
+        - git://unfurl.cloud/onecommons/unfurl-types
         - git://unfurl.cloud/onecommons/unfurl-types.git
+        applied:
+          git://unfurl.cloud/onecommons/unfurl-types.git:
+          - digest
+          - type/cloudmap.artifacts.tosca.TypeLibrary
   pkg:oci/odoo?repository_url=docker.io/bitnami/odoo&tag=latest:
     type:
       cloudmap.artifacts.oci.Image:
@@ -313,6 +413,10 @@ services:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+          - instantiated_by/git:~1~1unfurl.cloud~1feb20a~1dashboard.git#:environments~1aws~1onecommons~1blueprints~1odoo~1odoo-aws-1~1ensemble.yaml
+          - type/Odoo@unfurl.cloud~1onecommons~1blueprints~1odoo
     instantiated_by:
       git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
 instantiations:
@@ -334,6 +438,16 @@ instantiations:
       discovery:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+          - inputs/git:~1~1unfurl.cloud~1onecommons~1std.git#v1.1.1:./cloudmap.artifacts.unfurl.Package/version
+          - inputs/pkg:oci~1odoo?repository_url=docker.io~1bitnami~1odoo&tag=latest
+          - instantiated/https:~1~1example.com~1oodo
+          - revision
+          - source
+          - source_ref
+          - source_revision
+          - type/cloudmap.artifacts.unfurl.Ensemble
 types:
   Odoo@unfurl.cloud/onecommons/blueprints/odoo:
     name: Odoo@unfurl.cloud/onecommons/blueprints/odoo
@@ -352,6 +466,12 @@ types:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+          - extends
+          - kind
+          - metadata/title
+          - name
   unfurl.relationships.ConnectsTo.AWSAccount:
     name: unfurl.relationships.ConnectsTo.AWSAccount
     kind: component
@@ -368,6 +488,12 @@ types:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+          - extends
+          - kind
+          - metadata/title
+          - name
   unfurl.relationships.ConnectsTo.GoogleCloudProject:
     name: unfurl.relationships.ConnectsTo.GoogleCloudProject
     kind: component
@@ -383,3 +509,9 @@ types:
         sources:
         - git://unfurl.cloud/feb20a/dashboard.git
         - git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml
+        applied:
+          git://unfurl.cloud/feb20a/dashboard.git#:environments/aws/onecommons/blueprints/odoo/odoo-aws-1/ensemble.yaml:
+          - extends
+          - kind
+          - metadata/title
+          - name
