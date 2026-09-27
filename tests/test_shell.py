@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from unfurl.configurator import Status, Cancel
+from unfurl.configurator import Status, Cancel, TaskView
 from unfurl.configurators.shell import ShellConfigurator, subprocess
 from unfurl.job import JobOptions, Runner
 from unfurl.yamlmanifest import YamlManifest
@@ -255,6 +255,7 @@ configurations:
     inputs:
       command: echo hello
       background: true
+      initial_sleep: 0.5
 spec:
   service_template:
     topology_template:
@@ -359,6 +360,39 @@ def test_background_quick_command():
     runner = Runner(YamlManifest(ensemble))
     job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
     assert job.json_summary() == summary
+
+
+class ExitedPopen(subprocess.Popen):
+    """Returns once the child has exited, as when the parent is descheduled
+    after forking."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.wait()
+
+
+@pytest.mark.parametrize(
+    "initial_sleep, suspends", [(False, 1), (True, 0)], ids=["no-initial-sleep", "initial-sleep"]
+)
+def test_background_exited_command_suspends(monkeypatch, initial_sleep, suspends):
+    """Without initial_sleep a background task yields control before completing,
+    even if its command has already exited."""
+    suspended = []
+    suspend = TaskView.suspend
+
+    def spy(self, *args, **kwargs):
+        suspended.append(self)
+        return suspend(self, *args, **kwargs)
+
+    monkeypatch.setattr(TaskView, "suspend", spy)
+    monkeypatch.setattr(subprocess, "Popen", ExitedPopen)
+    ensemble = ENSEMBLE_BACKGROUND
+    if not initial_sleep:
+        ensemble = ensemble.replace("      initial_sleep: 0.5\n", "")
+    runner = Runner(YamlManifest(ensemble))
+    job = runner.run(JobOptions(instance="test_node", startTime=1, skip_save=True))
+    assert job.json_summary()["tasks"] == [_BG_OK_TASK]
+    assert len(suspended) == suspends
 
 
 def test_background_slow_command(caplog):

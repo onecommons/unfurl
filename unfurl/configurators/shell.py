@@ -700,9 +700,8 @@ class ShellConfigurator(TemplateConfigurator):
                     pass
                 if reader is not None:
                     reader.pump()
-
-            if proc.poll() is not None:
-                return self._collect_background_result(proc, cmd_str, reader)
+                if proc.poll() is not None:
+                    return self._collect_background_result(proc, cmd_str, reader)
 
             while True:
                 if reader is not None:
