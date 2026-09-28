@@ -318,7 +318,9 @@ def test_remote_tags():
             )
 
     finally:
-        if UNFURL_PACKAGE_RULES:
+        if UNFURL_PACKAGE_RULES is None:
+            os.environ.pop("UNFURL_PACKAGE_RULES", None)
+        else:
             os.environ["UNFURL_PACKAGE_RULES"] = UNFURL_PACKAGE_RULES
 
 
