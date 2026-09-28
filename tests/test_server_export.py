@@ -63,7 +63,7 @@ def test_server_export_local(server_env):
                 res = requests.get(
                     f"http://{HOST}:{port}/export?format={export_format}"
                 )
-                assert res.status_code == 200
+                assert res.status_code == 200, res.text
                 exported = run_cmd(
                     runner,
                     ["--home", "", "export", "--format", export_format],
@@ -186,7 +186,7 @@ def test_server_export_remote(server_env):
                         },
                     )
                     if msg == "cache miss for":
-                        assert res.status_code == 200
+                        assert res.status_code == 200, res.text
                         etag = res.headers.get("Etag") or ""
                         assert etag
 
@@ -339,7 +339,7 @@ def test_server_export_remote(server_env):
                 },
             )
             # branch=(MISSING) will log: Package unfurl.cloud/onecommons/project-templates/application-blueprint is looking for earliest remote tags v* on https://unfurl.cloud/onecommons/project-templates/application-blueprint.git
-            assert res.status_code == 200
+            assert res.status_code == 200, res.text
             # assert res.status_code == 304
             # etag = res.headers.get("Etag") or ""
             exported = run_cmd(
