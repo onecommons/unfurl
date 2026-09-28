@@ -79,13 +79,16 @@ CREATE TABLE record (
     file_path      TEXT    NOT NULL,
     path           TEXT    NOT NULL,
     key            TEXT    NOT NULL,
-    -- NULL in a draft; otherwise the commit that wrote this version
+    -- NULL for a client's edit, which is what makes it pending; a row
+    -- taken in from a dirty file keeps the file's last-touching commit
     commit_id      TEXT,
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
     -- in a draft: the commit of the committed version this edit started from
     base_commit_id TEXT,
+    -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
+    settled        JSONB,
     -- conflict rows live only in drafts (enforced by the writers)
     conflict       TEXT CHECK (conflict IS NULL OR conflict IN ('conflict', 'resolved'))
 );
@@ -106,7 +109,10 @@ CREATE INDEX idx_record_json_gin ON record USING GIN (json jsonb_path_ops);
 CREATE TABLE superseded (
     record_id  BIGINT NOT NULL REFERENCES record(id)  ON DELETE CASCADE,
     segment_id BIGINT NOT NULL REFERENCES segment(id) ON DELETE CASCADE,
-    PRIMARY KEY (record_id, segment_id)
+    -- the record whose version in segment_id supersedes record_id: which
+    -- of a draft's edits made the entry (§3.3)
+    key_id     BIGINT NOT NULL,
+    PRIMARY KEY (record_id, segment_id, key_id)
 );
 CREATE INDEX idx_superseded_segment ON superseded(segment_id);
 

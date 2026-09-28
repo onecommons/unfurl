@@ -335,10 +335,10 @@ record's first version, inherited by every later version in any segment.
     that record. A draft editing another record at the old key doesn't
     follow it.
   - **A pending edit follows its record** to the new file, with its
-    conflict row. It stays put when the record now at its key is one it
-    settled: another record's row its writes superseded there, recorded
-    on the edit. Otherwise leaving it would hide a record it never saw.
-    The same rule applies after a rebuild and at publishing.
+    conflict row, after a scan or a rebuild. At publishing it stays put
+    when the record now at its key is one it settled: another record's
+    row its writes superseded there, recorded on the edit. Otherwise
+    leaving it would hide a record it never saw.
 - **The rollup names each record's `key_id`.** Record lines carry it
   after the quoted key (`* 22 M "/repositories" "git://…" 1041`), where
   the grammar already allows commentary, so parsers are unaffected. A
@@ -449,11 +449,7 @@ create, update or delete, whether single or in a batch:
 2. **Look up the rows visible for the key,** both in the view the write
    is made through and in the target's own view, and run today's OCC
    checks against them. `enforce_conflict` is unchanged; in a layered
-   view it checks every visible row. That includes a tombstone the
-   merge by `key_id` leaves out of the view
-   ([§4.12](#412-layered-reads-user-branches-and-private-overlays)):
-   the absence still shows, and publishing would otherwise take it for
-   a deletion the edit never saw.
+   view it checks every visible row.
 3. **Delete the draft's current version,** if it has one. The OCC guard
    moves here: the delete matches only while that row's version is still
    at most the expected one. A draft holds at most one edit per record,
@@ -482,9 +478,7 @@ create, update or delete, whether single or in a batch:
    so a write settles a record the view was showing more than once in the
    same file. The new row takes over other worktrees' entries on any of
    them with the same content, and on the row it replaced
-   ([§3.3](#33-visibility-through-supersession)). Main's tombstone at the
-   key counts as found when another draft's entry hides it but no draft
-   below has a row there: the absence is what the view shows.
+   ([§3.3](#33-visibility-through-supersession)).
 6. **Supersede the record's other copies** the views show with content
    this write was made over: rows of the same `key_id` in another file,
    such as the old copy a user's own view still has of a record main
@@ -608,7 +602,8 @@ keeping its order and its guards:
    The rows move rather than copy, so their `id`, `key_id`, `version` and
    content are preserved. A `Pending(v)` token a client holds stays valid
    across the commit, as today.
-2. **Entries.** `superseded(r, draft)` entries for the moved keys become
+2. **Entries.** `superseded(r, draft)` entries for the moved keys, and
+   a moved edit's own entries at any other key, become
    `superseded(r, head)`.
 3. **Tombstones.** A moved tombstone that hides nothing below the head is
    deleted, unless another worktree's draft holds the key
@@ -848,9 +843,11 @@ sharing, not correctness.
 **Ids through merges.** Merges are made outside the database, as regular,
 octopus or rebase merges of a published branch, and reach W by a
 fast-forward scan. A record keeps its `key_id` through them by the rollup
-of the commit that set its value, found by walking back through a parent
-with the same value, the first parent before the others: the merged
-branch's rollups are reachable through its parent. A rebase merge copies
+of a commit that set its value, found by walking back through parents
+with the same value, the first parent before the others, to the first
+such commit git-sync made: the merged branch's rollups are reachable
+through its parent. A squash or an outside commit that set the same value
+doesn't end the walk while another parent reaches a rollup. A rebase merge copies
 each commit's message, and so its rollup. Where no rollup names the
 record the id comes from the rows, which can miss its identity:
 - a squash merge, which keeps no rollups;
@@ -1362,9 +1359,9 @@ Still open:
   Add property-based random sequences over the same operations.
 
   **Status.** Written against an in-memory implementation of the design.
-  It runs 2,000 random histories of up to 60 steps per `cargo test`, and
-  8,000,000 have passed, plus 4,000,000 shorter ones weighted toward
-  publishing after moves and rewrites. Besides views it checks each
+  It runs 2,000 random histories of up to 60 steps per `cargo test`.
+  With merges in the model, 2,000,000 have passed, plus 16,000,000
+  shorter ones weighted toward publishing after moves and rewrites. Besides views it checks each
   worktree's committed segments against git, its conflicts against the
   reference's, and the tree a commit renders.
   - **What it covers:** merges arriving by fast-forward, stacks of user
@@ -1483,23 +1480,42 @@ Still open:
   - for moves: skip pairing in the scan, or carry every entry to the
     moved row; ignore rollups, or moved rows, in a split; reuse an id
     the tree has elsewhere, in a split or a rebuild; leave edits behind
-    their records, ignore what an edit settled, or let an edit that
-    can't follow keep the id; skip relocation at publishing, or keep
+    their records, ignore at publishing what an edit settled, or let an
+    edit that can't follow keep the id; skip relocation at publishing, or keep
     every entry on a relocated edit; show every copy of a record rather
     than merging by `key_id`; skip superseding a record's copies
     elsewhere; allow two edits of a record in a draft, drop a replaced
     edit's entries, or keep hiding its own tree's row; skip joining the
-    entries at a write's key, or join a row the merge hid; miss a
-    tombstone the merge hid; retag another row's entries, or skip
-    retagging a replaced row's; keep entries on main's rows at keys a
-    published draft doesn't hold; miss main's tombstone another draft's
-    entry hides;
+    entries at a write's key, or join a row the merge hid; retag another
+    row's entries, or skip retagging a replaced row's; keep entries on
+    main's rows at keys a published draft doesn't hold;
   - for deletions: skip the deletion conflict at publishing, never reset
     a re-create's base, conflict over an absence with a renewed edit, or
     keep other drafts' entries on it;
   - in a split's ids: let the row below ignore other keys' claims, or
     reuse the row of a record that moved, or a new id another key has;
-  - fork past a head that holds only entries.
+  - fork past a head that holds only entries;
+  - with merges: look up a rollup through only the first parent holding
+    the value; skip taking other drafts' entries onto a version a merge
+    brings back; skip superseding a record's copies in other files.
+
+  A mutation that survives is either a gap in the tests or a rule the
+  design doesn't need. To tell them apart, the random tests can run with
+  fixed seeds, and count how often the checker allows an over-report or
+  a copy, or adopts an id the implementation chose. Removing a needed
+  rule changes those counts even where every check passes:
+  - **Kept, with a scripted test pinned:** superseding a record's copies
+    in other files (without it, allowed over-reports rose from 3,019 to
+    3,035 in 2 million cases); taking entries onto a version a merge
+    brings back (allowed copies rose from 27,122 to 214,544).
+  - **Removed, the counts unchanged:** a write superseding the
+    tombstone the merge by `key_id` leaves out, and main's tombstone
+    another draft's entry hides; and an edit staying put at a scan when
+    it settled the record at its key. Publishing still needs that last
+    rule: without it the scripted tests fail.
+  - **Kept, undecided:** a split's row below passing over a record that
+    moved. Without it, 2 of 2 million cases give a split a different id
+    where nothing checks which is right.
 - **`EXPLAIN ANALYZE` on the `unfurl-pg-jit` container.** Use a synthetic
   cloudmap of, say, 20k records, 20 worktrees and a few dozen segments,
   with a few hundred user branches. Run:
@@ -1882,24 +1898,26 @@ wraps it in a CTE.
 ### C.2 A layered view
 
 This is the same test over the base's whole view plus each upper
-worktree's own part. `layer` says which worktree a row came from, and
-`copies` counts the versions the view shows of the same record, matched
-by `(path, key)`.
+worktree's own part, with copies of a record in different files merged
+by `key_id` ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+`layer` says which worktree a row came from, and `copies` counts the
+versions the view shows of the same record, matched by `(path, key)`.
 
 ```sql
 WITH v AS (
     -- the base's whole view
-    SELECT segment_id, added_version, CAST(:w0 AS bigint) AS layer
+    SELECT segment_id, added_version, CAST(:w0 AS bigint) AS layer,
+           FALSE AS upper_draft
     FROM worktree_segment WHERE worktree_id = :w0
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = :w0
+    SELECT draft_segment_id, 0, id, FALSE FROM worktree WHERE id = :w0
     UNION
     -- each upper worktree's own part: the chain it didn't inherit, and its draft
-    SELECT segment_id, added_version, worktree_id
+    SELECT segment_id, added_version, worktree_id, FALSE
     FROM worktree_segment
     WHERE worktree_id = ANY(:upper) AND NOT inherited
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = ANY(:upper)
+    SELECT draft_segment_id, 0, id, TRUE FROM worktree WHERE id = ANY(:upper)
 )
 SELECT v.layer, r.key_id AS id, r.file_path, r.path, r.key, r.json,
        r.version, r.deleted,
@@ -1910,11 +1928,19 @@ WHERE r.conflict IS NULL
   AND NOT EXISTS (SELECT 1 FROM superseded x
                   JOIN v vx ON vx.segment_id = x.segment_id
                   WHERE x.record_id = r.id)
+  -- an upper draft's edit of the record leaves out its rows at other keys
+  AND (v.upper_draft
+       OR NOT EXISTS (SELECT 1 FROM record e
+                      JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
+                      WHERE e.key_id = r.key_id AND e.conflict IS NULL
+                        AND (e.file_path, e.path, e.key)
+                            <> (r.file_path, r.path, r.key)))
 ```
 
-C.3–C.6 work the same over this view. The window count covers the rows
-the read returns, so a filtered `find` counts only the copies that match
-the filter.
+C.3–C.6 work the same over this view, the merge included; C.6's
+`visible` below abbreviates it. The window count covers the rows the
+read returns, so a filtered `find` counts only the copies that match the
+filter.
 
 ### C.3 Get one record
 
@@ -2078,6 +2104,7 @@ visible AS (
       AND NOT EXISTS (SELECT 1 FROM superseded x
                       JOIN v vx ON vx.segment_id = x.segment_id
                       WHERE x.record_id = r.id)
+      AND …                          -- C.2's merge by key_id
 ),
 counted AS (
     SELECT visible.*,
@@ -2136,51 +2163,148 @@ RETURNING id;
 
 ### C.9 Write a new version: update or delete
 
-```sql
--- 1. :v drawn first (takes the family lock). :visible holds the ids of the
---    rows visible for the key in the view the write is made through and in
---    :w's own view (C.3 over each), other than the draft's own version :old.
---    enforce_conflict runs against all of them.
+`:visible` holds the ids of the rows visible for the key in the view the
+write is made through, copies merged by `key_id` (C.2), and in `:w`'s own
+view (C.3 over each), other than the draft's own version `:old`.
+`enforce_conflict` runs against all of them. `:old` is the draft's row at
+the key, and `:other` its edit of the same record at another key.
 
--- 2. the draft's current version goes, if it's still what the writer saw
+```sql
+-- 1. :v drawn first (takes the family lock).
+
+-- 2. what the write supersedes, as the record's edit: the rows in :visible;
+--    main's rows at the key with content one of them has, which a draft
+--    below may hide; and the record's rows at other keys with content seen
+--    here, a move's copy of what the edit was made over (§3.5)
+CREATE TEMP TABLE seen ON COMMIT DROP AS
+SELECT unnest(CAST(:visible AS bigint[]) || CAST(:old AS bigint)) AS id;
+
+INSERT INTO seen
+SELECT r.id
+FROM record r
+JOIN (<C.1 over main>) m ON m.id = r.id
+WHERE (r.file_path, r.path, r.key) = (:file, :path, :key) AND NOT r.deleted
+  AND r.json IN (SELECT s.json FROM record s JOIN seen USING (id)
+                 WHERE NOT s.deleted);
+
+INSERT INTO seen
+SELECT r.id
+FROM record r
+JOIN (<C.2 or C.1 over the view, and over :w's own>) m ON m.id = r.id
+WHERE r.key_id = :key_id AND NOT r.deleted
+  AND (r.file_path, r.path, r.key) <> (:file, :path, :key)
+  AND r.json IN (SELECT s.json FROM record s JOIN seen USING (id)
+                 WHERE s.key_id = :key_id AND NOT s.deleted);
+
+-- 3. other drafts' entries on those rows, :old's included, pass to the new
+--    row where the content is the same (§3.3)
+CREATE TEMP TABLE carry ON COMMIT DROP AS
+SELECT x.segment_id, x.key_id
+FROM seen
+JOIN record o ON o.id = seen.id
+JOIN superseded x ON x.record_id = o.id
+JOIN segment s ON s.id = x.segment_id AND s.kind = 'draft' AND s.owner_id <> :w
+WHERE o.deleted = :deleted AND (:deleted OR o.json = :json::jsonb);
+
+-- 4. a draft holds one edit per record: one at another key goes, and the
+--    new row keeps its base. Its entries stay with the record, except on
+--    its own tree's rows of other records at the key it leaves
+DELETE FROM record WHERE id = :other RETURNING base_commit_id;   -- :other_base
+DELETE FROM superseded x USING record r
+WHERE x.segment_id = :d AND x.key_id = :key_id AND r.id = x.record_id
+  AND (r.file_path, r.path, r.key) = (:other_file, :other_path, :other_key)
+  AND r.key_id <> :key_id
+  AND r.segment_id IN (SELECT segment_id FROM worktree_segment
+                       WHERE worktree_id = :w);
+
+-- 5. the draft's current version goes, if it's still what the writer saw
 DELETE FROM record
 WHERE id = :old
   AND (CAST(:expected_version AS bigint) IS NULL OR version <= :expected_version)
-RETURNING id;                        -- no row, while :old was expected: Conflict
+RETURNING id, key_id, base_commit_id, settled;  -- no row, while :old was expected: Conflict
 
--- 3. the new version; deleted = TRUE for a delete
+-- 6. the new version; deleted = TRUE for a delete. :base_commit_id is:
+--    - NULL when the view shows the record live nowhere, at any key: a draft's
+--      live row counts, the writer's own included, a tombstone doesn't;
+--    - else :old's base, else :other_base;
+--    - else the commit_id of the record's committed row in the view, at any key.
+--    :settled is :old's, plus the key_ids of other records' live rows in
+--    :visible outside the draft.
 INSERT INTO record (key_id, segment_id, file_path, path, key, json, deleted,
-                    version, base_commit_id)
+                    version, base_commit_id, settled)
 VALUES (:key_id, :d, :file, :path, :key, :json::jsonb, :deleted,
-        :v, :base_commit_id)
-RETURNING id;
+        :v, :base_commit_id, :settled::jsonb)
+RETURNING id;                                   -- :n
 
--- 4. everything the writer saw below the draft is superseded by it. The
---    draft's entries from earlier versions of the record name the segment,
---    not the row, so they're still in place.
-INSERT INTO superseded (record_id, segment_id)
-SELECT unnest(CAST(:visible AS bigint[])), :d
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT id, :d, :key_id FROM seen WHERE id <> :old
+ON CONFLICT DO NOTHING;
+
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT :n, segment_id, key_id FROM carry
+ON CONFLICT DO NOTHING;
+
+-- 7. the write joins the draft's entries at its key, except on a live row
+--    of a record the draft edits at another key, which the merge hid from it
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT x.record_id, :d, :key_id
+FROM superseded x
+JOIN record r ON r.id = x.record_id
+WHERE x.segment_id = :d
+  AND (r.file_path, r.path, r.key) = (:file, :path, :key)
+  AND (r.deleted
+       OR NOT EXISTS (SELECT 1 FROM record e
+                      WHERE e.segment_id = :d AND e.conflict IS NULL
+                        AND e.key_id = r.key_id
+                        AND (e.file_path, e.path, e.key)
+                            <> (r.file_path, r.path, r.key)))
 ON CONFLICT DO NOTHING;
 ```
 
+Between steps 5 and 6, when `:old` was another record's row, as a row
+taken in from the file can be, its entries are retagged to `:key_id`, except at a key another
+row of the old record holds ([§3.3](#33-visibility-through-supersession)).
+
 ### C.10 Scan: bring the head up to HEAD
 
-This is for one record that differs from W's committed chain.
-`:key_id` is the record's, or a new one as in C.8.
+This is for one record that differs from W's committed chain. `:key_id`
+is, in order ([§4.3](#43-scan-moving-forward)):
+1. the id the rollup of the commit that set the value names;
+2. the id of the record that moved here from the other file in this scan;
+3. the id of the record the chain shows at the key;
+4. a new one, as in C.8.
+
+An id another key keeps, or took earlier in the scan, is passed over.
 
 ```sql
+-- other drafts' entries on the head's current version, and on the row
+-- below if the head held none, pass to the new row where the content is
+-- the same (§3.3); :below is the row visible below the head
+CREATE TEMP TABLE carry ON COMMIT DROP AS
+SELECT x.segment_id, x.key_id
+FROM superseded x
+JOIN record o ON o.id = x.record_id
+JOIN segment s ON s.id = x.segment_id AND s.kind = 'draft' AND s.owner_id <> :w
+WHERE o.id IN (:head_row, :below)
+  AND NOT o.deleted AND o.json = :json::jsonb;
+
 -- the head's current version, if it has one, is replaced (§3.4); any entries
 -- on it, W's draft's or a layered worktree's, go with it
 DELETE FROM record WHERE id = :head_row;
 
 INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id,
                     json, version)
-VALUES (:key_id, :h, :file, :path, :key, :commit, :json::jsonb, :v);
+VALUES (:key_id, :h, :file, :path, :key, :commit, :json::jsonb, :v)
+RETURNING id;                                   -- :n
+
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT :n, segment_id, key_id FROM carry
+ON CONFLICT DO NOTHING;
 
 -- if the head held no version: the row visible below the head (W's
 -- committed chain, without the head) is now superseded by it
-INSERT INTO superseded (record_id, segment_id)
-SELECT r.id, :h
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT r.id, :h, :key_id
 FROM record r
 JOIN worktree_segment ws
   ON ws.segment_id = r.segment_id AND ws.worktree_id = :w
@@ -2196,13 +2320,22 @@ ON CONFLICT DO NOTHING;
 -- then C.11, since W's draft may have lost an entry
 ```
 
+A record gone from the file follows the same steps, with a tombstone
+for the new row, which keeps the record's `key_id`. A row that moved
+from the other file (2.) is a new row for the record too, so it also
+takes the entries of the row it moved from with the same content. In
+main, a version a merge brings back also takes other drafts' entries
+from earlier rows with that content, as §4.3 describes.
+
 ### C.11 Re-link a worktree's draft
 
 This runs after a scan, a rebuild or a split changes W's committed chain.
 
 ```sql
-INSERT INTO superseded (record_id, segment_id)
-SELECT c.id, :d
+-- the committed chain's row at each key the draft holds, tagged with the
+-- draft row's record
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT c.id, :d, d.key_id
 FROM record d
 JOIN record c
   ON c.file_path = d.file_path AND c.path = d.path AND c.key = d.key
@@ -2216,6 +2349,27 @@ WHERE d.segment_id = :d AND d.conflict IS NULL
                     ON wx.segment_id = x.segment_id AND wx.worktree_id = :w
                   WHERE x.record_id = c.id)
 ON CONFLICT DO NOTHING;
+
+-- and an edited record's copy in another file, with content the draft
+-- already superseded
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT c.id, :d, c.key_id
+FROM record c
+JOIN worktree_segment ws
+  ON ws.segment_id = c.segment_id AND ws.worktree_id = :w
+WHERE c.conflict IS NULL AND NOT c.deleted
+  AND NOT EXISTS (SELECT 1 FROM superseded x
+                  JOIN worktree_segment wx
+                    ON wx.segment_id = x.segment_id AND wx.worktree_id = :w
+                  WHERE x.record_id = c.id)
+  AND EXISTS (SELECT 1 FROM record e
+              JOIN superseded x ON x.segment_id = :d
+              JOIN record o ON o.id = x.record_id
+              WHERE e.segment_id = :d AND e.conflict IS NULL
+                AND e.commit_id IS NULL             -- an edit, not taken in
+                AND e.key_id = c.key_id
+                AND o.key_id = c.key_id AND NOT o.deleted AND o.json = c.json)
+ON CONFLICT DO NOTHING;
 ```
 
 ### C.12 Commit: fold the draft into the head
@@ -2228,7 +2382,7 @@ Postgres-only; SQLite drops the temporary table explicitly at the end.
 -- the rows the commit carries: draft rows of those files with no conflict
 -- sibling (today's HAS_CONFLICT_SIBLING test)
 CREATE TEMP TABLE carried ON COMMIT DROP AS
-SELECT d.id, d.file_path, d.path, d.key, d.deleted
+SELECT d.id, d.key_id, d.file_path, d.path, d.key, d.json, d.deleted
 FROM record d
 WHERE d.segment_id = :d AND d.conflict IS NULL
   AND d.file_path = ANY(:files)
@@ -2237,40 +2391,72 @@ WHERE d.segment_id = :d AND d.conflict IS NULL
                     AND c.file_path = d.file_path
                     AND c.path = d.path AND c.key = d.key);
 
--- 1. the head's own older versions of those records go
+-- 1. other drafts' entries on the committed row each carried row replaces,
+--    in the head or below, pass to it when the content is the same
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT k.id, x.segment_id, x.key_id
+FROM carried k
+JOIN record c
+  ON c.file_path = k.file_path AND c.path = k.path AND c.key = k.key
+JOIN worktree_segment ws
+  ON ws.segment_id = c.segment_id AND ws.worktree_id = :w
+JOIN superseded x ON x.record_id = c.id
+JOIN segment s ON s.id = x.segment_id AND s.kind = 'draft' AND s.owner_id <> :w
+WHERE c.conflict IS NULL
+  AND c.deleted = k.deleted AND (k.deleted OR c.json = k.json)
+  AND NOT EXISTS (SELECT 1 FROM superseded y
+                  JOIN worktree_segment wy
+                    ON wy.segment_id = y.segment_id AND wy.worktree_id = :w
+                  WHERE y.record_id = c.id)
+ON CONFLICT DO NOTHING;
+
+-- 2. the head's own older versions of those records go
 DELETE FROM record h USING carried k
 WHERE h.segment_id = :h AND h.conflict IS NULL
   AND h.file_path = k.file_path AND h.path = k.path AND h.key = k.key;
 
--- 2. what the draft superseded for those records, the head now does
-INSERT INTO superseded (record_id, segment_id)
-SELECT x.record_id, :h
+-- 3. the draft's entries at those keys, and a carried edit's own entries at
+--    any other key, become the head's; not on the head's own rows, since a
+--    segment never supersedes its own row
+CREATE TEMP TABLE moved ON COMMIT DROP AS
+SELECT x.record_id, x.key_id, r.segment_id = :h AS own
 FROM superseded x
 JOIN record r ON r.id = x.record_id
-JOIN carried k
-  ON k.file_path = r.file_path AND k.path = r.path AND k.key = r.key
 WHERE x.segment_id = :d
+  AND (x.key_id IN (SELECT key_id FROM carried)
+       OR EXISTS (SELECT 1 FROM carried k
+                  WHERE k.file_path = r.file_path
+                    AND k.path = r.path AND k.key = r.key));
+
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT record_id, :h, key_id FROM moved WHERE NOT own
 ON CONFLICT DO NOTHING;
 
-DELETE FROM superseded x USING record r, carried k
-WHERE x.segment_id = :d AND r.id = x.record_id
-  AND k.file_path = r.file_path AND k.path = r.path AND k.key = r.key;
+DELETE FROM superseded x USING moved m
+WHERE x.segment_id = :d AND x.record_id = m.record_id AND x.key_id = m.key_id;
 
--- 3. the rows move: id, key_id, version and content are kept
+-- 4. the rows move: id, key_id, version and content are kept
 UPDATE record
-SET segment_id = :h, commit_id = :commit, base_commit_id = NULL
+SET segment_id = :h, commit_id = :commit, base_commit_id = NULL, settled = NULL
 WHERE id IN (SELECT id FROM carried);
 
--- 4. tombstones that hide nothing below the head are purged
+-- 5. tombstones that hide nothing below the head are purged, unless another
+--    worktree's draft holds the key (§3.3)
 DELETE FROM record t USING carried k
 WHERE t.id = k.id AND k.deleted
   AND NOT EXISTS (SELECT 1 FROM superseded x
                   JOIN record r ON r.id = x.record_id
                   WHERE x.segment_id = :h
                     AND r.file_path = k.file_path
-                    AND r.path = k.path AND r.key = k.key);
+                    AND r.path = k.path AND r.key = k.key)
+  AND NOT EXISTS (SELECT 1 FROM record o
+                  JOIN segment s ON s.id = o.segment_id
+                  WHERE s.kind = 'draft' AND s.owner_id <> :w
+                    AND o.conflict IS NULL
+                    AND o.file_path = k.file_path
+                    AND o.path = k.path AND o.key = k.key);
 
--- 5. conflict rows: the head gets the committed value (as in C.10, then
+-- 6. conflict rows: the head gets the committed value (as in C.10, then
 --    C.11); file rows, worktree.commit_id and txn are stamped as today
 ```
 
@@ -2283,6 +2469,11 @@ head, and give `:nw`'s head `:h`'s parent. The internal-only copy below
 already leaves `:h` out.
 
 ```sql
+-- empty: no rows and no entries, since a head whose rows a scan deleted
+-- can still hide rows below it
+SELECT NOT EXISTS (SELECT 1 FROM record WHERE segment_id = :h)
+   AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = :h) AS empty;
+
 -- in one transaction that holds the family's version_seq lock (§4.14);
 -- the new worktree :nw is already inserted, with family_id = :family and no
 -- version_seq row of its own
@@ -2346,8 +2537,8 @@ WHERE r.segment_id = :p
 
 UPDATE record SET segment_id = :c WHERE segment_id = :p;
 
-INSERT INTO superseded (record_id, segment_id)
-SELECT record_id, :c FROM superseded WHERE segment_id = :p
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT record_id, :c, key_id FROM superseded WHERE segment_id = :p
 ON CONFLICT DO NOTHING;
 
 DELETE FROM superseded WHERE segment_id = :p;
@@ -2385,9 +2576,65 @@ INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited)
 VALUES (:b, :hb, :v, FALSE);
 
 UPDATE worktree SET commit_id = :main_commit, reset_version = :v WHERE id = :b;
-
--- then C.11 re-links :b's draft; rows whose draft already supersedes the
--- visible row skip classification, and the rest that still conflict become
--- conflict rows. :b gets a checkout and a commit_repository, and its old
--- chain segments are left to C.14
 ```
+
+Then the draft's edits are classified against main's rows. `chain` is
+the rows visible in `:b`'s new chain, main's tree; each statement below
+starts with it:
+
+```sql
+WITH chain AS (
+    SELECT r.*
+    FROM record r
+    JOIN worktree_segment ws ON ws.segment_id = r.segment_id AND ws.worktree_id = :b
+    WHERE r.conflict IS NULL
+      AND NOT EXISTS (SELECT 1 FROM superseded x
+                      JOIN worktree_segment wx
+                        ON wx.segment_id = x.segment_id AND wx.worktree_id = :b
+                      WHERE x.record_id = r.id)
+)
+-- 1. edits whose record main moved: each follows it to its new key, with
+--    its entries whose key_id is the record's. Not when the record at its
+--    own key is one it settled. Where another of the draft's edits holds
+--    the new key, it stays, as a new record (a new key_id)
+SELECT e.id, m.file_path, m.path, m.key
+FROM record e
+JOIN chain m ON m.key_id = e.key_id AND NOT m.deleted
+WHERE e.segment_id = :d AND e.conflict IS NULL
+  AND (m.file_path, m.path, m.key) <> (e.file_path, e.path, e.key)
+  AND NOT EXISTS (SELECT 1 FROM chain h
+                  WHERE (h.file_path, h.path, h.key) = (e.file_path, e.path, e.key)
+                    AND NOT h.deleted
+                    AND e.settled @> to_jsonb(h.key_id));
+```
+
+2. **Deletions.** A live edit with a base whose record `chain` shows live
+   nowhere was made over a version main has since deleted. It conflicts,
+   with main's value at its key as theirs:
+
+   ```sql
+   SELECT e.id
+   FROM record e
+   WHERE e.segment_id = :d AND e.conflict IS NULL AND NOT e.deleted
+     AND e.base_commit_id IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM chain m
+                     WHERE m.key_id = e.key_id AND NOT m.deleted);
+   ```
+3. **Renewed edits** (step 1's new records) over no live value in
+   `chain` add a record: no conflict.
+4. **The rest** skip classification where the draft already supersedes
+   `chain`'s row at the key, or another row of the record with the same
+   content. Those that still conflict become conflict rows.
+5. **Main's rows are the branch's own tree now.** Where the draft holds
+   no edit, its entries on them go:
+
+   ```sql
+   DELETE FROM superseded x USING chain m
+   WHERE x.segment_id = :d AND x.record_id = m.id
+     AND NOT EXISTS (SELECT 1 FROM record e
+                     WHERE e.segment_id = :d AND e.conflict IS NULL
+                       AND (e.file_path, e.path, e.key)
+                           = (m.file_path, m.path, m.key));
+   ```
+6. Then C.11 re-links the draft. `:b` gets a checkout and a
+   `commit_repository`, and its old chain segments are left to C.14.

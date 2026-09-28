@@ -215,8 +215,8 @@ SELECT * FROM a;
 CREATE INDEX ON anc (seg);
 
 -- a committed row supersedes the nearest version below its segment
-INSERT INTO superseded (record_id, segment_id)
-SELECT DISTINCT ON (h.id) p.id, h.segment_id
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT DISTINCT ON (h.id) p.id, h.segment_id, h.key_id
 FROM record h
 JOIN segment hs ON hs.id = h.segment_id AND hs.kind <> 'draft'
 JOIN anc a ON a.seg = h.segment_id AND a.dist > 0
@@ -225,8 +225,8 @@ JOIN record p ON p.segment_id = a.anc AND p.file_path = h.file_path
 ORDER BY h.id, a.dist;
 
 -- a draft row supersedes the version its worktree's committed chain shows
-INSERT INTO superseded (record_id, segment_id)
-SELECT DISTINCT ON (h.id) p.id, h.segment_id
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT DISTINCT ON (h.id) p.id, h.segment_id, h.key_id
 FROM record h
 JOIN segment ds ON ds.id = h.segment_id AND ds.kind = 'draft'
 JOIN worktree w ON w.id = ds.owner_id
@@ -240,8 +240,8 @@ ON CONFLICT DO NOTHING;
 -- what main showed: main's draft row, else main's current committed row.
 -- :conflict_pct of edits skip this, as if made before main's change, so a
 -- layered read shows both copies wherever main has since changed the record.
-INSERT INTO superseded (record_id, segment_id)
-SELECT DISTINCT ON (h.id) p.id, h.segment_id
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT DISTINCT ON (h.id) p.id, h.segment_id, h.key_id
 FROM record h
 JOIN branch b ON b.draft_seg = h.segment_id AND NOT b.is_fork
 JOIN LATERAL (

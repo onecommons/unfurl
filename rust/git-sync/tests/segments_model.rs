@@ -20,6 +20,7 @@
 //! hide. Keys are grouped into files, which is what a scan's draft side
 //! works on.
 
+use std::cell::Cell;
 use std::collections::{BTreeMap, BTreeSet};
 
 use proptest::prelude::*;
@@ -93,31 +94,28 @@ impl Git {
     }
 }
 
-/// The `key_id` `key` had at `c`, from the rollup of the commit that set
-/// its value there: walking back through a parent with the same value,
-/// the first parent before the others. `None` when git-sync didn't make
-/// that commit.
+/// The `key_id` `key` had at `c`, from the rollup of a commit that set
+/// its value there: walking back through parents with the same value, the
+/// first parent before the others, to the first such commit git-sync made.
+/// `None` when it made none of them.
 fn rollup_id(git: &Git, key: Key, c: CommitId) -> Option<Ver> {
-    git.rollups[setting_commit(git, key, c)]
-        .as_ref()?
-        .get(&key)
-        .copied()
-}
-
-/// The commit that set `key`'s value at `c`: back through a parent with
-/// the same value, the first parent before the others.
-fn setting_commit(git: &Git, key: Key, c: CommitId) -> CommitId {
-    let mut at = c;
-    loop {
-        let v = git.commits[at].get(&key);
-        match git.parents[at]
+    let v = git.commits[c].get(&key);
+    let mut seen = BTreeSet::from([c]);
+    let mut todo = vec![c];
+    while let Some(at) = todo.pop() {
+        let same: Vec<CommitId> = git.parents[at]
             .iter()
-            .find(|&&p| git.commits[p].get(&key) == v)
-        {
-            Some(&p) => at = p,
-            None => return at,
+            .copied()
+            .filter(|&p| git.commits[p].get(&key) == v)
+            .collect();
+        if same.is_empty() {
+            if let Some(id) = git.rollups[at].as_ref().and_then(|r| r.get(&key)) {
+                return Some(*id);
+            }
         }
+        todo.extend(same.into_iter().rev().filter(|&p| seen.insert(p)));
     }
+    None
 }
 
 /// Whether `key` holds a record in every commit of `history` from `c` to
@@ -659,25 +657,6 @@ impl Segments {
         });
         let mut seen: BTreeSet<RowId> = self.visible_merged(via, Some(key)).into_iter().collect();
         seen.extend(self.visible(&own, Some(key)));
-        // an absence shows whatever copy the merge leaves out
-        seen.extend(
-            self.visible(via, Some(key))
-                .into_iter()
-                .filter(|r| self.rows[r].deleted),
-        );
-        // and whatever another draft's entries hide, while no draft below
-        // has a row at the key: main's absence is what shows
-        let lower_row = self
-            .visible(via, Some(key))
-            .iter()
-            .any(|r| self.rows[r].seg != d && self.segs[self.rows[r].seg].kind == Kind::Draft);
-        if !lower_row {
-            seen.extend(
-                self.visible(&self.own_view(MAIN), Some(key))
-                    .into_iter()
-                    .filter(|r| self.rows[r].deleted),
-            );
-        }
         let mut settled = prior.map_or_else(BTreeSet::new, |p| self.rows[&p].settled.clone());
         settled.extend(
             seen.iter()
@@ -820,12 +799,8 @@ impl Segments {
         let (d, chain) = (self.wts[w].draft, self.chain_set(w));
         for x in self.rows_in(d) {
             let (id, from) = (self.rows[&x].id, self.rows[&x].key);
-            // not when the record at its key is its own, or one it settled
-            let here = self.live_id(&chain, from);
-            if self.rows[&x].edit.is_none()
-                || here == Some(id)
-                || here.is_some_and(|r| self.rows[&x].settled.contains(&r))
-            {
+            // not when the record at its key is its own
+            if self.rows[&x].edit.is_none() || self.live_id(&chain, from) == Some(id) {
                 continue;
             }
             let to = (0..KEYS).find(|&k| k != from && self.live_id(&chain, k) == Some(id));
@@ -2238,12 +2213,9 @@ impl OWt {
     fn follow_records(&mut self) {
         for from in self.draft.keys().copied().collect::<Vec<_>>() {
             let d = &self.draft[&from];
-            // not when the record at its key is its own, or one it settled
+            // not when the record at its key is its own
             let here = self.committed.contains_key(&from).then(|| self.ids[&from]);
-            if !d.origin.is_edit()
-                || here == Some(d.id)
-                || here.is_some_and(|r| d.settled.contains(&r))
-            {
+            if !d.origin.is_edit() || here == Some(d.id) {
                 continue;
             }
             let to = self
@@ -3266,15 +3238,16 @@ impl World {
                         });
                         if named.is_none() || lost {
                             if let Some(got) = self.imp.live_id(&chain, *k) {
+                                allowed(6, usize::from(got != *id));
                                 *id = got;
                             }
                         }
                     }
                     // the worktree forked from shares the split segment
-                    self.commit_ids[c] = ids.clone();
                     self.own_ids.insert((w, c), ids.clone());
                     ids
                 };
+                self.own_ids.insert((f, c), ids.clone());
                 self.model
                     .wts
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
@@ -3465,6 +3438,7 @@ impl World {
                             .collect::<Vec<_>>()
                     })
                     .collect();
+                allowed(5, adopted.len());
                 for (k, r) in adopted {
                     if let Some(e) = self.model.wts[u].draft.get_mut(&k) {
                         e.settled.insert(r);
@@ -3639,6 +3613,7 @@ impl World {
                         });
                         if named.is_none() || lost {
                             if let Some(got) = self.imp.live_id(&base_view, k) {
+                                allowed(7, usize::from(got != *id));
                                 *id = got;
                             }
                         }
@@ -3816,6 +3791,10 @@ impl World {
                             && !r.deleted
                             && self.imp.sup.contains(&(*id, draft))
                     });
+                let which = [over_report, seen_copy, deletion_over_report];
+                if let Some(i) = which.iter().position(|&b| b) {
+                    allowed(i, 1);
+                }
                 assert!(
                     over_report || seen_copy || deletion_over_report,
                     "step {step} ({op:?}): worktree {w}'s conflicts\n  got: {got:?}\n want: {want:?}"
@@ -3859,6 +3838,7 @@ impl World {
                         })
                     })
                     .collect();
+                allowed(3, expected.difference(&layered).count() - lost.len());
                 assert!(
                     lost.is_empty(),
                     "step {step} ({op:?}): main + {stack:?} lost rows {lost:?}\n  got: {layered:?}\n want: {expected:?}"
@@ -3883,6 +3863,7 @@ impl World {
                                 })
                             })
                     });
+                    allowed(4, 1);
                     assert!(
                         (recreated && edited_over) || other_file_copy,
                         "step {step} ({op:?}): main + {stack:?} shows ({k}, {v}), which no edit in the stack was made over\n  got: {layered:?}\n want: {expected:?}"
@@ -3893,12 +3874,59 @@ impl World {
     }
 }
 
+/// Where the checker allowed a difference from the reference, or the
+/// reference adopted the implementation's choice. With
+/// `SEGMENTS_ALLOWANCES` naming a file, `run` writes how often each
+/// happened there every 10000 cases, so runs of one seed can be compared.
+/// Per thread, so a scripted test counts only its own.
+const ALLOWANCES: [&str; 8] = [
+    "over-report",
+    "seen-copy",
+    "deletion-over-report",
+    "lost-copy",
+    "extra-copy",
+    "settled-adopted",
+    "fork-adopted",
+    "rebuild-adopted",
+];
+thread_local! {
+    static ALLOWED: [Cell<u64>; ALLOWANCES.len()] = const { [const { Cell::new(0) }; ALLOWANCES.len()] };
+    static CASES: Cell<u64> = const { Cell::new(0) };
+}
+
+fn allowed(allowance: usize, n: usize) {
+    ALLOWED.with(|a| a[allowance].set(a[allowance].get() + n as u64));
+}
+
+/// Like `run`, but nothing may be allowed: for a rule whose absence shows
+/// only as an allowed over-report or copy.
+fn run_exact(ops: &[Op]) {
+    let total = || ALLOWED.with(|a| a.iter().map(Cell::get).sum::<u64>());
+    let before = total();
+    run(ops);
+    assert_eq!(total(), before, "the checker allowed a difference");
+}
+
 fn run(ops: &[Op]) {
     let mut world = World::new();
     world.check(0, &Op::NewUser);
     for (i, op) in ops.iter().enumerate() {
         world.apply(op);
         world.check(i + 1, op);
+    }
+    let cases = CASES.with(|n| {
+        n.set(n.get() + 1);
+        n.get()
+    });
+    if let Some(path) = std::env::var_os("SEGMENTS_ALLOWANCES").filter(|_| cases % 10000 == 0) {
+        let counts: Vec<String> = ALLOWED.with(|a| {
+            ALLOWANCES
+                .iter()
+                .zip(a)
+                .map(|(name, n)| format!("{name} {}\n", n.get()))
+                .collect()
+        });
+        std::fs::write(path, format!("cases {cases}\n{}", counts.concat())).unwrap();
     }
 }
 
@@ -5555,5 +5583,55 @@ fn write_joins_entries_at_its_key_after_merges() {
         Op::Fork(103, 2),
         Op::Delete(126),
         Op::External(91, vec![(4, false)]),
+    ]);
+}
+
+/// A merge whose first parent with the value is a squash, and a later one
+/// reaches the commit git-sync made: its rollup names the record.
+#[test]
+fn merge_finds_the_rollup_past_a_squash() {
+    run(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Commit(0),
+        Op::Fork(0, 1),
+        Op::External(84, vec![(2, false)]),
+        Op::External(1, vec![(1, false)]),
+        Op::Fork(1, 1),
+        Op::Merge(44, vec![(63, 0)], MergeKind::Squash, 0, vec![]),
+        Op::Merge(130, vec![(80, 0), (63, 0)], MergeKind::Regular, 164, vec![]),
+    ]);
+}
+
+/// An edit made over a record main moved supersedes the record's copy in
+/// the other file, which publishing would otherwise report as a conflict.
+#[test]
+fn write_supersedes_the_records_copy_in_another_file() {
+    run_exact(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::NewUser,
+        Op::Move(0, 2, false),
+        Op::UserWrite(0, vec![], 5, true),
+        Op::Rebuild(0, 32, 0, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// A version a merge brings back into main takes the entries drafts made
+/// over it, so a layered user doesn't see it as a copy.
+#[test]
+fn merge_brought_back_version_takes_the_entries_made_over_it() {
+    run_exact(&[
+        Op::Fork(0, 0),
+        Op::NewUser,
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::UserWrite(0, vec![], 0, false),
+        Op::NewUser,
+        Op::Rebuild(20, 91, 1, false),
+        Op::NewUser,
+        Op::Delete(122),
+        Op::Fork(1, 0),
+        Op::Merge(4, vec![(1, 0)], MergeKind::Regular, 0, vec![]),
     ]);
 }
