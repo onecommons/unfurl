@@ -933,8 +933,19 @@ supersession would rewrite a ~1.6 KB row, and branches superseding the
 same row would contend for its lock. SQLite would also need a second
 dialect ([§9](#9-open-questions)).
 
-**Before building on this,** run `EXPLAIN ANALYZE` against the
-`unfurl-pg-jit` container ([§10](#10-verification-plan)).
+**Measured.** `bench/segments/` generates a synthetic family, runs
+Appendix C's queries under `EXPLAIN ANALYZE`, and runs today's layout
+for comparison; its README has the results. In brief:
+- no plan uses JIT;
+- aggregates are the same or faster, and `list_changes` is 8× faster;
+- storage is a sixth of today's, with user branches included;
+- finds cost somewhat more.
+
+It also found two rules for writing the queries:
+- in a cross-worktree anti-join, the worktree match goes in `WHERE`,
+  not in the join's `ON`;
+- finds select ids and sort keys first, and fetch JSON only for the
+  page.
 
 ## 6. Behaviour changes
 
@@ -1680,11 +1691,11 @@ JOIN record r ON r.segment_id = v.segment_id
 WHERE r.conflict IS NULL
   AND NOT r.deleted
   AND r.json @> :filter::jsonb
+  -- the worktree match goes in WHERE, not in the join's ON: Postgres then
+  -- turns the NOT EXISTS into a hash anti-join instead of a subplan per row
   AND NOT EXISTS (SELECT 1 FROM superseded x
-                  JOIN v vx
-                    ON vx.segment_id = x.segment_id
-                   AND vx.worktree_id = v.worktree_id
-                  WHERE x.record_id = r.id)
+                  JOIN v vx ON vx.segment_id = x.segment_id
+                  WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)
 ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C",
          v.worktree_id, r.id;
 ```
