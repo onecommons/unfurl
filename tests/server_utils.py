@@ -231,10 +231,14 @@ _static_server_port = _free_port_pair(8090 + 200 * _worker)
 _server_port = _static_server_port + 1
 CLOUD_TEST_SERVER = "https://unfurl.cloud"
 
-# unfurl.cloud sometimes answers a clone with a 5xx: a test failing that way is
-# rerun (pytest-rerunfailures), and one failing any other way isn't
+# unfurl.cloud sometimes answers a clone with a 5xx or drops the connection
+# ("RPC failed; curl 92 HTTP/2 stream ... was not closed cleanly"): a test
+# failing that way is rerun (pytest-rerunfailures), and one failing any other
+# way isn't
 RERUN_ON_SERVER_ERROR = pytest.mark.flaky(
-    reruns=2, reruns_delay=5, only_rerun=[r"returned error: 50[234]"]
+    reruns=2,
+    reruns_delay=5,
+    only_rerun=[r"returned error: 50[234]", r"RPC failed; curl \d+"],
 )
 
 

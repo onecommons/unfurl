@@ -279,7 +279,7 @@ def test_populate_cache(runner: Process):
                 "visibility": "public",
             },
         )
-        assert res.status_code == 200
+        assert res.status_code == 200, res.text
         assert res.content == b"OK"
 
 
@@ -305,7 +305,7 @@ def test_populate_cache_accepts_a_files_batch(runner: Process):
             ]
         },
     )
-    assert res.status_code == 200
+    assert res.status_code == 200, res.text
     assert res.content == b"OK"
 
 
@@ -331,7 +331,7 @@ def test_populate_cache_deletes_the_entries_a_batch_marks_removed(runner: Proces
             ]
         },
     )
-    assert res.status_code == 200
+    assert res.status_code == 200, res.text
     assert res.content == b"OK"
 
 
