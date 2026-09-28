@@ -34,6 +34,18 @@ type CommitId = usize;
 /// was on, the draft's segment, and the `key_id` of the edit that made it.
 type Entry = (Option<Ver>, SegId, Ver);
 
+/// Where a scanned row's `key_id` can come from, besides the record at
+/// its key or a new one.
+#[derive(Default)]
+struct KeyIds {
+    /// The rollup of the commit that set its value.
+    named: Option<Ver>,
+    /// A record that left the other file in this scan, and its entries.
+    moved: Option<(Ver, Vec<Entry>)>,
+    /// Ids other keys of the new tree have: no fallback takes one.
+    elsewhere: BTreeSet<Ver>,
+}
+
 /// A version written, or a tombstone.
 #[derive(Clone, Copy)]
 struct Value {
@@ -50,18 +62,20 @@ const KEYS_PER_FILE: Key = 3;
 /// splits) — never compared, kept out of the shared range.
 const PRIVATE_VERSIONS: Ver = 1 << 40;
 
-/// Git: each commit's whole tree, and for a commit git-sync made, the
-/// `key_id` of each record its rollup lists.
+/// Git: each commit's whole tree and parents, first parent first, and for
+/// a commit git-sync made, the `key_id` of each record its rollup lists.
 #[derive(Default)]
 struct Git {
     commits: Vec<BTreeMap<Key, Ver>>,
+    parents: Vec<Vec<CommitId>>,
     rollups: Vec<Option<BTreeMap<Key, Ver>>>,
 }
 
 impl Git {
     /// A commit made outside git-sync: no rollup.
-    fn commit(&mut self, tree: BTreeMap<Key, Ver>) -> CommitId {
+    fn commit(&mut self, tree: BTreeMap<Key, Ver>, parents: Vec<CommitId>) -> CommitId {
         self.commits.push(tree);
+        self.parents.push(parents);
         self.rollups.push(None);
         self.commits.len() - 1
     }
@@ -70,27 +84,40 @@ impl Git {
         &mut self,
         tree: BTreeMap<Key, Ver>,
         ids: BTreeMap<Key, Ver>,
+        parents: Vec<CommitId>,
     ) -> CommitId {
         self.commits.push(tree);
+        self.parents.push(parents);
         self.rollups.push(Some(ids));
         self.commits.len() - 1
     }
 }
 
-/// The `key_id` `key` had at `c`, from the rollup of the commit in
-/// `history` that last changed it, when git-sync made that commit.
-fn rollup_id(git: &Git, history: &[CommitId], key: Key, c: CommitId) -> Option<Ver> {
-    let pos = history.iter().position(|&x| x == c)?;
-    let changed = |i: usize| {
-        let parent = i
-            .checked_sub(1)
-            .and_then(|p| git.commits[history[p]].get(&key));
-        git.commits[history[i]].get(&key) != parent
-    };
-    let named = |i: usize| git.rollups[history[i]].as_ref()?.get(&key).copied();
-    // The commit that last set it. Not the next change's: a resolved edit
-    // committed over another record names its own.
-    (0..=pos).rev().find(|&i| changed(i)).and_then(named)
+/// The `key_id` `key` had at `c`, from the rollup of the commit that set
+/// its value there: walking back through a parent with the same value,
+/// the first parent before the others. `None` when git-sync didn't make
+/// that commit.
+fn rollup_id(git: &Git, key: Key, c: CommitId) -> Option<Ver> {
+    git.rollups[setting_commit(git, key, c)]
+        .as_ref()?
+        .get(&key)
+        .copied()
+}
+
+/// The commit that set `key`'s value at `c`: back through a parent with
+/// the same value, the first parent before the others.
+fn setting_commit(git: &Git, key: Key, c: CommitId) -> CommitId {
+    let mut at = c;
+    loop {
+        let v = git.commits[at].get(&key);
+        match git.parents[at]
+            .iter()
+            .find(|&&p| git.commits[p].get(&key) == v)
+        {
+            Some(&p) => at = p,
+            None => return at,
+        }
+    }
 }
 
 /// Whether `key` holds a record in every commit of `history` from `c` to
@@ -105,6 +132,14 @@ fn continuous(git: &Git, history: &[CommitId], key: Key, c: CommitId, h: CommitI
     history[a..=b]
         .iter()
         .all(|&x| git.commits[x].contains_key(&key))
+}
+
+/// A new record's id when its version is already another record's id, as
+/// a merge that brings an old version back can make it. The model's ids
+/// are versions; a real row's id is fresh by construction, so this is the
+/// harness's, not the design's.
+fn fresh_id(ver: Ver, key: Key) -> Ver {
+    2 * PRIVATE_VERSIONS + ver * KEYS as Ver + key as Ver
 }
 
 /// The same record name in the other file.
@@ -650,6 +685,20 @@ impl Segments {
                 .filter(|r| r.seg != d && !r.deleted && r.id != record)
                 .map(|r| r.id),
         );
+        // and main's rows here with content seen here, which a draft below
+        // may hide: another copy of what the edit was made over
+        let here: BTreeSet<Ver> = seen
+            .iter()
+            .map(|r| &self.rows[r])
+            .filter(|r| !r.deleted)
+            .map(|r| r.ver)
+            .collect();
+        let copies: Vec<RowId> = self
+            .visible(&self.own_view(MAIN), Some(key))
+            .into_iter()
+            .filter(|r| !self.rows[r].deleted && here.contains(&self.rows[r].ver))
+            .collect();
+        seen.extend(copies);
         // and the same record's rows elsewhere with content seen here: a
         // move's copy of what the edit was made over (§3.5)
         let contents: BTreeSet<(Ver, Ver)> = seen
@@ -995,6 +1044,7 @@ impl Segments {
         changes: &[(Key, Option<Ver>)],
         commit: CommitId,
         disk: &BTreeMap<Key, Ver>,
+        git: &Git,
     ) {
         // A record that left one file and arrived in the other in this scan
         // moved: it keeps its `key_id`, and with the same content its
@@ -1025,11 +1075,67 @@ impl Segments {
                 }
             }
         }
+        // Each added row's id, first from the rollup of the commit that set
+        // its value, through every parent (§4.9), unless another key of the
+        // new tree keeps that id
+        let kept: BTreeSet<Ver> = (0..KEYS)
+            .filter(|k| !changes.iter().any(|&(c, _)| c == *k))
+            .filter_map(|k| self.live_id(&chain, k))
+            .collect();
+        let mut taken = kept.clone();
+        let mut named: BTreeMap<Key, Ver> = BTreeMap::new();
         for &(key, change) in changes {
-            self.scan_key(w, key, change, commit, moved.remove(&key));
+            if let Some(id) = change
+                .and_then(|_| rollup_id(git, key, commit))
+                .filter(|id| !taken.contains(id))
+            {
+                taken.insert(id);
+                named.insert(key, id);
+            }
         }
+        // values some other commit already had at their keys: a merge
+        // brings them back into main, re-creating rows users may have
+        // edited over (§4.9)
+        let history: BTreeSet<(Key, Ver)> = (0..git.commits.len())
+            .filter(|&x| x != commit)
+            .flat_map(|x| git.commits[x].iter().map(|(&k, &v)| (k, v)))
+            .collect();
+        // and the ids keys scanned before this one got
+        let mut given: BTreeSet<Ver> = BTreeSet::new();
+        for &(key, change) in changes {
+            let ids = KeyIds {
+                named: named.get(&key).copied(),
+                moved: moved.remove(&key),
+                elsewhere: named
+                    .iter()
+                    .filter(|&(&k, _)| k != key)
+                    .map(|(_, &id)| id)
+                    .chain(kept.iter().copied())
+                    .chain(given.iter().copied())
+                    .collect(),
+            };
+            self.scan_key(w, key, change, commit, ids);
+            given.extend(self.live_id(&self.chain_set(w), key));
+            if w == MAIN && change.is_some_and(|v| history.contains(&(key, v))) {
+                if let Some(r) = self.row_in(self.wts[w].head, key) {
+                    self.recreated(r);
+                }
+            }
+        }
+        let before = self.vacated.clone();
         self.follow_records(w);
-        let files: BTreeSet<Key> = changes.iter().map(|&(k, _)| file_of(k)).collect();
+        // and the files edits that followed their records here left
+        let files: BTreeSet<Key> = changes
+            .iter()
+            .map(|&(k, _)| k)
+            .chain(
+                self.vacated
+                    .difference(&before)
+                    .filter(|&&(v, _)| v == w)
+                    .map(|&(_, k)| k),
+            )
+            .map(file_of)
+            .collect();
         for f in files {
             self.reconcile(w, f, disk, FileWins::Never);
         }
@@ -1039,14 +1145,12 @@ impl Segments {
         self.relink_draft(w);
     }
 
-    fn scan_key(
-        &mut self,
-        w: Wt,
-        key: Key,
-        change: Option<Ver>,
-        commit: CommitId,
-        moved: Option<(Ver, Vec<Entry>)>,
-    ) {
+    fn scan_key(&mut self, w: Wt, key: Key, change: Option<Ver>, commit: CommitId, ids: KeyIds) {
+        let KeyIds {
+            named,
+            moved,
+            elsewhere,
+        } = ids;
         let h = self.wts[w].head;
         let mut below = self.chain_set(w);
         below.remove(&h);
@@ -1074,9 +1178,17 @@ impl Segments {
         if let Some(n) = new_row {
             self.stamp(n, commit);
             let id = match change {
-                Some(v) => live_record
-                    .or(moved.as_ref().map(|(id, _)| *id))
-                    .unwrap_or(v),
+                Some(v) => named
+                    .or(live_record.filter(|id| !elsewhere.contains(id)))
+                    .or(moved
+                        .as_ref()
+                        .map(|(id, _)| *id)
+                        .filter(|id| !elsewhere.contains(id)))
+                    .unwrap_or(if elsewhere.contains(&v) {
+                        fresh_id(v, key)
+                    } else {
+                        v
+                    }),
                 None => record.unwrap(),
             };
             self.set_id(n, id);
@@ -1086,6 +1198,60 @@ impl Segments {
                 self.carry(entries, n);
             }
             self.carry(entries, n);
+            // a version a merge brings back into main, which users' drafts
+            // layer over: drafts that superseded it at this key saw this
+            // content, and elsewhere, edits of the record
+            if change.is_some() && w == MAIN {
+                let earlier = |here: bool| -> Vec<RowId> {
+                    self.rows
+                        .iter()
+                        .filter(|&(&r, row)| {
+                            r != n
+                                && !row.deleted
+                                && Some(row.ver) == change
+                                && (row.key == key) == here
+                                && (here || row.id == id)
+                        })
+                        .map(|(&r, _)| r)
+                        .collect()
+                };
+                let (here, there) = (earlier(true), earlier(false));
+                // here, those an edit at this key made, or one of the record
+                let mut entries: Vec<Entry> = self
+                    .draft_entries(&here, w)
+                    .into_iter()
+                    .filter(|&(_, seg, tag)| {
+                        tag == id
+                            || self
+                                .rows_in(seg)
+                                .iter()
+                                .any(|y| self.rows[y].id == tag && self.rows[y].key == key)
+                    })
+                    .collect();
+                entries.extend(
+                    self.draft_entries(&there, w)
+                        .into_iter()
+                        .filter(|&(_, _, tag)| tag == id),
+                );
+                self.carry(entries, n);
+                // and an edit made over this version, here or of the
+                // record, though the row it saw is gone
+                let own = self.wts[w].draft;
+                let made_over: Vec<(SegId, Ver)> = self
+                    .rows
+                    .values()
+                    .filter(|y| {
+                        y.seg != own
+                            && self.segs[y.seg].kind == Kind::Draft
+                            && y.edit.is_some_and(|e| e.base == change)
+                            && (y.key == key || y.id == id)
+                    })
+                    .map(|y| (y.seg, y.id))
+                    .collect();
+                for (seg, tag) in made_over {
+                    self.entry(n, seg, tag);
+                }
+            }
             if head_row.is_none() {
                 let entries = self.draft_entries(&vis_below, w);
                 self.carry(entries, n);
@@ -1149,7 +1315,8 @@ impl Segments {
             .iter()
             .filter_map(|&k| self.shown_id(&before, k).map(|id| (k, id)))
             .collect();
-        let commit = git.commit_with_rollup(tree.clone(), BTreeMap::new());
+        let head_commit = *self.wts[w].history.last().unwrap();
+        let commit = git.commit_with_rollup(tree.clone(), BTreeMap::new(), vec![head_commit]);
         for x in carried {
             let k = self.rows[&x].key;
             // the committed row it replaces, in the head or below
@@ -1194,7 +1361,7 @@ impl Segments {
             let k = self.rows[&x].key;
             let file = tree.get(&k).copied();
             if self.live(&self.chain_set(w), k) != file {
-                self.scan_key(w, k, file, commit, None);
+                self.scan_key(w, k, file, commit, KeyIds::default());
                 if let Some(r) = self.row_in(h, k) {
                     self.recreated(r);
                 }
@@ -1376,43 +1543,74 @@ impl Segments {
             .filter(|j| !keys.contains(j))
             .filter_map(|&j| self.live_id(&at_c, j))
             .collect();
-        // and a changed key whose value at `c` the row below already holds
+        // and a changed key whose value at `c` the row below already holds,
+        // unless another key has that id: then the row below is another
+        // copy of the record, and the key is re-created with its own
+        let mut collide: BTreeSet<Key> = BTreeSet::new();
         for (&j, &v) in tree_c.iter().filter(|(j, _)| keys.contains(j)) {
             let below_row = self
                 .visible(&below, Some(j))
                 .into_iter()
                 .find(|r| !self.rows[r].deleted);
             if let Some(r) = below_row.filter(|r| self.rows[r].ver == v) {
-                taken.insert(self.rows[&r].id);
+                if !taken.insert(self.rows[&r].id) {
+                    collide.insert(j);
+                }
             }
         }
-        // the ids keys claim by rollup, move or continuing record: the row
-        // below is a weaker claim, and loses to them
-        let claims: BTreeMap<Key, Ver> = keys
+        // §4.7: the re-created keys' ids, strongest evidence first across
+        // all of them, each id once: rollup, move, continuing record, row
+        // below; a new id after. Ties in a tier go by key.
+        let below_commit = self.segs[s].parent.and_then(|p| self.segs[p].head_commit);
+        let recreate: Vec<Key> = keys
             .iter()
-            .filter_map(|&k| {
-                let v_c = tree_c.get(&k).copied();
-                let same = self.row_in(s, k).and_then(|sr| {
+            .copied()
+            .filter(|&k| {
+                let below_live = self
+                    .visible(&below, Some(k))
+                    .into_iter()
+                    .find(|r| !self.rows[r].deleted)
+                    .map(|r| self.rows[&r].ver);
+                self.row_in(s, k).is_none()
+                    || tree_c.get(&k).copied() != below_live
+                    || collide.contains(&k)
+            })
+            .collect();
+        let tier = |t: u8, k: Key| -> Option<Ver> {
+            let v_c = tree_c.get(&k).copied();
+            match t {
+                1 => rollup_id(git, k, c),
+                2 => moved_id(k, v_c),
+                3 => self.row_in(s, k).and_then(|sr| {
                     continuous(git, history, k, c, h_commit).then_some(self.rows[&sr].id)
-                });
-                rollup_id(git, history, k, c)
-                    .or(moved_id(k, v_c))
-                    .or(same)
-                    .map(|id| (k, id))
-            })
-            .collect();
-        let claimed = |k: Key, id: &Ver| claims.iter().any(|(&j, i)| j != k && i == id);
-        // rows below that are a record the tree at `c` has at another key:
-        // it moved there
-        let moved_on: BTreeSet<RowId> = keys
-            .iter()
-            .filter_map(|&k| {
-                self.visible(&below, Some(k)).first().copied().filter(|b| {
-                    let r = &self.rows[b];
-                    !r.deleted && tree_c.iter().any(|(&j, &v)| j != k && v == r.ver)
-                })
-            })
-            .collect();
+                }),
+                // the record at `c` only if the key held a record at every
+                // commit from the row below's to `c`, and it didn't move to
+                // another key at `c`
+                _ => self
+                    .visible(&below, Some(k))
+                    .first()
+                    .map(|b| &self.rows[b])
+                    .filter(|b| {
+                        !b.deleted
+                            && !tree_c.iter().any(|(&j, &v)| j != k && v == b.ver)
+                            && below_commit.is_none_or(|bc| continuous(git, history, k, bc, c))
+                    })
+                    .map(|b| b.id),
+            }
+        };
+        let mut recovered: BTreeMap<Key, Ver> = BTreeMap::new();
+        for t in 1..=4 {
+            for &k in &recreate {
+                if recovered.contains_key(&k) {
+                    continue;
+                }
+                if let Some(id) = tier(t, k).filter(|id| !taken.contains(id)) {
+                    taken.insert(id);
+                    recovered.insert(k, id);
+                }
+            }
+        }
         for k in keys {
             let v_c = tree_c.get(&k).copied();
             let vis_below = self.visible(&below, Some(k));
@@ -1423,20 +1621,12 @@ impl Segments {
             match self.row_in(s, k) {
                 Some(sr) => {
                     self.rows.get_mut(&sr).unwrap().seg = s2;
-                    if v_c != below_live {
+                    if v_c != below_live || collide.contains(&k) {
                         let new = self.insert_value(s, k, v_c);
-                        let below_id = vis_below
-                            .first()
-                            .filter(|b| !moved_on.contains(b))
-                            .map(|b| self.rows[b].id);
-                        let same =
-                            continuous(git, history, k, c, h_commit).then_some(self.rows[&sr].id);
-                        let free = |id: &Ver| !taken.contains(id);
-                        let fresh = Some(self.rows[&new].id).filter(free);
-                        let id = rollup_id(git, history, k, c)
-                            .or(moved_id(k, v_c))
-                            .or(same.filter(free))
-                            .or(below_id.filter(|id| free(id) && !claimed(k, id)))
+                        let fresh = Some(self.rows[&new].id).filter(|id| !taken.contains(id));
+                        let id = recovered
+                            .get(&k)
+                            .copied()
                             .or(fresh)
                             .unwrap_or_else(|| self.private_ver());
                         taken.insert(id);
@@ -1450,15 +1640,11 @@ impl Segments {
                 }
                 None => {
                     // changed before c and back after it
-                    let below_id = vis_below
-                        .first()
-                        .filter(|b| !moved_on.contains(b))
-                        .map(|b| self.rows[b].id);
                     let new = self.insert_value(s, k, v_c);
                     let fresh = Some(self.rows[&new].id).filter(|id| !taken.contains(id));
-                    let id = rollup_id(git, history, k, c)
-                        .or(moved_id(k, v_c))
-                        .or(below_id.filter(|id| !taken.contains(id) && !claimed(k, id)))
+                    let id = recovered
+                        .get(&k)
+                        .copied()
                         .or(fresh)
                         .unwrap_or_else(|| self.private_ver());
                     taken.insert(id);
@@ -1484,7 +1670,8 @@ impl Segments {
                         }
                         None => {
                             let r = self.insert_value(s2, k, v_h);
-                            let id = rollup_id(git, history, k, h_commit)
+                            let below_id = vis_below.first().map(|b| self.rows[b].id);
+                            let id = rollup_id(git, k, h_commit)
                                 .or(below_id)
                                 .unwrap_or(self.rows[&r].id);
                             self.set_id(r, id);
@@ -2368,6 +2555,23 @@ enum Op {
     /// A commit made outside the database moving a record to the other
     /// file, edited too with `.2`, then scanned.
     Move(u8, Key, bool),
+    /// A merge made outside the database into a worktree's head of other
+    /// worktrees' commits (each a worktree and how far back), checked out
+    /// and scanned. `.3` picks each conflicting key's side, and `.4` are
+    /// changes the merge commit itself makes.
+    Merge(u8, Vec<(u8, u8)>, MergeKind, u8, Vec<(Key, bool)>),
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MergeKind {
+    /// One commit with a parent per source, an octopus with several, or a
+    /// fast-forward when the head is an ancestor of the one source.
+    Regular,
+    /// The source's commits replayed on the head, keeping their messages
+    /// and so their rollups.
+    Rebase,
+    /// One commit with the head as its only parent: no rollup.
+    Squash,
 }
 
 fn op() -> impl Strategy<Value = Op> {
@@ -2384,8 +2588,25 @@ fn op() -> impl Strategy<Value = Op> {
         2 => (any::<u8>(), any::<bool>(), any::<u8>(), any::<bool>()).prop_map(|(w, u, i, o)| Op::Resolve(w, u, i, o)),
         1 => any::<u8>().prop_map(Op::Delete),
         1 => (any::<u8>(), any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, b, k, d)| Op::Rebuild(w, b, k, d)),
-        2 => (any::<u8>(), key, any::<bool>()).prop_map(|(w, k, e)| Op::Move(w, k, e)),
+        2 => (any::<u8>(), key.clone(), any::<bool>()).prop_map(|(w, k, e)| Op::Move(w, k, e)),
+        2 => merge_op(key),
     ]
+}
+
+fn merge_op(key: std::ops::Range<Key>) -> impl Strategy<Value = Op> {
+    let kind = prop_oneof![
+        3 => Just(MergeKind::Regular),
+        1 => Just(MergeKind::Rebase),
+        1 => Just(MergeKind::Squash),
+    ];
+    (
+        any::<u8>(),
+        prop::collection::vec((any::<u8>(), 0u8..3), 1..3),
+        kind,
+        any::<u8>(),
+        prop::collection::vec((key, prop::bool::weighted(0.2)), 0..2),
+    )
+        .prop_map(|(w, s, kind, picks, extra)| Op::Merge(w, s, kind, picks, extra))
 }
 
 /// Weighted toward publishing after moves, rewrites and main's changes,
@@ -2403,7 +2624,8 @@ fn publish_op() -> impl Strategy<Value = Op> {
         3 => any::<u8>().prop_map(Op::Publish),
         1 => (any::<u8>(), any::<bool>(), any::<u8>(), any::<bool>()).prop_map(|(w, u, i, o)| Op::Resolve(w, u, i, o)),
         3 => (any::<u8>(), any::<u8>(), key.clone(), prop::bool::weighted(0.3)).prop_map(|(w, b, k, d)| Op::Rebuild(w, b, k, d)),
-        3 => (any::<u8>(), key, any::<bool>()).prop_map(|(w, k, e)| Op::Move(w, k, e)),
+        3 => (any::<u8>(), key.clone(), any::<bool>()).prop_map(|(w, k, e)| Op::Move(w, k, e)),
+        2 => merge_op(key),
     ]
 }
 
@@ -2414,6 +2636,13 @@ struct World {
     next_ver: Ver,
     /// Each commit's records' `key_id`s, as the model has them.
     commit_ids: Vec<BTreeMap<Key, Ver>>,
+    /// A worktree's own ids at a commit it reached, where they can differ
+    /// from the recorded ones: a fast-forward to another's commit, say.
+    own_ids: BTreeMap<(Wt, CommitId), BTreeMap<Key, Ver>>,
+    /// For each commit and key, the commit whose rollup names the record
+    /// there: the one that set its value, as the harness made it, not the
+    /// implementation's walk.
+    origins: Vec<BTreeMap<Key, CommitId>>,
 }
 
 impl World {
@@ -2421,7 +2650,7 @@ impl World {
         let mut git = Git::default();
         let mut imp = Segments::default();
         let tree: BTreeMap<Key, Ver> = (0..KEYS).map(|k| (k, k as Ver + 1)).collect();
-        let c0 = git.commit(tree.clone());
+        let c0 = git.commit(tree.clone(), Vec::new());
         let root = imp.new_seg(Kind::Head, None, None, Some(c0));
         for (&k, &v) in &tree {
             let r = imp.insert(root, k, v, false);
@@ -2438,11 +2667,24 @@ impl World {
             git,
             next_ver: KEYS as Ver + 1,
             commit_ids: vec![ids],
+            own_ids: BTreeMap::new(),
+            origins: Vec::new(),
         }
     }
 
     /// Record the model's ids for the commit just made.
+    /// `w`'s ids at commit `c`: its own where it reached `c`, else those
+    /// recorded for `c`.
+    fn ids_at(&self, w: Wt, c: CommitId) -> BTreeMap<Key, Ver> {
+        self.own_ids
+            .get(&(w, c))
+            .cloned()
+            .unwrap_or_else(|| self.commit_ids[c].clone())
+    }
+
     fn committed(&mut self, w: Wt) {
+        let c = self.commit_ids.len();
+        self.own_ids.insert((w, c), self.model.wts[w].ids.clone());
         self.commit_ids.push(self.model.wts[w].ids.clone());
         assert_eq!(self.commit_ids.len(), self.git.commits.len());
     }
@@ -2454,16 +2696,30 @@ impl World {
         let before = self.model.wts[w].committed.clone();
         let m = &mut self.model.wts[w];
         let old_ids = m.ids.clone();
+        // no two keys share an id: those the unchanged keys keep, and those
+        // given earlier in the change, are passed over
+        let mut taken: BTreeSet<Ver> = old_ids
+            .iter()
+            .filter(|(k, _)| !changes.contains_key(k))
+            .map(|(_, &id)| id)
+            .collect();
         for (&k, &change) in &changes {
             if let Some(v) = change {
                 let from = other_file(k);
-                let id = if before.contains_key(&k) {
-                    old_ids[&k]
-                } else if before.contains_key(&from) && changes.get(&from) == Some(&None) {
-                    old_ids[&from]
-                } else {
-                    v
-                };
+                let continuing = before.contains_key(&k).then(|| old_ids[&k]);
+                let moved = (!before.contains_key(&k)
+                    && before.contains_key(&from)
+                    && changes.get(&from) == Some(&None))
+                .then(|| old_ids[&from]);
+                let id = continuing
+                    .filter(|id| !taken.contains(id))
+                    .or(moved.filter(|id| !taken.contains(id)))
+                    .unwrap_or(if taken.contains(&v) {
+                        fresh_id(v, k)
+                    } else {
+                        v
+                    });
+                taken.insert(id);
                 m.ids.insert(k, id);
             }
         }
@@ -2480,19 +2736,308 @@ impl World {
                 }
             };
         }
+        let held: BTreeSet<Key> = m.draft.keys().copied().collect();
         m.follow_records();
-        let files: BTreeSet<Key> = changes.keys().map(|&k| file_of(k)).collect();
+        // and the files edits that followed their records left
+        let files: BTreeSet<Key> = changes
+            .keys()
+            .copied()
+            .chain(held.into_iter().filter(|k| !m.draft.contains_key(k)))
+            .map(file_of)
+            .collect();
         for &f in &files {
             m.reconcile(f, &mut self.next_ver, FileWins::Never);
         }
-        let c = self.git.commit(m.committed.clone());
+        let head = *self.imp.wts[w].history.last().unwrap();
+        let c = self.git.commit(m.committed.clone(), vec![head]);
         let disk = m.disk.clone();
         let changes: Vec<(Key, Option<Ver>)> = changes.into_iter().collect();
-        self.imp.scan(w, &changes, c, &disk);
+        self.imp.scan(w, &changes, c, &disk, &self.git);
         self.committed(w);
         if w == MAIN {
             self.main_moved(&before, &BTreeMap::new());
         }
+    }
+
+    fn ancestors(&self, c: CommitId) -> BTreeSet<CommitId> {
+        let mut out = BTreeSet::from([c]);
+        let mut todo = vec![c];
+        while let Some(x) = todo.pop() {
+            for &p in &self.git.parents[x] {
+                if out.insert(p) {
+                    todo.push(p);
+                }
+            }
+        }
+        out
+    }
+
+    /// The common ancestor of `a` and `b` made last; none for unrelated
+    /// histories, which merge against an empty tree.
+    fn merge_base(&self, a: CommitId, b: CommitId) -> Option<CommitId> {
+        let (x, y) = (self.ancestors(a), self.ancestors(b));
+        x.intersection(&y).max().copied()
+    }
+
+    /// Replay the source's first-parent commits since its merge base with
+    /// `head` on top of it, each keeping its message and so its rollup.
+    fn rebase_commits(&mut self, head: CommitId, src: CommitId) -> Vec<(CommitId, CommitId)> {
+        let below = self
+            .merge_base(head, src)
+            .map_or_else(BTreeSet::new, |b| self.ancestors(b));
+        let mut replay = Vec::new();
+        let mut at = src;
+        while !below.contains(&at) {
+            replay.push(at);
+            match self.git.parents[at].first() {
+                Some(&p) => at = p,
+                None => break,
+            }
+        }
+        replay.reverse();
+        let mut tree = self.git.commits[head].clone();
+        let mut prev = head;
+        let mut new = Vec::new();
+        for ci in replay {
+            let parent = self.git.parents[ci]
+                .first()
+                .map(|&p| self.git.commits[p].clone())
+                .unwrap_or_default();
+            for k in 0..KEYS {
+                let v = self.git.commits[ci].get(&k).copied();
+                if v != parent.get(&k).copied() {
+                    match v {
+                        Some(v) => tree.insert(k, v),
+                        None => tree.remove(&k),
+                    };
+                }
+            }
+            prev = match self.git.rollups[ci].clone() {
+                Some(ids) => self.git.commit_with_rollup(tree.clone(), ids, vec![prev]),
+                None => self.git.commit(tree.clone(), vec![prev]),
+            };
+            new.push((prev, ci));
+        }
+        new
+    }
+
+    /// A merge commit of `srcs` into `head`: three-way per key against each
+    /// source's merge base, `picks` choosing the side where both changed a
+    /// key, then `extra`, the merge commit's own changes.
+    fn merge_commit(
+        &mut self,
+        head: CommitId,
+        srcs: &[CommitId],
+        squash: bool,
+        picks: u8,
+        extra: &[(Key, bool)],
+    ) -> CommitId {
+        let mut tree = self.git.commits[head].clone();
+        // where each value comes from: the side the merge took it from
+        let this = self.git.commits.len();
+        let mut origin = self.origins[head].clone();
+        for (i, &src) in srcs.iter().enumerate() {
+            let base = self
+                .merge_base(head, src)
+                .map_or_else(BTreeMap::new, |b| self.git.commits[b].clone());
+            let theirs = self.git.commits[src].clone();
+            for k in 0..KEYS {
+                let (b, o, t) = (base.get(&k), tree.get(&k), theirs.get(&k));
+                let take = if t == b || o == t {
+                    false
+                } else if o == b {
+                    true
+                } else {
+                    picks >> ((i * KEYS as usize + k as usize) % 8) & 1 == 1
+                };
+                if take {
+                    match t {
+                        Some(&v) => {
+                            tree.insert(k, v);
+                            origin.insert(k, self.origins[src][&k]);
+                        }
+                        None => {
+                            tree.remove(&k);
+                            origin.remove(&k);
+                        }
+                    };
+                }
+            }
+        }
+        for &(k, deleted) in extra {
+            if deleted {
+                tree.remove(&k);
+                origin.remove(&k);
+            } else {
+                let v = self.ver();
+                tree.insert(k, v);
+                origin.insert(k, this);
+            }
+        }
+        if squash {
+            // one parent, no rollup: the values it brings are its own
+            return self.git.commit(tree, vec![head]);
+        }
+        let parents = std::iter::once(head).chain(srcs.iter().copied()).collect();
+        let c = self.git.commit(tree, parents);
+        assert_eq!(self.origins.len(), c);
+        self.origins.push(origin);
+        c
+    }
+
+    /// A merge made outside the database into `w`'s head, checked out and
+    /// scanned.
+    fn merge(
+        &mut self,
+        w: Wt,
+        srcs: Vec<CommitId>,
+        kind: MergeKind,
+        picks: u8,
+        extra: &[(Key, bool)],
+    ) {
+        let head = *self.imp.wts[w].history.last().unwrap();
+        let mine = self.ancestors(head);
+        let srcs: Vec<CommitId> = srcs.into_iter().filter(|c| !mine.contains(c)).collect();
+        if srcs.is_empty() {
+            return;
+        }
+        // a replayed commit's records are its source commit's
+        let mut replayed: BTreeMap<CommitId, CommitId> = BTreeMap::new();
+        let new: Vec<CommitId> = match kind {
+            MergeKind::Rebase => {
+                let pairs = self.rebase_commits(head, srcs[0]);
+                replayed.extend(pairs.iter().copied());
+                pairs.into_iter().map(|(c, _)| c).collect()
+            }
+            MergeKind::Regular
+                if srcs.len() == 1
+                    && extra.is_empty()
+                    && self.ancestors(srcs[0]).contains(&head) =>
+            {
+                // a fast-forward: no commit of its own
+                vec![srcs[0]]
+            }
+            MergeKind::Regular => vec![self.merge_commit(head, &srcs, false, picks, extra)],
+            MergeKind::Squash => vec![self.merge_commit(head, &srcs, true, picks, extra)],
+        };
+        let Some(&top) = new.last() else { return };
+        self.fill_origins();
+        let old_ids = self.model.wts[w].ids.clone();
+        // the commits before the top, for later lookups through them
+        let made: Vec<CommitId> = new
+            .iter()
+            .copied()
+            .filter(|&c| c >= self.commit_ids.len() && c != top)
+            .collect();
+        for c in made {
+            let ids = self.merged_ids(c, head, &old_ids, &replayed);
+            let ids = self.rollup_named(c, ids, &replayed);
+            self.commit_ids.push(ids);
+        }
+        let before = self.model.wts[w].committed.clone();
+        let tree = self.git.commits[top].clone();
+        let mut ids = self.merged_ids(top, head, &old_ids, &replayed);
+        let changes: BTreeMap<Key, Option<Ver>> = (0..KEYS)
+            .filter(|k| before.get(k) != tree.get(k))
+            .map(|k| (k, tree.get(&k).copied()))
+            .collect();
+        let m = &mut self.model.wts[w];
+        for (&k, &change) in &changes {
+            match change {
+                Some(v) => m.disk.insert(k, v),
+                None => m.disk.remove(&k),
+            };
+        }
+        let disk = m.disk.clone();
+        let scanned: Vec<(Key, Option<Ver>)> = changes.iter().map(|(&k, &c)| (k, c)).collect();
+        self.imp.scan(w, &scanned, top, &disk, &self.git);
+        // No rollup names these: the scan takes them from the rows it has,
+        // which can miss a record's identity (§4.9). Adopt its choice.
+        let chain = self.imp.chain_set(w);
+        for &k in tree.keys() {
+            if !ids.contains_key(&k) {
+                if let Some(id) = self.imp.live_id(&chain, k) {
+                    ids.insert(k, id);
+                }
+            }
+        }
+        if top >= self.commit_ids.len() {
+            let named = self.rollup_named(top, ids.clone(), &replayed);
+            self.commit_ids.push(named);
+        }
+        self.own_ids.insert((w, top), ids.clone());
+        let m = &mut self.model.wts[w];
+        m.committed = tree;
+        m.ids = ids;
+        let held: BTreeSet<Key> = m.draft.keys().copied().collect();
+        m.follow_records();
+        // and the files edits that followed their records left
+        let files: BTreeSet<Key> = changes
+            .keys()
+            .copied()
+            .chain(held.into_iter().filter(|k| !m.draft.contains_key(k)))
+            .map(file_of)
+            .collect();
+        for &f in &files {
+            m.reconcile(f, &mut self.next_ver, FileWins::Never);
+        }
+        if w == MAIN {
+            self.main_moved(&before, &BTreeMap::new());
+        }
+    }
+
+    /// A replayed commit's rollup names the source's records, whatever the
+    /// rebasing worktree had to give them: those are its recorded ids.
+    fn rollup_named(
+        &self,
+        c: CommitId,
+        mut ids: BTreeMap<Key, Ver>,
+        replayed: &BTreeMap<CommitId, CommitId>,
+    ) -> BTreeMap<Key, Ver> {
+        if let (Some(&src), Some(listed)) = (replayed.get(&c), &self.git.rollups[c]) {
+            for k in listed.keys() {
+                if let Some(&id) = self.commit_ids[src].get(k) {
+                    ids.insert(*k, id);
+                }
+            }
+        }
+        ids
+    }
+
+    /// The reference's `key_id`s for commit `c`, scanned from `from`: the
+    /// ids `from` keeps at keys whose value didn't change, `old_ids` being
+    /// the merging worktree's, and at a changed key the id of the record
+    /// in the commit that set its value, when git-sync made it and no kept
+    /// key has it. Other keys are left out: nothing names their record. A
+    /// commit `replayed` maps is a rebase's copy of another, whose ids are
+    /// the source's.
+    fn merged_ids(
+        &self,
+        c: CommitId,
+        from: CommitId,
+        old_ids: &BTreeMap<Key, Ver>,
+        replayed: &BTreeMap<CommitId, CommitId>,
+    ) -> BTreeMap<Key, Ver> {
+        let (tree, old) = (&self.git.commits[c], &self.git.commits[from]);
+        let mut ids: BTreeMap<Key, Ver> = tree
+            .keys()
+            .filter(|&k| old.get(k) == tree.get(k))
+            .filter_map(|k| old_ids.get(k).map(|&id| (*k, id)))
+            .collect();
+        let mut taken: BTreeSet<Ver> = ids.values().copied().collect();
+        for &k in tree.keys().filter(|&k| old.get(k) != tree.get(k)) {
+            let setter = self.origins[c][&k];
+            if self.git.rollups[setter].is_none() {
+                continue;
+            }
+            let setter = replayed.get(&setter).copied().unwrap_or(setter);
+            if let Some(&id) = self.commit_ids.get(setter).and_then(|m| m.get(&k)) {
+                if taken.insert(id) {
+                    ids.insert(k, id);
+                }
+            }
+        }
+        ids
     }
 
     fn ver(&mut self) -> Ver {
@@ -2534,6 +3079,38 @@ impl World {
     }
 
     fn apply(&mut self, op: &Op) {
+        self.fill_origins();
+        self.apply_op(op);
+        self.fill_origins();
+    }
+
+    /// Origins for commits made since, with one parent or none: a value
+    /// the parent had comes from its origin, else from the commit. A merge
+    /// commit's are set when the harness makes it.
+    fn fill_origins(&mut self) {
+        for c in self.origins.len()..self.git.commits.len() {
+            let tree = &self.git.commits[c];
+            let parent = self.git.parents[c].first().copied();
+            let origin = tree
+                .iter()
+                .map(|(&k, v)| {
+                    let from = parent
+                        .filter(|&p| self.git.commits[p].get(&k) == Some(v))
+                        .map_or(c, |p| self.origins[p][&k]);
+                    (k, from)
+                })
+                .collect();
+            self.origins.push(origin);
+        }
+    }
+
+    /// The id the rollup of the commit that set `k`'s value at `c` names.
+    fn named_id(&self, k: Key, c: CommitId) -> Option<Ver> {
+        let origin = *self.origins[c].get(&k)?;
+        self.git.rollups[origin].as_ref()?.get(&k).copied()
+    }
+
+    fn apply_op(&mut self, op: &Op) {
         match *op {
             Op::Write(n, k, deleted) => {
                 let w = self.pick(n, false).unwrap();
@@ -2627,6 +3204,18 @@ impl World {
                     .collect();
                 self.external(w, changes);
             }
+            Op::Merge(n, ref sources, kind, picks, ref extra) => {
+                let w = self.pick(n, false).unwrap();
+                let srcs: Vec<CommitId> = sources
+                    .iter()
+                    .filter_map(|&(s, back)| {
+                        let s = self.pick(s, false).filter(|&s| s != w)?;
+                        let h = &self.imp.wts[s].history;
+                        Some(h[h.len() - 1 - (back as usize).min(h.len() - 1)])
+                    })
+                    .collect();
+                self.merge(w, srcs, kind, picks, extra);
+            }
             Op::Move(n, k, edited) => {
                 let w = self.pick(n, false).unwrap();
                 let to = other_file(k);
@@ -2655,21 +3244,37 @@ impl World {
                 let len = self.imp.wts[w].history.len();
                 let pos = len - 1 - (back as usize).min(len - 1);
                 let c = self.imp.wts[w].history[pos];
-                let history = self.imp.wts[w].history.clone();
                 let f = self.imp.fork(w, pos, &self.git);
-                let mut ids = self.commit_ids[c].clone();
-                // Where no rollup names a record's id at `c`, the split falls
-                // back on the ids it has, which can miss a record deleted and
-                // re-created after `c` outside git-sync.
-                let chain = self.imp.chain_set(f);
-                for (k, id) in ids.iter_mut() {
-                    if rollup_id(&self.git, &history, *k, c).is_none() {
-                        if let Some(got) = self.imp.live_id(&chain, *k) {
-                            *id = got;
+                // at the head, the worktree's own ids: another worktree may
+                // have had to give the same commit's records others
+                let ids = if pos == len - 1 {
+                    self.model.wts[w].ids.clone()
+                } else {
+                    let mut ids = self.ids_at(w, c);
+                    // Where no rollup names a record's id at `c`, the split
+                    // falls back on the ids it has, which can miss a record
+                    // deleted and re-created after `c` outside git-sync.
+                    // So does a key whose rollup names an id the worktree
+                    // didn't give it at `c`, or another key took first (§4.7).
+                    let chain = self.imp.chain_set(f);
+                    for (k, id) in ids.iter_mut() {
+                        let named = self.named_id(*k, c);
+                        let lost = named.is_some_and(|n| {
+                            n != *id
+                                || (0..KEYS)
+                                    .any(|j| j != *k && self.imp.live_id(&chain, j) == Some(n))
+                        });
+                        if named.is_none() || lost {
+                            if let Some(got) = self.imp.live_id(&chain, *k) {
+                                *id = got;
+                            }
                         }
                     }
-                }
-                self.commit_ids[c] = ids.clone();
+                    // the worktree forked from shares the split segment
+                    self.commit_ids[c] = ids.clone();
+                    self.own_ids.insert((w, c), ids.clone());
+                    ids
+                };
                 self.model
                     .wts
                     .push(OWt::new(self.git.commits[c].clone(), ids, false));
@@ -2833,6 +3438,38 @@ impl World {
             }
             Op::Publish(n) => {
                 let Some(u) = self.pick(n, true) else { return };
+                // A record an edit settled only in a re-created row, which
+                // the edit's draft superseded: its entry on the row it saw
+                // went with that row (§4.7), so the model can't tell. Adopt
+                // it as settled.
+                let d = self.imp.wts[u].draft;
+                let main_chain = &self.imp.chain_set(MAIN);
+                let adopted: Vec<(Key, Ver)> = self
+                    .imp
+                    .rows_in(d)
+                    .into_iter()
+                    .flat_map(|x| {
+                        let key = self.imp.rows[&x].key;
+                        let imp = &self.imp;
+                        imp.rows[&x]
+                            .settled
+                            .iter()
+                            .copied()
+                            .filter(move |&r| {
+                                imp.visible(main_chain, Some(key)).iter().any(|y| {
+                                    let row = &imp.rows[y];
+                                    row.recreated && row.id == r && imp.sup.contains(&(*y, d))
+                                })
+                            })
+                            .map(move |r| (key, r))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                for (k, r) in adopted {
+                    if let Some(e) = self.model.wts[u].draft.get_mut(&k) {
+                        e.settled.insert(r);
+                    }
+                }
                 self.imp.publish(u);
                 let committed = self.model.wts[MAIN].committed.clone();
                 let states: BTreeMap<Key, BTreeSet<Ver>> = (0..KEYS)
@@ -2985,15 +3622,37 @@ impl World {
                 });
                 let mut tree =
                     base_commit.map_or_else(BTreeMap::new, |c| self.git.commits[c].clone());
-                let base_ids =
-                    base_commit.map_or_else(BTreeMap::new, |c| self.commit_ids[c].clone());
+                let mut base_ids = base_commit.map_or_else(BTreeMap::new, |c| self.ids_at(w, c));
+                // Where no rollup names a record's id at the base, the rows
+                // there decide it, which can lose one (§4.8): adopt them.
+                if let (Some(i), Some(bc)) = (base_idx, base_commit) {
+                    let base_view: BTreeSet<SegId> = self.imp.wts[w].chain[..=i]
+                        .iter()
+                        .map(|&(s, _)| s)
+                        .collect();
+                    for (&k, id) in base_ids.iter_mut() {
+                        let named = self.named_id(k, bc);
+                        let lost = named.is_some_and(|n| {
+                            n != *id
+                                || (0..KEYS)
+                                    .any(|j| j != k && self.imp.live_id(&base_view, j) == Some(n))
+                        });
+                        if named.is_none() || lost {
+                            if let Some(got) = self.imp.live_id(&base_view, k) {
+                                *id = got;
+                            }
+                        }
+                    }
+                }
                 if deleted {
                     tree.remove(&k);
                 } else {
                     let v = self.ver();
                     tree.insert(k, v);
                 }
-                let c = self.git.commit(tree.clone());
+                let c = self
+                    .git
+                    .commit(tree.clone(), base_commit.into_iter().collect());
                 self.imp.rebuild(w, base_idx, &tree, c);
                 // the checkout carries the working tree's own changes over
                 let m = &mut self.model.wts[w];
@@ -4398,5 +5057,503 @@ fn write_supersedes_mains_tombstone_another_draft_hides() {
         Op::Write(0, 0, false),
         Op::Rebuild(0, 43, 0, false),
         Op::Publish(47),
+    ]);
+}
+
+/// A user edits over main's pending file value; main replaces it with its
+/// own edit, taking the user's entry with it, and a rebuild re-creates the
+/// value as another record. The user's next write settles that record, so
+/// publishing leaves the edit where it is though its record is elsewhere:
+/// the re-created row over-report (§4.7).
+#[test]
+fn edit_settles_a_record_seen_only_in_a_re_created_row() {
+    run(&[
+        Op::Rebuild(0, 0, 1, false),
+        Op::NewUser,
+        Op::Move(0, 1, false),
+        Op::DiskEdit(0, 4, false, FileWins::Never),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Write(0, 4, false),
+        Op::Rebuild(0, 6, 0, false),
+        Op::Commit(0),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// A rebuild onto no base makes a new root, and a merge of the unrelated
+/// histories merges against an empty tree.
+#[test]
+fn merge_of_unrelated_histories_uses_an_empty_base() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Rebuild(0, 83, 0, false),
+        Op::Merge(0, vec![(253, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge brings back a version a user edited over, after a rebuild dropped
+/// it. The user's entry carries to it, so they don't see it again.
+#[test]
+fn merged_back_version_takes_the_users_entry() {
+    run(&[
+        Op::NewUser,
+        Op::External(0, vec![(0, false)]),
+        Op::Fork(0, 0),
+        Op::UserWrite(0, vec![], 1, false),
+        Op::Rebuild(44, 80, 2, false),
+        Op::Merge(30, vec![(71, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge brings back a version a user saw at its key while editing another
+/// record there: their entry at that key carries to it.
+#[test]
+fn merged_back_version_takes_entries_made_at_its_key() {
+    run(&[
+        Op::DiskEdit(0, 3, false, FileWins::Never),
+        Op::Fork(0, 0),
+        Op::NewUser,
+        Op::Rebuild(30, 11, 0, false),
+        Op::UserWrite(0, vec![], 3, false),
+        Op::Merge(72, vec![(29, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A user writes through another's draft at a key where main holds a
+/// version the writer's own tree showed. The write supersedes main's copy
+/// too, though the lower draft hides it.
+#[test]
+fn write_supersedes_mains_copy_a_lower_draft_hides() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::NewUser,
+        Op::Rebuild(20, 43, 0, false),
+        Op::NewUser,
+        Op::Merge(8, vec![(89, 0)], MergeKind::Regular, 0, vec![]),
+        Op::UserWrite(29, vec![], 1, false),
+        Op::NewUser,
+        Op::UserWrite(93, vec![82], 1, false),
+    ]);
+}
+
+/// A rebase replays a commit made outside git-sync: no rollup, so the
+/// record's id comes from the rows.
+#[test]
+fn replayed_commit_without_a_rollup_names_no_record() {
+    run(&[
+        Op::Rebuild(0, 0, 0, false),
+        Op::Fork(0, 0),
+        Op::Rebuild(74, 43, 0, true),
+        Op::Merge(128, vec![(55, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Write(0, 0, false),
+        Op::Merge(72, vec![(7, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// Two fast-forwards to another worktree's commits: the ids before each are
+/// the merging worktree's own, not the other's for that commit.
+#[test]
+fn fast_forward_keeps_the_worktrees_own_ids() {
+    run(&[
+        Op::External(0, vec![(3, true)]),
+        Op::Fork(0, 1),
+        Op::Move(2, 0, false),
+        Op::External(12, vec![(0, true)]),
+        Op::Move(30, 3, false),
+        Op::Merge(29, vec![(92, 2)], MergeKind::Regular, 0, vec![]),
+        Op::Merge(7, vec![(44, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge brings back the version a user's edit was made over, after a
+/// rebuild collected the row the user saw: the edit's base finds it.
+#[test]
+fn merged_back_version_takes_the_entry_of_an_edit_made_over_it() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Rebuild(44, 49, 1, false),
+        Op::NewUser,
+        Op::Merge(20, vec![(103, 0)], MergeKind::Regular, 0, vec![]),
+        Op::UserWrite(0, vec![], 0, false),
+        Op::Fork(49, 0),
+        Op::Rebuild(177, 0, 1, false),
+        Op::Merge(33, vec![(1, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge brings back an old version as a second copy of a record another
+/// key holds: it gets a new id, and no key after it reuses one given.
+#[test]
+fn merge_gives_a_repeated_version_a_new_id() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Write(11, 3, false),
+        Op::Rebuild(53, 187, 3, false),
+        Op::Move(176, 3, false),
+        Op::Merge(68, vec![(0, 0)], MergeKind::Regular, 91, vec![]),
+    ]);
+}
+
+/// A squash merge brings a moved version to main at a key another record
+/// holds. An entry a move carried there was about the moved record, so it
+/// doesn't hide main's new one.
+#[test]
+fn merged_back_version_ignores_entries_a_move_carried() {
+    run(&[
+        Op::NewUser,
+        Op::Rebuild(0, 19, 4, false),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Write(0, 0, false),
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Delete(25),
+        Op::Fork(0, 0),
+        Op::Write(0, 0, false),
+        Op::Move(8, 4, false),
+        Op::Merge(45, vec![(29, 0)], MergeKind::Squash, 0, vec![(4, false)]),
+    ]);
+}
+
+/// A merge brings back main's original version after a rebuild collected
+/// the row a user saw: it's a re-created row, allowed as a copy.
+#[test]
+fn merged_back_version_is_a_re_created_row() {
+    run(&[
+        Op::NewUser,
+        Op::Rebuild(0, 44, 4, false),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Publish(0),
+        Op::Fork(0, 0),
+        Op::Rebuild(30, 47, 0, false),
+        Op::Merge(104, vec![(49, 1)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge into a fork brings a version a user's edit was made over. Users
+/// layer over main only, so the fork's row gets no user entry, and
+/// publishing still finds the user's conflict with main.
+#[test]
+fn fork_merges_give_users_no_entries() {
+    run(&[
+        Op::NewUser,
+        Op::External(0, vec![(1, false)]),
+        Op::Fork(0, 1),
+        Op::Fork(0, 0),
+        Op::DiskEdit(3, 1, false, FileWins::Never),
+        Op::UserWrite(0, vec![], 1, true),
+        Op::Merge(4, vec![(2, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Publish(0),
+    ]);
+}
+
+/// A rebase replays git-sync commits; a later merge of the replay finds the
+/// source's ids in their rollups, whatever the rebasing worktree gave them.
+#[test]
+fn replayed_commits_record_their_sources_ids() {
+    run(&[
+        Op::Write(0, 0, true),
+        Op::Commit(0),
+        Op::DiskEdit(0, 3, false, FileWins::Never),
+        Op::External(0, vec![(1, false)]),
+        Op::Commit(0),
+        Op::Fork(0, 2),
+        Op::Fork(0, 0),
+        Op::Move(106, 3, false),
+        Op::Merge(76, vec![(44, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Fork(0, 1),
+        Op::Fork(0, 0),
+        Op::Merge(18, vec![(16, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// A merge moves the record of an edit conflicting with a hand edit. The
+/// edit follows it, and the file it left is reconciled, so the hand edit
+/// stays pending and is committed.
+#[test]
+fn scan_reconciles_the_file_an_edit_followed_its_record_out_of() {
+    run(&[
+        Op::Rebuild(0, 0, 4, false),
+        Op::Write(0, 4, false),
+        Op::Fork(0, 0),
+        Op::DiskEdit(49, 4, false, FileWins::Never),
+        Op::Commit(13),
+        Op::Move(20, 4, false),
+        Op::Rebuild(152, 85, 2, false),
+        Op::DiskEdit(50, 1, false, FileWins::Never),
+        Op::NewUser,
+        Op::Move(19, 4, false),
+        Op::Merge(162, vec![(31, 1)], MergeKind::Regular, 0, vec![]),
+        Op::Commit(110),
+    ]);
+}
+
+/// A scan reconciles the files edits left in it, not ones left earlier and
+/// already reconciled.
+#[test]
+fn scan_reconciles_only_files_left_in_this_scan() {
+    run(&[
+        Op::Write(0, 1, false),
+        Op::DiskEdit(0, 0, false, FileWins::Never),
+        Op::Rebuild(0, 0, 1, false),
+        Op::Write(0, 1, false),
+        Op::Move(0, 1, false),
+        Op::Write(0, 0, false),
+        Op::External(0, vec![(3, false)]),
+    ]);
+}
+
+/// Main fast-forwards to another worktree's commit and later rebuilds onto
+/// it: the base's ids are main's own.
+#[test]
+fn rebuild_onto_a_fast_forwarded_commit_uses_the_worktrees_ids() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Write(107, 0, false),
+        Op::Delete(32),
+        Op::Rebuild(0, 71, 0, true),
+        Op::External(0, vec![(0, false)]),
+        Op::Merge(29, vec![(126, 0)], MergeKind::Regular, 0, vec![]),
+        Op::NewUser,
+        Op::Merge(44, vec![(13, 0)], MergeKind::Regular, 0, vec![]),
+        Op::NewUser,
+        Op::External(48, vec![(0, false)]),
+        Op::Publish(0),
+        Op::Rebuild(72, 85, 0, false),
+    ]);
+}
+
+/// A split restores a key whose row below is a record deleted before the
+/// split point: the key didn't hold a record throughout, so its id isn't the
+/// row below's.
+#[test]
+fn split_row_below_needs_the_key_held_since() {
+    run(&[
+        Op::DiskEdit(0, 5, true, FileWins::Never),
+        Op::Commit(0),
+        Op::Move(0, 2, false),
+        Op::Fork(0, 2),
+        Op::External(126, vec![(5, true)]),
+        Op::Fork(104, 1),
+        Op::Rebuild(165, 151, 0, false),
+    ]);
+}
+
+/// A split at an older commit gives a record a new id where no rollup names
+/// it; the worktree forked from shares that segment, so its ids there change
+/// too.
+#[test]
+fn split_that_loses_an_id_changes_the_forked_worktrees_too() {
+    run(&[
+        Op::External(0, vec![(0, false)]),
+        Op::External(0, vec![(0, false)]),
+        Op::External(0, vec![(0, true)]),
+        Op::Fork(0, 1),
+        Op::Rebuild(110, 6, 0, false),
+    ]);
+}
+
+/// A rebuild onto a segment a split made takes the base's ids from its rows
+/// where no rollup names them.
+#[test]
+fn rebuild_onto_a_split_base_takes_its_ids() {
+    run(&[
+        Op::External(0, vec![(2, false)]),
+        Op::External(0, vec![(2, true)]),
+        Op::External(0, vec![(0, false)]),
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Fork(0, 2),
+        Op::Fork(43, 1),
+        Op::Rebuild(88, 77, 0, false),
+        Op::Rebuild(189, 20, 0, false),
+    ]);
+}
+
+/// A split's moved-record id is only as good as the scan that gave it: one
+/// another key of the tree holds is passed over.
+#[test]
+fn split_moved_id_stays_unique() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Write(187, 0, true),
+        Op::Fork(0, 0),
+        Op::Commit(43),
+        Op::Move(112, 3, false),
+        Op::Merge(33, vec![(136, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Delete(0),
+        Op::Delete(0),
+        Op::Fork(0, 0),
+        Op::Fork(0, 1),
+        Op::NewUser,
+        Op::External(44, vec![(3, false)]),
+    ]);
+}
+
+/// A squash, a rebase and a regular merge in turn: a value set by a replayed
+/// commit in the middle of a rebase takes its source's id.
+#[test]
+fn merge_through_a_replayed_commit_reads_its_sources_ids() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::External(0, vec![(1, false)]),
+        Op::Fork(0, 0),
+        Op::NewUser,
+        Op::Rebuild(29, 73, 1, false),
+        Op::Write(8, 1, false),
+        Op::Commit(104),
+        Op::Fork(47, 0),
+        Op::External(9, vec![(0, false)]),
+        Op::Merge(137, vec![(204, 1)], MergeKind::Squash, 0, vec![]),
+        Op::Merge(29, vec![(21, 1)], MergeKind::Rebase, 0, vec![]),
+        Op::Merge(9, vec![(29, 0)], MergeKind::Regular, 13, vec![]),
+    ]);
+}
+
+/// A rebase brings back a record's old content where the worktree had moved
+/// the record, so its scan gave the key a new id. A fork there can't tell
+/// from the rollup, which names the source's: the split's id is a loss.
+#[test]
+fn split_rollup_proves_only_what_the_worktree_gave() {
+    run(&[
+        Op::External(0, vec![(5, true)]),
+        Op::Write(0, 2, false),
+        Op::Commit(0),
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Fork(0, 2),
+        Op::Move(215, 2, false),
+        Op::Merge(73, vec![(12, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Move(0, 0, false),
+        Op::External(49, vec![(0, false)]),
+        Op::External(181, vec![(5, false), (2, false)]),
+        Op::Fork(13, 1),
+    ]);
+}
+
+/// A split after resolved conflicts and commits: the strongest evidence for
+/// each re-created key's id is used across all keys before weaker kinds.
+#[test]
+fn split_resolves_ids_by_tier_across_keys() {
+    run(&[
+        Op::DiskEdit(0, 2, false, FileWins::Never),
+        Op::Write(0, 3, false),
+        Op::NewUser,
+        Op::Write(0, 2, false),
+        Op::Rebuild(0, 13, 0, false),
+        Op::Resolve(0, false, 43, false),
+        Op::Commit(0),
+        Op::External(0, vec![(0, false)]),
+        Op::Resolve(0, false, 0, true),
+        Op::Commit(0),
+        Op::Fork(0, 1),
+    ]);
+}
+
+/// A merge brings a value whose rollup names a record another key of the
+/// tree keeps: the scan passes over that id.
+#[test]
+fn scan_passes_over_a_rollup_id_another_key_keeps() {
+    run(&[
+        Op::DiskEdit(0, 5, false, FileWins::Never),
+        Op::Rebuild(0, 0, 5, false),
+        Op::Commit(0),
+        Op::Fork(0, 1),
+        Op::External(66, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Move(1, 5, false),
+        Op::Fork(0, 0),
+        Op::Merge(223, vec![(104, 0)], MergeKind::Regular, 32, vec![]),
+        Op::External(142, vec![(2, false)]),
+    ]);
+}
+
+/// After rebase and regular merges move records around, an edit that can't
+/// follow its record again becomes a new one; other drafts' entries about
+/// the old record go.
+#[test]
+fn renewed_edit_after_rebase_merges_drops_other_entries() {
+    run(&[
+        Op::Rebuild(0, 0, 1, false),
+        Op::Fork(0, 0),
+        Op::External(56, vec![(3, false)]),
+        Op::Merge(49, vec![(56, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Move(49, 1, false),
+        Op::NewUser,
+        Op::Move(8, 3, false),
+        Op::Merge(72, vec![(187, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Merge(2, vec![(89, 0)], MergeKind::Regular, 0, vec![]),
+        Op::External(158, vec![(1, false)]),
+        Op::Delete(30),
+        Op::External(0, vec![(3, false)]),
+        Op::Fork(0, 1),
+        Op::Write(115, 0, false),
+    ]);
+}
+
+/// A split after merges and moves: rows written after the split point go to
+/// the new segment.
+#[test]
+fn split_moves_late_rows_after_merges() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Rebuild(44, 115, 0, false),
+        Op::Write(19, 2, false),
+        Op::Fork(0, 0),
+        Op::Write(100, 5, true),
+        Op::Commit(46),
+        Op::Move(0, 0, false),
+        Op::Merge(33, vec![(19, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Move(4, 2, false),
+        Op::External(66, vec![(0, false)]),
+        Op::Merge(142, vec![(66, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Fork(55, 2),
+    ]);
+}
+
+/// A split after rebase and regular merges restores a record that moved
+/// after the split point: the moved row gives its id.
+#[test]
+fn split_finds_a_record_moved_after_the_split_point() {
+    run(&[
+        Op::Write(0, 2, true),
+        Op::Fork(0, 0),
+        Op::Commit(2),
+        Op::Write(5, 5, false),
+        Op::Move(134, 5, false),
+        Op::Commit(55),
+        Op::NewUser,
+        Op::Merge(44, vec![(19, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Merge(104, vec![(125, 0)], MergeKind::Regular, 0, vec![]),
+        Op::Write(44, 0, false),
+        Op::Fork(14, 0),
+        Op::Rebuild(106, 0, 0, false),
+        Op::Fork(2, 1),
+        Op::Commit(28),
+        Op::Merge(41, vec![(4, 0)], MergeKind::Regular, 0, vec![]),
+    ]);
+}
+
+/// After merges and moves, a write adds its tag to the entries its draft
+/// already has at its key.
+#[test]
+fn write_joins_entries_at_its_key_after_merges() {
+    run(&[
+        Op::Rebuild(0, 0, 4, false),
+        Op::Fork(0, 0),
+        Op::Fork(0, 0),
+        Op::Rebuild(202, 181, 0, false),
+        Op::Merge(91, vec![(23, 0)], MergeKind::Rebase, 0, vec![]),
+        Op::Move(80, 4, false),
+        Op::Merge(83, vec![(79, 0)], MergeKind::Regular, 0, vec![]),
+        Op::External(11, vec![(4, false)]),
+        Op::Delete(68),
+        Op::Move(5, 0, false),
+        Op::Fork(103, 2),
+        Op::Delete(126),
+        Op::External(91, vec![(4, false)]),
     ]);
 }

@@ -342,10 +342,12 @@ record's first version, inherited by every later version in any segment.
 - **The rollup names each record's `key_id`.** Record lines carry it
   after the quoted key (`* 22 M "/repositories" "git://…" 1041`), where
   the grammar already allows commentary, so parsers are unaffected. A
-  split or rebuild reads the id a record had at an older commit from
-  there ([§4.7](#47-splitting-a-segment)). A commit made outside git-sync
-  has no rollup; then the id comes from the rows the database has, which
-  can miss a record deleted and re-created after that commit.
+  scan reads a new row's id from there, through a merge's parents
+  ([§4.9](#49-merges)), and a split or rebuild reads the id a record had
+  at an older commit ([§4.7](#47-splitting-a-segment)). A commit made
+  outside git-sync has no rollup; then the id comes from the rows the
+  database has, which can miss a record deleted and re-created after
+  that commit.
 
 ### 3.6 Files
 
@@ -552,6 +554,25 @@ in the committed chain, for a key the draft holds, gets
 entries with it. So wherever one of them had changed the same record, a
 layered view now shows both versions.
 
+**Record identity.** A new head row's `key_id` is, first, the id the
+rollup of the commit that set its value names, through every parent
+([§4.9](#49-merges)); else a record that moved from the other file in
+this scan; else the record at its key; else a new one. No two keys share
+one: a rollup's id another key keeps is passed over, and so is any id a
+key named earlier in the scan holds.
+
+**Edits that follow their records leave files behind.** When a pending
+edit moves to its record's new key ([§3.5](#35-record-identity)), the
+file it left is reconciled too, though its blob didn't change: the key
+may need the file's own value back.
+
+**A version a merge brings back** is a row with old content. In main,
+which users' drafts layer over, it takes other drafts' entries from an
+earlier row with that content at its key, made by an edit at that key
+or of its record, and from an edit whose base is that version. Where
+those rows are gone, a layered user sees it as a copy, the re-created
+row over-report ([§10](#10-verification-plan)).
+
 **Commit attribution.** New head rows take the file's last-touching
 commit, as today. Rows that didn't change keep theirs
 ([§6](#6-behaviour-changes)). `file.commit_id` is refreshed as today.
@@ -721,18 +742,28 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
     a draft that held the key when S deleted it would have kept a
     tombstone ([§3.3](#33-visibility-through-supersession)), so drafts
     holding it now edited after.
-- **New rows inherit identity.** Rows the split inserts take the
-  `key_id` the rollup of the commit that last changed the record names
-  ([§3.5](#35-record-identity)). Without a rollup: the id of S's row in
-  the other file written after *c* with the value at *c* (the record
-  moved), else S's moved row for that key if the key held a record at
-  every commit since *c*, else the row below, else a new id. The ids in
-  the tree at *c* stay unique:
-  - the row below loses to another key's rollup, moved row or continuing
-    record;
-  - it's skipped when its content is at another key at *c*, where the
-    record moved;
-  - and no fallback takes an id another key already has.
+- **New rows inherit identity.** No two keys of the tree at *c* share a
+  `key_id`: rows the split keeps hold theirs, and each id is given once.
+  The rows it re-creates take ids by the strongest evidence first,
+  across all of them before the next kind:
+  1. the id the rollup of the commit that set the value names, through
+     every parent ([§3.5](#35-record-identity));
+  2. S's row in the other file written after *c* with the value at *c*:
+     the record moved;
+  3. S's row at the key, if the key held a record at every commit since
+     *c*;
+  4. the row below, if it's live, the key held a record at every commit
+     from its commit to *c*, and its content isn't at another key at *c*,
+     where the record moved;
+  5. else a new id.
+
+  Where one kind names the same id for two keys, the first key takes it.
+  Rollups name what the committing worktree gave a record, which this one
+  may not have: after a merge brought a record's old content to a key
+  another of its records held, the scan gave it a new id. And a moved
+  row's id is only as good as the scan that wrote it. The split can't
+  tell these apart from the rows it has, the same loss as a commit made
+  outside git-sync ([§4.9](#49-merges)).
   Their `commit_id` is the file's last-touching commit at *c*.
 - **Drafts are unaffected.** Draft entries reference row ids, not segment
   ids, so every draft's entries survive the split, and every existing
@@ -742,7 +773,15 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   been replaced, can't reach it. So a layered worktree that edited over
   that content can see it again as a copy, if main's history is later
   rewritten back to it. Such copies over-report a conflict; they never
-  hide one.
+  hide one. The same holds for any re-created row: a file row taken in
+  again after its edit was withdrawn, or a version a merge brings back.
+  Rows don't record what was seen on them once they're replaced, so a
+  user who edited over that content, and whose entry went with the row it
+  was on, sees it again. Writing over it, their edit settles its record,
+  and publishing then leaves the edit where it is though its own record
+  has moved. Recording seen content per draft would close this, at the
+  cost of a second supersession mechanism, by content, beside the one by
+  row; the case is too rare to pay for it.
 - ***v_p* comes from the database, not from git.** That's what lets
   compaction delete rows without breaking a later split ([§4.13](#413-compaction-and-garbage-collection)).
   The split already parses those files at *h* for the diff, so the
@@ -806,6 +845,26 @@ row for every record where the merged tree differs from W's committed
 chain. That's correct for any history shape. A merge segment would add
 sharing, not correctness.
 
+**Ids through merges.** Merges are made outside the database, as regular,
+octopus or rebase merges of a published branch, and reach W by a
+fast-forward scan. A record keeps its `key_id` through them by the rollup
+of the commit that set its value, found by walking back through a parent
+with the same value, the first parent before the others: the merged
+branch's rollups are reachable through its parent. A rebase merge copies
+each commit's message, and so its rollup. Where no rollup names the
+record the id comes from the rows, which can miss its identity:
+- a squash merge, which keeps no rollups;
+- a value set in the merge commit itself, or by a commit made outside
+  git-sync;
+- a rollup's id another key of the tree already holds, which the scan
+  passes over.
+
+**Merges bring old versions back.** A value a merge restores may be one
+a user's layered edit was made over, whose row a rewrite has since
+collected. The draft's entry went with that row, so the user sees the
+version again beside their edit: the re-created-row over-report of
+[§4.7](#47-splitting-a-segment).
+
 The cost is duplication. The merged-in branch's changes are stored twice
 while both branches are live. Once the merged branch is deleted, its
 segments are collected and one copy remains. A fork that keeps pulling
@@ -824,11 +883,6 @@ duplication matters:
   - the merge commit's value differs from the one visible row.
 
   That row supersedes every one of them. The first parent's `key_id` wins.
-- **Ids through merges.** Merges are made outside the database, as
-  regular or rebase merges of a published branch. Looking a record's
-  `key_id` up in the rollups walks every parent, since the merged
-  branch's rollups are reachable through the second. A squash merge
-  keeps none, so its records' ids come from the rows.
 - **Correctness.** I3's proof carries over, because every path between
   two versions passes through segments in the view.
 - **`list_changes`.** `added_version` covers the rows that become visible
@@ -1323,8 +1377,16 @@ Still open:
     publishing, entries tagged by the edit that made them, copies merged
     by `key_id`, and conflicts with a record main deleted, wherever it
     did.
-  - **Not modelled:** independent branches, and merge commits beyond
-    their content.
+  - **Merges** made outside the database and scanned: regular and
+    octopus merges, rebase merges that keep their commits' rollups,
+    squash merges, fast-forwards, merges of unrelated histories, and
+    changes made in the merge commit itself. Git in the model has parent
+    lists, and a record's id is read from the rollup of the commit that
+    set its value, through every parent. Where no rollup names a record,
+    or names one the worktree didn't give it, the model takes the
+    implementation's id, the documented loss of §4.7 and §4.9; wherever a
+    rollup does name it, the id must match.
+  - **Not modelled:** independent branches.
   - **Resolving for the file's side** is modelled as withdrawing the
     edit. Today it rewrites the edit to the file's value, the same in
     effect, but the model's versions stand for content, so it can't give
@@ -1334,13 +1396,16 @@ Still open:
     made over. That's a split's restored row, fold step 4's row, the row
     a resolution for the file's side or `force` writes, a moved row, an
     edit moved to follow its record, a file row re-created after its edit
-    was withdrawn, or a row a rebuild brings back into view. The reverse
+    was withdrawn, a row a rebuild brings back into view, or a version a
+    merge brings back into main. The reverse
     too: a missing conflict, only where such a row showed as a copy in a
     stack and the user edited over it. The user saw main's value; the
     model, going by versions, thinks it was hidden. And an extra conflict
     with a deletion, only where the user's edit was written over such a
     row: the entry that hid it went with the row it was on, so the record
-    looked live and the edit kept its base.
+    looked live and the edit kept its base. And, for the same reason, an
+    edit that settled a record whose only row at its key is such a row
+    stays at that key at publishing though its record moved.
     - A re-created file row takes over entries from an earlier row at its
       key with the same content, made by an edit at that key or of its
       record. That covers the common case; the over-report is left for
@@ -1378,7 +1443,16 @@ Still open:
   - a fork at a head whose only content is entries dropping them
     ([§4.5](#45-creating-a-branch-or-fork));
   - a renewed edit keeping other drafts' entries about its old record
-    ([§3.3](#33-visibility-through-supersession)).
+    ([§3.3](#33-visibility-through-supersession));
+  - with merges: a scan that reads no rollups, so a merged record lost its
+    id ([§4.3](#43-scan-moving-forward)); a split whose fallbacks ran key by
+    key, so a weak claim on one key took the id a rollup gave another, and
+    whose row below could be a record deleted before the split point
+    ([§4.7](#47-splitting-a-segment)); an edit that followed its record out
+    of a file leaving that file unreconciled, which dropped a hand edit at
+    the next commit ([§4.3](#43-scan-moving-forward)); and old versions a
+    merge brings back showing beside the edits made over them
+    ([§4.9](#49-merges)).
 
   The same harness should later drive the SQL implementation.
 - **Mutation checks,** following AGENTS.md's "verify a guard test by
