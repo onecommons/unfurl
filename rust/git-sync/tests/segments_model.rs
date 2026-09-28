@@ -6,15 +6,19 @@
 //! publishing a user branch, deletion and compaction.
 //!
 //! [`Model`] is a reference that knows nothing about segments: each
-//! worktree's committed tree, its draft, and the versions each draft edit
-//! was made over. After every step of a random history, every worktree's
-//! own view must agree with it exactly. A user branch's layered view must
-//! never lose a row the model shows, and may only add a copy of a version
-//! the user's edit was made over: conflicts are over-reported, never lost.
+//! worktree's committed tree, its working tree, its draft, its conflicts,
+//! and the versions each draft edit was made over. After every step of a
+//! random history, every worktree's own view, its committed segments and
+//! its conflicts must agree with it exactly. A user branch's layered view
+//! must never lose a row the model shows, and may only add a copy of a
+//! version the user's edit was made over: copies are over-reported, never
+//! lost.
 //!
 //! Versions are shared ids: the harness hands both sides the same id for
-//! each edit, so views compare as sets of `(key, version)`. Tombstones
-//! aren't compared, only what they hide.
+//! each edit, so views compare as sets of `(key, version)`, and a version
+//! stands for its content. Tombstones aren't compared, only what they
+//! hide. Keys are grouped into files, which is what a scan's draft side
+//! works on.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -28,7 +32,8 @@ type Wt = usize;
 type CommitId = usize;
 
 const MAIN: Wt = 0;
-const KEYS: Key = 4;
+const KEYS: Key = 6;
+const KEYS_PER_FILE: Key = 3;
 /// Versions for tombstones the implementation writes on its own (scans,
 /// splits) — never compared, kept out of the shared range.
 const PRIVATE_VERSIONS: Ver = 1 << 40;
@@ -44,6 +49,48 @@ impl Git {
         self.commits.push(tree);
         self.commits.len() - 1
     }
+}
+
+fn file_of(key: Key) -> Key {
+    key / KEYS_PER_FILE
+}
+
+fn keys_of(file: Key) -> std::ops::Range<Key> {
+    file * KEYS_PER_FILE..(file + 1) * KEYS_PER_FILE
+}
+
+/// What a client's edit knows beyond its value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Edit {
+    /// The committed value it was made over (`base_commit_id`); `None`
+    /// for a create, or an edit of an uncommitted row.
+    base: Option<Ver>,
+    /// For a delete, the value it removes (a tombstone's json).
+    gone: Option<Ver>,
+}
+
+/// Today's three-way decision (`conflict::classify_conflict`), over
+/// versions: does the file's value `theirs` diverge from a client's edit?
+/// Shared by both sides: what's under test is what each hands it.
+fn diverges(ver: Ver, deleted: bool, edit: Edit, theirs: Option<Ver>) -> bool {
+    let ours = if deleted { edit.gone } else { Some(ver) };
+    match theirs {
+        Some(t) if Some(t) == ours => false,
+        Some(_) if deleted => true,
+        Some(t) => edit.base != Some(t),
+        None => !deleted && edit.base.is_some(),
+    }
+}
+
+/// Where a scan lets the file's value win over a pending edit.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum FileWins {
+    Never,
+    /// `ScanOptions::force`: everywhere, standing resolutions included.
+    Always,
+    /// A `Git-Sync-Resolves-Version` trailer: where the edit diverges and
+    /// no resolution stands.
+    Diverged,
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +122,14 @@ struct Row {
     /// Made by a split from git's content, rather than by the write that
     /// created the version.
     recreated: bool,
+    /// A draft row a client wrote. A draft row without one was taken in
+    /// from the working tree, and isn't a pending edit.
+    edit: Option<Edit>,
+    /// A conflict row, the file's side, and whether it's resolved. Never
+    /// visible and never superseding.
+    conflict: Option<bool>,
+    /// The commit that wrote this version (`commit_id`); `None` in a draft.
+    commit: Option<CommitId>,
 }
 
 #[derive(Clone, Debug)]
@@ -127,9 +182,16 @@ impl Segments {
                 ver,
                 deleted,
                 recreated: false,
+                edit: None,
+                conflict: None,
+                commit: None,
             },
         );
         id
+    }
+
+    fn stamp(&mut self, row: RowId, commit: CommitId) {
+        self.rows.get_mut(&row).unwrap().commit = Some(commit);
     }
 
     fn private_ver(&mut self) -> Ver {
@@ -143,10 +205,11 @@ impl Segments {
         self.sup.retain(|&(r, _)| r != id);
     }
 
+    /// A segment's rows, conflict rows excluded.
     fn rows_in(&self, seg: SegId) -> Vec<RowId> {
         self.rows
             .iter()
-            .filter(|(_, r)| r.seg == seg)
+            .filter(|(_, r)| r.seg == seg && r.conflict.is_none())
             .map(|(id, _)| *id)
             .collect()
     }
@@ -154,8 +217,116 @@ impl Segments {
     fn row_in(&self, seg: SegId, key: Key) -> Option<RowId> {
         self.rows
             .iter()
-            .find(|(_, r)| r.seg == seg && r.key == key)
+            .find(|(_, r)| r.seg == seg && r.key == key && r.conflict.is_none())
             .map(|(id, _)| *id)
+    }
+
+    fn conflict_row(&self, seg: SegId, key: Key) -> Option<RowId> {
+        self.rows
+            .iter()
+            .find(|(_, r)| r.seg == seg && r.key == key && r.conflict.is_some())
+            .map(|(id, _)| *id)
+    }
+
+    /// `w`'s conflicts: key → (the file's value, resolved).
+    fn conflicts(&self, w: Wt) -> BTreeMap<Key, (Option<Ver>, bool)> {
+        let d = self.wts[w].draft;
+        self.rows
+            .values()
+            .filter(|r| r.seg == d)
+            .filter_map(|r| {
+                let theirs = (!r.deleted).then_some(r.ver);
+                r.conflict.map(|resolved| (r.key, (theirs, resolved)))
+            })
+            .collect()
+    }
+
+    fn set_conflict(&mut self, w: Wt, key: Key, theirs: Option<Ver>) {
+        self.drop_conflict(w, key);
+        let d = self.wts[w].draft;
+        let id = self.insert_value(d, key, theirs);
+        self.rows.get_mut(&id).unwrap().conflict = Some(false);
+    }
+
+    fn drop_conflict(&mut self, w: Wt, key: Key) {
+        if let Some(c) = self.conflict_row(self.wts[w].draft, key) {
+            self.delete_row(c);
+        }
+    }
+
+    /// A resolved conflict row still describing the file: the resolution
+    /// stands.
+    fn resolution_stands(&self, w: Wt, key: Key, theirs: Option<Ver>) -> bool {
+        self.conflict_row(self.wts[w].draft, key).is_some_and(|c| {
+            let r = &self.rows[&c];
+            r.conflict == Some(true) && (!r.deleted).then_some(r.ver) == theirs
+        })
+    }
+
+    /// Record, refresh or drop the conflict between `w`'s pending edit
+    /// `x` and the file's value.
+    fn settle(&mut self, w: Wt, x: RowId, theirs: Option<Ver>) {
+        let r = &self.rows[&x];
+        let key = r.key;
+        if self.resolution_stands(w, key, theirs) {
+            return;
+        }
+        if diverges(r.ver, r.deleted, r.edit.unwrap(), theirs) {
+            self.set_conflict(w, key, theirs);
+        } else {
+            self.drop_conflict(w, key);
+        }
+    }
+
+    /// Whether another worktree's draft holds `key`. While one does, a
+    /// record `w` deletes leaves a tombstone, which that worktree's later
+    /// edits supersede: that's how a publish tells an edit made before the
+    /// deletion from one made after it.
+    fn held_elsewhere(&self, key: Key, w: Wt) -> bool {
+        self.rows.values().any(|r| {
+            r.key == key
+                && r.conflict.is_none()
+                && self.segs[r.seg].kind == Kind::Draft
+                && self.segs[r.seg].owner != Some(w)
+        })
+    }
+
+    /// The entries other worktrees' drafts hold on `rows`, with the
+    /// content (`None`: a tombstone) of the row each is on.
+    fn draft_entries(&self, rows: &[RowId], w: Wt) -> Vec<(Option<Ver>, SegId)> {
+        rows.iter()
+            .flat_map(|&r| {
+                let content = (!self.rows[&r].deleted).then_some(self.rows[&r].ver);
+                self.sup
+                    .range((r, 0)..(r + 1, 0))
+                    .filter(|&&(_, s)| {
+                        self.segs[s].kind == Kind::Draft && self.segs[s].owner != Some(w)
+                    })
+                    .map(move |&(_, s)| (content, s))
+            })
+            .collect()
+    }
+
+    /// A row replacing others with the same content takes over their
+    /// entries: an edit made over that content was made over it too. Only
+    /// from the rows the view showed just before: an older row with the
+    /// same content predates changes the edit may have seen since.
+    fn carry(&mut self, entries: Vec<(Option<Ver>, SegId)>, to: RowId) {
+        let content = (!self.rows[&to].deleted).then_some(self.rows[&to].ver);
+        for (c, s) in entries {
+            if c == content {
+                self.sup.insert((to, s));
+            }
+        }
+    }
+
+    /// The live version `view` shows for `key`.
+    fn live(&self, view: &BTreeSet<SegId>, key: Key) -> Option<Ver> {
+        self.visible(view, Some(key))
+            .into_iter()
+            .map(|r| &self.rows[&r])
+            .find(|r| !r.deleted)
+            .map(|r| r.ver)
     }
 
     fn chain_set(&self, w: Wt) -> BTreeSet<SegId> {
@@ -188,7 +359,8 @@ impl Segments {
         self.rows
             .iter()
             .filter(|(id, r)| {
-                view.contains(&r.seg)
+                r.conflict.is_none()
+                    && view.contains(&r.seg)
                     && key.is_none_or(|k| r.key == k)
                     && !self
                         .sup
@@ -222,19 +394,112 @@ impl Segments {
         }
     }
 
-    /// §4.2: a write into `w`'s draft, made through `via`.
-    fn write(&mut self, w: Wt, via: &BTreeSet<SegId>, key: Key, ver: Ver, deleted: bool) {
+    /// §4.2: a write into `w`'s draft, made through `via`: a client's edit,
+    /// or with `edit` false, a value taken in from the working tree.
+    fn write(
+        &mut self,
+        w: Wt,
+        via: &BTreeSet<SegId>,
+        key: Key,
+        ver: Ver,
+        deleted: bool,
+        edit: bool,
+    ) {
         let d = self.wts[w].draft;
         let own = self.own_view(w);
+        let prior = self.row_in(d, key);
+        // the committed value the edit is made over, as `via` shows it: an
+        // uncommitted row there (a draft's) gives it none
+        let committed = || {
+            let shown = self.visible(via, Some(key));
+            shown
+                .iter()
+                .all(|r| self.segs[self.rows[r].seg].kind != Kind::Draft)
+                .then(|| self.live(via, key))
+                .flatten()
+        };
+        let meta = edit.then(|| Edit {
+            base: match prior {
+                Some(p) => self.rows[&p].edit.and_then(|e| e.base),
+                None => committed(),
+            },
+            gone: if deleted { self.live(&own, key) } else { None },
+        });
         let mut seen: BTreeSet<RowId> = self.visible(via, Some(key)).into_iter().collect();
         seen.extend(self.visible(&own, Some(key)));
-        if let Some(old) = self.row_in(d, key) {
+        let entries = self.draft_entries(&seen.iter().copied().collect::<Vec<_>>(), w);
+        if let Some(old) = prior {
             seen.remove(&old);
             self.delete_row(old);
         }
-        self.insert(d, key, ver, deleted);
+        let id = self.insert(d, key, ver, deleted);
+        self.rows.get_mut(&id).unwrap().edit = meta;
+        self.carry(entries, id);
+        let seen: Vec<RowId> = seen.into_iter().collect();
         for r in seen {
             self.sup.insert((r, d));
+        }
+    }
+
+    /// Take `key` out of `w`'s draft, and the draft's entries for it.
+    fn remove_draft_row(&mut self, w: Wt, key: Key) {
+        let d = self.wts[w].draft;
+        if let Some(x) = self.row_in(d, key) {
+            self.delete_row(x);
+        }
+        let stale: Vec<(RowId, SegId)> = self
+            .sup
+            .iter()
+            .filter(|&&(r, s)| s == d && self.rows[&r].key == key)
+            .copied()
+            .collect();
+        for e in stale {
+            self.sup.remove(&e);
+        }
+    }
+
+    /// §4.3's draft side, for one file of `w`'s working tree.
+    fn reconcile(&mut self, w: Wt, file: Key, disk: &BTreeMap<Key, Ver>, wins: FileWins) {
+        let d = self.wts[w].draft;
+        for key in keys_of(file) {
+            let theirs = disk.get(&key).copied();
+            let mut x = self.row_in(d, key);
+            let mut forced = false;
+            if let Some(p) = x.filter(|x| self.rows[x].edit.is_some()) {
+                let r = &self.rows[&p];
+                let file_wins = match wins {
+                    FileWins::Never => false,
+                    FileWins::Always => true,
+                    FileWins::Diverged => {
+                        !self.resolution_stands(w, key, theirs)
+                            && diverges(r.ver, r.deleted, r.edit.unwrap(), theirs)
+                    }
+                };
+                if !file_wins {
+                    self.settle(w, p, theirs);
+                    continue;
+                }
+                self.remove_draft_row(w, key);
+                x = None;
+                forced = true;
+            }
+            self.drop_conflict(w, key);
+            if theirs == self.live(&self.chain_set(w), key) {
+                if x.is_some() {
+                    self.remove_draft_row(w, key);
+                }
+            } else if x.map(|x| (!self.rows[&x].deleted).then_some(self.rows[&x].ver))
+                != Some(theirs)
+            {
+                let own = self.own_view(w);
+                let ver = theirs.unwrap_or_else(|| self.private_ver());
+                self.write(w, &own, key, ver, theirs.is_none(), false);
+                // over a withdrawn edit: the file's value again, in a new row
+                if forced {
+                    let r = self.row_in(d, key).unwrap();
+                    self.recreated(r);
+                }
+            }
         }
     }
 
@@ -255,10 +520,21 @@ impl Segments {
     }
 
     /// §4.3: a fast-forward scan brings `w`'s head up to a commit with
-    /// these changes (`None`: deleted), such as a merge.
-    fn scan(&mut self, w: Wt, changes: &[(Key, Option<Ver>)], commit: CommitId) {
+    /// these changes (`None`: deleted), such as a merge, which the working
+    /// tree `disk` holds too.
+    fn scan(
+        &mut self,
+        w: Wt,
+        changes: &[(Key, Option<Ver>)],
+        commit: CommitId,
+        disk: &BTreeMap<Key, Ver>,
+    ) {
         for &(key, change) in changes {
-            self.scan_key(w, key, change);
+            self.scan_key(w, key, change, commit);
+        }
+        let files: BTreeSet<Key> = changes.iter().map(|&(k, _)| file_of(k)).collect();
+        for f in files {
+            self.reconcile(w, f, disk, FileWins::Never);
         }
         let h = self.wts[w].head;
         self.segs[h].head_commit = Some(commit);
@@ -266,50 +542,142 @@ impl Segments {
         self.relink_draft(w);
     }
 
-    fn scan_key(&mut self, w: Wt, key: Key, change: Option<Ver>) {
+    fn scan_key(&mut self, w: Wt, key: Key, change: Option<Ver>, commit: CommitId) {
         let h = self.wts[w].head;
         let mut below = self.chain_set(w);
         below.remove(&h);
         let vis_below = self.visible(&below, Some(key));
         let head_row = self.row_in(h, key);
+        let pinned = head_row.is_some() && self.held_elsewhere(key, w);
+        let entries = self.draft_entries(head_row.as_slice(), w);
         if let Some(hr) = head_row {
             self.delete_row(hr);
         }
         let new_row = match change {
             Some(v) => Some(self.insert(h, key, v, false)),
-            None if vis_below.iter().any(|r| !self.rows[r].deleted) => {
+            None if pinned || vis_below.iter().any(|r| !self.rows[r].deleted) => {
                 let t = self.private_ver();
                 Some(self.insert(h, key, t, true))
             }
             None => None,
         };
-        if new_row.is_some() && head_row.is_none() {
-            for r in vis_below {
-                self.sup.insert((r, h));
+        if let Some(n) = new_row {
+            self.stamp(n, commit);
+            self.carry(entries, n);
+            if head_row.is_none() {
+                let entries = self.draft_entries(&vis_below, w);
+                self.carry(entries, n);
+                for r in vis_below {
+                    self.sup.insert((r, h));
+                }
             }
         }
     }
 
-    /// §4.4: the fold.
-    fn commit(&mut self, w: Wt, commit: CommitId) {
+    /// §4.4: render `w`'s view into its working tree `disk`, commit the
+    /// result, and fold. Returns the tree, or `None` when there's nothing
+    /// to commit.
+    fn commit(
+        &mut self,
+        w: Wt,
+        disk: &BTreeMap<Key, Ver>,
+        git: &mut Git,
+    ) -> Option<BTreeMap<Key, Ver>> {
         let (d, h) = (self.wts[w].draft, self.wts[w].head);
+        let mut tree = disk.clone();
+        let mut carried = Vec::new();
         for x in self.rows_in(d) {
+            let r = self.rows[&x].clone();
+            let theirs = disk.get(&r.key).copied();
+            let apply = match (r.edit, self.conflict_row(d, r.key)) {
+                // taken in from the working tree: already there
+                (None, _) => {
+                    carried.push(x);
+                    continue;
+                }
+                (Some(_), None) => true,
+                (Some(_), Some(c)) if self.rows[&c].conflict == Some(true) => {
+                    if self.resolution_stands(w, r.key, theirs) {
+                        self.delete_row(c);
+                        true
+                    } else {
+                        // the file moved under the resolution
+                        self.set_conflict(w, r.key, theirs);
+                        false
+                    }
+                }
+                (Some(_), Some(_)) => false,
+            };
+            if apply {
+                if r.deleted {
+                    tree.remove(&r.key);
+                } else {
+                    tree.insert(r.key, r.ver);
+                }
+                carried.push(x);
+            }
+        }
+        if tree == git.commits[*self.wts[w].history.last().unwrap()] {
+            return None;
+        }
+        let commit = git.commit(tree.clone());
+        for x in carried {
             let k = self.rows[&x].key;
+            // the committed row it replaces, in the head or below
+            let shown = self.visible(&self.chain_set(w), Some(k));
+            let entries = self.draft_entries(&shown, w);
             if let Some(hr) = self.row_in(h, k) {
                 self.delete_row(hr);
             }
+            self.carry(entries, x);
             self.move_entries(d, h, k);
-            self.rows.get_mut(&x).unwrap().seg = h;
+            let row = self.rows.get_mut(&x).unwrap();
+            row.seg = h;
+            row.edit = None;
+            row.commit = Some(commit);
             let hides = self
                 .sup
                 .iter()
                 .any(|&(r, s)| s == h && self.rows[&r].key == k);
-            if self.rows[&x].deleted && !hides {
+            if self.rows[&x].deleted && !hides && !self.held_elsewhere(k, w) {
                 self.delete_row(x);
+            }
+        }
+        // Step 4: under an edit held back by a conflict, the head takes
+        // the file's value.
+        for x in self.rows_in(d) {
+            let k = self.rows[&x].key;
+            let file = tree.get(&k).copied();
+            if self.live(&self.chain_set(w), k) != file {
+                self.scan_key(w, k, file, commit);
+                if let Some(r) = self.row_in(h, k) {
+                    self.recreated(r);
+                }
             }
         }
         self.segs[h].head_commit = Some(commit);
         self.wts[w].history.push(commit);
+        self.relink_draft(w);
+        Some(tree)
+    }
+
+    /// Settle a conflict for the file's side: the edit is withdrawn, and
+    /// what the working tree holds (`None` for a user branch) stands.
+    fn resolve_theirs(&mut self, w: Wt, key: Key, disk: Option<&BTreeMap<Key, Ver>>) {
+        self.drop_conflict(w, key);
+        self.remove_draft_row(w, key);
+        if let Some(disk) = disk {
+            self.reconcile(w, file_of(key), disk, FileWins::Never);
+            // the file's value again, in a new row
+            if let Some(r) = self.row_in(self.wts[w].draft, key) {
+                self.recreated(r);
+            }
+        }
+    }
+
+    fn resolve_ours(&mut self, w: Wt, key: Key) {
+        let c = self.conflict_row(self.wts[w].draft, key).unwrap();
+        self.rows.get_mut(&c).unwrap().conflict = Some(true);
     }
 
     fn add_worktree(
@@ -412,11 +780,20 @@ impl Segments {
         }
         let below = self.ancestors(s);
         let (tree_c, tree_h) = (&git.commits[c], &git.commits[h_commit]);
+        // keys that differ, and rows written after `c` whatever their value:
+        // a tombstone kept for another draft's key changes nothing in git
         let keys: BTreeSet<Key> = tree_c
             .keys()
             .chain(tree_h.keys())
             .copied()
             .filter(|k| tree_c.get(k) != tree_h.get(k))
+            .chain(
+                self.rows_in(s)
+                    .into_iter()
+                    .map(|r| &self.rows[&r])
+                    .filter(|r| r.commit > Some(c))
+                    .map(|r| r.key),
+            )
             .collect();
         for k in keys {
             let v_c = tree_c.get(&k).copied();
@@ -430,6 +807,7 @@ impl Segments {
                     self.rows.get_mut(&sr).unwrap().seg = s2;
                     if v_c != below_live {
                         let new = self.insert_value(s, k, v_c);
+                        self.stamp(new, c);
                         self.recreated(new);
                         self.sup.insert((new, s2));
                     } else {
@@ -439,26 +817,41 @@ impl Segments {
                 None => {
                     // changed before c and back after it
                     let new = self.insert_value(s, k, v_c);
+                    self.stamp(new, c);
                     self.recreated(new);
                     for &x in &vis_below {
                         self.sup.insert((x, s));
                     }
-                    let r2 = match vis_below.first() {
-                        Some(&b) => {
+                    // `s` may hide the row below by an entry alone (a fold
+                    // took the tombstone), so restore git's value at its end
+                    let v_h = tree_h.get(&k).copied();
+                    let copy = vis_below
+                        .first()
+                        .copied()
+                        .filter(|b| (!self.rows[b].deleted).then_some(self.rows[b].ver) == v_h);
+                    let r2 = match copy {
+                        Some(b) => {
                             let (ver, deleted) = (self.rows[&b].ver, self.rows[&b].deleted);
                             self.insert(s2, k, ver, deleted)
                         }
-                        None => self.insert_value(s2, k, None),
+                        None => self.insert_value(s2, k, v_h),
                     };
+                    self.stamp(r2, h_commit);
                     self.recreated(r2);
                     // The restored row stands for a version older than
                     // anything a segment outside `s` and its ancestors
-                    // holds for the key, so each of those supersedes it.
+                    // holds for the key, so each of those supersedes it. A
+                    // restored deletion is no newer than a draft holding the
+                    // key: one held then would have kept a tombstone.
                     let newer: BTreeSet<SegId> = self
                         .rows
                         .values()
                         .filter(|r| {
-                            r.key == k && r.seg != s && r.seg != s2 && !below.contains(&r.seg)
+                            r.conflict.is_none()
+                                && r.key == k
+                                && r.seg != s
+                                && r.seg != s2
+                                && !below.contains(&r.seg)
                         })
                         .map(|r| r.seg)
                         .collect();
@@ -500,6 +893,34 @@ impl Segments {
         chain.push((hu, false));
         self.wts[u].chain = chain;
         self.wts[u].history = self.wts[MAIN].history.clone();
+        // §4.12: classify only the edits whose draft doesn't already
+        // supersede what the new chain shows; main's value is theirs
+        let (d, view) = (self.wts[u].draft, self.chain_set(u));
+        for x in self.rows_in(d) {
+            let k = self.rows[&x].key;
+            let unseen: Vec<RowId> = self
+                .visible(&view, Some(k))
+                .into_iter()
+                .filter(|&r| !self.sup.contains(&(r, d)))
+                .collect();
+            if unseen.is_empty() {
+                // the edit is on top of main's value: a conflict with any
+                // other is over
+                let main = self.live(&view, k);
+                if let Some(c) = self.conflict_row(d, k) {
+                    if (!self.rows[&c].deleted).then_some(self.rows[&c].ver) != main {
+                        self.delete_row(c);
+                    }
+                }
+                continue;
+            }
+            let theirs = unseen
+                .iter()
+                .map(|r| &self.rows[r])
+                .find(|r| !r.deleted)
+                .map(|r| r.ver);
+            self.settle(u, x, theirs);
+        }
         self.relink_draft(u);
     }
 
@@ -518,6 +939,7 @@ impl Segments {
         };
         let base = base_chain.last().map(|&(s, _)| s);
         let view: BTreeSet<SegId> = base_chain.iter().map(|&(s, _)| s).collect();
+        let old_view = self.chain_set(w);
         let hn = self.new_seg(Kind::Head, base, Some(w), Some(commit));
         for k in 0..KEYS {
             let vis = self.visible(&view, Some(k));
@@ -526,10 +948,16 @@ impl Segments {
                 .find(|r| !self.rows[r].deleted)
                 .map(|r| self.rows[r].ver);
             let want = tree.get(&k).copied();
-            if want == live {
+            let pinned =
+                || !self.visible(&old_view, Some(k)).is_empty() && self.held_elsewhere(k, w);
+            if want == live && (want.is_some() || !pinned()) {
                 continue;
             }
-            self.insert_value(hn, k, want);
+            let n = self.insert_value(hn, k, want);
+            self.stamp(n, commit);
+            let old = self.visible(&old_view, Some(k));
+            let entries = self.draft_entries(&old, w);
+            self.carry(entries, n);
             for x in vis {
                 self.sup.insert((x, hn));
             }
@@ -554,7 +982,13 @@ impl Segments {
 
     fn drop_seg(&mut self, s: SegId) {
         self.segs[s].alive = false;
-        for r in self.rows_in(s) {
+        let rows: Vec<RowId> = self
+            .rows
+            .iter()
+            .filter(|(_, r)| r.seg == s)
+            .map(|(id, _)| *id)
+            .collect();
+        for r in rows {
             self.delete_row(r);
         }
         self.sup.retain(|&(_, seg)| seg != s);
@@ -641,23 +1075,59 @@ impl Segments {
 // The reference model
 // ---------------------------------------------------------------------------
 
+#[derive(Clone, Copy, Debug)]
+enum Origin {
+    /// Taken in from the working tree.
+    File,
+    Edit(Edit),
+}
+
 #[derive(Clone, Debug)]
 struct ODraft {
     ver: Ver,
     deleted: bool,
-    /// The versions this edit was made over.
+    /// The versions this edit was made over, and the ids of main's
+    /// absences ([`Model::absent`]) it was made over.
     based_on: BTreeSet<Ver>,
+    origin: Origin,
+    /// For a tombstone main writes over an absence, that absence's ids
+    /// ([`Model::absent`]): committed, it continues it.
+    continues: BTreeSet<Ver>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct OConflict {
+    theirs: Option<Ver>,
+    resolved: bool,
 }
 
 #[derive(Clone, Debug)]
 struct OWt {
     committed: BTreeMap<Key, Ver>,
+    /// The working tree; a user branch has none, and this is unused.
+    disk: BTreeMap<Key, Ver>,
     draft: BTreeMap<Key, ODraft>,
+    conflicts: BTreeMap<Key, OConflict>,
+    /// A user branch's view of main's absences ([`Model::absent`]), as of
+    /// its fork or last publish: its own view shows those tombstones.
+    absent: BTreeMap<Key, BTreeSet<Ver>>,
     user: bool,
     alive: bool,
 }
 
 impl OWt {
+    fn new(committed: BTreeMap<Key, Ver>, user: bool) -> Self {
+        OWt {
+            disk: committed.clone(),
+            committed,
+            draft: BTreeMap::new(),
+            conflicts: BTreeMap::new(),
+            absent: BTreeMap::new(),
+            user,
+            alive: true,
+        }
+    }
+
     fn view(&self) -> BTreeMap<Key, Ver> {
         let mut v = self.committed.clone();
         for (k, d) in &self.draft {
@@ -677,10 +1147,187 @@ impl OWt {
             .map(|d| (d.ver, d.deleted))
             .or_else(|| self.committed.get(&k).map(|&v| (v, false)))
     }
+
+    /// A client's edit of `k`, made over `shown`, the committed value the
+    /// view it's made through shows; `based_on` matters only for a user
+    /// branch.
+    fn edit(
+        &mut self,
+        k: Key,
+        ver: Ver,
+        deleted: bool,
+        shown: Option<Ver>,
+        based_on: BTreeSet<Ver>,
+    ) {
+        let base = match self.draft.get(&k) {
+            Some(ODraft {
+                origin: Origin::Edit(e),
+                ..
+            }) => e.base,
+            Some(_) => None,
+            None => shown,
+        };
+        let gone = if deleted {
+            self.view().get(&k).copied()
+        } else {
+            None
+        };
+        self.draft.insert(
+            k,
+            ODraft {
+                ver,
+                deleted,
+                based_on,
+                origin: Origin::Edit(Edit { base, gone }),
+                continues: BTreeSet::new(),
+            },
+        );
+    }
+
+    /// The conflict between the edit of `k` and the file's value.
+    fn settle(&mut self, k: Key, theirs: Option<Ver>) {
+        if self
+            .conflicts
+            .get(&k)
+            .is_some_and(|c| c.resolved && c.theirs == theirs)
+        {
+            return;
+        }
+        let d = &self.draft[&k];
+        let Origin::Edit(e) = d.origin else {
+            unreachable!("only edits conflict")
+        };
+        if diverges(d.ver, d.deleted, e, theirs) {
+            self.conflicts.insert(
+                k,
+                OConflict {
+                    theirs,
+                    resolved: false,
+                },
+            );
+        } else {
+            self.conflicts.remove(&k);
+        }
+    }
+
+    /// A scan's draft side for one file. A tombstone taken in from the
+    /// file gets a fresh id from `next`.
+    fn reconcile(&mut self, file: Key, next: &mut Ver, wins: FileWins) {
+        for k in keys_of(file) {
+            let theirs = self.disk.get(&k).copied();
+            if let Some(d) = self.draft.get(&k).filter(|d| d.origin.is_edit()) {
+                let Origin::Edit(e) = d.origin else {
+                    unreachable!("filtered to edits")
+                };
+                let stands = self
+                    .conflicts
+                    .get(&k)
+                    .is_some_and(|c| c.resolved && c.theirs == theirs);
+                let file_wins = match wins {
+                    FileWins::Never => false,
+                    FileWins::Always => true,
+                    FileWins::Diverged => !stands && diverges(d.ver, d.deleted, e, theirs),
+                };
+                if !file_wins {
+                    self.settle(k, theirs);
+                    continue;
+                }
+                self.draft.remove(&k);
+            }
+            self.conflicts.remove(&k);
+            let holds = self.draft.get(&k).is_some_and(|d| {
+                if d.deleted {
+                    theirs.is_none()
+                } else {
+                    theirs == Some(d.ver)
+                }
+            });
+            if theirs == self.committed.get(&k).copied() {
+                self.draft.remove(&k);
+            } else if !holds {
+                let ver = theirs.unwrap_or_else(|| {
+                    *next += 1;
+                    *next
+                });
+                self.draft.insert(
+                    k,
+                    ODraft {
+                        ver,
+                        deleted: theirs.is_none(),
+                        based_on: BTreeSet::new(),
+                        origin: Origin::File,
+                        continues: BTreeSet::new(),
+                    },
+                );
+            }
+        }
+    }
+
+    /// Render the draft into the working tree and commit it: the tree, or
+    /// `None` when that changes nothing.
+    fn commit(&mut self) -> Option<BTreeMap<Key, Ver>> {
+        let mut tree = self.disk.clone();
+        let mut carried = Vec::new();
+        for (&k, d) in &self.draft {
+            let theirs = self.disk.get(&k).copied();
+            let apply = match (d.origin, self.conflicts.get(&k)) {
+                (Origin::File, _) => {
+                    carried.push(k);
+                    continue;
+                }
+                (Origin::Edit(_), None) => true,
+                (Origin::Edit(_), Some(c)) if c.resolved => c.theirs == theirs,
+                (Origin::Edit(_), Some(_)) => false,
+            };
+            if apply {
+                if d.deleted {
+                    tree.remove(&k);
+                } else {
+                    tree.insert(k, d.ver);
+                }
+                carried.push(k);
+            }
+        }
+        for (&k, c) in self.conflicts.iter_mut() {
+            if c.resolved {
+                let theirs = self.disk.get(&k).copied();
+                if c.theirs != theirs {
+                    *c = OConflict {
+                        theirs,
+                        resolved: false,
+                    };
+                }
+            }
+        }
+        for k in &carried {
+            if self.draft[k].origin.is_edit() {
+                self.conflicts.remove(k);
+            }
+        }
+        if tree == self.committed {
+            return None;
+        }
+        for k in carried {
+            self.draft.remove(&k);
+        }
+        self.committed = tree.clone();
+        self.disk = tree.clone();
+        Some(tree)
+    }
+}
+
+impl Origin {
+    fn is_edit(&self) -> bool {
+        matches!(self, Origin::Edit(_))
+    }
 }
 
 struct Model {
     wts: Vec<OWt>,
+    /// For each key main's committed tree lacks, ids for that absence: the
+    /// version of each tombstone main committed for it, or a fresh id when
+    /// a scan or rebuild removed it. They last while the key stays absent.
+    absent: BTreeMap<Key, BTreeSet<Ver>>,
 }
 
 impl Model {
@@ -725,9 +1372,12 @@ enum Op {
     /// A write through a worktree's own view (main or a fork).
     Write(u8, Key, bool),
     Commit(u8),
-    /// A commit made outside the database, then scanned: one or more
-    /// changes, as a merge brings.
+    /// A commit made outside the database and checked out, then scanned:
+    /// one or more changes, as a merge brings.
     External(u8, Vec<(Key, bool)>),
+    /// A hand edit of a worktree's working tree, then scanned, letting the
+    /// file win where `.3` says.
+    DiskEdit(u8, Key, bool, FileWins),
     /// Fork main or a fork, `.1` commits back from its head.
     Fork(u8, u8),
     NewUser,
@@ -735,6 +1385,9 @@ enum Op {
     /// (a stack), and their own on top.
     UserWrite(u8, Vec<u8>, Key, bool),
     Publish(u8),
+    /// Resolve one of a worktree's conflicts (a user's, with `.1`), for
+    /// the database's side (`.3`) or the file's.
+    Resolve(u8, bool, u8, bool),
     Delete(u8),
     /// A rewrite (rebase, reset, force-push): a worktree's HEAD moves to a
     /// new commit on top of an older segment, with one key changed.
@@ -747,12 +1400,14 @@ fn op() -> impl Strategy<Value = Op> {
         4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
         2 => any::<u8>().prop_map(Op::Commit),
         2 => (any::<u8>(), prop::collection::vec((key.clone(), prop::bool::weighted(0.2)), 1..4)).prop_map(|(w, c)| Op::External(w, c)),
+        3 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2), prop_oneof![6 => Just(FileWins::Never), 1 => Just(FileWins::Always), 1 => Just(FileWins::Diverged)]).prop_map(|(w, k, d, f)| Op::DiskEdit(w, k, d, f)),
         1 => (any::<u8>(), 0u8..4).prop_map(|(w, b)| Op::Fork(w, b)),
         1 => Just(Op::NewUser),
-        4 => (any::<u8>(), prop::collection::vec(any::<u8>(), 0..3), key, prop::bool::weighted(0.2)).prop_map(|(u, b, k, d)| Op::UserWrite(u, b, k, d)),
+        4 => (any::<u8>(), prop::collection::vec(any::<u8>(), 0..3), key.clone(), prop::bool::weighted(0.2)).prop_map(|(u, b, k, d)| Op::UserWrite(u, b, k, d)),
         1 => any::<u8>().prop_map(Op::Publish),
+        2 => (any::<u8>(), any::<bool>(), any::<u8>(), any::<bool>()).prop_map(|(w, u, i, o)| Op::Resolve(w, u, i, o)),
         1 => any::<u8>().prop_map(Op::Delete),
-        1 => (any::<u8>(), any::<u8>(), 0..KEYS, prop::bool::weighted(0.2)).prop_map(|(w, b, k, d)| Op::Rebuild(w, b, k, d)),
+        1 => (any::<u8>(), any::<u8>(), key, prop::bool::weighted(0.2)).prop_map(|(w, b, k, d)| Op::Rebuild(w, b, k, d)),
     ]
 }
 
@@ -771,18 +1426,15 @@ impl World {
         let c0 = git.commit(tree.clone());
         let root = imp.new_seg(Kind::Head, None, None, Some(c0));
         for (&k, &v) in &tree {
-            imp.insert(root, k, v, false);
+            let r = imp.insert(root, k, v, false);
+            imp.stamp(r, c0);
         }
         imp.add_worktree(root, vec![(root, false)], vec![c0]);
         World {
             imp,
             model: Model {
-                wts: vec![OWt {
-                    committed: tree,
-                    draft: BTreeMap::new(),
-                    user: false,
-                    alive: true,
-                }],
+                wts: vec![OWt::new(tree, false)],
+                absent: BTreeMap::new(),
             },
             git,
             next_ver: KEYS as Ver + 1,
@@ -792,6 +1444,32 @@ impl World {
     fn ver(&mut self) -> Ver {
         self.next_ver += 1;
         self.next_ver
+    }
+
+    /// Main's committed tree moved from `before`; `tombstones` are the
+    /// ids of the draft tombstones its commit carried.
+    fn main_moved(
+        &mut self,
+        before: &BTreeMap<Key, Ver>,
+        tombstones: &BTreeMap<Key, BTreeSet<Ver>>,
+    ) {
+        for k in 0..KEYS {
+            if self.model.wts[MAIN].committed.contains_key(&k) {
+                self.model.absent.remove(&k);
+                continue;
+            }
+            let newly = before.contains_key(&k) || !self.model.absent.contains_key(&k);
+            let new_ids = match tombstones.get(&k) {
+                Some(t) => t.clone(),
+                None if newly => BTreeSet::from([self.ver()]),
+                None => continue,
+            };
+            let ids = self.model.absent.entry(k).or_default();
+            if newly {
+                ids.clear();
+            }
+            ids.extend(new_ids);
+        }
     }
 
     fn pick(&self, n: u8, user: bool) -> Option<Wt> {
@@ -807,34 +1485,52 @@ impl World {
                 let w = self.pick(n, false).unwrap();
                 let ver = self.ver();
                 let own = self.imp.own_view(w);
-                self.imp.write(w, &own, k, ver, deleted);
-                self.model.wts[w].draft.insert(
-                    k,
-                    ODraft {
-                        ver,
-                        deleted,
-                        based_on: BTreeSet::new(),
-                    },
-                );
+                self.imp.write(w, &own, k, ver, deleted, true);
+                // a tombstone over main's absence continues it
+                let continues = match (w, deleted, self.model.wts[w].shown(k)) {
+                    (MAIN, true, None) => self.model.absent[&k].clone(),
+                    (MAIN, true, Some((t, true))) => {
+                        let mut ids = self.model.wts[w].draft[&k].continues.clone();
+                        ids.insert(t);
+                        ids
+                    }
+                    _ => BTreeSet::new(),
+                };
+                let m = &mut self.model.wts[w];
+                let shown = m.committed.get(&k).copied();
+                m.edit(k, ver, deleted, shown, BTreeSet::new());
+                m.draft.get_mut(&k).unwrap().continues = continues;
             }
             Op::Commit(n) => {
                 let w = self.pick(n, false).unwrap();
-                if self.model.wts[w].draft.is_empty() {
-                    return;
+                let m = &self.model.wts[w];
+                let (disk, before) = (m.disk.clone(), m.committed.clone());
+                let tombstones: BTreeMap<Key, BTreeSet<Ver>> = m
+                    .draft
+                    .iter()
+                    .filter(|(_, d)| d.deleted)
+                    .map(|(&k, d)| {
+                        let mut ids = d.continues.clone();
+                        ids.insert(d.ver);
+                        (k, ids)
+                    })
+                    .collect();
+                let got = self.imp.commit(w, &disk, &mut self.git);
+                let want = self.model.wts[w].commit();
+                assert_eq!(got, want, "worktree {w}'s commit");
+                if w == MAIN && want.is_some() {
+                    // only those the commit carried; a conflict holds some back
+                    let draft = &self.model.wts[w].draft;
+                    let carried: BTreeMap<Key, BTreeSet<Ver>> = tombstones
+                        .into_iter()
+                        .filter(|(k, _)| !draft.contains_key(k))
+                        .collect();
+                    self.main_moved(&before, &carried);
                 }
-                let m = &mut self.model.wts[w];
-                for (k, d) in std::mem::take(&mut m.draft) {
-                    if d.deleted {
-                        m.committed.remove(&k);
-                    } else {
-                        m.committed.insert(k, d.ver);
-                    }
-                }
-                let c = self.git.commit(m.committed.clone());
-                self.imp.commit(w, c);
             }
             Op::External(n, ref changes) => {
                 let w = self.pick(n, false).unwrap();
+                let before = self.model.wts[w].committed.clone();
                 let changes: BTreeMap<Key, Option<Ver>> = changes
                     .iter()
                     .map(|&(k, deleted)| (k, (!deleted).then(|| self.ver())))
@@ -842,13 +1538,40 @@ impl World {
                 let m = &mut self.model.wts[w];
                 for (&k, &change) in &changes {
                     match change {
-                        Some(v) => m.committed.insert(k, v),
-                        None => m.committed.remove(&k),
+                        Some(v) => {
+                            m.committed.insert(k, v);
+                            m.disk.insert(k, v);
+                        }
+                        None => {
+                            m.committed.remove(&k);
+                            m.disk.remove(&k);
+                        }
                     };
                 }
+                let files: BTreeSet<Key> = changes.keys().map(|&k| file_of(k)).collect();
+                for &f in &files {
+                    m.reconcile(f, &mut self.next_ver, FileWins::Never);
+                }
                 let c = self.git.commit(m.committed.clone());
+                let disk = m.disk.clone();
                 let changes: Vec<(Key, Option<Ver>)> = changes.into_iter().collect();
-                self.imp.scan(w, &changes, c);
+                self.imp.scan(w, &changes, c, &disk);
+                if w == MAIN {
+                    self.main_moved(&before, &BTreeMap::new());
+                }
+            }
+            Op::DiskEdit(n, k, deleted, wins) => {
+                let w = self.pick(n, false).unwrap();
+                let ver = self.ver();
+                let m = &mut self.model.wts[w];
+                if deleted {
+                    m.disk.remove(&k);
+                } else {
+                    m.disk.insert(k, ver);
+                }
+                m.reconcile(file_of(k), &mut self.next_ver, wins);
+                let disk = m.disk.clone();
+                self.imp.reconcile(w, file_of(k), &disk, wins);
             }
             Op::Fork(n, back) => {
                 let w = self.pick(n, false).unwrap();
@@ -856,23 +1579,17 @@ impl World {
                 let pos = len - 1 - (back as usize).min(len - 1);
                 let c = self.imp.wts[w].history[pos];
                 self.imp.fork(w, pos, &self.git);
-                self.model.wts.push(OWt {
-                    committed: self.git.commits[c].clone(),
-                    draft: BTreeMap::new(),
-                    user: false,
-                    alive: true,
-                });
+                self.model
+                    .wts
+                    .push(OWt::new(self.git.commits[c].clone(), false));
             }
             Op::NewUser => {
                 let pos = self.imp.wts[MAIN].history.len() - 1;
                 self.imp.fork(MAIN, pos, &self.git);
                 let committed = self.model.wts[MAIN].committed.clone();
-                self.model.wts.push(OWt {
-                    committed,
-                    draft: BTreeMap::new(),
-                    user: true,
-                    alive: true,
-                });
+                let mut user = OWt::new(committed, true);
+                user.absent = self.model.absent.clone();
+                self.model.wts.push(user);
             }
             Op::UserWrite(n, ref below, k, deleted) => {
                 let Some(u) = self.pick(n, true) else { return };
@@ -886,39 +1603,102 @@ impl World {
                 stack.push(u);
                 let ver = self.ver();
                 let via = self.imp.layered(MAIN, &stack);
-                self.imp.write(u, &via, k, ver, deleted);
+                self.imp.write(u, &via, k, ver, deleted, true);
                 let old = self.model.wts[u].draft.get(&k).map(|d| d.ver);
-                let mut seen: BTreeSet<Ver> = self
-                    .model
-                    .stack_rows(&stack, k)
+                let rows = self.model.stack_rows(&stack, k);
+                let main = &self.model.wts[MAIN];
+                // only main's committed row shown: another layer's is a draft's
+                let shown = match rows.as_slice() {
+                    [(v, false)]
+                        if !main.draft.contains_key(&k) && main.committed.get(&k) == Some(v) =>
+                    {
+                        Some(*v)
+                    }
+                    _ => None,
+                };
+                let mut seen: BTreeSet<Ver> = rows
                     .into_iter()
                     .map(|(v, _)| v)
                     .filter(|&v| Some(v) != old)
                     .collect();
+                // main's absence, unless an edit lower in the stack hides it
+                if self.model.wts[MAIN].shown(k).is_none() {
+                    let ids = &self.model.absent[&k];
+                    let hidden = stack.iter().filter(|&&v| v != u).any(|&v| {
+                        self.model.wts[v]
+                            .draft
+                            .get(&k)
+                            .is_some_and(|d| !d.based_on.is_disjoint(ids))
+                    });
+                    if !hidden {
+                        seen.extend(ids);
+                    }
+                }
                 let user = &mut self.model.wts[u];
                 match user.draft.get(&k) {
                     Some(old) => seen.extend(&old.based_on),
-                    None => seen.extend(user.committed.get(&k)),
-                }
-                user.draft.insert(
-                    k,
-                    ODraft {
-                        ver,
-                        deleted,
-                        based_on: seen,
+                    // what its own view shows, a tombstone included
+                    None => match user.committed.get(&k) {
+                        Some(&v) => {
+                            seen.insert(v);
+                        }
+                        None => seen.extend(user.absent.get(&k).into_iter().flatten()),
                     },
-                );
+                }
+                user.edit(k, ver, deleted, shown, seen);
             }
             Op::Publish(n) => {
                 let Some(u) = self.pick(n, true) else { return };
                 self.imp.publish(u);
                 let committed = self.model.wts[MAIN].committed.clone();
+                let states: BTreeMap<Key, BTreeSet<Ver>> = (0..KEYS)
+                    .map(|k| {
+                        let ids = match committed.get(&k) {
+                            Some(&v) => BTreeSet::from([v]),
+                            None => self.model.absent[&k].clone(),
+                        };
+                        (k, ids)
+                    })
+                    .collect();
                 let user = &mut self.model.wts[u];
-                user.committed = committed;
-                for (k, d) in user.draft.iter_mut() {
-                    if let Some(&v) = user.committed.get(k) {
-                        d.based_on.insert(v);
+                let keys: Vec<Key> = user.draft.keys().copied().collect();
+                for k in keys {
+                    let main = committed.get(&k).copied();
+                    if user.draft[&k].based_on.is_disjoint(&states[&k]) {
+                        user.settle(k, main);
+                    } else if user.conflicts.get(&k).is_some_and(|c| c.theirs != main) {
+                        // on top of main's value: a conflict with any other is over
+                        user.conflicts.remove(&k);
                     }
+                }
+                user.committed = committed;
+                user.absent = self.model.absent.clone();
+                for (k, d) in user.draft.iter_mut() {
+                    d.based_on.extend(&states[k]);
+                }
+            }
+            Op::Resolve(n, user, i, ours) => {
+                let Some(w) = self.pick(n, user) else { return };
+                let m = &mut self.model.wts[w];
+                let keys: Vec<Key> = m.conflicts.keys().copied().collect();
+                if keys.is_empty() {
+                    return;
+                }
+                let k = keys[i as usize % keys.len()];
+                if ours {
+                    m.conflicts.get_mut(&k).unwrap().resolved = true;
+                    self.imp.resolve_ours(w, k);
+                } else {
+                    // Today's rewrites the edit to the file's value; with
+                    // versions standing for content, that's modelled as
+                    // withdrawing the edit, to the same effect.
+                    m.conflicts.remove(&k);
+                    m.draft.remove(&k);
+                    if !user {
+                        m.reconcile(file_of(k), &mut self.next_ver, FileWins::Never);
+                    }
+                    let disk = (!user).then(|| m.disk.clone());
+                    self.imp.resolve_theirs(w, k, disk.as_ref());
                 }
             }
             Op::Rebuild(n, back, k, deleted) => {
@@ -943,7 +1723,25 @@ impl World {
                 }
                 let c = self.git.commit(tree.clone());
                 self.imp.rebuild(w, base_idx, &tree, c);
-                self.model.wts[w].committed = tree;
+                // the checkout carries the working tree's own changes over
+                let m = &mut self.model.wts[w];
+                for k in 0..KEYS {
+                    if m.disk.get(&k) == m.committed.get(&k) {
+                        match tree.get(&k) {
+                            Some(&v) => m.disk.insert(k, v),
+                            None => m.disk.remove(&k),
+                        };
+                    }
+                }
+                let before = std::mem::replace(&mut m.committed, tree);
+                let disk = m.disk.clone();
+                for f in 0..KEYS / KEYS_PER_FILE {
+                    m.reconcile(f, &mut self.next_ver, FileWins::Never);
+                    self.imp.reconcile(w, f, &disk, FileWins::Never);
+                }
+                if w == MAIN {
+                    self.main_moved(&before, &BTreeMap::new());
+                }
             }
             Op::Delete(n) => {
                 let candidates: Vec<Wt> = (1..self.model.wts.len())
@@ -974,13 +1772,67 @@ impl World {
                     self.imp.rows[r].key
                 );
             }
-            let live: BTreeMap<Key, Ver> = rows
+            let live = |rows: Vec<RowId>| -> BTreeMap<Key, Ver> {
+                rows.iter()
+                    .map(|r| &self.imp.rows[r])
+                    .filter(|r| !r.deleted)
+                    .map(|r| (r.key, r.ver))
+                    .collect()
+            };
+            assert_eq!(
+                live(rows),
+                m.view(),
+                "step {step} ({op:?}): worktree {w}'s view"
+            );
+            // the committed segments equal git exactly
+            let chain = self.imp.visible(&self.imp.chain_set(w), None);
+            assert_eq!(
+                live(chain),
+                m.committed,
+                "step {step} ({op:?}): worktree {w}'s committed chain"
+            );
+            let want: BTreeMap<Key, (Option<Ver>, bool)> = m
+                .conflicts
                 .iter()
-                .map(|r| &self.imp.rows[r])
-                .filter(|r| !r.deleted)
-                .map(|r| (r.key, r.ver))
+                .map(|(&k, c)| (k, (c.theirs, c.resolved)))
                 .collect();
-            assert_eq!(live, m.view(), "step {step} ({op:?}): worktree {w}'s view");
+            // An extra conflict is an over-report, allowed only on a user's
+            // edit, against main's committed value in a row re-created with
+            // content the edit was made over, which its entry can't reach.
+            let got = self.imp.conflicts(w);
+            let chain_rows = self.imp.visible(&self.imp.chain_set(w), None);
+            for k in got.keys().chain(want.keys()) {
+                if got.get(k) == want.get(k) {
+                    continue;
+                }
+                // Missing, only where main's value is in a re-created row
+                // that showed as a copy in a stack and this user edited
+                // over: they saw it, which the model can't tell.
+                let seen_copy = m.user
+                    && !got.contains_key(k)
+                    && want[k].0.is_some_and(|t| {
+                        chain_rows.iter().any(|id| {
+                            let r = &self.imp.rows[id];
+                            r.key == *k
+                                && r.ver == t
+                                && r.recreated
+                                && self.imp.sup.contains(&(*id, self.imp.wts[w].draft))
+                        })
+                    });
+                let over_report = m.user
+                    && !want.contains_key(k)
+                    && got[k].0.is_some_and(|t| {
+                        m.draft.get(k).is_some_and(|d| d.based_on.contains(&t))
+                            && chain_rows.iter().any(|r| {
+                                let r = &self.imp.rows[r];
+                                r.key == *k && r.ver == t && r.recreated
+                            })
+                    });
+                assert!(
+                    over_report || seen_copy,
+                    "step {step} ({op:?}): worktree {w}'s conflicts\n  got: {got:?}\n want: {want:?}"
+                );
+            }
             if !m.user {
                 continue;
             }
@@ -1003,9 +1855,25 @@ impl World {
                 // version the user's edit was made over in a row a split
                 // re-created from git, which the user's entry can't reach.
                 let expected = self.model.layered(&stack);
+                // A row re-created with content a lower edit was made over
+                // shows as a copy in that stack; an edit made over the copy
+                // hides it, which the model, going by versions, can't tell.
+                let main_view = self.imp.own_view(MAIN);
+                let lost: Vec<&(Key, Ver)> = expected
+                    .difference(&layered)
+                    .filter(|&&(k, v)| {
+                        !self.imp.visible(&main_view, Some(k)).iter().any(|r| {
+                            self.imp.rows[r].ver == v
+                                && self.imp.rows[r].recreated
+                                && stack
+                                    .iter()
+                                    .any(|&u| self.imp.sup.contains(&(*r, self.imp.wts[u].draft)))
+                        })
+                    })
+                    .collect();
                 assert!(
-                    expected.is_subset(&layered),
-                    "step {step} ({op:?}): main + {stack:?} lost rows\n  got: {layered:?}\n want: {expected:?}"
+                    lost.is_empty(),
+                    "step {step} ({op:?}): main + {stack:?} lost rows {lost:?}\n  got: {layered:?}\n want: {expected:?}"
                 );
                 for &(k, v) in layered.difference(&expected) {
                     let recreated = rows.iter().any(|r| r.key == k && r.ver == v && r.recreated);
@@ -1055,5 +1923,178 @@ fn split_restores_a_row_with_its_entries() {
         Op::External(0, vec![(1, true)]),
         Op::External(0, vec![(1, false)]),
         Op::Fork(0, 2),
+    ]);
+}
+
+/// A fold took the tombstone a segment's own deletion superseded, so the
+/// segment hides the row below by an entry alone: a split must restore
+/// git's value at its end, not that row.
+#[test]
+fn split_restores_git_value_not_the_row_below() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::NewUser,
+        Op::Fork(0, 0),
+        Op::Delete(1),
+        Op::Commit(0),
+        Op::External(0, vec![(3, true)]),
+        Op::NewUser,
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::External(0, vec![(3, false)]),
+        Op::External(0, vec![(3, true)]),
+        Op::Delete(11),
+        Op::Fork(0, 1),
+        Op::Write(0, 0, false),
+    ]);
+}
+
+/// Main deletes a record a user edited, leaving a tombstone that changes
+/// nothing in git. Splits must move it past the split point, and not let
+/// the user's draft supersede its restoration, or the conflict is lost.
+#[test]
+fn split_keeps_a_later_deletion_newer_than_a_layered_edit() {
+    run(&[
+        Op::NewUser,
+        Op::NewUser,
+        Op::Fork(0, 0),
+        Op::Rebuild(20, 253, 0, false),
+        Op::Delete(0),
+        Op::External(6, vec![(3, false)]),
+        Op::UserWrite(0, vec![], 3, false),
+        Op::Delete(253),
+        Op::External(0, vec![(3, true)]),
+        Op::Fork(0, 2),
+        Op::Fork(14, 1),
+        Op::Publish(0),
+    ]);
+}
+
+/// Main's committed deletion replaces a tombstone below its head that the
+/// user saw: the fold must carry the user's entry across, or publishing
+/// reads the unchanged absence as new.
+#[test]
+fn fold_carries_entries_from_the_row_below() {
+    run(&[
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 0, false),
+        Op::Rebuild(0, 31, 1, false),
+        Op::Write(0, 0, false),
+        Op::Publish(0),
+        Op::UserWrite(0, vec![], 0, true),
+        Op::Write(0, 0, true),
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// A split re-creates main's value in a new row, which a stack shows as a
+/// copy beside a lower user's edit; the upper user edits over it, so
+/// publishing finds no conflict with it.
+#[test]
+fn stack_copy_edited_over_is_no_conflict() {
+    run(&[
+        Op::NewUser,
+        Op::DiskEdit(0, 4, false, FileWins::Never),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Commit(0),
+        Op::External(0, vec![(0, false)]),
+        Op::Write(0, 4, false),
+        Op::Fork(0, 0),
+        Op::Delete(31),
+        Op::Commit(0),
+        Op::Fork(0, 1),
+        Op::NewUser,
+        Op::Rebuild(14, 33, 0, false),
+        Op::UserWrite(5, vec![104], 4, false),
+        Op::Publish(47),
+    ]);
+}
+
+/// A rebuild deletes a record a user edited: it leaves a tombstone, which
+/// the user's later edit supersedes, so publishing sees that edit was
+/// made after the deletion.
+#[test]
+fn rebuild_leaves_a_tombstone_for_a_held_key() {
+    run(&[
+        Op::NewUser,
+        Op::Write(0, 3, false),
+        Op::UserWrite(0, vec![], 2, false),
+        Op::Fork(0, 0),
+        Op::Rebuild(30, 125, 3, false),
+        Op::UserWrite(0, vec![], 2, false),
+        Op::Write(0, 0, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// Main deletes twice over its own draft tombstone, which a user saw: the
+/// second takes over the user's entry from the one it replaces.
+#[test]
+fn write_carries_entries_from_the_replaced_draft_row() {
+    run(&[
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Write(0, 4, true),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Write(0, 4, true),
+        Op::Commit(0),
+        Op::Publish(0),
+    ]);
+}
+
+/// A user edits a record main has deleted, which the user's own view still
+/// holds: the edit's base comes from the layered view, so it has none.
+#[test]
+fn layered_edit_takes_its_base_from_the_view_written_through() {
+    run(&[
+        Op::NewUser,
+        Op::Rebuild(0, 91, 0, false),
+        Op::UserWrite(0, vec![], 0, false),
+        Op::UserWrite(0, vec![], 4, false),
+        Op::External(0, vec![(4, false)]),
+        Op::Write(0, 4, true),
+        Op::Commit(0),
+        Op::Publish(0),
+    ]);
+}
+
+/// A user's edit, conflicting with main's value at one publish, is made
+/// again over main's newer value: that conflict is over at the next.
+#[test]
+fn publish_drops_a_conflict_the_edit_moved_past() {
+    run(&[
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 1, false),
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Fork(0, 0),
+        Op::Commit(6),
+        Op::Publish(0),
+        Op::Write(188, 1, false),
+        Op::Fork(0, 0),
+        Op::Commit(3),
+        Op::UserWrite(0, vec![], 1, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// Main's draft tombstone, written over an absence a user saw, continues
+/// that absence once committed, though git had the record in between.
+#[test]
+fn committed_tombstone_continues_the_absence_it_was_written_over() {
+    run(&[
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 3, false),
+        Op::Rebuild(0, 0, 3, true),
+        Op::UserWrite(0, vec![], 3, false),
+        Op::Write(0, 3, true),
+        Op::External(0, vec![(3, false)]),
+        Op::DiskEdit(0, 3, true, FileWins::Never),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Publish(0),
     ]);
 }

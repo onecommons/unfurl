@@ -64,7 +64,8 @@ A `record` row is the database's view of one record in one worktree:
   NULL on one in flight. An edit through the CRUD API overwrites the
   committed row in place and remembers its base in `base_commit_id`
   (`UPDATE_RECORD` in `db/tx.rs`). A row taken in from a file that
-  differs from HEAD is in flight too.
+  differs from HEAD carries the file's last-touching commit
+  (`sync.rs`), so it isn't a pending edit.
 - **Conflict rows.** When the file and the database disagree about an
   in-flight record, a second row with `conflict` set holds the file's
   value, until someone resolves it.
@@ -225,6 +226,23 @@ view, and `superseded` is a set-valued `xmax`, because a row can be
 replaced in several branches independently. Oracle Workspace Manager's
 `NEXTVER` column plays a similar role ([Appendix A](#appendix-a-prior-art)).
 
+**A replacement with the same content takes over entries.** When a row
+replaces the row a view showed for its key, in a write, a scan, a fold or
+a rebuild, and the two hold the same content, the new row gets the other
+worktrees' entries on the old one. An edit made over that content was
+made over the new row too. It takes them only from the row shown just
+before: an older row with the same content predates changes the edit may
+have seen since. It matters most for tombstones, which a later delete
+or a rebuild re-creates while the record stays absent.
+
+**A deletion leaves a tombstone while another worktree's draft holds the
+key.** A scan, a fold and a rebuild would otherwise just drop the row,
+when nothing below it needs hiding. Then a layered worktree that edited
+the record couldn't tell a deletion made after its edit, which is a
+conflict, from one it saw and edited over, which isn't
+([§4.12](#412-layered-reads-user-branches-and-private-overlays)): with
+the tombstone, the second supersedes it and the first doesn't.
+
 **Stale entries are harmless.** An entry only hides a row from the views
 that contain the entry's segment. A draft appears only in views that
 include its worktree, and a segment no worktree lists is in nobody's view.
@@ -372,13 +390,20 @@ create, update or delete, whether single or in a batch:
 4. **Write the new version into the draft** ([§3.4](#34-rows-are-immutable-versions)):
    a tombstone, for a delete. It takes the `key_id` of the record it
    replaces. Its `base_commit_id` is the base of the draft row it
-   replaces, or else the `commit_id` of the row it was written over. That
-   is NULL when the row was itself uncommitted, such as an edit in main's
-   draft seen through a layered view.
+   replaces, or else the `commit_id` of the row it was written over, in
+   the view the write is made through. That is NULL when the view shows
+   an uncommitted row there, such as an edit in main's draft or another
+   user's, or shows none, such as a record main deleted.
+   - It's the view's row, not the target's own view's, because a user's
+     own view can still hold a record main has since deleted. A base
+     from there would make an edit made after seeing the deletion look,
+     at publishing, like a conflict with it.
 5. **Record `superseded(row, draft)`** for every other row found in step
    2. Through a layered view, that includes rows of the worktrees below,
    so a write settles a record the view was showing more than once in the
-   same file.
+   same file. The new row takes over other worktrees' entries on any of
+   them with the same content, and on the row it replaced
+   ([§3.3](#33-visibility-through-supersession)).
 
 Deleting a whole file writes a tombstone for each of its visible records
 and marks the file row `deleted`, as today. Aliases are written for the
@@ -410,9 +435,9 @@ For each tracked file:
 
   For each record gone from the file: if something below the head is
   still visible for that key, write a tombstone into the head; otherwise
-  delete the head's own row. If another worktree's draft had superseded
-  that row, write a tombstone instead of deleting it, so a layered view
-  shows the deletion next to that worktree's version.
+  delete the head's own row. If another worktree's draft holds the key,
+  write a tombstone instead of deleting it
+  ([§3.3](#33-visibility-through-supersession)).
 - **Draft side.** Runs when the disk blob differs from `source_oid`, and
   follows today's in-flight handling. Parse the disk content. Where it
   differs from the committed chain, write rows into W's draft, taken in
@@ -420,6 +445,14 @@ For each tracked file:
   exists, today's three-way classification decides whether the edit is
   kept, a conflict row is written, or the file wins (`force`, or a
   `Git-Sync-Resolves-Version` trailer).
+  - **A row taken in from the file isn't a pending edit.** It keeps the
+    file's last-touching commit in `commit_id`, as today, which keeps it
+    out of `LIST_PENDING_RECORDS` (`commit_id IS NULL`). Otherwise a
+    second hand edit of the same record would classify as a conflict with
+    the first: ours the old disk value, theirs the new one, no base.
+  - **Where the disk returns to HEAD,** the draft's row for the key is
+    deleted, together with the draft's entries for it, so the committed
+    row shows again.
 - **Parsing cost.** A clean file (disk equals HEAD) is parsed at most
   once. A dirty file is parsed twice, once for HEAD's blob and once for
   the disk content. Today it's parsed once.
@@ -472,8 +505,12 @@ keeping its order and its guards:
 2. **Entries.** `superseded(r, draft)` entries for the moved keys become
    `superseded(r, head)`.
 3. **Tombstones.** A moved tombstone that hides nothing below the head is
-   deleted. One that does hide something stays, as a committed tombstone
-   (a behaviour change: today every tombstone is purged).
+   deleted, unless another worktree's draft holds the key
+   ([§3.3](#33-visibility-through-supersession)). One that does hide
+   something stays, as a committed tombstone (a behaviour change: today
+   every tombstone is purged). A moved row takes over the entries on
+   the committed row it replaces, in the head or below, when the content
+   is the same.
 4. **Conflict rows.** The commit carries the file's value, which is the
    conflict row's value, so the head gets a committed row with that
    value (or a committed tombstone, for the tombstone-shaped kind), which
@@ -481,6 +518,9 @@ keeping its order and its guards:
    stays in the draft, stamped with the commit, as today, because a
    divergence outlives the commit and only resolution ends it. The
    pending row it shadows stays in the draft too.
+   - The head's row is new, so a layered worktree that edited over the
+     file's value while it was in the draft sees it again as a copy, and
+     at publishing as a conflict. That over-reports; it never hides one.
 5. **Bookkeeping.** Update `file.committed_oid` and `file.commit_id` and
    `worktree.commit_id`, and stamp the `txn` rows.
 
@@ -559,11 +599,17 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   internal.
 - **Rows.** Only keys in files that differ between *c* and *h* can
   differ, so take a git tree diff from *c* to *h* and parse those files
-  at *c*. For each such key *k*, compare three values: *v_c* at *c*,
-  *v_h* (S's row, if it has one), and *v_p*, the value visible below S
-  in the database:
-  - **When *v_c* = *v_h*,** nothing moves.
-  - **When *v_c* ≠ *v_h* and S has a row,** move that row to S2, keeping
+  at *c*. Add the keys of S's rows written after *c*, by `commit_id`,
+  even where git's value is the same at both: a tombstone kept for
+  another draft's key ([§3.3](#33-visibility-through-supersession))
+  changes nothing in git, but it records a deletion made after *c*, and
+  left in S it would read as older than the edits it's newer than. For
+  each such key *k*, compare three values: *v_c* at *c*, *v_h* (S's row,
+  if it has one), and *v_p*, the value visible below S in the database:
+  - **When *v_c* = *v_h*** and S's row, if any, predates *c*, nothing
+    moves. A row written after *c* is handled as below.
+  - **When *v_c* ≠ *v_h* and S has a row, or S's row was written after
+    *c*,** move that row to S2, keeping
     its `id`, `key_id`, `version` and content. Then:
     - if *v_c* ≠ *v_p*, insert a new row with *v_c* into S (a tombstone
       if *k* is absent at *c*) and record `superseded(new, S2)`;
@@ -572,14 +618,22 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   - **When *v_c* ≠ *v_p* but S has no row,** *k* changed before *c* and
     changed back after it, or was added before *c* and deleted after it.
     Insert *v_c* into S, superseding what's below, and a row in S2
-    restoring *v_p* that supersedes S's new row: a copy of the row below,
-    or a tombstone if there's none.
+    restoring git's value at *h* that supersedes S's new row: a copy of
+    the row below when that's its value, or else a new row, a tombstone
+    if *k* is absent at *h*.
+    - Not *v_p*: S can hide the row below with an entry alone, and then
+      its value at *h* isn't *v_p*. That happens after a fold deletes a
+      tombstone the child had superseded, leaving the child's entry on
+      the row beneath it.
   - **The restored row stands for an older version** than anything a
     segment outside S and its ancestors holds for *k*. So every such
     segment supersedes it, drafts and layered worktrees included.
     Otherwise a draft that edited the key, whether over the row below or
     over its absence, would see the restored row appear beside its
-    edit.
+    edit. A restored deletion that isn't the row below is no exception:
+    a draft that held the key when S deleted it would have kept a
+    tombstone ([§3.3](#33-visibility-through-supersession)), so drafts
+    holding it now edited after.
 - **New rows inherit identity.** Rows the split inserts take their
   `key_id` from S's moved row for that key, or else from the row below.
   Their `commit_id` is the file's last-touching commit at *c*.
@@ -594,6 +648,8 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   hide one.
 - ***v_p* comes from the database, not from git.** That's what lets
   compaction delete rows without breaking a later split ([§4.13](#413-compaction-and-garbage-collection)).
+  The split already parses those files at *h* for the diff, so the
+  restored row reads its value from there.
 
 **Cost:** one parse per file changed between *c* and *h*, and writes only
 for keys whose value differs. A cloudmap is essentially one file, so
@@ -611,6 +667,12 @@ It's also how a user's branch is rebased before it's published
 2. **Build a new head H′** whose parent is the base. It holds the
    difference between the tree at *n* and the base's state, parsing only
    the files that differ.
+   - A record W showed that's absent at *n* gets a tombstone in H′ while
+     another worktree's draft holds the key, even when the base has
+     nothing to hide ([§3.3](#33-visibility-through-supersession)).
+   - A new row with the same content as the row W showed takes over its
+     entries. Not from the base's rows: those are older, and an edit
+     made since may have seen a change in between.
 3. **Replace W's committed chain** with the base's chain (marked
    `inherited`) plus H′. The draft stays. Bump `worktree.reset_version`
    ([§4.10](#410-list_changes)).
@@ -814,7 +876,10 @@ committing to git is just the rebase:
    cheap, because it has no commits of its own.
 2. **Re-link its draft** against the new chain, and classify only the
    rows whose draft doesn't already supersede the row now visible
-   ([§4.8](#48-rebuilding-after-a-rewrite)).
+   ([§4.8](#48-rebuilding-after-a-rewrite)). Main's row is theirs.
+   - **A row the draft supersedes needs no check,** and a standing
+     conflict whose file side isn't main's value any more is dropped: the
+     edit is on top of main's value.
    - A record edited on top of main's newer version is already
      superseded, with no conflict. That includes an edit on top of one of
      main's uncommitted edits which main has since committed, because
@@ -1112,15 +1177,44 @@ Still open:
   Add property-based random sequences over the same operations.
 
   **Status.** Written against an in-memory implementation of the design.
-  It runs 2,000 random histories of up to 60 steps, and every mutation
-  listed below fails it. It found two bugs in the design:
-  - the split's restored rows;
-  - folds across a fork boundary ([§4.13](#413-compaction-and-garbage-collection)).
+  It runs 2,000 random histories of up to 60 steps per `cargo test`, and
+  1,000,000 have passed. Besides views it checks each worktree's
+  committed segments against git, its conflicts against the reference's,
+  and the tree a commit renders.
+  - **What it covers:** merges arriving by fast-forward, stacks of user
+    branches, hand edits of the working tree scanned per file, the
+    three-way classification, `force` and the resolves-version trailer,
+    conflicts carried through commits, both resolutions, and publishing's
+    classification.
+  - **Not modelled:** records moving between files, and independent
+    branches.
+  - **Resolving for the file's side** is modelled as withdrawing the
+    edit. Today it rewrites the edit to the file's value, the same in
+    effect, but the model's versions stand for content, so it can't give
+    a new row an old version.
+  - **Over-reports allowed:** an extra copy, or an extra conflict at
+    publishing, only on a row re-created with content a layered edit was
+    made over. That's a split's restored row, fold step 4's row, or the
+    row a resolution for the file's side or `force` writes. The reverse
+    too: a missing conflict, only where such a row showed as a copy in a
+    stack and the user edited over it. The user saw main's value; the
+    model, going by versions, thinks it was hidden.
 
-  It covers merges arriving by fast-forward (a commit changing several
-  records) and stacks of user branches. Not modelled yet: conflict rows
-  and files. The same harness should later drive the SQL
-  implementation.
+  **It found these in the design,** all fixed above:
+  - the split's restored rows, restoring git's value rather than the
+    row below, and which rows a split moves ([§4.7](#47-splitting-a-segment));
+  - folds across a fork boundary ([§4.13](#413-compaction-and-garbage-collection));
+  - rows taken in from a dirty file counting as pending edits
+    ([§4.3](#43-scan-moving-forward));
+  - a layered edit's base coming from the target's own view
+    ([§4.2](#42-uncommitted-writes));
+  - deletions that leave no tombstone, and replacements that drop
+    entries, under a layered edit
+    ([§3.3](#33-visibility-through-supersession));
+  - conflicts left standing at publishing after main went back to the
+    edit's base ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+
+  The same harness should later drive the SQL implementation.
 - **Mutation checks,** following AGENTS.md's "verify a guard test by
   breaking the code". Each of these mutations must fail the model test:
   - update a row in place instead of replacing it (layered conflicts
@@ -1130,7 +1224,22 @@ Still open:
   - skip superseding the lower worktrees' rows on a layered write;
   - skip the split's entry rewrite;
   - fold a tombstone that still hides a row;
-  - include an upper worktree's inherited segments in a layered view.
+  - include an upper worktree's inherited segments in a layered view;
+  - make conflict rows visible;
+  - apply an edit a conflict holds back, in the fold;
+  - skip fold step 4, or the re-link after the fold;
+  - keep the draft's entries when a row taken in from the file goes;
+  - treat rows taken in from the file as pending edits;
+  - ignore a resolution the file hasn't moved under;
+  - let `force` keep pending edits, or the trailer override a
+    resolution;
+  - drop the tombstone for a key another draft holds;
+  - skip carrying entries to a replacement with the same content;
+  - classify every row at publishing, or keep stale conflicts there;
+  - restore the row below in a split, rather than git's value;
+  - leave rows written after the split point in the prefix;
+  - carry entries in the fold only from the head's own row;
+  - take a layered edit's base from the target's own view.
 - **`EXPLAIN ANALYZE` on the `unfurl-pg-jit` container.** Use a synthetic
   cloudmap of, say, 20k records, 20 worktrees and a few dozen segments,
   with a few hundred user branches. Run:
@@ -1411,7 +1520,8 @@ CREATE TABLE record (
     file_path      TEXT    NOT NULL,
     path           TEXT    NOT NULL,
     key            TEXT    NOT NULL,
-    -- NULL in a draft; otherwise the commit that wrote this version
+    -- NULL for a client's edit, which is what makes it pending; a row
+    -- taken in from a dirty file keeps the file's last-touching commit
     commit_id      TEXT,
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
