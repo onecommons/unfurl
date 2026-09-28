@@ -259,7 +259,8 @@ and moves take them to other keys ([§3.5](#35-record-identity)):
   - When it's withdrawn, they go, except at a key another draft row of
     the same record holds.
   - When it can't follow and becomes a new record, its old record's
-    entries go.
+    entries go. So do other drafts' entries on it made by edits of the
+    old record, once it has moved from where they saw it.
   - When an edit of the same record at another key replaces it, they
     pass to that edit, except on its own tree's rows of other records
     at the key it leaves. Those show again.
@@ -458,21 +459,30 @@ create, update or delete, whether single or in a batch:
    keeps its base and its entries ([§3.3](#33-visibility-through-supersession)).
 4. **Write the new version into the draft** ([§3.4](#34-rows-are-immutable-versions)):
    a tombstone, for a delete. It takes the `key_id` of the record it
-   replaces. Its `base_commit_id` is the base of the draft row it
-   replaces, or else the `commit_id` of the row it was written over, in
-   the view the write is made through. That is NULL when the view shows
-   an uncommitted row there, such as an edit in main's draft or another
-   user's, or shows none, such as a record main deleted.
-   - It's the view's row, not the target's own view's, because a user's
-     own view can still hold a record main has since deleted. A base
-     from there would make an edit made after seeing the deletion look,
-     at publishing, like a conflict with it.
+   replaces. Its `base_commit_id` says the record was live in the view
+   when the edit was written, and which committed version it was:
+   - **No base when the view shows the record live nowhere,** at any
+     key, copies merged by `key_id`: the write re-creates it. A draft's
+     live row counts as live, the writer's own included, since an edit
+     that shows the record never saw it deleted. A tombstone doesn't.
+   - **Otherwise the base of the draft row it replaces,** or of the edit
+     of the same record it replaces at another key (step 3).
+   - **Otherwise the `commit_id` of the record's committed row** in the
+     view, wherever that is: under an uncommitted edit of it, such as
+     main's, or at another key main moved it to. A record only a draft
+     has, never committed, has none.
+   - It's the view's record, not the target's own view's, because a
+     user's own view can still hold a record main has since deleted. A
+     base from there would make an edit made after seeing the deletion
+     look, at publishing, like a conflict with it.
 5. **Record `superseded(row, draft)`** for every other row found in step
    2. Through a layered view, that includes rows of the worktrees below,
    so a write settles a record the view was showing more than once in the
    same file. The new row takes over other worktrees' entries on any of
    them with the same content, and on the row it replaced
-   ([§3.3](#33-visibility-through-supersession)).
+   ([§3.3](#33-visibility-through-supersession)). Main's tombstone at the
+   key counts as found when another draft's entry hides it but no draft
+   below has a row there: the absence is what the view shows.
 6. **Supersede the record's other copies** the views show with content
    this write was made over: rows of the same `key_id` in another file,
    such as the old copy a user's own view still has of a record main
@@ -613,7 +623,9 @@ To create worktree C at commit *c*:
    becomes internal, and W gets a new empty head with the old one as its
    parent. This is Decibel's branch operation. An empty head doesn't need
    to close: C branches from its parent, and W keeps it. So repeated forks
-   from the same commit don't lengthen W's chain.
+   from the same commit don't lengthen W's chain. Empty means no rows and
+   no `superseded` entries: a head whose rows a scan deleted can still
+   hide rows below it.
 3. **Give C an empty head and an empty draft.** C's head's parent is the
    base. C's `worktree_segment` rows are the base's chain, marked
    `inherited`, plus its own head. Its `file` rows are copied from W when
@@ -714,9 +726,13 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   ([§3.5](#35-record-identity)). Without a rollup: the id of S's row in
   the other file written after *c* with the value at *c* (the record
   moved), else S's moved row for that key if the key held a record at
-  every commit since *c*, else the row below. A fallback id another key
-  in the tree at *c* already has is skipped, since the record may have
-  moved there; the row then gets a new id.
+  every commit since *c*, else the row below, else a new id. The ids in
+  the tree at *c* stay unique:
+  - the row below loses to another key's rollup, moved row or continuing
+    record;
+  - it's skipped when its content is at another key at *c*, where the
+    record moved;
+  - and no fallback takes an id another key already has.
   Their `commit_id` is the file's last-touching commit at *c*.
 - **Drafts are unaffected.** Draft entries reference row ids, not segment
   ids, so every draft's entries survive the split, and every existing
@@ -753,10 +769,7 @@ It's also how a user's branch is rebased before it's published
      nothing to hide ([§3.3](#33-visibility-through-supersession)).
    - A new row with the same content as the row W showed takes over its
      entries. Not from the base's rows: those are older, and an edit
-     made since may have seen a change in between. Nor does a tombstone
-     for a record the rewrite deletes take over the entries an edit of
-     that record made on a move's tombstone: that edit saw the record live
-     at another key, not its deletion.
+     made since may have seen a change in between.
    - A new row keeps the `key_id` its commit's rollup names. Without one,
      the base's record at that key, else W's, provided the base doesn't
      already use that id elsewhere in the new tree. Pending edits then
@@ -994,24 +1007,17 @@ committing to git is just the rebase:
    - A record that both changed, and that the user hasn't resolved,
      becomes an ordinary conflict of the first kind, to resolve before
      committing.
-   - **A record main deleted conflicts with a live edit of it** that was
-     made over a version of it (the edit has a base) and never saw the
-     deletion. The record is the one the edit had before step 1: an edit
-     renewed there is a new record, and the one it was made over is still
-     live.
-     - The edit saw the deletion if it superseded main's tombstone at its
-       key, which is the classification above. It also saw it if it was
-       written while main had the record nowhere, with nothing at its key
-       hiding that, or if an earlier publish rebased it onto the deletion
-       without a conflict. The edit records this, and an edit replacing
-       it keeps it.
-     - An edit that saw the deletion, of a record main still has nowhere,
-       saw the absence too: a tombstone at its key is no conflict for it.
-     - Otherwise, with nothing at its key, it didn't. Either main deleted
-       the record at another key, or a rebuild dropped it with no
-       tombstone left.
-     - An absence it saw at its key while main had the record live at
-       another key was a move, not the deletion.
+   - **A record main deleted conflicts with a live edit of it that has a
+     base.** A conflict is an edit of a version main deleted, by someone
+     who never saw it deleted. An edit written while the record was live
+     nowhere has no base (§4.2 step 4), so a base means the deletion came
+     after, whatever key it happened at and whatever tombstone it left.
+     Main's side of the conflict is its value at the edit's key, if any.
+     The record is the one the edit had before step 1: an edit renewed
+     there is a new record, and the one it was made over is still live.
+   - **A renewed edit adds a record,** so where main has no live value at
+     its key it conflicts with nothing, whatever absence the user saw
+     there.
 3. **Commit it.** Create the git branch at main's head, check it out, and
    commit the draft (`commit_repository`). The pull request is then main
    plus the user's changes.
@@ -1303,9 +1309,10 @@ Still open:
 
   **Status.** Written against an in-memory implementation of the design.
   It runs 2,000 random histories of up to 60 steps per `cargo test`, and
-  1,000,000 have passed. Besides views it checks each worktree's
-  committed segments against git, its conflicts against the reference's,
-  and the tree a commit renders.
+  8,000,000 have passed, plus 4,000,000 shorter ones weighted toward
+  publishing after moves and rewrites. Besides views it checks each
+  worktree's committed segments against git, its conflicts against the
+  reference's, and the tree a commit renders.
   - **What it covers:** merges arriving by fast-forward, stacks of user
     branches, hand edits of the working tree scanned per file, the
     three-way classification, `force` and the resolves-version trailer,
@@ -1313,8 +1320,9 @@ Still open:
     classification.
   - **Moves** between files: pairing in scans, ids through rollups and
     splits, edits following their records after scans, rebuilds and
-    publishing, entries tagged by the edit that made them, and copies
-    merged by `key_id`.
+    publishing, entries tagged by the edit that made them, copies merged
+    by `key_id`, and conflicts with a record main deleted, wherever it
+    did.
   - **Not modelled:** independent branches, and merge commits beyond
     their content.
   - **Resolving for the file's side** is modelled as withdrawing the
@@ -1329,7 +1337,15 @@ Still open:
     was withdrawn, or a row a rebuild brings back into view. The reverse
     too: a missing conflict, only where such a row showed as a copy in a
     stack and the user edited over it. The user saw main's value; the
-    model, going by versions, thinks it was hidden.
+    model, going by versions, thinks it was hidden. And an extra conflict
+    with a deletion, only where the user's edit was written over such a
+    row: the entry that hid it went with the row it was on, so the record
+    looked live and the edit kept its base.
+    - A re-created file row takes over entries from an earlier row at its
+      key with the same content, made by an edit at that key or of its
+      record. That covers the common case; the over-report is left for
+      when the earlier row was replaced in the draft first, since rows
+      don't record what was seen on them after they're gone.
 
   **It found these in the design,** all fixed above:
   - the split's restored rows, restoring git's value rather than the
@@ -1353,8 +1369,16 @@ Still open:
     ([§4.2](#42-uncommitted-writes)); and fallback ids a split or
     rebuild gave to two records at once
     ([§4.7](#47-splitting-a-segment), [§4.8](#48-rebuilding-after-a-rewrite));
-    and a deletion missed at publishing because the edit had moved to a
-    key with no tombstone ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+    and deletions missed at publishing, where the record left the edit's
+    key before main deleted it
+    ([§4.12](#412-layered-reads-user-branches-and-private-overlays)).
+    Deciding that from rows took special cases without end; the edit's
+    base, taken per record, settles it
+    ([§4.2](#42-uncommitted-writes));
+  - a fork at a head whose only content is entries dropping them
+    ([§4.5](#45-creating-a-branch-or-fork));
+  - a renewed edit keeping other drafts' entries about its old record
+    ([§3.3](#33-visibility-through-supersession)).
 
   The same harness should later drive the SQL implementation.
 - **Mutation checks,** following AGENTS.md's "verify a guard test by
@@ -1394,8 +1418,14 @@ Still open:
     entries at a write's key, or join a row the merge hid; miss a
     tombstone the merge hid; retag another row's entries, or skip
     retagging a replaced row's; keep entries on main's rows at keys a
-    published draft doesn't hold; miss a deletion that left no row at
-    the edit's key.
+    published draft doesn't hold; miss main's tombstone another draft's
+    entry hides;
+  - for deletions: skip the deletion conflict at publishing, never reset
+    a re-create's base, conflict over an absence with a renewed edit, or
+    keep other drafts' entries on it;
+  - in a split's ids: let the row below ignore other keys' claims, or
+    reuse the row of a record that moved, or a new id another key has;
+  - fork past a head that holds only entries.
 - **`EXPLAIN ANALYZE` on the `unfurl-pg-jit` container.** Use a synthetic
   cloudmap of, say, 20k records, 20 worktrees and a few dozen segments,
   with a few hundred user branches. Run:
@@ -1686,8 +1716,6 @@ CREATE TABLE record (
     base_commit_id TEXT,
     -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
     settled        JSONB,
-    -- in a draft: the edit saw main's deletion of its record (§4.12)
-    saw_deleted    BOOLEAN NOT NULL DEFAULT FALSE,
     -- conflict rows live only in drafts (enforced by the writers)
     conflict       TEXT CHECK (conflict IS NULL OR conflict IN ('conflict', 'resolved'))
 );

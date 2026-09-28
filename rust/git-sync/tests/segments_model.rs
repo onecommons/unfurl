@@ -196,12 +196,6 @@ struct Row {
     /// For an edit, the other records whose rows at its key its writes
     /// superseded: it settled them, so it stays at the key they hold.
     settled: BTreeSet<Ver>,
-    /// For an edit, that it was written while main had its record nowhere:
-    /// it saw main's deletion.
-    saw_deleted: bool,
-    /// For an edit, the key main's committed tree had its record live at
-    /// when it was written.
-    live_at: Option<Key>,
 }
 
 #[derive(Clone, Debug)]
@@ -265,8 +259,6 @@ impl Segments {
                 commit: None,
                 id: ver,
                 settled: BTreeSet::new(),
-                saw_deleted: false,
-                live_at: None,
             },
         );
         id
@@ -582,32 +574,19 @@ impl Segments {
             .into_iter()
             .find(|&y| self.rows[&y].id == record && self.rows[&y].key != key && edit);
         let other_base = other.and_then(|y| self.rows[&y].edit).map(|e| e.base);
-        // main's committed tree has the record nowhere, and nothing below
-        // the writer's draft at the key hides that: no live row, nor a
-        // draft's pending tombstone
-        let main_view = self.chain_set(MAIN);
+        // a re-create, with no base: the view shows the record live nowhere,
+        // copies merged by key_id, a draft's live row included, the writer's
+        // own too
         let mut below = via.clone();
         below.remove(&d);
-        let saw_deleted = edit
-            && !(0..KEYS).any(|j| self.live_id(&main_view, j) == Some(record))
-            && !self.visible_merged(&below, Some(key)).iter().any(|r| {
-                let r = &self.rows[r];
-                !r.deleted || self.segs[r.seg].kind == Kind::Draft
-            });
-        // a write that saw the record neither live nor deleted keeps where
-        // an earlier one saw it live
-        let prior_live_at = (!saw_deleted)
-            .then(|| {
-                other
-                    .or(self.row_in(d, key))
-                    .and_then(|y| self.rows[&y].live_at)
-            })
-            .flatten();
-        let saw_deleted = saw_deleted
-            || other.is_some_and(|y| self.rows[&y].saw_deleted)
+        let live_anywhere = self
+            .rows_in(d)
+            .iter()
+            .any(|y| self.rows[y].id == record && !self.rows[y].deleted)
             || self
-                .row_in(d, key)
-                .is_some_and(|p| self.rows[&p].saw_deleted);
+                .visible_merged(&below, None)
+                .iter()
+                .any(|r| self.rows[r].id == record && !self.rows[r].deleted);
         if let Some(y) = other {
             let k2 = self.rows[&y].key;
             self.drop_conflict(w, k2);
@@ -620,27 +599,26 @@ impl Segments {
             });
         }
         let prior = self.row_in(d, key);
-        // the committed value the edit is made over, as `via` shows it: an
-        // uncommitted row there (a draft's) gives it none
+        // the record's committed version in `via`, at whatever key, under
+        // whatever uncommitted edit of it
         let committed = || {
-            let shown = self.visible_merged(via, Some(key));
-            shown
+            let chain: BTreeSet<SegId> = via
                 .iter()
-                .all(|r| self.segs[self.rows[r].seg].kind != Kind::Draft)
-                .then(|| {
-                    shown
-                        .iter()
-                        .map(|r| &self.rows[r])
-                        .find(|r| !r.deleted)
-                        .map(|r| r.ver)
-                })
-                .flatten()
+                .copied()
+                .filter(|&s| self.segs[s].kind != Kind::Draft)
+                .collect();
+            self.visible(&chain, None)
+                .into_iter()
+                .map(|r| &self.rows[&r])
+                .find(|r| r.id == record && !r.deleted)
+                .map(|r| r.ver)
         };
         let meta = edit.then(|| Edit {
-            base: match (prior, other_base) {
-                (Some(p), _) => self.rows[&p].edit.and_then(|e| e.base),
-                (None, Some(b)) => b,
-                (None, None) => committed(),
+            base: match (live_anywhere, prior, other_base) {
+                (false, _, _) => None,
+                (true, Some(p), _) => self.rows[&p].edit.and_then(|e| e.base),
+                (true, None, Some(b)) => b,
+                (true, None, None) => committed(),
             },
             gone: if deleted { self.live(&own, key) } else { None },
         });
@@ -696,10 +674,6 @@ impl Segments {
         let id = self.insert(d, key, ver, deleted);
         self.rows.get_mut(&id).unwrap().edit = meta;
         self.rows.get_mut(&id).unwrap().settled = settled;
-        self.rows.get_mut(&id).unwrap().saw_deleted = saw_deleted;
-        self.rows.get_mut(&id).unwrap().live_at = (0..KEYS)
-            .find(|&j| self.live_id(&main_view, j) == Some(record))
-            .or(prior_live_at);
         self.set_id(id, record);
         self.carry(entries, id);
         // rows here the draft already hides are this edit's to hide too,
@@ -733,6 +707,18 @@ impl Segments {
         let (d, key, old) = (self.rows[&x].seg, self.rows[&x].key, self.rows[&x].id);
         let fresh = self.rows[&x].ver;
         self.set_id(x, fresh);
+        // other drafts' entries on it an edit of the old record made, once
+        // it moved from where they saw it: it's another record now
+        let moved = self.rows[&x].recreated;
+        let on_x: Vec<SegId> = self
+            .sup
+            .range((x, 0)..(x + 1, 0))
+            .map(|&(_, s)| s)
+            .filter(|&s| s != d && moved)
+            .collect();
+        for s in on_x {
+            self.untag(x, s, old);
+        }
         let mine: Vec<RowId> = self
             .tags
             .iter()
@@ -826,18 +812,6 @@ impl Segments {
             .map(|r| r.key)
             .collect();
         self.untag_edit(d, id, |r| !same.contains(&r.key));
-    }
-
-    /// Main's committed tree moved: an edit that saw its record deleted no
-    /// longer has, if main has the record again.
-    fn main_moved(&mut self) {
-        let chain = self.chain_set(MAIN);
-        let live: BTreeSet<Ver> = (0..KEYS).filter_map(|k| self.live_id(&chain, k)).collect();
-        for r in self.rows.values_mut() {
-            if r.saw_deleted && live.contains(&r.id) {
-                r.saw_deleted = false;
-            }
-        }
     }
 
     /// Draft `d`'s entries made by edit `old` become `new`'s, but at a key
@@ -939,6 +913,29 @@ impl Segments {
                 if forced || self.vacated.remove(&(w, key)) {
                     let r = self.row_in(d, key).unwrap();
                     self.recreated(r);
+                    // drafts that superseded this value here saw it: an edit
+                    // at this key, or of the record
+                    if let Some(v) = theirs {
+                        let earlier: Vec<RowId> = self
+                            .rows
+                            .iter()
+                            .filter(|&(&x, row)| {
+                                x != r && row.key == key && !row.deleted && row.ver == v
+                            })
+                            .map(|(&x, _)| x)
+                            .collect();
+                        let entries: Vec<Entry> =
+                            self.draft_entries(&earlier, w)
+                                .into_iter()
+                                .filter(|&(_, seg, tag)| {
+                                    tag == record
+                                        || self.rows_in(seg).iter().any(|y| {
+                                            self.rows[y].id == tag && self.rows[y].key == key
+                                        })
+                                })
+                                .collect();
+                        self.carry(entries, r);
+                    }
                 }
             }
         }
@@ -1265,7 +1262,8 @@ impl Segments {
     fn base_at_head(&mut self, w: Wt) -> (Option<SegId>, Vec<(SegId, bool)>) {
         let h = self.wts[w].head;
         let commit = *self.wts[w].history.last().unwrap();
-        if self.rows_in(h).is_empty() {
+        // empty: no rows, and no entries hiding rows below
+        if self.rows_in(h).is_empty() && !self.sup.iter().any(|&(_, s)| s == h) {
             let chain = self.wts[w]
                 .chain
                 .iter()
@@ -1388,6 +1386,33 @@ impl Segments {
                 taken.insert(self.rows[&r].id);
             }
         }
+        // the ids keys claim by rollup, move or continuing record: the row
+        // below is a weaker claim, and loses to them
+        let claims: BTreeMap<Key, Ver> = keys
+            .iter()
+            .filter_map(|&k| {
+                let v_c = tree_c.get(&k).copied();
+                let same = self.row_in(s, k).and_then(|sr| {
+                    continuous(git, history, k, c, h_commit).then_some(self.rows[&sr].id)
+                });
+                rollup_id(git, history, k, c)
+                    .or(moved_id(k, v_c))
+                    .or(same)
+                    .map(|id| (k, id))
+            })
+            .collect();
+        let claimed = |k: Key, id: &Ver| claims.iter().any(|(&j, i)| j != k && i == id);
+        // rows below that are a record the tree at `c` has at another key:
+        // it moved there
+        let moved_on: BTreeSet<RowId> = keys
+            .iter()
+            .filter_map(|&k| {
+                self.visible(&below, Some(k)).first().copied().filter(|b| {
+                    let r = &self.rows[b];
+                    !r.deleted && tree_c.iter().any(|(&j, &v)| j != k && v == r.ver)
+                })
+            })
+            .collect();
         for k in keys {
             let v_c = tree_c.get(&k).copied();
             let vis_below = self.visible(&below, Some(k));
@@ -1400,15 +1425,20 @@ impl Segments {
                     self.rows.get_mut(&sr).unwrap().seg = s2;
                     if v_c != below_live {
                         let new = self.insert_value(s, k, v_c);
-                        let below_id = vis_below.first().map(|b| self.rows[b].id);
+                        let below_id = vis_below
+                            .first()
+                            .filter(|b| !moved_on.contains(b))
+                            .map(|b| self.rows[b].id);
                         let same =
                             continuous(git, history, k, c, h_commit).then_some(self.rows[&sr].id);
                         let free = |id: &Ver| !taken.contains(id);
+                        let fresh = Some(self.rows[&new].id).filter(free);
                         let id = rollup_id(git, history, k, c)
                             .or(moved_id(k, v_c))
                             .or(same.filter(free))
-                            .or(below_id.filter(free))
-                            .unwrap_or(self.rows[&new].id);
+                            .or(below_id.filter(|id| free(id) && !claimed(k, id)))
+                            .or(fresh)
+                            .unwrap_or_else(|| self.private_ver());
                         taken.insert(id);
                         self.set_id(new, id);
                         self.stamp(new, c);
@@ -1420,12 +1450,17 @@ impl Segments {
                 }
                 None => {
                     // changed before c and back after it
-                    let below_id = vis_below.first().map(|b| self.rows[b].id);
+                    let below_id = vis_below
+                        .first()
+                        .filter(|b| !moved_on.contains(b))
+                        .map(|b| self.rows[b].id);
                     let new = self.insert_value(s, k, v_c);
+                    let fresh = Some(self.rows[&new].id).filter(|id| !taken.contains(id));
                     let id = rollup_id(git, history, k, c)
                         .or(moved_id(k, v_c))
-                        .or(below_id.filter(|id| !taken.contains(id)))
-                        .unwrap_or(self.rows[&new].id);
+                        .or(below_id.filter(|id| !taken.contains(id) && !claimed(k, id)))
+                        .or(fresh)
+                        .unwrap_or_else(|| self.private_ver());
                     taken.insert(id);
                     self.set_id(new, id);
                     self.stamp(new, c);
@@ -1571,18 +1606,20 @@ impl Segments {
                         && (row.deleted || !seen_content.contains(&(row.id, row.ver)))
                 })
                 .collect();
-            // made over a version of a record main no longer has anywhere,
-            // which main deleted out of its sight: at another key, where it
-            // was live when the edit was written, or leaving no row here
-            let elsewhere = self.rows[&x].live_at.is_some_and(|j| j != k);
-            let deleted = (self.visible(&view, Some(k)).is_empty() || elsewhere)
-                && self.live(&view, k).is_none()
+            // made over a version of a record main has since deleted: a
+            // base means the record was live when it was written
+            let deleted = gone
                 && !self.rows[&x].deleted
-                && !self.rows[&x].saw_deleted
-                && self.rows[&x].edit.is_some_and(|e| e.base.is_some())
-                && gone;
+                && self.rows[&x].edit.is_some_and(|e| e.base.is_some());
             if deleted {
-                self.settle(u, x, None);
+                self.settle(u, x, self.live(&view, k));
+                continue;
+            }
+            // renewed, it adds a record: over no live value, no conflict
+            if rid != self.rows[&x].id && self.live(&view, k).is_none() {
+                if let Some(c) = self.conflict_row(d, k) {
+                    self.delete_row(c);
+                }
                 continue;
             }
             if unseen.is_empty() {
@@ -1602,14 +1639,6 @@ impl Segments {
                 .find(|r| !r.deleted)
                 .map(|r| r.ver);
             self.settle(u, x, theirs);
-        }
-        // rebased onto main's deletion of its record, without a conflict:
-        // the user's tree has it now
-        for x in self.rows_in(d) {
-            let gone = !(0..KEYS).any(|j| self.live_id(&view, j) == Some(self.rows[&x].id));
-            if gone && self.conflict_row(d, self.rows[&x].key).is_none() {
-                self.rows.get_mut(&x).unwrap().saw_deleted = true;
-            }
         }
         // main's rows are its own tree's now: where it holds no edit, it shows them
         let held: BTreeSet<Key> = self
@@ -1675,17 +1704,7 @@ impl Segments {
             self.set_id(n, id);
             self.stamp(n, commit);
             let old = self.visible(&old_view, Some(k));
-            // an edit of the record doesn't carry from a move's tombstone to
-            // its deletion's: it saw the record live at another key
-            let deleted_since = want.is_none()
-                && (0..KEYS).any(|j| {
-                    j != k && self.live_id(&old_view, j) == Some(id) && !tree.contains_key(&j)
-                });
-            let entries = self
-                .draft_entries(&old, w)
-                .into_iter()
-                .filter(|&(_, _, tag)| !deleted_since || tag != id)
-                .collect();
+            let entries = self.draft_entries(&old, w);
             self.carry(entries, n);
             for x in vis {
                 self.entry(x, hn, CHAIN_TAG);
@@ -1841,15 +1860,9 @@ struct ODraft {
     seen_at: BTreeSet<(Key, Ver)>,
     /// The other records it settled at its key.
     settled: BTreeSet<Ver>,
-    /// Records it saw main had deleted: absent where it was written, and
-    /// live nowhere in main then.
-    saw_deleted: BTreeSet<Ver>,
     /// For a tombstone, the tombstones it replaced in the draft: the same
     /// content, so an edit made over one was made over it.
     same_as: BTreeSet<Ver>,
-    /// The key main's committed tree had the record live at when it was
-    /// written.
-    live_at: Option<Key>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -2018,9 +2031,7 @@ impl OWt {
                 id,
                 seen_at: BTreeSet::new(),
                 settled,
-                saw_deleted: BTreeSet::new(),
                 same_as: BTreeSet::new(),
-                live_at: None,
             },
         );
         if let Some(old) = replaced.filter(|o| o.deleted && deleted) {
@@ -2032,7 +2043,6 @@ impl OWt {
             let d = self.draft.get_mut(&k).unwrap();
             d.based_on.extend(old.based_on);
             d.seen_at.extend(old.seen_at);
-            d.saw_deleted.extend(old.saw_deleted);
         }
     }
 
@@ -2151,9 +2161,7 @@ impl OWt {
                         id,
                         seen_at: BTreeSet::new(),
                         settled: BTreeSet::new(),
-                        saw_deleted: BTreeSet::new(),
                         same_as: BTreeSet::new(),
-                        live_at: None,
                     },
                 );
             }
@@ -2499,13 +2507,6 @@ impl World {
         before: &BTreeMap<Key, Ver>,
         tombstones: &BTreeMap<Key, BTreeSet<Ver>>,
     ) {
-        self.imp.main_moved();
-        let live: BTreeSet<Ver> = self.model.wts[MAIN].ids.values().copied().collect();
-        for m in &mut self.model.wts {
-            for d in m.draft.values_mut() {
-                d.saw_deleted.retain(|id| !live.contains(id));
-            }
-        }
         for k in 0..KEYS {
             if self.model.wts[MAIN].committed.contains_key(&k) {
                 self.model.absent.remove(&k);
@@ -2563,6 +2564,9 @@ impl World {
                     _ => BTreeSet::new(),
                 };
                 let m = &mut self.model.wts[w];
+                // a re-create, with no base: live nowhere in its view
+                let live_anywhere = m.draft.values().any(|d| d.id == record && !d.deleted)
+                    || m.ids.values().any(|&i| i == record);
                 let shown = m.committed.get(&k).copied();
                 let settled = if m.draft.contains_key(&k) {
                     BTreeSet::new()
@@ -2577,7 +2581,13 @@ impl World {
                     record,
                     settled,
                 );
-                m.draft.get_mut(&k).unwrap().continues = continues;
+                let d = m.draft.get_mut(&k).unwrap();
+                d.continues = continues;
+                if !live_anywhere {
+                    if let Origin::Edit(e) = &mut d.origin {
+                        e.base = None;
+                    }
+                }
             }
             Op::Commit(n) => {
                 let w = self.pick(n, false).unwrap();
@@ -2742,30 +2752,42 @@ impl World {
                 };
                 self.imp
                     .write(u, &via, k, Value { ver, deleted }, true, record);
+                // the base: a re-create has none, when the stack shows the
+                // record live nowhere, a draft's live row included, the user's
+                // own too; else main's committed version of it
+                let lower: Vec<Wt> = stack.iter().copied().filter(|&v| v != u).collect();
+                let own_has = self.model.wts[u]
+                    .draft
+                    .values()
+                    .any(|d| d.id == record && !d.deleted);
+                let live_anywhere = own_has
+                    || (0..KEYS).any(|j| {
+                        let rows_j = self.model.stack_rows(&lower, j, None);
+                        let main = &self.model.wts[MAIN];
+                        let main_live = main.shown(j).is_some_and(|(v, dead)| {
+                            !dead
+                                && main.shown_id(j) == Some(record)
+                                && rows_j.contains(&(v, false))
+                        });
+                        main_live
+                            || lower.iter().any(|&v| {
+                                self.model.wts[v].draft.get(&j).is_some_and(|d| {
+                                    d.id == record && !d.deleted && rows_j.contains(&(d.ver, false))
+                                })
+                            })
+                    });
                 let main = &self.model.wts[MAIN];
-                // only main's committed row shown: another layer's is a draft's
-                let shown = match rows.as_slice() {
-                    [(v, false)]
-                        if !main.draft.contains_key(&k) && main.committed.get(&k) == Some(v) =>
-                    {
-                        Some(*v)
-                    }
-                    _ => None,
-                };
+                let shown = main
+                    .ids
+                    .iter()
+                    .find(|&(_, &i)| i == record)
+                    .and_then(|(j, _)| main.committed.get(j).copied());
                 let rows_at_k: Vec<Ver> = rows.iter().map(|&(v, _)| v).collect();
                 let mut seen: BTreeSet<Ver> = rows
                     .into_iter()
                     .map(|(v, _)| v)
                     .filter(|&v| Some(v) != old)
                     .collect();
-                let mut saw_deleted: BTreeSet<Ver> = BTreeSet::new();
-                let live_at = self.model.wts[MAIN]
-                    .ids
-                    .iter()
-                    .find(|&(_, &i)| i == record)
-                    .map(|(&j, _)| j);
-                // the records main's committed tree has
-                let main_live: BTreeSet<Ver> = self.model.wts[MAIN].ids.values().copied().collect();
                 // main's absence, unless an edit lower in the stack hides it
                 if self.model.wts[MAIN].shown(k).is_none() {
                     let ids = &self.model.absent[&k];
@@ -2777,10 +2799,6 @@ impl World {
                     });
                     if !hidden {
                         seen.extend(ids);
-                        // the record written, deleted: main has it nowhere
-                        if !main_live.contains(&record) {
-                            saw_deleted.insert(record);
-                        }
                     }
                 }
                 let user = &mut self.model.wts[u];
@@ -2803,22 +2821,15 @@ impl World {
                     Some(old) => seen_at.extend(&old.seen_at),
                     None => seen_at.extend(user.committed.get(&k).map(|&v| (k, v))),
                 }
-                let live_at = match (live_at, saw_deleted.is_empty()) {
-                    (None, true) => user
-                        .draft
-                        .values()
-                        .find(|d| d.id == record && d.origin.is_edit())
-                        .and_then(|d| d.live_at),
-                    _ => live_at,
-                };
-                if let Some(old) = user.draft.get(&k) {
-                    saw_deleted.extend(&old.saw_deleted);
-                }
                 user.edit(k, Value { ver, deleted }, shown, seen, record, settled);
                 let d = user.draft.get_mut(&k).unwrap();
                 d.seen_at.extend(seen_at);
-                d.saw_deleted.extend(saw_deleted);
-                d.live_at = live_at;
+                // live nowhere: the write re-creates the record
+                if !live_anywhere {
+                    if let Origin::Edit(e) = &mut d.origin {
+                        e.base = None;
+                    }
+                }
             }
             Op::Publish(n) => {
                 let Some(u) = self.pick(n, true) else { return };
@@ -2898,18 +2909,21 @@ impl World {
                 let keys: Vec<Key> = user.draft.keys().copied().collect();
                 for k in keys {
                     let main = committed.get(&k).copied();
-                    // an edit made over a version of a record main has since
-                    // deleted, unless it saw the deletion
+                    // a live edit made over a version of a record main has
+                    // since deleted
                     let d = &user.draft[&k];
                     let id = orig[&d.ver];
-                    let deleted = main.is_none()
-                        && !d.deleted
+                    let deleted = !d.deleted
                         && matches!(d.origin, Origin::Edit(Edit { base: Some(_), .. }))
-                        && !main_ids.values().any(|&i| i == id)
-                        && !d.saw_deleted.contains(&id)
-                        && d.live_at.is_some_and(|j| j != k);
+                        && !main_ids.values().any(|&i| i == id);
                     if deleted {
-                        user.settle(k, None);
+                        user.settle(k, main);
+                        continue;
+                    }
+                    // renewed, it adds a record: over an absence, whatever
+                    // absence it was, that's no conflict
+                    if id != d.id && main.is_none() {
+                        user.conflicts.remove(&k);
                         continue;
                     }
                     if !seen(k) {
@@ -2925,13 +2939,6 @@ impl World {
                 for d in user.draft.values_mut() {
                     d.seen_at
                         .retain(|(sk, v)| held.contains(sk) || committed.get(sk) != Some(v));
-                }
-                // rebased onto main's deletion of its record, without a
-                // conflict: the user's tree has it now
-                for (k, d) in user.draft.iter_mut() {
-                    if !user.conflicts.contains_key(k) && !main_ids.values().any(|&i| i == d.id) {
-                        d.saw_deleted.insert(d.id);
-                    }
                 }
                 user.committed = committed;
                 user.absent = self.model.absent.clone();
@@ -3136,8 +3143,22 @@ impl World {
                                 r.key == *k && r.ver == t && r.recreated
                             })
                     });
+                // An extra conflict with a deletion, only where the edit was
+                // written over a re-created row at its key: an entry that
+                // would have hid it was lost with the row it was on, so the
+                // record showed live.
+                let draft = self.imp.wts[w].draft;
+                let deletion_over_report = m.user
+                    && !want.contains_key(k)
+                    && got[k].0.is_none()
+                    && self.imp.rows.iter().any(|(id, r)| {
+                        r.recreated
+                            && r.key == *k
+                            && !r.deleted
+                            && self.imp.sup.contains(&(*id, draft))
+                    });
                 assert!(
-                    over_report || seen_copy,
+                    over_report || seen_copy || deletion_over_report,
                     "step {step} ({op:?}): worktree {w}'s conflicts\n  got: {got:?}\n want: {want:?}"
                 );
             }
@@ -3563,10 +3584,11 @@ fn write_leaves_a_merged_row_it_never_saw() {
     ]);
 }
 
-/// A user's write sees main's absence at its key even when the merge hides
-/// the tombstone, so publishing finds no conflict there.
+/// A user moves their edit of a record to where main deleted it, while the
+/// merge by key_id hides main's tombstone. They saw their own edit, not the
+/// deletion, so publishing conflicts.
 #[test]
-fn write_supersedes_a_tombstone_the_merge_hides() {
+fn own_edit_misses_a_deletion_the_merge_hides() {
     run(&[
         Op::NewUser,
         Op::UserWrite(0, vec![], 5, false),
@@ -3748,11 +3770,11 @@ fn move_carries_only_its_records_entries() {
     ]);
 }
 
-/// Rebuilds onto older commits after a move split segments, and each
-/// split reads a restored record's id from the rollup of the commit that
-/// last changed it.
+/// A user's edit, moved to follow its record, is written again through
+/// another user's edit of it, after rebuilds deleted the record. They saw
+/// the other user's edit, not the deletion, so publishing conflicts.
 #[test]
-fn split_takes_ids_from_rollups() {
+fn edit_through_another_users_edit_misses_mains_deletion() {
     run(&[
         Op::Rebuild(0, 0, 5, false),
         Op::NewUser,
@@ -3818,10 +3840,10 @@ fn edit_conflicts_with_a_deletion_it_saw_only_as_a_move() {
 }
 
 /// Main moves a record a user then edits at the old key, and a rebuild
-/// drops it. The rebuild's tombstone there doesn't take over what the user
-/// saw of the move's, so publishing finds the deletion unseen.
+/// drops it. The user saw the record live at its new key, never deleted, so
+/// publishing conflicts.
 #[test]
-fn rebuild_tombstone_doesnt_inherit_a_moves_entries() {
+fn edit_at_a_moves_old_key_misses_a_rebuilds_deletion() {
     run(&[
         Op::NewUser,
         Op::External(0, vec![(4, true)]),
@@ -3858,11 +3880,11 @@ fn rewrite_after_publishing_over_a_deletion_saw_it() {
     ]);
 }
 
-/// A user writes again over main's uncommitted deletion of the record they
-/// edited. That write saw the deletion, so publishing after main commits
-/// finds no conflict.
+/// A user edits a record that main's draft then deletes and main commits.
+/// Writing again, the user sees their own edit, not the deletion, so
+/// publishing conflicts.
 #[test]
-fn write_over_mains_draft_deletion_saw_it() {
+fn own_edit_hides_mains_pending_deletion() {
     run(&[
         Op::NewUser,
         Op::UserWrite(0, vec![], 0, false),
@@ -3876,10 +3898,10 @@ fn write_over_mains_draft_deletion_saw_it() {
 }
 
 /// A user moves their edit of a record to a key where main, after a
-/// rebuild, has the record nowhere. The write saw the deletion, though the
-/// edit it replaced didn't, so publishing finds no conflict.
+/// rebuild, has the record nowhere. Their own edit still showed it live,
+/// so the moved edit keeps its base and conflicts with the deletion.
 #[test]
-fn moved_edit_written_after_a_deletion_saw_it() {
+fn moved_edit_keeps_its_base_after_a_deletion() {
     run(&[
         Op::External(0, vec![(2, true)]),
         Op::NewUser,
@@ -3892,12 +3914,11 @@ fn moved_edit_written_after_a_deletion_saw_it() {
     ]);
 }
 
-/// Main moves a record into a key a user edits with another record, then
-/// a rebuild drops both. The user's entry on the move's tombstone carries
-/// to the rebuild's: it was about their own record, which they saw
-/// deleted.
+/// A user edits a record, then writes it again while rewrites and moves
+/// around it end with main deleting it. Their own edit is what they saw, so
+/// publishing conflicts.
 #[test]
-fn rebuild_tombstone_keeps_other_records_entries() {
+fn rebuilds_deletion_under_an_own_edit_is_unseen() {
     run(&[
         Op::Write(0, 0, false),
         Op::Write(0, 0, false),
@@ -3916,11 +3937,10 @@ fn rebuild_tombstone_keeps_other_records_entries() {
 }
 
 /// Main's pending edit of another record covers the key a move took a
-/// user's record to, so a user writing again sees it nowhere. After a
-/// rebuild drops it, the tombstone at the user's key is an absence they
-/// saw.
+/// user's record to. The user writes over their own edit, and a rebuild
+/// then deletes the record, which they never saw deleted: a conflict.
 #[test]
-fn absence_seen_before_a_rebuild_is_no_conflict() {
+fn deletion_after_a_rewrite_of_an_own_edit_is_unseen() {
     run(&[
         Op::Write(0, 2, false),
         Op::Rebuild(0, 0, 5, false),
@@ -3952,11 +3972,11 @@ fn another_records_deletion_at_the_key_is_unseen() {
     ]);
 }
 
-/// A user's edit sees main's uncommitted deletion of its record, then a
-/// rebuild deletes it in main's committed tree: a different deletion, which
-/// the user never saw.
+/// A user edits a record, and main's draft and then a rebuild delete it.
+/// Writing again, the user sees their own edit, not the deletion, so
+/// publishing conflicts.
 #[test]
-fn seeing_mains_draft_deletion_isnt_seeing_a_committed_one() {
+fn rewriting_an_own_edit_misses_a_rebuilds_deletion() {
     run(&[
         Op::NewUser,
         Op::UserWrite(0, vec![], 1, false),
@@ -4162,11 +4182,11 @@ fn deletion_after_an_earlier_publish_is_unseen() {
     ]);
 }
 
-/// Main deletes a record it moved, which a user edits at the old key, and
-/// a user writes at the key main deleted it at. That write saw main's
-/// tombstone, though the merge by key_id hides the record's rows there.
+/// A user edits a record main then deletes, and writes again at a key where
+/// main deleted another record it had moved there. Their own edits are what
+/// they saw, so both deletions conflict.
 #[test]
-fn merge_leaves_a_tombstone_in_view() {
+fn own_edit_under_a_merged_tombstone_misses_the_deletion() {
     run(&[
         Op::NewUser,
         Op::Fork(0, 0),
@@ -4186,10 +4206,10 @@ fn merge_leaves_a_tombstone_in_view() {
 }
 
 /// A move carries a user's entry onto main's tombstone at the record's new
-/// key, where another user writes through the first. With no edit of the
-/// first user at that key, what the second saw there was main's absence.
+/// key, where another user writes through the first over their own edit.
+/// They saw their edit, not main's deletion, so publishing conflicts.
 #[test]
-fn write_supersedes_a_tombstone_another_drafts_entry_hides() {
+fn own_edit_misses_a_deletion_another_drafts_entry_hides() {
     run(&[
         Op::NewUser,
         Op::UserWrite(0, vec![], 5, false),
@@ -4206,11 +4226,10 @@ fn write_supersedes_a_tombstone_another_drafts_entry_hides() {
 }
 
 /// A user edits a record, main moves it and a rebuild deletes it, and the
-/// user writes again while main's pending row covers the key. That write
-/// saw neither the record nor its deletion; the user last saw it live at
-/// the key it moved to.
+/// user writes again while main's pending row covers the key. Their own
+/// edit still showed the record, so the edit keeps its base and conflicts.
 #[test]
-fn write_that_sees_neither_keeps_where_the_record_was_live() {
+fn write_over_mains_pending_row_keeps_the_edits_base() {
     run(&[
         Op::NewUser,
         Op::UserWrite(0, vec![], 2, false),
@@ -4221,5 +4240,163 @@ fn write_that_sees_neither_keeps_where_the_record_was_live() {
         Op::DiskEdit(0, 2, false, FileWins::Never),
         Op::UserWrite(0, vec![], 2, false),
         Op::Publish(0),
+    ]);
+}
+
+/// A user writes through another user's deletion of a record that main
+/// has moved. Merged by key_id, the stack shows the record deleted, so the
+/// write re-creates it, and main deleting its copy later is no conflict.
+#[test]
+fn write_through_a_lower_deletion_re_creates_the_record() {
+    run(&[
+        Op::NewUser,
+        Op::NewUser,
+        Op::UserWrite(73, vec![], 0, true),
+        Op::DiskEdit(0, 3, true, FileWins::Never),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Move(0, 0, false),
+        Op::UserWrite(20, vec![67], 0, false),
+        Op::External(0, vec![(3, true)]),
+        Op::Publish(68),
+    ]);
+}
+
+/// A user's edit that another user's edit superseded follows its record to
+/// another file, then can't follow it again at publishing and becomes a
+/// new record. The other user's entry was about the old record, so the
+/// stack shows the new one.
+#[test]
+fn renewed_edit_drops_entries_on_the_old_record() {
+    run(&[
+        Op::NewUser,
+        Op::NewUser,
+        Op::Write(0, 4, false),
+        Op::UserWrite(110, vec![], 4, false),
+        Op::External(0, vec![(1, true)]),
+        Op::UserWrite(13, vec![152], 4, false),
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Move(0, 4, false),
+        Op::Publish(104),
+        Op::UserWrite(86, vec![], 4, false),
+        Op::Rebuild(0, 177, 0, false),
+        Op::Publish(44),
+    ]);
+}
+
+/// A scan deletes main's head row in place and compaction drops the
+/// tombstone below, leaving the head with no rows but the entry hiding the
+/// old record. A fork at the head has to keep it.
+#[test]
+fn fork_keeps_a_head_with_only_entries() {
+    run(&[
+        Op::NewUser,
+        Op::NewUser,
+        Op::Rebuild(0, 104, 4, true),
+        Op::NewUser,
+        Op::External(0, vec![(4, false)]),
+        Op::External(0, vec![(4, true)]),
+        Op::Delete(29),
+        Op::Fork(0, 0),
+    ]);
+}
+
+/// A user's edit that can't follow its record at publishing becomes a new
+/// record at a key main has nothing at. Whatever absence the user saw
+/// there, an added record conflicts with none.
+#[test]
+fn renewed_edit_over_an_absence_is_no_conflict() {
+    run(&[
+        Op::Rebuild(0, 0, 0, false),
+        Op::Write(0, 5, false),
+        Op::External(0, vec![(2, false)]),
+        Op::Move(0, 2, false),
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 2, false),
+        Op::Write(0, 5, true),
+        Op::Fork(0, 1),
+        Op::Rebuild(20, 129, 0, false),
+        Op::UserWrite(0, vec![], 5, false),
+        Op::Publish(0),
+    ]);
+}
+
+/// A split restores a record at a key whose row below is another record
+/// that moved to a key the split also restores. The row below's id
+/// belongs to that key, not this one.
+#[test]
+fn split_leaves_the_row_belows_id_to_the_record_that_moved() {
+    run(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::Rebuild(0, 0, 1, false),
+        Op::NewUser,
+        Op::Move(0, 1, false),
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true), (4, false)]),
+        Op::Fork(0, 1),
+        Op::Fork(1, 2),
+        Op::Write(229, 4, false),
+        Op::Rebuild(136, 15, 2, false),
+    ]);
+}
+
+/// Main moves a record and deletes it with the other key's new record. A
+/// split restoring both can't give the new record the moved one's id.
+#[test]
+fn split_gives_a_moved_records_old_row_id_to_the_record() {
+    run(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::Rebuild(0, 0, 1, false),
+        Op::NewUser,
+        Op::Move(0, 1, false),
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true), (4, true)]),
+        Op::Fork(0, 1),
+        Op::Fork(1, 2),
+        Op::Write(229, 4, false),
+        Op::Rebuild(136, 15, 2, false),
+    ]);
+}
+
+/// A user's deletion held back by the fold while another user's worktree is
+/// deleted around it. Folding away the tombstone that still hides a row
+/// would lose that user's conflict at publishing.
+#[test]
+fn fold_keeps_a_tombstone_that_still_hides_a_row() {
+    run(&[
+        Op::NewUser,
+        Op::UserWrite(0, vec![], 4, false),
+        Op::Rebuild(0, 55, 0, false),
+        Op::Publish(0),
+        Op::NewUser,
+        Op::Fork(0, 0),
+        Op::Delete(8),
+        Op::UserWrite(92, vec![], 4, true),
+        Op::NewUser,
+        Op::External(0, vec![(4, false)]),
+        Op::Delete(16),
+        Op::DiskEdit(0, 4, true, FileWins::Never),
+        Op::Delete(13),
+        Op::Commit(0),
+        Op::Publish(0),
+    ]);
+}
+
+/// A user writes through another user's draft, whose entry hides main's
+/// tombstone at the key. With no edit of the other user there, what they
+/// saw was main's absence, and the write supersedes that tombstone.
+#[test]
+fn write_supersedes_mains_tombstone_another_draft_hides() {
+    run(&[
+        Op::NewUser,
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::UserWrite(0, vec![], 1, true),
+        Op::NewUser,
+        Op::Write(0, 1, false),
+        Op::DiskEdit(0, 0, false, FileWins::Always),
+        Op::UserWrite(1, vec![20], 1, false),
+        Op::Write(0, 0, false),
+        Op::Rebuild(0, 43, 0, false),
+        Op::Publish(47),
     ]);
 }
