@@ -566,6 +566,14 @@ earlier row with that content at its key, made by an edit at that key
 or of its record, and from an edit whose base is that version. Where
 those rows are gone, a layered user sees it as a copy, the re-created
 row over-report ([§10](#10-verification-plan)).
+- **An edit's base is found by content, from git.** `base_commit_id`
+  names a commit, and the row a merge brings back has a new one. So for
+  the other drafts' edits at the key or of the record, the scan reads
+  the file at each edit's `base_commit_id` and compares the value at the
+  row's key with the row's content. That's `read_base_docs` and
+  `base_value`, which the three-way classification already uses. A base
+  that was at another key at its commit isn't found, and shows as a
+  copy.
 
 **Commit attribution.** New head rows take the file's last-touching
 commit, as today. Rows that didn't change keep theirs
@@ -1802,7 +1810,8 @@ CREATE TABLE record (
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
-    -- in a draft: the commit of the committed version this edit started from
+    -- in a draft: the commit of the committed version this edit started from,
+    -- which is read from git when its content is needed (§4.3)
     base_commit_id TEXT,
     -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
     settled        JSONB,
@@ -1918,29 +1927,40 @@ WITH v AS (
     WHERE worktree_id = ANY(:upper) AND NOT inherited
     UNION
     SELECT draft_segment_id, 0, id, TRUE FROM worktree WHERE id = ANY(:upper)
+),
+-- the rows the merge by key_id leaves out: lower rows of a record an
+-- upper draft edits at another key. A few rows, so computed once
+hidden AS MATERIALIZED (
+    SELECT r.id
+    FROM record e
+    JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
+    JOIN record r ON r.key_id = e.key_id
+    JOIN v ON v.segment_id = r.segment_id AND NOT v.upper_draft
+    WHERE e.conflict IS NULL
+      AND (e.file_path, e.path, e.key) <> (r.file_path, r.path, r.key)
+),
+counted AS (                     -- the window sorts ids and keys only
+    SELECT v.layer, r.id, count(*) OVER (PARTITION BY r.path, r.key) AS copies
+    FROM record r
+    JOIN v ON v.segment_id = r.segment_id
+    WHERE r.conflict IS NULL
+      AND NOT EXISTS (SELECT 1 FROM superseded x
+                      JOIN v vx ON vx.segment_id = x.segment_id
+                      WHERE x.record_id = r.id)
+      -- copies merged by key_id
+      AND NOT EXISTS (SELECT 1 FROM hidden h WHERE h.id = r.id)
 )
-SELECT v.layer, r.key_id AS id, r.file_path, r.path, r.key, r.json,
-       r.version, r.deleted,
-       count(*) OVER (PARTITION BY r.path, r.key) AS copies
-FROM record r
-JOIN v ON v.segment_id = r.segment_id
-WHERE r.conflict IS NULL
-  AND NOT EXISTS (SELECT 1 FROM superseded x
-                  JOIN v vx ON vx.segment_id = x.segment_id
-                  WHERE x.record_id = r.id)
-  -- an upper draft's edit of the record leaves out its rows at other keys
-  AND (v.upper_draft
-       OR NOT EXISTS (SELECT 1 FROM record e
-                      JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
-                      WHERE e.key_id = r.key_id AND e.conflict IS NULL
-                        AND (e.file_path, e.path, e.key)
-                            <> (r.file_path, r.path, r.key)))
+SELECT c.layer, r.key_id AS id, r.file_path, r.path, r.key, r.json,
+       r.version, r.deleted, c.copies
+FROM counted c
+JOIN record r ON r.id = c.id
 ```
 
 C.3–C.6 work the same over this view, the merge included; C.6's
 `visible` below abbreviates it. The window count covers the rows the
 read returns, so a filtered `find` counts only the copies that match the
-filter.
+filter. It runs over ids and keys, with the JSON joined on after: sorted
+with the rows' JSON, a section of a few thousand records spills to disk.
 
 ### C.3 Get one record
 
@@ -1953,16 +1973,26 @@ filter.
 
 ### C.4 Find with a JSON filter, one page
 
+The page is picked by ids and sort keys, and its JSON fetched after.
+The filter's candidates include other segments' versions, and carrying
+their JSON through the anti-join costs more than looking the page's
+rows up again ([bench](../bench/segments/README.md)).
+
 ```sql
-<C.1>
-  AND NOT r.deleted
-  AND r.json @> :containment::jsonb
-  AND (r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id)
-      > (:after_path, :after_key, :after_file, :after_row)
-ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id
-LIMIT :limit;
--- select list: r.key_id AS id, r.file_path, r.path, r.key, r.commit_id,
--- r.json, r.version, r.deleted
+WITH page AS (
+    <C.1, selecting r.id, r.path, r.key, r.file_path>
+      AND NOT r.deleted
+      AND r.json @> :containment::jsonb
+      AND (r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id)
+          > (:after_path, :after_key, :after_file, :after_row)
+    ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id
+    LIMIT :limit
+)
+SELECT r.key_id AS id, r.file_path, r.path, r.key, r.commit_id,
+       r.json, r.version, r.deleted
+FROM page p
+JOIN record r ON r.id = p.id
+ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C", p.id;
 ```
 
 ### C.5 Facets
@@ -2132,21 +2162,32 @@ WITH v AS (
     FROM worktree w
     WHERE (CAST(:origin AS text) IS NULL OR w.origin = :origin)
       AND (CAST(:branch AS text) IS NULL OR w.branch = :branch)
+),
+page AS (                            -- ids and sort keys only, as in C.4
+    SELECT v.worktree_id, r.id, r.path, r.key, r.file_path
+    FROM v
+    JOIN record r ON r.segment_id = v.segment_id
+    WHERE r.conflict IS NULL
+      AND NOT r.deleted
+      AND r.json @> :filter::jsonb
+      -- the worktree match goes in WHERE, not in the join's ON: Postgres then
+      -- turns the NOT EXISTS into a hash anti-join instead of a subplan per row
+      AND NOT EXISTS (SELECT 1 FROM superseded x
+                      JOIN v vx ON vx.segment_id = x.segment_id
+                      WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)
+      AND (r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C",
+           v.worktree_id, r.id)
+          > (:after_path, :after_key, :after_file, :after_worktree, :after_row)
+    ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C",
+             v.worktree_id, r.id
+    LIMIT :limit
 )
-SELECT v.worktree_id, r.key_id AS id, r.file_path, r.path, r.key,
+SELECT p.worktree_id, r.key_id AS id, r.file_path, r.path, r.key,
        r.json, r.version
-FROM v
-JOIN record r ON r.segment_id = v.segment_id
-WHERE r.conflict IS NULL
-  AND NOT r.deleted
-  AND r.json @> :filter::jsonb
-  -- the worktree match goes in WHERE, not in the join's ON: Postgres then
-  -- turns the NOT EXISTS into a hash anti-join instead of a subplan per row
-  AND NOT EXISTS (SELECT 1 FROM superseded x
-                  JOIN v vx ON vx.segment_id = x.segment_id
-                  WHERE x.record_id = r.id AND vx.worktree_id = v.worktree_id)
-ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C",
-         v.worktree_id, r.id;
+FROM page p
+JOIN record r ON r.id = p.id
+ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C",
+         p.worktree_id, p.id;
 ```
 
 ### C.8 Create a record
@@ -2325,7 +2366,8 @@ for the new row, which keeps the record's `key_id`. A row that moved
 from the other file (2.) is a new row for the record too, so it also
 takes the entries of the row it moved from with the same content. In
 main, a version a merge brings back also takes other drafts' entries
-from earlier rows with that content, as §4.3 describes.
+from earlier rows with that content, and from edits whose base, read
+from git, has it, as §4.3 describes.
 
 ### C.11 Re-link a worktree's draft
 

@@ -38,12 +38,13 @@ psql "$URL/unfurl_segments_bench" -f baseline_queries.sql
 At the defaults, generation takes about 20 seconds, `baseline.sql` about
 30, and `check.sql` a few seconds.
 
-## Results, 2026-09-27
+## Results, 2026-09-28
 
 At the defaults: 20,000 records plus 61 types, main's chain of 30
 segments at 1% churn each, 20 forks, 300 user branches, and 10% of user
 edits in conflict with main. Postgres 17.11 on arm64, with warm caches.
-Each figure is the range over the last two of three runs.
+Each figure is the range over the last two of three runs of one layout,
+since alternating the layouts evicts each other's pages.
 
 | Size | Segments | Today |
 |---|---|---|
@@ -51,19 +52,19 @@ Each figure is the range over the last two of three runs.
 
 | Query (ms) | Segments | Today |
 |---|---|---|
-| 1. get one record | 0.14 | 0.05–0.07 |
-| 2. find, JSON filter, one page | 7–14 | 9–10 |
-| 3. find, `?type=T2` and subtypes, list expanded in the statement | 110–126 | 65–79 |
-| 3b. the same, list expanded by a first query, JSON fetched only for the page | 22–30, plus 2 to expand | — |
-| 4. facet total | 27–38 | 76–81 |
-| 5. facet by type, rolled up | 340–353 | 403–465 |
-| 6. facet column, 3 dimensions | 1,642–1,651 | 1,724–1,766 |
-| 7. `list_changes` | 11 | 83–85 |
-| 8. layered read, one section | 28–31 | — |
-| 9. layered `list_changes` | 117–128 | — |
-| 10. find across main and forks | 50–53 | 16.5 |
-| 10b. the same, JSON fetched only for the page | 22–23 | — |
-| 11. layered facet by type | 158–169 | — |
+| 1. get one record | 0.08–0.14 | 0.04–0.05 |
+| 2. find, JSON filter, one page | 3.6–3.9 | 5.4–5.7 |
+| 3. find, `?type=T2` and subtypes, list expanded in the statement | 48–49 | 54–55 |
+| 3b. the same, list expanded by a first query, JSON fetched only for the page | 22–23, plus 2 to expand | — |
+| 4. facet total | 19–22 | 73–74 |
+| 5. facet by type, rolled up | 389–392 | 457–464 |
+| 6. facet column, 3 dimensions | 1,954–1,964 | 2,081–2,084 |
+| 7. `list_changes` | 12 | 80–98 |
+| 8. layered read, one section | 20–23 | — |
+| 9. layered `list_changes` | 140–142 | — |
+| 10. find across main and forks | 46–51 | 16–17 |
+| 10b. the same, JSON fetched only for the page | 20–22 | — |
+| 11. layered facet by type | 190–213 | — |
 
 No plan in either layout used JIT.
 
@@ -75,17 +76,33 @@ No plan in either layout used JIT.
   sorted for `COUNT(DISTINCT)`, in either layout.
 - **`list_changes` is 8× faster,** thanks to the `(segment_id, version)`
   index. Today's schema has no version index.
-- **Point reads and single-view finds cost a little more.** The JSON
-  index covers every branch's versions, so a filter's candidates include
-  versions from other segments, each fetched before the view filters it
-  out.
+- **Merging copies by `key_id` is free when its rows are computed
+  first.** The rows it leaves out, lower rows of a record an upper draft
+  edits at another key, are found from the draft's few edits through
+  the `key_id` index, in a `MATERIALIZED` CTE, and excluded by a hash
+  anti-join on the row id. Checking each visible row against the edits
+  instead cost a third more on query 8 and 11. Without `MATERIALIZED`,
+  Postgres inlines the CTE and runs it once per row, which doubles them.
+- **A layered read's copy count sorts ids, not JSON.** Query 8 returns
+  a whole section, about 4,000 rows; with their JSON the window's sort
+  spilled 5.6 MB to disk. Counting over ids and keys, then joining the
+  JSON on, keeps it in memory and takes the query from 29 ms to 21.
+- **The machine drifts between sessions.** Queries 5 and 6 are 10–20%
+  slower than in the previous run in both layouts, with the query and
+  schema unchanged, and a database on the previous schema times the same
+  side by side. Compare layouts within one session.
+- **Point reads cost a little more,** a tenth of a millisecond: the key
+  index covers every segment's versions of the record, and each is
+  checked against the view. A single-view find with a JSON filter is now
+  faster than today, though its candidates include other segments'
+  versions too.
 - **In a cross-worktree anti-join, the worktree match must go in
   `WHERE`.** In the join's `ON`, Postgres runs the `NOT EXISTS` as a
   subplan per (worktree, candidate) pair; in `WHERE`, it becomes a hash
   anti-join. The design's C.7 now uses the `WHERE` form. That took query
   10 from 86 ms to 50 ms.
-- **Fetching JSON only for the page** takes it to 22 ms, against 16.5 ms
-  today. The anti-join hashes about 10k candidates, and carrying 1.4 KB of
+- **Fetching JSON only for the page** takes it to 20–22 ms, against
+  16–17 ms today. The anti-join hashes about 10k candidates, and carrying 1.4 KB of
   JSON through that costs more than looking the page's rows up again.
   Finds should select ids and sort keys first.
 - **The type filter's list is expanded by a first query.** Computed inside
@@ -94,4 +111,4 @@ No plan in either layout used JIT.
   rescanned the GIN index once per segment. Expanded by a small first
   query over the same view (about 2 ms) and bound as a constant, with JSON
   fetched only for the page (query 3b), the whole thing takes about
-  25–32 ms, against 65–79 ms today. And that's with no cache.
+  25 ms, against 54–55 ms today. And that's with no cache.

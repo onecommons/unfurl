@@ -258,40 +258,72 @@ ORDER BY r.version;
 \echo ==== 8. layered read: main + a user branch, one section, with copy counts
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
 WITH v AS (
-    SELECT segment_id, added_version, CAST(:main AS bigint) AS layer
+    SELECT segment_id, added_version, CAST(:main AS bigint) AS layer,
+           FALSE AS upper_draft
     FROM worktree_segment WHERE worktree_id = :main
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = :main
+    SELECT draft_segment_id, 0, id, FALSE FROM worktree WHERE id = :main
     UNION
-    SELECT segment_id, added_version, worktree_id
+    SELECT segment_id, added_version, worktree_id, FALSE
     FROM worktree_segment WHERE worktree_id = :user_wt AND NOT inherited
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = :user_wt
+    SELECT draft_segment_id, 0, id, TRUE FROM worktree WHERE id = :user_wt
+),
+-- the rows the merge by key_id leaves out: lower rows of a record an
+-- upper draft edits at another key. A few rows, so computed once
+hidden AS MATERIALIZED (
+    SELECT r.id
+    FROM record e
+    JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
+    JOIN record r ON r.key_id = e.key_id
+    JOIN v ON v.segment_id = r.segment_id AND NOT v.upper_draft
+    WHERE e.conflict IS NULL
+      AND (e.file_path, e.path, e.key) <> (r.file_path, r.path, r.key)
+),
+-- the window sorts ids and keys; JSON joins on after, so the sort
+-- stays in memory
+counted AS (
+    SELECT v.layer, r.id, count(*) OVER (PARTITION BY r.path, r.key) AS copies
+    FROM record r
+    JOIN v ON v.segment_id = r.segment_id
+    WHERE r.conflict IS NULL
+      AND NOT EXISTS (SELECT 1 FROM superseded x
+                      JOIN v vx ON vx.segment_id = x.segment_id
+                      WHERE x.record_id = r.id)
+      -- copies merged by key_id
+      AND NOT EXISTS (SELECT 1 FROM hidden h WHERE h.id = r.id)
+      AND NOT r.deleted
+      AND r.path = '/services'
 )
-SELECT v.layer, r.key_id, r.path, r.key, r.json,
-       count(*) OVER (PARTITION BY r.path, r.key) AS copies
-FROM record r
-JOIN v ON v.segment_id = r.segment_id
-WHERE r.conflict IS NULL
-  AND NOT EXISTS (SELECT 1 FROM superseded x
-                  JOIN v vx ON vx.segment_id = x.segment_id
-                  WHERE x.record_id = r.id)
-  AND NOT r.deleted
-  AND r.path = '/services';
+SELECT c.layer, r.key_id, r.path, r.key, r.json, c.copies
+FROM counted c
+JOIN record r ON r.id = c.id;
 
 \echo
 \echo ==== 9. layered list_changes: every copy of each changed record
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
 WITH v AS (
-    SELECT segment_id, added_version, CAST(:main AS bigint) AS layer
+    SELECT segment_id, added_version, CAST(:main AS bigint) AS layer,
+           FALSE AS upper_draft
     FROM worktree_segment WHERE worktree_id = :main
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = :main
+    SELECT draft_segment_id, 0, id, FALSE FROM worktree WHERE id = :main
     UNION
-    SELECT segment_id, added_version, worktree_id
+    SELECT segment_id, added_version, worktree_id, FALSE
     FROM worktree_segment WHERE worktree_id = :user_wt AND NOT inherited
     UNION
-    SELECT draft_segment_id, 0, id FROM worktree WHERE id = :user_wt
+    SELECT draft_segment_id, 0, id, TRUE FROM worktree WHERE id = :user_wt
+),
+-- the rows the merge by key_id leaves out: lower rows of a record an
+-- upper draft edits at another key. A few rows, so computed once
+hidden AS MATERIALIZED (
+    SELECT r.id
+    FROM record e
+    JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
+    JOIN record r ON r.key_id = e.key_id
+    JOIN v ON v.segment_id = r.segment_id AND NOT v.upper_draft
+    WHERE e.conflict IS NULL
+      AND (e.file_path, e.path, e.key) <> (r.file_path, r.path, r.key)
 ),
 visible AS (
     SELECT r.*, v.layer, v.added_version
@@ -301,6 +333,8 @@ visible AS (
       AND NOT EXISTS (SELECT 1 FROM superseded x
                       JOIN v vx ON vx.segment_id = x.segment_id
                       WHERE x.record_id = r.id)
+      -- copies merged by key_id
+      AND NOT EXISTS (SELECT 1 FROM hidden h WHERE h.id = r.id)
 ),
 counted AS (
     SELECT visible.*,
@@ -346,14 +380,26 @@ LIMIT 50;
 \echo ==== 11. layered facet by type, counting records by (path, key)
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
 WITH v AS (
-    SELECT segment_id, added_version FROM worktree_segment WHERE worktree_id = :main
+    SELECT segment_id, added_version, FALSE AS upper_draft
+    FROM worktree_segment WHERE worktree_id = :main
     UNION
-    SELECT draft_segment_id, 0 FROM worktree WHERE id = :main
+    SELECT draft_segment_id, 0, FALSE FROM worktree WHERE id = :main
     UNION
-    SELECT segment_id, added_version
+    SELECT segment_id, added_version, FALSE
     FROM worktree_segment WHERE worktree_id = :user_wt AND NOT inherited
     UNION
-    SELECT draft_segment_id, 0 FROM worktree WHERE id = :user_wt
+    SELECT draft_segment_id, 0, TRUE FROM worktree WHERE id = :user_wt
+),
+-- the rows the merge by key_id leaves out: lower rows of a record an
+-- upper draft edits at another key. A few rows, so computed once
+hidden AS MATERIALIZED (
+    SELECT r.id
+    FROM record e
+    JOIN v ve ON ve.segment_id = e.segment_id AND ve.upper_draft
+    JOIN record r ON r.key_id = e.key_id
+    JOIN v ON v.segment_id = r.segment_id AND NOT v.upper_draft
+    WHERE e.conflict IS NULL
+      AND (e.file_path, e.path, e.key) <> (r.file_path, r.path, r.key)
 ),
 vis AS (
     SELECT r.*
@@ -363,6 +409,8 @@ vis AS (
       AND NOT EXISTS (SELECT 1 FROM superseded x
                       JOIN v vx ON vx.segment_id = x.segment_id
                       WHERE x.record_id = r.id)
+      -- copies merged by key_id
+      AND NOT EXISTS (SELECT 1 FROM hidden h WHERE h.id = r.id)
       AND NOT r.deleted
       AND r.path <> '/types'
 )

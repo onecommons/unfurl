@@ -85,7 +85,8 @@ CREATE TABLE record (
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
-    -- in a draft: the commit of the committed version this edit started from
+    -- in a draft: the commit of the committed version this edit started from,
+    -- which is read from git when its content is needed (§4.3)
     base_commit_id TEXT,
     -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
     settled        JSONB,
