@@ -564,14 +564,28 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
     - otherwise *k* didn't change before *c*, so rewrite the entries
       `superseded(x, S)` for *k*'s rows below S to `superseded(x, S2)`.
   - **When *v_c* ≠ *v_p* but S has no row,** *k* changed before *c* and
-    changed back after it. Insert *v_c* into S, superseding what's below,
-    and a row in S2 restoring *v_p* that supersedes S's new row.
+    changed back after it, or was added before *c* and deleted after it.
+    Insert *v_c* into S, superseding what's below, and a row in S2
+    restoring *v_p* that supersedes S's new row: a copy of the row below,
+    or a tombstone if there's none.
+  - **The restored row stands for an older version** than anything a
+    segment outside S and its ancestors holds for *k*. So every such
+    segment supersedes it, drafts and layered worktrees included.
+    Otherwise a draft that edited the key, whether over the row below or
+    over its absence, would see the restored row appear beside its
+    edit.
 - **New rows inherit identity.** Rows the split inserts take their
   `key_id` from S's moved row for that key, or else from the row below.
   Their `commit_id` is the file's last-touching commit at *c*.
 - **Drafts are unaffected.** Draft entries reference row ids, not segment
   ids, so every draft's entries survive the split, and every existing
   view is unchanged.
+- **Re-created rows lose their entries.** The split rebuilds *v_c* from
+  git as a new row. An entry on the original row, which may since have
+  been replaced, can't reach it. So a layered worktree that edited over
+  that content can see it again as a copy, if main's history is later
+  rewritten back to it. Such copies over-report a conflict; they never
+  hide one.
 - ***v_p* comes from the database, not from git.** That's what lets
   compaction delete rows without breaking a later split ([§4.13](#413-compaction-and-garbage-collection)).
 
@@ -829,7 +843,11 @@ In the tree model, only two events leave anything to collect:
   exclusive segments go the same way.
 
 Either can leave an internal segment with exactly one child. That's the
-branch-deletion case, and such a pair is **folded**:
+branch-deletion case, and such a pair is **folded**, unless it would
+cross a fork boundary: a worktree whose chain has the parent inherited
+and the child as its own part. Folding that would move inherited rows
+into the worktree's own part, and a layered view would show them as its
+changes. The fold goes like this:
 1. Keep the id of whichever side has fewer rows to move.
 2. Delete the parent's rows that the child overrides. The chains that
    contain the parent all contain the child, so those rows are hidden
@@ -1067,7 +1085,7 @@ Still open:
 
 ## 10. Verification plan
 
-- **A model test** in `tests/`. A reference model computes each view's
+- **A model test,** in `tests/segments_model.rs`. A reference model computes each view's
   expected records directly, independent of segments:
   - a worktree's from its HEAD tree plus its draft;
   - a layered view's from the base's records plus each upper worktree's
@@ -1086,6 +1104,16 @@ Still open:
     that keeps a shared record in a differently named file.
 
   Add property-based random sequences over the same operations.
+
+  **Status.** Written against an in-memory implementation of the design.
+  It runs 2,000 random histories of up to 60 steps, and every mutation
+  listed below fails it. It found two bugs in the design:
+  - the split's restored rows;
+  - folds across a fork boundary ([§4.13](#413-compaction-and-garbage-collection)).
+
+  Not modelled yet: merges arriving by fast-forward, stacks deeper than
+  main plus one user branch, conflict rows, and files. The same harness
+  should later drive the SQL implementation.
 - **Mutation checks,** following AGENTS.md's "verify a guard test by
   breaking the code". Each of these mutations must fail the model test:
   - update a row in place instead of replacing it (layered conflicts

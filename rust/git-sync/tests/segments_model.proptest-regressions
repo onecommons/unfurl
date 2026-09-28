@@ -1,0 +1,15 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8315ed553f4ac7c7aa6d76fb6a65788e9f298e12224b21a19a24b8d3c3c10800 # shrinks to ops = [External(0, 2, true), NewUser, UserWrite(0, 2, false), Fork(0, 1)]
+cc e8b58b97dd1bfccf27a8f204036ed965303f3f3bc644fa83951b3ffc5f81e29c # shrinks to ops = [Fork(0, 0), Fork(0, 0), Fork(0, 0), Write(179, 2, false), External(3, 2, false)]
+cc 6a3db34ea210e35ef4feb4b70cd95d60d56187440bee8f9b18f0a99f191ab986 # shrinks to ops = [Write(0, 0, false), Commit(0), Fork(0, 1), External(162, 1, false), Fork(128, 1)]
+cc ecc49ed7a8105071125c6a4b9bf6c7bb428aa7edb85a451dd11419fee1b550ec # shrinks to ops = [NewUser, Write(0, 0, false), NewUser, Write(0, 0, false), Write(0, 0, true), Commit(0), Fork(0, 0)]
+cc 5f4b8a859ff291ca84ed23d707bf226f111bea4f7823abcf183a27b4ead550be # shrinks to ops = [Write(0, 0, false), Write(0, 0, false), Fork(0, 0), Write(19, 0, true), Commit(103), External(13, 0, false)]
+cc be6c40ff82809cb0f20f1fe1d42d6211eb45be85c911b694384de3e6faf2d6f6 # shrinks to ops = [Write(0, 0, false), NewUser, Rebuild(0, 49, 0, false), Publish(0), UserWrite(0, 0, false), Commit(0), Write(0, 0, false), External(0, 0, false), Commit(0), Fork(0, 2), Publish(0), Rebuild(20, 173, 1, false)]
+cc c0d9c8913d82eddeea378d2b5a2e60c140737686a284544e8bd492fa1ec0bf2a # shrinks to ops = [NewUser, Write(0, 0, false), Commit(0), Write(0, 0, false), External(0, 1, false), Fork(0, 1)]
+cc 6fb3712bbeab4cfcdf832e07fced2d93e8ea146fc261507ae0cfec8320a8e44c # shrinks to ops = [Fork(0, 0), External(31, 0, true), External(125, 0, false)]
+cc 89c97f767c3b5bb7edb4e0a9e2786f97e625aba63bb955da6b711ead39a51e4e # shrinks to ops = [Write(0, 0, false), Write(0, 0, false), Write(0, 3, true), Write(0, 0, false), Commit(0), Write(0, 0, false), Write(0, 3, false), External(0, 0, false), Fork(0, 2)]
