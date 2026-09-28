@@ -268,8 +268,12 @@ pub(crate) async fn pending_bases(
 /// the given names as a key (the cloudmap `typeRef` shape). On
 /// Postgres this uses the `?|` key-existence operator so the GIN
 /// expression index over `(json -> 'type')` applies; on SQLite it
-/// scans with `json_each`.
+/// scans with `json_each`. With `subtypes`, the names are first expanded
+/// by [`subtypes`] and bound as a constant list: computed inside the
+/// statement, the planner can't estimate the list's size.
 pub(crate) async fn find(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
+    let expanded = with_subtypes(db, worktree_id, query).await?;
+    let query = expanded.as_ref().unwrap_or(query);
     match db {
         Db::Sqlite(pool) => find_sqlite(pool, worktree_id, query).await,
         #[cfg(feature = "postgres")]
@@ -330,6 +334,111 @@ const WORKTREE_CLAUSE_SQLITE: &str = "r.worktree_id IN (SELECT w.id FROM worktre
 const WORKTREE_CLAUSE_PG: &str = "r.worktree_id IN (SELECT w.id FROM worktree w \
      WHERE ($1::bigint IS NULL OR w.id = $1) AND ($2::text IS NULL OR w.origin = $2) \
      AND ($3::text IS NULL OR w.branch = $3))";
+
+/// `query` with its `type_names` expanded by [`subtypes`], or `None` when
+/// it doesn't ask for that.
+async fn with_subtypes(
+    db: &Db,
+    worktree_id: i64,
+    query: &RecordQuery,
+) -> Result<Option<RecordQuery>> {
+    if !query.subtypes {
+        return Ok(None);
+    }
+    let Some(names) = query.effective_type_names() else {
+        return Ok(None);
+    };
+    let type_names = subtypes(db, worktree_id, query, names).await?;
+    Ok(Some(RecordQuery {
+        type_names: Some(type_names),
+        subtypes: false,
+        ..query.clone()
+    }))
+}
+
+/// `names` plus every type whose `/types` record's `extends` list reaches
+/// one of them, transitively, among the `/types` records in `query`'s
+/// worktrees and file.
+async fn subtypes(
+    db: &Db,
+    worktree_id: i64,
+    query: &RecordQuery,
+    names: &[String],
+) -> Result<Vec<String>> {
+    let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+    match db {
+        Db::Sqlite(pool) => {
+            let sql = format!(
+                "WITH RECURSIVE {}, sub(name) AS (SELECT value FROM json_each(?5) \
+                 UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
+                 SELECT name FROM sub ORDER BY name",
+                type_edges_cte_sqlite(4)
+            );
+            let names = serde_json::to_string(names).map_err(|e| Error::Other(e.to_string()))?;
+            Ok(sqlx::query_scalar(&sql)
+                .bind(scope.id)
+                .bind(scope.origin)
+                .bind(scope.branch)
+                .bind(query.file_path.as_deref())
+                .bind(names)
+                .fetch_all(pool)
+                .await?)
+        }
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => {
+            let sql = format!(
+                "WITH RECURSIVE {}, sub(name) AS (SELECT unnest($5::text[]) \
+                 UNION SELECT e.child FROM edges e JOIN sub s ON e.parent = s.name) \
+                 SELECT name FROM sub ORDER BY name",
+                type_edges_cte_pg(4)
+            );
+            Ok(sqlx::query_scalar(&sql)
+                .bind(scope.id)
+                .bind(scope.origin)
+                .bind(scope.branch)
+                .bind(query.file_path.as_deref())
+                .bind(names)
+                .fetch_all(pool)
+                .await?)
+        }
+    }
+}
+
+/// The CTE `edges(child, parent)`: one row per name in a `/types`
+/// record's `extends` list, over the records in the
+/// [`WorktreeScope`] bound as `?1`-`?3` and the file bound as
+/// `?{file_idx}` (NULL for every file).
+fn type_edges_cte_sqlite(file_idx: usize) -> String {
+    // `typeof(e.key) = 'integer'` keeps array elements only: an object's
+    // members have text keys and a scalar's key is NULL.
+    format!(
+        "edges(child, parent) AS (SELECT r.key, e.value \
+         FROM record r, json_each(r.json, '$.extends') e \
+         WHERE {WORKTREE_CLAUSE_SQLITE} AND r.path = '/types' AND r.deleted = 0 \
+         AND r.conflict IS NULL AND (?{file_idx} IS NULL OR r.file_path = ?{file_idx}) \
+         AND typeof(e.key) = 'integer' AND e.type = 'text')"
+    )
+}
+
+/// Postgres twin of [`type_edges_cte_sqlite`].
+#[cfg(feature = "postgres")]
+fn type_edges_cte_pg(file_idx: usize) -> String {
+    // `jsonb_array_elements` raises on a non-array, hence the CASE.
+    format!(
+        "edges(child, parent) AS (SELECT r.key, e.value #>> '{{}}' \
+         FROM record r CROSS JOIN LATERAL jsonb_array_elements(\
+         CASE WHEN jsonb_typeof(r.json -> 'extends') = 'array' \
+         THEN r.json -> 'extends' ELSE '[]'::jsonb END) e(value) \
+         WHERE {WORKTREE_CLAUSE_PG} AND r.path = '/types' AND r.deleted = FALSE \
+         AND r.conflict IS NULL AND (${file_idx}::text IS NULL OR r.file_path = ${file_idx}) \
+         AND jsonb_typeof(e.value) = 'string')"
+    )
+}
+
+/// The CTE `closure(decl, anc)`: every type with each ancestor its
+/// `extends` lists reach, over `edges`. `UNION` makes a cycle terminate.
+const TYPE_CLOSURE_CTE: &str = "closure(decl, anc) AS (SELECT child, parent FROM edges \
+     UNION SELECT e.child, c.anc FROM edges e JOIN closure c ON e.parent = c.decl)";
 
 /// Append the record-filter clauses shared by [`find`] and [`facet`] to
 /// `sql`, numbering placeholders from `*idx` in exactly the order
@@ -839,6 +948,8 @@ pub(crate) async fn facet(
     query: &RecordQuery,
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
+    let expanded = with_subtypes(db, worktree_id, query).await?;
+    let query = expanded.as_ref().unwrap_or(query);
     match db {
         Db::Sqlite(pool) => facet_sqlite(pool, worktree_id, query, spec).await,
         #[cfg(feature = "postgres")]
@@ -908,9 +1019,10 @@ async fn facet_sqlite(
 ///
 /// Shape: one `json_each` lateral per path contributing values per
 /// [`facet_value_sqlite`]; paths with [`FacetPath::rollup`] LEFT JOIN a
-/// `MATERIALIZED` CTE of the `(member, bucket)` pairs (JSON-quoted so
-/// both sides compare as JSON text) and group by
-/// `COALESCE(bucket, value)` -- a value with pairs counts under each of
+/// `MATERIALIZED` CTE of `(type, bucket)` pairs -- each type with an
+/// ancestor paired with itself and each of its ancestors, JSON-quoted so
+/// both sides compare as JSON text -- and group by
+/// `COALESCE(bucket, value)`: a value with pairs counts under each of
 /// its buckets, one without falls back to itself. `COUNT(DISTINCT
 /// r.id)` keeps a record that reaches the same cell through several
 /// values (duplicate array elements, diamond rollup paths) counted
@@ -925,11 +1037,10 @@ async fn facet_aggregate_sqlite(
     use sqlx::Arguments;
     use sqlx::Row as _;
     let group = &spec.group;
-    let with_pairs =
-        (group.rollup || members.iter().any(|m| m.rollup)) && !spec.rollup_pairs.is_empty();
+    let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
 
     // Placeholder allocation order is bind order: worktree, filters,
-    // group path, member paths, pairs. The WHERE fragment is built
+    // group path, member paths, the types' file. The WHERE fragment is built
     // first so the filters take the low indexes, then spliced in after
     // the joins -- `?N` placeholders don't care about textual position.
     let mut where_sql = String::new();
@@ -945,7 +1056,7 @@ async fn facet_aggregate_sqlite(
             i
         })
         .collect();
-    let pairs_idx = with_pairs.then(|| {
+    let types_file_idx = with_pairs.then(|| {
         let i = idx;
         idx += 1;
         i
@@ -953,18 +1064,19 @@ async fn facet_aggregate_sqlite(
     let _ = idx;
 
     let mut sql = String::new();
-    if let Some(pi) = pairs_idx {
-        // MATERIALIZED so the pairs are expanded once and the planner
-        // can build an automatic index for the joins below, instead of
-        // rescanning json_each per record row.
+    if let Some(fi) = types_file_idx {
+        // MATERIALIZED so the pairs are computed once and the planner
+        // can build an automatic index for the joins below.
         sql.push_str(&format!(
-            "WITH rollup_pairs(decl, anc) AS MATERIALIZED (\
-             SELECT json_quote(c.value ->> 'd'), json_quote(c.value ->> 'a') \
-             FROM json_each(?{pi}) c) "
+            "WITH RECURSIVE {}, {TYPE_CLOSURE_CTE}, \
+             rollup_pairs(decl, anc) AS MATERIALIZED (\
+             SELECT json_quote(decl), json_quote(anc) FROM closure \
+             UNION SELECT json_quote(decl), json_quote(decl) FROM closure) ",
+            type_edges_cte_sqlite(fi)
         ));
     }
     let group_expr = facet_value_sqlite("jg");
-    let group_out = if group.rollup && with_pairs {
+    let group_out = if group.rollup {
         format!("COALESCE(mg.anc, {group_expr})")
     } else {
         group_expr.clone()
@@ -974,7 +1086,7 @@ async fn facet_aggregate_sqlite(
         .map(|i| facet_value_sqlite(&format!("j{i}")))
         .collect();
     for (i, member) in members.iter().enumerate() {
-        let out = if member.rollup && with_pairs {
+        let out = if member.rollup {
             format!("COALESCE(m{i}.anc, {})", member_exprs[i])
         } else {
             member_exprs[i].clone()
@@ -983,14 +1095,14 @@ async fn facet_aggregate_sqlite(
     }
     sql.push_str(", COUNT(DISTINCT r.id) AS n FROM record r");
     sql.push_str(&format!(" JOIN json_each(r.json, ?{group_idx}) jg"));
-    if group.rollup && with_pairs {
+    if group.rollup {
         sql.push_str(&format!(
             " LEFT JOIN rollup_pairs mg ON mg.decl = {group_expr}"
         ));
     }
     for (i, member) in members.iter().enumerate() {
         sql.push_str(&format!(" JOIN json_each(r.json, ?{}) j{i}", member_idx[i]));
-        if member.rollup && with_pairs {
+        if member.rollup {
             sql.push_str(&format!(
                 " LEFT JOIN rollup_pairs m{i} ON m{i}.decl = {}",
                 member_exprs[i]
@@ -1015,14 +1127,8 @@ async fn facet_aggregate_sqlite(
     for member in members {
         args.add(member.sql_path()).map_err(arg_err)?;
     }
-    if pairs_idx.is_some() {
-        let pairs = serde_json::Value::Array(
-            spec.rollup_pairs
-                .iter()
-                .map(|(d, a)| serde_json::json!({ "d": d, "a": a }))
-                .collect(),
-        );
-        args.add(pairs.to_string()).map_err(arg_err)?;
+    if types_file_idx.is_some() {
+        args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
     let rows = sqlx::query_with(&sql, args).fetch_all(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -1089,9 +1195,8 @@ async fn facet_pg(
 }
 
 /// Postgres twin of [`facet_aggregate_sqlite`]. Values group as jsonb
-/// (semantic equality, so object key order can't split a bucket) and
-/// the rollup pairs arrive as two parallel `text[]` binds joined via
-/// `unnest`, compared as jsonb strings.
+/// (semantic equality, so object key order can't split a bucket), and
+/// the rollup pairs are jsonb strings.
 #[cfg(feature = "postgres")]
 async fn facet_aggregate_pg(
     pool: &sqlx::Pool<sqlx::Postgres>,
@@ -1103,11 +1208,10 @@ async fn facet_aggregate_pg(
     use sqlx::Arguments;
     use sqlx::Row as _;
     let group = &spec.group;
-    let with_pairs =
-        (group.rollup || members.iter().any(|m| m.rollup)) && !spec.rollup_pairs.is_empty();
+    let with_pairs = group.rollup || members.iter().any(|m| m.rollup);
 
     // Placeholder allocation order is bind order: worktree, filters,
-    // group path, member paths, pair members, pair buckets.
+    // group path, member paths, the types' file.
     let mut where_sql = String::new();
     let mut idx: usize = 4;
     push_filter_sql_pg(&mut where_sql, query, &mut idx);
@@ -1121,22 +1225,32 @@ async fn facet_aggregate_pg(
             i
         })
         .collect();
-    let pairs_idx = with_pairs.then(|| {
-        let (d, a) = (idx, idx + 1);
-        idx += 2;
-        (d, a)
+    let types_file_idx = with_pairs.then(|| {
+        let i = idx;
+        idx += 1;
+        i
     });
     let _ = idx;
 
-    let group_out = if group.rollup && with_pairs {
-        "COALESCE(to_jsonb(mg.anc), jg.val)"
+    let mut sql = String::new();
+    if let Some(fi) = types_file_idx {
+        sql.push_str(&format!(
+            "WITH RECURSIVE {}, {TYPE_CLOSURE_CTE}, \
+             rollup_pairs(decl, anc) AS MATERIALIZED (\
+             SELECT to_jsonb(decl), to_jsonb(anc) FROM closure \
+             UNION SELECT to_jsonb(decl), to_jsonb(decl) FROM closure) ",
+            type_edges_cte_pg(fi)
+        ));
+    }
+    let group_out = if group.rollup {
+        "COALESCE(mg.anc, jg.val)"
     } else {
         "jg.val"
     };
-    let mut sql = format!("SELECT {group_out} AS g0");
+    sql.push_str(&format!("SELECT {group_out} AS g0"));
     for (i, member) in members.iter().enumerate() {
-        let out = if member.rollup && with_pairs {
-            format!("COALESCE(to_jsonb(m{i}.anc), j{i}.val)")
+        let out = if member.rollup {
+            format!("COALESCE(m{i}.anc, j{i}.val)")
         } else {
             format!("j{i}.val")
         };
@@ -1144,23 +1258,15 @@ async fn facet_aggregate_pg(
     }
     sql.push_str(", COUNT(DISTINCT r.id) AS n FROM record r");
     sql.push_str(&facet_lateral_pg("jg", group_idx));
-    if let Some((d_idx, a_idx)) = pairs_idx {
-        if group.rollup {
-            sql.push_str(&format!(
-                " LEFT JOIN unnest(${d_idx}::text[], ${a_idx}::text[]) mg(decl, anc) \
-                 ON to_jsonb(mg.decl) = jg.val"
-            ));
-        }
+    if group.rollup {
+        sql.push_str(" LEFT JOIN rollup_pairs mg ON mg.decl = jg.val");
     }
     for (i, member) in members.iter().enumerate() {
         sql.push_str(&facet_lateral_pg(&format!("j{i}"), member_idx[i]));
-        if let Some((d_idx, a_idx)) = pairs_idx {
-            if member.rollup {
-                sql.push_str(&format!(
-                    " LEFT JOIN unnest(${d_idx}::text[], ${a_idx}::text[]) m{i}(decl, anc) \
-                     ON to_jsonb(m{i}.decl) = j{i}.val"
-                ));
-            }
+        if member.rollup {
+            sql.push_str(&format!(
+                " LEFT JOIN rollup_pairs m{i} ON m{i}.decl = j{i}.val"
+            ));
         }
     }
     sql.push_str(" WHERE ");
@@ -1181,11 +1287,8 @@ async fn facet_aggregate_pg(
     for member in members {
         args.add(&member.tokens).map_err(arg_err)?;
     }
-    if pairs_idx.is_some() {
-        let decls: Vec<&str> = spec.rollup_pairs.iter().map(|(d, _)| d.as_str()).collect();
-        let ancs: Vec<&str> = spec.rollup_pairs.iter().map(|(_, a)| a.as_str()).collect();
-        args.add(decls).map_err(arg_err)?;
-        args.add(ancs).map_err(arg_err)?;
+    if types_file_idx.is_some() {
+        args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
     let rows = sqlx::query_with(&sql, args).fetch_all(pool).await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -1588,55 +1691,6 @@ pub(crate) async fn get_by_id(db: &Db, id: i64) -> Result<Option<Record>> {
                 })),
                 None => Ok(None),
             }
-        }
-    }
-}
-
-/// Change-detection probe for a section: `(COUNT(*), SUM(version))`
-/// over every row with `record.path = path` in the worktrees read,
-/// **tombstones included** (no `deleted` filter).
-///
-/// The pair moves whenever the section's contents change: an upsert
-/// or CRUD delete gives that row a higher `version` (raising `SUM`), and
-/// a hard delete during re-sync ([`delete_missing`]) drops `COUNT` --
-/// while a simultaneous delete + add still raises `SUM` via the added
-/// row's fresh version. Writes to other sections touch neither. `MAX`
-/// would do within one worktree, but versions are counted per family, so
-/// across worktrees a write to one with lower versions wouldn't move it.
-pub(crate) async fn section_stat(
-    db: &Db,
-    worktree_id: i64,
-    worktrees: Option<&WorktreeFilter>,
-    path: &str,
-) -> Result<(i64, Option<i64>)> {
-    let scope = WorktreeScope::new(worktree_id, worktrees);
-    match db {
-        Db::Sqlite(pool) => {
-            let row: (i64, Option<i64>) = sqlx::query_as(&format!(
-                "SELECT COUNT(*), SUM(r.version) FROM record r \
-                 WHERE {WORKTREE_CLAUSE_SQLITE} AND r.path = ?4 AND r.conflict IS NULL"
-            ))
-            .bind(scope.id)
-            .bind(scope.origin)
-            .bind(scope.branch)
-            .bind(path)
-            .fetch_one(pool)
-            .await?;
-            Ok(row)
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let row: (i64, Option<i64>) = sqlx::query_as(&format!(
-                "SELECT COUNT(*), SUM(r.version)::bigint FROM record r \
-                 WHERE {WORKTREE_CLAUSE_PG} AND r.path = $4 AND r.conflict IS NULL"
-            ))
-            .bind(scope.id)
-            .bind(scope.origin)
-            .bind(scope.branch)
-            .bind(path)
-            .fetch_one(pool)
-            .await?;
-            Ok(row)
         }
     }
 }

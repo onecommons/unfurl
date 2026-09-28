@@ -346,6 +346,12 @@ on flattened lists.
 This removes the server's types cache (`CloudMapState::types_cache` and
 `rollup_pairs_from`), and `section_stat`, which only that cache used.
 
+**Status.** Done on today's schema: `RecordQuery::subtypes` expands
+the names in a first query, and the facet rollup builds its pairs in
+the statement (`db/record.rs`). The two statements there don't share a
+transaction yet, so the expansion can miss a type written between
+them.
+
 ### 4.2 Uncommitted writes
 
 A write targets one worktree's draft. It's made through a view: the

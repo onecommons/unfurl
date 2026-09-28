@@ -223,7 +223,7 @@ def _subtype_names(types_section: Dict[str, Any], type_name: str) -> Set[str]:
     """Expand ``type_name`` to itself plus every subtype — every type
     record whose ``extends`` list (transitively) contains it.
 
-    Mirrors the rust server's ``CloudMapState::subtype_names``:
+    Mirrors git-sync's ``RecordQuery::subtypes`` expansion:
     ``extends`` lists are often pre-flattened (full ancestor closure)
     but the BFS also handles direct-parents-only producers, and
     ``type_name`` need not have a type record. Shares its walk with

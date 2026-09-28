@@ -148,8 +148,12 @@ pub struct RecordQuery {
     /// Only records whose `version` is greater than this.
     pub since_version: Option<i64>,
     /// Only records declaring one of these names as a key of their `type`
-    /// object. Matching is by exact name — expand subtypes first.
+    /// object.
     pub type_names: Option<Vec<String>>,
+    /// Also match every subtype of `type_names`: every `/types` record
+    /// whose `extends` list reaches one of them, transitively, read from
+    /// the same worktrees and `file_path` as the records.
+    pub subtypes: bool,
     /// Only records whose JSON satisfies *every* one of these
     /// predicates (ANDed; empty means no content filter). Each
     /// predicate is applied independently — two filters may be
@@ -443,10 +447,9 @@ impl JsonQuery {
 pub struct FacetPath {
     /// Unescaped JSON-Pointer reference tokens, e.g. `["metadata", "topics"]`.
     pub tokens: Vec<String>,
-    /// Remap each extracted value through [`FacetSpec::rollup_pairs`]:
-    /// a value with pairs counts under every bucket its pairs name
-    /// (include a self-pair to keep it counting as itself); a value
-    /// with no pairs counts as itself.
+    /// Count each extracted value under itself and every ancestor type
+    /// its `/types` record's `extends` list reaches, transitively, read
+    /// from the query's worktrees and `file_path`.
     pub rollup: bool,
 }
 
@@ -466,22 +469,13 @@ impl FacetPath {
 
 /// The dimensions of a facet aggregation: one grouping path, any number
 /// of facet columns -- each one or more member paths, a multi-member
-/// column counting the per-record combinations of its members' values
-/// -- and the rollup mapping applied where a path opts in.
+/// column counting the per-record combinations of its members' values.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FacetSpec {
     /// The path records are grouped by.
     pub group: FacetPath,
     /// The facet columns, each a list of member paths.
     pub columns: Vec<Vec<FacetPath>>,
-    /// `(member, bucket)` pairs consulted by paths with
-    /// [`FacetPath::rollup`] set: an extracted value equal to `member`
-    /// counts under `bucket` instead of itself, once per pair naming
-    /// it. Callers wanting a member to also count as itself must
-    /// include the self-pair. The caller supplies the pairs as data --
-    /// e.g. a type-inheritance closure -- so the aggregation itself
-    /// stays format-agnostic.
-    pub rollup_pairs: Vec<(String, String)>,
 }
 
 /// Render a JSON value as canonical text: minified, object keys sorted

@@ -19,9 +19,8 @@ use axum::{
     response::{IntoResponse, Json, Response},
 };
 use serde_json::{json, Map, Value};
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 use unfurl_git_sync::{
     canonical_facet_key, canonical_json_text, BatchOp, CommitRef, ConflictState, DbConfig,
     FacetPath, FacetSpec, FormatRegistry, JsonQuery, Record, RecordQuery, ScanOptions, SyncedRepo,
@@ -151,29 +150,6 @@ fn path_for_kind(kind: &str) -> Option<&'static str> {
 #[derive(Clone)]
 pub struct CloudMapState {
     inner: Arc<SyncedRepo>,
-    /// Lazily-built reverse `extends` adjacency of the `/types`
-    /// section, used by the `type` query filter. See
-    /// [`CloudMapState::subtype_names`].
-    types_cache: Arc<Mutex<HashMap<TypesCacheKey, TypesCache>>>,
-}
-
-/// The worktrees read (`None` = the checked-out one) and the request's
-/// `cloudmap_path` (`None` = every file).
-type TypesCacheKey = (Option<WorktreeFilter>, Option<String>);
-
-/// Cached reverse `extends` adjacency of the `/types` section.
-struct TypesCache {
-    /// `(COUNT(*), SUM(version))` of the `/types` section at build
-    /// time ([`SyncedRepo::section_stat`]). The cache is stale exactly
-    /// when a fresh probe returns a different pair.
-    stat: (i64, Option<i64>),
-    /// Parent type name → type names that directly declare it in
-    /// their `extends` list.
-    children: HashMap<String, Vec<String>>,
-    /// The adjacency flattened into `(declared, ancestor)` pairs for
-    /// the facets rollup, self-pairs included — see
-    /// [`rollup_pairs_from`]. Computed once per rebuild.
-    rollup_pairs: Vec<(String, String)>,
 }
 
 impl CloudMapState {
@@ -227,7 +203,6 @@ impl CloudMapState {
         Ok((
             Self {
                 inner: Arc::new(synced),
-                types_cache: Arc::new(Mutex::new(HashMap::new())),
             },
             outcome,
         ))
@@ -250,7 +225,6 @@ impl CloudMapState {
     pub fn from_synced(synced: SyncedRepo) -> Self {
         Self {
             inner: Arc::new(synced),
-            types_cache: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -370,150 +344,6 @@ impl CloudMapState {
     pub async fn head_commit(&self) -> Result<Option<String>, unfurl_git_sync::Error> {
         Ok(self.inner.get_worktree().await?.commit_id)
     }
-
-    /// Run `read` against the up-to-date types cache for `file_path`.
-    ///
-    /// Each call re-probes the `/types` section's `(COUNT(*),
-    /// MAX(version))` stat ([`SyncedRepo::section_stat`]) and rebuilds
-    /// only when the pair moved, so writes to other sections leave the
-    /// cache warm. Shared by the `type` query filter
-    /// ([`Self::subtype_names`]) and the facets rollup
-    /// ([`Self::rollup_pairs`]), which therefore can't drift.
-    async fn with_types_cache<T>(
-        &self,
-        worktrees: Option<&WorktreeFilter>,
-        file_path: Option<&str>,
-        read: impl FnOnce(&TypesCache) -> T,
-    ) -> Result<T, unfurl_git_sync::Error> {
-        let stat = self.inner.section_stat("/types", worktrees).await?;
-        let cache_key = (worktrees.cloned(), file_path.map(str::to_string));
-        let mut guard = self.types_cache.lock().await;
-        // (`Option::is_none_or` reads better but is stable only since
-        // Rust 1.82; MSRV is 1.70.)
-        if !matches!(guard.get(&cache_key), Some(c) if c.stat == stat) {
-            // Two separate queries (probe, then fetch) — a write
-            // landing in between can pair a fresh section with a
-            // stale stat or vice versa; either way the next request's
-            // probe mismatches and rebuilds, so the cache is at most
-            // one write behind, never stuck.
-            let records = self
-                .inner
-                .find_records(&RecordQuery {
-                    worktrees: cache_key.0.clone(),
-                    file_path: cache_key.1.clone(),
-                    path: Some("/types".into()),
-                    ..Default::default()
-                })
-                .await?;
-            let mut children: HashMap<String, Vec<String>> = HashMap::new();
-            for r in &records {
-                let Some(extends) = r.json.get("extends").and_then(Value::as_array) else {
-                    continue;
-                };
-                for parent in extends.iter().filter_map(Value::as_str) {
-                    // Type records commonly list themselves first in
-                    // `extends`; skip the self-edge.
-                    if parent != r.key {
-                        children
-                            .entry(parent.to_string())
-                            .or_default()
-                            .push(r.key.clone());
-                    }
-                }
-            }
-            let rollup_pairs = rollup_pairs_from(&children);
-            guard.insert(
-                cache_key.clone(),
-                TypesCache {
-                    stat,
-                    children,
-                    rollup_pairs,
-                },
-            );
-        }
-        let cache = guard.get(&cache_key).expect("types cache just populated");
-        Ok(read(cache))
-    }
-
-    /// Expand `type_name` to itself plus every subtype — every type
-    /// record whose `extends` list (transitively) contains it.
-    /// `type_name` need not have a type record — the result then is
-    /// just the name itself.
-    async fn subtype_names(
-        &self,
-        worktrees: Option<&WorktreeFilter>,
-        type_name: &str,
-        file_path: Option<&str>,
-    ) -> Result<Vec<String>, unfurl_git_sync::Error> {
-        self.with_types_cache(worktrees, file_path, |cache| {
-            // BFS over the reverse edges, starting at (and including) the
-            // requested name. `extends` lists are often pre-flattened
-            // (full ancestor closure) — the walk handles both that and
-            // direct-parents-only producers.
-            let mut out: Vec<String> = Vec::new();
-            let mut seen: HashSet<&str> = HashSet::from([type_name]);
-            let mut queue: Vec<&str> = vec![type_name];
-            while let Some(name) = queue.pop() {
-                out.push(name.to_string());
-                if let Some(kids) = cache.children.get(name) {
-                    for kid in kids {
-                        if seen.insert(kid.as_str()) {
-                            queue.push(kid.as_str());
-                        }
-                    }
-                }
-            }
-            out
-        })
-        .await
-    }
-
-    /// The `(declared, ancestor)` rollup pairs for the facets
-    /// endpoint's `subtypes` mode, from the same cached adjacency the
-    /// `type` filter expands through — which is what keeps the
-    /// invariant that a `type` facet bucket for `T` counts exactly the
-    /// records `?type=T` matches.
-    async fn rollup_pairs(
-        &self,
-        worktrees: Option<&WorktreeFilter>,
-        file_path: Option<&str>,
-    ) -> Result<Vec<(String, String)>, unfurl_git_sync::Error> {
-        self.with_types_cache(worktrees, file_path, |cache| cache.rollup_pairs.clone())
-            .await
-    }
-}
-
-/// Flatten a reverse-`extends` adjacency into the `(member, bucket)`
-/// pairs [`unfurl_git_sync::FacetSpec::rollup_pairs`] expects: for
-/// every ancestor `P`, each transitive descendant `D` yields `(D, P)`,
-/// plus the self-pair `(D, D)` for every `D` that gained an ancestor —
-/// the SQL rollup join *replaces* a value with its buckets, so without
-/// the self-pair a subtype would stop counting as itself. A type with
-/// no pairs at all needs none: the join's COALESCE falls back to the
-/// value itself.
-fn rollup_pairs_from(children: &HashMap<String, Vec<String>>) -> Vec<(String, String)> {
-    let mut pairs: BTreeSet<(String, String)> = BTreeSet::new();
-    for parent in children.keys() {
-        let mut seen: HashSet<&str> = HashSet::from([parent.as_str()]);
-        let mut queue: Vec<&str> = vec![parent.as_str()];
-        while let Some(name) = queue.pop() {
-            if name != parent.as_str() {
-                pairs.insert((name.to_string(), parent.clone()));
-            }
-            if let Some(kids) = children.get(name) {
-                for kid in kids {
-                    if seen.insert(kid.as_str()) {
-                        queue.push(kid.as_str());
-                    }
-                }
-            }
-        }
-    }
-    let members: Vec<String> = pairs.iter().map(|(d, _)| d.clone()).collect();
-    for member in members {
-        pairs.insert((member.clone(), member));
-    }
-    pairs.into_iter().collect()
 }
 
 /// Axum handler for `GET /cloudmap`.
@@ -729,8 +559,8 @@ pub enum ProjectCheck {
 /// The record selection shared by `GET /cloudmap` and `GET
 /// /cloudmap/facets`, resolved once from the request's query
 /// parameters: `cloudmap_path` scoping, `kind` mapped to its record
-/// path (404 on an unknown one), `type` expanded through the subtype
-/// closure, and `filter` parsed into a [`JsonQuery`]. One resolver for
+/// path (404 on an unknown one), `type` matching its subtypes too, and
+/// `filter` parsed into a [`JsonQuery`]. One resolver for
 /// both endpoints, so a change to the selection parameters — say, a
 /// repeatable `filter` — lands in both at once.
 struct Selection {
@@ -738,13 +568,12 @@ struct Selection {
     worktrees: Option<WorktreeFilter>,
     file_path: Option<String>,
     path: Option<&'static str>,
-    type_names: Option<Vec<String>>,
+    type_name: Option<String>,
     json_filters: Vec<JsonQuery>,
 }
 
 impl Selection {
-    async fn resolve(
-        cm: &CloudMapState,
+    fn resolve(
         worktrees: Option<WorktreeFilter>,
         kind: Option<&str>,
         type_param: Option<&str>,
@@ -766,18 +595,6 @@ impl Selection {
             None => None,
         };
 
-        // Expand the optional `type` filter to the requested name plus
-        // all of its (transitive) subtypes per the `/types` section, then
-        // push the name set down into the SQL record match.
-        let type_names: Option<Vec<String>> = match type_param {
-            Some(t) if !t.is_empty() => Some(
-                cm.subtype_names(worktrees.as_ref(), t, file_path)
-                    .await
-                    .map_err(|e| LocalError::Internal(format!("subtype_names: {e}")))?,
-            ),
-            _ => None,
-        };
-
         // `filter` narrows on record contents: `<json pointer>=<value>`,
         // pushed into the SQL WHERE clause so the database does the
         // filtering. Repeatable — every occurrence must match (the
@@ -792,7 +609,7 @@ impl Selection {
             worktrees,
             file_path: file_path.map(str::to_string),
             path,
-            type_names,
+            type_name: type_param.filter(|t| !t.is_empty()).map(str::to_string),
             json_filters,
         })
     }
@@ -804,7 +621,8 @@ impl Selection {
             worktrees: self.worktrees,
             file_path: self.file_path,
             path: self.path.map(str::to_string),
-            type_names: self.type_names,
+            type_names: self.type_name.map(|t| vec![t]),
+            subtypes: true,
             json_queries: self.json_filters,
             ..Default::default()
         }
@@ -911,14 +729,12 @@ async fn build_response(
     let kind = params.kind.as_deref();
     let key = params.key.as_deref();
     let selection = Selection::resolve(
-        cm,
         worktrees,
         kind,
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
-    )
-    .await?;
+    )?;
 
     // A walk starts from every record the query selected, so it needs no
     // key: `find_records_follow` seeds its queue from the whole initial
@@ -950,7 +766,7 @@ async fn build_response(
         })
         .unwrap_or_default();
 
-    let type_filtered = selection.type_names.is_some();
+    let type_filtered = selection.type_name.is_some();
     let content_filtered = !selection.json_filters.is_empty();
 
     // `select` reduces every returned record to the requested properties.
@@ -1215,14 +1031,12 @@ async fn build_facets_response(
     params: &unfurl_types::GetCloudmapFacetsRequestQuery,
 ) -> Result<Value, LocalError> {
     let selection = Selection::resolve(
-        cm,
         worktrees,
         params.kind.as_deref(),
         params.r#type.as_deref(),
         params.filter.as_deref().unwrap_or_default(),
         params.cloudmap_path.as_deref(),
-    )
-    .await?;
+    )?;
 
     let group_tokens = pointer_tokens(&params.group_by)?;
     // Each `facet=` occurrence is one column; a comma within one
@@ -1258,13 +1072,6 @@ async fn build_facets_response(
         })
         .collect();
     let rollup_applied = group_rollup || member_rollup.iter().any(|flags| flags.contains(&true));
-    let rollup_pairs = if rollup_applied {
-        cm.rollup_pairs(selection.worktrees.as_ref(), selection.file_path.as_deref())
-            .await
-            .map_err(|e| LocalError::Internal(format!("rollup_pairs: {e}")))?
-    } else {
-        Vec::new()
-    };
 
     let bad_path = |e: unfurl_git_sync::Error| LocalError::BadRequest(e.to_string());
     let spec = FacetSpec {
@@ -1281,7 +1088,6 @@ async fn build_facets_response(
             })
             .collect::<Result<Vec<_>, _>>()
             .map_err(bad_path)?,
-        rollup_pairs,
     };
     let rows = cm
         .inner

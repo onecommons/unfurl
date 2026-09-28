@@ -825,10 +825,9 @@ impl SyncedRepo {
     ///
     /// `type_names`, when set and non-empty, restricts results to
     /// records whose JSON payload declares one of the given names as a
-    /// key of its `type` object (the cloudmap `typeRef` shape).
-    /// Matching is by exact name — expand subtypes first (e.g. via the
-    /// `extends` closure of the `/types` section) to match a type
-    /// hierarchy.
+    /// key of its `type` object (the cloudmap `typeRef` shape); with
+    /// `subtypes`, also every subtype of those names per the `extends`
+    /// lists of the `/types` section.
     ///
     /// Results are ordered by `(path, key)`, compared byte-wise, for
     /// stable output.
@@ -895,22 +894,6 @@ impl SyncedRepo {
         spec: &crate::model::FacetSpec,
     ) -> Result<crate::model::FacetRows> {
         db::record::facet(self.db(), self.worktree_id(), query, spec).await
-    }
-
-    /// Change-detection probe for a section: `(COUNT(*),
-    /// SUM(version))` over every row (tombstones included) whose
-    /// `record.path` equals `path`, in this worktree or those
-    /// `worktrees` matches (see [`RecordQuery::worktrees`]).
-    ///
-    /// The pair moves whenever the section's contents change and only
-    /// then — suitable as a cache key for derived data (e.g. the
-    /// `extends` closure of the `/types` section).
-    pub async fn section_stat(
-        &self,
-        path: &str,
-        worktrees: Option<&crate::model::WorktreeFilter>,
-    ) -> Result<(i64, Option<i64>)> {
-        db::record::section_stat(self.db(), self.worktree_id(), worktrees, path).await
     }
 
     /// Like [`Self::find_records`], but also walks

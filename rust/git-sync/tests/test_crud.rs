@@ -609,8 +609,7 @@ async fn create_with_pending_token_on_committed_file_is_conflict(
 
 async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
     // `type_names` matches records whose `type` typeRef object
-    // declares one of the given names as a key. Exact names only —
-    // subtype expansion is the caller's job.
+    // declares one of the given names as a key.
     sync.update_from_working_dir(ScanOptions::default())
         .await
         .expect("update");
@@ -671,32 +670,74 @@ async fn find_records_type_filter(sync: &SyncedRepo, _tmp: &TempDir) {
         .expect("unfiltered");
     assert_eq!(all.len(), unfiltered.len());
 
-    // The section-stat probe moves when (and only when) the section
-    // changes: an upsert into /types bumps its pair, and leaves other
-    // sections' pairs alone.
-    let types_before = sync.section_stat("/types", None).await.expect("stat");
-    let artifacts_before = sync.section_stat("/artifacts", None).await.expect("stat");
-    assert!(types_before.0 > 0, "fixture has type records");
-    sync.upsert_record(
-        Some("cloudmap.yaml"),
-        "/types",
-        "test.NewType",
-        serde_json::json!({"kind": "component"}),
-        None,
-        false,
-    )
-    .await
-    .expect("upsert type record");
-    let types_after = sync.section_stat("/types", None).await.expect("stat after");
-    let artifacts_after = sync
-        .section_stat("/artifacts", None)
+    // With `subtypes`, a name also matches every type whose `extends`
+    // list reaches it, transitively: through direct-parents-only lists,
+    // past a type listing itself, and around a cycle. An `extends` that
+    // isn't a list is ignored.
+    for (key, extends) in [
+        ("test.Base", serde_json::json!(["test.Base"])),
+        ("test.Mid", serde_json::json!(["test.Mid", "test.Base"])),
+        ("test.Leaf", serde_json::json!(["test.Mid"])),
+        (
+            "test.CycleA",
+            serde_json::json!(["test.CycleB", "test.Leaf"]),
+        ),
+        ("test.CycleB", serde_json::json!(["test.CycleA"])),
+        ("test.NotAList", serde_json::json!("test.Base")),
+    ] {
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/types",
+            key,
+            serde_json::json!({"name": key, "extends": extends}),
+            None,
+            false,
+        )
         .await
-        .expect("stat after");
-    assert_ne!(types_before, types_after, "types probe must move");
-    assert_eq!(
-        artifacts_before, artifacts_after,
-        "other sections' probes must not move"
-    );
+        .expect("upsert type record");
+    }
+    for (key, type_name) in [
+        ("base", "test.Base"),
+        ("leaf", "test.Leaf"),
+        ("cycle", "test.CycleB"),
+        ("stray", "test.NotAList"),
+    ] {
+        sync.create_record(
+            Some("cloudmap.yaml"),
+            "/subtypetest",
+            key,
+            serde_json::json!({"type": {type_name: {}}}),
+            None,
+            false,
+        )
+        .await
+        .expect("create typed record");
+    }
+    let keys = |type_name: &'static str, subtypes: bool| async move {
+        sync.find_records(&RecordQuery {
+            path: Some("/subtypetest".into()),
+            type_names: Some(vec![type_name.into()]),
+            subtypes,
+            ..Default::default()
+        })
+        .await
+        .expect("find")
+        .into_iter()
+        .map(|r| r.key)
+        .collect::<Vec<_>>()
+    };
+    assert_eq!(keys("test.Base", false).await, ["base"]);
+    assert_eq!(keys("test.Base", true).await, ["base", "cycle", "leaf"]);
+    assert_eq!(keys("test.Mid", true).await, ["cycle", "leaf"]);
+    assert_eq!(keys("test.CycleA", true).await, ["cycle"]);
+    assert!(keys("no.such.Type", true).await.is_empty());
+
+    // The expansion reads the section as it is now: deleting Leaf's type
+    // record cuts Leaf and the cycle below it off from Base.
+    sync.delete_record(Some("cloudmap.yaml"), "/types", "test.Leaf", None, false)
+        .await
+        .expect("delete type record");
+    assert_eq!(keys("test.Base", true).await, ["base"]);
 }
 
 async fn find_records_alias_lookup(sync: &SyncedRepo, _tmp: &TempDir) {
@@ -1799,7 +1840,7 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
         ),
         // no topics, no type: counts toward total only
         ("a4", serde_json::json!({"metadata": {"name": "quiet"}})),
-        // declared type with no rollup pairs: falls back to itself
+        // declared type with no type record: rolls up to itself only
         ("a5", serde_json::json!({"type": {"Unknown": {}}})),
         // scalar and boolean facet values exercise the non-container arms
         ("a6", serde_json::json!({"flag": true, "level": 3})),
@@ -1807,6 +1848,23 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
         sync.create_record(Some("cloudmap.yaml"), "/facettest", key, json, None, false)
             .await
             .expect("create facet record");
+    }
+    for (key, extends) in [
+        ("Base", serde_json::json!(["Base"])),
+        ("Derived", serde_json::json!(["Derived", "Base"])),
+        // not listing itself: must still count as itself
+        ("Other", serde_json::json!(["Base"])),
+    ] {
+        sync.upsert_record(
+            Some("cloudmap.yaml"),
+            "/types",
+            key,
+            serde_json::json!({"name": key, "extends": extends}),
+            None,
+            false,
+        )
+        .await
+        .expect("upsert type record");
     }
 
     let query = RecordQuery {
@@ -1845,7 +1903,6 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     let spec = FacetSpec {
         group: path(&["metadata", "topics"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(rows.total, 6, "every record counts toward total");
@@ -1860,7 +1917,6 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     let spec = FacetSpec {
         group: path(&["type"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(
@@ -1872,44 +1928,44 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     let spec = FacetSpec {
         group: path(&["flag"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(group_counts(&rows.groups), expect(&[("true", 1)]));
     let spec = FacetSpec {
         group: path(&["level"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(group_counts(&rows.groups), expect(&[("3", 1)]));
 
-    // 4. Rollup: Derived counts under Base too (self-pairs included);
-    //    Unknown has no pairs and falls back to itself.
-    let rollup_pairs = vec![
-        ("Derived".to_string(), "Derived".to_string()),
-        ("Derived".to_string(), "Base".to_string()),
-        ("Base".to_string(), "Base".to_string()),
-        ("Other".to_string(), "Other".to_string()),
-    ];
+    // 4. Rollup: Derived and Other count under Base too, per the /types
+    //    records, and still under themselves; Unknown has no record.
     let spec = FacetSpec {
         group: path(&["type"], true),
         columns: vec![],
-        rollup_pairs: rollup_pairs.clone(),
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(
         group_counts(&rows.groups),
         expect(&[("Base", 3), ("Derived", 2), ("Other", 1), ("Unknown", 1)]),
-        "Base's bucket = its own record plus both Derived records"
+        "Base's bucket = its own record plus a1 and a3, a3 once"
     );
+    // ... which is exactly what the type filter with subtypes matches.
+    let base = sync
+        .find_records(&RecordQuery {
+            type_names: Some(vec!["Base".into()]),
+            subtypes: true,
+            ..query.clone()
+        })
+        .await
+        .expect("find");
+    assert_eq!(base.len(), 3);
 
     // 5. Facet column with rollup on the member: per-topic type
     //    breakdown, rolled up.
     let spec = FacetSpec {
         group: path(&["metadata", "topics"], false),
         columns: vec![vec![path(&["type"], true)]],
-        rollup_pairs: rollup_pairs.clone(),
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(group_counts(&rows.groups), expect(&[("db", 2), ("web", 2)]));
@@ -1938,7 +1994,6 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
             path(&["type"], false),
             path(&["metadata", "platforms"], false),
         ]],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     let cells = cell_counts(&rows.columns[0]);
@@ -1972,7 +2027,6 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     let spec = FacetSpec {
         group: path(&["metadata", "topics"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&narrowed, &spec).await.expect("facet");
     assert_eq!(rows.total, 2, "only a1 and a2 match the filter");
@@ -1982,7 +2036,6 @@ async fn facet_records(sync: &SyncedRepo, _tmp: &TempDir) {
     let spec = FacetSpec {
         group: path(&["nowhere"], false),
         columns: vec![],
-        rollup_pairs: vec![],
     };
     let rows = sync.facet_records(&query, &spec).await.expect("facet");
     assert_eq!(rows.total, 6);
@@ -2641,58 +2694,16 @@ async fn reads_other_worktrees_in_the_same_database() {
     };
     assert!(a.worktrees(&elsewhere).await.expect("list").is_empty());
 
-    let write_b = |name: &'static str| {
-        b.upsert_record(
-            Some("cloudmap.yaml"),
-            "/repositories",
-            "only-in-b",
-            serde_json::json!({ "name": name }),
-            None,
-            false,
-        )
-    };
-    write_b("only-in-b").await.expect("write");
-    // a's versions run ahead of b's, so updating b's record changes neither
-    // the count nor the highest version across both
-    for n in 0..3 {
-        a.upsert_record(
-            Some("cloudmap.yaml"),
-            "/repositories",
-            "only-in-a",
-            serde_json::json!({ "name": format!("only-in-a-{n}") }),
-            None,
-            false,
-        )
-        .await
-        .expect("write");
-    }
-    let all = WorktreeFilter::default();
-    let all_before = a
-        .section_stat("/repositories", Some(&all))
-        .await
-        .expect("stat");
-    let stat_before = a
-        .section_stat("/repositories", Some(&in_b))
-        .await
-        .expect("stat");
-    let own_stat_before = a.section_stat("/repositories", None).await.expect("stat");
-    write_b("renamed").await.expect("write");
-    assert_ne!(
-        a.section_stat("/repositories", Some(&in_b))
-            .await
-            .expect("stat"),
-        stat_before
-    );
-    assert_eq!(
-        a.section_stat("/repositories", None).await.expect("stat"),
-        own_stat_before
-    );
-    assert_ne!(
-        a.section_stat("/repositories", Some(&all))
-            .await
-            .expect("stat"),
-        all_before
-    );
+    b.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        "only-in-b",
+        serde_json::json!({ "name": "only-in-b" }),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
 
     let only_in_b = RecordQuery {
         key: Some("only-in-b".into()),
@@ -2708,6 +2719,51 @@ async fn reads_other_worktrees_in_the_same_database() {
         .expect("find");
     assert_eq!(found.len(), 1);
     assert_eq!(found[0].worktree_id, b_row.id);
+
+    // the subtype expansion reads its types from the worktrees read too
+    b.upsert_record(
+        Some("cloudmap.yaml"),
+        "/types",
+        "test.Sub",
+        serde_json::json!({ "name": "test.Sub", "extends": ["test.Top"] }),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    b.create_record(
+        Some("cloudmap.yaml"),
+        "/subtypetest",
+        "sub",
+        serde_json::json!({ "type": { "test.Sub": {} } }),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    a.create_record(
+        Some("cloudmap.yaml"),
+        "/subtypetest",
+        "sub",
+        serde_json::json!({ "type": { "test.Sub": {} } }),
+        None,
+        false,
+    )
+    .await
+    .expect("write");
+    let top = |worktrees: Option<WorktreeFilter>| RecordQuery {
+        worktrees,
+        type_names: Some(vec!["test.Top".into()]),
+        subtypes: true,
+        ..Default::default()
+    };
+    let in_b_found = a
+        .find_records(&top(Some(in_b.clone())))
+        .await
+        .expect("find");
+    assert_eq!(in_b_found.len(), 1);
+    assert_eq!(in_b_found[0].worktree_id, b_row.id);
+    assert!(a.find_records(&top(None)).await.expect("find").is_empty());
 
     // both checkouts hold the fixture, so every worktree has this record
     let odoo = RecordQuery {
