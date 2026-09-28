@@ -317,9 +317,17 @@ section's `extends` lists:
 - **`?type=T`,** which matches T and every subtype;
 - **the facet rollup,** which counts a subtype under its ancestors.
 
-Both are computed inside the statement, from the `/types` rows visible in
-the read's own view ([C.5](#c5-facets)). `RecordQuery` carries the type
-names as requested, and the SQL expands them. That has several effects:
+Both come from the `/types` rows visible in the read's own view
+([C.5](#c5-facets)). `RecordQuery` carries the type names as requested:
+- **The rollup pairs** are computed inside the facet statement.
+- **The `type` filter's list** is expanded by a small first query over
+  the same view, then bound as a constant. The planner can't size a list
+  computed inside the statement: it estimated 29 matching rows against
+  6,636 in the benchmark, and rescanned the JSON index once per segment.
+  The two statements run in one `REPEATABLE READ` transaction, so they
+  share a snapshot.
+
+That has several effects:
 - **Nothing is cached,** and no key has to name a view, so user views
   cost nothing extra.
 - **Never stale.** The expansion reads the same snapshot as the query,
@@ -1548,13 +1556,6 @@ types AS (                       -- the view's /types rows (§4.1)
                       JOIN v vx ON vx.segment_id = x.segment_id
                       WHERE x.record_id = t.id)
 ),
-wanted AS (                      -- ?type=: the named types and every subtype
-    SELECT array_agg(DISTINCT name) AS names
-    FROM (SELECT unnest(CAST(:type_names AS text[])) AS name
-          UNION
-          SELECT key FROM types
-          WHERE json -> 'extends' ?| CAST(:type_names AS text[])) n
-),
 pairs AS (                       -- the facet rollup: each type under each
     SELECT key AS decl,          -- ancestor, itself included, since extends
            jsonb_array_elements_text(json -> 'extends') AS anc   -- lists it first
@@ -1575,7 +1576,8 @@ vis AS (
       AND (r.key = :key
            OR EXISTS (SELECT 1 FROM alias a         -- key, when aliases are on
                       WHERE a.record_id = r.id AND a.key = :key))
-      AND r.json -> 'type' ?| (SELECT names FROM wanted)  -- GIN on json -> 'type'
+      AND r.json -> 'type' ?| :subtypes::text[]    -- GIN on json -> 'type';
+                                                   -- :subtypes from the query below
       AND r.json @> :containment::jsonb            -- an exact match: a GIN
       AND r.json #> :tokens::text[] = :value::jsonb --   pre-filter, then equality
       AND r.json @? :jsonpath::jsonpath            -- a JSON path, GIN
@@ -1586,9 +1588,19 @@ vis AS (
 `types` scans the record table on its own, rather than filtering a CTE of
 every visible row. Postgres materializes a CTE that's referenced twice,
 and a materialized CTE of the whole view would have no index for `vis`'s
-filters. `wanted` is evaluated once per statement, and the GIN index on
-`json -> 'type'` still drives the scan. `find` uses the same `types` and
-`wanted` for its `type` filter.
+filters.
+
+`:subtypes`, for a `type` filter on facets or `find`, comes from a first
+query over the same view, in the same transaction:
+
+```sql
+WITH v AS (…), types AS (…)      -- as above
+SELECT array_agg(DISTINCT name)
+FROM (SELECT unnest(CAST(:type_names AS text[])) AS name
+      UNION
+      SELECT key FROM types
+      WHERE json -> 'extends' ?| CAST(:type_names AS text[])) n;
+```
 
 The total:
 
@@ -1624,7 +1636,7 @@ CROSS JOIN LATERAL facet_values(r.json #> :member1_path::text[]) j1(val)
 GROUP BY g0, v0, v1;
 ```
 
-For a producer whose `extends` lists only direct parents, `wanted` and
+For a producer whose `extends` lists only direct parents, the expansion and
 `pairs` become a `WITH RECURSIVE` walk over `types`. On flattened lists
 it finishes after one step.
 

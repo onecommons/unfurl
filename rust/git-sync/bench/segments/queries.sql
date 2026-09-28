@@ -94,6 +94,52 @@ ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id
 LIMIT 50;
 
 \echo
+\echo ==== 3b. find with ?type=T2, the list expanded by a first query and bound as a constant, JSON fetched only for the page
+\echo expansion:
+\timing on
+WITH v AS (
+    SELECT segment_id FROM worktree_segment WHERE worktree_id = :main
+    UNION ALL
+    SELECT draft_segment_id FROM worktree WHERE id = :main
+)
+SELECT '{' || string_agg(DISTINCT name, ',') || '}' AS subtypes
+FROM (SELECT unnest(CAST(:'type_names' AS text[])) AS name
+      UNION
+      SELECT t.key
+      FROM record t
+      JOIN v ON v.segment_id = t.segment_id
+      WHERE t.path = '/types' AND t.conflict IS NULL AND NOT t.deleted
+        AND t.json -> 'extends' ?| CAST(:'type_names' AS text[])
+        AND NOT EXISTS (SELECT 1 FROM superseded x
+                        JOIN v vx ON vx.segment_id = x.segment_id
+                        WHERE x.record_id = t.id)) n
+\gset
+\timing off
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
+WITH v AS (
+    SELECT segment_id FROM worktree_segment WHERE worktree_id = :main
+    UNION ALL
+    SELECT draft_segment_id FROM worktree WHERE id = :main
+),
+page AS (
+    SELECT r.id, r.path, r.key, r.file_path
+    FROM record r
+    JOIN v ON v.segment_id = r.segment_id
+    WHERE r.conflict IS NULL
+      AND NOT EXISTS (SELECT 1 FROM superseded x
+                      JOIN v vx ON vx.segment_id = x.segment_id
+                      WHERE x.record_id = r.id)
+      AND NOT r.deleted
+      AND r.json -> 'type' ?| CAST(:'subtypes' AS text[])
+    ORDER BY r.path COLLATE "C", r.key COLLATE "C", r.file_path COLLATE "C", r.id
+    LIMIT 50
+)
+SELECT r.key_id, r.path, r.key, r.json
+FROM page p
+JOIN record r ON r.id = p.id
+ORDER BY p.path COLLATE "C", p.key COLLATE "C", p.file_path COLLATE "C", p.id;
+
+\echo
 \echo ==== 4. facet total, main view
 EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
 WITH v AS (

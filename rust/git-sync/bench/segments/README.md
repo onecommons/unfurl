@@ -53,7 +53,8 @@ Each figure is the range over the last two of three runs.
 |---|---|---|
 | 1. get one record | 0.14 | 0.05–0.07 |
 | 2. find, JSON filter, one page | 7–14 | 9–10 |
-| 3. find, `?type=T2` and subtypes | 110–135 | 65–79 |
+| 3. find, `?type=T2` and subtypes, list expanded in the statement | 110–126 | 65–79 |
+| 3b. the same, list expanded by a first query, JSON fetched only for the page | 22–30, plus 2 to expand | — |
 | 4. facet total | 27–38 | 76–81 |
 | 5. facet by type, rolled up | 340–353 | 403–465 |
 | 6. facet column, 3 dimensions | 1,642–1,651 | 1,724–1,766 |
@@ -87,10 +88,10 @@ No plan in either layout used JIT.
   today. The anti-join hashes about 10k candidates, and carrying 1.4 KB of
   JSON through that costs more than looking the page's rows up again.
   Finds should select ids and sort keys first.
-- **The type filter is still about 1.7× slower.** Its expanded type list
-  comes from an InitPlan, so the planner can't see its size. It estimated
-  29 matching rows against 6,636, and rescanned the GIN index once per
-  segment. Things to try:
-  - expand the list in a separate first query, and bind it as a constant,
-    as today;
-  - fetch JSON late here too.
+- **The type filter's list is expanded by a first query.** Computed inside
+  the statement (query 3), the list comes from an InitPlan whose size the
+  planner can't see. It estimated 29 matching rows against 6,636, and
+  rescanned the GIN index once per segment. Expanded by a small first
+  query over the same view (about 2 ms) and bound as a constant, with JSON
+  fetched only for the page (query 3b), the whole thing takes about
+  25–32 ms, against 65–79 ms today. And that's with no cache.
