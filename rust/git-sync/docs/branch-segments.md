@@ -1111,9 +1111,10 @@ Still open:
   - the split's restored rows;
   - folds across a fork boundary ([§4.13](#413-compaction-and-garbage-collection)).
 
-  Not modelled yet: merges arriving by fast-forward, stacks deeper than
-  main plus one user branch, conflict rows, and files. The same harness
-  should later drive the SQL implementation.
+  It covers merges arriving by fast-forward (a commit changing several
+  records) and stacks of user branches. Not modelled yet: conflict rows
+  and files. The same harness should later drive the SQL
+  implementation.
 - **Mutation checks,** following AGENTS.md's "verify a guard test by
   breaking the code". Each of these mutations must fail the model test:
   - update a row in place instead of replacing it (layered conflicts

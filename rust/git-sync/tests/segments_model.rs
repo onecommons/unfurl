@@ -168,17 +168,19 @@ impl Segments {
         v
     }
 
-    /// The base's whole view plus the upper worktree's own part.
-    fn layered(&self, base: Wt, upper: Wt) -> BTreeSet<SegId> {
+    /// The base's whole view plus each upper worktree's own part.
+    fn layered(&self, base: Wt, uppers: &[Wt]) -> BTreeSet<SegId> {
         let mut v = self.own_view(base);
-        v.extend(
-            self.wts[upper]
-                .chain
-                .iter()
-                .filter(|(_, inherited)| !inherited)
-                .map(|&(s, _)| s),
-        );
-        v.insert(self.wts[upper].draft);
+        for &upper in uppers {
+            v.extend(
+                self.wts[upper]
+                    .chain
+                    .iter()
+                    .filter(|(_, inherited)| !inherited)
+                    .map(|&(s, _)| s),
+            );
+            v.insert(self.wts[upper].draft);
+        }
         v
     }
 
@@ -252,9 +254,19 @@ impl Segments {
         }
     }
 
-    /// §4.3: a fast-forward scan brings `w`'s head up to a commit that
-    /// changed `key` (`None`: deleted it).
-    fn scan(&mut self, w: Wt, key: Key, change: Option<Ver>, commit: CommitId) {
+    /// §4.3: a fast-forward scan brings `w`'s head up to a commit with
+    /// these changes (`None`: deleted), such as a merge.
+    fn scan(&mut self, w: Wt, changes: &[(Key, Option<Ver>)], commit: CommitId) {
+        for &(key, change) in changes {
+            self.scan_key(w, key, change);
+        }
+        let h = self.wts[w].head;
+        self.segs[h].head_commit = Some(commit);
+        self.wts[w].history.push(commit);
+        self.relink_draft(w);
+    }
+
+    fn scan_key(&mut self, w: Wt, key: Key, change: Option<Ver>) {
         let h = self.wts[w].head;
         let mut below = self.chain_set(w);
         below.remove(&h);
@@ -276,9 +288,6 @@ impl Segments {
                 self.sup.insert((r, h));
             }
         }
-        self.segs[h].head_commit = Some(commit);
-        self.wts[w].history.push(commit);
-        self.relink_draft(w);
     }
 
     /// §4.4: the fold.
@@ -675,32 +684,35 @@ struct Model {
 }
 
 impl Model {
-    /// Main, with a user branch's edits layered on top: each edit shows,
-    /// and main's version shows beside it unless the edit was made over it.
-    fn layered(&self, u: Wt) -> BTreeSet<(Key, Ver)> {
-        let (main, user) = (&self.wts[MAIN], &self.wts[u]);
-        let mut out = BTreeSet::new();
-        for k in 0..KEYS {
-            let main_shown = main.shown(k);
-            match user.draft.get(&k) {
-                Some(d) => {
-                    if !d.deleted {
-                        out.insert((k, d.ver));
-                    }
-                    if let Some((mv, false)) = main_shown {
-                        if !d.based_on.contains(&mv) {
-                            out.insert((k, mv));
-                        }
-                    }
-                }
-                None => {
-                    if let Some((mv, false)) = main_shown {
-                        out.insert((k, mv));
-                    }
-                }
-            }
-        }
-        out
+    /// Main with user branches' edits stacked on top: main's version and
+    /// each edit show, except a version some edit in the stack was made
+    /// over. Tombstones included.
+    fn stack_rows(&self, uppers: &[Wt], k: Key) -> Vec<(Ver, bool)> {
+        let drafts: Vec<&ODraft> = uppers
+            .iter()
+            .filter_map(|&u| self.wts[u].draft.get(&k))
+            .collect();
+        let hidden: BTreeSet<Ver> = drafts
+            .iter()
+            .flat_map(|d| d.based_on.iter().copied())
+            .collect();
+        self.wts[MAIN]
+            .shown(k)
+            .into_iter()
+            .chain(drafts.iter().map(|d| (d.ver, d.deleted)))
+            .filter(|(v, _)| !hidden.contains(v))
+            .collect()
+    }
+
+    fn layered(&self, uppers: &[Wt]) -> BTreeSet<(Key, Ver)> {
+        (0..KEYS)
+            .flat_map(|k| {
+                self.stack_rows(uppers, k)
+                    .into_iter()
+                    .filter(|&(_, deleted)| !deleted)
+                    .map(move |(v, _)| (k, v))
+            })
+            .collect()
     }
 }
 
@@ -713,13 +725,15 @@ enum Op {
     /// A write through a worktree's own view (main or a fork).
     Write(u8, Key, bool),
     Commit(u8),
-    /// A commit made outside the database, then scanned.
-    External(u8, Key, bool),
+    /// A commit made outside the database, then scanned: one or more
+    /// changes, as a merge brings.
+    External(u8, Vec<(Key, bool)>),
     /// Fork main or a fork, `.1` commits back from its head.
     Fork(u8, u8),
     NewUser,
-    /// A write by a user through main + their branch.
-    UserWrite(u8, Key, bool),
+    /// A write by a user through main, the other users' branches listed
+    /// (a stack), and their own on top.
+    UserWrite(u8, Vec<u8>, Key, bool),
     Publish(u8),
     Delete(u8),
     /// A rewrite (rebase, reset, force-push): a worktree's HEAD moves to a
@@ -732,10 +746,10 @@ fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         4 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
         2 => any::<u8>().prop_map(Op::Commit),
-        2 => (any::<u8>(), key.clone(), prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::External(w, k, d)),
+        2 => (any::<u8>(), prop::collection::vec((key.clone(), prop::bool::weighted(0.2)), 1..4)).prop_map(|(w, c)| Op::External(w, c)),
         1 => (any::<u8>(), 0u8..4).prop_map(|(w, b)| Op::Fork(w, b)),
         1 => Just(Op::NewUser),
-        4 => (any::<u8>(), key, prop::bool::weighted(0.2)).prop_map(|(u, k, d)| Op::UserWrite(u, k, d)),
+        4 => (any::<u8>(), prop::collection::vec(any::<u8>(), 0..3), key, prop::bool::weighted(0.2)).prop_map(|(u, b, k, d)| Op::UserWrite(u, b, k, d)),
         1 => any::<u8>().prop_map(Op::Publish),
         1 => any::<u8>().prop_map(Op::Delete),
         1 => (any::<u8>(), any::<u8>(), 0..KEYS, prop::bool::weighted(0.2)).prop_map(|(w, b, k, d)| Op::Rebuild(w, b, k, d)),
@@ -819,16 +833,22 @@ impl World {
                 let c = self.git.commit(m.committed.clone());
                 self.imp.commit(w, c);
             }
-            Op::External(n, k, deleted) => {
+            Op::External(n, ref changes) => {
                 let w = self.pick(n, false).unwrap();
-                let change = (!deleted).then(|| self.ver());
+                let changes: BTreeMap<Key, Option<Ver>> = changes
+                    .iter()
+                    .map(|&(k, deleted)| (k, (!deleted).then(|| self.ver())))
+                    .collect();
                 let m = &mut self.model.wts[w];
-                match change {
-                    Some(v) => m.committed.insert(k, v),
-                    None => m.committed.remove(&k),
-                };
+                for (&k, &change) in &changes {
+                    match change {
+                        Some(v) => m.committed.insert(k, v),
+                        None => m.committed.remove(&k),
+                    };
+                }
                 let c = self.git.commit(m.committed.clone());
-                self.imp.scan(w, k, change, c);
+                let changes: Vec<(Key, Option<Ver>)> = changes.into_iter().collect();
+                self.imp.scan(w, &changes, c);
             }
             Op::Fork(n, back) => {
                 let w = self.pick(n, false).unwrap();
@@ -854,15 +874,27 @@ impl World {
                     alive: true,
                 });
             }
-            Op::UserWrite(n, k, deleted) => {
+            Op::UserWrite(n, ref below, k, deleted) => {
                 let Some(u) = self.pick(n, true) else { return };
-                let ver = self.ver();
-                let via = self.imp.layered(MAIN, u);
-                self.imp.write(u, &via, k, ver, deleted);
-                let mut seen: BTreeSet<Ver> = BTreeSet::new();
-                if let Some((mv, _)) = self.model.wts[MAIN].shown(k) {
-                    seen.insert(mv);
+                let mut stack: Vec<Wt> = Vec::new();
+                for &b in below {
+                    let v = self.pick(b, true).unwrap();
+                    if v != u && !stack.contains(&v) {
+                        stack.push(v);
+                    }
                 }
+                stack.push(u);
+                let ver = self.ver();
+                let via = self.imp.layered(MAIN, &stack);
+                self.imp.write(u, &via, k, ver, deleted);
+                let old = self.model.wts[u].draft.get(&k).map(|d| d.ver);
+                let mut seen: BTreeSet<Ver> = self
+                    .model
+                    .stack_rows(&stack, k)
+                    .into_iter()
+                    .map(|(v, _)| v)
+                    .filter(|&v| Some(v) != old)
+                    .collect();
                 let user = &mut self.model.wts[u];
                 match user.draft.get(&k) {
                     Some(old) => seen.extend(&old.based_on),
@@ -949,10 +981,18 @@ impl World {
                 .map(|r| (r.key, r.ver))
                 .collect();
             assert_eq!(live, m.view(), "step {step} ({op:?}): worktree {w}'s view");
-            if m.user {
+            if !m.user {
+                continue;
+            }
+            // this user's branch over main, alone and under each other user's
+            let others: Vec<Wt> = (0..self.model.wts.len())
+                .filter(|&v| v != w && self.model.wts[v].alive && self.model.wts[v].user)
+                .collect();
+            let stacks = std::iter::once(vec![w]).chain(others.iter().map(|&v| vec![v, w]));
+            for stack in stacks {
                 let rows: Vec<&Row> = self
                     .imp
-                    .visible(&self.imp.layered(MAIN, w), None)
+                    .visible(&self.imp.layered(MAIN, &stack), None)
                     .iter()
                     .map(|r| &self.imp.rows[r])
                     .filter(|r| !r.deleted)
@@ -962,18 +1002,22 @@ impl World {
                 // copy is an over-report, allowed only where main shows a
                 // version the user's edit was made over in a row a split
                 // re-created from git, which the user's entry can't reach.
-                let expected = self.model.layered(w);
+                let expected = self.model.layered(&stack);
                 assert!(
                     expected.is_subset(&layered),
-                    "step {step} ({op:?}): main + user {w} lost rows\n  got: {layered:?}\n want: {expected:?}"
+                    "step {step} ({op:?}): main + {stack:?} lost rows\n  got: {layered:?}\n want: {expected:?}"
                 );
                 for &(k, v) in layered.difference(&expected) {
                     let recreated = rows.iter().any(|r| r.key == k && r.ver == v && r.recreated);
-                    let over =
-                        recreated && m.draft.get(&k).is_some_and(|d| d.based_on.contains(&v));
+                    let edited_over = stack.iter().any(|&u| {
+                        self.model.wts[u]
+                            .draft
+                            .get(&k)
+                            .is_some_and(|d| d.based_on.contains(&v))
+                    });
                     assert!(
-                        over,
-                        "step {step} ({op:?}): main + user {w} shows ({k}, {v}), which the user didn't edit over\n  got: {layered:?}\n want: {expected:?}"
+                        recreated && edited_over,
+                        "step {step} ({op:?}): main + {stack:?} shows ({k}, {v}), which no edit in the stack was made over\n  got: {layered:?}\n want: {expected:?}"
                     );
                 }
             }
@@ -1006,10 +1050,10 @@ proptest! {
 fn split_restores_a_row_with_its_entries() {
     run(&[
         Op::NewUser,
-        Op::UserWrite(0, 1, false),
-        Op::External(0, 1, false),
-        Op::External(0, 1, true),
-        Op::External(0, 1, false),
+        Op::UserWrite(0, vec![], 1, false),
+        Op::External(0, vec![(1, false)]),
+        Op::External(0, vec![(1, true)]),
+        Op::External(0, vec![(1, false)]),
         Op::Fork(0, 2),
     ]);
 }
