@@ -330,7 +330,10 @@ Behaviour changes, beyond §5's:
   comes in as committed, not as a pending edit.
 - **A forced scan leaves a taken-in tombstone** where the file lacks a
   record the database had.
-- **A no-op save doesn't rewrite the file.**
+- **A no-op save doesn't rewrite the file.** And a save that leaves a
+  file's document as HEAD has it writes HEAD's bytes, so JSON's
+  re-emitted formatting doesn't make a commit on its own
+  (`deleting_a_hand_edits_record_commits_nothing`).
 - **Conflict rows are stamped by the fold** with the rest of the draft.
 - **A record's `unfurl.server.commit` is the last commit that changed
   it,** no longer restamped with every commit to its file. `GET

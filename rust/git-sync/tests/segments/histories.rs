@@ -1830,3 +1830,15 @@ fn file_deletion_under_an_edit_keeps_the_id() {
         Op::Commit(0),
     ]);
 }
+
+/// A pending delete of a hand edit's record, over a key an outside commit
+/// already deleted, gives the commit nothing to carry.
+#[test]
+fn deleting_a_hand_edits_record_commits_nothing() {
+    run(&[
+        Op::External(0, vec![(4, true)]),
+        Op::DiskEdit(0, 4, false, FileWins::Never),
+        Op::Write(0, 4, true),
+        Op::Commit(0),
+    ]);
+}

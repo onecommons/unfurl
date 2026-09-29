@@ -1702,6 +1702,7 @@ impl SyncedRepo {
                 syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?
             }
         };
+        let bytes = self.unless_head_has(file_path, syntax, bytes)?;
         self.persist_render(file_path, &abs_path, &bytes, stale)
             .await?;
         Ok(WriteFileOutcome {
@@ -1709,6 +1710,26 @@ impl SyncedRepo {
             deleted: false,
             conflicts,
         })
+    }
+
+    /// `bytes`, or HEAD's copy of `file_path` where that parses to the same
+    /// document: a render that changes no record changes no byte, so a
+    /// file whose records are back where HEAD has them isn't committed
+    /// for its formatting alone.
+    fn unless_head_has(&self, file_path: &str, syntax: Syntax, bytes: Vec<u8>) -> Result<Vec<u8>> {
+        let repo = self.repo()?;
+        let Some(head) = git::worktree_meta(&repo)?.head_oid else {
+            return Ok(bytes);
+        };
+        let Some(committed) = git::read_blob_at_commit(&repo, &head.to_string(), file_path)? else {
+            return Ok(bytes);
+        };
+        let same = committed != bytes
+            && matches!(
+                (syntax.into_value(file_path, &committed), syntax.into_value(file_path, &bytes)),
+                (Ok(a), Ok(b)) if a == b
+            );
+        Ok(if same { committed } else { bytes })
     }
 
     /// Take a file the database has deleted off the disk, or retract the
