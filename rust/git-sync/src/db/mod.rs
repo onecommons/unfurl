@@ -4,20 +4,21 @@
 //!
 //! [`Db`] is a dialect-tagged enum that wraps either a SQLite or a
 //! Postgres connection pool. Submodules ([`worktree`], [`mod@file`],
-//! [`record`], [`commit`], [`tx`]) hold the SQL helpers
-//! used by [`crate::sync`]; sync code only sees these high-level
-//! functions, never raw `sqlx::query` invocations.
+//! [`record`], [`commit`], `store`) hold the SQL helpers used by
+//! [`crate::sync`]; sync code only sees these high-level functions, never
+//! raw `sqlx::query` invocations.
 //!
-//! `sqlx::Any` is intentionally avoided — it would erase the dialect
-//! at runtime but couldn't express the SQL differences (`jsonb(?)` vs
-//! `$N::jsonb`, `?` vs `$1` placeholders, `INTEGER 0/1` vs `BOOLEAN
-//! FALSE/TRUE`). The trade-off: every helper that holds a transaction
-//! has to branch on [`Db`] once.
+//! SQL is written once, in SQLite's syntax, and [`sql!`] gives Postgres
+//! its spelling ([`pg_write`]) at compile time. A body is written once
+//! too: [`on_pool!`] runs it on either pool, and `store::Store` is
+//! implemented for both backends from one body. `sqlx::Any` is avoided:
+//! it would erase the dialect at runtime but couldn't express the SQL
+//! differences.
 
 use crate::error::{Error, Result};
 
 /// Run `$body` with `$pool` bound to whichever pool `$db` holds: one
-/// generic body, over [`seg::Segments`], for both backends.
+/// generic body, over [`store::Store`], for both backends.
 macro_rules! on_pool {
     ($db:expr, $pool:ident => $body:expr) => {
         match $db {
@@ -29,10 +30,174 @@ macro_rules! on_pool {
 }
 pub(crate) use on_pool;
 
+/// A backend's pool or transaction, for [`sql!`] to spell a statement for.
+pub(crate) trait Backend {
+    const POSTGRES: bool;
+}
+
+impl<DB: store::Store> Backend for sqlx::Pool<DB> {
+    const POSTGRES: bool = DB::POSTGRES;
+}
+
+impl<DB: store::Store> Backend for sqlx::Transaction<'_, DB> {
+    const POSTGRES: bool = DB::POSTGRES;
+}
+
+/// Whether `_backend` is Postgres's.
+pub(crate) const fn postgres<B: Backend + ?Sized>(_backend: &B) -> bool {
+    B::POSTGRES
+}
+
+/// `$sql`, a constant statement written for SQLite, spelled for the
+/// backend of `$on` (a pool or a transaction).
+macro_rules! sql {
+    ($on:expr, $sql:expr $(,)?) => {
+        if $crate::db::postgres(&*$on) {
+            $crate::db::const_pg!($sql)
+        } else {
+            $sql
+        }
+    };
+}
+
+/// The Postgres spelling of `$sql`, a constant statement written for
+/// SQLite, as a `&'static str` made at compile time.
+macro_rules! const_pg {
+    ($sql:expr) => {{
+        const CONST_PG_SQL: &str = $sql;
+        const CONST_PG_LEN: usize = $crate::db::pg_len(CONST_PG_SQL);
+        const CONST_PG_BYTES: [u8; CONST_PG_LEN] = {
+            let mut out = [0u8; CONST_PG_LEN];
+            $crate::db::pg_write(CONST_PG_SQL, &mut out);
+            out
+        };
+        const CONST_PG: &str = match ::core::str::from_utf8(&CONST_PG_BYTES) {
+            Ok(s) => s,
+            Err(_) => panic!("pg_write splits no character"),
+        };
+        CONST_PG
+    }};
+}
+pub(crate) use const_pg;
+
+/// The Postgres spelling of `sql`, written for SQLite, built at runtime.
+pub(crate) fn pg(sql: &str) -> String {
+    let mut out = vec![0u8; pg_len(sql)];
+    pg_write(sql, &mut out);
+    String::from_utf8(out).expect("pg_write splits no character")
+}
+
+/// `sql`, a statement written for SQLite and built at runtime, spelled
+/// for `on`'s backend.
+pub(crate) fn spell<B: Backend + ?Sized>(on: &B, sql: String) -> String {
+    if postgres(on) {
+        pg(&sql)
+    } else {
+        sql
+    }
+}
+
+/// The length of [`pg_write`]'s spelling of `sql`.
+pub(crate) const fn pg_len(sql: &str) -> usize {
+    pg_write(sql, &mut [])
+}
+
+/// Write the Postgres spelling of `sql`, written for SQLite, into `out`,
+/// as far as it fits; returns its full length. `?N` becomes `$N`,
+/// `jsonb(?N)` becomes `$N::jsonb`, and `json(col)` becomes
+/// `(col)::text`.
+pub(crate) const fn pg_write(sql: &str, out: &mut [u8]) -> usize {
+    let b = sql.as_bytes();
+    let (mut i, mut n) = (0, 0);
+    while i < b.len() {
+        if starts_at(b, i, b"jsonb(?") {
+            let e = digits_end(b, i + 7);
+            if e > i + 7 && e < b.len() && b[e] == b')' {
+                n = put(out, n, b"$");
+                n = put_range(out, n, b, i + 7, e);
+                n = put(out, n, b"::jsonb");
+                i = e + 1;
+                continue;
+            }
+        }
+        if starts_at(b, i, b"json(") && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) {
+            let mut e = i + 5;
+            while e < b.len() && (b[e].is_ascii_alphanumeric() || b[e] == b'_' || b[e] == b'.') {
+                e += 1;
+            }
+            if e > i + 5 && e < b.len() && b[e] == b')' {
+                n = put(out, n, b"(");
+                n = put_range(out, n, b, i + 5, e);
+                n = put(out, n, b")::text");
+                i = e + 1;
+                continue;
+            }
+        }
+        if b[i] == b'?' {
+            let e = digits_end(b, i + 1);
+            if e > i + 1 {
+                n = put(out, n, b"$");
+                n = put_range(out, n, b, i + 1, e);
+                i = e;
+                continue;
+            }
+        }
+        n = put_range(out, n, b, i, i + 1);
+        i += 1;
+    }
+    n
+}
+
+const fn starts_at(b: &[u8], i: usize, pattern: &[u8]) -> bool {
+    if b.len() - i < pattern.len() {
+        return false;
+    }
+    let mut k = 0;
+    while k < pattern.len() {
+        if b[i + k] != pattern[k] {
+            return false;
+        }
+        k += 1;
+    }
+    true
+}
+
+const fn digits_end(b: &[u8], from: usize) -> usize {
+    let mut e = from;
+    while e < b.len() && b[e].is_ascii_digit() {
+        e += 1;
+    }
+    e
+}
+
+/// Write `bytes` into `out` at `n`, as far as it fits; returns the end.
+const fn put(out: &mut [u8], n: usize, bytes: &[u8]) -> usize {
+    let mut k = 0;
+    while k < bytes.len() {
+        if n + k < out.len() {
+            out[n + k] = bytes[k];
+        }
+        k += 1;
+    }
+    n + bytes.len()
+}
+
+/// Write `b[from..to]` into `out` at `n`, as far as it fits.
+const fn put_range(out: &mut [u8], n: usize, b: &[u8], from: usize, to: usize) -> usize {
+    let mut k = from;
+    while k < to {
+        if n + k - from < out.len() {
+            out[n + k - from] = b[k];
+        }
+        k += 1;
+    }
+    n + to - from
+}
+
 pub mod commit;
 pub mod file;
 pub mod record;
-pub(crate) mod seg;
+pub(crate) mod store;
 pub mod worktree;
 
 /// User-facing database connection configuration.
@@ -188,4 +353,31 @@ fn sqlite_version_at_least(version: &str, maj: u32, min: u32, patch: u32) -> boo
     let b = parts.next().unwrap_or(0);
     let c = parts.next().unwrap_or(0);
     (a, b, c) >= (maj, min, patch)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pg;
+
+    #[test]
+    fn rewrites_for_postgres() {
+        assert_eq!(
+            pg("SELECT json(r.json), jsonb(?7), CAST(?10 AS TEXT) WHERE a = ?1 AND ?12"),
+            "SELECT (r.json)::text, $7::jsonb, CAST($10 AS TEXT) WHERE a = $1 AND $12"
+        );
+        assert_eq!(
+            pg("SELECT jsonb_array_length(x)"),
+            "SELECT jsonb_array_length(x)"
+        );
+        assert_eq!(
+            pg("SELECT 'ünïcode' WHERE a = ?1"),
+            "SELECT 'ünïcode' WHERE a = $1"
+        );
+    }
+
+    #[test]
+    fn compile_time_matches_runtime() {
+        const SQL: &str = "UPDATE record SET json = jsonb(?2) WHERE id = ?1 AND json(json) = ?3";
+        assert_eq!(super::const_pg!(SQL), pg(SQL));
+    }
 }

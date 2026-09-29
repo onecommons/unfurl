@@ -168,7 +168,7 @@ caller reopens.
 ## 4. What's reused, replaced and added
 
 Every new statement uses the generic `*_in_pool` style, not the
-duplicated-SQL style. (Phase 1 replaced `Dialect` with the `Segments`
+duplicated-SQL style. (Phase 1 replaced `Dialect` with the `Store`
 trait; see §7.1.)
 
 | Kept | Where |
@@ -291,11 +291,12 @@ SQLite, and 300 on Postgres (`SEGMENTS_SQL_PG=1`).
 
 How it differs from the plan:
 
-- **SQL is written once, in SQLite syntax.** `db::seg::pg()` rewrites
-  it for Postgres (`?N`, `jsonb(?N)`, `json(col)`). The `Segments`
-  trait holds every segment statement, implemented for both backends by
-  one macro; `on_pool!` runs a generic body on either pool. `Dialect`
-  and `db/tx.rs` are gone.
+- **SQL is written once, in SQLite syntax.** `db::sql!` spells it for
+  Postgres at compile time (`?N`, `jsonb(?N)`, `json(col)`), and
+  `db::pg()` at runtime for SQL built then. The `Store` trait holds
+  every segment statement, implemented for both backends by one macro;
+  `on_pool!` runs a single body on either pool. `Dialect` and
+  `db/tx.rs` are gone.
 - **A scan is one transaction:** HEAD's side, then the disk's, then
   renames, which pair on the draft side too.
 - **An edit's base is stored, not read from git.** `record.base_json`

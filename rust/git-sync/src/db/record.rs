@@ -4,7 +4,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::db::seg::{At, Filter, Row, Scope, Segments};
+use crate::db::store::{At, Filter, Row, Scope, Store};
 use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::model::{
@@ -29,7 +29,7 @@ fn to_record(worktree_id: i64, r: Row) -> Record {
 }
 
 /// Run `f` over the worktree's segments in a read transaction.
-async fn read<DB: Segments, T>(
+async fn read<DB: Store, T>(
     pool: &sqlx::Pool<DB>,
     f: impl AsyncFnOnce(&mut sqlx::Transaction<'_, DB>) -> Result<T>,
 ) -> Result<T> {
@@ -72,15 +72,15 @@ pub(crate) async fn committed_records(
 /// the database owes a removal.
 pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<String>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let d = Segments::segs(tx, worktree_id).await?.draft;
-        let mut files: BTreeSet<String> = Segments::rows_in(tx, d, None, false)
+        let d = Store::segs(tx, worktree_id).await?.draft;
+        let mut files: BTreeSet<String> = Store::rows_in(tx, d, None, false)
             .await?
             .into_iter()
             .filter(Row::is_edit)
             .map(|r| r.file_path)
             .collect();
         files.extend(
-            Segments::files(tx, worktree_id, None)
+            Store::files(tx, worktree_id, None)
                 .await?
                 .into_iter()
                 .filter(|f| f.commit_id.is_none() || f.deleted)
@@ -99,8 +99,8 @@ pub(crate) async fn load_pending(
     file_path: &str,
 ) -> Result<Vec<Record>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let d = Segments::segs(tx, worktree_id).await?.draft;
-        let mut rows: Vec<Row> = Segments::rows_in(tx, d, Some(file_path), false)
+        let d = Store::segs(tx, worktree_id).await?.draft;
+        let mut rows: Vec<Row> = Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
             .filter(Row::is_edit)
@@ -118,8 +118,8 @@ pub(crate) async fn pending_base_values(
     file_path: &str,
 ) -> Result<std::collections::HashMap<(String, String), Option<serde_json::Value>>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let d = Segments::segs(tx, worktree_id).await?.draft;
-        Ok(Segments::rows_in(tx, d, Some(file_path), false)
+        let d = Store::segs(tx, worktree_id).await?.draft;
+        Ok(Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
             .filter(Row::is_edit)
@@ -139,8 +139,8 @@ pub(crate) async fn pending_bases(
     file_path: &str,
 ) -> Result<std::collections::HashMap<(String, String), Option<String>>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let d = Segments::segs(tx, worktree_id).await?.draft;
-        Ok(Segments::rows_in(tx, d, Some(file_path), false)
+        let d = Store::segs(tx, worktree_id).await?.draft;
+        Ok(Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
             .filter(Row::is_edit)
@@ -1511,7 +1511,7 @@ pub(crate) async fn get(
         key,
     };
     on_pool!(db, pool => read(pool, async |tx| {
-        Ok(Segments::visible(tx, worktree_id, Scope::Own, Filter::At(at))
+        Ok(Store::visible(tx, worktree_id, Scope::Own, Filter::At(at))
             .await?
             .into_iter()
             .find(|r| !r.deleted)
@@ -1523,7 +1523,7 @@ pub(crate) async fn get(
 /// tombstones included.
 pub(crate) async fn get_by_id(db: &Db, worktree_id: i64, id: i64) -> Result<Option<Record>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        Ok(Segments::visible(tx, worktree_id, Scope::Own, Filter::KeyId(id))
+        Ok(Store::visible(tx, worktree_id, Scope::Own, Filter::KeyId(id))
             .await?
             .into_iter()
             .next()
@@ -1548,14 +1548,14 @@ pub(crate) async fn list_changes(
     include_conflicts: bool,
 ) -> Result<Vec<Record>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let d = Segments::segs(tx, worktree_id).await?.draft;
+        let d = Store::segs(tx, worktree_id).await?.draft;
         let mut rows: Vec<Row> = match since {
-            Some(v) => Segments::visible(tx, worktree_id, Scope::Own, Filter::All)
+            Some(v) => Store::visible(tx, worktree_id, Scope::Own, Filter::All)
                 .await?
                 .into_iter()
                 .filter(|r| r.version > v)
                 .collect(),
-            None => Segments::rows_in(tx, d, None, false)
+            None => Store::rows_in(tx, d, None, false)
                 .await?
                 .into_iter()
                 .filter(Row::is_edit)
@@ -1563,7 +1563,7 @@ pub(crate) async fn list_changes(
         };
         if include_conflicts {
             rows.extend(
-                Segments::rows_in(tx, d, None, true)
+                Store::rows_in(tx, d, None, true)
                     .await?
                     .into_iter()
                     .filter(|r| since.is_none_or(|v| r.version > v)),

@@ -13,7 +13,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::conflict::{classify_conflict, drop_conflict_row, refresh_conflict_row, TheirSide};
-use crate::db::seg::{At, FileRow, Filter, NewRow, Row, Scope, Segments};
+use crate::db::store::{At, FileRow, Filter, NewRow, Row, Scope, Store};
 use crate::error::Result;
 use crate::format::SectionKind;
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
@@ -197,7 +197,7 @@ fn place_at(p: &Place) -> At<'_> {
 /// first. Returns the files whose draft side has to be reconciled again:
 /// those that changed, and those pending edits followed their records
 /// out of.
-async fn advance_head<DB: Segments>(
+async fn advance_head<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     commit: &str,
@@ -400,7 +400,7 @@ struct FileScan<'a> {
 /// the draft, key by key, against the committed chain. A pending edit the
 /// file disagrees with keeps both sides, as a conflict row, unless the
 /// file has the last word ([`FileWins`]).
-async fn reconcile_file<DB: Segments>(
+async fn reconcile_file<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     disk: &DiskFile<'_>,
@@ -468,7 +468,7 @@ async fn reconcile_file<DB: Segments>(
 
 /// Take the file's value at `at`, `theirs`, into the draft: `None` where
 /// the file has no record there.
-async fn reconcile_key<DB: Segments>(
+async fn reconcile_key<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scan: &FileScan<'_>,
     at: At<'_>,
@@ -524,7 +524,7 @@ async fn reconcile_key<DB: Segments>(
 /// keeping any divergence as a conflict row, unless the file has the last
 /// word ([`FileWins`]) and it's withdrawn. Returns a withdrawn edit's
 /// `key_id`.
-async fn pending_edit<DB: Segments>(
+async fn pending_edit<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scan: &FileScan<'_>,
     at: At<'_>,
@@ -597,7 +597,7 @@ async fn pending_edit<DB: Segments>(
 /// Draft row `r` takes the id of the record git has at its place, or a new
 /// one where git has its record at another place. Returns the row as it
 /// now stands.
-async fn align_id<DB: Segments>(
+async fn align_id<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     r: Row,
@@ -623,7 +623,7 @@ async fn align_id<DB: Segments>(
 
 /// Write the file's value at `at` into the draft as record `key_id`, a new
 /// one where that's `None`.
-async fn take_in<DB: Segments>(
+async fn take_in<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scan: &FileScan<'_>,
     at: At<'_>,
@@ -674,7 +674,7 @@ async fn take_in<DB: Segments>(
 /// `key_id`s and versions at `to`. The draft's own rows move there; a
 /// committed row gets a draft row at `to` and a draft tombstone at
 /// `from`, which the next commit folds into the head.
-async fn rename_file<DB: Segments>(
+async fn rename_file<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     from: &str,
@@ -768,7 +768,7 @@ async fn rename_file<DB: Segments>(
 /// One scan's changes to the database, in one transaction: the committed
 /// side up to `head`, then uncommitted renames, then the draft side of
 /// every file that changed on disk or in HEAD, then the re-link (§4.3).
-pub(crate) async fn scan_in_pool<DB: Segments>(
+pub(crate) async fn scan_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     head: Option<&str>,
@@ -829,7 +829,7 @@ pub(crate) struct Carried<'a> {
 /// C.12): fold the draft rows it carries into the head, then bring the
 /// head up to what the commit holds, which takes the file's value where
 /// a conflict held an edit back.
-pub(crate) async fn commit_in_pool<DB: Segments>(
+pub(crate) async fn commit_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     carried: &Carried<'_>,

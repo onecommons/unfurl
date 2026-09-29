@@ -2,20 +2,21 @@
 // SPDX-License-Identifier: MIT
 //! Row-level operations on segments (docs/branch-segments.md §3, §4).
 //!
-//! [`Segments`] is implemented once, by [`segments_impl`], for each
+//! [`Store`] is implemented once, by [`store_impl`], for each
 //! backend, so its bodies are concrete and need none of the bounds a
 //! function generic over [`sqlx::Database`] carries. Code built on it is
-//! generic over `DB: Segments` alone.
+//! generic over `DB: Store` alone.
 //!
-//! Statements are written once, in SQLite's syntax, and [`pg`] rewrites
-//! them for Postgres: `?N` placeholders, `jsonb(?N)` for JSON going in,
-//! and `json(col)` for JSON coming out. Everything else is written to
+//! Statements are written once, in SQLite's syntax, and
+//! [`crate::db::sql!`] spells them for Postgres at compile time: `?N`
+//! placeholders, `jsonb(?N)` for JSON going in, and `json(col)` for JSON
+//! coming out. Everything else is written to
 //! mean the same on both: a bind that can be NULL is cast, booleans are
 //! bound rather than written as `0`/`1`.
 
-use std::borrow::Cow;
 use std::future::Future;
 
+use crate::db;
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
 
@@ -138,57 +139,6 @@ pub(crate) struct FileRow<'a> {
     pub(crate) committed_oid: Option<Option<&'a str>>,
 }
 
-/// The Postgres form of a statement written for SQLite.
-pub(crate) fn pg(sql: &str) -> String {
-    let b = sql.as_bytes();
-    let mut out = String::with_capacity(sql.len() + 16);
-    let mut i = 0;
-    let digits = |from: usize| {
-        let mut e = from;
-        while e < b.len() && b[e].is_ascii_digit() {
-            e += 1;
-        }
-        e
-    };
-    while i < b.len() {
-        if sql[i..].starts_with("jsonb(?") {
-            let e = digits(i + 7);
-            if e > i + 7 && b.get(e) == Some(&b')') {
-                out.push('$');
-                out.push_str(&sql[i + 7..e]);
-                out.push_str("::jsonb");
-                i = e + 1;
-                continue;
-            }
-        }
-        if sql[i..].starts_with("json(") && (i == 0 || !b[i - 1].is_ascii_alphanumeric()) {
-            let mut e = i + 5;
-            while e < b.len() && (b[e].is_ascii_alphanumeric() || b[e] == b'_' || b[e] == b'.') {
-                e += 1;
-            }
-            if e > i + 5 && b.get(e) == Some(&b')') {
-                out.push('(');
-                out.push_str(&sql[i + 5..e]);
-                out.push_str(")::text");
-                i = e + 1;
-                continue;
-            }
-        }
-        if b[i] == b'?' {
-            let e = digits(i + 1);
-            if e > i + 1 {
-                out.push('$');
-                out.push_str(&sql[i + 1..e]);
-                i = e;
-                continue;
-            }
-        }
-        out.push(b[i] as char);
-        i += 1;
-    }
-    out
-}
-
 /// The view of worktree `?1`, as the CTE `v`.
 fn view_cte(scope: Scope) -> &'static str {
     match scope {
@@ -267,19 +217,12 @@ fn sort_rows(rows: &mut [Row]) {
     rows.sort_by(|a, b| (a.at(), a.id).cmp(&(b.at(), b.id)));
 }
 
-/// Row-level operations, implemented for each backend. Their futures are
+/// The store's row-level statements, implemented for each backend. Their futures are
 /// `Send`, as the server's handlers need.
-pub(crate) trait Segments: sqlx::Database + Sized {
-    /// Whether statements need [`pg`].
+pub(crate) trait Store: sqlx::Database + Sized {
+    /// Whether this is Postgres, whose statements [`crate::db::sql!`]
+    /// spells.
     const POSTGRES: bool;
-
-    fn sql(text: &str) -> Cow<'_, str> {
-        if Self::POSTGRES {
-            Cow::Owned(pg(text))
-        } else {
-            Cow::Borrowed(text)
-        }
-    }
 
     fn segs(
         tx: &mut sqlx::Transaction<'_, Self>,
@@ -496,15 +439,13 @@ pub(crate) trait Segments: sqlx::Database + Sized {
     ) -> impl Future<Output = Result<()>> + Send;
 }
 
-macro_rules! segments_impl {
+macro_rules! store_impl {
     ($db:ty, $postgres:expr) => {
-        impl Segments for $db {
+        impl Store for $db {
             const POSTGRES: bool = $postgres;
 
             async fn segs(tx: &mut sqlx::Transaction<'_, Self>, worktree_id: i64) -> Result<Segs> {
-                let sql = Self::sql(
-                    "SELECT head_segment_id, draft_segment_id FROM worktree WHERE id = ?1",
-                );
+                let sql = sql!(tx, "SELECT head_segment_id, draft_segment_id FROM worktree WHERE id = ?1",);
                 let (head, draft): (Option<i64>, Option<i64>) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .fetch_one(&mut **tx)
@@ -538,7 +479,7 @@ macro_rules! segments_impl {
                                        WHERE x.record_id = r.id) {cond}",
                     view_cte(scope)
                 );
-                let sql = Self::sql(&text);
+                let sql = db::spell(&*tx, text);
                 let q = sqlx::query_as::<_, RowTuple>(&sql).bind(worktree_id);
                 let q = match filter {
                     Filter::At(at) => q.bind(at.file_path).bind(at.path).bind(at.key),
@@ -568,7 +509,7 @@ macro_rules! segments_impl {
                        AND (CAST(?2 AS TEXT) IS NULL OR r.file_path = ?2) \
                        AND (r.conflict IS NOT NULL) = ?3"
                 );
-                let sql = Self::sql(&text);
+                let sql = db::spell(&*tx, text);
                 let mut rows = sqlx::query_as::<_, RowTuple>(&sql)
                     .bind(seg)
                     .bind(file_path)
@@ -596,14 +537,12 @@ macro_rules! segments_impl {
                 let base_json = row
                     .base_json
                     .map(|b| serde_json::to_string(b).expect("a value serializes"));
-                let sql = Self::sql(
-                    "INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, \
+                let sql = sql!(tx, "INSERT INTO record (key_id, segment_id, file_path, path, key, commit_id, \
                          json, deleted, version, base_commit_id, settled, conflict, base_json) \
                      VALUES (COALESCE(CAST(?1 AS BIGINT), 0), ?2, ?3, ?4, ?5, CAST(?6 AS TEXT), \
                          jsonb(?7), ?8, ?9, CAST(?10 AS TEXT), jsonb(?11), CAST(?12 AS TEXT), \
                          jsonb(?13)) \
-                     RETURNING id",
-                );
+                     RETURNING id",);
                 let (id,): (i64,) = sqlx::query_as(&sql)
                     .bind(row.key_id)
                     .bind(seg)
@@ -623,7 +562,7 @@ macro_rules! segments_impl {
                 let key_id = match row.key_id {
                     Some(k) => k,
                     None => {
-                        let sql = Self::sql("UPDATE record SET key_id = id WHERE id = ?1");
+                        let sql = sql!(tx, "UPDATE record SET key_id = id WHERE id = ?1");
                         sqlx::query(&sql).bind(id).execute(&mut **tx).await?;
                         id
                     }
@@ -632,7 +571,7 @@ macro_rules! segments_impl {
             }
 
             async fn delete_row(tx: &mut sqlx::Transaction<'_, Self>, id: i64) -> Result<()> {
-                let sql = Self::sql("DELETE FROM record WHERE id = ?1");
+                let sql = sql!(tx, "DELETE FROM record WHERE id = ?1");
                 sqlx::query(&sql).bind(id).execute(&mut **tx).await?;
                 Ok(())
             }
@@ -643,10 +582,8 @@ macro_rules! segments_impl {
                 seg: i64,
                 key_id: i64,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "INSERT INTO superseded (record_id, segment_id, key_id) VALUES (?1, ?2, ?3) \
-                     ON CONFLICT DO NOTHING",
-                );
+                let sql = sql!(tx, "INSERT INTO superseded (record_id, segment_id, key_id) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT DO NOTHING",);
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(seg)
@@ -660,11 +597,9 @@ macro_rules! segments_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 seg: i64,
             ) -> Result<Vec<Entry>> {
-                let sql = Self::sql(
-                    "SELECT x.record_id, r.file_path, r.path, r.key, r.key_id, r.deleted, x.key_id \
+                let sql = sql!(tx, "SELECT x.record_id, r.file_path, r.path, r.key, r.key_id, r.deleted, x.key_id \
                      FROM superseded x JOIN record r ON r.id = x.record_id \
-                     WHERE x.segment_id = ?1 ORDER BY x.record_id, x.key_id",
-                );
+                     WHERE x.segment_id = ?1 ORDER BY x.record_id, x.key_id",);
                 let rows: Vec<(i64, String, String, String, i64, bool, i64)> =
                     sqlx::query_as(&sql).bind(seg).fetch_all(&mut **tx).await?;
                 Ok(rows
@@ -687,9 +622,7 @@ macro_rules! segments_impl {
                 seg: i64,
                 key_id: i64,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "DELETE FROM superseded WHERE record_id = ?1 AND segment_id = ?2 AND key_id = ?3",
-                );
+                let sql = sql!(tx, "DELETE FROM superseded WHERE record_id = ?1 AND segment_id = ?2 AND key_id = ?3",);
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(seg)
@@ -705,10 +638,8 @@ macro_rules! segments_impl {
                 seg: i64,
                 commit_id: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "UPDATE record SET segment_id = ?2, commit_id = ?3, base_commit_id = NULL, \
-                         base_json = NULL, settled = NULL WHERE id = ?1",
-                );
+                let sql = sql!(tx, "UPDATE record SET segment_id = ?2, commit_id = ?3, base_commit_id = NULL, \
+                         base_json = NULL, settled = NULL WHERE id = ?1",);
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(seg)
@@ -724,7 +655,7 @@ macro_rules! segments_impl {
                 state: ConflictState,
                 version: i64,
             ) -> Result<()> {
-                let sql = Self::sql("UPDATE record SET conflict = ?2, version = ?3 WHERE id = ?1");
+                let sql = sql!(tx, "UPDATE record SET conflict = ?2, version = ?3 WHERE id = ?1");
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(state.as_str())
@@ -739,10 +670,8 @@ macro_rules! segments_impl {
                 family_id: i64,
                 count: i64,
             ) -> Result<i64> {
-                let sql = Self::sql(
-                    "UPDATE version_seq SET next_version = next_version + ?2 \
-                     WHERE worktree_id = ?1 RETURNING next_version - ?2",
-                );
+                let sql = sql!(tx, "UPDATE version_seq SET next_version = next_version + ?2 \
+                     WHERE worktree_id = ?1 RETURNING next_version - ?2",);
                 let (first,): (i64,) = sqlx::query_as(&sql)
                     .bind(family_id)
                     .bind(count)
@@ -756,7 +685,7 @@ macro_rules! segments_impl {
                 row: i64,
                 key_id: i64,
             ) -> Result<()> {
-                let sql = Self::sql("UPDATE record SET key_id = ?2 WHERE id = ?1");
+                let sql = sql!(tx, "UPDATE record SET key_id = ?2 WHERE id = ?1");
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(key_id)
@@ -770,9 +699,7 @@ macro_rules! segments_impl {
                 row: i64,
                 to: At<'_>,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "UPDATE record SET file_path = ?2, path = ?3, key = ?4 WHERE id = ?1",
-                );
+                let sql = sql!(tx, "UPDATE record SET file_path = ?2, path = ?3, key = ?4 WHERE id = ?1",);
                 sqlx::query(&sql)
                     .bind(row)
                     .bind(to.file_path)
@@ -788,11 +715,9 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 at: At<'_>,
             ) -> Result<bool> {
-                let sql = Self::sql(
-                    "SELECT EXISTS (SELECT 1 FROM record r JOIN segment s ON s.id = r.segment_id \
+                let sql = sql!(tx, "SELECT EXISTS (SELECT 1 FROM record r JOIN segment s ON s.id = r.segment_id \
                      WHERE s.kind = 'draft' AND s.owner_id <> ?1 AND r.conflict IS NULL \
-                       AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4)",
-                );
+                       AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4)",);
                 let (held,): (bool,) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .bind(at.file_path)
@@ -808,16 +733,14 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 commit: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "UPDATE segment SET head_commit = ?2 \
-                     WHERE id = (SELECT head_segment_id FROM worktree WHERE id = ?1)",
-                );
+                let sql = sql!(tx, "UPDATE segment SET head_commit = ?2 \
+                     WHERE id = (SELECT head_segment_id FROM worktree WHERE id = ?1)",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(commit)
                     .execute(&mut **tx)
                     .await?;
-                let sql = Self::sql("UPDATE worktree SET commit_id = ?2 WHERE id = ?1");
+                let sql = sql!(tx, "UPDATE worktree SET commit_id = ?2 WHERE id = ?1");
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(commit)
@@ -831,16 +754,14 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 file: &FileRow<'_>,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "INSERT INTO file (worktree_id, path, format, commit_id, source_oid, committed_oid) \
+                let sql = sql!(tx, "INSERT INTO file (worktree_id, path, format, commit_id, source_oid, committed_oid) \
                      VALUES (?1, ?2, ?3, CAST(?4 AS TEXT), CAST(?5 AS TEXT), CAST(?6 AS TEXT)) \
                      ON CONFLICT (worktree_id, path) DO UPDATE SET \
                        format = excluded.format, \
                        commit_id = CASE WHEN ?7 THEN excluded.commit_id ELSE file.commit_id END, \
                        source_oid = CASE WHEN ?7 THEN excluded.source_oid ELSE file.source_oid END, \
                        committed_oid = CASE WHEN ?8 THEN excluded.committed_oid \
-                                            ELSE file.committed_oid END",
-                );
+                                            ELSE file.committed_oid END",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(file.path)
@@ -860,11 +781,9 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 path: Option<&str>,
             ) -> Result<Vec<crate::model::File>> {
-                let sql = Self::sql(
-                    "SELECT worktree_id, path, format, commit_id, source_oid, committed_oid, deleted \
+                let sql = sql!(tx, "SELECT worktree_id, path, format, commit_id, source_oid, committed_oid, deleted \
                      FROM file WHERE worktree_id = ?1 AND (CAST(?2 AS TEXT) IS NULL OR path = ?2) \
-                     ORDER BY path",
-                );
+                     ORDER BY path",);
                 let rows: Vec<(i64, String, String, Option<String>, Option<String>, Option<String>, bool)> =
                     sqlx::query_as(&sql)
                         .bind(worktree_id)
@@ -895,9 +814,7 @@ macro_rules! segments_impl {
                 path: &str,
                 oid: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "UPDATE file SET source_oid = ?3 WHERE worktree_id = ?1 AND path = ?2",
-                );
+                let sql = sql!(tx, "UPDATE file SET source_oid = ?3 WHERE worktree_id = ?1 AND path = ?2",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(path)
@@ -912,24 +829,19 @@ macro_rules! segments_impl {
                 origin: &str,
                 branch: &str,
             ) -> Result<i64> {
-                let sql = Self::sql(
-                    "INSERT INTO worktree (origin, branch) VALUES (?1, ?2) RETURNING id",
-                );
+                let sql = sql!(tx, "INSERT INTO worktree (origin, branch) VALUES (?1, ?2) RETURNING id",);
                 let (w,): (i64,) = sqlx::query_as(&sql)
                     .bind(origin)
                     .bind(branch)
                     .fetch_one(&mut **tx)
                     .await?;
-                for text in [
-                    "INSERT INTO version_seq (worktree_id) VALUES (?1)",
-                    "UPDATE worktree SET family_id = ?1 WHERE id = ?1",
+                for sql in [
+                    sql!(tx, "INSERT INTO version_seq (worktree_id) VALUES (?1)"),
+                    sql!(tx, "UPDATE worktree SET family_id = ?1 WHERE id = ?1"),
                 ] {
-                    let sql = Self::sql(text);
-                    sqlx::query(&sql).bind(w).execute(&mut **tx).await?;
+                    sqlx::query(sql).bind(w).execute(&mut **tx).await?;
                 }
-                let sql = Self::sql(
-                    "INSERT INTO segment (family_id, kind, owner_id) VALUES (?1, ?2, ?1) RETURNING id",
-                );
+                let sql = sql!(tx, "INSERT INTO segment (family_id, kind, owner_id) VALUES (?1, ?2, ?1) RETURNING id",);
                 let mut ids = Vec::new();
                 for kind in ["head", "draft"] {
                     let (id,): (i64,) = sqlx::query_as(&sql)
@@ -939,18 +851,14 @@ macro_rules! segments_impl {
                         .await?;
                     ids.push(id);
                 }
-                let sql = Self::sql(
-                    "UPDATE worktree SET head_segment_id = ?2, draft_segment_id = ?3 WHERE id = ?1",
-                );
+                let sql = sql!(tx, "UPDATE worktree SET head_segment_id = ?2, draft_segment_id = ?3 WHERE id = ?1",);
                 sqlx::query(&sql)
                     .bind(w)
                     .bind(ids[0])
                     .bind(ids[1])
                     .execute(&mut **tx)
                     .await?;
-                let sql = Self::sql(
-                    "INSERT INTO worktree_segment (worktree_id, segment_id) VALUES (?1, ?2)",
-                );
+                let sql = sql!(tx, "INSERT INTO worktree_segment (worktree_id, segment_id) VALUES (?1, ?2)",);
                 sqlx::query(&sql).bind(w).bind(ids[0]).execute(&mut **tx).await?;
                 Ok(w)
             }
@@ -960,9 +868,7 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 commit: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "UPDATE txn SET commit_id = ?2 WHERE worktree_id = ?1 AND commit_id IS NULL",
-                );
+                let sql = sql!(tx, "UPDATE txn SET commit_id = ?2 WHERE worktree_id = ?1 AND commit_id IS NULL",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(commit)
@@ -976,7 +882,7 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 path: &str,
             ) -> Result<()> {
-                let sql = Self::sql("DELETE FROM file WHERE worktree_id = ?1 AND path = ?2");
+                let sql = sql!(tx, "DELETE FROM file WHERE worktree_id = ?1 AND path = ?2");
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(path)
@@ -989,7 +895,7 @@ macro_rules! segments_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
             ) -> Result<Option<String>> {
-                let sql = Self::sql("SELECT commit_id FROM worktree WHERE id = ?1");
+                let sql = sql!(tx, "SELECT commit_id FROM worktree WHERE id = ?1");
                 let (commit,): (Option<String>,) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .fetch_one(&mut **tx)
@@ -1001,7 +907,7 @@ macro_rules! segments_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 worktree_id: i64,
             ) -> Result<Option<String>> {
-                let sql = Self::sql("SELECT default_file_path FROM worktree WHERE id = ?1");
+                let sql = sql!(tx, "SELECT default_file_path FROM worktree WHERE id = ?1");
                 let (path,): (Option<String>,) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .fetch_one(&mut **tx)
@@ -1014,7 +920,7 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 file_path: &str,
             ) -> Result<Option<String>> {
-                let sql = Self::sql("SELECT format FROM file WHERE worktree_id = ?1 AND path = ?2");
+                let sql = sql!(tx, "SELECT format FROM file WHERE worktree_id = ?1 AND path = ?2");
                 let row: Option<(String,)> = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .bind(file_path)
@@ -1029,10 +935,8 @@ macro_rules! segments_impl {
                 file_path: &str,
                 format: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "INSERT INTO file (worktree_id, path, format) VALUES (?1, ?2, ?3) \
-                     ON CONFLICT DO NOTHING",
-                );
+                let sql = sql!(tx, "INSERT INTO file (worktree_id, path, format) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT DO NOTHING",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(file_path)
@@ -1047,9 +951,7 @@ macro_rules! segments_impl {
                 worktree_id: i64,
                 file_path: &str,
             ) -> Result<Option<(Option<String>, bool)>> {
-                let sql = Self::sql(
-                    "SELECT commit_id, deleted FROM file WHERE worktree_id = ?1 AND path = ?2",
-                );
+                let sql = sql!(tx, "SELECT commit_id, deleted FROM file WHERE worktree_id = ?1 AND path = ?2",);
                 Ok(sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .bind(file_path)
@@ -1064,7 +966,7 @@ macro_rules! segments_impl {
                 deleted: bool,
             ) -> Result<()> {
                 let sql =
-                    Self::sql("UPDATE file SET deleted = ?3 WHERE worktree_id = ?1 AND path = ?2");
+                    sql!(tx, "UPDATE file SET deleted = ?3 WHERE worktree_id = ?1 AND path = ?2");
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(file_path)
@@ -1079,12 +981,10 @@ macro_rules! segments_impl {
                 row: i64,
                 aliases: &[(String, String)],
             ) -> Result<()> {
-                let sql = Self::sql("DELETE FROM alias WHERE record_id = ?1");
+                let sql = sql!(tx, "DELETE FROM alias WHERE record_id = ?1");
                 sqlx::query(&sql).bind(row).execute(&mut **tx).await?;
-                let sql = Self::sql(
-                    "INSERT INTO alias (record_id, path, key) VALUES (?1, ?2, ?3) \
-                     ON CONFLICT DO NOTHING",
-                );
+                let sql = sql!(tx, "INSERT INTO alias (record_id, path, key) VALUES (?1, ?2, ?3) \
+                     ON CONFLICT DO NOTHING",);
                 for (path, key) in aliases {
                     sqlx::query(&sql)
                         .bind(row)
@@ -1104,11 +1004,9 @@ macro_rules! segments_impl {
                 message: Option<&str>,
                 created_at: &str,
             ) -> Result<()> {
-                let sql = Self::sql(
-                    "INSERT INTO txn (worktree_id, first_version, last_version, author, message, \
+                let sql = sql!(tx, "INSERT INTO txn (worktree_id, first_version, last_version, author, message, \
                          created_at) \
-                     VALUES (?1, ?2, ?3, CAST(?4 AS TEXT), CAST(?5 AS TEXT), ?6)",
-                );
+                     VALUES (?1, ?2, ?3, CAST(?4 AS TEXT), CAST(?5 AS TEXT), ?6)",);
                 sqlx::query(&sql)
                     .bind(worktree_id)
                     .bind(versions.0)
@@ -1124,23 +1022,6 @@ macro_rules! segments_impl {
     };
 }
 
-segments_impl!(sqlx::Sqlite, false);
+store_impl!(sqlx::Sqlite, false);
 #[cfg(feature = "postgres")]
-segments_impl!(sqlx::Postgres, true);
-
-#[cfg(test)]
-mod tests {
-    use super::pg;
-
-    #[test]
-    fn rewrites_for_postgres() {
-        assert_eq!(
-            pg("SELECT json(r.json), jsonb(?7), CAST(?10 AS TEXT) WHERE a = ?1 AND ?12"),
-            "SELECT (r.json)::text, $7::jsonb, CAST($10 AS TEXT) WHERE a = $1 AND $12"
-        );
-        assert_eq!(
-            pg("SELECT jsonb_array_length(x)"),
-            "SELECT jsonb_array_length(x)"
-        );
-    }
-}
+store_impl!(sqlx::Postgres, true);

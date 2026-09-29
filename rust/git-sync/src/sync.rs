@@ -737,8 +737,8 @@ impl SyncedRepo {
         let w = self.worktree_id();
         on_pool!(self.db(), pool => {
             let mut tx = pool.begin().await?;
-            if let Some(f) = crate::db::seg::Segments::files(&mut tx, w, Some(file_path)).await?.pop() {
-                crate::db::seg::Segments::upsert_file(&mut tx, w, &crate::db::seg::FileRow {
+            if let Some(f) = crate::db::store::Store::files(&mut tx, w, Some(file_path)).await?.pop() {
+                crate::db::store::Store::upsert_file(&mut tx, w, &crate::db::store::FileRow {
                     path: file_path,
                     format: &f.format,
                     commit_id: Some(commit),
@@ -1184,9 +1184,7 @@ impl SyncedRepo {
     ) -> Result<WriteOutcome> {
         // Dispatch on the concrete pool type; the body is shared via the
         // generic `crud_create_in_pool` (same pattern as `apply_batch`).
-        match self.db() {
-            Db::Sqlite(pool) => {
-                crud_create_in_pool(
+        on_pool!(self.db(), pool => crud_create_in_pool(
                     self,
                     pool,
                     WriteTarget {
@@ -1198,25 +1196,7 @@ impl SyncedRepo {
                     expected_commit,
                     resolve,
                 )
-                .await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                crud_create_in_pool(
-                    self,
-                    pool,
-                    WriteTarget {
-                        file_path,
-                        path,
-                        key,
-                    },
-                    json,
-                    expected_commit,
-                    resolve,
-                )
-                .await
-            }
-        }
+                .await)
     }
 
     /// Replace an existing record's JSON.
@@ -1247,9 +1227,7 @@ impl SyncedRepo {
         expected_commit: Option<CommitRef>,
         resolve: bool,
     ) -> Result<WriteOutcome> {
-        match self.db() {
-            Db::Sqlite(pool) => {
-                crud_update_in_pool(
+        on_pool!(self.db(), pool => crud_update_in_pool(
                     self,
                     pool,
                     WriteTarget {
@@ -1261,25 +1239,7 @@ impl SyncedRepo {
                     expected_commit,
                     resolve,
                 )
-                .await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                crud_update_in_pool(
-                    self,
-                    pool,
-                    WriteTarget {
-                        file_path,
-                        path,
-                        key,
-                    },
-                    json,
-                    expected_commit,
-                    resolve,
-                )
-                .await
-            }
-        }
+                .await)
     }
 
     /// Insert-or-replace a record.
@@ -1310,9 +1270,7 @@ impl SyncedRepo {
         expected_commit: Option<CommitRef>,
         resolve: bool,
     ) -> Result<WriteOutcome> {
-        match self.db() {
-            Db::Sqlite(pool) => {
-                crud_upsert_in_pool(
+        on_pool!(self.db(), pool => crud_upsert_in_pool(
                     self,
                     pool,
                     WriteTarget {
@@ -1324,25 +1282,7 @@ impl SyncedRepo {
                     expected_commit,
                     resolve,
                 )
-                .await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                crud_upsert_in_pool(
-                    self,
-                    pool,
-                    WriteTarget {
-                        file_path,
-                        path,
-                        key,
-                    },
-                    json,
-                    expected_commit,
-                    resolve,
-                )
-                .await
-            }
-        }
+                .await)
     }
 
     /// Tombstone the record at `(file_path, path, key)` and clear its
@@ -1374,9 +1314,7 @@ impl SyncedRepo {
         expected_commit: Option<CommitRef>,
         resolve: bool,
     ) -> Result<WriteOutcome> {
-        match self.db() {
-            Db::Sqlite(pool) => {
-                crud_delete_in_pool(
+        on_pool!(self.db(), pool => crud_delete_in_pool(
                     self,
                     pool,
                     WriteTarget {
@@ -1387,24 +1325,7 @@ impl SyncedRepo {
                     expected_commit,
                     resolve,
                 )
-                .await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                crud_delete_in_pool(
-                    self,
-                    pool,
-                    WriteTarget {
-                        file_path,
-                        path,
-                        key,
-                    },
-                    expected_commit,
-                    resolve,
-                )
-                .await
-            }
-        }
+                .await)
     }
 
     /// Remove a whole file from the worktree.
@@ -1438,11 +1359,7 @@ impl SyncedRepo {
         file_path: &str,
         expected_commit: Option<CommitRef>,
     ) -> Result<Vec<WriteOutcome>> {
-        match self.db() {
-            Db::Sqlite(pool) => delete_file_in_pool(self, pool, file_path, expected_commit).await,
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => delete_file_in_pool(self, pool, file_path, expected_commit).await,
-        }
+        on_pool!(self.db(), pool => delete_file_in_pool(self, pool, file_path, expected_commit).await)
     }
 
     /// Apply a batch of [`BatchOp`]s under a single SQL transaction.
@@ -1474,11 +1391,7 @@ impl SyncedRepo {
         atomic: bool,
         meta: Option<TxnMeta>,
     ) -> Result<BatchOutcome> {
-        match self.db() {
-            Db::Sqlite(pool) => apply_batch_inner(self, pool, ops, atomic, meta).await,
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => apply_batch_inner(self, pool, ops, atomic, meta).await,
-        }
+        on_pool!(self.db(), pool => apply_batch_inner(self, pool, ops, atomic, meta).await)
     }
 
     /// Every `txn` audit row of this worktree, oldest version range
@@ -1841,15 +1754,7 @@ impl SyncedRepo {
         if ops.is_empty() {
             return Ok(());
         }
-        match self.db() {
-            Db::Sqlite(pool) => {
-                apply_conflict_ops_in_pool(self, pool, file_path, commit_id, ops).await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                apply_conflict_ops_in_pool(self, pool, file_path, commit_id, ops).await
-            }
-        }
+        on_pool!(self.db(), pool => apply_conflict_ops_in_pool(self, pool, file_path, commit_id, ops).await)
     }
 
     /// The file's side of every record this worktree is in conflict
@@ -1899,9 +1804,7 @@ impl SyncedRepo {
         resolution: Resolution,
         expected_commit: Option<CommitRef>,
     ) -> Result<WriteOutcome> {
-        match self.db() {
-            Db::Sqlite(pool) => {
-                resolve_conflict_in_pool(
+        on_pool!(self.db(), pool => resolve_conflict_in_pool(
                     self,
                     pool,
                     file_path,
@@ -1910,22 +1813,7 @@ impl SyncedRepo {
                     resolution,
                     expected_commit,
                 )
-                .await
-            }
-            #[cfg(feature = "postgres")]
-            Db::Postgres(pool) => {
-                resolve_conflict_in_pool(
-                    self,
-                    pool,
-                    file_path,
-                    path,
-                    key,
-                    resolution,
-                    expected_commit,
-                )
-                .await
-            }
-        }
+                .await)
     }
 
     /// Persist all pending edits and create a git commit.

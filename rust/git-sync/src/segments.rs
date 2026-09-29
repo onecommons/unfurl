@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! The segment design's operations on one worktree's draft
 //! (docs/branch-segments.md §4.2, §4.3, §4.11), over
-//! [`crate::db::seg::Segments`].
+//! [`crate::db::store::Store`].
 //!
 //! These follow the in-memory implementation the model test checks
 //! (`tests/segments/imp.rs`), which `tests/segments_sql.rs` holds them
@@ -10,7 +10,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::db::seg::{At, Filter, NewRow, Row, Scope, Segments};
+use crate::db::store::{At, Filter, NewRow, Row, Scope, Store};
 use crate::error::Result;
 use crate::model::ConflictState;
 
@@ -40,7 +40,7 @@ pub(crate) struct Written {
 /// Write a new version into worktree `w`'s draft, made through its own
 /// view (§4.2, C.9). `record` is the `key_id` it takes, `None` for a new
 /// record.
-pub(crate) async fn write<DB: Segments>(
+pub(crate) async fn write<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     at: At<'_>,
@@ -138,7 +138,7 @@ pub(crate) async fn write<DB: Segments>(
 /// Whether `w`'s view shows record `id` live anywhere, a live row in
 /// `draft` included, the writer's own too. A write of a record it doesn't
 /// is a re-create, with no base.
-async fn live_anywhere<DB: Segments>(
+async fn live_anywhere<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     draft: &[Row],
@@ -153,7 +153,7 @@ async fn live_anywhere<DB: Segments>(
 
 /// Remove draft `d`'s edit `y` of record `id`, which a write of it at
 /// another key replaces.
-async fn replace_other<DB: Segments>(
+async fn replace_other<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     d: i64,
@@ -184,7 +184,7 @@ async fn replace_other<DB: Segments>(
 /// content: the base of the edit it replaces at its key, `prior`, or at
 /// another, `other`, else the record's committed version in the view, at
 /// whatever key.
-async fn edit_base<DB: Segments>(
+async fn edit_base<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     record: Option<i64>,
@@ -207,7 +207,7 @@ async fn edit_base<DB: Segments>(
 /// The rows a write at `at` was made over: those `shown` there, and the
 /// same record's rows elsewhere with content seen here, a move's copy of
 /// what the edit was made over (§3.5).
-async fn seen_rows<DB: Segments>(
+async fn seen_rows<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     at: At<'_>,
@@ -236,7 +236,7 @@ async fn seen_rows<DB: Segments>(
 /// Draft `d`'s new row of record `key_id` at `at` hides the rows it was
 /// made over, `seen`, and those the draft already hides there, but a live
 /// row of a record it edits elsewhere, which the merge hid from this write.
-async fn hide<DB: Segments>(
+async fn hide<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
@@ -262,7 +262,7 @@ async fn hide<DB: Segments>(
 }
 
 /// The segment row `row` is in, if `w`'s view holds it.
-async fn row_segment<DB: Segments>(
+async fn row_segment<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     row: i64,
@@ -276,7 +276,7 @@ async fn row_segment<DB: Segments>(
 
 /// Draft `d`'s entries made by edit `old` become `new`'s, but at a key
 /// another row of `old` holds.
-pub(crate) async fn retag<DB: Segments>(
+pub(crate) async fn retag<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     old: i64,
@@ -303,7 +303,7 @@ pub(crate) async fn retag<DB: Segments>(
 
 /// Take the row at `at` out of draft `d`, with the entries its edit made,
 /// unless another of the draft's rows is the same record's.
-pub(crate) async fn remove_draft_row<DB: Segments>(
+pub(crate) async fn remove_draft_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
@@ -330,7 +330,7 @@ pub(crate) async fn remove_draft_row<DB: Segments>(
 }
 
 /// Draft `d`'s conflict row at `at`.
-pub(crate) async fn conflict_row<DB: Segments>(
+pub(crate) async fn conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
@@ -343,7 +343,7 @@ pub(crate) async fn conflict_row<DB: Segments>(
 
 /// Record the file's side at `at`: `theirs`, or a tombstone holding the
 /// value the file dropped.
-pub(crate) async fn set_conflict<DB: Segments>(
+pub(crate) async fn set_conflict<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
@@ -382,7 +382,7 @@ pub(crate) async fn set_conflict<DB: Segments>(
     Ok(())
 }
 
-pub(crate) async fn drop_conflict<DB: Segments>(
+pub(crate) async fn drop_conflict<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
@@ -405,7 +405,7 @@ pub(crate) struct KeyIds {
 /// One record whose committed value changed: bring worktree `w`'s head
 /// up to it (§4.3, C.10). `change: None` means the commit deleted it.
 /// Returns the row it added, if any.
-pub(crate) async fn scan_key<DB: Segments>(
+pub(crate) async fn scan_key<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     at: At<'_>,
@@ -488,7 +488,7 @@ pub(crate) async fn scan_key<DB: Segments>(
 
 /// Each pending edit follows its record, with its conflict, to the place
 /// `w`'s committed chain now has it (§3.5). Returns the files edits left.
-pub(crate) async fn follow_records<DB: Segments>(
+pub(crate) async fn follow_records<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
 ) -> Result<BTreeSet<String>> {
@@ -531,7 +531,7 @@ pub(crate) async fn follow_records<DB: Segments>(
 
 /// Move edit `x` to `to`, with its conflict row; its entries on other
 /// records at the place it leaves go.
-async fn relocate<DB: Segments>(
+async fn relocate<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     x: &Row,
@@ -553,7 +553,7 @@ async fn relocate<DB: Segments>(
 /// record, or a value taken in from the file where git has its record at
 /// another place. Its entries at its place are the new record's; on the
 /// old record's rows elsewhere they go. Returns its `key_id`.
-pub(crate) async fn renew<DB: Segments>(
+pub(crate) async fn renew<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     x: &Row,
@@ -602,7 +602,7 @@ pub(crate) async fn renew<DB: Segments>(
 /// C.11: worktree `w`'s draft supersedes what its committed chain now
 /// shows at each place it holds, and an edited record's copy elsewhere
 /// with content it already superseded.
-pub(crate) async fn relink<DB: Segments>(tx: &mut sqlx::Transaction<'_, DB>, w: i64) -> Result<()> {
+pub(crate) async fn relink<DB: Store>(tx: &mut sqlx::Transaction<'_, DB>, w: i64) -> Result<()> {
     let d = DB::segs(tx, w).await?.draft;
     let draft = DB::rows_in(tx, d, None, false).await?;
     let conflicts = DB::rows_in(tx, d, None, true).await?;
@@ -659,7 +659,7 @@ pub(crate) enum FileWins {
 
 /// Draft `d`'s rows a commit of `files` carries: those written before
 /// `watermark`, at no conflict row's key.
-async fn carried<DB: Segments>(
+async fn carried<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     files: &BTreeSet<String>,
@@ -680,7 +680,7 @@ async fn carried<DB: Segments>(
 /// the file's value, which the commit carries at a key the fold leaves:
 /// each with the id [`scan_key`] gives its head row, the chain's live
 /// record at the key, else the draft's.
-pub(crate) async fn changed<DB: Segments>(
+pub(crate) async fn changed<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     files: &BTreeSet<String>,
@@ -721,7 +721,7 @@ pub(crate) async fn changed<DB: Segments>(
 /// C.12: fold worktree `w`'s draft rows of `files` into its head, as
 /// commit `commit` carries them: those with no conflict row, written
 /// before `watermark`. A row keeps its id, `key_id`, version and content.
-pub(crate) async fn fold<DB: Segments>(
+pub(crate) async fn fold<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     files: &BTreeSet<String>,

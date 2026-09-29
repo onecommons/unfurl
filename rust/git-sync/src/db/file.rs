@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 //! `file` table reads and writes.
 
-use crate::db::seg::Segments;
+use crate::db::store::Store;
 use crate::db::Db;
 use crate::error::Result;
 use crate::model::File;
 
-async fn files<DB: Segments>(
+async fn files<DB: Store>(
     pool: &sqlx::Pool<DB>,
     worktree_id: i64,
     path: Option<&str>,
@@ -56,7 +56,7 @@ where
 {
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
-        Segments::set_source_oid(&mut tx, worktree_id, file_path, oid).await?;
+        Store::set_source_oid(&mut tx, worktree_id, file_path, oid).await?;
         persist()?;
         tx.commit().await?;
         Ok(())
@@ -73,7 +73,7 @@ pub(crate) async fn set_deleted(
 ) -> Result<()> {
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
-        Segments::set_file_deleted(&mut tx, worktree_id, file_path, deleted).await?;
+        Store::set_file_deleted(&mut tx, worktree_id, file_path, deleted).await?;
         tx.commit().await?;
         Ok(())
     })

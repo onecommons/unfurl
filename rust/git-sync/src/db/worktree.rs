@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! `worktree` table reads and writes.
 
-use crate::db::seg::Segments;
+use crate::db::store::Store;
 use crate::db::Db;
 use crate::error::Result;
 
@@ -15,57 +15,31 @@ use crate::error::Result;
 /// [`crate::git::worktree_meta`] rather than passing a remote URL
 /// through.
 pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
-    match db {
-        Db::Sqlite(pool) => {
-            let row: Option<(i64,)> =
-                sqlx::query_as("SELECT id FROM worktree WHERE origin = ?1 AND branch = ?2")
-                    .bind(origin)
-                    .bind(branch)
-                    .fetch_optional(pool)
-                    .await?;
-            if let Some((id,)) = row {
-                return Ok(id);
-            }
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let row: Option<(i64,)> =
-                sqlx::query_as("SELECT id FROM worktree WHERE origin = $1 AND branch = $2")
-                    .bind(origin)
-                    .bind(branch)
-                    .fetch_optional(pool)
-                    .await?;
-            if let Some((id,)) = row {
-                return Ok(id);
-            }
-        }
-    }
     on_pool!(db, pool => {
+        let row: Option<(i64,)> =
+            sqlx::query_as(sql!(pool, "SELECT id FROM worktree WHERE origin = ?1 AND branch = ?2"))
+                .bind(origin)
+                .bind(branch)
+                .fetch_optional(pool)
+                .await?;
+        if let Some((id,)) = row {
+            return Ok(id);
+        }
         let mut tx = pool.begin().await?;
-        let id = Segments::create_worktree(&mut tx, origin, branch).await?;
+        let id = Store::create_worktree(&mut tx, origin, branch).await?;
         tx.commit().await?;
         Ok(id)
     })
 }
 
 pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str>) -> Result<()> {
-    match db {
-        Db::Sqlite(pool) => {
-            sqlx::query("UPDATE worktree SET commit_id = ?1 WHERE id = ?2")
-                .bind(commit)
-                .bind(worktree_id)
-                .execute(pool)
-                .await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query("UPDATE worktree SET commit_id = $1 WHERE id = $2")
-                .bind(commit)
-                .bind(worktree_id)
-                .execute(pool)
-                .await?;
-        }
-    }
+    on_pool!(db, pool => {
+        sqlx::query(sql!(pool, "UPDATE worktree SET commit_id = ?1 WHERE id = ?2"))
+            .bind(commit)
+            .bind(worktree_id)
+            .execute(pool)
+            .await?;
+    });
     Ok(())
 }
 
@@ -87,56 +61,29 @@ pub(crate) async fn matching(
     db: &Db,
     filter: &crate::model::WorktreeFilter,
 ) -> Result<Vec<crate::model::Worktree>> {
+    const SQL: &str = "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
+         WHERE (CAST(?1 AS TEXT) IS NULL OR origin = ?1) \
+           AND (CAST(?2 AS TEXT) IS NULL OR branch = ?2) ORDER BY id";
     let (origin, branch) = filter.normalized();
-    let rows: Vec<WorktreeRow> = match db {
-        Db::Sqlite(pool) => {
-            sqlx::query_as(
-                "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
-                 WHERE (?1 IS NULL OR origin = ?1) AND (?2 IS NULL OR branch = ?2) ORDER BY id",
-            )
+    let rows: Vec<WorktreeRow> = on_pool!(db, pool => {
+        sqlx::query_as(sql!(pool, SQL))
             .bind(origin)
             .bind(branch)
             .fetch_all(pool)
             .await?
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query_as(
-                "SELECT id, origin, branch, commit_id, default_file_path FROM worktree \
-                 WHERE ($1::text IS NULL OR origin = $1) AND ($2::text IS NULL OR branch = $2) \
-                 ORDER BY id",
-            )
-            .bind(origin)
-            .bind(branch)
-            .fetch_all(pool)
-            .await?
-        }
-    };
+    });
     Ok(rows.into_iter().map(into_worktree).collect())
 }
 
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
-    let row: WorktreeRow = match db {
-        Db::Sqlite(pool) => {
-            sqlx::query_as(
-                "SELECT id, origin, branch, commit_id, default_file_path \
-                 FROM worktree WHERE id = ?1",
-            )
+    const SQL: &str =
+        "SELECT id, origin, branch, commit_id, default_file_path FROM worktree WHERE id = ?1";
+    let row: WorktreeRow = on_pool!(db, pool => {
+        sqlx::query_as(sql!(pool, SQL))
             .bind(worktree_id)
             .fetch_one(pool)
             .await?
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query_as(
-                "SELECT id, origin, branch, commit_id, default_file_path \
-                 FROM worktree WHERE id = $1",
-            )
-            .bind(worktree_id)
-            .fetch_one(pool)
-            .await?
-        }
-    };
+    });
     Ok(into_worktree(row))
 }
 
@@ -148,21 +95,12 @@ pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Workt
 /// forgot to set it, still resolves to a usable sequence rather than to
 /// NULL.
 pub(crate) async fn family_id(db: &Db, worktree_id: i64) -> Result<i64> {
-    let row: (i64,) = match db {
-        Db::Sqlite(pool) => {
-            sqlx::query_as("SELECT COALESCE(family_id, id) FROM worktree WHERE id = ?1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query_as("SELECT COALESCE(family_id, id) FROM worktree WHERE id = $1")
-                .bind(worktree_id)
-                .fetch_one(pool)
-                .await?
-        }
-    };
+    let row: (i64,) = on_pool!(db, pool => {
+        sqlx::query_as(sql!(pool, "SELECT COALESCE(family_id, id) FROM worktree WHERE id = ?1"))
+            .bind(worktree_id)
+            .fetch_one(pool)
+            .await?
+    });
     Ok(row.0)
 }
 
@@ -175,27 +113,16 @@ pub(crate) async fn family_id(db: &Db, worktree_id: i64) -> Result<i64> {
 /// has to cover the writes this commit carries, and the next commit's
 /// trailer covers the rest.
 pub(crate) async fn next_version(db: &Db, worktree_id: i64) -> Result<i64> {
-    let row: (i64,) = match db {
-        Db::Sqlite(pool) => {
-            sqlx::query_as(
-                "SELECT s.next_version FROM version_seq s JOIN worktree w \
-                 ON s.worktree_id = COALESCE(w.family_id, w.id) WHERE w.id = ?1",
-            )
-            .bind(worktree_id)
-            .fetch_one(pool)
-            .await?
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query_as(
-                "SELECT s.next_version FROM version_seq s JOIN worktree w \
-                 ON s.worktree_id = COALESCE(w.family_id, w.id) WHERE w.id = $1",
-            )
-            .bind(worktree_id)
-            .fetch_one(pool)
-            .await?
-        }
-    };
+    let row: (i64,) = on_pool!(db, pool => {
+        sqlx::query_as(sql!(
+            pool,
+            "SELECT s.next_version FROM version_seq s JOIN worktree w \
+             ON s.worktree_id = COALESCE(w.family_id, w.id) WHERE w.id = ?1"
+        ))
+        .bind(worktree_id)
+        .fetch_one(pool)
+        .await?
+    });
     Ok(row.0)
 }
 
@@ -208,33 +135,19 @@ pub(crate) async fn next_version(db: &Db, worktree_id: i64) -> Result<i64> {
 /// and supported identically on both backends; when no records
 /// exist it returns NULL and the column stays NULL.
 pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<()> {
-    match db {
-        Db::Sqlite(pool) => {
-            sqlx::query(
-                "UPDATE worktree \
-                 SET default_file_path = COALESCE( \
-                     default_file_path, \
-                     (SELECT MIN(path) FROM file WHERE worktree_id = ?1)) \
-                 WHERE id = ?1",
-            )
-            .bind(worktree_id)
-            .execute(pool)
-            .await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query(
-                "UPDATE worktree \
-                 SET default_file_path = COALESCE( \
-                     default_file_path, \
-                     (SELECT MIN(path) FROM file WHERE worktree_id = $1)) \
-                 WHERE id = $1",
-            )
-            .bind(worktree_id)
-            .execute(pool)
-            .await?;
-        }
-    }
+    on_pool!(db, pool => {
+        sqlx::query(sql!(
+            pool,
+            "UPDATE worktree \
+             SET default_file_path = COALESCE( \
+                 default_file_path, \
+                 (SELECT MIN(path) FROM file WHERE worktree_id = ?1)) \
+             WHERE id = ?1"
+        ))
+        .bind(worktree_id)
+        .execute(pool)
+        .await?;
+    });
     Ok(())
 }
 
@@ -242,22 +155,12 @@ pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<
 /// when `value == None`). Used by operators to override the auto-pick
 /// done by `update_from_working_dir` on first run.
 pub(crate) async fn set_default_file(db: &Db, worktree_id: i64, value: Option<&str>) -> Result<()> {
-    match db {
-        Db::Sqlite(pool) => {
-            sqlx::query("UPDATE worktree SET default_file_path = ?2 WHERE id = ?1")
-                .bind(worktree_id)
-                .bind(value)
-                .execute(pool)
-                .await?;
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            sqlx::query("UPDATE worktree SET default_file_path = $2 WHERE id = $1")
-                .bind(worktree_id)
-                .bind(value)
-                .execute(pool)
-                .await?;
-        }
-    }
+    on_pool!(db, pool => {
+        sqlx::query(sql!(pool, "UPDATE worktree SET default_file_path = ?2 WHERE id = ?1"))
+            .bind(worktree_id)
+            .bind(value)
+            .execute(pool)
+            .await?;
+    });
     Ok(())
 }

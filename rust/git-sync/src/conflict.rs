@@ -18,7 +18,7 @@
 use crate::crud::{compute_aliases, enforce_conflict};
 use unfurl_merge::markdown::Applied;
 
-use crate::db::seg::{At, Filter, Row, Scope, Segments};
+use crate::db::store::{At, Filter, Row, Scope, Store};
 use crate::document::{apply_delete, apply_insert};
 use crate::error::{Error, Result};
 use crate::model::{
@@ -123,7 +123,7 @@ pub(crate) struct TheirSide<'a> {
 /// older commit. It is informational — `db::commit::roll_forward`
 /// restamps it on the next commit made through here, and nothing reads
 /// it to decide anything.
-pub(crate) async fn refresh_conflict_row<DB: Segments>(
+pub(crate) async fn refresh_conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     at: At<'_>,
@@ -148,7 +148,7 @@ pub(crate) async fn refresh_conflict_row<DB: Segments>(
 }
 
 /// Drop the conflict row at this key, if `existing` says there is one.
-pub(crate) async fn drop_conflict_row<DB: Segments>(
+pub(crate) async fn drop_conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     at: At<'_>,
@@ -379,7 +379,7 @@ pub(crate) fn apply_pending_records(
 }
 
 /// Draft conflict rows of `file_path`, by (path, key).
-pub(crate) async fn conflict_rows<DB: Segments>(
+pub(crate) async fn conflict_rows<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     file_path: &str,
@@ -394,7 +394,7 @@ pub(crate) async fn conflict_rows<DB: Segments>(
 
 /// Persist [`ConflictOp`]s in one transaction, drawing a version for
 /// each row that actually moves (see [`refresh_conflict_row`]).
-pub(crate) async fn apply_conflict_ops_in_pool<DB: Segments>(
+pub(crate) async fn apply_conflict_ops_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     file_path: &str,
@@ -439,7 +439,7 @@ pub(crate) async fn apply_conflict_ops_in_pool<DB: Segments>(
 /// Both rows move together or not at all: rewriting the record without
 /// dropping the conflict row would leave the record looking settled
 /// while every read still treats it as contested.
-pub(crate) async fn resolve_conflict_in_pool<DB: Segments>(
+pub(crate) async fn resolve_conflict_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     file_path: &str,

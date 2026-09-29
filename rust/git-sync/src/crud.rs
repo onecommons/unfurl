@@ -10,7 +10,7 @@
 //! error -- an [`crate::Error::Conflict`] included -- the transaction is
 //! dropped without commit, so it rolls back.
 
-use crate::db::seg::{At, Filter, Row, Scope, Segments};
+use crate::db::store::{At, Filter, Row, Scope, Store};
 use crate::error::{Error, Result};
 use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, TxnMeta, WriteOutcome};
 use crate::segments::{self, Origin, Value};
@@ -100,7 +100,7 @@ struct Request<'a> {
 }
 
 /// One write in the caller's transaction, at an already drawn `version`.
-async fn write_in_tx<DB: Segments>(
+async fn write_in_tx<DB: Store>(
     sync: &SyncedRepo,
     tx: &mut sqlx::Transaction<'_, DB>,
     request: Request<'_>,
@@ -229,7 +229,7 @@ async fn write_in_tx<DB: Segments>(
 }
 
 /// One write in its own transaction.
-async fn write_one<DB: Segments>(
+async fn write_one<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     request: Request<'_>,
@@ -241,7 +241,7 @@ async fn write_one<DB: Segments>(
     Ok(out)
 }
 
-pub(crate) async fn crud_create_in_pool<DB: Segments>(
+pub(crate) async fn crud_create_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
@@ -259,7 +259,7 @@ pub(crate) async fn crud_create_in_pool<DB: Segments>(
     write_one(sync, pool, request).await
 }
 
-pub(crate) async fn crud_update_in_pool<DB: Segments>(
+pub(crate) async fn crud_update_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
@@ -277,7 +277,7 @@ pub(crate) async fn crud_update_in_pool<DB: Segments>(
     write_one(sync, pool, request).await
 }
 
-pub(crate) async fn crud_upsert_in_pool<DB: Segments>(
+pub(crate) async fn crud_upsert_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
@@ -295,7 +295,7 @@ pub(crate) async fn crud_upsert_in_pool<DB: Segments>(
     write_one(sync, pool, request).await
 }
 
-pub(crate) async fn crud_delete_in_pool<DB: Segments>(
+pub(crate) async fn crud_delete_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     at: WriteTarget<'_>,
@@ -316,7 +316,7 @@ pub(crate) async fn crud_delete_in_pool<DB: Segments>(
 /// `ops`, accumulates [`Applied`] / [`Failed`] entries, and either
 /// commits (success / non-atomic with failures) or rolls back (atomic
 /// + first failure).
-pub(crate) async fn apply_batch_inner<DB: Segments>(
+pub(crate) async fn apply_batch_inner<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     ops: Vec<BatchOp>,
@@ -453,7 +453,7 @@ pub(crate) async fn apply_batch_inner<DB: Segments>(
 /// [`SyncedRepo::write_file`], which already handles a missing file on disk.
 /// The format is taken from whichever registered [`crate::DataFormat`] claims
 /// the record's section.
-pub(crate) async fn ensure_file_registered<DB: Segments>(
+pub(crate) async fn ensure_file_registered<DB: Store>(
     sync: &SyncedRepo,
     tx: &mut sqlx::Transaction<'_, DB>,
     file_path: &str,
@@ -514,7 +514,7 @@ pub(crate) fn compute_aliases(
 /// file whose records were left alone would render as a header-only
 /// stub on the next save, which is the shape this whole path exists to
 /// avoid.
-pub(crate) async fn delete_file_in_pool<DB: Segments>(
+pub(crate) async fn delete_file_in_pool<DB: Store>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     file_path: &str,

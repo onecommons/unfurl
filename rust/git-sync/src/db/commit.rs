@@ -7,7 +7,7 @@ use crate::db::Db;
 use crate::error::Result;
 
 /// `(id, worktree_id, first_version, last_version, author, message,
-/// created_at, commit_id)` — the column order of [`TXN_COLUMNS`].
+/// created_at, commit_id)` — the column order `list_where` reads.
 type TxnRow = (
     i64,
     i64,
@@ -18,9 +18,6 @@ type TxnRow = (
     String,
     Option<String>,
 );
-
-const TXN_COLUMNS: &str =
-    "id, worktree_id, first_version, last_version, author, message, created_at, commit_id";
 
 fn to_txn(row: TxnRow) -> crate::model::Txn {
     let (id, worktree_id, first_version, last_version, author, message, created_at, commit_id) =
@@ -55,44 +52,23 @@ async fn list_where(
     worktree_id: i64,
     outstanding_only: bool,
 ) -> Result<Vec<crate::model::Txn>> {
-    let filter = if outstanding_only {
-        " AND commit_id IS NULL"
-    } else {
-        ""
-    };
-    match db {
-        Db::Sqlite(pool) => {
-            let sql = format!(
-                "SELECT {TXN_COLUMNS} FROM txn WHERE worktree_id = ?1{filter} \
-                 ORDER BY first_version, id"
-            );
-            let rows: Vec<TxnRow> = sqlx::query_as(&sql)
-                .bind(worktree_id)
-                .fetch_all(pool)
-                .await?;
-            Ok(rows.into_iter().map(to_txn).collect())
-        }
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => {
-            let sql = format!(
-                "SELECT {TXN_COLUMNS} FROM txn WHERE worktree_id = $1{filter} \
-                 ORDER BY first_version, id"
-            );
-            let rows: Vec<TxnRow> = sqlx::query_as(&sql)
-                .bind(worktree_id)
-                .fetch_all(pool)
-                .await?;
-            Ok(rows.into_iter().map(to_txn).collect())
-        }
-    }
+    const ALL: &str = "SELECT id, worktree_id, first_version, last_version, author, message, \
+         created_at, commit_id FROM txn WHERE worktree_id = ?1 ORDER BY first_version, id";
+    const OUTSTANDING: &str = "SELECT id, worktree_id, first_version, last_version, author, \
+         message, created_at, commit_id FROM txn WHERE worktree_id = ?1 AND commit_id IS NULL \
+         ORDER BY first_version, id";
+    let rows: Vec<TxnRow> = on_pool!(db, pool => {
+        let q = if outstanding_only { sql!(pool, OUTSTANDING) } else { sql!(pool, ALL) };
+        sqlx::query_as(q).bind(worktree_id).fetch_all(pool).await?
+    });
+    Ok(rows.into_iter().map(to_txn).collect())
 }
 
 /// This database's identity, which a commit's rollup names its ids under.
 pub(crate) async fn database_id(db: &Db) -> Result<String> {
-    const SQL: &str = "SELECT uuid FROM database_identity";
-    Ok(match db {
-        Db::Sqlite(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await?,
-        #[cfg(feature = "postgres")]
-        Db::Postgres(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await?,
-    })
+    Ok(on_pool!(db, pool => {
+        sqlx::query_scalar("SELECT uuid FROM database_identity")
+            .fetch_one(pool)
+            .await?
+    }))
 }
