@@ -181,7 +181,7 @@ impl HeadFile {
 }
 
 /// A place in a file, owned.
-type Place = (String, String, String);
+pub(crate) type Place = (String, String, String);
 
 fn place_at(p: &Place) -> At<'_> {
     At {
@@ -193,13 +193,16 @@ fn place_at(p: &Place) -> At<'_> {
 
 /// The committed side of a scan (§4.3): bring the head up to `commit`,
 /// whose blobs of `files` differ from what the committed segments hold.
-/// Returns the files whose draft side has to be reconciled again: those
-/// that changed, and those pending edits followed their records out of.
+/// `named` is the ids `commit`'s rollup names, which a record takes
+/// first. Returns the files whose draft side has to be reconciled again:
+/// those that changed, and those pending edits followed their records
+/// out of.
 async fn advance_head<DB: Segments>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     commit: &str,
     files: &[HeadFile],
+    named: &BTreeMap<Place, i64>,
     stats: &mut SyncOutcome,
 ) -> Result<BTreeSet<String>> {
     let w = sync.worktree_id();
@@ -256,12 +259,29 @@ async fn advance_head<DB: Segments>(
         .filter(|r| !changes.contains_key(&(r.file_path.clone(), r.path.clone(), r.key.clone())))
         .map(|r| r.key_id)
         .collect();
+    let mut taken = kept.clone();
+    let mut rollup: BTreeMap<&Place, i64> = BTreeMap::new();
+    for (p, change) in &changes {
+        if let Some(&id) = named
+            .get(p)
+            .filter(|id| change.is_some() && !taken.contains(id))
+        {
+            taken.insert(id);
+            rollup.insert(p, id);
+        }
+    }
     let mut given: BTreeSet<i64> = BTreeSet::new();
     let first = DB::next_version(tx, sync.family_id(), changes.len() as i64).await?;
     for (i, (p, change)) in changes.iter().enumerate() {
         let ids = segments::KeyIds {
+            named: rollup.get(p).copied(),
             moved: moved.get(p).copied(),
-            elsewhere: kept.union(&given).copied().collect(),
+            elsewhere: rollup
+                .iter()
+                .filter(|&(q, _)| *q != p)
+                .map(|(_, &id)| id)
+                .chain(kept.union(&given).copied())
+                .collect(),
         };
         let written = segments::scan_key(
             tx,
@@ -760,7 +780,8 @@ pub(crate) async fn scan_in_pool<DB: Segments>(
     let w = sync.worktree_id();
     let mut tx = pool.begin().await?;
     if let Some(head) = head {
-        advance_head(&mut tx, sync, head, head_files, stats).await?;
+        // an outside commit's rollup ids are phase 4's (§4.9)
+        advance_head(&mut tx, sync, head, head_files, &BTreeMap::new(), stats).await?;
         for f in head_files {
             DB::upsert_file(
                 &mut tx,
@@ -800,6 +821,8 @@ pub(crate) struct Carried<'a> {
     pub(crate) watermark: i64,
     /// The files whose blob at `commit` the head doesn't hold yet.
     pub(crate) head_files: &'a [HeadFile],
+    /// The ids its rollup names.
+    pub(crate) named: &'a BTreeMap<Place, i64>,
 }
 
 /// After a commit carried files, in one transaction (§4.4,
@@ -817,12 +840,13 @@ pub(crate) async fn commit_in_pool<DB: Segments>(
         removed,
         watermark,
         head_files,
+        named,
     } = carried;
     let w = sync.worktree_id();
     let mut stats = SyncOutcome::default();
     let mut tx = pool.begin().await?;
     segments::fold(&mut tx, w, files, commit, watermark).await?;
-    advance_head(&mut tx, sync, commit, head_files, &mut stats).await?;
+    advance_head(&mut tx, sync, commit, head_files, named, &mut stats).await?;
     for f in head_files {
         DB::upsert_file(
             &mut tx,

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! The `txn` audit rows a commit reports.
+//! The `txn` audit rows a commit reports, and the database identity it
+//! names its ids under.
 
 use crate::db::Db;
 use crate::error::Result;
@@ -84,4 +85,14 @@ async fn list_where(
             Ok(rows.into_iter().map(to_txn).collect())
         }
     }
+}
+
+/// This database's identity, which a commit's rollup names its ids under.
+pub(crate) async fn database_id(db: &Db) -> Result<String> {
+    const SQL: &str = "SELECT uuid FROM database_identity";
+    Ok(match db {
+        Db::Sqlite(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await?,
+        #[cfg(feature = "postgres")]
+        Db::Postgres(pool) => sqlx::query_scalar(SQL).fetch_one(pool).await?,
+    })
 }

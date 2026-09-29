@@ -52,13 +52,7 @@ pub(crate) fn build_commit_message(subject: &str, rollup: &CommitRollup) -> Stri
             }
         }
         for rec in &txn.records {
-            out.push_str(&format!(
-                "   * {} {} {} {}\n",
-                rec.version,
-                if rec.deleted { "D" } else { "M" },
-                json_str(&rec.path),
-                json_str(&rec.key),
-            ));
+            push_record_line(&mut out, rec);
         }
         let unaccounted = txn.unaccounted();
         if unaccounted > 0 {
@@ -66,8 +60,16 @@ pub(crate) fn build_commit_message(subject: &str, rollup: &CommitRollup) -> Stri
             let plural = if width == 1 { "" } else { "s" };
             out.push_str(&format!(
                 "   ! {unaccounted} of {width} write{plural} superseded later in \
-                 this commit, or rolled back\n"
+                 this commit, unchanged, or rolled back\n"
             ));
+        }
+    }
+    if !rollup.records.is_empty() {
+        out.push_str(if rollup.txns.is_empty() { "\n\n" } else { "\n" });
+        out.push_str(RECORDS_HEADER);
+        out.push_str("\n\n");
+        for rec in &rollup.records {
+            push_record_line(&mut out, rec);
         }
     }
 
@@ -85,9 +87,33 @@ pub(crate) fn build_commit_message(subject: &str, rollup: &CommitRollup) -> Stri
     if let Some(family) = &rollup.family {
         out.push_str(&format!("Git-Sync-Family: {}\n", one_line(family)));
     }
+    if let Some(database) = &rollup.database {
+        out.push_str(&format!("Git-Sync-Database: {}\n", one_line(database)));
+    }
     out.push_str(&format!("Git-Sync-Txn-Count: {}\n", rollup.txns.len()));
+    out.push_str(&format!(
+        "Git-Sync-Record-Count: {}\n",
+        rollup.records.len()
+    ));
     out.push_str(&format!("Git-Sync-Next-Version: {}\n", rollup.next_version));
     out
+}
+
+/// Heads the block of records a commit changes outside any batch.
+const RECORDS_HEADER: &str = "Records outside any transaction:";
+
+fn push_record_line(out: &mut String, rec: &TxnRecord) {
+    out.push_str(&format!(
+        "   * {} {} {} {}",
+        rec.version,
+        if rec.deleted { "D" } else { "M" },
+        json_str(&rec.path),
+        json_str(&rec.key),
+    ));
+    if let (Some(key_id), Some(file_path)) = (rec.key_id, &rec.file_path) {
+        out.push_str(&format!(" {key_id} {}", json_str(file_path)));
+    }
+    out.push('\n');
 }
 
 /// A value as a JSON string literal, so it survives a line-oriented
@@ -120,17 +146,23 @@ fn one_line(value: &str) -> String {
 ///
 ///  - 21-22 on main 2026-08-23T19:46:56-07:00 Ada Lovelace <ada@example.com>
 ///    | Point std at the new branch
-///    * 22 M "/repositories" "git://unfurl.cloud/feb20a/dashboard.git"
-///    ! 1 of 2 writes superseded later in this commit, or rolled back
+///    * 22 M "/repositories" "git://unfurl.cloud/feb20a/dashboard.git" 1041 "cloudmap.yaml"
+///    ! 1 of 2 writes superseded later in this commit, unchanged, or rolled back
 ///  - 23 on main 2026-08-23T19:47:02-07:00
 ///    | Fix the std path
-///    * 23 M "/repositories" "git://unfurl.cloud/onecommons/std.git"
-///    * 24 D "/repositories" "git://example.com/legacy.git"
+///    * 23 M "/repositories" "git://unfurl.cloud/onecommons/std.git" 1002 "cloudmap.yaml"
+///    * 24 D "/repositories" "git://example.com/legacy.git" 988 "cloudmap.yaml"
+///
+/// Records outside any transaction:
+///
+///    * 25 M "/repositories" "git://example.com/hand-edited.git" 1050 "cloudmap.yaml"
 ///
 /// Git-Sync-Origin: unfurl.cloud/someone/cloudmap-fork
 /// Git-Sync-Family: unfurl.cloud/onecommons/cloudmap
+/// Git-Sync-Database: 8e7fbc4a9eae33f6222847c83ac7ded8
 /// Git-Sync-Txn-Count: 2
-/// Git-Sync-Next-Version: 25
+/// Git-Sync-Record-Count: 1
+/// Git-Sync-Next-Version: 26
 /// ```
 ///
 /// The grammar, and why each piece is shaped the way it is:
@@ -145,8 +177,11 @@ fn one_line(value: &str) -> String {
 /// - **Message lines** `   | text`, one per line, a blank line being a
 ///   bare `   |`. The marker is non-whitespace so a blank line survives
 ///   trailing-whitespace stripping, which a plain indent would not.
-/// - **Record lines** `   * <version> <flag> <path> <key>`, one per
-///   record the batch still accounts for, in ascending version order.
+/// - **Record lines** `   * <version> <flag> <path> <key> <key_id> <file>`,
+///   one per record whose value the commit changes, in ascending version
+///   order: under the batch whose range holds its version, else in the
+///   records block. The commit names every such record, so the id of one
+///   whose value it set can be read back from it (§3.5).
 ///   The flag is exactly one of:
 ///   - `M` — the op wrote the record (a create or an update; the two are
 ///     one operation here, since an upsert replaces the whole value).
@@ -161,7 +196,13 @@ fn one_line(value: &str) -> String {
 ///   `path` and `key` are JSON strings. Both are caller-supplied and may
 ///   contain spaces, quotes, or newlines; quoting is what keeps the sole
 ///   machine copy from being corrupted by a key with a space in it.
-///   Anything after the closing quote is ignorable commentary.
+///   `key_id` is the record's id in the database `Git-Sync-Database`
+///   names, and `file` a JSON string. A rollup written before ids were
+///   has neither; anything after the key that isn't both is ignorable
+///   commentary.
+/// - **Records block** headed `Records outside any transaction:`, after
+///   the entries: record lines for changes no batch made, such as a hand
+///   edit taken in from the working tree or a single-record write.
 /// - **Shortfall line** `   ! …`, present only when
 ///   [`RollupTxn::unaccounted`] is non-zero. Purely a human affordance —
 ///   a parser recomputes it from the range and the record count.
@@ -180,6 +221,12 @@ fn one_line(value: &str) -> String {
 ///   family matches and ignores the rest — origin cannot decide it,
 ///   since a fork's history holds upstream rollups drawn from the same
 ///   counter under a different origin.
+/// - `Git-Sync-Database` identifies the database whose row ids the
+///   record lines' `key_id`s are. Ids from another database mean nothing
+///   here, and could collide with this one's.
+/// - `Git-Sync-Record-Count` is how many record lines the records block
+///   has, `0` included, checked like `Git-Sync-Txn-Count`. Absent from a
+///   rollup written before the block was, which reads as `0`.
 /// - `Git-Sync-Txn-Count` is how many entries the rollup has — a count,
 ///   not an identifier — always emitted, `0` included.
 ///   It is what makes a rollup section trustworthy: prose that merely
@@ -221,8 +268,11 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
     };
     let mut origin = None;
     let mut family = None;
+    let mut database = None;
     let mut next_version = None;
     let mut declared = None;
+    // absent from a rollup written before the records block was
+    let mut declared_records = 0;
     for line in &lines[trailer_start..] {
         let Some((token, value)) = line.split_once(": ") else {
             continue;
@@ -230,8 +280,14 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
         match token {
             "Git-Sync-Origin" => origin = Some(value.to_string()),
             "Git-Sync-Family" => family = Some(value.to_string()),
+            "Git-Sync-Database" => database = Some(value.to_string()),
             "Git-Sync-Next-Version" => next_version = value.parse::<i64>().ok(),
             "Git-Sync-Txn-Count" => declared = value.parse::<usize>().ok(),
+            "Git-Sync-Record-Count" => {
+                declared_records = value.parse::<usize>().map_err(|_| {
+                    Error::Other(format!("malformed Git-Sync-Record-Count: {value:?}"))
+                })?
+            }
             _ => {}
         }
     }
@@ -244,28 +300,76 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
                 .to_string(),
         )
     })?;
-    if declared == 0 {
-        return Ok(Some(CommitRollup {
-            origin,
-            family,
-            next_version,
-            txns: Vec::new(),
-        }));
-    }
+    let records = parse_records(&lines[..trailer_start], declared_records)?;
+    // the records block, when there is one, ends the transactions
+    let txns_end = if declared_records == 0 {
+        trailer_start
+    } else {
+        lines[..trailer_start]
+            .iter()
+            .rposition(|l| *l == RECORDS_HEADER)
+            .unwrap_or(trailer_start)
+    };
+    let txns = parse_txns(&lines[..txns_end], declared)?;
+    Ok(Some(CommitRollup {
+        origin,
+        family,
+        database,
+        next_version,
+        txns,
+        records,
+    }))
+}
 
+/// The record lines under the last [`RECORDS_HEADER`] of `lines`, which
+/// must number `declared`.
+fn parse_records(lines: &[&str], declared: usize) -> Result<Vec<TxnRecord>> {
+    if declared == 0 {
+        return Ok(Vec::new());
+    }
+    let header = lines
+        .iter()
+        .rposition(|l| *l == RECORDS_HEADER)
+        .ok_or_else(|| {
+            Error::Other(format!(
+                "git-sync commit message declares {declared} records but has no records section"
+            ))
+        })?;
+    let mut records = Vec::new();
+    for line in lines[header + 1..].iter().filter(|l| !l.is_empty()) {
+        let rest = line.strip_prefix("   * ").ok_or_else(|| {
+            Error::Other(format!("unrecognized line in git-sync records: {line:?}"))
+        })?;
+        records.push(parse_record_line(rest)?);
+    }
+    if records.len() != declared {
+        return Err(Error::Other(format!(
+            "git-sync rollup declares {declared} records but {} parsed",
+            records.len()
+        )));
+    }
+    Ok(records)
+}
+
+/// The entries under the last rollup header of `lines`, which must
+/// number `declared`.
+fn parse_txns(lines: &[&str], declared: usize) -> Result<Vec<RollupTxn>> {
+    if declared == 0 {
+        return Ok(Vec::new());
+    }
     // Anchor on the *last* rollup header before the trailers: a subject
     // quoting this format cannot displace the real section.
-    let header = lines[..trailer_start]
+    let header = lines
         .iter()
         .rposition(|l| is_rollup_header(l))
         .ok_or_else(|| {
             Error::Other(format!(
-                "git-sync commit message declares {declared} transactions but has no rollup section"
-            ))
+            "git-sync commit message declares {declared} transactions but has no rollup section"
+        ))
         })?;
 
     let mut txns: Vec<RollupTxn> = Vec::new();
-    for line in &lines[header + 1..trailer_start] {
+    for line in &lines[header + 1..] {
         if line.is_empty() {
             continue;
         }
@@ -297,12 +401,7 @@ pub fn parse_commit_rollup(message: &str) -> Result<Option<CommitRollup>> {
             txns.len()
         )));
     }
-    Ok(Some(CommitRollup {
-        origin,
-        family,
-        next_version,
-        txns,
-    }))
+    Ok(txns)
 }
 
 /// Index of the first line of the final paragraph, when every non-empty
@@ -401,14 +500,29 @@ fn parse_record_line(rest: &str) -> Result<TxnRecord> {
         Some("D") => true,
         _ => return Err(bad()),
     };
-    let mut strings =
-        serde_json::Deserializer::from_str(parts.next().ok_or_else(bad)?).into_iter::<String>();
-    let path = strings.next().ok_or_else(bad)?.map_err(|_| bad())?;
-    let key = strings.next().ok_or_else(bad)?.map_err(|_| bad())?;
+    let mut values = serde_json::Deserializer::from_str(parts.next().ok_or_else(bad)?)
+        .into_iter::<serde_json::Value>();
+    let mut string = || match values.next() {
+        Some(Ok(serde_json::Value::String(s))) => Some(s),
+        _ => None,
+    };
+    let path = string().ok_or_else(bad)?;
+    let key = string().ok_or_else(bad)?;
+    // then the id and file, or commentary from before ids were written
+    let key_id = match values.next() {
+        Some(Ok(v)) => v.as_i64(),
+        _ => None,
+    };
+    let file_path = key_id.and(match values.next() {
+        Some(Ok(serde_json::Value::String(s))) => Some(s),
+        _ => None,
+    });
     Ok(TxnRecord {
         path,
         key,
         version,
         deleted,
+        key_id: file_path.as_ref().and(key_id),
+        file_path,
     })
 }

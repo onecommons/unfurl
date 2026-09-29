@@ -749,13 +749,12 @@ pub struct Txn {
     pub commit_id: Option<String>,
 }
 
-/// One record still carrying a version a batch drew.
+/// One record whose value a commit changes.
 ///
-/// Worked out at commit time by matching `record.version` against the
-/// batch's range, so it lists what the batch contributed to *this
-/// commit* -- a write that a later batch in the same commit overwrote
-/// is not here, and is reported as a shortfall instead (see
-/// [`RollupTxn::unaccounted`]).
+/// Under a batch, matched by `record.version` against the batch's range,
+/// so it lists what the batch contributed to *this commit* -- a write
+/// that a later batch in the same commit overwrote is not here, and is
+/// reported as a shortfall instead (see [`RollupTxn::unaccounted`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TxnRecord {
     /// Parent JSON-pointer, e.g. `/repositories`.
@@ -766,6 +765,11 @@ pub struct TxnRecord {
     pub version: i64,
     /// Whether the row is a tombstone -- the op was a delete.
     pub deleted: bool,
+    /// The record's `key_id` in the database [`CommitRollup::database`]
+    /// names. `None` in a rollup written before ids were.
+    pub key_id: Option<i64>,
+    /// The file holding the record. `None` where `key_id` is.
+    pub file_path: Option<String>,
 }
 
 /// A commit message's rollup -- built by
@@ -814,6 +818,9 @@ pub struct CommitRollup {
     /// origin rather than its row id because a row id means nothing
     /// outside the database that assigned it.
     pub family: Option<String>,
+    /// The `Git-Sync-Database` trailer: the database whose `key_id`s the
+    /// record lines name. A reader takes the ids only when it's its own.
+    pub database: Option<String>,
     /// The `Git-Sync-Next-Version` trailer: the worktree's version
     /// counter as of this commit. Present on every git-sync commit,
     /// which is what makes the message recognisable as parseable.
@@ -821,6 +828,10 @@ pub struct CommitRollup {
     /// The batches this commit carries, oldest version range first.
     /// Empty when the commit carried no batch writes.
     pub txns: Vec<RollupTxn>,
+    /// The other records whose value the commit changes, in version
+    /// order: ones taken in from the working tree, or written outside a
+    /// batch.
+    pub records: Vec<TxnRecord>,
 }
 
 /// One batch within a [`CommitRollup`] — a [`Txn`] minus the columns
@@ -852,9 +863,10 @@ impl RollupTxn {
     /// Versions this batch drew that no record in [`Self::records`]
     /// accounts for.
     ///
-    /// Two things land here and they cannot be told apart after the
-    /// fact: a write a later batch in the same commit overwrote, and an
-    /// op that was allocated a version and then failed. A batch reserves
+    /// Three things land here and they cannot be told apart after the
+    /// fact: a write a later batch in the same commit overwrote, a write
+    /// that left the committed value as it was, and an op that was
+    /// allocated a version and then failed. A batch reserves
     /// its whole range up front, so *any* failed op leaves a gap, not
     /// only one rejected after a version was drawn for it. (Only a
     /// non-atomic batch can do that -- an atomic one rolls back whole

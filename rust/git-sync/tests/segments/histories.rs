@@ -1815,3 +1815,18 @@ fn edit_following_onto_another_edit_is_a_new_one() {
         Op::Move(0, 5, false),
     ]);
 }
+
+/// Found with the rollup ids: a record the file deleted under a pending
+/// edit keeps its id through the commit that carries the deletion.
+#[test]
+fn file_deletion_under_an_edit_keeps_the_id() {
+    run(&[
+        Op::Write(0, 1, true),
+        Op::Commit(0),
+        Op::Write(0, 1, false),
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Write(0, 4, false),
+        Op::DiskEdit(0, 4, true, FileWins::Never),
+        Op::Commit(0),
+    ]);
+}

@@ -339,15 +339,24 @@ record's first version, inherited by every later version in any segment.
     when the record now at its key is one it settled: another record's
     row its writes superseded there, recorded on the edit. Otherwise
     leaving it would hide a record it never saw.
-- **The rollup names each record's `key_id`.** Record lines carry it
-  after the quoted key (`* 22 M "/repositories" "git://…" 1041`), where
-  the grammar already allows commentary, so parsers are unaffected. A
-  scan reads a new row's id from there, through a merge's parents
-  ([§4.9](#49-merges)), and a split or rebuild reads the id a record had
-  at an older commit ([§4.7](#47-splitting-a-segment)). A commit made
-  outside git-sync has no rollup; then the id comes from the rows the
-  database has, which can miss a record deleted and re-created after
-  that commit.
+- **The rollup names every record whose value the commit changes,**
+  with its `key_id` and file, after the quoted key
+  (`* 22 M "/repositories" "git://…" 1041 "cloudmap.yaml"`), where the
+  grammar already allowed commentary, so older parsers are unaffected.
+  A batch's records stay under its entry; the rest (a hand edit taken in,
+  a single-record write, the file's side of a conflict) go in a block of
+  their own with its own count trailer. A scan reads a new row's id from
+  there, through a merge's parents ([§4.9](#49-merges)), and a split or
+  rebuild reads the id a record had at an older commit
+  ([§4.7](#47-splitting-a-segment)). A commit made outside git-sync has
+  no rollup; then the id comes from the rows the database has, which can
+  miss a record deleted and re-created after that commit.
+  - **Ids are one database's.** A `key_id` is a row id, so a rollup names
+    the database it came from (`Git-Sync-Database`, generated when the
+    database is created), and a reader takes its ids only when that's
+    its own. Another database hosting the same repository, or a fork
+    served from one, would otherwise hand it ids that collide with its
+    own. A rollup from elsewhere counts as no rollup.
 
 ### 3.6 Files
 
@@ -596,11 +605,19 @@ The outer flow of `commit_repository` stays as it is:
 3. Build the rollup message.
 4. Make the gix commit.
 
-**The rollup reads only W's own segments.** `list_by_version_range`
-selects by version range within a worktree. With family-wide versions
-and shared segments, a bare range could include rows another worktree
-drew, so it has to read W's draft and head only. It still runs before the
-fold, as today, so the batch's rows are in the draft when it reads them.
+**The rollup names what the fold will carry,** read from W's draft
+before the fold, with the fold's own selection: draft rows of the
+committed files below the version watermark, at no conflicted key, whose
+value differs from the committed chain's. A conflicted key's conflict row
+is the file's value, which the commit carries too; it's named with the
+id its head row will take, the chain's live record at the key, else the
+draft's. A batch's records are those whose version is in its range. With
+family-wide versions and shared segments, a bare version range could
+include rows another worktree drew, so nothing reads one. The head rows
+the commit then brings in take the ids its rollup names first, as any
+scan does ([§4.3](#43-scan-moving-forward)): otherwise a file's side of
+a conflict, carried to a key of another file where the same record
+left, would pair as a move and take that record's id.
 
 Then the **fold** replaces `roll_forward` ([C.12](#c12-commit-fold-the-draft-into-the-head)),
 keeping its order and its guards:
@@ -857,7 +874,8 @@ sharing, not correctness.
 **Ids through merges.** Merges are made outside the database, as regular,
 octopus or rebase merges of a published branch, and reach W by a
 fast-forward scan. A record keeps its `key_id` through them by the rollup
-of a commit that set its value, found by walking back through parents
+of a commit that set its value, when it's this database's
+([§3.5](#35-record-identity)), found by walking back through parents
 with the same value, the first parent before the others, to the first
 such commit git-sync made: the merged branch's rollups are reachable
 through its parent. A squash or an outside commit that set the same value
@@ -1849,6 +1867,13 @@ CREATE TABLE superseded (
     PRIMARY KEY (record_id, segment_id, key_id)
 );
 CREATE INDEX idx_superseded_segment ON superseded(segment_id);
+
+-- whose key_ids a rollup names (§3.5): created with the database
+CREATE TABLE database_identity (
+    id   INTEGER PRIMARY KEY CHECK (id = 1),
+    uuid TEXT    NOT NULL
+);
+INSERT INTO database_identity VALUES (1, replace(gen_random_uuid()::text, '-', ''));
 ```
 
 What SQLite does differently:
@@ -1862,6 +1887,7 @@ What SQLite does differently:
   FOREIGN KEY`, but it accepts forward references, so `worktree` and
   `segment` can name each other.
 - **No GIN indexes.** The partial unique indexes are the same.
+- **The database's uuid** is `lower(hex(randomblob(16)))`.
 - **Setting `key_id` on a new record** takes two steps: an insert, then
   `UPDATE record SET key_id = id WHERE id = last_insert_rowid()`.
 

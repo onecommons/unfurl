@@ -39,26 +39,17 @@ async fn read<DB: Segments, T>(
     Ok(out)
 }
 
-/// The worktree's own rows -- its draft and its head -- whose `version`
-/// falls in `first..=last`, in version order, tombstones included.
-///
-/// Used at commit time to work out which records a batch contributed to
-/// the commit being made. Only the committing worktree's own segments:
-/// with shared segments a bare range could include rows another worktree
-/// drew (§4.4). A row whose version has moved past the range (a later
-/// batch rewrote it) is deliberately absent; the caller reports the
-/// shortfall rather than attributing the record to whoever wrote it last.
-pub(crate) async fn list_by_version_range(
+/// The records a commit of `files` changes, in version order, with their
+/// ids: what its rollup names. `watermark` is the family's next version
+/// before the save; rows from there on stay in the draft.
+pub(crate) async fn committed_records(
     db: &Db,
     worktree_id: i64,
-    first: i64,
-    last: i64,
+    files: &std::collections::BTreeSet<String>,
+    watermark: i64,
 ) -> Result<Vec<crate::model::TxnRecord>> {
     on_pool!(db, pool => read(pool, async |tx| {
-        let segs = Segments::segs(tx, worktree_id).await?;
-        let mut rows = Segments::rows_in(tx, segs.draft, None, false).await?;
-        rows.extend(Segments::rows_in(tx, segs.head, None, false).await?);
-        rows.retain(|r| (first..=last).contains(&r.version));
+        let mut rows = crate::segments::changed(tx, worktree_id, files, watermark).await?;
         rows.sort_by_key(|r| r.version);
         Ok(rows
             .into_iter()
@@ -67,6 +58,8 @@ pub(crate) async fn list_by_version_range(
                 key: r.key,
                 version: r.version,
                 deleted: r.deleted,
+                key_id: Some(r.key_id),
+                file_path: Some(r.file_path),
             })
             .collect())
     }).await)

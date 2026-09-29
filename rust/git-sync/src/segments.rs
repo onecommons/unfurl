@@ -394,9 +394,10 @@ pub(crate) async fn drop_conflict<DB: Segments>(
 }
 
 /// Where a record's id comes from when the committed side adds a row at
-/// its key (§4.3): a record that moved here in this scan, and the ids
-/// other keys hold, which it may not take.
+/// its key (§4.3): the commit's rollup, a record that moved here in this
+/// scan, and the ids other keys hold, which it may not take.
 pub(crate) struct KeyIds {
+    pub(crate) named: Option<i64>,
     pub(crate) moved: Option<i64>,
     pub(crate) elsewhere: BTreeSet<i64>,
 }
@@ -442,9 +443,11 @@ pub(crate) async fn scan_key<DB: Segments>(
     }
     let (json, deleted, key_id) = match change {
         Some(v) => {
-            let key_id = live
-                .map(|r| r.key_id)
-                .filter(|id| !ids.elsewhere.contains(id))
+            let key_id = ids
+                .named
+                .or(live
+                    .map(|r| r.key_id)
+                    .filter(|id| !ids.elsewhere.contains(id)))
                 .or(ids.moved.filter(|id| !ids.elsewhere.contains(id)))
                 // else the record the draft holds at the key
                 .or(drafted.filter(|id| !ids.elsewhere.contains(id)));
@@ -654,6 +657,60 @@ pub(crate) enum FileWins {
     Diverged(i64),
 }
 
+/// Draft `d`'s rows a commit of `files` carries: those written before
+/// `watermark`, at no conflict row's key.
+async fn carried<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    d: i64,
+    files: &BTreeSet<String>,
+    watermark: i64,
+) -> Result<Vec<Row>> {
+    let conflicts = DB::rows_in(tx, d, None, true).await?;
+    Ok(DB::rows_in(tx, d, None, false)
+        .await?
+        .into_iter()
+        .filter(|x| files.contains(&x.file_path) && x.version < watermark)
+        .filter(|x| !conflicts.iter().any(|c| c.at() == x.at()))
+        .collect())
+}
+
+/// The rows whose value a commit of worktree `w`'s `files` changes: what
+/// its rollup names (§3.5). Those the fold carries, and conflict rows,
+/// the file's value, which the commit carries at a key the fold leaves:
+/// each with the id [`scan_key`] gives its head row, the chain's live
+/// record at the key, else the draft's.
+pub(crate) async fn changed<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    files: &BTreeSet<String>,
+    watermark: i64,
+) -> Result<Vec<Row>> {
+    let d = DB::segs(tx, w).await?.draft;
+    let chain = DB::visible(tx, w, Scope::Chain, Filter::All).await?;
+    let live = |x: &Row| chain.iter().find(|r| r.at() == x.at() && !r.deleted);
+    let changes = |x: &Row| match live(x) {
+        Some(c) => x.deleted || c.json != x.json,
+        None => !x.deleted,
+    };
+    let draft = DB::rows_in(tx, d, None, false).await?;
+    let mut rows: Vec<Row> = carried(tx, d, files, watermark)
+        .await?
+        .into_iter()
+        .filter(|x| changes(x))
+        .collect();
+    for mut c in DB::rows_in(tx, d, None, true).await? {
+        if !files.contains(&c.file_path) || !changes(&c) {
+            continue;
+        }
+        let drafted = draft.iter().find(|y| y.at() == c.at());
+        if let Some(id) = live(&c).or(drafted).map(|r| r.key_id) {
+            c.key_id = id;
+            rows.push(c);
+        }
+    }
+    Ok(rows)
+}
+
 /// C.12: fold worktree `w`'s draft rows of `files` into its head, as
 /// commit `commit` carries them: those with no conflict row, written
 /// before `watermark`. A row keeps its id, `key_id`, version and content.
@@ -672,13 +729,7 @@ pub(crate) async fn fold<DB: Segments>(
     for c in conflicts.iter().filter(|c| files.contains(&c.file_path)) {
         DB::stamp(tx, c.id, d, commit).await?;
     }
-    let carried: Vec<Row> = DB::rows_in(tx, d, None, false)
-        .await?
-        .into_iter()
-        .filter(|x| files.contains(&x.file_path) && x.version < watermark)
-        .filter(|x| !conflicts.iter().any(|c| c.at() == x.at()))
-        .collect();
-    for x in &carried {
+    for x in &carried(tx, d, files, watermark).await? {
         if let Some(hr) = DB::rows_in(tx, h, Some(&x.file_path), false)
             .await?
             .into_iter()

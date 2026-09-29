@@ -161,7 +161,10 @@ impl SqlWorld {
                     .block_on(self.main.commit_repository("commit"))
                     .unwrap();
                 match (made, world.git.commits.len() > before.commits) {
-                    (Some(oid), true) => mirror.adopt(&world.git, MAIN, before.commits, &oid),
+                    (Some(oid), true) => {
+                        mirror.adopt(&world.git, MAIN, before.commits, &oid);
+                        self.check_rollup(world, before.commits, &oid, mirror);
+                    }
                     (None, false) => {}
                     (made, _) => {
                         let shown = made
@@ -196,6 +199,41 @@ impl SqlWorld {
                     .unwrap();
             }
             _ => unreachable!("unsupported ops aren't run"),
+        }
+    }
+
+    /// The rollup of the implementation's commit `oid`, which is the
+    /// model's commit `c`, names the records the model's does, with the
+    /// same ids.
+    fn check_rollup(&mut self, world: &World, c: usize, oid: &str, mirror: &GitMirror) {
+        let message = git(&mirror.root, &["log", "-1", "--format=%B", oid], None);
+        let rollup = unfurl_git_sync::parse_commit_rollup(&message)
+            .unwrap()
+            .expect("a git-sync commit");
+        let named: BTreeMap<Key, i64> = rollup
+            .txns
+            .iter()
+            .flat_map(|t| &t.records)
+            .chain(&rollup.records)
+            .map(|r| {
+                let file = r.file_path.as_deref().expect("a file on every record line");
+                (key_of(file, &r.key), r.key_id.expect("an id on every record line"))
+            })
+            .collect();
+        let want = world.git.rollups[c].clone().unwrap_or_default();
+        assert_eq!(
+            named.keys().collect::<Vec<_>>(),
+            want.keys().collect::<Vec<_>>(),
+            "commit {c}: the records its rollup names\n{message}"
+        );
+        for (k, &sql) in &named {
+            let imp = want[k];
+            let a = *self.ids.entry(sql).or_insert(imp);
+            let b = *self.back.entry(imp).or_insert(sql);
+            assert!(
+                a == imp && b == sql,
+                "commit {c}: rollup's id at key {k}: SQL id {sql} is in-memory {a}, and in-memory {imp} is SQL {b}\n{message}"
+            );
         }
     }
 

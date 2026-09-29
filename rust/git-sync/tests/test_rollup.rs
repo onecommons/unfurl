@@ -154,16 +154,34 @@ async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &
     // A blank message line is a bare marker, never trailing whitespace.
     assert!(body.contains("\n   |\n"), "{body}");
     assert!(!body.contains("   \n"), "no whitespace-only lines: {body}");
+    let gone = b.records.iter().find(|r| r.deleted).unwrap();
     assert!(
         body.contains(&format!(
-            "   * {} D \"/repositories\" \"{doomed}\"\n",
-            b.records.iter().find(|r| r.deleted).unwrap().version
+            "   * {} D \"/repositories\" \"{doomed}\" {} \"cloudmap.yaml\"\n",
+            gone.version,
+            gone.key_id.unwrap()
         )),
         "{body}"
     );
     assert!(
-        body.contains("   ! 1 of 2 writes superseded later in this commit, or rolled back\n"),
+        body.contains(
+            "   ! 1 of 2 writes superseded later in this commit, unchanged, or rolled back\n"
+        ),
         "{body}"
+    );
+    // every record line names the record's id and file, under this database
+    assert!(
+        parsed
+            .txns
+            .iter()
+            .flat_map(|t| &t.records)
+            .all(|r| r.key_id.is_some() && r.file_path.as_deref() == Some("cloudmap.yaml")),
+        "{body}"
+    );
+    assert!(parsed.database.is_some(), "{body}");
+    assert!(
+        parsed.records.is_empty(),
+        "every write here was a batch's: {body}"
     );
 
     // --- trailers, as git parses them --------------------------------
@@ -277,6 +295,29 @@ async fn commit_without_txns_still_records_the_counter(sync: &SyncedRepo, tmp: &
         "counter {} must cover the un-rolled-up write at {version}",
         parsed.next_version
     );
+    // but the rollup still names the record it wrote, with its id
+    let record = sync
+        .get_record("cloudmap.yaml", "/repositories", "no-rollup")
+        .await
+        .expect("get")
+        .expect("found");
+    assert_eq!(
+        parsed.records,
+        vec![unfurl_git_sync::TxnRecord {
+            path: "/repositories".into(),
+            key: "no-rollup".into(),
+            version,
+            deleted: false,
+            key_id: Some(record.id),
+            file_path: Some("cloudmap.yaml".into()),
+        }],
+        "{body}"
+    );
+    assert_eq!(
+        head_trailer(tmp.path(), "Git-Sync-Record-Count").as_deref(),
+        Some("1"),
+        "{body}"
+    );
 }
 
 async fn apply_batch_without_meta_records_no_txn(sync: &SyncedRepo, _tmp: &TempDir) {
@@ -363,6 +404,53 @@ fn parse_ignores_a_message_that_is_not_from_git_sync() {
 }
 
 #[test]
+fn parse_reads_ids_and_the_records_block() {
+    let message = "Subject\n\nRecords outside any transaction:\n\n   \
+                   * 7 M \"/repositories\" \"a\" 41 \"cloudmap.yaml\"\n   \
+                   * 8 D \"/repositories\" \"b\" 12 \"other.yaml\"\n\n\
+                   Git-Sync-Database: 0123abcd\nGit-Sync-Txn-Count: 0\n\
+                   Git-Sync-Record-Count: 2\nGit-Sync-Next-Version: 9\n";
+    let parsed = unfurl_git_sync::parse_commit_rollup(message)
+        .expect("parses")
+        .expect("a git-sync commit");
+    assert_eq!(parsed.database.as_deref(), Some("0123abcd"));
+    assert!(parsed.txns.is_empty());
+    let ids: Vec<_> = parsed
+        .records
+        .iter()
+        .map(|r| (r.key.as_str(), r.deleted, r.key_id, r.file_path.as_deref()))
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            ("a", false, Some(41), Some("cloudmap.yaml")),
+            ("b", true, Some(12), Some("other.yaml")),
+        ]
+    );
+}
+
+#[test]
+fn parse_reads_a_rollup_written_before_ids() {
+    // no id on the record lines, commentary after one of them, and no
+    // Git-Sync-Record-Count or Git-Sync-Database trailer
+    let message = "Subject\n\nRollup of 1 git-sync transaction:\n\n \
+                   - 5-6 on main 2026-08-23T19:46:56-07:00 Ada\n   \
+                   * 5 M \"/repositories\" \"a\"\n   \
+                   * 6 M \"/repositories\" \"b\" (renamed)\n\n\
+                   Git-Sync-Txn-Count: 1\nGit-Sync-Next-Version: 9\n";
+    let parsed = unfurl_git_sync::parse_commit_rollup(message)
+        .expect("parses")
+        .expect("a git-sync commit");
+    assert_eq!(parsed.database, None);
+    assert!(parsed.records.is_empty());
+    let records = &parsed.txns[0].records;
+    assert_eq!(records.len(), 2);
+    assert!(records
+        .iter()
+        .all(|r| r.key_id.is_none() && r.file_path.is_none()));
+}
+
+#[test]
 fn parse_rejects_a_message_it_cannot_trust() {
     // Announces itself, then contradicts itself: a squash merge of two
     // git-sync commits looks like this. Reporting "no batches" here
@@ -375,6 +463,17 @@ fn parse_rejects_a_message_it_cannot_trust() {
     // The counter trailer without the count trailer.
     let no_count = "Subject\n\nGit-Sync-Next-Version: 9\n";
     assert!(unfurl_git_sync::parse_commit_rollup(no_count).is_err());
+
+    // A records block that disagrees with its count, and a count with no
+    // block: a squash, or a damaged message.
+    let records_mismatch = "Subject\n\nRecords outside any transaction:\n\n   \
+                            * 7 M \"/repositories\" \"a\" 41 \"cloudmap.yaml\"\n\n\
+                            Git-Sync-Txn-Count: 0\nGit-Sync-Record-Count: 2\n\
+                            Git-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(records_mismatch).is_err());
+    let no_block = "Subject\n\nGit-Sync-Txn-Count: 0\nGit-Sync-Record-Count: 1\n\
+                    Git-Sync-Next-Version: 9\n";
+    assert!(unfurl_git_sync::parse_commit_rollup(no_block).is_err());
 
     // An unrecognized record flag. The set is documented as closed, so
     // this must be an error rather than a guess -- a parser that fell

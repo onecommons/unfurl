@@ -107,7 +107,8 @@ pub async fn list_changes(&self, since: Option<i64>, include_conflicts: bool)
 ```
 
 `TxnRecord` gains `key_id` and `file_path`, which the rollup lines now
-carry (§5).
+carry, and `CommitRollup` gains `database` and `records`, the records no
+batch made (§5).
 
 ### Forks and deletion (phase 2)
 
@@ -213,10 +214,19 @@ Found while planning:
 - **Row ids leave the wire.** `unfurl.server.id` and `exclude` become
   `key_id`s. The server's `cloudmap.rs` and Python's
   `unfurl/cloudmap/proxy.py` change with it.
-- **Rollup lines carry `key_id` and `file_path`.** §3.5 gives the id
+- **Rollup lines carry `key_id` and `file_path`.** §3.5 gave the id
   only. With moves, two files can hold the same `(path, key)`, so the
   id lookup needs the file too. The server's `test_cloudmap.rs:1582`
   parses rollups.
+- **The rollup names every record the commit changes,** not only a
+  batch's: the rest go in a records block with a `Git-Sync-Record-Count`
+  trailer. Today single-record writes, batches without `TxnMeta`, hand
+  edits and resolutions are named nowhere, so the id lookup couldn't
+  find them. A batch write that leaves the committed value as it was
+  now counts in the shortfall line.
+- **`Git-Sync-Database`.** A `key_id` is one database's row id, so the
+  rollup names the database, from a `database_identity` row created
+  with it, and a reader takes only its own database's ids.
 - **Staged, uncommitted edits become draft rows.** Today a file is clean
   when its blob matches the index, so a staged edit counts as committed
   and is never staged by `commit_repository`. The design compares with
@@ -292,9 +302,12 @@ How it differs from the plan:
   holds the content `base_commit_id` names; the three-way check uses it,
   and the fold clears it. Reading it back from git by place failed once
   the record had moved.
-- **Deferred:** rollup lines with `key_id`s go to phase 4, because the
-  rollup lists only a txn batch's records, so it can't answer the id
-  lookup for the rest. `list_changes`' Reset outcome goes to phase 2.
+- **Rollups name ids,** for every record a commit changes, under the
+  database's identity (§5), which the harness checks against the
+  model's on every commit. The commit's own head rows read them first,
+  as the model does (`file_deletion_under_an_edit_keeps_the_id`).
+  Reading an earlier commit's, the lookup through a merge's parents, is
+  phase 4's. `list_changes`' Reset outcome goes to phase 2.
 
 Id rules the harness found, applied alike in the model, the in-memory
 implementation and SQL (branch-segments.md §4.3):
@@ -343,4 +356,6 @@ with phase 2's rebuild.
 4. Finding a fork's family by origin, then by the `Git-Sync-Family`
    trailer.
 5. The fold's version watermark.
-6. Rollup lines carrying `file_path` as well as `key_id`.
+6. Rollup lines carrying `file_path` as well as `key_id`, a records
+   block for changes no batch made, and `Git-Sync-Database` scoping the
+   ids to the database that wrote them.

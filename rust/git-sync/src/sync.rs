@@ -1983,17 +1983,17 @@ impl SyncedRepo {
         // commit is the one that carries their writes. Each batch's
         // records are resolved here too — also before the fold,
         // which purges the tombstones a delete leaves behind.
+        let files: BTreeSet<String> = dirty.iter().cloned().collect();
         let txns = db::commit::list_outstanding(self.db(), self.worktree_id()).await?;
         let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
+        let mut records =
+            db::record::committed_records(self.db(), self.worktree_id(), &files, watermark).await?;
         let mut entries = Vec::with_capacity(txns.len());
         for txn in txns {
-            let records = db::record::list_by_version_range(
-                self.db(),
-                self.worktree_id(),
-                txn.first_version,
-                txn.last_version,
-            )
-            .await?;
+            let (batch, rest) = records
+                .into_iter()
+                .partition(|r| (txn.first_version..=txn.last_version).contains(&r.version));
+            records = rest;
             entries.push(RollupTxn {
                 first_version: txn.first_version,
                 last_version: txn.last_version,
@@ -2001,7 +2001,7 @@ impl SyncedRepo {
                 created_at: txn.created_at,
                 author: txn.author,
                 message: txn.message,
-                records,
+                records: batch,
             });
         }
         // The family root's origin identifies the version sequence these
@@ -2015,10 +2015,23 @@ impl SyncedRepo {
         let rollup = CommitRollup {
             origin: Some(worktree.origin.clone()),
             family: Some(family),
+            database: Some(db::commit::database_id(self.db()).await?),
             next_version: db::worktree::next_version(self.db(), self.worktree_id()).await?,
             txns: entries,
+            records,
         };
         let message = build_commit_message(message, &rollup);
+        // the commit's head rows take the ids its rollup names
+        let named: std::collections::BTreeMap<crate::scan::Place, i64> = rollup
+            .txns
+            .iter()
+            .flat_map(|t| &t.records)
+            .chain(&rollup.records)
+            .filter_map(|r| {
+                let place = (r.file_path.clone()?, r.path.clone(), r.key.clone());
+                Some((place, r.key_id?))
+            })
+            .collect();
 
         // Only files whose bytes differ from HEAD go into a commit.
         // Being dirty in this crate's sense — an in-flight row — does
@@ -2073,13 +2086,13 @@ impl SyncedRepo {
                 .map(|f| (f.path.clone(), f))
                 .collect();
         let head_side = self.head_files(&repo, Some(&oid_str), &known_files)?;
-        let files: BTreeSet<String> = dirty.iter().cloned().collect();
         let carried = crate::scan::Carried {
             commit: &oid_str,
             files: &files,
             removed: &removed,
             watermark,
             head_files: &head_side.files,
+            named: &named,
         };
         on_pool!(self.db(), pool => crate::scan::commit_in_pool(self, pool, &carried).await)?;
 
