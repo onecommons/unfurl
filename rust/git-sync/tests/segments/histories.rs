@@ -1842,3 +1842,66 @@ fn deleting_a_hand_edits_record_commits_nothing() {
         Op::Commit(0),
     ]);
 }
+
+/// A commit after an outside change has nothing to carry, and makes none.
+#[test]
+fn commit_after_an_outside_change_makes_none() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Move(0, 0, false),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::External(0, vec![(3, false)]),
+        Op::Commit(0),
+    ]);
+}
+
+/// A hand edit deleting a record already deleted changes nothing, with an
+/// edit pending over another hand edit.
+#[test]
+fn hand_deleting_a_deleted_record_changes_nothing() {
+    run(&[
+        Op::Write(0, 5, true),
+        Op::Commit(0),
+        Op::DiskEdit(0, 4, false, FileWins::Never),
+        Op::Write(0, 4, false),
+        Op::DiskEdit(0, 5, true, FileWins::Never),
+    ]);
+}
+
+/// An edit follows its record to the other file and back, keeping its id.
+#[test]
+fn edit_follows_its_record_there_and_back() {
+    run(&[
+        Op::External(0, vec![(4, true)]),
+        Op::Move(0, 1, false),
+        Op::Write(0, 4, false),
+        Op::Move(0, 4, false),
+    ]);
+}
+
+/// Resolving one conflict for the file's side leaves the other key's
+/// pending edit alone.
+#[test]
+fn file_side_resolution_leaves_the_other_edit() {
+    run(&[
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Write(0, 0, false),
+        Op::DiskEdit(0, 0, false, FileWins::Never),
+        Op::Write(0, 1, false),
+        Op::Resolve(0, false, 0, false),
+    ]);
+}
+
+/// An outside commit deleting a record already deleted changes nothing,
+/// with an edit pending over a hand edit.
+#[test]
+fn outside_delete_of_a_deleted_record_changes_nothing() {
+    run(&[
+        Op::Write(0, 3, true),
+        Op::Commit(0),
+        Op::DiskEdit(0, 4, false, FileWins::Never),
+        Op::Write(0, 4, false),
+        Op::External(0, vec![(3, true)]),
+    ]);
+}

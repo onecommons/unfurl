@@ -98,6 +98,28 @@ proptest! {
     }
 }
 
+// The random tests above are ignored, so these replay the seeds they saved
+// in segments_sql.proptest-regressions on every run. A seed regenerates
+// its history only under the strategy that saved it, so each copies one.
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(0))]
+
+    #[test]
+    fn one_worktree_regressions(ops in prop::collection::vec(phase1_op(), 1..40)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn segments_regressions(ops in prop::collection::vec(op(), 1..60)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn publishing_regressions(ops in prop::collection::vec(publish_op(), 1..16)) {
+        run(&ops);
+    }
+}
+
 /// The mirrored repository scans as the model's first commit, through
 /// the test format.
 #[tokio::test]
