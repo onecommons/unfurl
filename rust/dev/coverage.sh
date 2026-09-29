@@ -29,8 +29,8 @@
 #                 + tox + cargo test sequence in CI), skip the build/run
 #                 step, and go straight to lcov export + crap.
 #   --lcov-dir DIR — gate the lcov reports in DIR (*.info) together, as
-#                 CI does with its tox and cargo test jobs' reports.
-#                 Duplicate records for a file combine as their union.
+#                 CI does with its tox and cargo test jobs' reports, merged
+#                 by lcov-union.awk.
 #
 # Args: anything after the mode (or all args in default mode) is
 # passed through to cargo crap. Defaults to `--top 30` when none are given.
@@ -69,8 +69,8 @@ fi
 cd "$WORKSPACE_ROOT"
 
 if [ -n "$LCOV_DIR" ]; then
-    echo "==> concatenating $LCOV_DIR/*.info"
-    cat "$LCOV_DIR"/*.info > "$RAW_LCOV"
+    echo "==> merging $LCOV_DIR/*.info"
+    awk -f "$SCRIPT_DIR/lcov-union.awk" "$LCOV_DIR"/*.info > "$RAW_LCOV"
 elif [ "$REPORT_ONLY" -eq 1 ]; then
     echo "==> cargo llvm-cov report (merging existing .profraw files)"
     cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
