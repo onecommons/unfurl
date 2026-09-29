@@ -28,6 +28,106 @@ use unfurl_server::cloudmap::{
 use unfurl_server::config::Config;
 use unfurl_server::AppState;
 
+/// The database a test runs against: Postgres when `UNFURL_TEST_PG_URL`
+/// is set, in a schema of its own that's dropped with this; otherwise
+/// SQLite, in memory, or `shared` in a file every handle given it uses.
+struct TestDb {
+    url: String,
+    /// The server and the schema, to drop.
+    pg: Option<(String, String)>,
+    _file: Option<TempDir>,
+}
+
+impl TestDb {
+    async fn new(shared: bool) -> Self {
+        #[cfg(feature = "postgres")]
+        if let Some(base) = std::env::var("UNFURL_TEST_PG_URL")
+            .ok()
+            .filter(|url| !url.is_empty())
+        {
+            use std::sync::atomic::{AtomicU64, Ordering};
+            static NEXT: AtomicU64 = AtomicU64::new(0);
+            let schema = format!(
+                "server_test_{}_{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            );
+            let pool = sqlx::PgPool::connect(&base).await.expect("connect");
+            sqlx::query(&format!("CREATE SCHEMA \"{schema}\""))
+                .execute(&pool)
+                .await
+                .expect("create schema");
+            let sep = if base.contains('?') { '&' } else { '?' };
+            return TestDb {
+                url: format!("{base}{sep}options=-c%20search_path%3D{schema}"),
+                pg: Some((base, schema)),
+                _file: None,
+            };
+        }
+        if !shared {
+            return TestDb {
+                url: "sqlite::memory:".into(),
+                pg: None,
+                _file: None,
+            };
+        }
+        let dir = tempfile::tempdir().expect("tempdir");
+        TestDb {
+            url: format!("sqlite://{}?mode=rwc", dir.path().join("sync.db").display()),
+            pg: None,
+            _file: Some(dir),
+        }
+    }
+
+    fn config(&self) -> DbConfig {
+        match &self.pg {
+            #[cfg(feature = "postgres")]
+            Some(_) => DbConfig::Postgres {
+                url: self.url.clone(),
+            },
+            _ => DbConfig::Sqlite {
+                url: self.url.clone(),
+            },
+        }
+    }
+}
+
+impl Drop for TestDb {
+    fn drop(&mut self) {
+        let Some((base, schema)) = self.pg.take() else {
+            return;
+        };
+        // This runs inside the test's runtime, so the cleanup gets its own.
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("runtime")
+                .block_on(async {
+                    let pool = sqlx::PgPool::connect(&base).await.expect("connect");
+                    sqlx::query(&format!("DROP SCHEMA \"{schema}\" CASCADE"))
+                        .execute(&pool)
+                        .await
+                        .expect("drop schema");
+                });
+        })
+        .join()
+        .expect("drop schema");
+    }
+}
+
+/// A test's checkout, with the database it's indexed in.
+struct TestDir {
+    tmp: TempDir,
+    _db: TestDb,
+}
+
+impl TestDir {
+    fn path(&self) -> &Path {
+        self.tmp.path()
+    }
+}
+
 const FIXTURE: &str = "../git-sync/tests/fixtures/expected_cloudmap.yaml";
 
 fn default_config() -> Config {
@@ -83,7 +183,7 @@ fn make_strict_state(cm: CloudMapState) -> AppState {
 
 /// Stand up a fresh git repo seeded with the cloudmap fixture, an
 /// in-memory SQLite database, and a configured `SyncedRepo`.
-async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
+async fn open_cloudmap_state() -> (CloudMapState, TestDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let fixture =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
@@ -94,15 +194,10 @@ async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
     )
     .expect("init repo");
 
-    let synced = SyncedRepo::open(
-        tmp.path(),
-        DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        },
-        FormatRegistry::with_builtins(),
-    )
-    .await
-    .expect("open SyncedRepo");
+    let db = TestDb::new(false).await;
+    let synced = SyncedRepo::open(tmp.path(), db.config(), FormatRegistry::with_builtins())
+        .await
+        .expect("open SyncedRepo");
     synced
         .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
         .await
@@ -111,7 +206,7 @@ async fn open_cloudmap_state() -> (CloudMapState, TempDir) {
     // Re-derive a CloudMapState from the same repo. CloudMapState::open
     // is the public path used in production.
     let cm = CloudMapState::from_synced(synced);
-    (cm, tmp)
+    (cm, TestDir { tmp, _db: db })
 }
 
 fn router(state: AppState) -> Router {
@@ -658,11 +753,10 @@ async fn post_creates_new_record_in_default_file() {
         "initial",
     )
     .expect("init repo");
+    let _db = TestDb::new(false).await;
     let synced = SyncedRepo::open(
         tmp.path(),
-        unfurl_git_sync::DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        },
+        _db.config(),
         unfurl_git_sync::FormatRegistry::with_builtins(),
     )
     .await
@@ -773,11 +867,10 @@ async fn post_with_oid_token_succeeds_when_matches() {
         "initial",
     )
     .expect("init repo");
+    let _db = TestDb::new(false).await;
     let synced = SyncedRepo::open(
         tmp.path(),
-        unfurl_git_sync::DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        },
+        _db.config(),
         unfurl_git_sync::FormatRegistry::with_builtins(),
     )
     .await
@@ -1233,7 +1326,7 @@ const ALT_KEY: &str = "git://example.com/only-in-alt.git";
 
 /// Repo seeded with two cloudmap files: the shared fixture at
 /// `cloudmap.yaml` and [`ALT_FILE`] holding a single repository record.
-async fn open_two_file_state() -> (CloudMapState, SyncedRepo, TempDir) {
+async fn open_two_file_state() -> (CloudMapState, SyncedRepo, TestDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let fixture =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
@@ -1249,20 +1342,19 @@ async fn open_two_file_state() -> (CloudMapState, SyncedRepo, TempDir) {
         "initial",
     )
     .expect("init repo");
-    let synced = SyncedRepo::open(
-        tmp.path(),
-        DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        },
-        FormatRegistry::with_builtins(),
-    )
-    .await
-    .expect("open SyncedRepo");
+    let db = TestDb::new(false).await;
+    let synced = SyncedRepo::open(tmp.path(), db.config(), FormatRegistry::with_builtins())
+        .await
+        .expect("open SyncedRepo");
     synced
         .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
         .await
         .expect("update");
-    (CloudMapState::from_synced(synced.clone()), synced, tmp)
+    (
+        CloudMapState::from_synced(synced.clone()),
+        synced,
+        TestDir { tmp, _db: db },
+    )
 }
 
 #[tokio::test]
@@ -1537,6 +1629,49 @@ async fn post_with_commit_flag_commits() {
     assert!(on_disk.contains("committed-by-handler"), "{on_disk}");
 }
 
+/// A read reports the head it was made at, not the older commit its
+/// records last changed in, so a write based on it passes the
+/// `latest_commit` check.
+#[tokio::test]
+async fn read_reports_the_head_for_latest_commit() {
+    let (cm, _synced, tmp) = open_two_file_state().await;
+    let app = router(make_state(cm));
+    let (status, response) = post_json(
+        app.clone(),
+        serde_json::json!({
+            "commit": true,
+            "repositories": { "git://unfurl.cloud/onecommons/std.git": { "name": "moved-head" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+    let head = head_oid(tmp.path());
+
+    let uri = format!(
+        "/cloudmap?kind=repositories&key={}",
+        urlencoding::encode(ALT_KEY)
+    );
+    let (status, body) = get_json(app.clone(), &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["commit"].as_str(), Some(head.as_str()), "{body:?}");
+    let record = &body["result"]["repositories"][ALT_KEY];
+    assert_ne!(
+        record["unfurl.server.commit"].as_str(),
+        Some(head.as_str()),
+        "{ALT_FILE} wasn't in the last commit"
+    );
+
+    let (status, response) = post_json(
+        app,
+        serde_json::json!({
+            "latest_commit": head,
+            "repositories": { ALT_KEY: { "git": ALT_KEY, "path": "only/in-alt", "name": "renamed" } },
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{response:?}");
+}
+
 /// The commit message body (everything after the subject) of HEAD.
 fn head_commit_body(dir: &Path) -> String {
     let out = std::process::Command::new("git")
@@ -1736,7 +1871,7 @@ const REMOTE_PROJECT: &str = "onecommons/cloudmap";
 /// Like [`open_cloudmap_state`] but with an `origin` remote configured, so the
 /// worktree has a project identity to check `auth_project` against. Without a
 /// remote the check can't discriminate and everything is served locally.
-async fn open_state_with_remote() -> (CloudMapState, TempDir) {
+async fn open_state_with_remote() -> (CloudMapState, TestDir) {
     let tmp = tempfile::tempdir().expect("tempdir");
     let fixture =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
@@ -1758,20 +1893,15 @@ async fn open_state_with_remote() -> (CloudMapState, TempDir) {
         .expect("git remote add");
     assert!(out.status.success(), "{out:?}");
 
-    let synced = SyncedRepo::open(
-        tmp.path(),
-        DbConfig::Sqlite {
-            url: "sqlite::memory:".into(),
-        },
-        FormatRegistry::with_builtins(),
-    )
-    .await
-    .expect("open SyncedRepo");
+    let db = TestDb::new(false).await;
+    let synced = SyncedRepo::open(tmp.path(), db.config(), FormatRegistry::with_builtins())
+        .await
+        .expect("open SyncedRepo");
     synced
         .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
         .await
         .expect("update");
-    (CloudMapState::from_synced(synced), tmp)
+    (CloudMapState::from_synced(synced), TestDir { tmp, _db: db })
 }
 
 #[tokio::test]
@@ -1943,7 +2073,7 @@ async fn another_branch_of_a_known_origin_has_no_records() {
 }
 
 /// A checkout of `project` on `branch`, indexed in the database at `db`.
-async fn checkout(project: &str, branch: &str, db: &str) -> (SyncedRepo, TempDir) {
+async fn checkout(project: &str, branch: &str, db: &TestDb) -> (SyncedRepo, TempDir) {
     let fixture =
         std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join(FIXTURE)).expect("fixture exists");
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -1969,13 +2099,9 @@ async fn checkout(project: &str, branch: &str, db: &str) -> (SyncedRepo, TempDir
             .expect("git");
         assert!(out.status.success(), "{out:?}");
     }
-    let synced = SyncedRepo::open(
-        tmp.path(),
-        DbConfig::Sqlite { url: db.into() },
-        FormatRegistry::with_builtins(),
-    )
-    .await
-    .expect("open SyncedRepo");
+    let synced = SyncedRepo::open(tmp.path(), db.config(), FormatRegistry::with_builtins())
+        .await
+        .expect("open SyncedRepo");
     synced
         .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
         .await
@@ -1983,21 +2109,16 @@ async fn checkout(project: &str, branch: &str, db: &str) -> (SyncedRepo, TempDir
     (synced, tmp)
 }
 
-/// The url of a sqlite database file in `dir`.
-fn db_url(dir: &TempDir) -> String {
-    format!("sqlite://{}?mode=rwc", dir.path().join("sync.db").display())
-}
-
 /// Checkouts of `REMOTE_PROJECT` and of `onecommons/other`, both on `main`
 /// and indexed in one database, and a state serving the first.
-async fn two_worktrees() -> (CloudMapState, Vec<(SyncedRepo, TempDir)>, TempDir) {
-    let db_dir = tempfile::tempdir().expect("tempdir");
+async fn two_worktrees() -> (CloudMapState, Vec<(SyncedRepo, TempDir)>, TestDb) {
+    let db = TestDb::new(true).await;
     let mut checkouts = Vec::new();
     for project in [REMOTE_PROJECT, "onecommons/other"] {
-        checkouts.push(checkout(project, "main", &db_url(&db_dir)).await);
+        checkouts.push(checkout(project, "main", &db).await);
     }
     let cm = CloudMapState::from_synced(checkouts[0].0.clone());
-    (cm, checkouts, db_dir)
+    (cm, checkouts, db)
 }
 
 async fn upsert(synced: &SyncedRepo, path: &str, key: &str, json: Value) {
@@ -2011,7 +2132,7 @@ async fn upsert(synced: &SyncedRepo, path: &str, key: &str, json: Value) {
 /// origin is that project on the cloud server, checked out here or not.
 #[tokio::test]
 async fn auth_project_reads_its_own_worktree() {
-    let (cm, checkouts, db_dir) = two_worktrees().await;
+    let (cm, checkouts, db) = two_worktrees().await;
     let key = "git://unfurl.cloud/onecommons/only-in-other.git";
     upsert(
         &checkouts[1].0,
@@ -2022,7 +2143,7 @@ async fn auth_project_reads_its_own_worktree() {
     .await;
     // another branch of the same project, which a request naming no branch
     // doesn't read
-    let (feature, _feature_tmp) = checkout("onecommons/other", "feature", &db_url(&db_dir)).await;
+    let (feature, _feature_tmp) = checkout("onecommons/other", "feature", &db).await;
     let on_feature = "git://unfurl.cloud/onecommons/only-on-feature.git";
     upsert(
         &feature,
@@ -2945,7 +3066,7 @@ async fn paging_over_a_duplicated_key_reaches_the_tail() {
 
 /// Stand up a divergence on `key`: the database holds an in-flight edit
 /// and the file on disk holds something else.
-async fn stand_up_conflict(cm: &CloudMapState, tmp: &tempfile::TempDir, key: &str) {
+async fn stand_up_conflict(cm: &CloudMapState, tmp: &TestDir, key: &str) {
     cm.synced()
         .update_record(
             Some("cloudmap.yaml"),
@@ -3160,8 +3281,8 @@ async fn skipping_the_scan_serves_the_index_as_it_stands() {
     )
     .expect("init repo");
 
-    let db = tmp.path().join("index.db");
-    let db_url = format!("sqlite://{}?mode=rwc", db.display());
+    let db = TestDb::new(true).await;
+    let db_url = db.url.clone();
     let repo = tmp.path().to_str().expect("utf-8 path");
     let name_of = |cm: &CloudMapState| {
         let cm = cm.synced().clone();

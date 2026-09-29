@@ -56,5 +56,6 @@ tokio-stream = "0.1.19"
 
 [dev-dependencies]
 serde-saphyr = "1.1.0"
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio-rustls"] }
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

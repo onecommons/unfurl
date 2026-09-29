@@ -345,8 +345,10 @@ class CloudMapCache(CloudMapDB):
         rescanning a cache that also holds earlier pages.
 
         The response is ``{"result": <doc>, "followed": <doc>,
-        "next_page_token": <str>}``, the last two present only when the
-        request asked for what they carry.
+        "next_page_token": <str>, "commit": <str>}``, ``followed`` and
+        ``next_page_token`` present only when the request asked for what
+        they carry. ``commit``, where the server reports it, becomes
+        ``_latest_commit``.
 
         A list body is a server predating the object response, which
         answered ``[result, followed]``; merging both halves keeps such a
@@ -357,6 +359,11 @@ class CloudMapCache(CloudMapDB):
         if isinstance(body, dict):
             keys += self.ingest_document(body.get("result"))
             keys += self.ingest_document(body.get("followed"))
+            # The head the server read at, from a server that reports it: the
+            # records' own commits say only when each last changed.
+            commit = body.get("commit")
+            if isinstance(commit, str) and commit:
+                self._latest_commit = commit
             token = body.get("next_page_token")
             return keys, (token if isinstance(token, str) and token else None)
         if isinstance(body, list):

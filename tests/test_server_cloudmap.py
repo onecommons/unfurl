@@ -175,7 +175,7 @@ def test_server_cloudmap(server_env):
                 cloudmap_url, params={"type": "tosca.relationships.ConnectsTo"}
             )
             assert res.status_code == 200, res.text
-            assert res.json() == {"result": {}}
+            assert res.json()["result"] == {}
 
             # kind + key + type AND together: matching type (via
             # extends: Odoo@… extends tosca.nodes.Root) → 200 ...

@@ -473,6 +473,10 @@ create, update or delete, whether single or in a batch:
      user's own view can still hold a record main has since deleted. A
      base from there would make an edit made after seeing the deletion
      look, at publishing, like a conflict with it.
+   - **The base's content goes with it,** as `base_json`. The three-way
+     check compares the file against that, wherever the record has
+     moved since: git has no `key_id`s, so a base read back from git by
+     place can find another record.
 5. **Record `superseded(row, draft)`** for every other row found in step
    2. Through a layered view, that includes rows of the worktrees below,
    so a write settles a record the view was showing more than once in the
@@ -551,9 +555,16 @@ layered view now shows both versions.
 **Record identity.** A new head row's `key_id` is, first, the id the
 rollup of the commit that set its value names, through every parent
 ([§4.9](#49-merges)); else a record that moved from the other file in
-this scan; else the record at its key; else a new one. No two keys share
-one: a rollup's id another key keeps is passed over, and so is any id a
-key named earlier in the scan holds.
+this scan; else the record at its key; else the record the draft holds
+at its key; else a new one. No two keys share one: a rollup's id another
+key keeps is passed over, and so is any id a key named earlier in the
+scan holds.
+- **A value taken in from the file** is the record git has at its key,
+  else the record the draft holds there unless git has it at another
+  key, else a new one.
+- **A file's value that replaces a withdrawn edit,** by `force`, a
+  trailer or a resolution for the file's side, continues the edit's
+  record, on the same condition.
 
 **Edits that follow their records leave files behind.** When a pending
 edit moves to its record's new key ([§3.5](#35-record-identity)), the
@@ -566,14 +577,9 @@ earlier row with that content at its key, made by an edit at that key
 or of its record, and from an edit whose base is that version. Where
 those rows are gone, a layered user sees it as a copy, the re-created
 row over-report ([§10](#10-verification-plan)).
-- **An edit's base is found by content, from git.** `base_commit_id`
-  names a commit, and the row a merge brings back has a new one. So for
-  the other drafts' edits at the key or of the record, the scan reads
-  the file at each edit's `base_commit_id` and compares the value at the
-  row's key with the row's content. That's `read_base_docs` and
-  `base_value`, which the three-way classification already uses. A base
-  that was at another key at its commit isn't found, and shows as a
-  copy.
+- **An edit's base is found by content:** its `base_json` against the
+  row's. `base_commit_id` names a commit, and the row a merge brings
+  back has a new one.
 
 **Commit attribution.** New head rows take the file's last-touching
 commit, as today. Rows that didn't change keep theirs
@@ -1810,9 +1816,11 @@ CREATE TABLE record (
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
-    -- in a draft: the commit of the committed version this edit started from,
-    -- which is read from git when its content is needed (§4.3)
+    -- in a draft: the commit of the committed version this edit started from
     base_commit_id TEXT,
+    -- and that version's content, which the three-way check compares the
+    -- file against (§4.2)
+    base_json      JSONB,
     -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
     settled        JSONB,
     -- conflict rows live only in drafts (enforced by the writers)
@@ -1845,7 +1853,9 @@ CREATE INDEX idx_superseded_segment ON superseded(segment_id);
 
 What SQLite does differently:
 
-- **Types.** `INTEGER PRIMARY KEY` replaces `BIGSERIAL`. `INTEGER`
+- **Types.** `INTEGER PRIMARY KEY` replaces `BIGSERIAL`, with
+  `AUTOINCREMENT` on `record`: a new record's `key_id` is its first
+  row's id, so a deleted row's id must never come back. `INTEGER`
   replaces `BIGINT` and `BOOLEAN` (0 or 1). `BLOB`, through `jsonb()`,
   replaces `JSONB`, as today.
 - **Foreign keys** are declared inline. SQLite can't `ALTER TABLE ADD
@@ -2250,7 +2260,7 @@ WHERE o.deleted = :deleted AND (:deleted OR o.json = :json::jsonb);
 -- 4. a draft holds one edit per record: one at another key goes, and the
 --    new row keeps its base. Its entries stay with the record, except on
 --    its own tree's rows of other records at the key it leaves
-DELETE FROM record WHERE id = :other RETURNING base_commit_id;   -- :other_base
+DELETE FROM record WHERE id = :other RETURNING base_commit_id, base_json;  -- :other_base
 DELETE FROM superseded x USING record r
 WHERE x.segment_id = :d AND x.key_id = :key_id AND r.id = x.record_id
   AND (r.file_path, r.path, r.key) = (:other_file, :other_path, :other_key)
@@ -2262,19 +2272,20 @@ WHERE x.segment_id = :d AND x.key_id = :key_id AND r.id = x.record_id
 DELETE FROM record
 WHERE id = :old
   AND (CAST(:expected_version AS bigint) IS NULL OR version <= :expected_version)
-RETURNING id, key_id, base_commit_id, settled;  -- no row, while :old was expected: Conflict
+RETURNING id, key_id, base_commit_id, base_json, settled;  -- no row, while :old was expected: Conflict
 
 -- 6. the new version; deleted = TRUE for a delete. :base_commit_id is:
 --    - NULL when the view shows the record live nowhere, at any key: a draft's
 --      live row counts, the writer's own included, a tombstone doesn't;
 --    - else :old's base, else :other_base;
 --    - else the commit_id of the record's committed row in the view, at any key.
+--    :base_json is the content of the same version.
 --    :settled is :old's, plus the key_ids of other records' live rows in
 --    :visible outside the draft.
 INSERT INTO record (key_id, segment_id, file_path, path, key, json, deleted,
-                    version, base_commit_id, settled)
+                    version, base_commit_id, base_json, settled)
 VALUES (:key_id, :d, :file, :path, :key, :json::jsonb, :deleted,
-        :v, :base_commit_id, :settled::jsonb)
+        :v, :base_commit_id, :base_json::jsonb, :settled::jsonb)
 RETURNING id;                                   -- :n
 
 INSERT INTO superseded (record_id, segment_id, key_id)
@@ -2479,7 +2490,8 @@ WHERE x.segment_id = :d AND x.record_id = m.record_id AND x.key_id = m.key_id;
 
 -- 4. the rows move: id, key_id, version and content are kept
 UPDATE record
-SET segment_id = :h, commit_id = :commit, base_commit_id = NULL, settled = NULL
+SET segment_id = :h, commit_id = :commit, base_commit_id = NULL, base_json = NULL,
+    settled = NULL
 WHERE id IN (SELECT id FROM carried);
 
 -- 5. tombstones that hide nothing below the head are purged, unless another

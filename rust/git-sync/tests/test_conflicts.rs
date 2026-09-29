@@ -1740,13 +1740,15 @@ async fn a_forced_scan_drops_a_record_the_file_lost(sync: &SyncedRepo, tmp: &Tem
         .await
         .expect("forced rescan");
     assert!(scan.conflicts.is_empty(), "{scan:?}");
-    assert!(
-        sync.get_record_by_id(write.id)
-            .await
-            .expect("get")
-            .is_none(),
-        "the row was hard-deleted, not tombstoned"
-    );
+    // HEAD still has the record, so the file's absence is taken in: a
+    // deletion for the next commit, not a pending edit.
+    let row = sync
+        .get_record_by_id(write.id)
+        .await
+        .expect("get")
+        .expect("the view shows the record deleted");
+    assert!(row.deleted, "{row:?}");
+    assert!(row.commit_id.is_some(), "taken in from the file: {row:?}");
     assert!(sync.list_conflicts(None).await.expect("list").is_empty());
 }
 

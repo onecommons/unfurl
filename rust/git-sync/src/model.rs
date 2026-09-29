@@ -74,15 +74,17 @@ pub struct File {
     /// serve: it names the commit that last touched the path, so an
     /// uncommitted edit leaves it unchanged.
     pub source_oid: Option<String>,
+    /// Blob OID at the head commit whose records the worktree's
+    /// committed segments hold, or `None` when that commit doesn't have
+    /// the file. Compared against HEAD's blob by a scan.
+    pub committed_oid: Option<String>,
     /// The database owes the worktree a removal of this file.
     ///
     /// Set by [`crate::SyncedRepo::delete_file`], which tombstones every
     /// record in the file alongside it. The next
     /// [`crate::SyncedRepo::save_changes`] removes the file from disk
     /// and the next [`crate::SyncedRepo::commit_repository`] stages that
-    /// and drops this row. A tombstone rather than a hard delete
-    /// because `record`'s foreign key onto `file` cascades: dropping the
-    /// row would destroy the very tombstones that are the deletion.
+    /// and drops this row.
     pub deleted: bool,
 }
 
@@ -274,7 +276,7 @@ impl Cursor {
     /// bind list cannot disagree about how many values there are.
     pub(crate) fn columns(&self) -> &'static [&'static str] {
         match (&self.file_path, self.worktree_id) {
-            (Some(_), Some(_)) => &["r.path", "r.key", "r.file_path", "r.worktree_id"],
+            (Some(_), Some(_)) => &["r.path", "r.key", "r.file_path", "v.worktree_id"],
             (Some(_), None) => &["r.path", "r.key", "r.file_path"],
             _ => &["r.path", "r.key"],
         }

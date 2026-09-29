@@ -521,6 +521,11 @@
       "CloudMapResult": {
         "description": "The queried (and optionally filtered) CloudMap document under ``result``. ``followed``, ``conflicts`` and ``next_page_token`` appear only when the request asked for what they carry, so their absence is meaningful rather than empty.",
         "properties": {
+          "commit": {
+            "description": "The head commit the records were read at: the ``latest_commit`` for a write based on this read. Null for a repository with no commits; absent from a server that doesn't report it.",
+            "nullable": true,
+            "type": "string"
+          },
           "conflicts": {
             "description": "The working tree's side of records the database disagrees with, grouped by the commit that carries them. Present only when the request asked for ``conflicts``; an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.",
             "items": {

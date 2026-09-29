@@ -377,7 +377,7 @@ pub async fn handle_cloudmap(
         Err(answered) => return answered,
     };
 
-    match build_response(&cm, worktrees, &params).await {
+    match with_head(&cm, worktrees, &params).await {
         Ok(body) => Json(body).into_response(),
         Err(err) => local_error_response(err),
     }
@@ -720,6 +720,35 @@ async fn attach_conflicts(
     Ok(body)
 }
 
+/// [`build_response`] with the read worktree's head commit as `commit`.
+///
+/// The head is read first, so a commit landing during the read makes it
+/// older than what the records show, never newer: a write sending it
+/// back as `latest_commit` then conflicts rather than passes.
+async fn with_head(
+    cm: &CloudMapState,
+    worktrees: Option<WorktreeFilter>,
+    params: &unfurl_types::GetCloudmapRequestQuery,
+) -> Result<Value, LocalError> {
+    let head = match &worktrees {
+        None => cm.head_commit().await,
+        Some(filter) => cm
+            .inner
+            .worktrees(filter)
+            .await
+            .map(|found| found.into_iter().next().and_then(|w| w.commit_id)),
+    }
+    .map_err(|e| LocalError::Internal(format!("head_commit: {e}")))?;
+    let mut body = build_response(cm, worktrees, params).await?;
+    if let Some(object) = body.as_object_mut() {
+        object.insert(
+            "commit".to_string(),
+            head.map_or(Value::Null, Value::String),
+        );
+    }
+    Ok(body)
+}
+
 async fn build_response(
     cm: &CloudMapState,
     worktrees: Option<WorktreeFilter>,
@@ -753,9 +782,9 @@ async fn build_response(
     // `since_version` is pushed into the SQL `WHERE` clause by
     // `db::record::find`, so both the initial set and any follow-walk
     // edge lookups are filtered at the database.
-    // `exclude` arrives as a comma-separated list of record primary-key
-    // ids; non-numeric tokens are silently dropped. Empty / `None`
-    // string means "no exclusion" — matches the schema description.
+    // `exclude` arrives as a comma-separated list of record `key_id`s;
+    // non-numeric tokens are silently dropped. Empty / `None` string
+    // means "no exclusion" — matches the schema description.
     let exclude_ids: Vec<i64> = params
         .exclude
         .as_deref()

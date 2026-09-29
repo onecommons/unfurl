@@ -230,7 +230,12 @@ impl OWt {
                 .map(|(&k, _)| k);
             if to.is_some_and(|to| self.draft.contains_key(&to)) {
                 let d = self.draft.get_mut(&from).unwrap();
-                d.id = d.ver;
+                // a version is an id only for the edit that made the record
+                d.id = if d.ver == d.id {
+                    fresh_id(d.ver, from)
+                } else {
+                    d.ver
+                };
                 continue;
             }
             if let Some(to) = to {
@@ -273,7 +278,12 @@ impl OWt {
     /// file gets a fresh id from `next`.
     fn reconcile(&mut self, file: Key, next: &mut Ver, wins: FileWins) {
         for k in keys_of(file) {
+            if matches!(wins, FileWins::Only(only) if only != k) {
+                continue;
+            }
             let theirs = self.disk.get(&k).copied();
+            // the edit the file's value replaces: its record continues
+            let mut withdrawn = None;
             if let Some(d) = self.draft.get(&k).filter(|d| d.origin.is_edit()) {
                 let Origin::Edit(e) = d.origin else {
                     unreachable!("filtered to edits")
@@ -286,12 +296,13 @@ impl OWt {
                     FileWins::Never => false,
                     FileWins::Always => true,
                     FileWins::Diverged => !stands && diverges(d.ver, d.deleted, e, theirs),
+                    FileWins::Only(key) => key == k,
                 };
                 if !file_wins {
                     self.settle(k, theirs);
                     continue;
                 }
-                self.draft.remove(&k);
+                withdrawn = self.draft.remove(&k).map(|d| d.id);
             }
             self.conflicts.remove(&k);
             let holds = self.draft.get(&k).is_some_and(|d| {
@@ -302,9 +313,21 @@ impl OWt {
                 }
             });
             // a value taken in from the file is the record git has at its
-            // key, or a new one
+            // key, else the draft's there unless git has it at another
+            // key, else a new one
+            let elsewhere: BTreeSet<Ver> = self
+                .ids
+                .iter()
+                .filter(|&(&j, _)| j != k)
+                .map(|(_, &id)| id)
+                .collect();
             if let Some(d) = self.draft.get_mut(&k) {
-                d.id = self.ids.get(&k).copied().unwrap_or(d.ver);
+                d.id = match self.ids.get(&k) {
+                    Some(&id) => id,
+                    None if !elsewhere.contains(&d.id) => d.id,
+                    None if d.ver == d.id => fresh_id(d.ver, k),
+                    None => d.ver,
+                };
             }
             if theirs == self.committed.get(&k).copied() {
                 self.draft.remove(&k);
@@ -313,7 +336,12 @@ impl OWt {
                     *next += 1;
                     *next
                 });
-                let id = self.ids.get(&k).copied().unwrap_or(ver);
+                let id = self
+                    .ids
+                    .get(&k)
+                    .copied()
+                    .or(withdrawn.filter(|id| !elsewhere.contains(id)))
+                    .unwrap_or(ver);
                 self.draft.insert(
                     k,
                     ODraft {
@@ -373,17 +401,22 @@ impl OWt {
                 self.conflicts.remove(k);
             }
         }
-        if tree == self.committed {
-            return None;
-        }
+        // nothing new to commit: what's carried folds onto HEAD
+        let changed = tree != self.committed;
         // a carried edit keeps its record's id; a value the file brings in
         // continues the committed record, or is a new one
         self.ids = tree
             .iter()
             .map(|(&k, &v)| {
+                // else the record the draft holds at the key
                 let id = match self.draft.get(&k) {
                     Some(d) if carried.contains(&k) => d.id,
-                    _ => self.ids.get(&k).copied().unwrap_or(v),
+                    d => self
+                        .ids
+                        .get(&k)
+                        .copied()
+                        .or(d.map(|d| d.id))
+                        .unwrap_or(v),
                 };
                 (k, id)
             })
@@ -393,7 +426,7 @@ impl OWt {
         }
         self.committed = tree.clone();
         self.disk = tree.clone();
-        Some(tree)
+        changed.then_some(tree)
     }
 }
 

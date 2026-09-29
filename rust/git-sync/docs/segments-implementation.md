@@ -166,8 +166,9 @@ caller reopens.
 
 ## 4. What's reused, replaced and added
 
-Every new statement uses the `Dialect` trait and the generic
-`*_in_pool` style (`db/tx.rs`), not the duplicated-SQL style.
+Every new statement uses the generic `*_in_pool` style, not the
+duplicated-SQL style. (Phase 1 replaced `Dialect` with the `Segments`
+trait; see §7.1.)
 
 | Kept | Where |
 |---|---|
@@ -271,6 +272,66 @@ phase's behaviour changes applied.
    Merge.
 
 The server's HTTP surface for user branches follows phase 3, separately.
+
+### 7.1 Phase 1: done
+
+The crate's suites, the server's `test_cloudmap` and 800 random
+one-worktree histories agree with the in-memory implementation on
+SQLite, and 300 on Postgres (`SEGMENTS_SQL_PG=1`).
+
+How it differs from the plan:
+
+- **SQL is written once, in SQLite syntax.** `db::seg::pg()` rewrites
+  it for Postgres (`?N`, `jsonb(?N)`, `json(col)`). The `Segments`
+  trait holds every segment statement, implemented for both backends by
+  one macro; `on_pool!` runs a generic body on either pool. `Dialect`
+  and `db/tx.rs` are gone.
+- **A scan is one transaction:** HEAD's side, then the disk's, then
+  renames, which pair on the draft side too.
+- **An edit's base is stored, not read from git.** `record.base_json`
+  holds the content `base_commit_id` names; the three-way check uses it,
+  and the fold clears it. Reading it back from git by place failed once
+  the record had moved.
+- **Deferred:** rollup lines with `key_id`s go to phase 4, because the
+  rollup lists only a txn batch's records, so it can't answer the id
+  lookup for the rest. `list_changes`' Reset outcome goes to phase 2.
+
+Id rules the harness found, applied alike in the model, the in-memory
+implementation and SQL (branch-segments.md §4.3):
+
+- A scan looks up a key's id in this order: rollup, move, the chain's
+  record at the key, the draft's, new.
+- A value taken in from the file keeps the draft's record, and a
+  withdrawn edit's record continues, unless git holds that record at
+  another key.
+- A renewed record whose version equals its id gets a fresh id.
+
+Model changes to match production: an empty commit folds onto HEAD; a
+file-side resolution touches its key only (`FileWins::Only`); a forced
+scan applies over every file; a disk edit that leaves the file
+unchanged, and an external change that changes nothing, are skipped.
+
+Behaviour changes, beyond §5's:
+
+- **Resolving on the file's side withdraws the edit.** The file's value
+  comes in as committed, not as a pending edit.
+- **A forced scan leaves a taken-in tombstone** where the file lacks a
+  record the database had.
+- **A no-op save doesn't rewrite the file.**
+- **Conflict rows are stamped by the fold** with the rest of the draft.
+- **A record's `unfurl.server.commit` is the last commit that changed
+  it,** no longer restamped with every commit to its file. `GET
+  /cloudmap` reports the head it read at as `commit`, which the Python
+  proxy uses for `latest_commit` instead of the records' commits.
+- **`unfurl.server.id` and `exclude` are `key_id`s.** They're still
+  integers, so the server and Python needed no change.
+- **SQLite `record.id` is `AUTOINCREMENT`,** since a new record's
+  `key_id` is its first row's id and must never be reused.
+- **The server's tests run on Postgres** when `UNFURL_TEST_PG_URL` is
+  set, each in a schema of its own.
+
+Not done yet: the ancestry check and `Error::BranchChanged`, which go
+with phase 2's rebuild.
 
 ## 8. For review
 

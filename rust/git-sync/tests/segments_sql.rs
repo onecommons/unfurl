@@ -14,7 +14,8 @@ use std::path::{Path, PathBuf};
 
 use proptest::prelude::*;
 use unfurl_git_sync::{
-    DataFormat, DbConfig, FormatRegistry, Record, RecordQuery, ScanOptions, SyncedRepo,
+    ConflictState, DataFormat, DbConfig, FormatRegistry, Record, RecordQuery, Resolution,
+    ScanOptions, SyncedRepo,
 };
 
 include!("segments/common.rs");
@@ -22,6 +23,13 @@ include!("segments/imp.rs");
 include!("segments/model.rs");
 include!("segments/world.rs");
 include!("segments/git_mirror.rs");
+include!("segments/sql_world.rs");
+
+thread_local! {
+    /// Histories run against SQL, and those skipped for an operation it
+    /// doesn't run yet.
+    static SQL_RUNS: Cell<(u64, u64)> = const { Cell::new((0, 0)) };
+}
 
 fn run(ops: &[Op]) {
     let mut world = World::new();
@@ -29,17 +37,53 @@ fn run(ops: &[Op]) {
     let mut mirror = GitMirror::new();
     mirror.sync(&world);
     mirror.check(&world, 0);
+    let supported = ops.iter().all(sql_supports);
+    SQL_RUNS.with(|n| {
+        let (ran, skipped) = n.get();
+        n.set(if supported {
+            (ran + 1, skipped)
+        } else {
+            (ran, skipped + 1)
+        });
+    });
+    let mut sql = supported.then(|| SqlWorld::new(&mirror));
+    if let Some(sql) = &mut sql {
+        sql.check(&world, 0);
+    }
     for (i, op) in ops.iter().enumerate() {
+        let before = Before::of(&world, op);
         world.apply(op);
         world.check(i + 1, op);
+        if let Some(sql) = &mut sql {
+            sql.apply(op, &world, &mut mirror, &before);
+        }
         mirror.sync(&world);
         mirror.check(&world, i + 1);
+        if let Some(sql) = &mut sql {
+            if !matches!(op, Op::External(..) | Op::Move(..) | Op::DiskEdit(..)) {
+                // a step that changed nothing on disk or in git is taken in
+                // by the next scan anyway: check it's a no-op
+                sql.scan(false);
+            }
+            sql.check(&world, i + 1);
+        }
     }
     case_done();
 }
 
+/// Phase 1: the operations on main alone.
+fn phase1_op() -> impl Strategy<Value = Op> {
+    op().prop_filter("phase 1", sql_supports)
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(20))]
+
+    #[test]
+    #[ignore]
+    fn one_worktree_agrees_with_the_implementation(ops in prop::collection::vec(phase1_op(), 1..40)) {
+        run(&ops);
+    }
 
     #[test]
     #[ignore]

@@ -5,3 +5,14 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 6ab30bd8876ab7e6b2ff7bffc79d10fb1068e5ceaf7bbbae9c27283c8fb67841 # shrinks to ops = [Fork(0, 0), Rebuild(0, 157, 0, false), Merge(2, [(7, 0), (29, 0)], Regular, 0, [])]
+cc 6ea539a828107f49984b8f4bf064c3b76a4b31c2c46645afe7fcae3c67a88d5f # shrinks to ops = [DiskEdit(0, 5, true, Never), Commit(0), DiskEdit(0, 5, false, Never)]
+cc bd974f47f451a0610bd79c9ebcc5c953cd4b8be3269e3a88f6bbfa9c85ce5a65 # shrinks to ops = [Write(0, 0, false), External(0, [(0, false)]), DiskEdit(0, 3, false, Always)]
+cc e4176ec651532618848cb3dfa7ad48d753949568ffb10affc905414e86ed44a0 # shrinks to ops = [Write(0, 0, false), Move(0, 0, false), Write(0, 0, false), Commit(0), External(0, [(3, false)]), Commit(0)]
+cc aa6d9a57565b95fdd49c363a94d31baafb6566cf8b2548ed4e4e108663754df5 # shrinks to ops = [Write(0, 5, false), DiskEdit(0, 5, false, Never), Resolve(0, false, 0, false), External(0, [(5, false)])]
+cc ffdeecc63fc04726d0a09fc9dc902c2ca5430e445dadd8bf59d6f370ab83d10d # shrinks to ops = [External(0, [(3, true)]), DiskEdit(0, 3, false, Never), Write(0, 3, false), External(0, [(4, false)]), Commit(0)]
+cc 90703b72d4f7e29d52e630a08a285fe6bb78bcd8074809c8f1760586ffcb9929 # shrinks to ops = [Write(0, 5, true), Commit(0), DiskEdit(0, 4, false, Never), Write(0, 4, false), DiskEdit(0, 5, true, Never)]
+cc d12bddaa88c2c92cc1ee19a72bf2fdc00ebfdc3d2aed119b3003072f8a00e567 # shrinks to ops = [External(0, [(4, true)]), Move(0, 1, false), Write(0, 4, false), Move(0, 4, false)]
+cc c4ac984b9dfe51c958d56992f78fa5194d42f2e1e1810bffe2e9062e1b6e682f # shrinks to ops = [DiskEdit(0, 1, false, Never), Write(0, 0, false), DiskEdit(0, 0, false, Never), Write(0, 1, false), Resolve(0, false, 0, false)]
+cc 71835f1ef018f4c1331bccb0b4ec7c8a96eaf04e6e646fbd44ad1b62f393acf5 # shrinks to ops = [Write(0, 3, true), Commit(0), Write(0, 0, false), Move(0, 0, false)]
+cc 14306194aede25e3cbaae77aef323c9b18f41209ff38be8af9ebd40f38b7b1ee # shrinks to ops = [Write(0, 4, true), External(0, [(4, true)]), Commit(0)]
+cc b1c12401cdc5219f6bf5b25ed9569fc9e51b6f17f178cdeb44035646f6d56818 # shrinks to ops = [Write(0, 3, true), Commit(0), DiskEdit(0, 4, false, Never), Write(0, 4, false), External(0, [(3, true)])]

@@ -71,6 +71,7 @@ pub mod git;
 pub mod model;
 pub mod rollup;
 mod scan;
+mod segments;
 pub mod sync;
 
 #[doc(inline)]

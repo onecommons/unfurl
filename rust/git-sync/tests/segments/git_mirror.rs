@@ -164,10 +164,35 @@ impl GitMirror {
                     self.checkouts.insert(w, Checkout { dir, head });
                 }
             }
+            // only where the content differs: the implementation writes
+            // these files too, in its own layout
             let dir = &self.checkouts[&w].dir;
             for f in 0..KEYS / KEYS_PER_FILE {
-                std::fs::write(dir.join(file_name(f)), file_json(&m.disk, f)).unwrap();
+                let path = dir.join(file_name(f));
+                let want: BTreeMap<Key, Ver> =
+                    keys_of(f).filter_map(|k| m.disk.get(&k).map(|&v| (k, v))).collect();
+                let now = std::fs::read_to_string(&path).ok().map(|t| parse_file(f, &t));
+                if now.as_ref() != Some(&want) {
+                    std::fs::write(path, file_json(&m.disk, f)).unwrap();
+                }
             }
+        }
+    }
+
+    /// Take `oid`, a commit the implementation made on `w`'s checkout, as
+    /// model commit `c`, the next one; its tree must be the model's.
+    fn adopt(&mut self, g: &Git, w: Wt, c: CommitId, oid: &str) {
+        assert_eq!(c, self.oids.len(), "commits adopted in order");
+        for f in 0..KEYS / KEYS_PER_FILE {
+            let spec = format!("{oid}:{}", file_name(f));
+            let back = parse_file(f, &git(&self.root, &["show", &spec], None));
+            let want: BTreeMap<Key, Ver> =
+                keys_of(f).filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v))).collect();
+            assert_eq!(back, want, "the implementation's commit {c}'s {}", file_name(f));
+        }
+        self.oids.push(oid.to_string());
+        if let Some(checkout) = self.checkouts.get_mut(&w) {
+            checkout.head = c;
         }
     }
 
@@ -175,8 +200,21 @@ impl GitMirror {
     fn make_commit(&self, g: &Git, c: CommitId) -> String {
         let mut entries = String::new();
         for f in 0..KEYS / KEYS_PER_FILE {
-            let json = file_json(&g.commits[c], f);
-            let blob = git(&self.root, &["hash-object", "-w", "--stdin"], Some(&json));
+            let want: BTreeMap<Key, Ver> =
+                keys_of(f).filter_map(|k| g.commits[c].get(&k).map(|&v| (k, v))).collect();
+            // A parent's blob where the content is unchanged: the
+            // implementation writes files in its own layout, and a
+            // checkout's bytes have to stay those of its HEAD.
+            let kept = g.parents[c].iter().find_map(|&p| {
+                let spec = format!("{}:{}", self.oids[p], file_name(f));
+                let text = git(&self.root, &["show", &spec], None);
+                (parse_file(f, &text) == want)
+                    .then(|| git(&self.root, &["rev-parse", &spec], None))
+            });
+            let blob = kept.unwrap_or_else(|| {
+                let json = file_json(&g.commits[c], f);
+                git(&self.root, &["hash-object", "-w", "--stdin"], Some(&json))
+            });
             entries += &format!("100644 blob {blob}\t{}\n", file_name(f));
         }
         let tree = git(&self.root, &["mktree"], Some(&entries));

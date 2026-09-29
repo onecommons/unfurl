@@ -4599,6 +4599,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "serde_with",
+ "sqlx",
  "tempfile",
  "tokio",
  "tokio-stream",

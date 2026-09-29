@@ -85,9 +85,11 @@ CREATE TABLE record (
     json           JSONB   NOT NULL,
     deleted        BOOLEAN NOT NULL DEFAULT FALSE,
     version        BIGINT  NOT NULL DEFAULT 0,
-    -- in a draft: the commit of the committed version this edit started from,
-    -- which is read from git when its content is needed (§4.3)
+    -- in a draft: the commit of the committed version this edit started from
     base_commit_id TEXT,
+    -- and that version's content, which the three-way check compares the
+    -- file against (§4.2)
+    base_json      JSONB,
     -- in a draft: the key_ids of other records an edit settled at its key (§3.5)
     settled        JSONB,
     -- conflict rows live only in drafts (enforced by the writers)

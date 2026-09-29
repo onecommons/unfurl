@@ -15,64 +15,17 @@
 //! unsaved edit trivially does -- and [`conflict_kind`] names the
 //! result. The rest is bookkeeping over the conflict rows themselves.
 
-use std::collections::BTreeSet;
-
-use crate::crud::{compute_aliases, enforce_conflict, occ_binds};
+use crate::crud::{compute_aliases, enforce_conflict};
 use unfurl_merge::markdown::Applied;
 
-use crate::db::{self, RecordId};
-use crate::document::{apply_delete, apply_insert, extract_ext, Syntax};
+use crate::db::seg::{At, Filter, Row, Scope, Segments};
+use crate::document::{apply_delete, apply_insert};
 use crate::error::{Error, Result};
-use crate::git;
 use crate::model::{
     ConflictState, Record, RecordConflict, RecordConflictKind, Resolution, WriteOutcome,
 };
+use crate::segments::{self, Origin, Value};
 use crate::sync::{CommitRef, SyncedRepo};
-
-/// `rel_path`'s parsed document at `commit` — a pending edit's base
-/// content — or `None` when the commit, the path, or the parse is
-/// unavailable. The caller treats an unknown base as diverged: failing
-/// open would hide a conflict, failing closed only re-reports one.
-pub(crate) fn doc_at_commit(
-    repo: &gix::Repository,
-    commit: &str,
-    rel_path: &str,
-) -> Option<serde_json::Value> {
-    let bytes = git::read_blob_at_commit(repo, commit, rel_path).ok()??;
-    let syntax = Syntax::for_extension(&extract_ext(rel_path))?;
-    syntax
-        .parse(rel_path, &bytes)
-        .ok()
-        .map(|p| crate::document::fold_chunks(p.chunks))
-}
-
-/// Parse `rel_path` as it was at each commit in `bases`.
-///
-/// Synchronous, and takes the gix handle for the length of one call, so
-/// the (non-`Sync`) `Repository` never lives across an await. A commit
-/// whose blob or parse is unavailable maps to `None`, which the
-/// classification treats as diverged — failing open would hide a
-/// conflict, failing closed only re-reports one.
-pub(crate) fn read_base_docs(
-    sync: &SyncedRepo,
-    rel_path: &str,
-    bases: BTreeSet<String>,
-) -> std::collections::HashMap<String, Option<serde_json::Value>> {
-    if bases.is_empty() {
-        return Default::default();
-    }
-    match sync.repo() {
-        Ok(repo) => bases
-            .into_iter()
-            .map(|commit| {
-                let doc = doc_at_commit(&repo, &commit, rel_path);
-                (commit, doc)
-            })
-            .collect(),
-        // Unreadable repo → unknown bases → report conservatively.
-        Err(_) => bases.into_iter().map(|commit| (commit, None)).collect(),
-    }
-}
 
 /// The three-way conflict decision both sync directions share: does
 /// the file-side value at a pending row's key diverge from what the
@@ -139,25 +92,9 @@ pub(crate) fn conflict_kind(
     }
 }
 
-/// A [`crate::db::RecordId`] for one record of `file_path`, so the four
-/// parts travel as a unit rather than as loose positional strings.
-pub(crate) fn record_id<'a>(
-    sync: &SyncedRepo,
-    file_path: &'a str,
-    path: &'a str,
-    key: &'a str,
-) -> RecordId<'a> {
-    RecordId {
-        worktree_id: sync.worktree_id(),
-        file_path,
-        path,
-        key,
-    }
-}
-
 /// The file's side of a divergence, as a conflict row records it.
 ///
-/// Grouped for the same reason as [`crate::db::RecordId`]: the three
+/// Grouped because the three
 /// travel together and a positional call site could transpose them.
 pub(crate) struct TheirSide<'a> {
     /// The file's value -- or, when `deleted`, the one it dropped. The
@@ -186,73 +123,50 @@ pub(crate) struct TheirSide<'a> {
 /// older commit. It is informational — `db::commit::roll_forward`
 /// restamps it on the next commit made through here, and nothing reads
 /// it to decide anything.
-pub(crate) async fn refresh_conflict_row<DB>(
+pub(crate) async fn refresh_conflict_row<DB: Segments>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
-    at: RecordId<'_>,
+    at: At<'_>,
     theirs: TheirSide<'_>,
-    existing: Option<&db::tx::ConflictRecord>,
-) -> Result<()>
-where
-    DB: db::tx::Dialect,
-    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
-    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
-    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-{
+    existing: Option<&Row>,
+) -> Result<()> {
     if matches!(existing, Some(c)
-        if c.state == ConflictState::Conflict
+        if c.conflict == Some(ConflictState::Conflict)
             && c.deleted == theirs.deleted
             && c.json == *theirs.json)
     {
         return Ok(());
     }
-    let json_text = serde_json::to_string(theirs.json).map_err(|e| Error::Json {
-        path: at.path.to_string(),
-        source: e,
-    })?;
-    let version = db::tx::next_version(tx, sync.family_id(), 1).await?;
-    db::tx::upsert_conflict_record(
-        tx,
-        at,
-        &json_text,
-        theirs.commit_id,
-        theirs.deleted,
-        version,
-        ConflictState::Conflict,
-    )
-    .await?;
-    Ok(())
+    let d = DB::segs(tx, sync.worktree_id()).await?.draft;
+    let version = DB::next_version(tx, sync.family_id(), 1).await?;
+    let value = if theirs.deleted {
+        Value::Deleted
+    } else {
+        Value::Live(theirs.json)
+    };
+    segments::set_conflict(tx, d, at, value, theirs.json, theirs.commit_id, version).await
 }
 
 /// Drop the conflict row at this key, if `existing` says there is one.
-pub(crate) async fn drop_conflict_row<DB>(
+pub(crate) async fn drop_conflict_row<DB: Segments>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    _sync: &SyncedRepo,
-    at: RecordId<'_>,
-    existing: Option<&db::tx::ConflictRecord>,
-) -> Result<()>
-where
-    DB: db::tx::Dialect,
-    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
-    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
-{
+    sync: &SyncedRepo,
+    at: At<'_>,
+    existing: Option<&Row>,
+) -> Result<()> {
     if existing.is_none() {
         return Ok(());
     }
-    db::tx::delete_conflict_record(tx, at).await
+    let d = DB::segs(tx, sync.worktree_id()).await?.draft;
+    segments::drop_conflict(tx, d, at).await
 }
 
 /// Inputs for the write path's conflict detection, precomputed by
 /// [`SyncedRepo::write_file`] when the file on disk holds an edit the
 /// database never took in.
 pub(crate) struct ConflictCheck {
-    /// Base commit oid → the file's parsed document at that commit.
-    pub(crate) base_docs: std::collections::HashMap<String, Option<serde_json::Value>>,
+    /// Each pending edit's base content, by (path, key).
+    pub(crate) base_values: std::collections::HashMap<(String, String), Option<serde_json::Value>>,
 }
 
 /// One change [`apply_pending_records`] wants made to the conflict rows
@@ -398,13 +312,7 @@ pub(crate) fn apply_pending_records(
             }
             None => {
                 if let Some(check) = check {
-                    let base_value = base_commit
-                        .as_deref()
-                        .and_then(|base| check.base_docs.get(base))
-                        .and_then(|doc| doc.as_ref())
-                        .and_then(|doc| {
-                            crate::document::record_in(doc, section_kind, &section_name, &rec.key)
-                        });
+                    let base_value = check.base_values.get(&at).and_then(Option::as_ref);
                     if let Some(kind) = classify_conflict(
                         &rec.json,
                         rec.deleted,
@@ -435,6 +343,15 @@ pub(crate) fn apply_pending_records(
             }
         }
 
+        // Already what the file holds: nothing to write, and rendering an
+        // untouched section would only restate its bytes.
+        let holds = match &theirs {
+            Some(value) => !rec.deleted && *value == rec.json,
+            None => rec.deleted,
+        };
+        if holds {
+            continue;
+        }
         let root_obj = root.as_object_mut().expect("root is object");
         let (key, deleted) = (rec.key.clone(), rec.deleted);
         if rec.deleted {
@@ -461,31 +378,38 @@ pub(crate) fn apply_pending_records(
     out
 }
 
+/// Draft conflict rows of `file_path`, by (path, key).
+pub(crate) async fn conflict_rows<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sync: &SyncedRepo,
+    file_path: &str,
+) -> Result<std::collections::BTreeMap<(String, String), Row>> {
+    let d = DB::segs(tx, sync.worktree_id()).await?.draft;
+    Ok(DB::rows_in(tx, d, Some(file_path), true)
+        .await?
+        .into_iter()
+        .map(|r| ((r.path.clone(), r.key.clone()), r))
+        .collect())
+}
+
 /// Persist [`ConflictOp`]s in one transaction, drawing a version for
 /// each row that actually moves (see [`refresh_conflict_row`]).
-pub(crate) async fn apply_conflict_ops_in_pool<DB>(
+pub(crate) async fn apply_conflict_ops_in_pool<DB: Segments>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     file_path: &str,
     commit_id: Option<&str>,
     ops: &[ConflictOp],
-) -> Result<()>
-where
-    DB: db::tx::Dialect,
-    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
-    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
-    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-    (i64, String, String, String, i64, String):
-        for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-{
+) -> Result<()> {
     let mut tx = pool.begin().await?;
-    let existing = db::tx::list_conflict_records(&mut tx, sync.worktree_id(), file_path).await?;
+    let existing = conflict_rows(&mut tx, sync, file_path).await?;
     for op in ops {
-        let key = (op.path.clone(), op.key.clone());
-        let at = record_id(sync, file_path, &op.path, &op.key);
+        let place = (op.path.clone(), op.key.clone());
+        let at = At {
+            file_path,
+            path: &op.path,
+            key: &op.key,
+        };
         match &op.kind {
             ConflictOpKind::Open { json, deleted } => {
                 refresh_conflict_row(
@@ -497,12 +421,12 @@ where
                         deleted: *deleted,
                         commit_id,
                     },
-                    existing.get(&key),
+                    existing.get(&place),
                 )
                 .await?;
             }
             ConflictOpKind::Clear => {
-                drop_conflict_row(&mut tx, sync, at, existing.get(&key)).await?;
+                drop_conflict_row(&mut tx, sync, at, existing.get(&place)).await?;
             }
         }
     }
@@ -515,7 +439,7 @@ where
 /// Both rows move together or not at all: rewriting the record without
 /// dropping the conflict row would leave the record looking settled
 /// while every read still treats it as contested.
-pub(crate) async fn resolve_conflict_in_pool<DB>(
+pub(crate) async fn resolve_conflict_in_pool<DB: Segments>(
     sync: &SyncedRepo,
     pool: &sqlx::Pool<DB>,
     file_path: &str,
@@ -523,42 +447,29 @@ pub(crate) async fn resolve_conflict_in_pool<DB>(
     key: &str,
     resolution: Resolution,
     expected_commit: Option<CommitRef>,
-) -> Result<WriteOutcome>
-where
-    DB: db::tx::Dialect,
-    for<'q> i64: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> &'q str: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> Option<i64>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> Option<&'q str>: sqlx::Encode<'q, DB> + sqlx::Type<DB>,
-    for<'q> <DB as sqlx::Database>::Arguments<'q>: sqlx::IntoArguments<'q, DB>,
-    for<'c> &'c mut <DB as sqlx::Database>::Connection: sqlx::Executor<'c, Database = DB>,
-    (i64,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-    (String,): for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-    (i64, Option<String>, i64, i64):
-        for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-    (i64, String, String, String, i64, String):
-        for<'r> sqlx::FromRow<'r, <DB as sqlx::Database>::Row> + Send + Unpin,
-{
+) -> Result<WriteOutcome> {
     let not_found = || Error::NotFound {
         file_path: file_path.to_string(),
         path: path.to_string(),
     };
-    let id = RecordId {
-        worktree_id: sync.worktree_id(),
+    let w = sync.worktree_id();
+    let at = At {
         file_path,
         path,
         key,
     };
     let mut tx = pool.begin().await?;
-    let at = (path.to_string(), key.to_string());
-    let theirs = db::tx::list_conflict_records(&mut tx, sync.worktree_id(), file_path)
+    let version = DB::next_version(&mut tx, sync.family_id(), 1).await?;
+    let d = DB::segs(&mut tx, w).await?.draft;
+    let theirs = segments::conflict_row(&mut tx, d, at)
         .await?
-        .remove(&at)
         .ok_or_else(not_found)?;
-    // The record itself, tombstones included: an in-flight delete is a
+    // The draft's edit, tombstones included: an in-flight delete is a
     // side of the argument like any other.
-    let ours = db::tx::lookup_own_record(&mut tx, id)
+    let ours = DB::rows_in(&mut tx, d, Some(file_path), false)
         .await?
+        .into_iter()
+        .find(|r| r.at() == at && r.is_edit())
         .ok_or_else(not_found)?;
     if let Some(exp) = expected_commit.as_ref() {
         enforce_conflict(
@@ -570,61 +481,108 @@ where
             true,
         )?;
     }
-    let version = db::tx::next_version(&mut tx, sync.family_id(), 1).await?;
-    let (exp_v, exp_c) = occ_binds(expected_commit.as_ref());
 
     // `Ours` restates no value, so it cannot be checked against the file
-    // now — it records the decision and the next write checks it. Every
-    // other variant names one, so the conflict row goes immediately.
+    // now — it records the decision and the next write checks it.
     if resolution == Resolution::Ours {
-        let resolved = db::tx::set_conflict_state(&mut tx, id, ConflictState::Resolved, version)
-            .await?
-            .ok_or_else(not_found)?;
+        DB::set_conflict_state(&mut tx, theirs.id, ConflictState::Resolved, version).await?;
         tx.commit().await?;
         return Ok(WriteOutcome {
-            id: resolved,
+            id: theirs.key_id,
             version,
         });
     }
-
-    // What the record becomes. Taking the file's side of a record it no
-    // longer has means deleting ours too.
-    let winner = match &resolution {
-        Resolution::Delete => None,
-        Resolution::Merged(json) => Some(json.clone()),
-        Resolution::Theirs if theirs.deleted => None,
-        Resolution::Theirs => Some(theirs.json.clone()),
-        Resolution::Ours => unreachable!("handled above"),
-    };
-    match winner {
-        Some(json) => {
-            let json_text = serde_json::to_string(&json).map_err(|e| Error::Json {
-                path: path.to_string(),
-                source: e,
-            })?;
-            db::tx::update_record(&mut tx, ours.id, &json_text, version, exp_v, exp_c).await?;
-            let format_owner = db::tx::file_format(&mut tx, sync.worktree_id(), file_path).await?;
-            db::tx::replace_aliases(
+    segments::drop_conflict(&mut tx, d, at).await?;
+    let key_id = match &resolution {
+        // The edit is withdrawn, and the file's value stands: taken in
+        // where the committed chain doesn't already hold it.
+        Resolution::Theirs => {
+            segments::remove_draft_row(&mut tx, d, at).await?;
+            let committed = DB::visible(&mut tx, w, Scope::Chain, Filter::At(at))
+                .await?
+                .into_iter()
+                .find(|r| !r.deleted);
+            let shown = committed.as_ref().map(|r| &r.json);
+            let file = (!theirs.deleted).then_some(&theirs.json);
+            if shown != file {
+                let value = match file {
+                    Some(v) => Value::Live(v),
+                    None => Value::Deleted,
+                };
+                // the file's value continues the record, unless git has it
+                // at another place
+                let elsewhere = DB::visible(&mut tx, w, Scope::Chain, Filter::KeyId(ours.key_id))
+                    .await?
+                    .iter()
+                    .any(|r| !r.deleted && r.at() != at);
+                let record = match &committed {
+                    Some(r) => Some(r.key_id),
+                    None if elsewhere => None,
+                    None => Some(ours.key_id),
+                };
+                // taken in from the file, so not a pending edit: it keeps
+                // a commit that holds the file
+                let commit = match committed.as_ref().and_then(|r| r.commit_id.clone()) {
+                    Some(c) => Some(c),
+                    None => DB::head_commit(&mut tx, w).await?,
+                };
+                let written = segments::write(
+                    &mut tx,
+                    w,
+                    at,
+                    value,
+                    Origin::File(commit.as_deref()),
+                    record,
+                    version,
+                )
+                .await?;
+                written.key_id
+            } else {
+                committed.map_or(ours.key_id, |r| r.key_id)
+            }
+        }
+        Resolution::Delete => {
+            segments::write(
                 &mut tx,
-                ours.id,
-                &compute_aliases(
-                    sync,
-                    format_owner.as_deref(),
-                    ours.id,
-                    file_path,
-                    path,
-                    key,
-                    &json,
-                ),
+                w,
+                at,
+                Value::Deleted,
+                Origin::Edit,
+                Some(ours.key_id),
+                version,
+            )
+            .await?
+            .key_id
+        }
+        Resolution::Merged(json) => {
+            let written = segments::write(
+                &mut tx,
+                w,
+                at,
+                Value::Live(json),
+                Origin::Edit,
+                Some(ours.key_id),
+                version,
             )
             .await?;
+            let format_owner = DB::file_format(&mut tx, w, file_path).await?;
+            let aliases = compute_aliases(
+                sync,
+                format_owner.as_deref(),
+                written.key_id,
+                file_path,
+                path,
+                key,
+                json,
+            );
+            DB::replace_aliases(&mut tx, written.id, &aliases).await?;
+            written.key_id
         }
-        None => db::tx::delete_record(&mut tx, ours.id, version, exp_v, exp_c).await?,
-    }
-    db::tx::delete_conflict_record(&mut tx, id).await?;
+        Resolution::Ours => unreachable!("handled above"),
+    };
     tx.commit().await?;
     Ok(WriteOutcome {
-        id: ours.id,
+        id: key_id,
         version,
     })
 }

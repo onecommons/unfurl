@@ -544,7 +544,11 @@ impl Segments {
     /// elsewhere they go.
     fn renew_id(&mut self, x: RowId) {
         let (d, key, old) = (self.rows[&x].seg, self.rows[&x].key, self.rows[&x].id);
-        let fresh = self.rows[&x].ver;
+        // a version is an id only for the edit that made the record
+        let fresh = match self.rows[&x].ver {
+            v if v == old => fresh_id(v, key),
+            v => v,
+        };
         self.set_id(x, fresh);
         // other drafts' entries on it an edit of the old record made, once
         // it moved from where they saw it: it's another record now
@@ -693,9 +697,14 @@ impl Segments {
     fn reconcile(&mut self, w: Wt, file: Key, disk: &BTreeMap<Key, Ver>, wins: FileWins) {
         let d = self.wts[w].draft;
         for key in keys_of(file) {
+            if matches!(wins, FileWins::Only(only) if only != key) {
+                continue;
+            }
             let theirs = disk.get(&key).copied();
             let mut x = self.row_in(d, key);
             let mut forced = false;
+            // the edit the file's value replaces: its record continues
+            let mut withdrawn = None;
             if let Some(p) = x.filter(|x| self.rows[x].edit.is_some()) {
                 let r = &self.rows[&p];
                 let file_wins = match wins {
@@ -705,21 +714,35 @@ impl Segments {
                         !self.resolution_stands(w, key, theirs)
                             && diverges(r.ver, r.deleted, r.edit.unwrap(), theirs)
                     }
+                    FileWins::Only(k) => k == key,
                 };
                 if !file_wins {
                     self.settle(w, p, theirs);
                     continue;
                 }
+                withdrawn = Some(r.id);
                 self.remove_draft_row(w, key);
                 x = None;
                 forced = true;
             }
             self.drop_conflict(w, key);
             // a value taken in from the file is the record git has at its
-            // key, or a new one
+            // key, else the draft's there unless git has it at another
+            // key, else a new one
+            let chain = self.chain_set(w);
+            let elsewhere: BTreeSet<Ver> = (0..KEYS)
+                .filter(|&j| j != key)
+                .filter_map(|j| self.live_id(&chain, j))
+                .collect();
             if let Some(x) = x {
-                let r = self.live_id(&self.chain_set(w), key);
-                let (old, new) = (self.rows[&x].id, r.unwrap_or(self.rows[&x].ver));
+                let r = self.live_id(&chain, key);
+                let (old, ver) = (self.rows[&x].id, self.rows[&x].ver);
+                let new = match r {
+                    Some(id) => id,
+                    None if !elsewhere.contains(&old) => old,
+                    None if ver == old => fresh_id(ver, key),
+                    None => ver,
+                };
                 self.set_id(x, new);
                 self.retag(d, old, new);
             }
@@ -732,7 +755,10 @@ impl Segments {
             {
                 let own = self.own_view(w);
                 let ver = theirs.unwrap_or_else(|| self.private_ver());
-                let record = self.live_id(&self.chain_set(w), key).unwrap_or(ver);
+                let record = self
+                    .live_id(&self.chain_set(w), key)
+                    .or(withdrawn.filter(|id| !elsewhere.contains(id)))
+                    .unwrap_or(ver);
                 self.write(
                     w,
                     &own,
@@ -946,6 +972,7 @@ impl Segments {
         // move carries its id over, or it's a new record
         let record = self.shown_id(&self.chain_set(w), key);
         let live_record = self.live_id(&self.chain_set(w), key);
+        let drafted = self.row_in(self.wts[w].draft, key).map(|r| self.rows[&r].id);
         let pinned = head_row.is_some() && self.held_elsewhere(key, w);
         let entries = self.draft_entries(head_row.as_slice(), w);
         if let Some(hr) = head_row {
@@ -970,6 +997,8 @@ impl Segments {
                         .as_ref()
                         .map(|(id, _)| *id)
                         .filter(|id| !elsewhere.contains(id)))
+                    // else the record the draft holds at the key
+                    .or(drafted.filter(|id| !elsewhere.contains(id)))
                     .unwrap_or(if elsewhere.contains(&v) {
                         fresh_id(v, key)
                     } else {
@@ -1092,9 +1121,9 @@ impl Segments {
             }
         }
         let parent = &git.commits[*self.wts[w].history.last().unwrap()];
-        if tree == *parent {
-            return None;
-        }
+        // Nothing new to commit: what's carried is what HEAD holds, so it
+        // folds onto HEAD rather than into an empty commit.
+        let unchanged = tree == *parent;
         let changed: Vec<Key> = (0..KEYS).filter(|k| tree.get(k) != parent.get(k)).collect();
         let before = self.chain_set(w);
         let deleted_ids: BTreeMap<Key, Ver> = changed
@@ -1102,7 +1131,10 @@ impl Segments {
             .filter_map(|&k| self.shown_id(&before, k).map(|id| (k, id)))
             .collect();
         let head_commit = *self.wts[w].history.last().unwrap();
-        let commit = git.commit_with_rollup(tree.clone(), BTreeMap::new(), vec![head_commit]);
+        let commit = match unchanged {
+            true => head_commit,
+            false => git.commit_with_rollup(tree.clone(), BTreeMap::new(), vec![head_commit]),
+        };
         for x in carried {
             let k = self.rows[&x].key;
             // the committed row it replaces, in the head or below
@@ -1153,6 +1185,10 @@ impl Segments {
                 }
             }
         }
+        if unchanged {
+            self.relink_draft(w);
+            return None;
+        }
         // the rollup lists each record the commit changed, with its id
         let chain = self.chain_set(w);
         git.rollups[commit] = Some(
@@ -1174,13 +1210,9 @@ impl Segments {
     /// what the working tree holds (`None` for a user branch) stands.
     fn resolve_theirs(&mut self, w: Wt, key: Key, disk: Option<&BTreeMap<Key, Ver>>) {
         self.drop_conflict(w, key);
-        self.remove_draft_row(w, key);
-        if let Some(disk) = disk {
-            self.reconcile(w, file_of(key), disk, FileWins::Never);
-            // the file's value again, in a new row
-            if let Some(r) = self.row_in(self.wts[w].draft, key) {
-                self.recreated(r);
-            }
+        match disk {
+            Some(disk) => self.reconcile(w, file_of(key), disk, FileWins::Only(key)),
+            None => self.remove_draft_row(w, key),
         }
     }
 
@@ -1664,10 +1696,13 @@ impl Segments {
                 .filter(|j| tree.contains_key(j))
                 .filter_map(|j| self.live_id(&view, j))
                 .collect();
+            let drafted = self.row_in(self.wts[w].draft, k).map(|r| self.rows[&r].id);
             let id = match want {
                 Some(v) => self
                     .live_id(&view, k)
                     .or(self.live_id(&old_view, k).filter(|id| !taken.contains(id)))
+                    // else the record the draft holds at the key
+                    .or(drafted.filter(|id| !taken.contains(id)))
                     .unwrap_or(v),
                 None => self
                     .shown_id(&old_view, k)

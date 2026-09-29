@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 //! `worktree` table reads and writes.
 
+use crate::db::seg::Segments;
 use crate::db::Db;
 use crate::error::Result;
 
@@ -25,25 +26,6 @@ pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
             if let Some((id,)) = row {
                 return Ok(id);
             }
-            let row: (i64,) = sqlx::query_as(
-                "INSERT INTO worktree (origin, branch) VALUES (?1, ?2) RETURNING id",
-            )
-            .bind(origin)
-            .bind(branch)
-            .fetch_one(pool)
-            .await?;
-            // A worktree created on its own is its own family. A fork or
-            // draft is pointed at its parent's family instead, by
-            // whatever creates it.
-            sqlx::query("INSERT INTO version_seq (worktree_id) VALUES (?1)")
-                .bind(row.0)
-                .execute(pool)
-                .await?;
-            sqlx::query("UPDATE worktree SET family_id = ?1 WHERE id = ?1")
-                .bind(row.0)
-                .execute(pool)
-                .await?;
-            Ok(row.0)
         }
         #[cfg(feature = "postgres")]
         Db::Postgres(pool) => {
@@ -56,24 +38,14 @@ pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
             if let Some((id,)) = row {
                 return Ok(id);
             }
-            let row: (i64,) = sqlx::query_as(
-                "INSERT INTO worktree (origin, branch) VALUES ($1, $2) RETURNING id",
-            )
-            .bind(origin)
-            .bind(branch)
-            .fetch_one(pool)
-            .await?;
-            sqlx::query("INSERT INTO version_seq (worktree_id) VALUES ($1)")
-                .bind(row.0)
-                .execute(pool)
-                .await?;
-            sqlx::query("UPDATE worktree SET family_id = $1 WHERE id = $1")
-                .bind(row.0)
-                .execute(pool)
-                .await?;
-            Ok(row.0)
         }
     }
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        let id = Segments::create_worktree(&mut tx, origin, branch).await?;
+        tx.commit().await?;
+        Ok(id)
+    })
 }
 
 pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str>) -> Result<()> {
@@ -194,7 +166,7 @@ pub(crate) async fn family_id(db: &Db, worktree_id: i64) -> Result<i64> {
     Ok(row.0)
 }
 
-/// The next value [`crate::db::tx::next_version`] will hand out — one
+/// The next value the family's counter will hand out — one
 /// past the highest version stamped so far.
 ///
 /// Read (not drawn) at commit time so the commit message can record the
@@ -232,7 +204,7 @@ pub(crate) async fn next_version(db: &Db, worktree_id: i64) -> Result<i64> {
 /// Run once at the end of [`crate::SyncedRepo::update_from_working_dir`].
 /// `COALESCE` keeps the existing value when set (so operator
 /// overrides survive re-syncs) and otherwise drops in the smallest
-/// `file_path` that contributed a record. `MIN()` is deterministic
+/// file the worktree has. `MIN()` is deterministic
 /// and supported identically on both backends; when no records
 /// exist it returns NULL and the column stays NULL.
 pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<()> {
@@ -242,7 +214,7 @@ pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<
                 "UPDATE worktree \
                  SET default_file_path = COALESCE( \
                      default_file_path, \
-                     (SELECT MIN(file_path) FROM record WHERE worktree_id = ?1)) \
+                     (SELECT MIN(path) FROM file WHERE worktree_id = ?1)) \
                  WHERE id = ?1",
             )
             .bind(worktree_id)
@@ -255,7 +227,7 @@ pub(crate) async fn auto_pick_default_file(db: &Db, worktree_id: i64) -> Result<
                 "UPDATE worktree \
                  SET default_file_path = COALESCE( \
                      default_file_path, \
-                     (SELECT MIN(file_path) FROM record WHERE worktree_id = $1)) \
+                     (SELECT MIN(path) FROM file WHERE worktree_id = $1)) \
                  WHERE id = $1",
             )
             .bind(worktree_id)

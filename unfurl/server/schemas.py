@@ -1123,6 +1123,16 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                         "has one -- its absence ends the walk."
                     ),
                 },
+                "commit": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": (
+                        "The head commit the records were read at: the "
+                        "``latest_commit`` for a write based on this read. "
+                        "Null for a repository with no commits; absent from "
+                        "a server that doesn't report it."
+                    ),
+                },
             },
             "required": ["result"],
         }

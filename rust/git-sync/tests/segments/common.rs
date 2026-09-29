@@ -164,4 +164,6 @@ enum FileWins {
     /// A `Git-Sync-Resolves-Version` trailer: where the edit diverges and
     /// no resolution stands.
     Diverged,
+    /// Resolving a conflict for the file's side: this key, and no other.
+    Only(Key),
 }

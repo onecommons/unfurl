@@ -1692,3 +1692,103 @@ fn merge_brought_back_version_takes_the_entries_made_over_it() {
         Op::Merge(4, vec![(1, 0)], MergeKind::Regular, 0, vec![]),
     ]);
 }
+
+/// A record deleted, committed, and added back is a new record: its old
+/// id is never reused, though its row, the highest, is gone.
+#[test]
+fn re_added_record_is_a_new_one() {
+    run(&[
+        Op::DiskEdit(0, 5, true, FileWins::Never),
+        Op::Commit(0),
+        Op::DiskEdit(0, 5, false, FileWins::Never),
+    ]);
+}
+
+/// `force` takes every file's value over pending edits, not only the
+/// file just edited.
+#[test]
+fn force_takes_every_files_value() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::External(0, vec![(0, false)]),
+        Op::DiskEdit(0, 3, false, FileWins::Always),
+    ]);
+}
+
+/// A conflict resolved for the file's side takes the file's value in,
+/// not as a pending edit: a commit that changes the record replaces it
+/// without a conflict.
+#[test]
+fn file_side_resolution_is_not_a_pending_edit() {
+    run(&[
+        Op::Write(0, 5, false),
+        Op::DiskEdit(0, 5, false, FileWins::Never),
+        Op::Resolve(0, false, 0, false),
+        Op::External(0, vec![(5, false)]),
+    ]);
+}
+
+/// A committed row where the chain has no record takes the one the draft
+/// holds at its key: the file's value taken in, edited since, then
+/// committed with the edit held back by a conflict.
+#[test]
+fn committed_row_takes_the_drafts_record_at_its_key() {
+    run(&[
+        Op::External(0, vec![(3, true)]),
+        Op::DiskEdit(0, 3, false, FileWins::Never),
+        Op::Write(0, 3, false),
+        Op::External(0, vec![(4, false)]),
+        Op::Commit(0),
+    ]);
+}
+
+/// An edit that made its record, stranded when a move takes the record to
+/// a key another edit holds, becomes a new record with an id of its own:
+/// its version is its old record's id.
+#[test]
+fn stranded_edit_that_made_its_record_gets_a_new_id() {
+    run(&[
+        Op::Rebuild(0, 0, 2, false),
+        Op::Write(0, 4, false),
+        Op::External(0, vec![(4, false)]),
+        Op::Write(0, 1, false),
+        Op::Move(0, 4, false),
+        Op::DiskEdit(0, 0, false, FileWins::Diverged),
+    ]);
+}
+
+/// Resolving for the file's side takes the file's value in as the record
+/// the edit was of, where the chain has none at the key.
+#[test]
+fn file_side_resolution_continues_the_edits_record() {
+    run(&[
+        Op::External(0, vec![(3, true)]),
+        Op::DiskEdit(0, 3, false, FileWins::Never),
+        Op::Write(0, 3, false),
+        Op::External(0, vec![(4, false)]),
+        Op::Resolve(0, false, 0, false),
+    ]);
+}
+
+/// An edit that followed its record into another file is checked against
+/// the version it was made over, not what that file held at the base.
+#[test]
+fn followed_edit_keeps_its_base_across_files() {
+    run(&[
+        Op::Write(0, 3, true),
+        Op::Commit(0),
+        Op::Write(0, 0, false),
+        Op::Move(0, 0, false),
+    ]);
+}
+
+/// A pending delete the file already agrees with writes nothing, so the
+/// commit that follows has nothing to carry.
+#[test]
+fn delete_the_file_already_made_writes_nothing() {
+    run(&[
+        Op::Write(0, 4, true),
+        Op::External(0, vec![(4, true)]),
+        Op::Commit(0),
+    ]);
+}

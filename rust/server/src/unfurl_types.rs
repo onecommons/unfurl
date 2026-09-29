@@ -245,6 +245,8 @@ pub struct CloudMapResponseTypeRefJson {
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
 pub struct CloudMapResult {
+    /// The head commit the records were read at: the ``latest_commit`` for a write based on this read. Null for a repository with no commits; absent from a server that doesn't report it.
+    pub commit: Option<String>,
     /// The working tree's side of records the database disagrees with, grouped by the commit that carries them. Present only when the request asked for ``conflicts``; an empty array means there are none. Grouped rather than merged into ``result`` because a record can be contested from more than one commit, and because the two versions of a record share a key and would otherwise collide. Only records still contested appear: once a write has settled one the decision is made, and it drops out.
     pub conflicts: Option<Vec<CloudMapResultConflict>>,
     /// Records discovered by walking the graph from ``key``. Present only when the request asked to ``follow`` from a ``key``.

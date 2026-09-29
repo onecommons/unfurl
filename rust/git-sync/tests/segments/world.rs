@@ -173,6 +173,11 @@ impl World {
     /// other moved, keeping its `key_id`.
     fn external(&mut self, w: Wt, changes: BTreeMap<Key, Option<Ver>>) {
         let before = self.model.wts[w].committed.clone();
+        // a scan takes in only what the commit changed
+        let changes: BTreeMap<Key, Option<Ver>> = changes
+            .into_iter()
+            .filter(|(k, v)| before.get(k) != v.as_ref())
+            .collect();
         let m = &mut self.model.wts[w];
         let old_ids = m.ids.clone();
         // no two keys share an id: those the unchanged keys keep, and those
@@ -190,9 +195,12 @@ impl World {
                     && before.contains_key(&from)
                     && changes.get(&from) == Some(&None))
                 .then(|| old_ids[&from]);
+                // else the record the draft holds at the key
+                let drafted = m.draft.get(&k).map(|d| d.id);
                 let id = continuing
                     .filter(|id| !taken.contains(id))
                     .or(moved.filter(|id| !taken.contains(id)))
+                    .or(drafted.filter(|id| !taken.contains(id)))
                     .unwrap_or(if taken.contains(&v) {
                         fresh_id(v, k)
                     } else {
@@ -715,14 +723,25 @@ impl World {
                 let w = self.pick(n, false).unwrap();
                 let ver = self.ver();
                 let m = &mut self.model.wts[w];
+                let before = m.disk.get(&k).copied();
                 if deleted {
                     m.disk.remove(&k);
                 } else {
                     m.disk.insert(k, ver);
                 }
-                m.reconcile(file_of(k), &mut self.next_ver, wins);
-                let disk = m.disk.clone();
-                self.imp.reconcile(w, file_of(k), &disk, wins);
+                // `force` is over every file, not the one edited; otherwise
+                // a scan skips a file whose content is what it last took in
+                let files = match wins {
+                    FileWins::Always => (0..KEYS / KEYS_PER_FILE).collect(),
+                    _ if before == m.disk.get(&k).copied() => Vec::new(),
+                    _ => vec![file_of(k)],
+                };
+                for f in files {
+                    let m = &mut self.model.wts[w];
+                    m.reconcile(f, &mut self.next_ver, wins);
+                    let disk = m.disk.clone();
+                    self.imp.reconcile(w, f, &disk, wins);
+                }
             }
             Op::Fork(n, back) => {
                 let w = self.pick(n, false).unwrap();
@@ -1088,9 +1107,10 @@ impl World {
                     // versions standing for content, that's modelled as
                     // withdrawing the edit, to the same effect.
                     m.conflicts.remove(&k);
-                    m.draft.remove(&k);
-                    if !user {
-                        m.reconcile(file_of(k), &mut self.next_ver, FileWins::Never);
+                    if user {
+                        m.draft.remove(&k);
+                    } else {
+                        m.reconcile(file_of(k), &mut self.next_ver, FileWins::Only(k));
                     }
                     let disk = (!user).then(|| m.disk.clone());
                     self.imp.resolve_theirs(w, k, disk.as_ref());
@@ -1166,6 +1186,8 @@ impl World {
                             .get(&k)
                             .or(m.ids.get(&k).filter(|id| !taken.contains(id)))
                             .copied()
+                            // else the record the draft holds at the key
+                            .or(m.draft.get(&k).map(|d| d.id).filter(|id| !taken.contains(id)))
                             .unwrap_or(v);
                         (k, id)
                     })

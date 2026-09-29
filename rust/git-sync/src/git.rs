@@ -536,6 +536,46 @@ pub fn last_commits_for_paths(
     Ok(result)
 }
 
+/// Every blob in `commit`'s tree: path → OID. Empty when `commit` isn't a
+/// resolvable commit.
+pub fn tree_blobs(repo: &gix::Repository, commit: &str) -> Result<HashMap<String, gix::ObjectId>> {
+    use gix::object::tree::diff::{change::Event, Action, Change};
+
+    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
+        return Ok(HashMap::new());
+    };
+    let Ok(commit) = repo.find_commit(oid) else {
+        return Ok(HashMap::new());
+    };
+    let tree = commit.tree().map_err(git_err)?;
+    let mut out = HashMap::new();
+    let mut visit =
+        |change: Change<'_, '_, '_>| -> std::result::Result<Action, std::convert::Infallible> {
+            if let (Event::Addition { entry_mode, id }, Ok(path)) =
+                (&change.event, change.location.to_str())
+            {
+                if entry_mode.is_blob() {
+                    out.insert(path.to_string(), id.detach());
+                }
+            }
+            Ok(Action::Continue)
+        };
+    let empty = repo.empty_tree();
+    let mut platform = empty.changes().map_err(git_err)?;
+    platform.track_path();
+    platform.track_rewrites(None);
+    platform
+        .for_each_to_obtain_tree(&tree, &mut visit)
+        .map_err(git_err)?;
+    Ok(out)
+}
+
+/// The bytes of blob `oid`.
+pub fn read_blob(repo: &gix::Repository, oid: &str) -> Result<Vec<u8>> {
+    let oid = gix::ObjectId::from_hex(oid.as_bytes()).map_err(git_err)?;
+    Ok(repo.find_object(oid).map_err(git_err)?.data.clone())
+}
+
 /// Bytes of `rel_path`'s blob in `commit`.
 ///
 /// `Ok(None)` when `commit` isn't a resolvable commit oid or its tree
