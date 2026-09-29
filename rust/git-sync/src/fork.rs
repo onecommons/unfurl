@@ -3,7 +3,7 @@
 //! A new worktree placed in its family: forks and splits
 //! (docs/branch-segments.md §4.5–§4.7, C.13, C.16, C.17).
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use crate::db::store::{At, Filter, NewRow, Row, Scope, Store};
 use crate::db::{self, on_pool, Db};
@@ -11,6 +11,7 @@ use crate::error::Result;
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::ids::History;
+use crate::rollup::parse_commit_rollup;
 
 /// A place in a file, owned.
 type Place = (String, String, String);
@@ -36,8 +37,10 @@ enum Placement {
 }
 
 /// Find or create the worktree `(origin, branch)`, whose HEAD is `head`:
-/// a new one joins the family of another branch of `origin` and forks
-/// where HEAD falls in it (§4.5), or else starts a family of its own.
+/// a new one joins a family and forks where HEAD falls in it (§4.5), or
+/// else starts a family of its own. Its family is another branch of
+/// `origin`'s, else the one the nearest git-sync commit in its history
+/// names: a fork of another origin's.
 pub(crate) async fn open(
     db: &Db,
     repo: &gix::Repository,
@@ -52,7 +55,13 @@ pub(crate) async fn open(
     let database = db::commit::database_id(db).await?;
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
-        let family = Store::family_of_origin(&mut tx, origin).await?;
+        let mut family = Store::family_of_origin(&mut tx, origin).await?;
+        if let (None, Some(head)) = (family, head) {
+            if let Some(named) = named_family(repo, head)? {
+                // the root's origin, so its own family
+                family = Store::family_of_origin(&mut tx, &named).await?;
+            }
+        }
         tx.commit().await?;
         let id = match (family, head) {
             (Some(family), Some(head)) => {
@@ -71,6 +80,26 @@ pub(crate) async fn open(
             }
         }
     })
+}
+
+/// The family the nearest git-sync commit in `head`'s history names.
+fn named_family(repo: &gix::Repository, head: &str) -> Result<Option<String>> {
+    let mut seen = HashSet::from([head.to_string()]);
+    let mut todo = VecDeque::from([head.to_string()]);
+    while let Some(c) = todo.pop_front() {
+        let family = git::commit_message(repo, &c)
+            .and_then(|m| parse_commit_rollup(&m).ok().flatten())
+            .and_then(|r| r.family);
+        if family.is_some() {
+            return Ok(family);
+        }
+        for p in git::commit_parents(repo, &c)? {
+            if seen.insert(p.clone()) {
+                todo.push_back(p);
+            }
+        }
+    }
+    Ok(None)
 }
 
 /// Fork `(origin, branch)` at `head` in `family`, splitting the segment

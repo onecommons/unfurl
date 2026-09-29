@@ -2942,12 +2942,27 @@ crud_test!(whole_groups_keeps_a_coarse_cursor_lossless);
 // shared version sequence
 // ---------------------------------------------------------------------------
 
+/// A clone of `upstream` whose `origin` is a fork's: its history holds
+/// the upstream's git-sync commits, whose trailers name their family.
+fn clone_as_fork(upstream: &std::path::Path) -> TempDir {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let dir = tmp.path().to_str().expect("utf8");
+    git(upstream, &["clone", "-q", ".", dir]);
+    git(
+        tmp.path(),
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            "https://unfurl.cloud/someone/cloudmap-fork.git",
+        ],
+    );
+    tmp
+}
+
 /// Worktrees in one family draw from one sequence, so a version means
-/// the same row wherever it turns up.
-///
-/// A fork or draft has no constructor yet, so the family link is made
-/// directly. What is under test is the resolution and the draw, not how
-/// a member comes to exist.
+/// the same row wherever it turns up. A fork joins its upstream's family
+/// through the `Git-Sync-Family` trailer in its history.
 #[tokio::test]
 async fn a_family_shares_one_version_sequence() {
     let (tmp, db) = file_backed_fixture().await;
@@ -2977,33 +2992,13 @@ async fn a_family_shares_one_version_sequence() {
         .await
         .expect("write")
         .version;
+    upstream
+        .commit_repository("Update cloudmap")
+        .await
+        .expect("commit")
+        .expect("dirty");
 
-    // A second checkout of the same repo under a different remote spelling
-    // would be the same worktree, so use a distinct one and adopt it into
-    // the first's family, the way a fork would be.
-    let (tmp2, _) = file_backed_fixture().await;
-    git(
-        tmp2.path(),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://unfurl.cloud/someone/cloudmap-fork.git",
-        ],
-    );
-    let fork = open_at(tmp2.path(), &db).await;
-    let pool = sqlx::SqlitePool::connect(&db).await.expect("connect");
-    sqlx::query(
-        "UPDATE worktree SET family_id = (SELECT COALESCE(family_id, id) FROM worktree \
-         WHERE origin = 'unfurl.cloud/onecommons/cloudmap') \
-         WHERE origin = 'unfurl.cloud/someone/cloudmap-fork'",
-    )
-    .execute(&pool)
-    .await
-    .expect("join the family");
-
-    // Re-open so the cached family is re-resolved.
-    drop(fork);
+    let tmp2 = clone_as_fork(tmp.path());
     let fork = open_at(tmp2.path(), &db).await;
     fork.update_from_working_dir(ScanOptions::default())
         .await
@@ -3047,11 +3042,12 @@ async fn a_family_shares_one_version_sequence() {
     );
 
     // One sequence row backs both.
+    let pool = sqlx::SqlitePool::connect(&db).await.expect("connect");
     let seqs: Vec<(i64,)> = sqlx::query_as("SELECT worktree_id FROM version_seq ORDER BY 1")
         .fetch_all(&pool)
         .await
         .expect("query");
-    assert_eq!(seqs.len(), 2, "one per family root, forks reuse: {seqs:?}");
+    assert_eq!(seqs.len(), 1, "one per family root, forks reuse: {seqs:?}");
 }
 
 /// A batch takes its versions in one contiguous block.
@@ -3120,29 +3116,24 @@ async fn a_fork_records_its_family_in_the_rollup() {
         .update_from_working_dir(ScanOptions::default())
         .await
         .expect("sync");
+    upstream
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "upstream-write",
+            serde_json::json!({"name": "u"}),
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    upstream
+        .commit_repository("Update cloudmap")
+        .await
+        .expect("commit")
+        .expect("dirty");
 
-    let (tmp2, _) = file_backed_fixture().await;
-    git(
-        tmp2.path(),
-        &[
-            "remote",
-            "add",
-            "origin",
-            "https://unfurl.cloud/someone/cloudmap-fork.git",
-        ],
-    );
-    let fork = open_at(tmp2.path(), &db).await;
-    drop(fork);
-    let pool = sqlx::SqlitePool::connect(&db).await.expect("connect");
-    sqlx::query(
-        "UPDATE worktree SET family_id = (SELECT COALESCE(family_id, id) FROM worktree \
-         WHERE origin = 'unfurl.cloud/onecommons/cloudmap') \
-         WHERE origin = 'unfurl.cloud/someone/cloudmap-fork'",
-    )
-    .execute(&pool)
-    .await
-    .expect("join the family");
-
+    let tmp2 = clone_as_fork(tmp.path());
     let fork = open_at(tmp2.path(), &db).await;
     fork.update_from_working_dir(ScanOptions::default())
         .await
