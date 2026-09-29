@@ -4,7 +4,7 @@
 // conflicts, with `key_id`s compared through a bijection.
 //
 // Phase 1 of docs/segments-implementation.md, the operations on one
-// worktree, and phase 2's so far: forks at a worktree's head.
+// worktree, and phase 2's so far: forks.
 
 /// Whether the SQL side runs `op` yet.
 fn sql_supports(op: &Op) -> bool {
@@ -12,7 +12,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
-        Op::Fork(_, 0) => true,
+        Op::Fork(..) => true,
         _ => false,
     }
 }

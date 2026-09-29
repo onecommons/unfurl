@@ -1441,7 +1441,8 @@ impl Segments {
                     self.rows.get_mut(&sr).unwrap().seg = s2;
                     if v_c != below_live || collide.contains(&k) {
                         let new = self.insert_value(s, k, v_c);
-                        let fresh = Some(self.rows[&new].id).filter(|id| !taken.contains(id));
+                        // a new record: its version may be an older record's id
+                        let fresh = Some(fresh_id(self.rows[&new].ver, k)).filter(|id| !taken.contains(id));
                         let id = recovered
                             .get(&k)
                             .copied()
@@ -1459,7 +1460,8 @@ impl Segments {
                 None => {
                     // changed before c and back after it
                     let new = self.insert_value(s, k, v_c);
-                    let fresh = Some(self.rows[&new].id).filter(|id| !taken.contains(id));
+                    // a new record: its version may be an older record's id
+                        let fresh = Some(fresh_id(self.rows[&new].ver, k)).filter(|id| !taken.contains(id));
                     let id = recovered
                         .get(&k)
                         .copied()

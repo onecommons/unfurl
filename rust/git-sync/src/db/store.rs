@@ -93,13 +93,15 @@ pub(crate) struct Segs {
     pub(crate) draft: i64,
 }
 
-/// Which of a worktree's segments a read looks through.
+/// Which segments a read looks through: a worktree's, or a segment's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Scope {
-    /// Its committed chain and its draft.
+    /// A worktree's committed chain and its draft.
     Own,
-    /// Its committed chain alone.
+    /// A worktree's committed chain alone.
     Chain,
+    /// The state a segment ends at: it and its ancestors.
+    State,
 }
 
 /// Which rows of a view a read returns.
@@ -148,6 +150,11 @@ fn view_cte(scope: Scope) -> &'static str {
         }
         Scope::Chain => {
             "WITH v AS (SELECT segment_id FROM worktree_segment WHERE worktree_id = ?1) "
+        }
+        Scope::State => {
+            "WITH RECURSIVE v(segment_id) AS (SELECT CAST(?1 AS BIGINT) \
+             UNION ALL SELECT s.parent_id FROM segment s JOIN v ON s.id = v.segment_id \
+             WHERE s.parent_id IS NOT NULL) "
         }
     }
 }
@@ -230,7 +237,8 @@ pub(crate) trait Store: sqlx::Database + Sized {
     ) -> impl Future<Output = Result<Segs>> + Send;
 
     /// The rows `worktree_id`'s view shows: visible in `scope`, not
-    /// conflict rows, sorted by place.
+    /// conflict rows, sorted by place. With [`Scope::State`],
+    /// `worktree_id` is a segment's.
     fn visible(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
@@ -398,6 +406,51 @@ pub(crate) trait Store: sqlx::Database + Sized {
         branch: &str,
         commit: &str,
     ) -> impl Future<Output = Result<i64>> + Send;
+
+    /// Each worktree of `family`'s head segment, and its head commit.
+    fn family_heads(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+    ) -> impl Future<Output = Result<Vec<(i64, Option<String>)>>> + Send;
+
+    /// Segment `top` and its ancestors, from `top` down: each one's id and
+    /// head commit.
+    fn segment_chain(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        top: i64,
+    ) -> impl Future<Output = Result<Vec<(i64, Option<String>)>>> + Send;
+
+    /// C.17's structure: segment `s` ends at `commit` now, and a new
+    /// segment above it takes its former end, role, children and place in
+    /// every chain. Returns the new segment.
+    fn split_segment(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        s: i64,
+        commit: &str,
+    ) -> impl Future<Output = Result<i64>> + Send;
+
+    /// Move row `row` into segment `seg`, as it is.
+    fn move_row(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        row: i64,
+        seg: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Segment `from`'s entries on rows at `at` become `to`'s.
+    fn move_entries(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        from: i64,
+        to: i64,
+        at: At<'_>,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// Every row at `at` in `family`'s segments but conflict rows, in any
+    /// segment.
+    fn rows_at(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        at: At<'_>,
+    ) -> impl Future<Output = Result<Vec<Row>>> + Send;
 
     /// Stamp the worktree's outstanding `txn` rows with the commit that
     /// carries their writes.
@@ -1081,6 +1134,146 @@ macro_rules! store_impl {
                 .execute(&mut **tx)
                 .await?;
                 Ok(w)
+            }
+
+            async fn family_heads(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+            ) -> Result<Vec<(i64, Option<String>)>> {
+                Ok(sqlx::query_as(sql!(
+                    tx,
+                    "SELECT s.id, s.head_commit FROM worktree w \
+                     JOIN segment s ON s.id = w.head_segment_id \
+                     WHERE w.family_id = ?1 ORDER BY w.id"
+                ))
+                .bind(family)
+                .fetch_all(&mut **tx)
+                .await?)
+            }
+
+            async fn segment_chain(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                top: i64,
+            ) -> Result<Vec<(i64, Option<String>)>> {
+                Ok(sqlx::query_as(sql!(
+                    tx,
+                    "WITH RECURSIVE down(id, parent_id, head_commit, depth) AS ( \
+                         SELECT id, parent_id, head_commit, 0 FROM segment WHERE id = ?1 \
+                         UNION ALL \
+                         SELECT s.id, s.parent_id, s.head_commit, d.depth + 1 \
+                         FROM segment s JOIN down d ON s.id = d.parent_id) \
+                     SELECT id, head_commit FROM down ORDER BY depth"
+                ))
+                .bind(top)
+                .fetch_all(&mut **tx)
+                .await?)
+            }
+
+            async fn split_segment(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                s: i64,
+                commit: &str,
+            ) -> Result<i64> {
+                let (s2,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
+                     SELECT family_id, kind, id, head_commit, owner_id FROM segment WHERE id = ?1 \
+                     RETURNING id"
+                ))
+                .bind(s)
+                .fetch_one(&mut **tx)
+                .await?;
+                for sql in [
+                    sql!(tx, "UPDATE segment SET parent_id = ?2 WHERE parent_id = ?1 AND id <> ?2"),
+                    sql!(tx, "UPDATE worktree SET head_segment_id = ?2 WHERE head_segment_id = ?1"),
+                    sql!(
+                        tx,
+                        "INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited) \
+                         SELECT worktree_id, ?2, added_version, inherited \
+                         FROM worktree_segment WHERE segment_id = ?1"
+                    ),
+                ] {
+                    sqlx::query(sql).bind(s).bind(s2).execute(&mut **tx).await?;
+                }
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE segment SET kind = 'internal', owner_id = NULL, head_commit = ?2 WHERE id = ?1"
+                ))
+                .bind(s)
+                .bind(commit)
+                .execute(&mut **tx)
+                .await?;
+                Ok(s2)
+            }
+
+            async fn move_row(tx: &mut sqlx::Transaction<'_, Self>, row: i64, seg: i64) -> Result<()> {
+                sqlx::query(sql!(tx, "UPDATE record SET segment_id = ?2 WHERE id = ?1"))
+                    .bind(row)
+                    .bind(seg)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
+            }
+
+            async fn move_entries(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                from: i64,
+                to: i64,
+                at: At<'_>,
+            ) -> Result<()> {
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE superseded SET segment_id = ?2 \
+                     WHERE segment_id = ?1 \
+                       AND record_id IN (SELECT id FROM record \
+                                         WHERE file_path = ?3 AND path = ?4 AND key = ?5) \
+                       AND NOT EXISTS (SELECT 1 FROM superseded y \
+                                       WHERE y.record_id = superseded.record_id \
+                                         AND y.segment_id = ?2 AND y.key_id = superseded.key_id)"
+                ))
+                .bind(from)
+                .bind(to)
+                .bind(at.file_path)
+                .bind(at.path)
+                .bind(at.key)
+                .execute(&mut **tx)
+                .await?;
+                // what was already `to`'s too
+                sqlx::query(sql!(
+                    tx,
+                    "DELETE FROM superseded \
+                     WHERE segment_id = ?1 \
+                       AND record_id IN (SELECT id FROM record \
+                                         WHERE file_path = ?2 AND path = ?3 AND key = ?4)"
+                ))
+                .bind(from)
+                .bind(at.file_path)
+                .bind(at.path)
+                .bind(at.key)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
+            }
+
+            async fn rows_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                at: At<'_>,
+            ) -> Result<Vec<Row>> {
+                const SQL: &str = "SELECT r.id, r.key_id, r.segment_id, r.file_path, r.path, r.key, \
+                     r.commit_id, json(r.json), r.deleted, r.version, r.base_commit_id, \
+                     json(r.settled), r.conflict, json(r.base_json) \
+                     FROM record r JOIN segment s ON s.id = r.segment_id \
+                     WHERE s.family_id = ?1 AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4 \
+                       AND r.conflict IS NULL";
+                let rows = sqlx::query_as::<_, RowTuple>(sql!(tx, SQL))
+                    .bind(family)
+                    .bind(at.file_path)
+                    .bind(at.path)
+                    .bind(at.key)
+                    .fetch_all(&mut **tx)
+                    .await?;
+                rows.into_iter().map(to_row).collect()
             }
 
             async fn stamp_txns(

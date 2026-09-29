@@ -251,16 +251,22 @@ impl SyncedRepo {
         let repo_path = working_dir.as_ref().to_path_buf();
         let db = Db::connect(&db).await?;
 
-        // Inspect the repo once at open time to get origin/branch.
+        // Inspect the repo once at open time to get origin/branch, and to
+        // place a new worktree in its family. Dropped after: we re-open per
+        // call to keep `Send` guarantees out of long-lived state.
         let repo = git::open_repo(&repo_path)?;
         let meta = git::worktree_meta(&repo)?;
-        // Drop `repo` here; we re-open per call to keep `Send` guarantees
-        // out of long-lived state.
-        drop(repo);
-
         let head = meta.head_oid.map(|o| o.to_string());
-        let worktree_id =
-            db::worktree::open(&db, &meta.origin, &meta.branch, head.as_deref()).await?;
+        let worktree_id = crate::fork::open(
+            &db,
+            &repo,
+            &formats,
+            &meta.origin,
+            &meta.branch,
+            head.as_deref(),
+        )
+        .await?;
+        drop(repo);
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
 
         Ok(Self {
@@ -763,55 +769,7 @@ impl SyncedRepo {
         bytes: &[u8],
         stats: &mut SyncOutcome,
     ) -> Result<Option<ParsedDoc<'_>>> {
-        let parsed = syntax.parse(rel_path, bytes)?;
-        if parsed.extended {
-            // A rewrite emits strict JSON, so this file will lose its
-            // comments and be reflowed the first time a record in it
-            // changes.
-            stats.files_needing_json5 += 1;
-            tracing::warn!(
-                file = rel_path,
-                "file needs json5 syntax; a rewrite will emit strict json and drop comments"
-            );
-        }
-        let literate = parsed.literate;
-        let value = crate::document::fold_chunks(parsed.chunks);
-        // A literate document names its format in front matter, because
-        // its YAML is spread across fenced blocks and carries no header
-        // for `detect` to inspect. `generic` is the exception: it says
-        // the merged document does carry one after all, so classify it
-        // the way a plain YAML or JSON file is.
-        let format = match literate.as_deref() {
-            Some(GENERIC_LITERATE_FORMAT) | None => self.formats().detect(&value),
-            Some(name) => self.formats().detect_literate(name),
-        };
-        let Some(format) = format else {
-            return Ok(None);
-        };
-        // After `fold_chunks`, so a literate document is validated as the
-        // document it merges to rather than per fenced block.
-        let validation = format.validate_document(&value);
-        log_validation(rel_path, format.name(), &validation);
-        let validation = std::sync::Arc::new(validation);
-        if !validation.is_empty() {
-            stats.invalid.push(crate::ValidationFailure {
-                file_path: rel_path.to_string(),
-                format: format.name().to_string(),
-                validation: std::sync::Arc::clone(&validation),
-            });
-        }
-        if validation.is_fatal() {
-            // Unreadable as this format, so it is skipped exactly as an
-            // unparseable file is: its rows go stale rather than being
-            // cleared, because a document we cannot interpret is no
-            // evidence that its records are gone.
-            return Ok(None);
-        }
-        Ok(Some(ParsedDoc {
-            format,
-            value,
-            validation,
-        }))
+        parse_and_detect(self.formats(), rel_path, syntax, bytes, stats)
     }
 
     /// Search records by optional `file_path` / `path` / `key` filters.
@@ -2032,4 +1990,64 @@ impl SyncedRepo {
         // records is not something to commit again.
         disk != git::read_blob_at_commit(repo, head, rel).ok().flatten()
     }
+}
+
+/// Parse `bytes` as `syntax` and classify the document with `formats`:
+/// `None` when no format claims it or validation rejects it outright.
+pub(crate) fn parse_and_detect<'f>(
+    formats: &'f FormatRegistry,
+    rel_path: &str,
+    syntax: Syntax,
+    bytes: &[u8],
+    stats: &mut SyncOutcome,
+) -> Result<Option<ParsedDoc<'f>>> {
+    let parsed = syntax.parse(rel_path, bytes)?;
+    if parsed.extended {
+        // A rewrite emits strict JSON, so this file will lose its
+        // comments and be reflowed the first time a record in it
+        // changes.
+        stats.files_needing_json5 += 1;
+        tracing::warn!(
+            file = rel_path,
+            "file needs json5 syntax; a rewrite will emit strict json and drop comments"
+        );
+    }
+    let literate = parsed.literate;
+    let value = crate::document::fold_chunks(parsed.chunks);
+    // A literate document names its format in front matter, because
+    // its YAML is spread across fenced blocks and carries no header
+    // for `detect` to inspect. `generic` is the exception: it says
+    // the merged document does carry one after all, so classify it
+    // the way a plain YAML or JSON file is.
+    let format = match literate.as_deref() {
+        Some(GENERIC_LITERATE_FORMAT) | None => formats.detect(&value),
+        Some(name) => formats.detect_literate(name),
+    };
+    let Some(format) = format else {
+        return Ok(None);
+    };
+    // After `fold_chunks`, so a literate document is validated as the
+    // document it merges to rather than per fenced block.
+    let validation = format.validate_document(&value);
+    log_validation(rel_path, format.name(), &validation);
+    let validation = std::sync::Arc::new(validation);
+    if !validation.is_empty() {
+        stats.invalid.push(crate::ValidationFailure {
+            file_path: rel_path.to_string(),
+            format: format.name().to_string(),
+            validation: std::sync::Arc::clone(&validation),
+        });
+    }
+    if validation.is_fatal() {
+        // Unreadable as this format, so it is skipped exactly as an
+        // unparseable file is: its rows go stale rather than being
+        // cleared, because a document we cannot interpret is no
+        // evidence that its records are gone.
+        return Ok(None);
+    }
+    Ok(Some(ParsedDoc {
+        format,
+        value,
+        validation,
+    }))
 }

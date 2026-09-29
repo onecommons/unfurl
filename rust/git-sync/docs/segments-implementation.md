@@ -144,10 +144,14 @@ Error::FamilyInUse          // deleting a family root other worktrees belong to
 ```
 
 - **Structural operations take the family lock first** (§4.14):
-  `Store::lock_family`, `SELECT … FOR UPDATE` on Postgres and
-  `BEGIN IMMEDIATE` on SQLite. That covers fork, split, rebuild,
-  deletion, compaction, and the scan, which reads the chain before it
-  draws a version. The gix work stays outside the transaction.
+  `Store::lock_family`, an `UPDATE` of the family's `version_seq` row,
+  which takes Postgres's row lock and SQLite's write lock as a write's
+  version draw does. That covers fork, split, rebuild, deletion,
+  compaction, and the scan, which reads the chain before it draws a
+  version. **A fork's git work runs under the lock** (placement's
+  ancestry walks, and the split's parses at *c* and *h*): keeping it
+  outside would mean checking afterwards that the segment hadn't moved,
+  and a fork is rare and a cloudmap one file.
 - **`git.rs` gains** `is_ancestor`, `merge_base`, `changed_paths` and
   `first_parent_contains`. A tracked head whose commit this repository
   doesn't have is skipped by placement, never an error.

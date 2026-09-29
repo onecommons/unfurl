@@ -1937,3 +1937,15 @@ fn fork_at_the_head_shares_the_rows_below() {
         Op::Commit(2),
     ]);
 }
+
+/// A fork before a commit that deleted a record re-creates it as a new
+/// one: nothing names its old id, since the fold dropped its rows and the
+/// first commit has no rollup.
+#[test]
+fn fork_before_a_delete_recreates_the_record() {
+    run(&[
+        Op::DiskEdit(0, 5, true, FileWins::Never),
+        Op::Commit(0),
+        Op::Fork(0, 3),
+    ]);
+}
