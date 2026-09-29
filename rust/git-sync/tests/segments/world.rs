@@ -448,9 +448,9 @@ impl World {
         // which can miss a record's identity (§4.9). Adopt its choice.
         let chain = self.imp.chain_set(w);
         for &k in tree.keys() {
-            if !ids.contains_key(&k) {
+            if let std::collections::btree_map::Entry::Vacant(slot) = ids.entry(k) {
                 if let Some(id) = self.imp.live_id(&chain, k) {
-                    ids.insert(k, id);
+                    slot.insert(id);
                 }
             }
         }
@@ -1440,7 +1440,7 @@ fn case_done() {
         n.set(n.get() + 1);
         n.get()
     });
-    if let Some(path) = std::env::var_os("SEGMENTS_ALLOWANCES").filter(|_| cases % 10000 == 0) {
+    if let Some(path) = std::env::var_os("SEGMENTS_ALLOWANCES").filter(|_| cases.is_multiple_of(10000)) {
         let counts: Vec<String> = ALLOWED.with(|a| {
             ALLOWANCES
                 .iter()

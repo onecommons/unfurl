@@ -1792,3 +1792,26 @@ fn delete_the_file_already_made_writes_nothing() {
         Op::Commit(0),
     ]);
 }
+
+/// A value taken in from the file where git has since moved its record
+/// becomes a new record, so two places don't share the id.
+#[test]
+fn taken_in_value_whose_record_moved_is_a_new_one() {
+    run(&[
+        Op::DiskEdit(0, 5, false, FileWins::Never),
+        Op::External(0, vec![(2, true)]),
+        Op::Move(0, 5, false),
+    ]);
+}
+
+/// An edit whose record moves onto a key another edit holds stays where
+/// it is, as a new record.
+#[test]
+fn edit_following_onto_another_edit_is_a_new_one() {
+    run(&[
+        Op::External(0, vec![(2, true)]),
+        Op::Write(0, 2, false),
+        Op::Write(0, 5, false),
+        Op::Move(0, 5, false),
+    ]);
+}

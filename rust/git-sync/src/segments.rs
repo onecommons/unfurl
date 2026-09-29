@@ -60,55 +60,18 @@ pub(crate) async fn write<DB: Segments>(
             .find(|y| y.key_id == id && y.at() != at && edit)
             .cloned()
     });
-    // a re-create, with no base: the view shows the record live nowhere,
-    // a draft's live row included, the writer's own too
     let live_anywhere = match record {
+        Some(id) => live_anywhere(tx, w, &draft, id).await?,
         None => false,
-        Some(id) => {
-            draft.iter().any(|y| y.key_id == id && !y.deleted)
-                || DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
-                    .await?
-                    .iter()
-                    .any(|r| !r.deleted)
-        }
     };
     if let (Some(y), Some(id)) = (&other, record) {
-        drop_conflict(tx, d, y.at()).await?;
-        DB::delete_row(tx, y.id).await?;
-        // its entries stay with this edit, but its own tree's row of
-        // another record shows again at the key it leaves
-        let chain: BTreeSet<i64> = DB::visible(tx, w, Scope::Chain, Filter::All)
-            .await?
-            .iter()
-            .map(|r| r.segment_id)
-            .collect();
-        for e in DB::entries_in(tx, d).await? {
-            if e.key_id == id && e.at() == y.at() && e.row_key_id != id {
-                let seg = row_segment(tx, w, e.row).await?;
-                if seg.is_some_and(|s| chain.contains(&s)) {
-                    DB::untag(tx, e.row, d, id).await?;
-                }
-            }
-        }
+        replace_other(tx, w, d, y, id).await?;
     }
     let prior = draft.iter().find(|y| y.at() == at).cloned();
-    // the committed version it was made over: its commit and content
-    let (base, base_json) = if !edit || !live_anywhere {
-        (None, None)
-    } else if let Some(p) = &prior {
-        (p.base_commit_id.clone(), p.base_json.clone())
-    } else if let Some(y) = &other {
-        (y.base_commit_id.clone(), y.base_json.clone())
+    let (base, base_json) = if edit && live_anywhere {
+        edit_base(tx, w, record, prior.as_ref(), other.as_ref()).await?
     } else {
-        // the record's committed version in the view, at whatever key
-        match record {
-            Some(id) => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
-                .await?
-                .into_iter()
-                .find(|r| !r.deleted)
-                .map_or((None, None), |r| (r.commit_id, Some(r.json))),
-            None => (None, None),
-        }
+        (None, None)
     };
     let shown = DB::visible(tx, w, Scope::Own, Filter::At(at)).await?;
     let mut settled: BTreeSet<i64> = prior
@@ -121,23 +84,7 @@ pub(crate) async fn write<DB: Segments>(
             .filter(|r| r.segment_id != d && !r.deleted && Some(r.key_id) != record)
             .map(|r| r.key_id),
     );
-    let mut seen: Vec<Row> = shown.clone();
-    // and the same record's rows elsewhere with content seen here: a
-    // move's copy of what the edit was made over (§3.5)
-    if let Some(id) = record {
-        let contents: Vec<&serde_json::Value> = shown
-            .iter()
-            .filter(|r| !r.deleted && r.key_id == id)
-            .map(|r| &r.json)
-            .collect();
-        if !contents.is_empty() {
-            for r in DB::visible(tx, w, Scope::Own, Filter::KeyId(id)).await? {
-                if r.at() != at && !r.deleted && contents.contains(&&r.json) {
-                    seen.push(r);
-                }
-            }
-        }
-    }
+    let mut seen = seen_rows(tx, w, at, &shown, record).await?;
     // a tombstone holds the value it removes
     let gone;
     let (json, deleted) = match value {
@@ -184,9 +131,118 @@ pub(crate) async fn write<DB: Segments>(
         },
     )
     .await?;
-    // rows here the draft already hides are this edit's to hide too,
-    // but a live row of a record it edits elsewhere, which the merge hid
-    // from this write
+    hide(tx, d, at, key_id, &seen).await?;
+    Ok(Written { id, key_id })
+}
+
+/// Whether `w`'s view shows record `id` live anywhere, a live row in
+/// `draft` included, the writer's own too. A write of a record it doesn't
+/// is a re-create, with no base.
+async fn live_anywhere<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    draft: &[Row],
+    id: i64,
+) -> Result<bool> {
+    Ok(draft.iter().any(|y| y.key_id == id && !y.deleted)
+        || DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
+            .await?
+            .iter()
+            .any(|r| !r.deleted))
+}
+
+/// Remove draft `d`'s edit `y` of record `id`, which a write of it at
+/// another key replaces.
+async fn replace_other<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    d: i64,
+    y: &Row,
+    id: i64,
+) -> Result<()> {
+    drop_conflict(tx, d, y.at()).await?;
+    DB::delete_row(tx, y.id).await?;
+    // its entries stay with this edit, but its own tree's row of
+    // another record shows again at the key it leaves
+    let chain: BTreeSet<i64> = DB::visible(tx, w, Scope::Chain, Filter::All)
+        .await?
+        .iter()
+        .map(|r| r.segment_id)
+        .collect();
+    for e in DB::entries_in(tx, d).await? {
+        if e.key_id == id && e.at() == y.at() && e.row_key_id != id {
+            let seg = row_segment(tx, w, e.row).await?;
+            if seg.is_some_and(|s| chain.contains(&s)) {
+                DB::untag(tx, e.row, d, id).await?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The committed version an edit of `record` was made over, its commit and
+/// content: the base of the edit it replaces at its key, `prior`, or at
+/// another, `other`, else the record's committed version in the view, at
+/// whatever key.
+async fn edit_base<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    record: Option<i64>,
+    prior: Option<&Row>,
+    other: Option<&Row>,
+) -> Result<(Option<String>, Option<serde_json::Value>)> {
+    if let Some(y) = prior.or(other) {
+        return Ok((y.base_commit_id.clone(), y.base_json.clone()));
+    }
+    Ok(match record {
+        Some(id) => DB::visible(tx, w, Scope::Chain, Filter::KeyId(id))
+            .await?
+            .into_iter()
+            .find(|r| !r.deleted)
+            .map_or((None, None), |r| (r.commit_id, Some(r.json))),
+        None => (None, None),
+    })
+}
+
+/// The rows a write at `at` was made over: those `shown` there, and the
+/// same record's rows elsewhere with content seen here, a move's copy of
+/// what the edit was made over (§3.5).
+async fn seen_rows<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    at: At<'_>,
+    shown: &[Row],
+    record: Option<i64>,
+) -> Result<Vec<Row>> {
+    let mut seen = shown.to_vec();
+    let Some(id) = record else {
+        return Ok(seen);
+    };
+    let contents: Vec<&serde_json::Value> = shown
+        .iter()
+        .filter(|r| !r.deleted && r.key_id == id)
+        .map(|r| &r.json)
+        .collect();
+    if !contents.is_empty() {
+        for r in DB::visible(tx, w, Scope::Own, Filter::KeyId(id)).await? {
+            if r.at() != at && !r.deleted && contents.contains(&&r.json) {
+                seen.push(r);
+            }
+        }
+    }
+    Ok(seen)
+}
+
+/// Draft `d`'s new row of record `key_id` at `at` hides the rows it was
+/// made over, `seen`, and those the draft already hides there, but a live
+/// row of a record it edits elsewhere, which the merge hid from this write.
+async fn hide<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    d: i64,
+    at: At<'_>,
+    key_id: i64,
+    seen: &[Row],
+) -> Result<()> {
     let elsewhere: BTreeSet<i64> = DB::rows_in(tx, d, None, false)
         .await?
         .iter()
@@ -202,7 +258,7 @@ pub(crate) async fn write<DB: Segments>(
     for r in seen.iter().map(|r| r.id).chain(hidden) {
         DB::entry(tx, r, d, key_id).await?;
     }
-    Ok(Written { id, key_id })
+    Ok(())
 }
 
 /// The segment row `row` is in, if `w`'s view holds it.

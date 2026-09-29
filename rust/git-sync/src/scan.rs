@@ -324,6 +324,58 @@ fn diverges(
     )
 }
 
+/// One file's records as the working tree has them, and what validation
+/// rejected, which keeps whatever row it had.
+struct DiskRecords {
+    values: BTreeMap<(String, String), serde_json::Value>,
+    rejected: BTreeSet<(String, String)>,
+    rejected_paths: BTreeSet<String>,
+}
+
+impl DiskRecords {
+    fn of(disk: &DiskFile<'_>) -> Self {
+        let file = &disk.file;
+        let values = if disk.gone {
+            BTreeMap::new()
+        } else {
+            document_records(file.value, file.format, file.validation)
+                .into_iter()
+                .map(|(path, key, v)| ((path, key), v))
+                .collect()
+        };
+        DiskRecords {
+            values,
+            rejected: validation_rejected_records(file.validation)
+                .map(|(section, key)| (format!("/{section}"), key))
+                .collect(),
+            rejected_paths: file
+                .validation
+                .rejected_sections()
+                .map(|section| format!("/{section}"))
+                .collect(),
+        }
+    }
+
+    fn rejected(&self, path: &str, key: &str) -> bool {
+        self.rejected_paths.contains(path)
+            || self.rejected.contains(&(path.to_string(), key.to_string()))
+    }
+}
+
+/// What one file's keys are reconciled against.
+struct FileScan<'a> {
+    sync: &'a SyncedRepo,
+    file: &'a ScannedFile<'a>,
+    /// The worktree's draft segment.
+    d: i64,
+    wins: FileWins,
+    /// The committed chain's rows in the file.
+    chain: Vec<Row>,
+    /// The committed chain's live rows in every file. A scan writes only
+    /// to the draft, so this holds for the whole file.
+    live: Vec<Row>,
+}
+
 /// The draft side of a scan (§4.3): take one file's working tree into
 /// the draft, key by key, against the committed chain. A pending edit the
 /// file disagrees with keeps both sides, as a conflict row, unless the
@@ -336,41 +388,36 @@ async fn reconcile_file<DB: Segments>(
 ) -> Result<()> {
     let w = sync.worktree_id();
     let file = &disk.file;
-    let d = DB::segs(tx, w).await?.draft;
-    let theirs_all: BTreeMap<(String, String), serde_json::Value> = if disk.gone {
-        BTreeMap::new()
-    } else {
-        document_records(file.value, file.format, file.validation)
+    let records = DiskRecords::of(disk);
+    let scan = FileScan {
+        sync,
+        file,
+        d: DB::segs(tx, w).await?.draft,
+        wins: if file.force {
+            FileWins::Always
+        } else {
+            file.resolves_version
+                .map_or(FileWins::Never, FileWins::Diverged)
+        },
+        chain: DB::visible(tx, w, Scope::Chain, Filter::File(file.rel_path)).await?,
+        live: DB::visible(tx, w, Scope::Chain, Filter::All)
+            .await?
             .into_iter()
-            .map(|(path, key, v)| ((path, key), v))
-            .collect()
+            .filter(|r| !r.deleted)
+            .collect(),
     };
-    let rejected: BTreeSet<(String, String)> = validation_rejected_records(file.validation)
-        .map(|(section, key)| (format!("/{section}"), key))
-        .collect();
-    let skip_paths: BTreeSet<String> = file
-        .validation
-        .rejected_sections()
-        .map(|section| format!("/{section}"))
-        .collect();
-    let chain = DB::visible(tx, w, Scope::Chain, Filter::File(file.rel_path)).await?;
-    let draft = DB::rows_in(tx, d, Some(file.rel_path), false).await?;
-    let conflicts = DB::rows_in(tx, d, Some(file.rel_path), true).await?;
-    let wins = if file.force {
-        FileWins::Always
-    } else {
-        file.resolves_version
-            .map_or(FileWins::Never, FileWins::Diverged)
-    };
-    let places: BTreeSet<(String, String)> = theirs_all
+    let draft = DB::rows_in(tx, scan.d, Some(file.rel_path), false).await?;
+    let conflicts = DB::rows_in(tx, scan.d, Some(file.rel_path), true).await?;
+    let places: BTreeSet<(String, String)> = records
+        .values
         .keys()
         .cloned()
-        .chain(chain.iter().map(|r| (r.path.clone(), r.key.clone())))
+        .chain(scan.chain.iter().map(|r| (r.path.clone(), r.key.clone())))
         .chain(draft.iter().map(|r| (r.path.clone(), r.key.clone())))
         .chain(conflicts.iter().map(|r| (r.path.clone(), r.key.clone())))
         .collect();
     for (path, key) in places {
-        if skip_paths.contains(&path) || rejected.contains(&(path.clone(), key.clone())) {
+        if records.rejected(&path, &key) {
             continue;
         }
         let at = At {
@@ -378,147 +425,8 @@ async fn reconcile_file<DB: Segments>(
             path: &path,
             key: &key,
         };
-        let theirs = theirs_all.get(&(path.clone(), key.clone()));
-        let existing = segments::conflict_row(tx, d, at).await?;
-        // the edit the file's value replaces: its record continues
-        let mut withdrawn = None;
-        let mut x = DB::rows_in(tx, d, Some(file.rel_path), false)
-            .await?
-            .into_iter()
-            .find(|r| r.at() == at);
-        if let Some(p) = x.as_ref().filter(|x| x.is_edit()) {
-            // A resolution the file hasn't moved under stands: the client
-            // already chose, and the next write applies it.
-            let stands = existing.as_ref().is_some_and(|c| {
-                c.conflict == Some(ConflictState::Resolved)
-                    && (!c.deleted).then_some(&c.json) == theirs
-            });
-            let kind = diverges(p, theirs);
-            let file_wins = match wins {
-                FileWins::Never => false,
-                FileWins::Always => true,
-                FileWins::Diverged(n) => p.version <= n && !stands && kind.is_some(),
-            };
-            if !file_wins {
-                stats.records_preserved += 1;
-                if stands {
-                    continue;
-                }
-                match kind {
-                    Some(kind) => {
-                        tracing::warn!(
-                            file = file.rel_path, path, key, kind = ?kind,
-                            "file diverges from a pending edit; keeping both sides"
-                        );
-                        // With the record gone from the file, the conflict
-                        // row holds the value it dropped.
-                        let dropped = p.base_json.as_ref().unwrap_or(&p.json);
-                        refresh_conflict_row(
-                            tx,
-                            sync,
-                            at,
-                            TheirSide {
-                                json: theirs.unwrap_or(dropped),
-                                deleted: theirs.is_none(),
-                                commit_id: file.file_commit_id,
-                            },
-                            existing.as_ref(),
-                        )
-                        .await?;
-                        stats.conflicts.push(RecordConflict {
-                            file_path: file.rel_path.to_string(),
-                            path: path.clone(),
-                            key: key.clone(),
-                            kind,
-                            base_commit_id: p.base_commit_id.clone(),
-                            theirs: theirs.cloned(),
-                        });
-                    }
-                    None => drop_conflict_row(tx, sync, at, existing.as_ref()).await?,
-                }
-                continue;
-            }
-            tracing::info!(
-                file = file.rel_path,
-                path,
-                key,
-                "the file's value replaces a pending edit"
-            );
-            withdrawn = Some(p.key_id);
-            segments::remove_draft_row(tx, d, at).await?;
-            x = None;
-        }
-        drop_conflict_row(tx, sync, at, existing.as_ref()).await?;
-        let committed = chain.iter().find(|r| r.at() == at && !r.deleted);
-        // a value taken in from the file is the record git has at its
-        // place, else the draft's there unless git has it at another
-        // place, else a new one
-        let elsewhere: BTreeSet<i64> = DB::visible(tx, w, Scope::Chain, Filter::All)
-            .await?
-            .into_iter()
-            .filter(|r| !r.deleted && r.at() != at)
-            .map(|r| r.key_id)
-            .collect();
-        if let Some(r) = &x {
-            match committed {
-                Some(c) if c.key_id != r.key_id => {
-                    DB::set_key_id(tx, r.id, c.key_id).await?;
-                    segments::retag(tx, d, r.key_id, c.key_id).await?;
-                }
-                None if elsewhere.contains(&r.key_id) => {
-                    let fresh = segments::renew(tx, d, r).await?;
-                    x = DB::rows_in(tx, d, Some(file.rel_path), false)
-                        .await?
-                        .into_iter()
-                        .find(|y| y.key_id == fresh);
-                }
-                _ => {}
-            }
-        }
-        let withdrawn = withdrawn.filter(|id| !elsewhere.contains(id));
-        if theirs == committed.map(|c| &c.json) {
-            if x.is_some() {
-                segments::remove_draft_row(tx, d, at).await?;
-            }
-            continue;
-        }
-        if x.as_ref().map(|r| (!r.deleted).then_some(&r.json)) == Some(theirs) {
-            continue;
-        }
-        let version = DB::next_version(tx, sync.family_id(), 1).await?;
-        let value = match theirs {
-            Some(v) => Value::Live(v),
-            None => Value::Deleted,
-        };
-        let written = segments::write(
-            tx,
-            w,
-            at,
-            value,
-            Origin::File(file.record_commit_id),
-            committed.map(|c| c.key_id).or(withdrawn),
-            version,
-        )
-        .await?;
-        match theirs {
-            Some(v) => {
-                stats.records_upserted += 1;
-                let record = Record {
-                    id: written.key_id,
-                    worktree_id: w,
-                    file_path: file.rel_path.to_string(),
-                    path: path.clone(),
-                    key: key.clone(),
-                    commit_id: file.record_commit_id.map(str::to_string),
-                    json: v.clone(),
-                    deleted: false,
-                    version,
-                    conflict: None,
-                };
-                DB::replace_aliases(tx, written.id, &file.format.find_alias(&record)).await?;
-            }
-            None => stats.records_deleted += 1,
-        }
+        let theirs = records.values.get(&(path.clone(), key.clone()));
+        reconcile_key(tx, &scan, at, theirs, stats).await?;
     }
     DB::upsert_file(
         tx,
@@ -534,6 +442,210 @@ async fn reconcile_file<DB: Segments>(
     .await?;
     if disk.gone {
         DB::set_file_deleted(tx, w, file.rel_path, true).await?;
+    }
+    Ok(())
+}
+
+/// Take the file's value at `at`, `theirs`, into the draft: `None` where
+/// the file has no record there.
+async fn reconcile_key<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scan: &FileScan<'_>,
+    at: At<'_>,
+    theirs: Option<&serde_json::Value>,
+    stats: &mut SyncOutcome,
+) -> Result<()> {
+    let d = scan.d;
+    let existing = segments::conflict_row(tx, d, at).await?;
+    // the edit the file's value replaces: its record continues
+    let mut withdrawn = None;
+    let mut x = DB::rows_in(tx, d, Some(at.file_path), false)
+        .await?
+        .into_iter()
+        .find(|r| r.at() == at);
+    if let Some(p) = x.as_ref().filter(|x| x.is_edit()) {
+        match pending_edit(tx, scan, at, p, theirs, existing.as_ref(), stats).await? {
+            None => return Ok(()),
+            Some(key_id) => {
+                withdrawn = Some(key_id);
+                x = None;
+            }
+        }
+    }
+    drop_conflict_row(tx, scan.sync, at, existing.as_ref()).await?;
+    let committed = scan.chain.iter().find(|r| r.at() == at && !r.deleted);
+    // a value taken in from the file is the record git has at its
+    // place, else the draft's there unless git has it at another
+    // place, else a new one
+    let elsewhere: BTreeSet<i64> = scan
+        .live
+        .iter()
+        .filter(|r| r.at() != at)
+        .map(|r| r.key_id)
+        .collect();
+    if let Some(r) = x {
+        x = align_id(tx, d, r, committed, &elsewhere).await?;
+    }
+    let withdrawn = withdrawn.filter(|id| !elsewhere.contains(id));
+    if theirs == committed.map(|c| &c.json) {
+        if x.is_some() {
+            segments::remove_draft_row(tx, d, at).await?;
+        }
+        return Ok(());
+    }
+    if x.as_ref().map(|r| (!r.deleted).then_some(&r.json)) == Some(theirs) {
+        return Ok(());
+    }
+    let key_id = committed.map(|c| c.key_id).or(withdrawn);
+    take_in(tx, scan, at, theirs, key_id, stats).await
+}
+
+/// Decide pending edit `p` against the file's value `theirs`: it stands,
+/// keeping any divergence as a conflict row, unless the file has the last
+/// word ([`FileWins`]) and it's withdrawn. Returns a withdrawn edit's
+/// `key_id`.
+async fn pending_edit<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scan: &FileScan<'_>,
+    at: At<'_>,
+    p: &Row,
+    theirs: Option<&serde_json::Value>,
+    existing: Option<&Row>,
+    stats: &mut SyncOutcome,
+) -> Result<Option<i64>> {
+    let file = scan.file;
+    // A resolution the file hasn't moved under stands: the client
+    // already chose, and the next write applies it.
+    let stands = existing.is_some_and(|c| {
+        c.conflict == Some(ConflictState::Resolved) && (!c.deleted).then_some(&c.json) == theirs
+    });
+    let kind = diverges(p, theirs);
+    let file_wins = match scan.wins {
+        FileWins::Never => false,
+        FileWins::Always => true,
+        FileWins::Diverged(n) => p.version <= n && !stands && kind.is_some(),
+    };
+    if file_wins {
+        tracing::info!(
+            file = file.rel_path,
+            path = at.path,
+            key = at.key,
+            "the file's value replaces a pending edit"
+        );
+        segments::remove_draft_row(tx, scan.d, at).await?;
+        return Ok(Some(p.key_id));
+    }
+    stats.records_preserved += 1;
+    if stands {
+        return Ok(None);
+    }
+    match kind {
+        Some(kind) => {
+            tracing::warn!(
+                file = file.rel_path, path = at.path, key = at.key, kind = ?kind,
+                "file diverges from a pending edit; keeping both sides"
+            );
+            // With the record gone from the file, the conflict
+            // row holds the value it dropped.
+            let dropped = p.base_json.as_ref().unwrap_or(&p.json);
+            refresh_conflict_row(
+                tx,
+                scan.sync,
+                at,
+                TheirSide {
+                    json: theirs.unwrap_or(dropped),
+                    deleted: theirs.is_none(),
+                    commit_id: file.file_commit_id,
+                },
+                existing,
+            )
+            .await?;
+            stats.conflicts.push(RecordConflict {
+                file_path: file.rel_path.to_string(),
+                path: at.path.to_string(),
+                key: at.key.to_string(),
+                kind,
+                base_commit_id: p.base_commit_id.clone(),
+                theirs: theirs.cloned(),
+            });
+        }
+        None => drop_conflict_row(tx, scan.sync, at, existing).await?,
+    }
+    Ok(None)
+}
+
+/// Draft row `r` takes the id of the record git has at its place, or a new
+/// one where git has its record at another place. Returns the row as it
+/// now stands.
+async fn align_id<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    d: i64,
+    r: Row,
+    committed: Option<&Row>,
+    elsewhere: &BTreeSet<i64>,
+) -> Result<Option<Row>> {
+    match committed {
+        Some(c) if c.key_id != r.key_id => {
+            DB::set_key_id(tx, r.id, c.key_id).await?;
+            segments::retag(tx, d, r.key_id, c.key_id).await?;
+            Ok(Some(r))
+        }
+        None if elsewhere.contains(&r.key_id) => {
+            let fresh = segments::renew(tx, d, &r).await?;
+            Ok(DB::rows_in(tx, d, Some(&r.file_path), false)
+                .await?
+                .into_iter()
+                .find(|y| y.key_id == fresh))
+        }
+        _ => Ok(Some(r)),
+    }
+}
+
+/// Write the file's value at `at` into the draft as record `key_id`, a new
+/// one where that's `None`.
+async fn take_in<DB: Segments>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    scan: &FileScan<'_>,
+    at: At<'_>,
+    theirs: Option<&serde_json::Value>,
+    key_id: Option<i64>,
+    stats: &mut SyncOutcome,
+) -> Result<()> {
+    let sync = scan.sync;
+    let file = scan.file;
+    let version = DB::next_version(tx, sync.family_id(), 1).await?;
+    let value = match theirs {
+        Some(v) => Value::Live(v),
+        None => Value::Deleted,
+    };
+    let written = segments::write(
+        tx,
+        sync.worktree_id(),
+        at,
+        value,
+        Origin::File(file.record_commit_id),
+        key_id,
+        version,
+    )
+    .await?;
+    match theirs {
+        Some(v) => {
+            stats.records_upserted += 1;
+            let record = Record {
+                id: written.key_id,
+                worktree_id: sync.worktree_id(),
+                file_path: file.rel_path.to_string(),
+                path: at.path.to_string(),
+                key: at.key.to_string(),
+                commit_id: file.record_commit_id.map(str::to_string),
+                json: v.clone(),
+                deleted: false,
+                version,
+                conflict: None,
+            };
+            DB::replace_aliases(tx, written.id, &file.format.find_alias(&record)).await?;
+        }
+        None => stats.records_deleted += 1,
     }
     Ok(())
 }
