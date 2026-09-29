@@ -8,6 +8,8 @@ env:
   KOMPOSE_VERSION: v1.27.0 # sync with Dockerfile (first version with linux-arm64 binary)
   KUBECTL_VERSION: v1.24.2
   K3D_VERSION: v5.8.3
+  CARGO_LLVM_COV_VERSION: 0.8.7
+  CARGO_CRAP_VERSION: 0.2.1
 
 jobs:
   test:
@@ -81,8 +83,16 @@ jobs:
             sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
       - name: Install Tox and any other packages
         run: pip install tox==3.28.0
-      - name: Install oas3-gen
-        run: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
+      - name: Cache cargo-llvm-cov (py3.14 only)
+        id: cargo-llvm-cov
+        if: matrix.python == '3.14'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_LLVM_COV_VERSION }}
+      - name: Install cargo-llvm-cov (py3.14 only)
+        if: matrix.python == '3.14' && steps.cargo-llvm-cov.outputs.cache-hit != 'true'
+        run: cargo install cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION" --locked
       - name: Setup Rust coverage instrumentation (py3.14 only)
         # Build the rust extension (via tox's setup_rust) and the standalone
         # unfurl-server binary under `-C instrument-coverage`, so the Rust
@@ -90,7 +100,6 @@ jobs:
         # test_server*.py spawns, counts toward the `crap` job's gate.
         if: matrix.python == '3.14'
         run: |
-          cargo install cargo-llvm-cov --version 0.8.7 --locked
           cd rust
           cargo llvm-cov clean --workspace
           # show-env emits shell-style single-quoted values (KEY='val'); $GITHUB_ENV
@@ -161,7 +170,8 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
             toolchain: stable
-            components: clippy, llvm-tools-preview
+            # rustfmt: the build scripts regenerate their types only with it
+            components: clippy, llvm-tools-preview, rustfmt
       - name: Install valkey
         run: |
             sudo apt-get update -y
@@ -173,10 +183,24 @@ jobs:
             sudo systemctl start postgresql.service
             sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'postgres';"
             sudo -u postgres psql -c "CREATE DATABASE unfurl_test;"
-      - name: Install cargo tools
-        run: |
-          cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
-          cargo install cargo-llvm-cov --version 0.8.7 --locked
+      - name: Cache oas3-gen
+        id: oas3-gen
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/oas3-gen
+          key: oas3-gen-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('rust/server/.oas3-gen-version') }}
+      - name: Install oas3-gen
+        if: steps.oas3-gen.outputs.cache-hit != 'true'
+        run: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked
+      - name: Cache cargo-llvm-cov
+        id: cargo-llvm-cov
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-llvm-cov
+          key: cargo-llvm-cov-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_LLVM_COV_VERSION }}
+      - name: Install cargo-llvm-cov
+        if: steps.cargo-llvm-cov.outputs.cache-hit != 'true'
+        run: cargo install cargo-llvm-cov --version "$CARGO_LLVM_COV_VERSION" --locked
       - name: Configure git
         run: |
           git config --global user.email "unittest@onecommons.org"
@@ -184,6 +208,11 @@ jobs:
           git config --global init.defaultBranch main
       - name: Run cargo clippy
         run: cargo clippy --manifest-path rust/Cargo.toml --all-features --all-targets -- -D warnings
+      - name: Check the generated types are committed
+        # clippy ran the build scripts, which regenerated these from the
+        # OpenAPI spec and the cloudmap schema; every other build uses the
+        # committed copies
+        run: git diff --exit-code rust/server/src/unfurl_types.rs rust/git-sync/src/formats/cloudmap_types.rs rust/git-sync/src/formats/cloudmap_field_order.rs
       - name: Setup coverage instrumentation
         # The cargo test runs below build and run under `-C instrument-coverage`
         # for the `crap` job's gate.
@@ -225,8 +254,15 @@ jobs:
         uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
             toolchain: stable
+      - name: Cache cargo-crap
+        id: cargo-crap
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cargo/bin/cargo-crap
+          key: cargo-crap-${{ runner.os }}-${{ runner.arch }}-${{ env.CARGO_CRAP_VERSION }}
       - name: Install cargo-crap
-        run: cargo install cargo-crap --version 0.2.1 --locked
+        if: steps.cargo-crap.outputs.cache-hit != 'true'
+        run: cargo install cargo-crap --version "$CARGO_CRAP_VERSION" --locked
       - name: Download Rust coverage
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -522,12 +558,11 @@ jobs:
         CIBW_MUSLLINUX_X86_64_IMAGE: musllinux_1_2
         CIBW_MANYLINUX_AARCH64_IMAGE: quay.io/pypa/manylinux_2_28_aarch64:latest
         CIBW_MUSLLINUX_AARCH64_IMAGE: musllinux_1_2
-        # Version pinned in rust/server/.oas3-gen-version; enforced at
-        # compile time by rust/server/build.rs.
-        CIBW_BEFORE_BUILD: cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked && rustup component add rustfmt && rustup show
+        # No oas3-gen or rustfmt: the wheels build from the committed generated
+        # types, which the `rust` job checks are current.
+        CIBW_BEFORE_BUILD: rustup show
         CIBW_BEFORE_BUILD_LINUX: >
-          curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y && rustup component add rustfmt &&
-          cargo install oas3-gen --version "$(cat rust/server/.oas3-gen-version)" --locked &&
+          curl https://sh.rustup.rs -sSf | sh -s -- --profile=minimal -y &&
           rustup show
 
     - run: ${{ matrix.ls || 'ls -lh' }} dist/

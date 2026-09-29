@@ -10,9 +10,10 @@ RUN useradd --create-home --user-group unfurl
 
 COPY . /unfurl
 
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+# The minimal profile has no rustfmt, so the build scripts use the committed
+# generated types, which CI checks are current, rather than regenerating them.
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal && \
     . "$HOME/.cargo/env" && \
-    cargo install oas3-gen --version "$(cat /unfurl/rust/server/.oas3-gen-version)" --locked && \
     cargo build --release --manifest-path /unfurl/rust/Cargo.toml --package unfurl-server && \
     cp /unfurl/rust/target/release/unfurl-server /usr/local/bin/unfurl-server && \
     pip install --no-cache-dir /unfurl[server] && \
