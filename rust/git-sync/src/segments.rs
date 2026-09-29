@@ -675,7 +675,8 @@ async fn carried<DB: Segments>(
 }
 
 /// The rows whose value a commit of worktree `w`'s `files` changes: what
-/// its rollup names (§3.5). Those the fold carries, and conflict rows,
+/// its rollup names (§3.5), a deletion under the id of the record it
+/// deletes. Those the fold carries, and conflict rows,
 /// the file's value, which the commit carries at a key the fold leaves:
 /// each with the id [`scan_key`] gives its head row, the chain's live
 /// record at the key, else the draft's.
@@ -693,11 +694,17 @@ pub(crate) async fn changed<DB: Segments>(
         None => !x.deleted,
     };
     let draft = DB::rows_in(tx, d, None, false).await?;
-    let mut rows: Vec<Row> = carried(tx, d, files, watermark)
-        .await?
-        .into_iter()
-        .filter(|x| changes(x))
-        .collect();
+    let mut rows: Vec<Row> = Vec::new();
+    for mut x in carried(tx, d, files, watermark).await? {
+        if !changes(&x) {
+            continue;
+        }
+        // a deletion deletes the record the chain shows at the key
+        if let Some(shown) = live(&x).filter(|_| x.deleted) {
+            x.key_id = shown.key_id;
+        }
+        rows.push(x);
+    }
     for mut c in DB::rows_in(tx, d, None, true).await? {
         if !files.contains(&c.file_path) || !changes(&c) {
             continue;

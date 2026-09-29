@@ -16,3 +16,4 @@ cc c4ac984b9dfe51c958d56992f78fa5194d42f2e1e1810bffe2e9062e1b6e682f # shrinks to
 cc 71835f1ef018f4c1331bccb0b4ec7c8a96eaf04e6e646fbd44ad1b62f393acf5 # shrinks to ops = [Write(0, 3, true), Commit(0), Write(0, 0, false), Move(0, 0, false)]
 cc 14306194aede25e3cbaae77aef323c9b18f41209ff38be8af9ebd40f38b7b1ee # shrinks to ops = [Write(0, 4, true), External(0, [(4, true)]), Commit(0)]
 cc b1c12401cdc5219f6bf5b25ed9569fc9e51b6f17f178cdeb44035646f6d56818 # shrinks to ops = [Write(0, 3, true), Commit(0), DiskEdit(0, 4, false, Never), Write(0, 4, false), External(0, [(3, true)])]
+cc b4ab26fda3100abe819ec69fef8238536504523cacfec3156254b7d784961b34 # shrinks to ops = [Write(0, 2, true), External(0, [(2, true)]), Move(0, 5, false), DiskEdit(0, 2, true, Never), Commit(0)]

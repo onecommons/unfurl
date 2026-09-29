@@ -1905,3 +1905,16 @@ fn outside_delete_of_a_deleted_record_changes_nothing() {
         Op::External(0, vec![(3, true)]),
     ]);
 }
+
+/// A pending delete at a key another record has since moved to deletes
+/// that record, and the rollup names it.
+#[test]
+fn delete_at_a_key_a_record_moved_to_names_that_record() {
+    run(&[
+        Op::Write(0, 2, true),
+        Op::External(0, vec![(2, true)]),
+        Op::Move(0, 5, false),
+        Op::DiskEdit(0, 2, true, FileWins::Never),
+        Op::Commit(0),
+    ]);
+}
