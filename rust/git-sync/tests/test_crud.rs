@@ -12,7 +12,7 @@ mod common;
 
 #[cfg(feature = "postgres")]
 use common::pg_fixture;
-use common::{crud_test, git, head_commit_body, open_at, upsert_op};
+use common::{crud_test, file_backed_fixture, git, head_commit_body, open_at, upsert_op};
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
@@ -2582,14 +2582,6 @@ crud_test!(resync_deletes_missing_records);
 // These need two `SyncedRepo` handles sharing one database, so they use a
 // file-backed sqlite rather than the `:memory:` fixture, and run once
 // instead of through `crud_test!`.
-
-/// A repo seeded with the cloudmap fixture plus a sqlite file beside it.
-async fn file_backed_fixture() -> (TempDir, String) {
-    let tmp = tempfile::tempdir().expect("tempdir");
-    common::init_repo_with_fixture(tmp.path()).await;
-    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
-    (tmp, db)
-}
 
 /// One repository reached two ways is one worktree, not two.
 #[tokio::test]

@@ -130,6 +130,14 @@ pub(crate) struct NewRow<'a> {
     pub(crate) conflict: Option<ConflictState>,
 }
 
+/// A segment, and the commit whose state it ends at.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct SegmentEnd {
+    pub(crate) id: i64,
+    /// `None` for a new worktree's head, until its first scan.
+    pub(crate) head_commit: Option<String>,
+}
+
 /// A file row to record. `Some` on an optional field sets it; the
 /// working-tree side (`commit_id`, `source_oid`) and the committed side
 /// (`committed_oid`) are set by different passes of a scan.
@@ -407,18 +415,17 @@ pub(crate) trait Store: sqlx::Database + Sized {
         commit: &str,
     ) -> impl Future<Output = Result<i64>> + Send;
 
-    /// Each worktree of `family`'s head segment, and its head commit.
+    /// Each worktree of `family`'s head segment.
     fn family_heads(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
-    ) -> impl Future<Output = Result<Vec<(i64, Option<String>)>>> + Send;
+    ) -> impl Future<Output = Result<Vec<SegmentEnd>>> + Send;
 
-    /// Segment `top` and its ancestors, from `top` down: each one's id and
-    /// head commit.
+    /// Segment `top` and its ancestors, from `top` down.
     fn segment_chain(
         tx: &mut sqlx::Transaction<'_, Self>,
         top: i64,
-    ) -> impl Future<Output = Result<Vec<(i64, Option<String>)>>> + Send;
+    ) -> impl Future<Output = Result<Vec<SegmentEnd>>> + Send;
 
     /// C.17's structure: segment `s` ends at `commit` now, and a new
     /// segment above it takes its former end, role, children and place in
@@ -1139,7 +1146,7 @@ macro_rules! store_impl {
             async fn family_heads(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
-            ) -> Result<Vec<(i64, Option<String>)>> {
+            ) -> Result<Vec<SegmentEnd>> {
                 Ok(sqlx::query_as(sql!(
                     tx,
                     "SELECT s.id, s.head_commit FROM worktree w \
@@ -1154,7 +1161,7 @@ macro_rules! store_impl {
             async fn segment_chain(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 top: i64,
-            ) -> Result<Vec<(i64, Option<String>)>> {
+            ) -> Result<Vec<SegmentEnd>> {
                 Ok(sqlx::query_as(sql!(
                     tx,
                     "WITH RECURSIVE down(id, parent_id, head_commit, depth) AS ( \

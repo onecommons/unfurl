@@ -185,6 +185,14 @@ macro_rules! crud_test {
 }
 pub(crate) use crud_test;
 
+/// A repo seeded with the cloudmap fixture plus a sqlite file beside it.
+pub async fn file_backed_fixture() -> (TempDir, String) {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    init_repo_with_fixture(tmp.path()).await;
+    let db = format!("sqlite://{}?mode=rwc", tmp.path().join("sync.db").display());
+    (tmp, db)
+}
+
 /// Open a `SyncedRepo` over an existing directory and sqlite file.
 pub async fn open_at(dir: &std::path::Path, db: &str) -> SyncedRepo {
     SyncedRepo::open(

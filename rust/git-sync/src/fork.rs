@@ -31,8 +31,8 @@ fn at(p: &Place) -> At<'_> {
 enum Placement {
     /// At a segment whose state is HEAD's.
     At(i64),
-    /// Inside segment `s`, whose head commit is `h`.
-    Inside { s: i64, h: String },
+    /// Inside segment `s`, whose head commit is `h`, at commit `c`.
+    Inside { s: i64, h: String, c: String },
 }
 
 /// Find or create the worktree `(origin, branch)`, whose HEAD is `head`:
@@ -89,8 +89,8 @@ async fn fork_into<DB: Store>(
     let base = match place(&mut tx, history.repo(), family, head).await? {
         None => return Ok(None),
         Some(Placement::At(seg)) => seg,
-        Some(Placement::Inside { s, h }) => {
-            split(&mut tx, &mut history, family, s, head, &h).await?;
+        Some(Placement::Inside { s, h, c }) => {
+            split(&mut tx, &mut history, family, s, &c, &h).await?;
             s
         }
     };
@@ -99,10 +99,51 @@ async fn fork_into<DB: Store>(
     Ok(Some(id))
 }
 
+/// §4.6: where `head` falls in the family, else where its latest
+/// merge-base with the tracked heads does; the first scan brings a head
+/// placed there up to `head`.
+async fn place<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    repo: &gix::Repository,
+    family: i64,
+    head: &str,
+) -> Result<Option<Placement>> {
+    if let Some(placed) = place_commit(tx, repo, family, head).await? {
+        return Ok(Some(placed));
+    }
+    // Any common ancestor is a correct base: the first scan writes
+    // whatever differs from it. The best is the latest, since more of
+    // `head`'s history is then already the family's rows: the fork shares
+    // more of them, and its first scan writes less. So keep the merge-base
+    // with each tracked head that descends from the others found: the
+    // latest, on one line of history; across lines a merge joined, the
+    // first found, as correct if perhaps less shared.
+    let mut best: Option<String> = None;
+    for tracked in DB::family_heads(tx, family).await? {
+        let Some(h) = tracked.head_commit else {
+            continue;
+        };
+        let Some(base) = git::merge_base(repo, head, &h)? else {
+            continue;
+        };
+        let descends = match &best {
+            Some(b) => git::is_ancestor(repo, b, &base)?,
+            None => true,
+        };
+        if descends {
+            best = Some(base);
+        }
+    }
+    match best {
+        Some(base) => place_commit(tx, repo, family, &base).await,
+        None => Ok(None),
+    }
+}
+
 /// C.16: a segment ending at `c`, else the one `c` falls inside, down the
 /// chain of a tracked head `c` is an ancestor of; one whose first-parent
 /// history holds `c` first.
-async fn place<DB: Store>(
+async fn place_commit<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     repo: &gix::Repository,
     family: i64,
@@ -112,34 +153,39 @@ async fn place<DB: Store>(
         return Ok(Some(Placement::At(seg)));
     }
     let mut top: Option<(i64, bool)> = None;
-    for (seg, h) in DB::family_heads(tx, family).await? {
-        let Some(h) = h else { continue };
+    for tracked in DB::family_heads(tx, family).await? {
+        let Some(h) = tracked.head_commit else {
+            continue;
+        };
         if !git::is_ancestor(repo, c, &h)? {
             continue;
         }
         let first = git::first_parent_contains(repo, &h, c)?;
         if top.is_none_or(|(_, f)| first && !f) {
-            top = Some((seg, first));
+            top = Some((tracked.id, first));
         }
     }
     let Some((top, _)) = top else {
         return Ok(None);
     };
     let chain = DB::segment_chain(tx, top).await?;
-    for (i, (s, h)) in chain.iter().enumerate() {
-        let Some(h) = h else { continue };
+    for (i, seg) in chain.iter().enumerate() {
+        let Some(h) = &seg.head_commit else {
+            continue;
+        };
         if !git::is_ancestor(repo, c, h)? {
             continue;
         }
-        let below = chain.get(i + 1).and_then(|(_, b)| b.as_deref());
+        let below = chain.get(i + 1).and_then(|b| b.head_commit.as_deref());
         let in_below = match below {
             Some(b) => git::is_ancestor(repo, c, b)?,
             None => false,
         };
         if !in_below {
             return Ok(Some(Placement::Inside {
-                s: *s,
+                s: seg.id,
                 h: h.clone(),
+                c: c.to_string(),
             }));
         }
     }
@@ -180,8 +226,8 @@ async fn split<DB: Store>(
 ) -> Result<()> {
     let repo = history.repo();
     let chain = DB::segment_chain(tx, s).await?;
-    let parent = chain.get(1).map(|&(id, _)| id);
-    let below_commit = chain.get(1).and_then(|(_, hc)| hc.clone());
+    let parent = chain.get(1).map(|seg| seg.id);
+    let below_commit = chain.get(1).and_then(|seg| seg.head_commit.clone());
     let own = DB::rows_in(tx, s, None, false).await?;
     // written after `c`: by a commit `c` is an ancestor of
     let mut late: Vec<Row> = Vec::new();
@@ -346,7 +392,7 @@ async fn split<DB: Store>(
                 };
                 // it stands for a version older than anything a segment
                 // outside `s` and its ancestors holds there: each supersedes it
-                let lower: BTreeSet<i64> = chain.iter().map(|&(id, _)| id).collect();
+                let lower: BTreeSet<i64> = chain.iter().map(|seg| seg.id).collect();
                 let mut newer: BTreeMap<i64, i64> = BTreeMap::new();
                 for r in DB::rows_at(tx, family, a).await? {
                     if r.segment_id != s2 && !lower.contains(&r.segment_id) {
