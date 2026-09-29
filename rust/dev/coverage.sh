@@ -28,8 +28,11 @@
 #                 (e.g. produced by an earlier `cargo llvm-cov show-env`
 #                 + tox + cargo test sequence in CI), skip the build/run
 #                 step, and go straight to lcov export + crap.
+#   --lcov-dir DIR — gate the lcov reports in DIR (*.info) together, as
+#                 CI does with its tox and cargo test jobs' reports.
+#                 Duplicate records for a file combine as their union.
 #
-# Args: anything after `--report-only` (or all args in default mode) is
+# Args: anything after the mode (or all args in default mode) is
 # passed through to cargo crap. Defaults to `--top 30` when none are given.
 # Examples:
 #   ./rust/dev/coverage.sh
@@ -54,14 +57,21 @@ RAW_LCOV="$WORKSPACE_ROOT/target/lcov.raw.info"
 CLEAN_LCOV="$WORKSPACE_ROOT/target/lcov.clean.info"
 
 REPORT_ONLY=0
+LCOV_DIR=
 if [ "${1:-}" = "--report-only" ]; then
     REPORT_ONLY=1
     shift
+elif [ "${1:-}" = "--lcov-dir" ]; then
+    LCOV_DIR="$(cd "$2" && pwd)"
+    shift 2
 fi
 
 cd "$WORKSPACE_ROOT"
 
-if [ "$REPORT_ONLY" -eq 1 ]; then
+if [ -n "$LCOV_DIR" ]; then
+    echo "==> concatenating $LCOV_DIR/*.info"
+    cat "$LCOV_DIR"/*.info > "$RAW_LCOV"
+elif [ "$REPORT_ONLY" -eq 1 ]; then
     echo "==> cargo llvm-cov report (merging existing .profraw files)"
     cargo llvm-cov report --lcov --output-path "$RAW_LCOV"
 else
