@@ -365,6 +365,40 @@ pub(crate) trait Store: sqlx::Database + Sized {
         branch: &str,
     ) -> impl Future<Output = Result<i64>> + Send;
 
+    /// Take family `family`'s lock (§4.14): writes draw versions under it,
+    /// so a structural change doesn't interleave with one.
+    fn lock_family(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// The family of a worktree with origin `origin`, if there is one.
+    fn family_of_origin(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        origin: &str,
+    ) -> impl Future<Output = Result<Option<i64>>> + Send;
+
+    /// A segment of `family` whose state is `commit`'s (C.16), an internal
+    /// one first, since it needs no closing.
+    fn segment_ending_at(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        commit: &str,
+    ) -> impl Future<Output = Result<Option<i64>>> + Send;
+
+    /// C.13: create worktree `(origin, branch)` at `commit`, in `family`,
+    /// on segment `base`, whose state is `commit`'s. An open head that
+    /// isn't empty closes, its owner getting a new one above it; an empty
+    /// one isn't needed, and its parent is the base instead.
+    fn fork_at(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        base: i64,
+        origin: &str,
+        branch: &str,
+        commit: &str,
+    ) -> impl Future<Output = Result<i64>> + Send;
+
     /// Stamp the worktree's outstanding `txn` rows with the commit that
     /// carries their writes.
     fn stamp_txns(
@@ -860,6 +894,192 @@ macro_rules! store_impl {
                     .await?;
                 let sql = sql!(tx, "INSERT INTO worktree_segment (worktree_id, segment_id) VALUES (?1, ?2)",);
                 sqlx::query(&sql).bind(w).bind(ids[0]).execute(&mut **tx).await?;
+                Ok(w)
+            }
+
+            async fn lock_family(tx: &mut sqlx::Transaction<'_, Self>, family: i64) -> Result<()> {
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE version_seq SET next_version = next_version WHERE worktree_id = ?1"
+                ))
+                .bind(family)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
+            }
+
+            async fn family_of_origin(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                origin: &str,
+            ) -> Result<Option<i64>> {
+                let row: Option<(i64,)> = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT COALESCE(family_id, id) FROM worktree WHERE origin = ?1 ORDER BY id LIMIT 1"
+                ))
+                .bind(origin)
+                .fetch_optional(&mut **tx)
+                .await?;
+                Ok(row.map(|(f,)| f))
+            }
+
+            async fn segment_ending_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                commit: &str,
+            ) -> Result<Option<i64>> {
+                let row: Option<(i64,)> = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT id FROM segment \
+                     WHERE family_id = ?1 AND head_commit = ?2 AND kind <> 'draft' \
+                     ORDER BY CASE WHEN kind = 'internal' THEN 0 ELSE 1 END, id LIMIT 1"
+                ))
+                .bind(family)
+                .bind(commit)
+                .fetch_optional(&mut **tx)
+                .await?;
+                Ok(row.map(|(s,)| s))
+            }
+
+            async fn fork_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                base: i64,
+                origin: &str,
+                branch: &str,
+                commit: &str,
+            ) -> Result<i64> {
+                let (kind, parent, owner): (String, Option<i64>, Option<i64>) = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT kind, parent_id, owner_id FROM segment WHERE id = ?1"
+                ))
+                .bind(base)
+                .fetch_one(&mut **tx)
+                .await?;
+                let mut base = Some(base);
+                if let ("head", Some(owner)) = (kind.as_str(), owner) {
+                    // empty: no rows, and no entries hiding rows below
+                    let (empty,): (bool,) = sqlx::query_as(sql!(
+                        tx,
+                        "SELECT NOT EXISTS (SELECT 1 FROM record WHERE segment_id = ?1) \
+                            AND NOT EXISTS (SELECT 1 FROM superseded WHERE segment_id = ?1)"
+                    ))
+                    .bind(base)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    if empty {
+                        base = parent;
+                    } else {
+                        let (v,): (i64,) = sqlx::query_as(sql!(
+                            tx,
+                            "SELECT next_version FROM version_seq WHERE worktree_id = ?1"
+                        ))
+                        .bind(family)
+                        .fetch_one(&mut **tx)
+                        .await?;
+                        sqlx::query(sql!(
+                            tx,
+                            "UPDATE segment SET kind = 'internal', owner_id = NULL WHERE id = ?1"
+                        ))
+                        .bind(base)
+                        .execute(&mut **tx)
+                        .await?;
+                        let (head,): (i64,) = sqlx::query_as(sql!(
+                            tx,
+                            "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
+                             VALUES (?1, 'head', ?2, ?3, ?4) RETURNING id"
+                        ))
+                        .bind(family)
+                        .bind(base)
+                        .bind(commit)
+                        .bind(owner)
+                        .fetch_one(&mut **tx)
+                        .await?;
+                        sqlx::query(sql!(tx, "UPDATE worktree SET head_segment_id = ?2 WHERE id = ?1"))
+                            .bind(owner)
+                            .bind(head)
+                            .execute(&mut **tx)
+                            .await?;
+                        sqlx::query(sql!(
+                            tx,
+                            "INSERT INTO worktree_segment \
+                             (worktree_id, segment_id, added_version, inherited) \
+                             VALUES (?1, ?2, ?3, ?4)"
+                        ))
+                        .bind(owner)
+                        .bind(head)
+                        .bind(v)
+                        .bind(false)
+                        .execute(&mut **tx)
+                        .await?;
+                    }
+                }
+                let (w,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO worktree (origin, branch, family_id, commit_id) \
+                     VALUES (?1, ?2, ?3, ?4) RETURNING id"
+                ))
+                .bind(origin)
+                .bind(branch)
+                .bind(family)
+                .bind(commit)
+                .fetch_one(&mut **tx)
+                .await?;
+                let (head,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
+                     VALUES (?1, 'head', ?2, ?3, ?4) RETURNING id"
+                ))
+                .bind(family)
+                .bind(base)
+                .bind(commit)
+                .bind(w)
+                .fetch_one(&mut **tx)
+                .await?;
+                let (draft,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO segment (family_id, kind, owner_id) VALUES (?1, 'draft', ?2) RETURNING id"
+                ))
+                .bind(family)
+                .bind(w)
+                .fetch_one(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE worktree SET head_segment_id = ?2, draft_segment_id = ?3 WHERE id = ?1"
+                ))
+                .bind(w)
+                .bind(head)
+                .bind(draft)
+                .execute(&mut **tx)
+                .await?;
+                // the base and its ancestors, inherited, then its own head
+                if let Some(base) = base {
+                    sqlx::query(sql!(
+                        tx,
+                        "WITH RECURSIVE up(id) AS ( \
+                             SELECT CAST(?2 AS BIGINT) \
+                             UNION ALL \
+                             SELECT s.parent_id FROM segment s JOIN up ON s.id = up.id \
+                             WHERE s.parent_id IS NOT NULL) \
+                         INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited) \
+                         SELECT ?1, id, 0, ?3 FROM up"
+                    ))
+                    .bind(w)
+                    .bind(base)
+                    .bind(true)
+                    .execute(&mut **tx)
+                    .await?;
+                }
+                sqlx::query(sql!(
+                    tx,
+                    "INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited) \
+                     VALUES (?1, ?2, 0, ?3)"
+                ))
+                .bind(w)
+                .bind(head)
+                .bind(false)
+                .execute(&mut **tx)
+                .await?;
                 Ok(w)
             }
 

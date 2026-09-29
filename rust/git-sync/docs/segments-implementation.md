@@ -126,6 +126,40 @@ pub async fn delete_worktree(self) -> Result<()>;   // then compaction, C.14
 
 That replaces `test_crud.rs`'s raw `UPDATE worktree SET family_id`.
 
+Two entry points, each replacing what happens today:
+- **`open` of a worktree the database doesn't have** finds its family,
+  places HEAD (C.16), splitting a segment if HEAD falls inside one
+  (C.17), and forks there (C.13), where today it starts a family of its
+  own with an empty chain and scans everything. Opening the same origin
+  and branch again finds the existing row, as today.
+- **A scan whose HEAD doesn't descend from the recorded commit**
+  rebuilds (C.18) where today it applies the rewritten history as
+  changes on the old chain. A HEAD on another branch than the handle
+  was opened for is refused with `Error::BranchChanged`; reopening
+  forks or finds that branch's own worktree.
+
+```rust
+Error::BranchChanged { expected: String, found: String }
+Error::FamilyInUse          // deleting a family root other worktrees belong to
+```
+
+- **Structural operations take the family lock first** (§4.14):
+  `Store::lock_family`, `SELECT … FOR UPDATE` on Postgres and
+  `BEGIN IMMEDIATE` on SQLite. That covers fork, split, rebuild,
+  deletion, compaction, and the scan, which reads the chain before it
+  draws a version. The gix work stays outside the transaction.
+- **`git.rs` gains** `is_ancestor`, `merge_base`, `changed_paths` and
+  `first_parent_contains`. A tracked head whose commit this repository
+  doesn't have is skipped by placement, never an error.
+- **The rollup id reader comes forward from phase 4:** a split, a
+  rebuild and a scan give a new row the id the rollup of the commit that
+  set its value names, walked back through parents (§3.5, §4.9), as the
+  model does. Only rollups whose `Git-Sync-Database` is this database's
+  count. Walking merges made outside the database stays in phase 4.
+- **A GET with a `since_version` below the view's `reset_version`**
+  answers `409` with the code `RESET`, and the client re-reads, as
+  `list_changes` answers `Changes::Reset`.
+
 ### User branches and layered views (phase 3)
 
 ```rust
@@ -162,7 +196,7 @@ connection: a stack is named per request, as the server will name it.
 
 Today it silently writes branch B's content into A's worktree. With
 ancestry checked, a HEAD on another branch would rebuild A's chain as
-B. **Proposed:** the scan refuses with `Error::BranchChanged`, and the
+B. **Decided:** the scan refuses with `Error::BranchChanged`, and the
 caller reopens.
 
 ## 4. What's reused, replaced and added
@@ -236,6 +270,11 @@ Found while planning:
   reports them. Today a rename keeps the versions too.
 - **Deleting a worktree** is new; today only cascades would.
 - **A branch switch under an open handle is refused** (§3).
+- **Branches of one origin share rows, record ids and one version
+  counter,** and a fork whose history names a family joins it. Today
+  each branch is a family of its own, with its own ids.
+- **A rewritten HEAD rebuilds,** and a cursor from before it gets
+  `Changes::Reset`, or `409 RESET` from a GET with `since_version`.
 - **The paging cursor never holds a row id.** It's already
   `(path, key, file_path, worktree_id)`; Appendix C's C.4 and C.7 bind a
   row id, which an edit invalidates, and are corrected. In a layered
@@ -272,14 +311,15 @@ phase's behaviour changes applied.
    the rollup with ids; `Record::id` as `key_id`, through the server and
    Python. Operations: Write, Commit, External, DiskEdit, Resolve, Move.
 2. **Forks.** Placement, forks, splits, rebuild, deletion, compaction,
-   ancestry. Appendix C adds split and rebuild. Operations: Fork,
-   Rebuild, Delete.
+   ancestry, and the rollup id lookup through parents for this
+   database's rollups. Appendix C adds placement, split, rebuild and
+   deletion (C.16–C.19). Operations: Fork, Rebuild, Delete.
 3. **User branches.** `Layers`, publish. Appendix C adds publish's full
    classification and the re-link's tag for committed rows. Operations:
    NewUser, UserWrite, Publish.
-4. **Merges.** The rollup id lookup through parents; entries for a
-   version a merge brings back, with the base read from git. Operation:
-   Merge.
+4. **Merges.** The id lookup through merges made outside the
+   database; entries for a version a merge brings back, with the base
+   read from git. Operation: Merge.
 
 The server's HTTP surface for user branches follows phase 3, separately.
 

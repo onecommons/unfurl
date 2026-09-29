@@ -63,7 +63,7 @@ fn run(ops: &[Op]) {
             if !matches!(op, Op::External(..) | Op::Move(..) | Op::DiskEdit(..)) {
                 // a step that changed nothing on disk or in git is taken in
                 // by the next scan anyway: check it's a no-op
-                sql.scan(false);
+                sql.scan(before.w, false);
             }
             sql.check(&world, i + 1);
         }

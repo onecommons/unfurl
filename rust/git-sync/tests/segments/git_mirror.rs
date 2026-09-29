@@ -117,6 +117,8 @@ impl GitMirror {
         let root = tmp.path().join("main");
         std::fs::create_dir(&root).unwrap();
         git(&root, &["init", "-q", "-b", "main"], None);
+        // one origin for every checkout: they're branches of one repository
+        git(&root, &["remote", "add", "origin", "https://example.com/segtest.git"], None);
         GitMirror {
             tmp,
             root,

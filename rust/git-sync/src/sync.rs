@@ -258,7 +258,9 @@ impl SyncedRepo {
         // out of long-lived state.
         drop(repo);
 
-        let worktree_id = db::worktree::upsert(&db, &meta.origin, &meta.branch).await?;
+        let head = meta.head_oid.map(|o| o.to_string());
+        let worktree_id =
+            db::worktree::open(&db, &meta.origin, &meta.branch, head.as_deref()).await?;
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
 
         Ok(Self {
@@ -754,7 +756,7 @@ impl SyncedRepo {
     /// Parse `bytes` and classify the document via the registry.
     /// `Ok(None)` when no format claims it — the file is not one of
     /// ours and the scan moves on.
-    fn parse_and_detect(
+    pub(crate) fn parse_and_detect(
         &self,
         rel_path: &str,
         syntax: Syntax,

@@ -6,7 +6,10 @@ use crate::db::store::Store;
 use crate::db::Db;
 use crate::error::Result;
 
-/// Find or create the row for `(origin, branch)`.
+/// Find or create the row for `(origin, branch)`, whose HEAD is `head`.
+/// A new row joins the family of another branch of `origin` and forks at
+/// the segment whose state is `head`'s (§4.5, §4.6); otherwise it starts
+/// a family of its own.
 ///
 /// `origin` must already be [`crate::git::normalize_git_url_hard`]
 /// output — the match is an exact string compare, so a raw URL would
@@ -14,7 +17,7 @@ use crate::error::Result;
 /// its records and its version counter. Callers derive it via
 /// [`crate::git::worktree_meta`] rather than passing a remote URL
 /// through.
-pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
+pub(crate) async fn open(db: &Db, origin: &str, branch: &str, head: Option<&str>) -> Result<i64> {
     on_pool!(db, pool => {
         let row: Option<(i64,)> =
             sqlx::query_as(sql!(pool, "SELECT id FROM worktree WHERE origin = ?1 AND branch = ?2"))
@@ -26,7 +29,22 @@ pub(crate) async fn upsert(db: &Db, origin: &str, branch: &str) -> Result<i64> {
             return Ok(id);
         }
         let mut tx = pool.begin().await?;
-        let id = Store::create_worktree(&mut tx, origin, branch).await?;
+        let family = Store::family_of_origin(&mut tx, origin).await?;
+        let placed = match (family, head) {
+            (Some(family), Some(head)) => {
+                Store::lock_family(&mut tx, family).await?;
+                Store::segment_ending_at(&mut tx, family, head)
+                    .await?
+                    .map(|base| (family, base, head))
+            }
+            _ => None,
+        };
+        let id = match placed {
+            Some((family, base, head)) => {
+                Store::fork_at(&mut tx, family, base, origin, branch, head).await?
+            }
+            None => Store::create_worktree(&mut tx, origin, branch).await?,
+        };
         tx.commit().await?;
         Ok(id)
     })

@@ -6,7 +6,7 @@
 //! tracked files, derive `(origin, branch, head_oid)`, walk
 //! `git log -- <path>` lazily ([`last_commits_for_paths`]), and create
 //! a commit by overlaying blobs on top of the current HEAD tree.
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use gix::bstr::ByteSlice;
@@ -611,6 +611,160 @@ pub fn commit_message(repo: &gix::Repository, commit: &str) -> Option<String> {
     Some(commit.message_raw().ok()?.to_string())
 }
 
+/// `commit`, when this repository has it as a commit.
+fn present(repo: &gix::Repository, commit: &str) -> Result<Option<gix::ObjectId>> {
+    let Ok(oid) = gix::ObjectId::from_hex(commit.as_bytes()) else {
+        return Ok(None);
+    };
+    Ok(repo
+        .try_find_object(oid)
+        .map_err(git_err)?
+        .filter(|o| o.kind == gix::object::Kind::Commit)
+        .map(|_| oid))
+}
+
+fn parents(repo: &gix::Repository, oid: gix::ObjectId) -> Result<Vec<gix::ObjectId>> {
+    Ok(repo
+        .find_commit(oid)
+        .map_err(git_err)?
+        .parent_ids()
+        .map(|p| p.detach())
+        .collect())
+}
+
+/// `commit`'s parents, first parent first.
+pub fn commit_parents(repo: &gix::Repository, commit: &str) -> Result<Vec<String>> {
+    let oid = gix::ObjectId::from_hex(commit.as_bytes()).map_err(git_err)?;
+    Ok(parents(repo, oid)?
+        .into_iter()
+        .map(|p| p.to_string())
+        .collect())
+}
+
+/// Every commit reachable from `oid`, itself included.
+fn reachable(repo: &gix::Repository, oid: gix::ObjectId) -> Result<HashSet<gix::ObjectId>> {
+    let mut seen = HashSet::from([oid]);
+    let mut todo = vec![oid];
+    while let Some(c) = todo.pop() {
+        for p in parents(repo, c)? {
+            if seen.insert(p) {
+                todo.push(p);
+            }
+        }
+    }
+    Ok(seen)
+}
+
+/// Whether `ancestor` is `commit` or one of its ancestors. A commit this
+/// repository doesn't have is neither.
+pub fn is_ancestor(repo: &gix::Repository, ancestor: &str, commit: &str) -> Result<bool> {
+    let (Some(a), Some(c)) = (present(repo, ancestor)?, present(repo, commit)?) else {
+        return Ok(false);
+    };
+    Ok(reachable(repo, c)?.contains(&a))
+}
+
+/// Whether `commit` is on `head`'s first-parent history, `head` included.
+pub fn first_parent_contains(repo: &gix::Repository, head: &str, commit: &str) -> Result<bool> {
+    let (Some(mut at), Some(c)) = (present(repo, head)?, present(repo, commit)?) else {
+        return Ok(false);
+    };
+    loop {
+        if at == c {
+            return Ok(true);
+        }
+        match parents(repo, at)?.first() {
+            Some(&p) => at = p,
+            None => return Ok(false),
+        }
+    }
+}
+
+/// The best common ancestor of `a` and `b`: one no other common ancestor
+/// descends from, the newest where there are several (a criss-cross
+/// merge). `None` when they share no history, or this repository lacks
+/// either.
+pub fn merge_base(repo: &gix::Repository, a: &str, b: &str) -> Result<Option<String>> {
+    let (Some(a), Some(b)) = (present(repo, a)?, present(repo, b)?) else {
+        return Ok(None);
+    };
+    let of_a = reachable(repo, a)?;
+    // the common ancestors nearest b: stop at each, since what's below
+    // one isn't best
+    let mut found = Vec::new();
+    let mut seen = HashSet::from([b]);
+    let mut todo = std::collections::VecDeque::from([b]);
+    while let Some(c) = todo.pop_front() {
+        if of_a.contains(&c) {
+            found.push(c);
+            continue;
+        }
+        for p in parents(repo, c)? {
+            if seen.insert(p) {
+                todo.push_back(p);
+            }
+        }
+    }
+    let mut best = Vec::new();
+    for &c in &found {
+        let mut below_another = false;
+        for &other in found.iter().filter(|&&o| o != c) {
+            if reachable(repo, other)?.contains(&c) {
+                below_another = true;
+                break;
+            }
+        }
+        if !below_another {
+            let time = repo
+                .find_commit(c)
+                .map_err(git_err)?
+                .time()
+                .map_err(git_err)?;
+            best.push((time.seconds, c));
+        }
+    }
+    Ok(best.into_iter().max().map(|(_, c)| c.to_string()))
+}
+
+/// The paths of files that differ between commits `from` and `to`.
+pub fn changed_paths(repo: &gix::Repository, from: &str, to: &str) -> Result<Vec<String>> {
+    use gix::object::tree::diff::{change::Event, Action, Change};
+    let tree = |commit: &str| -> Result<gix::Tree<'_>> {
+        let oid = gix::ObjectId::from_hex(commit.as_bytes()).map_err(git_err)?;
+        repo.find_commit(oid)
+            .map_err(git_err)?
+            .tree()
+            .map_err(git_err)
+    };
+    let (old, new) = (tree(from)?, tree(to)?);
+    let mut paths = BTreeSet::new();
+    let mut visit =
+        |change: Change<'_, '_, '_>| -> std::result::Result<Action, std::convert::Infallible> {
+            let file = match change.event {
+                Event::Addition { entry_mode, .. } | Event::Deletion { entry_mode, .. } => {
+                    !entry_mode.is_tree()
+                }
+                Event::Modification {
+                    previous_entry_mode,
+                    entry_mode,
+                    ..
+                } => !entry_mode.is_tree() || !previous_entry_mode.is_tree(),
+                Event::Rewrite { .. } => true,
+            };
+            if file {
+                paths.insert(change.location.to_string());
+            }
+            Ok(Action::Continue)
+        };
+    let mut platform = old.changes().map_err(git_err)?;
+    platform.track_path();
+    platform.track_rewrites(None);
+    platform
+        .for_each_to_obtain_tree(&new, &mut visit)
+        .map_err(git_err)?;
+    Ok(paths.into_iter().collect())
+}
+
 /// Initialise a repository at `path` with an initial commit containing
 /// `files` (relative path → bytes). Returns the commit OID. Used by
 /// integration tests.
@@ -761,5 +915,139 @@ mod commit_tests {
                 .is_none(),
             "the emptied directory went too"
         );
+    }
+}
+
+#[cfg(test)]
+mod history_tests {
+    use super::*;
+
+    fn run(dir: &Path, args: &[&str]) -> String {
+        let out = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "commit.gpgsign=false",
+            ])
+            .args(args)
+            .current_dir(dir)
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8(out.stdout)
+            .expect("utf8")
+            .trim()
+            .to_string()
+    }
+
+    fn commit(dir: &Path, file: &str, text: &str) -> String {
+        if let Some(parent) = Path::new(file).parent() {
+            std::fs::create_dir_all(dir.join(parent)).expect("mkdir");
+        }
+        std::fs::write(dir.join(file), text).expect("write");
+        run(dir, &["add", "-A"]);
+        run(dir, &["commit", "-q", "-m", text]);
+        run(dir, &["rev-parse", "HEAD"])
+    }
+
+    /// main: root - m1 - merge(m1, f1); feature: root - f1; other: an
+    /// orphan with no shared history.
+    struct History {
+        _tmp: tempfile::TempDir,
+        repo: gix::Repository,
+        root: String,
+        m1: String,
+        f1: String,
+        merge: String,
+        orphan: String,
+    }
+
+    fn history() -> History {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        run(d, &["init", "-q", "-b", "main"]);
+        let root = commit(d, "a.yaml", "root");
+        run(d, &["checkout", "-q", "-b", "feature"]);
+        let f1 = commit(d, "b.yaml", "f1");
+        run(d, &["checkout", "-q", "main"]);
+        let m1 = commit(d, "a.yaml", "m1");
+        run(d, &["merge", "-q", "--no-ff", "-m", "merge", "feature"]);
+        let merge = run(d, &["rev-parse", "HEAD"]);
+        run(d, &["checkout", "-q", "--orphan", "other"]);
+        let orphan = commit(d, "c.yaml", "orphan");
+        let repo = open_repo(d).expect("open");
+        History {
+            _tmp: tmp,
+            repo,
+            root,
+            m1,
+            f1,
+            merge,
+            orphan,
+        }
+    }
+
+    const MISSING: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    #[test]
+    fn ancestry() {
+        let h = history();
+        assert!(is_ancestor(&h.repo, &h.root, &h.merge).unwrap());
+        assert!(is_ancestor(&h.repo, &h.f1, &h.merge).unwrap());
+        assert!(is_ancestor(&h.repo, &h.merge, &h.merge).unwrap());
+        assert!(!is_ancestor(&h.repo, &h.f1, &h.m1).unwrap());
+        assert!(!is_ancestor(&h.repo, &h.root, &h.orphan).unwrap());
+        assert!(!is_ancestor(&h.repo, MISSING, &h.merge).unwrap());
+        assert!(!is_ancestor(&h.repo, &h.root, MISSING).unwrap());
+    }
+
+    #[test]
+    fn first_parents() {
+        let h = history();
+        assert!(first_parent_contains(&h.repo, &h.merge, &h.m1).unwrap());
+        assert!(first_parent_contains(&h.repo, &h.merge, &h.root).unwrap());
+        assert!(!first_parent_contains(&h.repo, &h.merge, &h.f1).unwrap());
+        assert!(!first_parent_contains(&h.repo, &h.merge, MISSING).unwrap());
+    }
+
+    #[test]
+    fn merge_bases() {
+        let h = history();
+        assert_eq!(
+            merge_base(&h.repo, &h.m1, &h.f1).unwrap(),
+            Some(h.root.clone())
+        );
+        assert_eq!(
+            merge_base(&h.repo, &h.merge, &h.f1).unwrap(),
+            Some(h.f1.clone())
+        );
+        assert_eq!(
+            merge_base(&h.repo, &h.f1, &h.merge).unwrap(),
+            Some(h.f1.clone())
+        );
+        assert_eq!(merge_base(&h.repo, &h.merge, &h.orphan).unwrap(), None);
+        assert_eq!(merge_base(&h.repo, &h.merge, MISSING).unwrap(), None);
+    }
+
+    #[test]
+    fn changed_files() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let d = tmp.path();
+        run(d, &["init", "-q", "-b", "main"]);
+        commit(d, "keep.yaml", "same");
+        commit(d, "dir/edit.yaml", "before");
+        let from = commit(d, "dir/gone.yaml", "gone");
+        std::fs::remove_file(d.join("dir/gone.yaml")).expect("rm");
+        commit(d, "dir/edit.yaml", "after");
+        let to = commit(d, "new/added.yaml", "added");
+        let repo = open_repo(d).expect("open");
+        assert_eq!(
+            changed_paths(&repo, &from, &to).unwrap(),
+            vec!["dir/edit.yaml", "dir/gone.yaml", "new/added.yaml"]
+        );
+        assert!(changed_paths(&repo, &to, &to).unwrap().is_empty());
     }
 }

@@ -1918,3 +1918,22 @@ fn delete_at_a_key_a_record_moved_to_names_that_record() {
         Op::Commit(0),
     ]);
 }
+
+/// A fork at main's head shares main's rows: each side's edits and
+/// commits stay its own, and the rows below stay shared.
+#[test]
+fn fork_at_the_head_shares_the_rows_below() {
+    run(&[
+        Op::Write(0, 1, false),
+        Op::Commit(0),
+        Op::Fork(0, 0),
+        Op::Write(1, 1, false),
+        Op::Write(1, 4, true),
+        Op::Commit(1),
+        Op::Write(0, 1, false),
+        Op::Commit(0),
+        Op::Fork(1, 0),
+        Op::Write(2, 2, false),
+        Op::Commit(2),
+    ]);
+}

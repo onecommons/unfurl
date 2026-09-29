@@ -3,8 +3,8 @@
 // either shows: each worktree's view, its committed chain and its
 // conflicts, with `key_id`s compared through a bijection.
 //
-// Phase 1 of docs/segments-implementation.md: main alone, and the
-// operations on one worktree.
+// Phase 1 of docs/segments-implementation.md, the operations on one
+// worktree, and phase 2's so far: forks at a worktree's head.
 
 /// Whether the SQL side runs `op` yet.
 fn sql_supports(op: &Op) -> bool {
@@ -12,6 +12,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
+        Op::Fork(_, 0) => true,
         _ => false,
     }
 }
@@ -39,15 +40,28 @@ fn version_of(json: &serde_json::Value) -> Ver {
 struct Before {
     commits: usize,
     next_ver: Ver,
+    /// The worktree the op acts on, as the model picks it.
+    w: Wt,
     /// The key a Resolve picks, as the model picks it.
     resolve: Option<Key>,
 }
 
 impl Before {
     fn of(world: &World, op: &Op) -> Self {
+        let n = match *op {
+            Op::Write(n, ..)
+            | Op::Commit(n)
+            | Op::External(n, _)
+            | Op::Move(n, ..)
+            | Op::DiskEdit(n, ..)
+            | Op::Resolve(n, false, ..)
+            | Op::Fork(n, _) => Some(n),
+            _ => None,
+        };
+        let w = n.and_then(|n| world.pick(n, false)).unwrap_or(MAIN);
         let resolve = match *op {
             Op::Resolve(_, false, i, _) => {
-                let keys: Vec<Key> = world.model.wts[MAIN].conflicts.keys().copied().collect();
+                let keys: Vec<Key> = world.model.wts[w].conflicts.keys().copied().collect();
                 (!keys.is_empty()).then(|| keys[i as usize % keys.len()])
             }
             _ => None,
@@ -55,6 +69,7 @@ impl Before {
         Before {
             commits: world.git.commits.len(),
             next_ver: world.next_ver,
+            w,
             resolve,
         }
     }
@@ -68,6 +83,12 @@ enum Raw {
     Postgres(sqlx::PgPool, String),
 }
 
+fn formats() -> FormatRegistry {
+    let mut formats = FormatRegistry::new();
+    formats.register(SegTest);
+    formats
+}
+
 /// Postgres when `SEGMENTS_SQL_PG` and `UNFURL_TEST_PG_URL` are set.
 fn pg_url() -> Option<String> {
     std::env::var_os("SEGMENTS_SQL_PG").and(std::env::var("UNFURL_TEST_PG_URL").ok())
@@ -75,7 +96,9 @@ fn pg_url() -> Option<String> {
 
 struct SqlWorld {
     rt: tokio::runtime::Runtime,
-    main: SyncedRepo,
+    /// Each open worktree's handle, all on one database.
+    repos: BTreeMap<Wt, SyncedRepo>,
+    config: DbConfig,
     raw: Raw,
     _db: tempfile::TempDir,
     /// SQL `key_id` ↔ the in-memory implementation's.
@@ -90,9 +113,7 @@ impl SqlWorld {
             .build()
             .unwrap();
         let db = tempfile::tempdir().unwrap();
-        let (main, raw) = rt.block_on(async {
-            let mut formats = FormatRegistry::new();
-            formats.register(SegTest);
+        let (main, config, raw) = rt.block_on(async {
             let (config, raw) = match pg_url() {
                 #[cfg(feature = "postgres")]
                 Some(base) => {
@@ -113,15 +134,18 @@ impl SqlWorld {
                     (DbConfig::Sqlite { url }, Raw::Sqlite(pool))
                 }
             };
-            let main = SyncedRepo::open(&mirror.root, config, formats).await.unwrap();
+            let main = SyncedRepo::open(&mirror.root, config.clone(), formats())
+                .await
+                .unwrap();
             main.update_from_working_dir(ScanOptions::default())
                 .await
                 .unwrap();
-            (main, raw)
+            (main, config, raw)
         });
         SqlWorld {
             rt,
-            main,
+            repos: BTreeMap::from([(MAIN, main)]),
+            config,
             raw,
             _db: db,
             ids: BTreeMap::new(),
@@ -132,22 +156,23 @@ impl SqlWorld {
     /// The SQL side of `op`, which `world` has applied and `mirror` is
     /// about to take up: a commit is the implementation's to make.
     fn apply(&mut self, op: &Op, world: &World, mirror: &mut GitMirror, before: &Before) {
+        let w = before.w;
         match *op {
             Op::Write(_, k, deleted) => {
                 // a write the model made draws a version: its value's
                 if world.next_ver == before.next_ver {
                     return;
                 }
-                let d = &world.model.wts[MAIN].draft[&k];
+                let d = &world.model.wts[w].draft[&k];
                 let (file, path, key) = place(k);
                 self.rt.block_on(async {
                     if deleted {
-                        self.main
+                        self.repos[&w]
                             .delete_record(Some(&file), path, &key, None, false)
                             .await
                             .map(|_| ())
                     } else {
-                        self.main
+                        self.repos[&w]
                             .upsert_record(Some(&file), path, &key, value(d.ver), None, false)
                             .await
                             .map(|_| ())
@@ -158,11 +183,11 @@ impl SqlWorld {
             Op::Commit(_) => {
                 let made = self
                     .rt
-                    .block_on(self.main.commit_repository("commit"))
+                    .block_on(self.repos[&w].commit_repository("commit"))
                     .unwrap();
                 match (made, world.git.commits.len() > before.commits) {
                     (Some(oid), true) => {
-                        mirror.adopt(&world.git, MAIN, before.commits, &oid);
+                        mirror.adopt(&world.git, w, before.commits, &oid);
                         self.check_rollup(world, before.commits, &oid, mirror);
                     }
                     (None, false) => {}
@@ -173,18 +198,30 @@ impl SqlWorld {
                             .unwrap_or_default();
                         panic!(
                             "the implementation's commit: {made:?}\n{shown}\nmodel: {:?}",
-                            world.model.wts[MAIN].draft.keys().collect::<Vec<_>>()
+                            world.model.wts[w].draft.keys().collect::<Vec<_>>()
                         )
                     }
                 }
             }
             Op::External(..) | Op::Move(..) => {
                 mirror.sync(world);
-                self.scan(false);
+                self.scan(w, false);
             }
             Op::DiskEdit(_, _, _, wins) => {
                 mirror.sync(world);
-                self.scan(matches!(wins, FileWins::Always));
+                self.scan(w, matches!(wins, FileWins::Always));
+            }
+            Op::Fork(..) => {
+                // the new worktree's checkout, opened as the family's
+                mirror.sync(world);
+                let f = world.model.wts.len() - 1;
+                let dir = mirror.checkouts[&f].dir.clone();
+                let repo = self
+                    .rt
+                    .block_on(SyncedRepo::open(&dir, self.config.clone(), formats()))
+                    .unwrap();
+                self.repos.insert(f, repo);
+                self.scan(f, false);
             }
             Op::Resolve(_, _, _, ours) => {
                 let Some(k) = before.resolve else { return };
@@ -195,7 +232,7 @@ impl SqlWorld {
                     Resolution::Theirs
                 };
                 self.rt
-                    .block_on(self.main.resolve_conflict(&file, path, &key, resolution, None))
+                    .block_on(self.repos[&w].resolve_conflict(&file, path, &key, resolution, None))
                     .unwrap();
             }
             _ => unreachable!("unsupported ops aren't run"),
@@ -237,24 +274,24 @@ impl SqlWorld {
         }
     }
 
-    fn scan(&self, force: bool) {
+    fn scan(&self, w: Wt, force: bool) {
         self.rt
-            .block_on(self.main.update_from_working_dir(ScanOptions { force }))
+            .block_on(self.repos[&w].update_from_working_dir(ScanOptions { force }))
             .unwrap();
     }
 
-    /// Main's view: key → (version, key_id).
-    fn view(&self) -> BTreeMap<Key, (Ver, i64)> {
+    /// Worktree `w`'s view: key → (version, key_id).
+    fn view(&self, w: Wt) -> BTreeMap<Key, (Ver, i64)> {
         self.rt
-            .block_on(self.main.find_records(&RecordQuery::default()))
+            .block_on(self.repos[&w].find_records(&RecordQuery::default()))
             .unwrap()
             .into_iter()
             .map(|r| (key_of(&r.file_path, &r.key), (version_of(&r.json), r.id)))
             .collect()
     }
 
-    /// Main's committed chain, the same way.
-    fn chain(&self) -> BTreeMap<Key, (Ver, i64)> {
+    /// Worktree `w`'s committed chain, the same way.
+    fn chain(&self, w: Wt) -> BTreeMap<Key, (Ver, i64)> {
         let sql = "WITH v AS (SELECT segment_id FROM worktree_segment WHERE worktree_id = ?1) \
              SELECT r.file_path, r.key, json(r.json), r.key_id FROM record r \
              JOIN v ON v.segment_id = r.segment_id \
@@ -262,7 +299,7 @@ impl SqlWorld {
                AND NOT EXISTS (SELECT 1 FROM superseded x \
                                JOIN v vx ON vx.segment_id = x.segment_id \
                                WHERE x.record_id = r.id)";
-        let w = self.main.worktree_id();
+        let w = self.repos[&w].worktree_id();
         let rows: Vec<(String, String, String, i64)> = match &self.raw {
             Raw::Sqlite(pool) => self
                 .rt
@@ -284,10 +321,10 @@ impl SqlWorld {
             .collect()
     }
 
-    /// Main's conflicts: key → (the file's value, resolved).
-    fn conflicts(&self) -> BTreeMap<Key, (Option<Ver>, bool)> {
+    /// Worktree `w`'s conflicts: key → (the file's value, resolved).
+    fn conflicts(&self, w: Wt) -> BTreeMap<Key, (Option<Ver>, bool)> {
         self.rt
-            .block_on(self.main.list_conflicts(None))
+            .block_on(self.repos[&w].list_conflicts(None))
             .unwrap()
             .into_iter()
             .map(|r| {
@@ -300,19 +337,25 @@ impl SqlWorld {
 
     /// Compare `got`'s ids with the in-memory ones, extending the
     /// bijection with pairs not seen before.
-    fn same_ids(&mut self, what: &str, step: usize, got: &BTreeMap<Key, (Ver, i64)>, want: &BTreeMap<Key, (Ver, Ver)>) {
+    fn same_ids(
+        &mut self,
+        what: &str,
+        step: usize,
+        got: &BTreeMap<Key, (Ver, i64)>,
+        want: &BTreeMap<Key, (Ver, Ver)>,
+    ) {
         let versions = |m: &BTreeMap<Key, (Ver, i64)>| -> BTreeMap<Key, Ver> {
             m.iter().map(|(&k, &(v, _))| (k, v)).collect()
         };
         let want_versions: BTreeMap<Key, Ver> = want.iter().map(|(&k, &(v, _))| (k, v)).collect();
-        assert_eq!(versions(got), want_versions, "step {step}: main's {what}");
+        assert_eq!(versions(got), want_versions, "step {step}: {what}");
         for (k, &(_, sql)) in got {
             let imp = want[k].1;
             let a = *self.ids.entry(sql).or_insert(imp);
             let b = *self.back.entry(imp).or_insert(sql);
             assert!(
                 a == imp && b == sql,
-                "step {step}: main's {what} at key {k}: SQL id {sql} is in-memory {a}, and in-memory {imp} is SQL {b}"
+                "step {step}: {what} at key {k}: SQL id {sql} is in-memory {a}, and in-memory {imp} is SQL {b}"
             );
         }
     }
@@ -327,15 +370,14 @@ impl SqlWorld {
                 .map(|r| (r.key, (r.ver, r.id)))
                 .collect()
         };
-        let view = self.view();
-        self.same_ids("view", step, &view, &rows(imp.own_view(MAIN)));
-        let chain = self.chain();
-        self.same_ids("committed chain", step, &chain, &rows(imp.chain_set(MAIN)));
-        assert_eq!(
-            self.conflicts(),
-            imp.conflicts(MAIN),
-            "step {step}: main's conflicts"
-        );
+        let open: Vec<Wt> = self.repos.keys().copied().collect();
+        for w in open {
+            let view = self.view(w);
+            self.same_ids(&format!("worktree {w}'s view"), step, &view, &rows(imp.own_view(w)));
+            let chain = self.chain(w);
+            self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
+            assert_eq!(self.conflicts(w), imp.conflicts(w), "step {step}: worktree {w}'s conflicts");
+        }
     }
 }
 

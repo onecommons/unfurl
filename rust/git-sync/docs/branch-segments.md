@@ -2718,3 +2718,183 @@ WHERE e.segment_id = :d AND e.conflict IS NULL
    ```
 6. Then C.11 re-links the draft. `:b` gets a checkout and a
    `commit_repository`, and its old chain segments are left to C.14.
+
+### C.16 Placement
+
+The git work is outside the transaction ([§4.6](#46-placement)); these
+read what it needs, and what it finds.
+
+```sql
+-- the family a new worktree joins: another branch of its origin, else the
+-- family its history's Git-Sync-Family trailer names (the root's origin)
+SELECT family_id FROM worktree WHERE origin = :origin LIMIT 1;
+SELECT family_id FROM worktree WHERE origin = :family_origin AND id = family_id;
+
+-- case 1: a segment ending at :commit; an internal one needs no closing
+SELECT id, kind, owner_id
+FROM segment
+WHERE family_id = :family AND head_commit = :commit AND kind <> 'draft'
+ORDER BY kind = 'internal' DESC
+LIMIT 1;
+
+-- case 2: the tracked heads to test ancestry against, then
+SELECT w.id, s.id AS head, s.head_commit
+FROM worktree w
+JOIN segment s ON s.id = w.head_segment_id
+WHERE w.family_id = :family;
+
+-- one worktree's chain from its head down, to find the segment
+-- whose head commit :commit is an ancestor of and its parent's isn't
+WITH RECURSIVE down(id, parent_id, head_commit, depth) AS (
+    SELECT id, parent_id, head_commit, 0 FROM segment WHERE id = :head
+    UNION ALL
+    SELECT s.id, s.parent_id, s.head_commit, d.depth + 1
+    FROM segment s JOIN down d ON s.id = d.parent_id
+)
+SELECT id, head_commit FROM down ORDER BY depth;
+```
+
+### C.17 Split S at *c*
+
+In one transaction holding the family lock (§4.14). S is `:s`; the
+per-key cases of [§4.7](#47-splitting-a-segment) are decided in Rust from
+the tree diff between *c* and S's head commit, and each runs the
+statements named for it.
+
+```sql
+-- S2 takes over S's end: its head commit, and its role if S was a head
+INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id)
+SELECT family_id, kind, id, head_commit, owner_id FROM segment WHERE id = :s
+RETURNING id;                                   -- :s2
+
+UPDATE segment SET parent_id = :s2 WHERE parent_id = :s AND id <> :s2;
+UPDATE worktree SET head_segment_id = :s2 WHERE head_segment_id = :s;
+UPDATE segment SET kind = 'internal', owner_id = NULL, head_commit = :commit
+WHERE id = :s;
+
+-- every chain holding S holds S2, with S's flags
+INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited)
+SELECT worktree_id, :s2, added_version, inherited
+FROM worktree_segment WHERE segment_id = :s;
+
+-- a key whose value changed after c, where S has a row (:row): it moves
+UPDATE record SET segment_id = :s2 WHERE id = :row;
+
+-- and if the value at c isn't the one below S, S gets it (C.10's insert,
+-- into :s, with the entries on the rows below), which S2's row hides
+INSERT INTO superseded (record_id, segment_id, key_id)
+VALUES (:new, :s2, :key_id)
+ON CONFLICT DO NOTHING;
+
+-- otherwise the key didn't change before c, so S's entries on the rows
+-- below are S2's now
+UPDATE superseded SET segment_id = :s2
+WHERE segment_id = :s
+  AND record_id IN (SELECT id FROM record
+                    WHERE file_path = :file AND path = :path AND key = :key)
+  AND NOT EXISTS (SELECT 1 FROM superseded y
+                  WHERE y.record_id = superseded.record_id
+                    AND y.segment_id = :s2 AND y.key_id = superseded.key_id);
+DELETE FROM superseded
+WHERE segment_id = :s
+  AND record_id IN (SELECT id FROM record
+                    WHERE file_path = :file AND path = :path AND key = :key);
+
+-- a key that changed before c and back after it, where S has no row: S
+-- gets the value at c (:new, as above) and S2 a row restoring the value at
+-- h (:restored) over it; every segment outside S and its ancestors that
+-- holds the key, or an entry for it, hides the restored row
+INSERT INTO superseded (record_id, segment_id, key_id)
+VALUES (:new, :s2, :key_id)
+ON CONFLICT DO NOTHING;
+
+WITH RECURSIVE up(id) AS (
+    SELECT :s::bigint
+    UNION ALL
+    SELECT s.parent_id FROM segment s JOIN up ON s.id = up.id
+    WHERE s.parent_id IS NOT NULL
+)
+INSERT INTO superseded (record_id, segment_id, key_id)
+SELECT DISTINCT :restored, held.segment_id, held.key_id
+FROM (
+    SELECT segment_id, key_id FROM record
+    WHERE file_path = :file AND path = :path AND key = :key
+    UNION
+    SELECT x.segment_id, x.key_id FROM superseded x
+    JOIN record r ON r.id = x.record_id
+    WHERE r.file_path = :file AND r.path = :path AND r.key = :key
+) held
+WHERE held.segment_id <> :s2
+  AND held.segment_id NOT IN (SELECT id FROM up)
+ON CONFLICT DO NOTHING;
+```
+
+The new rows take ids by §4.7's order, the rollup's first; their
+`commit_id` is the file's last-touching commit at *c*.
+
+### C.18 Rebuild W onto a base
+
+In one transaction holding the family lock. The base segment `:base`
+comes from placement (C.16), the differences between the tree at the
+new HEAD and the base's state from the gix work outside it.
+
+```sql
+-- H' above the base; W's old head is left to compaction
+UPDATE segment SET kind = 'internal', owner_id = NULL WHERE id = :h;
+
+INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id)
+VALUES (:family, 'head', :base, :commit, :w)
+RETURNING id;                                   -- :h2
+
+-- W's chain: the base's ancestry, inherited, and H'
+DELETE FROM worktree_segment WHERE worktree_id = :w;
+
+WITH RECURSIVE up(id) AS (
+    SELECT :base::bigint
+    UNION ALL
+    SELECT s.parent_id FROM segment s JOIN up ON s.id = up.id
+    WHERE s.parent_id IS NOT NULL
+)
+INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited)
+SELECT :w, id, 0, TRUE FROM up;
+
+INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited)
+VALUES (:w, :h2, 0, FALSE);
+
+-- a segment left the chain, so rows only it added vanish untombstoned (I5)
+UPDATE worktree
+SET head_segment_id = :h2, commit_id = :commit,
+    reset_version = (SELECT next_version FROM version_seq
+                     WHERE worktree_id = :family)
+WHERE id = :w;
+
+-- then, per key where the tree at the new HEAD differs from the base's
+-- state, C.10 into :h2; the file rows' committed_oid from that tree; and
+-- C.11 to re-link the draft
+UPDATE file SET committed_oid = :blob
+WHERE worktree_id = :w AND path = :file;
+```
+
+### C.19 Delete a worktree
+
+In one transaction holding the family lock. A family root with other
+members is refused ([§4.13](#413-compaction-and-garbage-collection)):
+`version_seq` cascades from the worktree, and the members' segments and
+worktree rows reference it.
+
+```sql
+-- refused when this counts anything
+SELECT count(*) FROM worktree WHERE family_id = :w AND id <> :w;
+
+-- W's head and draft go with it (segment.owner_id cascades), and with them
+-- their rows, entries and aliases; a root alone takes its family's
+-- remaining segments first, since they reference its version_seq row
+DELETE FROM segment
+WHERE family_id = :w
+  AND NOT EXISTS (SELECT 1 FROM worktree o
+                  WHERE o.family_id = :w AND o.id <> :w);
+
+DELETE FROM worktree WHERE id = :w;
+
+-- then C.14, for internal segments no chain holds any more
+```
