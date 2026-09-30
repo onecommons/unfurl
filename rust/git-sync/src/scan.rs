@@ -174,7 +174,7 @@ impl HeadFile {
         }
     }
 
-    fn skips(&self, path: &str, key: &str) -> bool {
+    pub(crate) fn skips(&self, path: &str, key: &str) -> bool {
         self.skip_paths.contains(path)
             || self.rejected.contains(&(path.to_string(), key.to_string()))
     }

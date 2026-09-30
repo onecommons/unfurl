@@ -402,10 +402,19 @@ pub(crate) trait Store: sqlx::Database + Sized {
         commit: &str,
     ) -> impl Future<Output = Result<Option<i64>>> + Send;
 
+    /// Segment `base`, whose state is `commit`'s, made one to build on: an
+    /// open head that isn't empty closes, its owner getting a new one above
+    /// it; an empty one isn't needed, and its parent is the base instead.
+    fn prepare_base(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        base: i64,
+        commit: &str,
+    ) -> impl Future<Output = Result<Option<i64>>> + Send;
+
     /// C.13: create worktree `(origin, branch)` at `commit`, in `family`,
-    /// on segment `base`, whose state is `commit`'s. An open head that
-    /// isn't empty closes, its owner getting a new one above it; an empty
-    /// one isn't needed, and its parent is the base instead.
+    /// on segment `base`, whose state is `commit`'s, prepared by
+    /// [`Store::prepare_base`].
     fn fork_at(
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
@@ -458,6 +467,43 @@ pub(crate) trait Store: sqlx::Database + Sized {
         family: i64,
         at: At<'_>,
     ) -> impl Future<Output = Result<Vec<Row>>> + Send;
+
+    /// A new open head for worktree `owner`, above `parent`, at `commit`.
+    fn new_head(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        parent: Option<i64>,
+        commit: &str,
+        owner: i64,
+    ) -> impl Future<Output = Result<i64>> + Send;
+
+    /// The entries other worktrees' drafts than `w`'s hold on row `row`:
+    /// (draft, key_id).
+    fn draft_entries_on(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        row: i64,
+        w: i64,
+    ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
+
+    /// §4.8 step 5: draft `d`'s entries on worktree `w`'s chain rows at
+    /// keys the draft holds no row at.
+    fn drop_stale_entries(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        w: i64,
+        d: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// C.18's structure: worktree `w`'s chain is `base`'s ancestry and new
+    /// head `head` now, its old head closes, its commit is `commit`, and
+    /// cursors from before it reset (§4.10).
+    fn rechain(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+        w: i64,
+        base: Option<i64>,
+        head: i64,
+        commit: &str,
+    ) -> impl Future<Output = Result<()>> + Send;
 
     /// Stamp the worktree's outstanding `txn` rows with the commit that
     /// carries their writes.
@@ -1000,14 +1046,12 @@ macro_rules! store_impl {
                 Ok(row.map(|(s,)| s))
             }
 
-            async fn fork_at(
+            async fn prepare_base(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
                 base: i64,
-                origin: &str,
-                branch: &str,
                 commit: &str,
-            ) -> Result<i64> {
+            ) -> Result<Option<i64>> {
                 let (kind, parent, owner): (String, Option<i64>, Option<i64>) = sqlx::query_as(sql!(
                     tx,
                     "SELECT kind, parent_id, owner_id FROM segment WHERE id = ?1"
@@ -1015,7 +1059,7 @@ macro_rules! store_impl {
                 .bind(base)
                 .fetch_one(&mut **tx)
                 .await?;
-                let mut base = Some(base);
+                let mut prepared = Some(base);
                 if let ("head", Some(owner)) = (kind.as_str(), owner) {
                     // empty: no rows, and no entries hiding rows below
                     let (empty,): (bool,) = sqlx::query_as(sql!(
@@ -1027,7 +1071,7 @@ macro_rules! store_impl {
                     .fetch_one(&mut **tx)
                     .await?;
                     if empty {
-                        base = parent;
+                        prepared = parent;
                     } else {
                         let (v,): (i64,) = sqlx::query_as(sql!(
                             tx,
@@ -1073,6 +1117,18 @@ macro_rules! store_impl {
                         .await?;
                     }
                 }
+                Ok(prepared)
+            }
+
+            async fn fork_at(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                base: i64,
+                origin: &str,
+                branch: &str,
+                commit: &str,
+            ) -> Result<i64> {
+                let base = Self::prepare_base(tx, family, base, commit).await?;
                 let (w,): (i64,) = sqlx::query_as(sql!(
                     tx,
                     "INSERT INTO worktree (origin, branch, family_id, commit_id) \
@@ -1281,6 +1337,156 @@ macro_rules! store_impl {
                     .fetch_all(&mut **tx)
                     .await?;
                 rows.into_iter().map(to_row).collect()
+            }
+
+            async fn new_head(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                parent: Option<i64>,
+                commit: &str,
+                owner: i64,
+            ) -> Result<i64> {
+                let (id,): (i64,) = sqlx::query_as(sql!(
+                    tx,
+                    "INSERT INTO segment (family_id, kind, parent_id, head_commit, owner_id) \
+                     VALUES (?1, 'head', ?2, ?3, ?4) RETURNING id"
+                ))
+                .bind(family)
+                .bind(parent)
+                .bind(commit)
+                .bind(owner)
+                .fetch_one(&mut **tx)
+                .await?;
+                Ok(id)
+            }
+
+            async fn draft_entries_on(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                row: i64,
+                w: i64,
+            ) -> Result<Vec<(i64, i64)>> {
+                Ok(sqlx::query_as(sql!(
+                    tx,
+                    "SELECT x.segment_id, x.key_id FROM superseded x \
+                     JOIN segment s ON s.id = x.segment_id \
+                     WHERE x.record_id = ?1 AND s.kind = 'draft' AND s.owner_id <> ?2"
+                ))
+                .bind(row)
+                .bind(w)
+                .fetch_all(&mut **tx)
+                .await?)
+            }
+
+            async fn drop_stale_entries(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                w: i64,
+                d: i64,
+            ) -> Result<()> {
+                sqlx::query(sql!(
+                    tx,
+                    "DELETE FROM superseded WHERE segment_id = ?2 AND record_id IN ( \
+                         SELECT r.id FROM record r \
+                         JOIN worktree_segment ws ON ws.segment_id = r.segment_id \
+                         WHERE ws.worktree_id = ?1 AND NOT EXISTS ( \
+                             SELECT 1 FROM record x WHERE x.segment_id = ?2 \
+                             AND x.file_path = r.file_path AND x.path = r.path AND x.key = r.key))"
+                ))
+                .bind(w)
+                .bind(d)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
+            }
+
+            async fn rechain(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+                w: i64,
+                base: Option<i64>,
+                head: i64,
+                commit: &str,
+            ) -> Result<()> {
+                let (old, v): (i64, i64) = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT w.head_segment_id, q.next_version FROM worktree w \
+                     JOIN version_seq q ON q.worktree_id = ?2 WHERE w.id = ?1"
+                ))
+                .bind(w)
+                .bind(family)
+                .fetch_one(&mut **tx)
+                .await?;
+                // drawn, so a watermark read after the rebuild is at least
+                // the reset_version and isn't itself stale
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE version_seq SET next_version = next_version + 1 WHERE worktree_id = ?1"
+                ))
+                .bind(family)
+                .execute(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "WITH RECURSIVE up(id) AS ( \
+                         SELECT CAST(?2 AS BIGINT) WHERE ?2 IS NOT NULL \
+                         UNION ALL \
+                         SELECT s.parent_id FROM segment s JOIN up ON s.id = up.id \
+                         WHERE s.parent_id IS NOT NULL) \
+                     DELETE FROM worktree_segment \
+                     WHERE worktree_id = ?1 AND segment_id NOT IN (SELECT id FROM up)"
+                ))
+                .bind(w)
+                .bind(base)
+                .execute(&mut **tx)
+                .await?;
+                // the base's ancestry w doesn't hold, from another line of
+                // history, joins now
+                sqlx::query(sql!(
+                    tx,
+                    "WITH RECURSIVE up(id) AS ( \
+                         SELECT CAST(?2 AS BIGINT) WHERE ?2 IS NOT NULL \
+                         UNION ALL \
+                         SELECT s.parent_id FROM segment s JOIN up ON s.id = up.id \
+                         WHERE s.parent_id IS NOT NULL) \
+                     INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited) \
+                     SELECT ?1, id, ?3, ?4 FROM up WHERE id NOT IN \
+                         (SELECT segment_id FROM worktree_segment WHERE worktree_id = ?1)"
+                ))
+                .bind(w)
+                .bind(base)
+                .bind(v)
+                .bind(true)
+                .execute(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "INSERT INTO worktree_segment (worktree_id, segment_id, added_version, inherited) \
+                     VALUES (?1, ?2, ?3, ?4)"
+                ))
+                .bind(w)
+                .bind(head)
+                .bind(v)
+                .bind(false)
+                .execute(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE segment SET kind = 'internal', owner_id = NULL WHERE id = ?1"
+                ))
+                .bind(old)
+                .execute(&mut **tx)
+                .await?;
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE worktree SET head_segment_id = ?2, commit_id = ?3, reset_version = ?4 \
+                     WHERE id = ?1"
+                ))
+                .bind(w)
+                .bind(head)
+                .bind(commit)
+                .bind(v)
+                .execute(&mut **tx)
+                .await?;
+                Ok(())
             }
 
             async fn stamp_txns(

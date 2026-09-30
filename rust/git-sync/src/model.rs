@@ -147,7 +147,10 @@ pub struct RecordQuery {
     /// Also match a record one of whose [`Alias`] rows carries `key`.
     /// A no-op without `key`.
     pub alias: bool,
-    /// Only records whose `version` is greater than this.
+    /// Only records whose `version` is greater than this. Refused with
+    /// [`crate::Error::Reset`] below the view's `reset_version`, and with
+    /// [`crate::Error::CursorAcrossFamilies`] when [`Self::worktrees`]
+    /// spans version families.
     pub since_version: Option<i64>,
     /// Only records declaring one of these names as a key of their `type`
     /// object.

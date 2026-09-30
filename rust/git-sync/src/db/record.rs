@@ -167,6 +167,7 @@ pub(crate) async fn pending_bases(
 /// by [`subtypes`] and bound as a constant list: computed inside the
 /// statement, the planner can't estimate the list's size.
 pub(crate) async fn find(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<Vec<Record>> {
+    check_reset(db, worktree_id, query).await?;
     let expanded = with_subtypes(db, worktree_id, query).await?;
     let query = expanded.as_ref().unwrap_or(query);
     match db {
@@ -215,6 +216,83 @@ impl WorktreeScope {
             }
         }
     }
+}
+
+/// The highest `reset_version` of the worktrees in `scope`: a layered
+/// view resets when any of its worktrees does (§4.10).
+async fn reset_version(db: &Db, scope: &WorktreeScope) -> Result<i64> {
+    const SQL: &str = "SELECT COALESCE(MAX(reset_version), 0), \
+         COUNT(DISTINCT COALESCE(w.family_id, w.id)) FROM worktree w \
+         WHERE (CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
+           AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
+           AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3)";
+    let (reset_version, families): (i64, i64) = on_pool!(db, pool => {
+        sqlx::query_as(sql!(pool, SQL))
+            .bind(scope.id)
+            .bind(scope.origin.as_deref())
+            .bind(scope.branch.as_deref())
+            .fetch_one(pool)
+            .await?
+    });
+    one_family(families)?;
+    Ok(reset_version)
+}
+
+/// Versions are drawn per family, so a cursor means nothing across two.
+fn one_family(families: i64) -> Result<()> {
+    if families > 1 {
+        return Err(Error::CursorAcrossFamilies { families });
+    }
+    Ok(())
+}
+
+/// The highest version drawn so far by the families of the worktrees in
+/// the scope: a cursor that sees every row written after it.
+pub(crate) async fn watermark(
+    db: &Db,
+    worktree_id: i64,
+    filter: Option<&WorktreeFilter>,
+) -> Result<i64> {
+    const SQL: &str = "SELECT COALESCE(MAX(q.next_version), 1) - 1, \
+         COUNT(DISTINCT q.worktree_id) FROM worktree w \
+         JOIN version_seq q ON q.worktree_id = COALESCE(w.family_id, w.id) \
+         WHERE (CAST(?1 AS BIGINT) IS NULL OR w.id = ?1) \
+           AND (CAST(?2 AS TEXT) IS NULL OR w.origin = ?2) \
+           AND (CAST(?3 AS TEXT) IS NULL OR w.branch = ?3)";
+    let scope = WorktreeScope::new(worktree_id, filter);
+    let (watermark, families): (i64, i64) = on_pool!(db, pool => {
+        sqlx::query_as(sql!(pool, SQL))
+            .bind(scope.id)
+            .bind(scope.origin.as_deref())
+            .bind(scope.branch.as_deref())
+            .fetch_one(pool)
+            .await?
+    });
+    one_family(families)?;
+    Ok(watermark)
+}
+
+/// [`Error::Reset`] when `query.since_version` is below its view's
+/// `reset_version`.
+async fn check_reset(db: &Db, worktree_id: i64, query: &RecordQuery) -> Result<()> {
+    match query.since_version {
+        Some(since) => {
+            let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
+            check_since(db, &scope, since).await
+        }
+        None => Ok(()),
+    }
+}
+
+async fn check_since(db: &Db, scope: &WorktreeScope, since: i64) -> Result<()> {
+    let reset_version = reset_version(db, scope).await?;
+    if since < reset_version {
+        return Err(Error::Reset {
+            since,
+            reset_version,
+        });
+    }
+    Ok(())
 }
 
 /// The views of the worktrees in the [`WorktreeScope`] bound as
@@ -877,6 +955,7 @@ pub(crate) async fn facet(
     query: &RecordQuery,
     spec: &FacetSpec,
 ) -> Result<FacetRows> {
+    check_reset(db, worktree_id, query).await?;
     let expanded = with_subtypes(db, worktree_id, query).await?;
     let query = expanded.as_ref().unwrap_or(query);
     match db {
@@ -1547,6 +1626,9 @@ pub(crate) async fn list_changes(
     since: Option<i64>,
     include_conflicts: bool,
 ) -> Result<Vec<Record>> {
+    if let Some(since) = since {
+        check_since(db, &WorktreeScope::new(worktree_id, None), since).await?;
+    }
     on_pool!(db, pool => read(pool, async |tx| {
         let d = Store::segs(tx, worktree_id).await?.draft;
         let mut rows: Vec<Row> = match since {

@@ -12,7 +12,9 @@ mod common;
 
 #[cfg(feature = "postgres")]
 use common::pg_fixture;
-use common::{crud_test, file_backed_fixture, git, head_commit_body, open_at, upsert_op};
+use common::{
+    crud_test, file_backed_fixture, git, head_commit_body, open_at, upsert_op, DASHBOARD,
+};
 use tempfile::TempDir;
 #[cfg(feature = "postgres")]
 use unfurl_git_sync::DbConfig;
@@ -1278,6 +1280,46 @@ async fn list_changes_since_version(sync: &SyncedRepo, _tmp: &TempDir) {
         .is_empty());
 }
 
+/// A save that puts a record back where HEAD has it keeps what's only on
+/// disk: HEAD's bytes would drop the uncommitted comment.
+async fn a_save_back_to_head_keeps_an_uncommitted_comment(sync: &SyncedRepo, tmp: &TempDir) {
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let head = sync
+        .get_record("cloudmap.yaml", "/repositories", DASHBOARD)
+        .await
+        .expect("get")
+        .expect("seeded")
+        .json;
+    let file = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&file).expect("read");
+    let edited = text.replace("name: dashboard", "name: changed");
+    assert_ne!(
+        edited, text,
+        "fixture shape changed; the edit matched nothing"
+    );
+    std::fs::write(&file, format!("# my uncommitted note\n{edited}")).expect("write");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan the edit");
+
+    sync.upsert_record(
+        Some("cloudmap.yaml"),
+        "/repositories",
+        DASHBOARD,
+        head,
+        None,
+        false,
+    )
+    .await
+    .expect("write back");
+    sync.save_changes().await.expect("save");
+    let after = std::fs::read_to_string(&file).expect("read");
+    assert!(after.starts_with("# my uncommitted note\n"), "{after}");
+    assert!(after.contains("name: dashboard"), "{after}");
+}
+
 async fn default_file_path_set_on_first_update(sync: &SyncedRepo, _tmp: &TempDir) {
     // The fresh fixture has only `cloudmap.yaml`. After the first
     // `update_from_working_dir` run, that should become the default
@@ -2419,6 +2461,7 @@ crud_test!(pending_token_distinguishes_concurrent_updates);
 crud_test!(pending_token_survives_commit_roll_forward);
 crud_test!(list_changes_pending_only);
 crud_test!(list_changes_since_version);
+crud_test!(a_save_back_to_head_keeps_an_uncommitted_comment);
 crud_test!(default_file_path_set_on_first_update);
 crud_test!(crud_with_none_file_path_resolves_existing);
 crud_test!(crud_with_none_file_path_uses_default_for_new);

@@ -17,3 +17,7 @@ cc 71835f1ef018f4c1331bccb0b4ec7c8a96eaf04e6e646fbd44ad1b62f393acf5 # shrinks to
 cc 14306194aede25e3cbaae77aef323c9b18f41209ff38be8af9ebd40f38b7b1ee # shrinks to ops = [Write(0, 4, true), External(0, [(4, true)]), Commit(0)]
 cc b1c12401cdc5219f6bf5b25ed9569fc9e51b6f17f178cdeb44035646f6d56818 # shrinks to ops = [Write(0, 3, true), Commit(0), DiskEdit(0, 4, false, Never), Write(0, 4, false), External(0, [(3, true)])]
 cc b4ab26fda3100abe819ec69fef8238536504523cacfec3156254b7d784961b34 # shrinks to ops = [Write(0, 2, true), External(0, [(2, true)]), Move(0, 5, false), DiskEdit(0, 2, true, Never), Commit(0)]
+cc ceee1c21c5d98d4e60c0b9f4b8bfd1a976b1d4e1444101aaffa925009a2df2c8 # shrinks to ops = [Rebuild(0, 0, 0, false), DiskEdit(0, 3, false, Never), Write(0, 3, false), Rebuild(0, 0, 0, false)]
+cc 26b23975dea1bba9247c4f7b42307e3bfb8d3432bd0f1e3a40c23180cde477bd # shrinks to ops = [Fork(0, 0), External(5, [(1, true)]), Rebase(188, 0, 7, 1, false), Rebase(35, 0, 53, 2, false)]
+cc e4373688c28e85f1a7b15c04987eae3216b2a6832b8296e3fbaf673d0ddf97cb # shrinks to ops = [Write(0, 3, false), Fork(0, 0), Commit(2), Write(151, 0, false), Commit(109), Rebase(19, 0, 89, 0, false), Commit(49)]
+cc 08283cea10ea0a81a8fd79b94d96b17d1428f8cc09f4f29c577136e2aadedbb5 # shrinks to ops = [DiskEdit(0, 1, false, Never), Write(0, 0, false), Rebuild(0, 0, 3, false), Write(0, 1, true), Commit(0)]

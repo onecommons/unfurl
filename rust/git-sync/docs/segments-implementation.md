@@ -101,10 +101,14 @@ through the `crud_test!` matrix. Random runs are `#[ignore]`, sized by
 ### Changed signatures (phase 1)
 
 ```rust
-pub enum Changes { Records(Vec<Record>), Reset }   // §4.10
-pub async fn list_changes(&self, since: Option<i64>, include_conflicts: bool)
-    -> Result<Changes>;
+Error::Reset { since: i64, reset_version: i64 }   // §4.10
+pub async fn watermark(&self, worktrees: Option<&WorktreeFilter>) -> Result<i64>;
 ```
+
+`list_changes`, `find_records` and facets fail with `Error::Reset` given
+a `since_version` below the view's `reset_version`. `list_changes` has
+no caller outside the tests, so an error keeps one mechanism for every
+cursor read rather than a `Changes` enum for one of them.
 
 `TxnRecord` gains `key_id` and `file_path`, which the rollup lines now
 carry, and `CommitRollup` gains `database` and `records`, the records no
@@ -161,8 +165,14 @@ Error::FamilyInUse          // deleting a family root other worktrees belong to
   model does. Only rollups whose `Git-Sync-Database` is this database's
   count. Walking merges made outside the database stays in phase 4.
 - **A GET with a `since_version` below the view's `reset_version`**
-  answers `409` with the code `RESET`, and the client re-reads, as
-  `list_changes` answers `Changes::Reset`.
+  answers `409` with the code `RESET`, and the client re-reads. Every
+  GET carries `version`, the watermark read before its records, which is
+  the cursor a client resumes from: the highest record version it saw
+  can be below `reset_version` for good, since a rebuild mostly keeps old
+  rows. A rebuild draws the version it stores as `reset_version`, so a
+  watermark read after it is never stale. The Python proxy's `refresh()`
+  resumes from `version`, and on `RESET` replaces its cache with a whole
+  re-read, keeping staged writes.
 
 ### User branches and layered views (phase 3)
 
@@ -180,7 +190,7 @@ impl Layers {
     // on each row
     pub async fn find_records(&self, q: &RecordQuery) -> Result<Vec<LayeredRecord>>;
     pub async fn facet_records(&self, q: &RecordQuery, f: &FacetSpec) -> Result<FacetRows>;
-    pub async fn list_changes(&self, since: Option<i64>) -> Result<Changes>;
+    pub async fn list_changes(&self, since: Option<i64>) -> Result<Vec<LayeredRecord>>;
     // writes go into the top branch's draft, made through the stack (C.9)
     pub async fn apply_batch(&self, ops: Vec<BatchOp>, atomic: bool, meta: Option<TxnMeta>)
         -> Result<BatchOutcome>;
@@ -278,7 +288,7 @@ Found while planning:
   counter,** and a fork whose history names a family joins it. Today
   each branch is a family of its own, with its own ids.
 - **A rewritten HEAD rebuilds,** and a cursor from before it gets
-  `Changes::Reset`, or `409 RESET` from a GET with `since_version`.
+  `Error::Reset`, or `409 RESET` from a GET with `since_version`.
 - **The paging cursor never holds a row id.** It's already
   `(path, key, file_path, worktree_id)`; Appendix C's C.4 and C.7 bind a
   row id, which an edit invalidates, and are corrected. In a layered
@@ -352,7 +362,7 @@ How it differs from the plan:
   model's on every commit. The commit's own head rows read them first,
   as the model does (`file_deletion_under_an_edit_keeps_the_id`).
   Reading an earlier commit's, the lookup through a merge's parents, is
-  phase 4's. `list_changes`' Reset outcome goes to phase 2.
+  phase 4's. The Reset outcome goes to phase 2.
 
 Id rules the harness found, applied alike in the model, the in-memory
 implementation and SQL (branch-segments.md §4.3):
@@ -375,10 +385,12 @@ Behaviour changes, beyond §5's:
   comes in as committed, not as a pending edit.
 - **A forced scan leaves a taken-in tombstone** where the file lacks a
   record the database had.
-- **A no-op save doesn't rewrite the file.** And a save that leaves a
-  file's document as HEAD has it writes HEAD's bytes, so JSON's
+- **A no-op save doesn't rewrite the file.** And a save that renders to
+  what HEAD's own document renders to writes HEAD's bytes, so JSON's
   re-emitted formatting doesn't make a commit on its own
-  (`deleting_a_hand_edits_record_commits_nothing`).
+  (`deleting_a_hand_edits_record_commits_nothing`). A comment or prose
+  only on disk makes the two renders differ, so it's kept
+  (`a_save_back_to_head_keeps_an_uncommitted_comment`).
 - **Conflict rows are stamped by the fold** with the rest of the draft.
 - **A record's `unfurl.server.commit` is the last commit that changed
   it,** no longer restamped with every commit to its file. `GET

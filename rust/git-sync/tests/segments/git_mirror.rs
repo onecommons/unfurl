@@ -175,7 +175,14 @@ impl GitMirror {
                     keys_of(f).filter_map(|k| m.disk.get(&k).map(|&v| (k, v))).collect();
                 let now = std::fs::read_to_string(&path).ok().map(|t| parse_file(f, &t));
                 if now.as_ref() != Some(&want) {
-                    std::fs::write(path, file_json(&m.disk, f)).unwrap();
+                    // HEAD's own bytes where it's HEAD's content, as a
+                    // checkout writes them
+                    let spec = format!("{}:{}", self.oids[self.checkouts[&w].head], file_name(f));
+                    if parse_file(f, &git(&self.root, &["show", &spec], None)) == want {
+                        git(dir, &["checkout", "-q", "HEAD", "--", &file_name(f)], None);
+                    } else {
+                        std::fs::write(path, file_json(&m.disk, f)).unwrap();
+                    }
                 }
             }
         }

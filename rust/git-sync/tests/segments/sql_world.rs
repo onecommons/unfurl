@@ -4,7 +4,7 @@
 // conflicts, with `key_id`s compared through a bijection.
 //
 // Phase 1 of docs/segments-implementation.md, the operations on one
-// worktree, and phase 2's so far: forks.
+// worktree, and phase 2's so far: forks and rebuilds.
 
 /// Whether the SQL side runs `op` yet.
 fn sql_supports(op: &Op) -> bool {
@@ -12,7 +12,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
-        Op::Fork(..) => true,
+        Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) => true,
         _ => false,
     }
 }
@@ -55,7 +55,9 @@ impl Before {
             | Op::Move(n, ..)
             | Op::DiskEdit(n, ..)
             | Op::Resolve(n, false, ..)
-            | Op::Fork(n, _) => Some(n),
+            | Op::Fork(n, _)
+            | Op::Rebuild(n, ..)
+            | Op::Rebase(n, ..) => Some(n),
             _ => None,
         };
         let w = n.and_then(|n| world.pick(n, false)).unwrap_or(MAIN);
@@ -203,7 +205,7 @@ impl SqlWorld {
                     }
                 }
             }
-            Op::External(..) | Op::Move(..) => {
+            Op::External(..) | Op::Move(..) | Op::Rebuild(..) | Op::Rebase(..) => {
                 mirror.sync(world);
                 self.scan(w, false);
             }

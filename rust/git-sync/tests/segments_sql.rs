@@ -60,7 +60,14 @@ fn run(ops: &[Op]) {
         mirror.sync(&world);
         mirror.check(&world, i + 1);
         if let Some(sql) = &mut sql {
-            if !matches!(op, Op::External(..) | Op::Move(..) | Op::DiskEdit(..)) {
+            if !matches!(
+                op,
+                Op::External(..)
+                    | Op::Move(..)
+                    | Op::DiskEdit(..)
+                    | Op::Rebuild(..)
+                    | Op::Rebase(..)
+            ) {
                 // a step that changed nothing on disk or in git is taken in
                 // by the next scan anyway: check it's a no-op
                 sql.scan(before.w, false);
@@ -93,6 +100,12 @@ proptest! {
 
     #[test]
     #[ignore]
+    fn rebases_agree_with_the_implementation(ops in prop::collection::vec(rebase_op(), 1..60)) {
+        run(&ops);
+    }
+
+    #[test]
+    #[ignore]
     fn publishing_agrees_with_the_implementation(ops in prop::collection::vec(publish_op(), 1..16)) {
         run(&ops);
     }
@@ -111,6 +124,11 @@ proptest! {
 
     #[test]
     fn segments_regressions(ops in prop::collection::vec(op(), 1..60)) {
+        run(&ops);
+    }
+
+    #[test]
+    fn rebases_regressions(ops in prop::collection::vec(rebase_op(), 1..60)) {
         run(&ops);
     }
 

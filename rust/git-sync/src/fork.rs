@@ -5,19 +5,152 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
-use crate::db::store::{At, Filter, NewRow, Row, Scope, Store};
+use crate::db::store::{At, FileRow, Filter, NewRow, Row, Scope, Store};
 use crate::db::{self, on_pool, Db};
 use crate::error::Result;
 use crate::format::FormatRegistry;
 use crate::git;
 use crate::ids::History;
 use crate::rollup::parse_commit_rollup;
+use crate::scan::HeadFile;
+use crate::segments;
 
 /// A place in a file, owned.
 type Place = (String, String, String);
 
 fn place_of(r: &Row) -> Place {
     (r.file_path.clone(), r.path.clone(), r.key.clone())
+}
+
+/// The records of the tree at a commit, by place, less those their file
+/// rejects or skips.
+fn head_tree(files: &[HeadFile]) -> BTreeMap<Place, &serde_json::Value> {
+    files
+        .iter()
+        .flat_map(|f| {
+            f.records
+                .iter()
+                .filter(|(path, key, _)| !f.skips(path, key))
+                .map(|(path, key, v)| ((f.rel_path.clone(), path.clone(), key.clone()), v))
+        })
+        .collect()
+}
+
+/// Worktree `w`'s file rows at commit `n`. The scan that follows parses
+/// every file again: a reset that kept the working tree leaves it holding
+/// what the new chain doesn't, and the draft is classified again over the
+/// new chain (§4.8, step 5).
+async fn restamp_files<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    w: i64,
+    n: &str,
+    files: &[HeadFile],
+) -> Result<()> {
+    for f in files {
+        DB::upsert_file(
+            tx,
+            w,
+            &FileRow {
+                path: &f.rel_path,
+                format: &f.format,
+                commit_id: Some(Some(n)),
+                source_oid: Some(None),
+                committed_oid: Some(f.blob.as_deref()),
+            },
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// A rebuild under way: worktree `w`'s new head `head` at commit `n`, and
+/// the rows it's built from, by place.
+struct Rebuilt<'a> {
+    family: i64,
+    w: i64,
+    head: i64,
+    n: &'a str,
+    /// What `w` showed.
+    old: BTreeMap<Place, Vec<&'a Row>>,
+    /// The base's state.
+    view: BTreeMap<Place, Vec<&'a Row>>,
+    draft: BTreeMap<Place, Vec<&'a Row>>,
+    /// Ids the new tree keeps from the base.
+    taken: BTreeSet<i64>,
+}
+
+/// The new head's row at `p`, whose value at `n` is `want`: none where
+/// the base already holds it, and a tombstone where both lack it only
+/// while `w` showed a record there another worktree's draft holds.
+async fn rebuild_place<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    rb: &Rebuilt<'_>,
+    p: &Place,
+    want: Option<&serde_json::Value>,
+) -> Result<()> {
+    let below = live(&rb.view, p);
+    if want == below.map(|r| &r.json)
+        && (want.is_some()
+            || shown(&rb.old, p).is_none()
+            || !DB::held_elsewhere(tx, rb.w, at(p)).await?)
+    {
+        return Ok(());
+    }
+    // no rollup: the record the base shows continues, else the one `w`
+    // showed, else the draft's; for a deletion, the one it deletes
+    let key_id = match want {
+        Some(_) => below.map(|r| r.key_id).or_else(|| {
+            [live(&rb.old, p), shown(&rb.draft, p)]
+                .into_iter()
+                .flatten()
+                .map(|r| r.key_id)
+                .find(|id| !rb.taken.contains(id))
+        }),
+        None => shown(&rb.old, p).or(shown(&rb.view, p)).map(|r| r.key_id),
+    };
+    let (id, key_id) = insert(
+        tx,
+        rb.family,
+        rb.head,
+        SplitRow::value(at(p), want, key_id, rb.n),
+    )
+    .await?;
+    // other drafts' entries on what `w` showed there, where the content
+    // is the same: an edit made over it was made over the new row too
+    for r in rows_at(&rb.old, p) {
+        if (!r.deleted).then_some(&r.json) != want {
+            continue;
+        }
+        for (seg, tag) in DB::draft_entries_on(tx, r.id, rb.w).await? {
+            DB::entry(tx, id, seg, tag).await?;
+        }
+    }
+    for x in rows_at(&rb.view, p) {
+        DB::entry(tx, x.id, rb.head, key_id).await?;
+    }
+    Ok(())
+}
+
+/// `rows` by place, in their order.
+fn by_place(rows: &[Row]) -> BTreeMap<Place, Vec<&Row>> {
+    let mut at: BTreeMap<Place, Vec<&Row>> = BTreeMap::new();
+    for r in rows {
+        at.entry(place_of(r)).or_default().push(r);
+    }
+    at
+}
+
+fn rows_at<'i, 'a>(index: &'i BTreeMap<Place, Vec<&'a Row>>, p: &Place) -> &'i [&'a Row] {
+    index.get(p).map_or(&[], Vec::as_slice)
+}
+
+/// The first row at `p`: what the view shows there, a tombstone included.
+fn shown<'a>(index: &BTreeMap<Place, Vec<&'a Row>>, p: &Place) -> Option<&'a Row> {
+    rows_at(index, p).first().copied()
+}
+
+fn live<'a>(index: &BTreeMap<Place, Vec<&'a Row>>, p: &Place) -> Option<&'a Row> {
+    rows_at(index, p).iter().copied().find(|r| !r.deleted)
 }
 
 fn at(p: &Place) -> At<'_> {
@@ -43,7 +176,7 @@ enum Placement {
 /// names: a fork of another origin's.
 pub(crate) async fn open(
     db: &Db,
-    repo: &gix::Repository,
+    repo: gix::Repository,
     formats: &FormatRegistry,
     origin: &str,
     branch: &str,
@@ -57,7 +190,7 @@ pub(crate) async fn open(
         let mut tx = pool.begin().await?;
         let mut family = Store::family_of_origin(&mut tx, origin).await?;
         if let (None, Some(head)) = (family, head) {
-            if let Some(named) = named_family(repo, head)? {
+            if let Some(named) = named_family(&repo, head)? {
                 // the root's origin, so its own family
                 family = Store::family_of_origin(&mut tx, &named).await?;
             }
@@ -115,7 +248,7 @@ async fn fork_into<DB: Store>(
     let mut tx = pool.begin().await?;
     // before any read: SQLite can't take the write lock after one
     DB::lock_family(&mut tx, family).await?;
-    let base = match place(&mut tx, history.repo(), family, head).await? {
+    let base = match place(&mut tx, &mut history, family, head).await? {
         None => return Ok(None),
         Some(Placement::At(seg)) => seg,
         Some(Placement::Inside { s, h, c }) => {
@@ -133,11 +266,11 @@ async fn fork_into<DB: Store>(
 /// placed there up to `head`.
 async fn place<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    repo: &gix::Repository,
+    history: &mut History<'_>,
     family: i64,
     head: &str,
 ) -> Result<Option<Placement>> {
-    if let Some(placed) = place_commit(tx, repo, family, head).await? {
+    if let Some(placed) = place_commit(tx, history, family, head).await? {
         return Ok(Some(placed));
     }
     // Any common ancestor is a correct base: the first scan writes
@@ -152,11 +285,11 @@ async fn place<DB: Store>(
         let Some(h) = tracked.head_commit else {
             continue;
         };
-        let Some(base) = git::merge_base(repo, head, &h)? else {
+        let Some(base) = git::merge_base(history.repo(), head, &h)? else {
             continue;
         };
         let descends = match &best {
-            Some(b) => git::is_ancestor(repo, b, &base)?,
+            Some(b) => git::is_ancestor(history.repo(), b, &base)?,
             None => true,
         };
         if descends {
@@ -164,7 +297,7 @@ async fn place<DB: Store>(
         }
     }
     match best {
-        Some(base) => place_commit(tx, repo, family, &base).await,
+        Some(base) => place_commit(tx, history, family, &base).await,
         None => Ok(None),
     }
 }
@@ -174,7 +307,7 @@ async fn place<DB: Store>(
 /// history holds `c` first.
 async fn place_commit<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
-    repo: &gix::Repository,
+    history: &mut History<'_>,
     family: i64,
     c: &str,
 ) -> Result<Option<Placement>> {
@@ -186,10 +319,10 @@ async fn place_commit<DB: Store>(
         let Some(h) = tracked.head_commit else {
             continue;
         };
-        if !git::is_ancestor(repo, c, &h)? {
+        if !git::is_ancestor(history.repo(), c, &h)? {
             continue;
         }
-        let first = git::first_parent_contains(repo, &h, c)?;
+        let first = git::first_parent_contains(history.repo(), &h, c)?;
         if top.is_none_or(|(_, f)| first && !f) {
             top = Some((tracked.id, first));
         }
@@ -202,12 +335,12 @@ async fn place_commit<DB: Store>(
         let Some(h) = &seg.head_commit else {
             continue;
         };
-        if !git::is_ancestor(repo, c, h)? {
+        if !git::is_ancestor(history.repo(), c, h)? {
             continue;
         }
         let below = chain.get(i + 1).and_then(|b| b.head_commit.as_deref());
         let in_below = match below {
-            Some(b) => git::is_ancestor(repo, c, b)?,
+            Some(b) => git::is_ancestor(history.repo(), c, b)?,
             None => false,
         };
         if !in_below {
@@ -243,6 +376,20 @@ impl Key {
     }
 }
 
+/// A split under way (§4.7): `s`, whose head commit is `h`, ends at `c`,
+/// and `s2` above it holds the rest.
+struct Split<'a> {
+    family: i64,
+    s: i64,
+    s2: i64,
+    c: &'a str,
+    h: &'a str,
+    /// `s` and its ancestors.
+    lower: BTreeSet<i64>,
+    /// The head commit of the segment below `s`.
+    below_commit: Option<String>,
+}
+
 /// §4.7, C.17: segment `s`, whose head commit is `h`, ends at `c` instead,
 /// and a new segment above it holds the rest. Every view is unchanged.
 async fn split<DB: Store>(
@@ -253,27 +400,63 @@ async fn split<DB: Store>(
     c: &str,
     h: &str,
 ) -> Result<()> {
-    let repo = history.repo();
     let chain = DB::segment_chain(tx, s).await?;
     let parent = chain.get(1).map(|seg| seg.id);
-    let below_commit = chain.get(1).and_then(|seg| seg.head_commit.clone());
     let own = DB::rows_in(tx, s, None, false).await?;
-    // written after `c`: by a commit `c` is an ancestor of
-    let mut late: Vec<Row> = Vec::new();
-    for r in &own {
+    let late = written_after(history, &own, c)?;
+    let sp = Split {
+        family,
+        s,
+        s2: DB::split_segment(tx, s, c).await?,
+        c,
+        h,
+        lower: chain.iter().map(|seg| seg.id).collect(),
+        below_commit: chain.get(1).and_then(|seg| seg.head_commit.clone()),
+    };
+    let places = split_places(history, &late, c, h)?;
+    // the ids the tree at `c` keeps at the other places: taken
+    let state = DB::visible(tx, s, Scope::State, Filter::All).await?;
+    let kept: Vec<&Row> = state
+        .iter()
+        .filter(|r| !r.deleted && !places.contains(&place_of(r)))
+        .collect();
+    let mut taken: BTreeSet<i64> = kept.iter().map(|r| r.key_id).collect();
+    let keys = split_keys(tx, history, parent, &own, &places, c, &mut taken).await?;
+    let recovered = recover_ids(&sp, history, &keys, &late, &kept, &mut taken)?;
+    for (p, key) in &keys {
+        let id = recovered.get(p).copied();
+        match &key.own {
+            Some(own) => rewrite_own(tx, &sp, p, key, own, id).await?,
+            None => restore_below(tx, &sp, history, p, key, id).await?,
+        }
+    }
+    Ok(())
+}
+
+/// `own`'s rows written after `c`: by a commit `c` is an ancestor of.
+fn written_after(history: &History<'_>, own: &[Row], c: &str) -> Result<Vec<Row>> {
+    let mut late = Vec::new();
+    for r in own {
         if let Some(rc) = r.commit_id.as_deref() {
-            if rc != c && git::is_ancestor(repo, c, rc)? {
+            if rc != c && git::is_ancestor(history.repo(), c, rc)? {
                 late.push(r.clone());
             }
         }
     }
-    let s2 = DB::split_segment(tx, s, c).await?;
+    Ok(late)
+}
 
-    // places that can differ: in files that differ between `c` and `h`,
-    // and rows written after `c`, whatever their value, since a tombstone
-    // kept for another draft's key changes nothing in git
+/// The places that can differ between `c` and `h`: in files that differ,
+/// and rows written after `c`, whatever their value, since a tombstone
+/// kept for another draft's key changes nothing in git.
+fn split_places(
+    history: &mut History<'_>,
+    late: &[Row],
+    c: &str,
+    h: &str,
+) -> Result<BTreeSet<Place>> {
     let mut places: BTreeSet<Place> = late.iter().map(place_of).collect();
-    for file in git::changed_paths(repo, c, h)? {
+    for file in git::changed_paths(history.repo(), c, h)? {
         let (at_c, at_h) = (history.records(c, &file)?, history.records(h, &file)?);
         for (path, key) in at_c.keys().chain(at_h.keys()) {
             let k = (path.clone(), key.clone());
@@ -282,15 +465,21 @@ async fn split<DB: Store>(
             }
         }
     }
-    // the ids the tree at `c` keeps at the other places: taken
-    let state = DB::visible(tx, s, Scope::State, Filter::All).await?;
-    let kept: Vec<&Row> = state
-        .iter()
-        .filter(|r| !r.deleted && !places.contains(&place_of(r)))
-        .collect();
-    let mut taken: BTreeSet<i64> = kept.iter().map(|r| r.key_id).collect();
-    let mut keys: BTreeMap<Place, Key> = BTreeMap::new();
-    for p in &places {
+    Ok(places)
+}
+
+/// What the split knows of each place.
+async fn split_keys<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    history: &mut History<'_>,
+    parent: Option<i64>,
+    own: &[Row],
+    places: &BTreeSet<Place>,
+    c: &str,
+    taken: &mut BTreeSet<i64>,
+) -> Result<BTreeMap<Place, Key>> {
+    let mut keys = BTreeMap::new();
+    for p in places {
         let below = match parent {
             Some(parent) => DB::visible(tx, parent, Scope::State, Filter::At(at(p))).await?,
             None => Vec::new(),
@@ -311,9 +500,19 @@ async fn split<DB: Store>(
         }
         keys.insert(p.clone(), key);
     }
+    Ok(keys)
+}
 
-    // §4.7: the re-created rows' ids, strongest evidence first across all
-    // of them, each id once: rollup, move, continuing record, row below
+/// §4.7: the re-created rows' ids, strongest evidence first across all
+/// of them, each id once: rollup, move, continuing record, row below.
+fn recover_ids(
+    sp: &Split<'_>,
+    history: &mut History<'_>,
+    keys: &BTreeMap<Place, Key>,
+    late: &[Row],
+    kept: &[&Row],
+    taken: &mut BTreeSet<i64>,
+) -> Result<BTreeMap<Place, i64>> {
     let mut recovered: BTreeMap<Place, i64> = BTreeMap::new();
     for tier in 1..=4 {
         for (p, key) in keys.iter().filter(|(_, k)| k.recreated()) {
@@ -321,34 +520,13 @@ async fn split<DB: Store>(
                 continue;
             }
             let id = match tier {
-                1 => history.id(c, &p.0, &p.1, &p.2)?,
-                2 => late
-                    .iter()
-                    .find(|r| {
-                        r.file_path != p.0
-                            && (&r.path, &r.key) == (&p.1, &p.2)
-                            && !r.deleted
-                            && Some(&r.json) == key.v_c.as_ref()
-                    })
-                    .map(|r| r.key_id),
+                1 => history.id(sp.c, &p.0, &p.1, &p.2)?,
+                2 => moved_id(late, p, key),
                 3 => match &key.own {
-                    Some(r) if history.continuous(c, h, &p.0, &p.1, &p.2)? => Some(r.key_id),
+                    Some(r) if history.continuous(sp.c, sp.h, &p.0, &p.1, &p.2)? => Some(r.key_id),
                     _ => None,
                 },
-                _ => match key.below.first() {
-                    Some(b) if !b.deleted => {
-                        let moved = kept.iter().any(|r| place_of(r) != *p && r.json == b.json)
-                            || keys
-                                .iter()
-                                .any(|(q, k)| q != p && k.v_c.as_ref() == Some(&b.json));
-                        let held = match &below_commit {
-                            Some(bc) => history.continuous(bc, c, &p.0, &p.1, &p.2)?,
-                            None => true,
-                        };
-                        (!moved && held).then_some(b.key_id)
-                    }
-                    _ => None,
-                },
+                _ => below_id(sp, history, keys, kept, p, key)?,
             };
             if let Some(id) = id.filter(|id| !taken.contains(id)) {
                 taken.insert(id);
@@ -356,85 +534,137 @@ async fn split<DB: Store>(
             }
         }
     }
+    Ok(recovered)
+}
 
-    for (p, key) in &keys {
-        let a = at(p);
-        match &key.own {
-            Some(own) => {
-                DB::move_row(tx, own.id, s2).await?;
-                if key.recreated() {
-                    let new = insert(
-                        tx,
-                        family,
-                        s,
-                        SplitRow::value(a, key.v_c.as_ref(), recovered.get(p).copied(), c),
-                    )
-                    .await?;
-                    taken.insert(new.1);
-                    DB::entry(tx, new.0, s2, own.key_id).await?;
-                } else {
-                    DB::move_entries(tx, s, s2, a).await?;
-                }
-            }
-            None => {
-                // changed before `c` and back after it
-                let new = insert(
-                    tx,
-                    family,
-                    s,
-                    SplitRow::value(a, key.v_c.as_ref(), recovered.get(p).copied(), c),
-                )
-                .await?;
-                taken.insert(new.1);
-                for x in &key.below {
-                    DB::entry(tx, x.id, s, new.1).await?;
-                }
-                // `s` may hide the row below by an entry alone (a fold took
-                // the tombstone), so `s2` restores git's value at its end
-                let v_h = history.value(h, &p.0, &p.1, &p.2)?;
-                let copy = key
-                    .below
-                    .first()
-                    .filter(|b| (!b.deleted).then_some(&b.json) == v_h.as_ref());
-                let restored = match copy {
-                    Some(b) => {
-                        insert(
-                            tx,
-                            family,
-                            s2,
-                            SplitRow {
-                                at: a,
-                                json: &b.json,
-                                deleted: b.deleted,
-                                key_id: Some(b.key_id),
-                                commit: h,
-                            },
-                        )
-                        .await?
-                    }
-                    None => {
-                        let id = history
-                            .id(h, &p.0, &p.1, &p.2)?
-                            .or(key.below.first().map(|b| b.key_id));
-                        insert(tx, family, s2, SplitRow::value(a, v_h.as_ref(), id, h)).await?
-                    }
-                };
-                // it stands for a version older than anything a segment
-                // outside `s` and its ancestors holds there: each supersedes it
-                let lower: BTreeSet<i64> = chain.iter().map(|seg| seg.id).collect();
-                let mut newer: BTreeMap<i64, i64> = BTreeMap::new();
-                for r in DB::rows_at(tx, family, a).await? {
-                    if r.segment_id != s2 && !lower.contains(&r.segment_id) {
-                        newer.entry(r.segment_id).or_insert(r.key_id);
-                    }
-                }
-                for (seg, key_id) in newer {
-                    DB::entry(tx, restored.0, seg, key_id).await?;
-                }
-                DB::entry(tx, new.0, s2, restored.1).await?;
-            }
+/// The id of a row written after `c` in another file with the value at
+/// `c`: the record moved.
+fn moved_id(late: &[Row], p: &Place, key: &Key) -> Option<i64> {
+    late.iter()
+        .find(|r| {
+            r.file_path != p.0
+                && (&r.path, &r.key) == (&p.1, &p.2)
+                && !r.deleted
+                && Some(&r.json) == key.v_c.as_ref()
+        })
+        .map(|r| r.key_id)
+}
+
+/// The row below's id, unless its value moved elsewhere or the record
+/// didn't last from the segment below to `c`.
+fn below_id(
+    sp: &Split<'_>,
+    history: &mut History<'_>,
+    keys: &BTreeMap<Place, Key>,
+    kept: &[&Row],
+    p: &Place,
+    key: &Key,
+) -> Result<Option<i64>> {
+    let Some(b) = key.below.first().filter(|b| !b.deleted) else {
+        return Ok(None);
+    };
+    let moved = kept.iter().any(|r| place_of(r) != *p && r.json == b.json)
+        || keys
+            .iter()
+            .any(|(q, k)| q != p && k.v_c.as_ref() == Some(&b.json));
+    let held = match &sp.below_commit {
+        Some(bc) => history.continuous(bc, sp.c, &p.0, &p.1, &p.2)?,
+        None => true,
+    };
+    Ok((!moved && held).then_some(b.key_id))
+}
+
+/// A place `s` has a row at: the row moves to `s2`, and `s` gets one
+/// with the value at `c` where it differs.
+async fn rewrite_own<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sp: &Split<'_>,
+    p: &Place,
+    key: &Key,
+    own: &Row,
+    id: Option<i64>,
+) -> Result<()> {
+    let a = at(p);
+    DB::move_row(tx, own.id, sp.s2).await?;
+    if !key.recreated() {
+        DB::move_entries(tx, sp.s, sp.s2, a).await?;
+        return Ok(());
+    }
+    let new = insert(
+        tx,
+        sp.family,
+        sp.s,
+        SplitRow::value(a, key.v_c.as_ref(), id, sp.c),
+    )
+    .await?;
+    DB::entry(tx, new.0, sp.s2, own.key_id).await?;
+    Ok(())
+}
+
+/// A place changed before `c` and back after it: `s` gets the value at
+/// `c`, and `s2` restores the value at `h`.
+async fn restore_below<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    sp: &Split<'_>,
+    history: &mut History<'_>,
+    p: &Place,
+    key: &Key,
+    id: Option<i64>,
+) -> Result<()> {
+    let a = at(p);
+    let new = insert(
+        tx,
+        sp.family,
+        sp.s,
+        SplitRow::value(a, key.v_c.as_ref(), id, sp.c),
+    )
+    .await?;
+    for x in &key.below {
+        DB::entry(tx, x.id, sp.s, new.1).await?;
+    }
+    // `s` may hide the row below by an entry alone (a fold took the
+    // tombstone), so `s2` restores git's value at its end
+    let v_h = history.value(sp.h, &p.0, &p.1, &p.2)?;
+    let copy = key
+        .below
+        .first()
+        .filter(|b| (!b.deleted).then_some(&b.json) == v_h.as_ref());
+    let restored = match copy {
+        Some(b) => {
+            let row = SplitRow {
+                at: a,
+                json: &b.json,
+                deleted: b.deleted,
+                key_id: Some(b.key_id),
+                commit: sp.h,
+            };
+            insert(tx, sp.family, sp.s2, row).await?
+        }
+        None => {
+            let id = history
+                .id(sp.h, &p.0, &p.1, &p.2)?
+                .or(key.below.first().map(|b| b.key_id));
+            insert(
+                tx,
+                sp.family,
+                sp.s2,
+                SplitRow::value(a, v_h.as_ref(), id, sp.h),
+            )
+            .await?
+        }
+    };
+    // it stands for a version older than anything a segment outside `s`
+    // and its ancestors holds there: each supersedes it
+    let mut newer: BTreeMap<i64, i64> = BTreeMap::new();
+    for r in DB::rows_at(tx, sp.family, a).await? {
+        if r.segment_id != sp.s2 && !sp.lower.contains(&r.segment_id) {
+            newer.entry(r.segment_id).or_insert(r.key_id);
         }
     }
+    for (seg, key_id) in newer {
+        DB::entry(tx, restored.0, seg, key_id).await?;
+    }
+    DB::entry(tx, new.0, sp.s2, restored.1).await?;
     Ok(())
 }
 
@@ -492,4 +722,99 @@ async fn insert<DB: Store>(
         },
     )
     .await
+}
+
+/// §4.8, C.18: worktree `w`'s HEAD `n` doesn't descend from the commit its
+/// chain holds, after a rebase, reset or force-push: build its head again
+/// on the base placement finds, from `files`, every file of the tree at `n`.
+pub(crate) async fn rebuild(
+    db: &Db,
+    repo: gix::Repository,
+    formats: &FormatRegistry,
+    w: i64,
+    family: i64,
+    n: &str,
+    files: &[HeadFile],
+) -> Result<()> {
+    let database = db::commit::database_id(db).await?;
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        Store::lock_family(&mut tx, family).await?;
+        let mut history = History::new(formats, repo, database);
+        // a scan running alongside rebuilt first
+        if let Some(recorded) = Store::head_commit(&mut tx, w).await? {
+            if recorded == n || git::is_ancestor(history.repo(), &recorded, n)? {
+                return Ok(());
+            }
+        }
+        let base = match place(&mut tx, &mut history, family, n).await? {
+            None => None,
+            Some(Placement::At(seg)) => Store::prepare_base(&mut tx, family, seg, n).await?,
+            Some(Placement::Inside { s, h, c }) => {
+                split(&mut tx, &mut history, family, s, &c, &h).await?;
+                Some(s)
+            }
+        };
+        rebuild_on(&mut tx, family, w, base, n, files).await?;
+        tx.commit().await?;
+        Ok(())
+    })
+}
+
+/// The new head's rows: where the tree at `n` differs from `base`'s state,
+/// and a tombstone where `w` showed a record another draft still holds.
+async fn rebuild_on<DB: Store>(
+    tx: &mut sqlx::Transaction<'_, DB>,
+    family: i64,
+    w: i64,
+    base: Option<i64>,
+    n: &str,
+    files: &[HeadFile],
+) -> Result<()> {
+    let tree = head_tree(files);
+    let old = DB::visible(tx, w, Scope::Chain, Filter::All).await?;
+    let view = match base {
+        Some(b) => DB::visible(tx, b, Scope::State, Filter::All).await?,
+        None => Vec::new(),
+    };
+    let d = DB::segs(tx, w).await?.draft;
+    let draft = DB::rows_in(tx, d, None, false).await?;
+    let head = DB::new_head(tx, family, base, n, w).await?;
+    let rb = Rebuilt {
+        family,
+        w,
+        head,
+        n,
+        old: by_place(&old),
+        view: by_place(&view),
+        draft: by_place(&draft),
+        // the base's ids stay unique in the new tree
+        taken: view
+            .iter()
+            .filter(|r| !r.deleted && tree.contains_key(&place_of(r)))
+            .map(|r| r.key_id)
+            .collect(),
+    };
+    // a place its file rejects keeps the base's row, as a scan leaves one
+    let skipped = |(file, path, key): &Place| {
+        files
+            .iter()
+            .any(|f| f.rel_path == *file && f.skips(path, key))
+    };
+    let places: BTreeSet<Place> = tree
+        .keys()
+        .cloned()
+        .chain(view.iter().map(place_of))
+        .chain(old.iter().map(place_of))
+        .filter(|p| !skipped(p))
+        .collect();
+    for p in places {
+        rebuild_place(tx, &rb, &p, tree.get(&p).copied()).await?;
+    }
+    DB::rechain(tx, family, w, base, head, n).await?;
+    restamp_files(tx, w, n, files).await?;
+    segments::follow_records(tx, w).await?;
+    DB::drop_stale_entries(tx, w, d).await?;
+    segments::relink(tx, w).await?;
+    Ok(())
 }

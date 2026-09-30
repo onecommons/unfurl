@@ -35,6 +35,41 @@ pub enum Error {
     /// A schema migration failed.
     #[error("migration error: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// The working tree's HEAD is on another branch than the handle was
+    /// opened for: reopen to work on that branch.
+    #[error("the working tree moved from branch {expected} to {found}; reopen it")]
+    BranchChanged {
+        /// The branch the handle was opened for.
+        expected: String,
+        /// The branch HEAD is on now.
+        found: String,
+    },
+    /// A read's `since_version` is below the view's `reset_version`: rows
+    /// it saw may have left the view without a tombstone, so re-read it
+    /// whole.
+    #[error("since_version {since} is before the view was reset at {reset_version}; re-read it")]
+    Reset {
+        /// The cursor the read was given.
+        since: i64,
+        /// The view's `reset_version`.
+        reset_version: i64,
+    },
+    /// The working tree's HEAD is detached (a rebase or bisect in
+    /// progress, a commit checked out): scan again once a branch is.
+    #[error("the working tree's HEAD is detached; check out {branch} to scan it")]
+    Detached {
+        /// The branch the handle was opened for.
+        branch: String,
+    },
+    /// A `since_version` cursor, or a watermark, over worktrees of more
+    /// than one version family: their versions are separate counters.
+    #[error(
+        "a version cursor can't span {families} version families; narrow the read to one origin"
+    )]
+    CursorAcrossFamilies {
+        /// How many families the read's worktrees belong to.
+        families: i64,
+    },
     /// A `gitoxide` operation failed; the inner string is the
     /// upstream gix error formatted for display.
     #[error("git error: {0}")]

@@ -22,7 +22,7 @@ pub(crate) type Records = BTreeMap<(String, String), serde_json::Value>;
 /// each file blob, is read once.
 pub(crate) struct History<'s> {
     formats: &'s FormatRegistry,
-    repo: &'s gix::Repository,
+    repo: gix::Repository,
     database: String,
     trees: HashMap<String, HashMap<String, gix::ObjectId>>,
     blobs: HashMap<gix::ObjectId, Records>,
@@ -32,7 +32,7 @@ pub(crate) struct History<'s> {
 impl<'s> History<'s> {
     pub(crate) fn new(
         formats: &'s FormatRegistry,
-        repo: &'s gix::Repository,
+        repo: gix::Repository,
         database: String,
     ) -> Self {
         History {
@@ -61,7 +61,7 @@ impl<'s> History<'s> {
         let mut todo = vec![commit.to_string()];
         while let Some(at) = todo.pop() {
             let mut same = Vec::new();
-            for p in git::commit_parents(self.repo, &at)? {
+            for p in git::commit_parents(&self.repo, &at)? {
                 if self.value(&p, file, path, key)? == v {
                     same.push(p);
                 }
@@ -81,7 +81,7 @@ impl<'s> History<'s> {
     fn named(&mut self, commit: &str, file: &str, path: &str, key: &str) -> Result<Option<i64>> {
         if !self.rollups.contains_key(commit) {
             // a damaged rollup names nothing, like a commit without one
-            let rollup = git::commit_message(self.repo, commit)
+            let rollup = git::commit_message(&self.repo, commit)
                 .and_then(|m| parse_commit_rollup(&m).ok().flatten())
                 .filter(|r| r.database.as_deref() == Some(self.database.as_str()));
             self.rollups.insert(commit.to_string(), rollup);
@@ -116,15 +116,15 @@ impl<'s> History<'s> {
             if at == from {
                 return Ok(true);
             }
-            match git::commit_parents(self.repo, &at)?.into_iter().next() {
+            match git::commit_parents(&self.repo, &at)?.into_iter().next() {
                 Some(p) => at = p,
                 None => return Ok(false),
             }
         }
     }
 
-    pub(crate) fn repo(&self) -> &'s gix::Repository {
-        self.repo
+    pub(crate) fn repo(&self) -> &gix::Repository {
+        &self.repo
     }
 
     /// `file`'s records at `commit`: `(path, key)` → value.
@@ -155,7 +155,7 @@ impl<'s> History<'s> {
     /// the commit has no such file.
     fn load(&mut self, commit: &str, file: &str) -> Result<Option<gix::ObjectId>> {
         if !self.trees.contains_key(commit) {
-            let tree = git::tree_blobs(self.repo, commit)?;
+            let tree = git::tree_blobs(&self.repo, commit)?;
             self.trees.insert(commit.to_string(), tree);
         }
         let Some(&blob) = self.trees[commit].get(file) else {
@@ -172,7 +172,7 @@ impl<'s> History<'s> {
         let Some(syntax) = Syntax::for_extension(&extract_ext(file)) else {
             return Ok(Records::new());
         };
-        let bytes = git::read_blob(self.repo, &blob.to_string())?;
+        let bytes = git::read_blob(&self.repo, &blob.to_string())?;
         let mut ignored = SyncOutcome::default();
         let doc = parse_and_detect(self.formats, file, syntax, &bytes, &mut ignored)
             .ok()

@@ -159,6 +159,51 @@ async fn literate_markdown_updates_in_place(sync: &SyncedRepo, tmp: &TempDir) {
     );
 }
 
+/// A save that puts a record back where HEAD has it keeps prose that's
+/// only on disk: HEAD's bytes would drop it.
+async fn a_save_back_to_head_keeps_uncommitted_prose(sync: &SyncedRepo, tmp: &TempDir) {
+    seed_literate(tmp);
+    git(
+        tmp.path(),
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-qm",
+            "literate",
+        ],
+    );
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let head = org_record(sync).await;
+    let text = literate_on_disk(tmp);
+    let edited = text
+        .replace("    name: onecommons", "    name: renamed")
+        .replace(
+            "Prose explaining what this document is for.",
+            "Prose explaining what this document is for. An uncommitted note.",
+        );
+    assert_ne!(
+        edited, text,
+        "fixture shape changed; the edit matched nothing"
+    );
+    std::fs::write(tmp.path().join("cloudmap.md"), edited).expect("write");
+    sync.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan the edit");
+
+    sync.upsert_record(Some("cloudmap.md"), "/components", ORG, head, None, false)
+        .await
+        .expect("write back");
+    sync.save_changes().await.expect("save");
+    let after = literate_on_disk(tmp);
+    assert!(after.contains("An uncommitted note."), "{after}");
+    assert!(after.contains("    name: onecommons"), "{after}");
+}
+
 /// A *record* no block holds has nowhere to be placed, so it lands in a
 /// new fence at the end -- and the merged document then says what the
 /// database says.
@@ -396,6 +441,7 @@ async fn a_saved_document_matches_the_fixture(sync: &SyncedRepo, tmp: &TempDir) 
 crud_test!(a_saved_document_matches_the_fixture);
 crud_test!(literate_markdown_is_indexed);
 crud_test!(literate_markdown_updates_in_place);
+crud_test!(a_save_back_to_head_keeps_uncommitted_prose);
 crud_test!(literate_markdown_new_record_appends_a_fence);
 crud_test!(literate_markdown_delete_clears_every_block);
 crud_test!(literate_markdown_save_is_idempotent);

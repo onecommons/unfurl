@@ -843,7 +843,13 @@ It's also how a user's branch is rebased before it's published
    `inherited`) plus H′. The draft stays. Bump `worktree.reset_version`
    ([§4.10](#410-list_changes)).
 4. **Recompute the file rows'** `committed_oid` from the tree at *n*.
-5. **Re-link W's draft, then classify.** A draft row whose draft
+5. **Re-derive W's draft entries, then classify.** Drop the draft's
+   entries on the committed chain's rows at keys where the draft holds
+   no row. Made on W's old chain, or carried onto another line's row when
+   a record moved there (§3.5), they'd hide rows W's working tree still
+   has. Then re-link ([C.11](#c11-re-link-a-worktrees-draft)), which
+   derives the ones the draft still needs, a client edit's hidden copy of
+   a moved record included. A draft row whose draft
    already supersedes the row now visible for its key needs no check.
    Rows never change (§3.4), so that entry proves the edit was made on
    top of this exact version. Only the other rows get today's three-way
@@ -2409,6 +2415,18 @@ from git, has it, as §4.3 describes.
 ### C.11 Re-link a worktree's draft
 
 This runs after a scan, a rebuild or a split changes W's committed chain.
+A rebuild first drops the entries the draft has no row to justify
+([§4.8](#48-rebuilding-after-a-rewrite), step 5):
+
+```sql
+DELETE FROM superseded WHERE segment_id = :d AND record_id IN (
+  SELECT r.id FROM record r
+  JOIN worktree_segment ws ON ws.segment_id = r.segment_id
+  WHERE ws.worktree_id = :w
+    AND NOT EXISTS (SELECT 1 FROM record x WHERE x.segment_id = :d
+                    AND x.file_path = r.file_path AND x.path = r.path
+                    AND x.key = r.key));
+```
 
 ```sql
 -- the committed chain's row at each key the draft holds, tagged with the

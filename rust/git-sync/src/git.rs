@@ -174,6 +174,9 @@ fn lexical_abspath(path: &str) -> String {
     format!("/{}", parts.join("/"))
 }
 
+/// [`WorktreeMeta::branch`] of a detached HEAD.
+pub const DETACHED: &str = "HEAD";
+
 /// Resolve `(origin, branch, head_oid)` for a freshly-opened repo. Falls
 /// back to the working-dir path when no remote is configured.
 ///
@@ -198,7 +201,7 @@ pub fn worktree_meta(repo: &gix::Repository) -> Result<WorktreeMeta> {
 
     let branch = match repo.head().map_err(git_err)?.referent_name() {
         Some(r) => r.shorten().to_string(),
-        None => "HEAD".to_string(),
+        None => DETACHED.to_string(),
     };
 
     let head_oid = repo.head_id().ok().map(|id| id.detach());
@@ -661,7 +664,19 @@ pub fn is_ancestor(repo: &gix::Repository, ancestor: &str, commit: &str) -> Resu
     let (Some(a), Some(c)) = (present(repo, ancestor)?, present(repo, commit)?) else {
         return Ok(false);
     };
-    Ok(reachable(repo, c)?.contains(&a))
+    let mut seen = HashSet::from([c]);
+    let mut todo = vec![c];
+    while let Some(at) = todo.pop() {
+        if at == a {
+            return Ok(true);
+        }
+        for p in parents(repo, at)? {
+            if seen.insert(p) {
+                todo.push(p);
+            }
+        }
+    }
+    Ok(false)
 }
 
 /// Whether `commit` is on `head`'s first-parent history, `head` included.

@@ -31,6 +31,10 @@ enum Op {
     /// A rewrite (rebase, reset, force-push): a worktree's HEAD moves to a
     /// new commit on top of an older segment, with one key changed.
     Rebuild(u8, u8, Key, bool),
+    /// A rewrite onto another worktree's line (a rebase onto its later
+    /// commits): `.0`'s HEAD moves to a new commit on top of a segment of
+    /// `.1`'s chain, `.2` from its root, head included.
+    Rebase(u8, u8, u8, Key, bool),
     /// A commit made outside the database moving a record to the other
     /// file, edited too with `.2`, then scanned.
     Move(u8, Key, bool),
@@ -86,6 +90,20 @@ fn merge_op(key: std::ops::Range<Key>) -> impl Strategy<Value = Op> {
         prop::collection::vec((key, prop::bool::weighted(0.2)), 0..2),
     )
         .prop_map(|(w, s, kind, picks, extra)| Op::Merge(w, s, kind, picks, extra))
+}
+
+/// [`op`] with rewrites onto other worktrees' lines, kept out of it so
+/// the seeds saved under it replay the same histories. Weighted toward
+/// what a rebase needs: forks, and commits on both lines.
+fn rebase_op() -> impl Strategy<Value = Op> {
+    prop_oneof![
+        3 => op(),
+        3 => (any::<u8>(), 0..KEYS, prop::bool::weighted(0.2)).prop_map(|(w, k, d)| Op::Write(w, k, d)),
+        3 => any::<u8>().prop_map(Op::Commit),
+        1 => (any::<u8>(), 0u8..4).prop_map(|(w, b)| Op::Fork(w, b)),
+        2 => (any::<u8>(), any::<u8>(), any::<u8>(), 0..KEYS, prop::bool::weighted(0.2))
+            .prop_map(|(w, u, b, k, d)| Op::Rebase(w, u, b, k, d)),
+    ]
 }
 
 /// Weighted toward publishing after moves, rewrites and main's changes,
@@ -569,6 +587,94 @@ impl World {
             .filter(|&w| self.model.wts[w].alive && self.model.wts[w].user == user)
             .collect();
         (!alive.is_empty()).then(|| alive[n as usize % alive.len()])
+    }
+
+    /// A rewrite: `w`'s HEAD moves to a new commit on top of `base`, a
+    /// worktree's chain up to an index, or none (a new root), with `k`
+    /// changed; then scanned.
+    fn rebuild(&mut self, w: Wt, base: Option<(Wt, usize)>, k: Key, deleted: bool) {
+        let base_commit = base.map(|(u, i)| {
+            let seg = self.imp.wts[u].chain[i].0;
+            self.imp.segs[seg].head_commit.unwrap()
+        });
+        let mut tree =
+            base_commit.map_or_else(BTreeMap::new, |c| self.git.commits[c].clone());
+        let mut base_ids = base
+            .zip(base_commit)
+            .map_or_else(BTreeMap::new, |((u, _), c)| self.ids_at(u, c));
+        // Where no rollup names a record's id at the base, the rows
+        // there decide it, which can lose one (§4.8): adopt them.
+        if let (Some((u, i)), Some(bc)) = (base, base_commit) {
+            let base_view: BTreeSet<SegId> = self.imp.wts[u].chain[..=i]
+                .iter()
+                .map(|&(s, _)| s)
+                .collect();
+            for (&k, id) in base_ids.iter_mut() {
+                let named = self.named_id(k, bc);
+                let lost = named.is_some_and(|n| {
+                    n != *id
+                        || (0..KEYS)
+                            .any(|j| j != k && self.imp.live_id(&base_view, j) == Some(n))
+                });
+                if named.is_none() || lost {
+                    if let Some(got) = self.imp.live_id(&base_view, k) {
+                        allowed(7, usize::from(got != *id));
+                        *id = got;
+                    }
+                }
+            }
+        }
+        if deleted {
+            tree.remove(&k);
+        } else {
+            let v = self.ver();
+            tree.insert(k, v);
+        }
+        let c = self
+            .git
+            .commit(tree.clone(), base_commit.into_iter().collect());
+        self.imp.rebuild(w, base, &tree, c);
+        // the checkout carries the working tree's own changes over
+        let m = &mut self.model.wts[w];
+        for k in 0..KEYS {
+            if m.disk.get(&k) == m.committed.get(&k) {
+                match tree.get(&k) {
+                    Some(&v) => m.disk.insert(k, v),
+                    None => m.disk.remove(&k),
+                };
+            }
+        }
+        // no rollup: the base's record continues, else the one this
+        // worktree had, else it's new
+        let taken: BTreeSet<Ver> = base_ids
+            .iter()
+            .filter(|(k, _)| tree.contains_key(k))
+            .map(|(_, &id)| id)
+            .collect();
+        m.ids = tree
+            .iter()
+            .map(|(&k, &v)| {
+                let id = base_ids
+                    .get(&k)
+                    .or(m.ids.get(&k).filter(|id| !taken.contains(id)))
+                    .copied()
+                    // else the record the draft holds at the key
+                    .or(m.draft.get(&k).map(|d| d.id).filter(|id| !taken.contains(id)))
+                    .unwrap_or(v);
+                (k, id)
+            })
+            .collect();
+        let before = std::mem::replace(&mut m.committed, tree);
+        m.follow_records();
+        let disk = m.disk.clone();
+        for f in 0..KEYS / KEYS_PER_FILE {
+            m.reconcile(f, &mut self.next_ver, FileWins::Never);
+            self.imp.reconcile(w, f, &disk, FileWins::Never);
+        }
+        self.committed(w);
+        if w == MAIN {
+            self.main_moved(&before, &BTreeMap::new());
+        }
     }
 
     fn apply(&mut self, op: &Op) {
@@ -1123,86 +1229,28 @@ impl World {
                 let base_idx = (chain_len > 1)
                     .then(|| (back as usize) % chain_len)
                     .filter(|&i| i < chain_len - 1);
-                let base_commit = base_idx.map(|i| {
-                    let seg = self.imp.wts[w].chain[i].0;
-                    self.imp.segs[seg].head_commit.unwrap()
-                });
-                let mut tree =
-                    base_commit.map_or_else(BTreeMap::new, |c| self.git.commits[c].clone());
-                let mut base_ids = base_commit.map_or_else(BTreeMap::new, |c| self.ids_at(w, c));
-                // Where no rollup names a record's id at the base, the rows
-                // there decide it, which can lose one (§4.8): adopt them.
-                if let (Some(i), Some(bc)) = (base_idx, base_commit) {
-                    let base_view: BTreeSet<SegId> = self.imp.wts[w].chain[..=i]
-                        .iter()
-                        .map(|&(s, _)| s)
-                        .collect();
-                    for (&k, id) in base_ids.iter_mut() {
-                        let named = self.named_id(k, bc);
-                        let lost = named.is_some_and(|n| {
-                            n != *id
-                                || (0..KEYS)
-                                    .any(|j| j != k && self.imp.live_id(&base_view, j) == Some(n))
-                        });
-                        if named.is_none() || lost {
-                            if let Some(got) = self.imp.live_id(&base_view, k) {
-                                allowed(7, usize::from(got != *id));
-                                *id = got;
-                            }
-                        }
-                    }
-                }
-                if deleted {
-                    tree.remove(&k);
-                } else {
-                    let v = self.ver();
-                    tree.insert(k, v);
-                }
-                let c = self
-                    .git
-                    .commit(tree.clone(), base_commit.into_iter().collect());
-                self.imp.rebuild(w, base_idx, &tree, c);
-                // the checkout carries the working tree's own changes over
-                let m = &mut self.model.wts[w];
-                for k in 0..KEYS {
-                    if m.disk.get(&k) == m.committed.get(&k) {
-                        match tree.get(&k) {
-                            Some(&v) => m.disk.insert(k, v),
-                            None => m.disk.remove(&k),
-                        };
-                    }
-                }
-                // no rollup: the base's record continues, else the one this
-                // worktree had, else it's new
-                let taken: BTreeSet<Ver> = base_ids
-                    .iter()
-                    .filter(|(k, _)| tree.contains_key(k))
-                    .map(|(_, &id)| id)
+                self.rebuild(w, base_idx.map(|i| (w, i)), k, deleted);
+            }
+            Op::Rebase(n, other, back, k, deleted) => {
+                let w = self.pick(n, false).unwrap();
+                let others: Vec<Wt> = (0..self.model.wts.len())
+                    .filter(|&u| u != w && self.model.wts[u].alive && !self.model.wts[u].user)
                     .collect();
-                m.ids = tree
-                    .iter()
-                    .map(|(&k, &v)| {
-                        let id = base_ids
-                            .get(&k)
-                            .or(m.ids.get(&k).filter(|id| !taken.contains(id)))
-                            .copied()
-                            // else the record the draft holds at the key
-                            .or(m.draft.get(&k).map(|d| d.id).filter(|id| !taken.contains(id)))
-                            .unwrap_or(v);
-                        (k, id)
-                    })
-                    .collect();
-                let before = std::mem::replace(&mut m.committed, tree);
-                m.follow_records();
-                let disk = m.disk.clone();
-                for f in 0..KEYS / KEYS_PER_FILE {
-                    m.reconcile(f, &mut self.next_ver, FileWins::Never);
-                    self.imp.reconcile(w, f, &disk, FileWins::Never);
+                if others.is_empty() {
+                    return;
                 }
-                self.committed(w);
-                if w == MAIN {
-                    self.main_moved(&before, &BTreeMap::new());
+                let u = others[other as usize % others.len()];
+                let i = back as usize % self.imp.wts[u].chain.len();
+                // onto a line that already holds w's HEAD it's a fast-forward
+                // and a commit, not a rewrite
+                let seg = self.imp.wts[u].chain[i].0;
+                let bc = self.imp.segs[seg].head_commit.unwrap();
+                let head = *self.imp.wts[w].history.last().unwrap();
+                let upto = self.imp.wts[u].history.iter().position(|&x| x == bc).unwrap();
+                if self.imp.wts[u].history[..=upto].contains(&head) {
+                    return;
                 }
+                self.rebuild(w, Some((u, i)), k, deleted);
             }
             Op::Delete(n) => {
                 let candidates: Vec<Wt> = (1..self.model.wts.len())

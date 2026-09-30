@@ -49,6 +49,11 @@ proptest! {
     }
 
     #[test]
+    fn rebases_agree_with_the_model(ops in prop::collection::vec(rebase_op(), 1..60)) {
+        run(&ops);
+    }
+
+    #[test]
     fn publishing_agrees_with_the_model(ops in prop::collection::vec(publish_op(), 1..16)) {
         run(&ops);
     }

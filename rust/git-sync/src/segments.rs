@@ -8,7 +8,7 @@
 //! (`tests/segments/imp.rs`), which `tests/segments_sql.rs` holds them
 //! to: a view, conflicts and ids that agree with it exactly.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::store::{At, Filter, NewRow, Row, Scope, Store};
 use crate::error::Result;
@@ -674,6 +674,13 @@ async fn carried<DB: Store>(
         .collect())
 }
 
+/// A row's `(file_path, path, key)`, borrowed.
+type Place<'a> = (&'a str, &'a str, &'a str);
+
+fn place(r: &Row) -> Place<'_> {
+    (&r.file_path, &r.path, &r.key)
+}
+
 /// The rows whose value a commit of worktree `w`'s `files` changes: what
 /// its rollup names (§3.5), a deletion under the id of the record it
 /// deletes. Those the fold carries, and conflict rows,
@@ -688,12 +695,20 @@ pub(crate) async fn changed<DB: Store>(
 ) -> Result<Vec<Row>> {
     let d = DB::segs(tx, w).await?.draft;
     let chain = DB::visible(tx, w, Scope::Chain, Filter::All).await?;
-    let live = |x: &Row| chain.iter().find(|r| r.at() == x.at() && !r.deleted);
+    let mut live_at: BTreeMap<Place<'_>, &Row> = BTreeMap::new();
+    for r in chain.iter().filter(|r| !r.deleted) {
+        live_at.entry(place(r)).or_insert(r);
+    }
+    let live = |x: &Row| live_at.get(&place(x)).copied();
     let changes = |x: &Row| match live(x) {
         Some(c) => x.deleted || c.json != x.json,
         None => !x.deleted,
     };
     let draft = DB::rows_in(tx, d, None, false).await?;
+    let mut drafted_at: BTreeMap<Place<'_>, &Row> = BTreeMap::new();
+    for y in &draft {
+        drafted_at.entry(place(y)).or_insert(y);
+    }
     let mut rows: Vec<Row> = Vec::new();
     for mut x in carried(tx, d, files, watermark).await? {
         if !changes(&x) {
@@ -709,7 +724,7 @@ pub(crate) async fn changed<DB: Store>(
         if !files.contains(&c.file_path) || !changes(&c) {
             continue;
         }
-        let drafted = draft.iter().find(|y| y.at() == c.at());
+        let drafted = drafted_at.get(&place(&c)).copied();
         if let Some(id) = live(&c).or(drafted).map(|r| r.key_id) {
             c.key_id = id;
             rows.push(c);

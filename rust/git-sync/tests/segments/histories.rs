@@ -1949,3 +1949,91 @@ fn fork_before_a_delete_recreates_the_record() {
         Op::Fork(0, 3),
     ]);
 }
+
+/// A branch reset onto main's later tip: it rebuilds on main's head,
+/// which closes, and takes main's records from main's chain.
+#[test]
+fn rebase_onto_mains_later_tip() {
+    for back in 0..4 {
+        run(&[
+            Op::Write(0, 1, false),
+            Op::Commit(0),
+            Op::Fork(0, 0),
+            Op::Write(1, 2, false),
+            Op::Commit(1),
+            Op::Write(0, 3, false),
+            Op::Commit(0),
+            Op::Rebase(1, 0, back, 0, false),
+            Op::Write(0, 4, false),
+            Op::Commit(0),
+            Op::Write(1, 5, false),
+            Op::Commit(1),
+        ]);
+    }
+}
+
+/// A "rebase" onto a line that already holds the worktree's HEAD is a
+/// fast-forward, which a scan takes in as one: the op mustn't model it
+/// as a rewrite.
+#[test]
+fn rebases_onto_each_others_lines() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::External(5, vec![(1, true)]),
+        Op::Rebase(188, 0, 7, 1, false),
+        Op::Rebase(35, 0, 53, 2, false),
+    ]);
+}
+
+#[test]
+fn rebase_model_seed() {
+    run(&[
+        Op::Write(0, 4, true),
+        Op::Commit(0),
+        Op::Fork(0, 0),
+        Op::Write(125, 0, false),
+        Op::Commit(35),
+        Op::Rebase(0, 0, 0, 0, false),
+        Op::Fork(19, 0),
+        Op::DiskEdit(29, 1, false, FileWins::Never),
+        Op::Move(129, 1, false),
+        Op::Rebase(47, 44, 73, 0, false),
+    ]);
+}
+
+#[test]
+fn rebase_sql_seed() {
+    run(&[
+        Op::Write(0, 3, false),
+        Op::Fork(0, 0),
+        Op::Commit(2),
+        Op::Write(151, 0, false),
+        Op::Commit(109),
+        Op::Rebase(19, 0, 89, 0, false),
+        Op::Commit(49),
+    ]);
+}
+
+/// A rebuild over a working-tree edit and a client edit in the same file,
+/// then the edit deleted and committed.
+#[test]
+fn rebuild_under_a_disk_and_a_client_edit() {
+    run(&[
+        Op::DiskEdit(0, 1, false, FileWins::Never),
+        Op::Write(0, 0, false),
+        Op::Rebuild(0, 0, 3, false),
+        Op::Write(0, 1, true),
+        Op::Commit(0),
+    ]);
+}
+
+#[test]
+#[ignore = "compaction loses the id a later split needs: docs/open-review-findings.md, item 6"]
+fn fork_after_a_rebuild_and_a_deletion() {
+    run(&[
+        Op::Fork(0, 0),
+        Op::Rebuild(11, 103, 0, false),
+        Op::External(30, vec![(0, true)]),
+        Op::Fork(8, 1),
+    ]);
+}

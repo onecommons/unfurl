@@ -1662,17 +1662,40 @@ impl Segments {
     }
 
     /// §4.8: `w`'s HEAD moved to `commit`, which doesn't descend from its
-    /// old head: rebuild on the chain up to `chain[base_idx]`.
+    /// old head: rebuild on worktree `u`'s chain up to `chain[i]`, or on
+    /// nothing. Another worktree's open head is made a base as a fork
+    /// makes one (§4.5).
     fn rebuild(
         &mut self,
         w: Wt,
-        base_idx: Option<usize>,
+        base: Option<(Wt, usize)>,
         tree: &BTreeMap<Key, Ver>,
         commit: CommitId,
     ) {
-        let base_chain: Vec<(SegId, bool)> = match base_idx {
-            Some(i) => self.wts[w].chain[..=i].to_vec(),
-            None => Vec::new(),
+        let (base_chain, history): (Vec<(SegId, bool)>, Vec<CommitId>) = match base {
+            None => (Vec::new(), Vec::new()),
+            Some((u, i)) => {
+                let seg = self.wts[u].chain[i].0;
+                let c = self.segs[seg].head_commit.unwrap();
+                let at = self.wts[u].history.iter().position(|&x| x == c).unwrap();
+                let history = self.wts[u].history[..=at].to_vec();
+                let chain = if u == w {
+                    self.wts[w].chain[..=i].to_vec()
+                } else {
+                    let theirs = if seg == self.wts[u].head {
+                        self.base_at_head(u).1
+                    } else {
+                        self.wts[u].chain[..=i].to_vec()
+                    };
+                    // segments w holds keep its mark; the rest it inherits
+                    let own: BTreeMap<SegId, bool> = self.wts[w].chain.iter().copied().collect();
+                    theirs
+                        .into_iter()
+                        .map(|(s, _)| (s, own.get(&s).copied().unwrap_or(true)))
+                        .collect()
+                };
+                (chain, history)
+            }
         };
         let base = base_chain.last().map(|&(s, _)| s);
         let view: BTreeSet<SegId> = base_chain.iter().map(|&(s, _)| s).collect();
@@ -1721,16 +1744,12 @@ impl Segments {
             }
         }
         let old_head = self.wts[w].head;
-        let keep = base.map_or(0, |b| {
-            let c = self.segs[b].head_commit.unwrap();
-            self.wts[w].history.iter().position(|&x| x == c).unwrap() + 1
-        });
         let mut chain = base_chain;
         chain.push((hn, false));
         let wt = &mut self.wts[w];
         wt.chain = chain;
         wt.head = hn;
-        wt.history.truncate(keep);
+        wt.history = history;
         wt.history.push(commit);
         self.segs[old_head].kind = Kind::Internal;
         self.segs[old_head].owner = None;
@@ -1746,6 +1765,23 @@ impl Segments {
             self.recreated(r);
         }
         self.follow_records(w);
+        // step 5: the draft's entries on the chain's rows at keys it holds no
+        // row at go, from W's old chain or carried onto another line's row
+        // when a record moved; the re-link derives the ones it still needs
+        let d = self.wts[w].draft;
+        let held: BTreeSet<Key> = self.rows_in(d).iter().map(|r| self.rows[r].key).collect();
+        let chain = self.chain_set(w);
+        let stale: Vec<RowId> = self
+            .sup
+            .iter()
+            .filter(|&&(r, s)| {
+                s == d && !held.contains(&self.rows[&r].key) && chain.contains(&self.rows[&r].seg)
+            })
+            .map(|&(r, _)| r)
+            .collect();
+        for r in stale {
+            self.unentry(r, d);
+        }
         self.relink_draft(w);
         self.compact();
     }

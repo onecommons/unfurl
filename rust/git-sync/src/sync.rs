@@ -252,21 +252,20 @@ impl SyncedRepo {
         let db = Db::connect(&db).await?;
 
         // Inspect the repo once at open time to get origin/branch, and to
-        // place a new worktree in its family. Dropped after: we re-open per
-        // call to keep `Send` guarantees out of long-lived state.
+        // place a new worktree in its family, which consumes it: we re-open
+        // per call to keep `Send` guarantees out of long-lived state.
         let repo = git::open_repo(&repo_path)?;
         let meta = git::worktree_meta(&repo)?;
         let head = meta.head_oid.map(|o| o.to_string());
         let worktree_id = crate::fork::open(
             &db,
-            &repo,
+            repo,
             &formats,
             &meta.origin,
             &meta.branch,
             head.as_deref(),
         )
         .await?;
-        drop(repo);
         let family_id = db::worktree::family_id(&db, worktree_id).await?;
 
         Ok(Self {
@@ -390,20 +389,13 @@ impl SyncedRepo {
     /// tracked file fails to parse, or any underlying git / database
     /// error.
     pub async fn update_from_working_dir(&self, options: ScanOptions) -> Result<SyncOutcome> {
-        // HEAD is read before the scan so the commit stamped below is
-        // one the scan actually saw.
-        let head_oid_str = {
-            let repo = self.repo()?;
-            git::worktree_meta(&repo)?
-                .head_oid
-                .map(|oid| oid.to_string())
-        };
-
-        let stats = self.scan_files(&options).await?;
-
-        // Update worktree.commit_id to HEAD.
-        if let Some(oid) = head_oid_str {
-            db::worktree::update_commit(self.db(), self.worktree_id(), Some(&oid)).await?;
+        // HEAD is read once, so the commit stamped below is the one the
+        // scan took in, and a rebuild recorded, even if it moves meanwhile.
+        let meta = git::worktree_meta(&self.repo()?)?;
+        let stats = self.scan_files(&options, &meta).await?;
+        if let Some(oid) = meta.head_oid {
+            db::worktree::update_commit(self.db(), self.worktree_id(), Some(&oid.to_string()))
+                .await?;
         }
 
         // Auto-pick a default file_path for new records on the first
@@ -413,7 +405,48 @@ impl SyncedRepo {
         Ok(stats)
     }
 
-    /// Take HEAD and the working tree into the database (§4.3).
+    /// Refuse a checkout on another branch than the handle's, and rebuild
+    /// after a rewrite: a rebase, reset or force-push leaves the chain
+    /// holding a commit HEAD `head` doesn't descend from (§4.8).
+    async fn follow_head(&self, branch: &str, head: Option<&str>) -> Result<()> {
+        let worktree = db::worktree::get(self.db(), self.worktree_id()).await?;
+        // a handle opened detached (CI, a tag, a pinned commit) follows
+        // whatever is checked out; the rebuild covers a rewrite
+        if worktree.branch != git::DETACHED {
+            if branch == git::DETACHED {
+                return Err(Error::Detached {
+                    branch: worktree.branch,
+                });
+            }
+            if branch != worktree.branch {
+                return Err(Error::BranchChanged {
+                    expected: worktree.branch,
+                    found: branch.to_string(),
+                });
+            }
+        }
+        let (Some(recorded), Some(n)) = (worktree.commit_id.as_deref(), head) else {
+            return Ok(());
+        };
+        let repo = self.repo()?;
+        if recorded == n || git::is_ancestor(&repo, recorded, n)? {
+            return Ok(());
+        }
+        let files = self.head_files(&repo, Some(n), &Default::default())?.files;
+        crate::fork::rebuild(
+            self.db(),
+            repo,
+            self.formats(),
+            self.worktree_id(),
+            self.family_id(),
+            n,
+            &files,
+        )
+        .await
+    }
+
+    /// Take HEAD, as `meta` read it, and the working tree into the
+    /// database (§4.3).
     ///
     /// The committed side first: every file whose blob at HEAD isn't the
     /// one the committed segments hold is parsed from HEAD, and the head
@@ -423,9 +456,14 @@ impl SyncedRepo {
     /// committed chain; in-flight client edits are preserved and
     /// divergences reported in [`SyncOutcome::conflicts`]. A file whose
     /// bytes and git state both match its last take-in is skipped whole.
-    async fn scan_files(&self, options: &ScanOptions) -> Result<SyncOutcome> {
+    async fn scan_files(
+        &self,
+        options: &ScanOptions,
+        meta: &git::WorktreeMeta,
+    ) -> Result<SyncOutcome> {
         let repo = self.repo()?;
-        let head = git::worktree_meta(&repo)?.head_oid.map(|o| o.to_string());
+        let head = meta.head_oid.map(|o| o.to_string());
+        self.follow_head(&meta.branch, head.as_deref()).await?;
         let tracked = git::tracked_files(&repo)?;
         let known_files: std::collections::HashMap<String, crate::model::File> =
             db::file::list(self.db(), self.worktree_id())
@@ -1097,12 +1135,26 @@ impl SyncedRepo {
     /// conflict as soon as it is materialized — but only when it asks,
     /// since a caller tracking record state would otherwise see a
     /// contested record twice and have no reason to expect it.
+    ///
+    /// A `since` below the worktree's `reset_version` fails with
+    /// [`Error::Reset`]: a rebuild dropped records from the view without
+    /// tombstones, so the caller re-reads it whole and resumes from
+    /// [`Self::watermark`].
     pub async fn list_changes(
         &self,
         since: Option<i64>,
         include_conflicts: bool,
     ) -> Result<Vec<Record>> {
         db::record::list_changes(self.db(), self.worktree_id(), since, include_conflicts).await
+    }
+
+    /// The highest version written so far to the worktrees `worktrees`
+    /// selects, or to this one: a `since_version` for the next read that
+    /// misses nothing written after this call. Read it before the read it
+    /// covers. Fails with [`Error::CursorAcrossFamilies`] when the
+    /// worktrees span version families.
+    pub async fn watermark(&self, worktrees: Option<&crate::model::WorktreeFilter>) -> Result<i64> {
+        db::record::watermark(self.db(), self.worktree_id(), worktrees).await
     }
 
     /// Insert a new record at `(file_path, path, key)`.
@@ -1563,19 +1615,21 @@ impl SyncedRepo {
         // than from `root`, so it needs the source and the list of
         // records actually applied -- neither of which a
         // value-to-bytes function can take.
-        let bytes = match source.as_deref().filter(|_| syntax == Syntax::Markdown) {
+        let render = |source: Option<&str>, root: &mut serde_json::Value| match source
+            .filter(|_| syntax == Syntax::Markdown)
+        {
             Some(src) => unfurl_merge::markdown::render(
                 file_path,
                 src,
-                &root,
+                root,
                 &applied,
                 format.map(|f| f.path_prefixes()).unwrap_or_default(),
-            )?,
-            None => {
-                syntax.render_document(source.as_deref(), &mut root, format, &touched, file_path)?
-            }
+            )
+            .map_err(Error::from),
+            None => syntax.render_document(source, root, format, &touched, file_path),
         };
-        let bytes = self.unless_head_has(file_path, syntax, bytes)?;
+        let bytes = render(source.as_deref(), &mut root)?;
+        let bytes = self.unless_head_has(file_path, syntax, bytes, render)?;
         self.persist_render(file_path, &abs_path, &bytes, stale)
             .await?;
         Ok(WriteFileOutcome {
@@ -1585,11 +1639,18 @@ impl SyncedRepo {
         })
     }
 
-    /// `bytes`, or HEAD's copy of `file_path` where that parses to the same
-    /// document: a render that changes no record changes no byte, so a
-    /// file whose records are back where HEAD has them isn't committed
-    /// for its formatting alone.
-    fn unless_head_has(&self, file_path: &str, syntax: Syntax, bytes: Vec<u8>) -> Result<Vec<u8>> {
+    /// `bytes`, or HEAD's copy of `file_path` where `render`ing HEAD's own
+    /// document gives `bytes`: the file on disk then differs from HEAD in
+    /// nothing its records don't carry, so a file whose records are back
+    /// where HEAD has them isn't committed for its layout alone, and
+    /// nothing only on disk, a comment or prose, is lost.
+    fn unless_head_has(
+        &self,
+        file_path: &str,
+        syntax: Syntax,
+        bytes: Vec<u8>,
+        render: impl Fn(Option<&str>, &mut serde_json::Value) -> Result<Vec<u8>>,
+    ) -> Result<Vec<u8>> {
         let repo = self.repo()?;
         let Some(head) = git::worktree_meta(&repo)?.head_oid else {
             return Ok(bytes);
@@ -1597,11 +1658,18 @@ impl SyncedRepo {
         let Some(committed) = git::read_blob_at_commit(&repo, &head.to_string(), file_path)? else {
             return Ok(bytes);
         };
-        let same = committed != bytes
-            && matches!(
-                (syntax.into_value(file_path, &committed), syntax.into_value(file_path, &bytes)),
-                (Ok(a), Ok(b)) if a == b
-            );
+        let (Ok(text), Ok(mut root)) = (
+            std::str::from_utf8(&committed),
+            syntax.into_value(file_path, &committed),
+        ) else {
+            return Ok(bytes);
+        };
+        // an empty section holds no record, and a save drops the one it
+        // empties
+        if let Some(sections) = root.as_object_mut() {
+            sections.retain(|_, v| v.as_object().is_none_or(|o| !o.is_empty()));
+        }
+        let same = committed != bytes && render(Some(text), &mut root).is_ok_and(|b| b == bytes);
         Ok(if same { committed } else { bytes })
     }
 
