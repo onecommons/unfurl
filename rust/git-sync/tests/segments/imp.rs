@@ -1389,9 +1389,7 @@ impl Segments {
                     .into_iter()
                     .find(|r| !self.rows[r].deleted)
                     .map(|r| self.rows[&r].ver);
-                self.row_in(s, k).is_none()
-                    || tree_c.get(&k).copied() != below_live
-                    || collide.contains(&k)
+                tree_c.get(&k).copied() != below_live || collide.contains(&k)
             })
             .collect();
         let tier = |t: u8, k: Key| -> Option<Ver> {
@@ -1457,6 +1455,8 @@ impl Segments {
                         self.move_entries(s, s2, k);
                     }
                 }
+                // what's below is the value at `c`: `s2` takes `s`'s entries
+                None if !recreate.contains(&k) => self.move_entries(s, s2, k),
                 None => {
                     // changed before c and back after it
                     let new = self.insert_value(s, k, v_c);

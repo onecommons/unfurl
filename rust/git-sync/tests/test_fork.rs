@@ -291,6 +291,205 @@ async fn a_rebuild_keeps_a_record_its_tree_rejects() {
     assert_eq!(after.json, good.json);
 }
 
+/// A fork that splits main's head at a commit before a record went
+/// invalid leaves main's view alone: the scan kept that record's row, so
+/// the split takes it as unchanged.
+#[tokio::test]
+async fn a_split_leaves_a_record_main_rejects_alone() {
+    const GITLAB_CI: &str = "git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml";
+    let (tmp, db) = file_backed_fixture().await;
+    git(
+        tmp.path(),
+        &["remote", "add", "origin", "https://example.com/fork.git"],
+    );
+    let main = open_at(tmp.path(), &db).await;
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let sibling = |name: &str| {
+        tmp.path().parent().expect("parent").join(format!(
+            "{}-{name}",
+            tmp.path().file_name().expect("name").to_string_lossy()
+        ))
+    };
+    // a fork at main's HEAD closes main's first head
+    let first = sibling("first");
+    git(
+        tmp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "first",
+            first.to_str().expect("utf8"),
+            "HEAD",
+        ],
+    );
+    open_at(&first, &db).await;
+    let c1 = write_and_commit(&main, "one").await;
+
+    let file = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&file).expect("read");
+    let broken = text.replace(
+        "  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:\n    type:\n      cloudmap.artifacts.ci.GitLabPipeline:\n",
+        "  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:\n    type: cloudmap.artifacts.ci.GitLabPipeline\n",
+    );
+    assert_ne!(
+        broken, text,
+        "fixture shape changed; the edit matched nothing"
+    );
+    std::fs::write(&file, broken).expect("write");
+    git(
+        tmp.path(),
+        &[
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@t",
+            "commit",
+            "-q",
+            "-am",
+            "outside",
+        ],
+    );
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan the rejected record");
+    let before = main
+        .get_record("cloudmap.yaml", "/artifacts", GITLAB_CI)
+        .await
+        .expect("get")
+        .expect("the scan keeps it");
+
+    let feature = sibling("feature");
+    git(
+        tmp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "feature",
+            feature.to_str().expect("utf8"),
+            &c1,
+        ],
+    );
+    open_at(&feature, &db).await;
+    let after = main
+        .get_record("cloudmap.yaml", "/artifacts", GITLAB_CI)
+        .await
+        .expect("get")
+        .expect("main still shows it");
+    assert_eq!(after.json, before.json);
+    std::fs::remove_dir_all(&first).ok();
+    std::fs::remove_dir_all(&feature).ok();
+}
+
+/// A fork at a commit where a record was invalid sees the row the scan
+/// kept for it then, not a deletion. (Here that row is below main's head;
+/// one the head replaced in place since is lost: open-review-findings 6.)
+#[tokio::test]
+async fn a_fork_where_a_record_was_invalid_keeps_its_row() {
+    const GITLAB_CI: &str = "git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml";
+    const VALID: &str = "  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:\n    type:\n      cloudmap.artifacts.ci.GitLabPipeline:\n";
+    let (tmp, db) = file_backed_fixture().await;
+    git(
+        tmp.path(),
+        &["remote", "add", "origin", "https://example.com/fork.git"],
+    );
+    let main = open_at(tmp.path(), &db).await;
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    let sibling = |name: &str| {
+        tmp.path().parent().expect("parent").join(format!(
+            "{}-{name}",
+            tmp.path().file_name().expect("name").to_string_lossy()
+        ))
+    };
+    // a fork at main's HEAD closes main's first head, which keeps the row
+    let first = sibling("first-invalid");
+    git(
+        tmp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "first",
+            first.to_str().expect("utf8"),
+            "HEAD",
+        ],
+    );
+    open_at(&first, &db).await;
+    let original = main
+        .get_record("cloudmap.yaml", "/artifacts", GITLAB_CI)
+        .await
+        .expect("get")
+        .expect("seeded");
+    let file = tmp.path().join("cloudmap.yaml");
+    let text = std::fs::read_to_string(&file).expect("read");
+    assert!(text.contains(VALID), "fixture shape changed");
+    let commit = |edited: String, message: &str| {
+        std::fs::write(&file, edited).expect("write");
+        git(
+            tmp.path(),
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "-am",
+                message,
+            ],
+        );
+    };
+    commit(
+        text.replace(
+            VALID,
+            "  git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml:\n    type: cloudmap.artifacts.ci.GitLabPipeline\n",
+        ),
+        "invalid",
+    );
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan the rejected record");
+    let rejected_at = head_commit(&main).await;
+    commit(
+        text.replace(VALID, &format!("{VALID}    name: fixed\n")),
+        "fixed",
+    );
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan the fix");
+
+    let dir = sibling("invalid");
+    git(
+        tmp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "then",
+            dir.to_str().expect("utf8"),
+            &rejected_at,
+        ],
+    );
+    let then = open_at(&dir, &db).await;
+    let seen = then
+        .get_record("cloudmap.yaml", "/artifacts", GITLAB_CI)
+        .await
+        .expect("get")
+        .expect("the row the scan kept");
+    assert_eq!(seen.json, original.json);
+    std::fs::remove_dir_all(&first).ok();
+    std::fs::remove_dir_all(&dir).ok();
+}
+
 /// A handle's working tree switched to another branch refuses to scan
 /// rather than write that branch's files into this one's records.
 #[tokio::test]

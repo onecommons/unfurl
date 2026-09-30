@@ -739,7 +739,11 @@ Splitting S (head commit *h*, parent P) at commit *c* works as follows:
   changes nothing in git, but it records a deletion made after *c*, and
   left in S it would read as older than the edits it's newer than. For
   each such key *k*, compare three values: *v_c* at *c*, *v_h* (S's row,
-  if it has one), and *v_p*, the value visible below S in the database:
+  if it has one), and *v_p*, the value visible below S in the database.
+  Where a scan at *c* would have skipped *k* (validation rejected it,
+  its section or its file), *v_c* is the row that scan kept: S's own if
+  written by *c*, else *v_p*. With S holding no row and *v_c* = *v_p*,
+  S2 just takes S's entries for *k*:
   - **When *v_c* = *v_h*** and S's row, if any, predates *c*, nothing
     moves. A row written after *c* is handled as below.
   - **When *v_c* ≠ *v_h* and S has a row, or S's row was written after

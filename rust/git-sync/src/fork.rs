@@ -3,7 +3,7 @@
 //! A new worktree placed in its family: forks and splits
 //! (docs/branch-segments.md §4.5–§4.7, C.13, C.16, C.17).
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::store::{At, FileRow, Filter, NewRow, Row, Scope, Store};
 use crate::db::{self, on_pool, Db};
@@ -189,13 +189,16 @@ pub(crate) async fn open(
     on_pool!(db, pool => {
         let mut tx = pool.begin().await?;
         let mut family = Store::family_of_origin(&mut tx, origin).await?;
+        tx.commit().await?;
+        // the walk is git's alone, so no transaction is held open over it
         if let (None, Some(head)) = (family, head) {
-            if let Some(named) = named_family(&repo, head)? {
+            if let Some(named) = named_family(&repo, head, &database)? {
                 // the root's origin, so its own family
+                let mut tx = pool.begin().await?;
                 family = Store::family_of_origin(&mut tx, &named).await?;
+                tx.commit().await?;
             }
         }
-        tx.commit().await?;
         let id = match (family, head) {
             (Some(family), Some(head)) => {
                 let history = History::new(formats, repo, database);
@@ -215,25 +218,28 @@ pub(crate) async fn open(
     })
 }
 
-/// The family the nearest git-sync commit in `head`'s history names.
-fn named_family(repo: &gix::Repository, head: &str) -> Result<Option<String>> {
-    let mut seen = HashSet::from([head.to_string()]);
-    let mut todo = VecDeque::from([head.to_string()]);
-    while let Some(c) = todo.pop_front() {
+/// The family the nearest commit this database made in `head`'s
+/// first-parent history names.
+fn named_family(repo: &gix::Repository, head: &str, database: &str) -> Result<Option<String>> {
+    let mut at = Some(head.to_string());
+    for _ in 0..NAMED_FAMILY_DEPTH {
+        let Some(c) = at else { break };
         let family = git::commit_message(repo, &c)
             .and_then(|m| parse_commit_rollup(&m).ok().flatten())
+            .filter(|r| r.database.as_deref() == Some(database))
             .and_then(|r| r.family);
         if family.is_some() {
             return Ok(family);
         }
-        for p in git::commit_parents(repo, &c)? {
-            if seen.insert(p.clone()) {
-                todo.push_back(p);
-            }
-        }
+        at = git::commit_parents(repo, &c)?.into_iter().next();
     }
     Ok(None)
 }
+
+/// How far back along its first parents a new branch looks for the
+/// family trailer: on a repository git-sync never committed to, the whole
+/// history would be read on its first open.
+const NAMED_FAMILY_DEPTH: usize = 1000;
 
 /// Fork `(origin, branch)` at `head` in `family`, splitting the segment
 /// it falls inside; `None` where it falls nowhere in the family.
@@ -368,11 +374,10 @@ impl Key {
         self.below.iter().find(|r| !r.deleted)
     }
 
-    /// Whether `s` needs a row of its own at `c`.
+    /// Whether `s` needs a row of its own at `c`: where the value at `c`
+    /// isn't what's below (§4.7).
     fn recreated(&self) -> bool {
-        self.own.is_none()
-            || self.v_c.as_ref() != self.below_live().map(|b| &b.json)
-            || self.collides
+        self.v_c.as_ref() != self.below_live().map(|b| &b.json) || self.collides
     }
 }
 
@@ -386,6 +391,8 @@ struct Split<'a> {
     h: &'a str,
     /// `s` and its ancestors.
     lower: BTreeSet<i64>,
+    /// The segment below `s`.
+    parent: Option<i64>,
     /// The head commit of the segment below `s`.
     below_commit: Option<String>,
 }
@@ -401,7 +408,6 @@ async fn split<DB: Store>(
     h: &str,
 ) -> Result<()> {
     let chain = DB::segment_chain(tx, s).await?;
-    let parent = chain.get(1).map(|seg| seg.id);
     let own = DB::rows_in(tx, s, None, false).await?;
     let late = written_after(history, &own, c)?;
     let sp = Split {
@@ -411,6 +417,7 @@ async fn split<DB: Store>(
         c,
         h,
         lower: chain.iter().map(|seg| seg.id).collect(),
+        parent: chain.get(1).map(|seg| seg.id),
         below_commit: chain.get(1).and_then(|seg| seg.head_commit.clone()),
     };
     let places = split_places(history, &late, c, h)?;
@@ -421,13 +428,15 @@ async fn split<DB: Store>(
         .filter(|r| !r.deleted && !places.contains(&place_of(r)))
         .collect();
     let mut taken: BTreeSet<i64> = kept.iter().map(|r| r.key_id).collect();
-    let keys = split_keys(tx, history, parent, &own, &places, c, &mut taken).await?;
+    let keys = split_keys(tx, &sp, history, &own, &late, &places, &mut taken).await?;
     let recovered = recover_ids(&sp, history, &keys, &late, &kept, &mut taken)?;
     for (p, key) in &keys {
         let id = recovered.get(p).copied();
         match &key.own {
             Some(own) => rewrite_own(tx, &sp, p, key, own, id).await?,
-            None => restore_below(tx, &sp, history, p, key, id).await?,
+            None if key.recreated() => restore_below(tx, &sp, history, p, key, id).await?,
+            // what's below is the value at `c`: `s2` takes `s`'s entries
+            None => DB::move_entries(tx, s, sp.s2, at(p)).await?,
         }
     }
     Ok(())
@@ -471,23 +480,34 @@ fn split_places(
 /// What the split knows of each place.
 async fn split_keys<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
+    sp: &Split<'_>,
     history: &mut History<'_>,
-    parent: Option<i64>,
     own: &[Row],
+    late: &[Row],
     places: &BTreeSet<Place>,
-    c: &str,
     taken: &mut BTreeSet<i64>,
 ) -> Result<BTreeMap<Place, Key>> {
     let mut keys = BTreeMap::new();
     for p in places {
-        let below = match parent {
+        let below = match sp.parent {
             Some(parent) => DB::visible(tx, parent, Scope::State, Filter::At(at(p))).await?,
             None => Vec::new(),
         };
+        let own = own.iter().find(|r| place_of(r) == *p).cloned();
+        let v_c = if history.skips(sp.c, &p.0, &p.1, &p.2)? {
+            // a scan at `c` left the row it had: `s`'s own from by then,
+            // else the one below
+            match own.iter().find(|r| !late.iter().any(|l| l.id == r.id)) {
+                Some(r) => (!r.deleted).then(|| r.json.clone()),
+                None => below.iter().find(|r| !r.deleted).map(|r| r.json.clone()),
+            }
+        } else {
+            history.value(sp.c, &p.0, &p.1, &p.2)?
+        };
         let mut key = Key {
-            v_c: history.value(c, &p.0, &p.1, &p.2)?,
+            v_c,
             below,
-            own: own.iter().find(|r| place_of(r) == *p).cloned(),
+            own,
             collides: false,
         };
         // a changed key whose value at `c` the row below already holds,

@@ -17,6 +17,17 @@ use crate::sync::parse_and_detect;
 /// A file's records: `(path, key)` → value.
 pub(crate) type Records = BTreeMap<(String, String), serde_json::Value>;
 
+/// A blob as a scan takes it in: its records, and what it skips.
+struct Parsed {
+    records: Records,
+    /// A scan skips the file whole: unparseable, or unreadable as its
+    /// format.
+    whole: bool,
+    /// Records and sections validation rejected.
+    rejected: BTreeSet<(String, String)>,
+    skip_paths: BTreeSet<String>,
+}
+
 /// A repository's records at past commits, and the `key_id`s the rollups
 /// this database wrote give them. Each commit's tree and message, and
 /// each file blob, is read once.
@@ -25,7 +36,7 @@ pub(crate) struct History<'s> {
     repo: gix::Repository,
     database: String,
     trees: HashMap<String, HashMap<String, gix::ObjectId>>,
-    blobs: HashMap<gix::ObjectId, Records>,
+    blobs: HashMap<gix::ObjectId, Parsed>,
     rollups: HashMap<String, Option<CommitRollup>>,
 }
 
@@ -130,7 +141,7 @@ impl<'s> History<'s> {
     /// `file`'s records at `commit`: `(path, key)` → value.
     pub(crate) fn records(&mut self, commit: &str, file: &str) -> Result<Records> {
         Ok(match self.load(commit, file)? {
-            Some(blob) => self.blobs[&blob].clone(),
+            Some(blob) => self.blobs[&blob].records.clone(),
             None => Records::new(),
         })
     }
@@ -145,6 +156,7 @@ impl<'s> History<'s> {
     ) -> Result<Option<serde_json::Value>> {
         Ok(match self.load(commit, file)? {
             Some(blob) => self.blobs[&blob]
+                .records
                 .get(&(path.to_string(), key.to_string()))
                 .cloned(),
             None => None,
@@ -168,19 +180,54 @@ impl<'s> History<'s> {
         Ok(Some(blob))
     }
 
-    fn parse(&self, file: &str, blob: gix::ObjectId) -> Result<Records> {
+    /// Whether a scan of `file` at `commit` leaves the record at
+    /// `(path, key)` as it is: validation rejected it, its section, or
+    /// the file.
+    pub(crate) fn skips(
+        &mut self,
+        commit: &str,
+        file: &str,
+        path: &str,
+        key: &str,
+    ) -> Result<bool> {
+        Ok(match self.load(commit, file)? {
+            Some(blob) => {
+                let p = &self.blobs[&blob];
+                p.whole
+                    || p.skip_paths.contains(path)
+                    || p.rejected.contains(&(path.to_string(), key.to_string()))
+            }
+            None => false,
+        })
+    }
+
+    fn parse(&self, file: &str, blob: gix::ObjectId) -> Result<Parsed> {
+        let none = |whole| Parsed {
+            records: Records::new(),
+            whole,
+            rejected: BTreeSet::new(),
+            skip_paths: BTreeSet::new(),
+        };
         let Some(syntax) = Syntax::for_extension(&extract_ext(file)) else {
-            return Ok(Records::new());
+            return Ok(none(false));
         };
         let bytes = git::read_blob(&self.repo, &blob.to_string())?;
         let mut ignored = SyncOutcome::default();
-        let doc = parse_and_detect(self.formats, file, syntax, &bytes, &mut ignored)
-            .ok()
-            .flatten();
-        Ok(HeadFile::new(file.to_string(), None, doc.as_ref(), "")
-            .records
-            .into_iter()
-            .map(|(path, key, value)| ((path, key), value))
-            .collect())
+        // unparseable, or unreadable as its format: a scan leaves its rows
+        let Ok(Some(doc)) = parse_and_detect(self.formats, file, syntax, &bytes, &mut ignored)
+        else {
+            return Ok(none(true));
+        };
+        let head = HeadFile::new(file.to_string(), None, Some(&doc), "");
+        Ok(Parsed {
+            records: head
+                .records
+                .into_iter()
+                .map(|(path, key, value)| ((path, key), value))
+                .collect(),
+            whole: false,
+            rejected: head.rejected,
+            skip_paths: head.skip_paths,
+        })
     }
 }

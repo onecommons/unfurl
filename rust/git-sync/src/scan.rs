@@ -269,6 +269,13 @@ async fn advance_head<DB: Store>(
             taken.insert(id);
             rollup.insert(p, id);
         }
+        // the commit message already names it: a row that doesn't get it
+        // makes the rollup wrong
+        debug_assert!(
+            change.is_none() || named.get(p).is_none_or(|id| rollup.get(p) == Some(id)),
+            "{p:?}: the rollup names id {:?}, which another place took",
+            named.get(p)
+        );
     }
     let mut given: BTreeSet<i64> = BTreeSet::new();
     let first = DB::next_version(tx, sync.family_id(), changes.len() as i64).await?;
@@ -780,6 +787,9 @@ pub(crate) async fn scan_in_pool<DB: Store>(
     let w = sync.worktree_id();
     let mut tx = pool.begin().await?;
     if let Some(head) = head {
+        // before reading the head: a fork or split may close or split it
+        // (§4.14)
+        DB::lock_family(&mut tx, sync.family_id()).await?;
         // an outside commit's rollup ids are phase 4's (§4.9)
         advance_head(&mut tx, sync, head, head_files, &BTreeMap::new(), stats).await?;
         for f in head_files {
@@ -845,6 +855,9 @@ pub(crate) async fn commit_in_pool<DB: Store>(
     let w = sync.worktree_id();
     let mut stats = SyncOutcome::default();
     let mut tx = pool.begin().await?;
+    // before the fold reads the head: a fork or split may close or split
+    // it (§4.14)
+    DB::lock_family(&mut tx, sync.family_id()).await?;
     segments::fold(&mut tx, w, files, commit, watermark).await?;
     advance_head(&mut tx, sync, commit, head_files, named, &mut stats).await?;
     for f in head_files {
