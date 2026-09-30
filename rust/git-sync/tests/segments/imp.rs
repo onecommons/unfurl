@@ -1842,6 +1842,11 @@ impl Segments {
                     .filter(|&c| self.segs[c].alive && self.segs[c].parent == Some(p))
                     .collect();
                 let [c] = children[..] else { return None };
+                // never into an open head: its owner's writes replace its
+                // rows in place, which would erase what the parent recorded
+                if self.segs[c].kind == Kind::Head {
+                    return None;
+                }
                 // never fold across a fork boundary: a worktree's inherited
                 // and own segments stay separate
                 let crosses = self.wts.iter().filter(|w| w.alive).any(|w| {

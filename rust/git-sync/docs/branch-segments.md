@@ -1138,7 +1138,11 @@ branch-deletion case, and such a pair is **folded**, unless it would
 cross a fork boundary: a worktree whose chain has the parent inherited
 and the child as its own part. Folding that would move inherited rows
 into the worktree's own part, and a layered view would show them as its
-changes. The fold goes like this:
+changes. Nor is it folded while the child is an open head: the head's
+writes replace its rows in place, so a later change to a key would erase
+the parent's row outright rather than hide it, and with it the record
+id a split at the parent's head commit recovers. The pair folds once the
+head closes. The fold goes like this:
 1. Keep the id of whichever side has fewer rows to move.
 2. Delete the parent's rows that the child overrides. The chains that
    contain the parent all contain the child, so those rows are hidden
@@ -2627,7 +2631,8 @@ DELETE FROM segment s
 WHERE s.kind <> 'draft'
   AND NOT EXISTS (SELECT 1 FROM worktree_segment ws WHERE ws.segment_id = s.id);
 
--- fold internal segment :p into its only child :c (keeping :c's id)
+-- fold internal segment :p into its only child :c (keeping :c's id);
+-- never while :c is an open head (§4.13)
 DELETE FROM record r
 WHERE r.segment_id = :p
   AND EXISTS (SELECT 1 FROM superseded x

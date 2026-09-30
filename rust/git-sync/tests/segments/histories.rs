@@ -2028,7 +2028,6 @@ fn rebuild_under_a_disk_and_a_client_edit() {
 }
 
 #[test]
-#[ignore = "compaction loses the id a later split needs: docs/open-review-findings.md, item 6"]
 fn fork_after_a_rebuild_and_a_deletion() {
     run(&[
         Op::Fork(0, 0),
