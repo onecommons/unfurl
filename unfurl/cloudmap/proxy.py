@@ -151,8 +151,24 @@ def _get_occ_id(record: Any) -> Optional[int]:
     return id_ if isinstance(id_, int) else None
 
 
+def _error_code(r: requests.Response) -> Optional[str]:
+    """The ``code`` of an error response body, if it has one."""
+    try:
+        detail = r.json()
+    except ValueError:
+        return None
+    code = detail.get("code") if isinstance(detail, dict) else None
+    return code if isinstance(code, str) else None
+
+
 class CloudMapProxyError(UnfurlError):
     """Base class for CloudMapProxy errors."""
+
+
+class CloudMapProxyReset(CloudMapProxyError):
+    """Raised on HTTP 409 ``RESET`` from ``GET /cloudmap``: the
+    ``since_version`` predates a rewrite of the branch's history, so
+    records may have left without tombstones."""
 
 
 class CloudMapProxyConflict(CloudMapProxyError):
@@ -208,6 +224,10 @@ class CloudMapCache(CloudMapDB):
       apart from references to it.
     - ``_max_version`` / ``_latest_commit`` — highest OCC tokens
       observed across the whole cache.
+    - ``_read_version`` — the ``version`` of the last response ingested,
+      from a server that reports one.
+    - ``_since_version`` — where :meth:`CloudMapProxy.refresh` resumes:
+      the ``version`` its last walk started at.
 
     OCC tokens *for individual records* live on the dataclass
     instances themselves, set via :func:`_set_occ_tokens` at hydrate
@@ -228,6 +248,8 @@ class CloudMapCache(CloudMapDB):
         self._negative: Set[Tuple[str, str]] = set()
         self._max_version: int = 0
         self._latest_commit: Optional[str] = None
+        self._read_version: Optional[int] = None
+        self._since_version: Optional[int] = None
 
     # -- ingest helpers -------------------------------------------------
 
@@ -345,10 +367,10 @@ class CloudMapCache(CloudMapDB):
         rescanning a cache that also holds earlier pages.
 
         The response is ``{"result": <doc>, "followed": <doc>,
-        "next_page_token": <str>, "commit": <str>}``, ``followed`` and
-        ``next_page_token`` present only when the request asked for what
-        they carry. ``commit``, where the server reports it, becomes
-        ``_latest_commit``.
+        "next_page_token": <str>, "commit": <str>, "version": <int>}``,
+        ``followed`` and ``next_page_token`` present only when the request
+        asked for what they carry. ``commit``, where the server reports
+        it, becomes ``_latest_commit``, and ``version`` ``_read_version``.
 
         A list body is a server predating the object response, which
         answered ``[result, followed]``; merging both halves keeps such a
@@ -364,6 +386,8 @@ class CloudMapCache(CloudMapDB):
             commit = body.get("commit")
             if isinstance(commit, str) and commit:
                 self._latest_commit = commit
+            version = body.get("version")
+            self._read_version = version if isinstance(version, int) else None
             token = body.get("next_page_token")
             return keys, (token if isinstance(token, str) and token else None)
         if isinstance(body, list):
@@ -503,6 +527,10 @@ class CloudMapProxy(CloudMapStore):
         )
         if r.status_code == 404:
             return None
+        if r.status_code == 409 and _error_code(r) == "RESET":
+            raise CloudMapProxyReset(
+                f"GET {self._endpoint} -> {r.status_code}: {r.text}"
+            )
         if not r.ok:
             raise CloudMapProxyError(
                 f"GET {self._endpoint} -> {r.status_code}: {r.text}"
@@ -1160,6 +1188,11 @@ class CloudMapProxy(CloudMapStore):
         fallback ignores the parameter, returning the whole document, so
         against it a refresh still picks up additions and updates but not
         deletions.
+
+        The next refresh resumes from the ``version`` the server reported
+        at the start of this one's walk. If the branch's history was
+        rewritten since, the server refuses that cursor, and the cache is
+        dropped and read again whole; staged writes are kept.
         """
         # last_commit is different, any deletes after _max_version won't be observed
         # otherwise can get delete records back
@@ -1167,7 +1200,20 @@ class CloudMapProxy(CloudMapStore):
         # Read the watermark once, before the walk: ingesting a page raises
         # `_max_version`, so recomputing it per page would keep moving the
         # floor and skip records the later pages were meant to carry.
-        for _keys, _resume, _complete in self._pages(
-            since_version=self._cache._max_version
-        ):
-            pass
+        since = self._cache._since_version
+        if since is None:
+            since = self._cache._max_version
+        try:
+            self._cache._since_version = self._walk_all(since)
+        except CloudMapProxyReset:
+            self._cache = CloudMapCache(self._endpoint)
+            self._cache._since_version = self._walk_all(None)
+
+    def _walk_all(self, since_version: Optional[int]) -> Optional[int]:
+        """Walk the whole document from ``since_version``; the ``version``
+        of its first page, which every later page's covers."""
+        first: Optional[int] = None
+        for i, _page in enumerate(self._pages(since_version=since_version)):
+            if i == 0:
+                first = self._cache._read_version
+        return first

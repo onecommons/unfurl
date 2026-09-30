@@ -317,6 +317,12 @@ class CloudMapDocQuery(CloudMapSelectionQuery):
             "carrying ``unfurl.server.deleted: true`` so a client "
             "catching up can drop them, which it could not otherwise "
             "learn (a deleted record simply stops being returned). "
+            "Pass the ``version`` of the previous response. A value from "
+            "before the branch's history was rewritten (a reset, rebase "
+            "or force-push) answers 409 with the code ``RESET``: records "
+            "may have left without tombstones, so drop what you hold, "
+            "read again without ``since_version`` and resume from that "
+            "response's ``version``. "
             "Requires the rust git-sync backend; ignored by the "
             "Python YAML fallback, which reports neither versions nor "
             "deletions."
@@ -1131,6 +1137,15 @@ def hoist_cloudmap_definitions(spec: Dict[str, Any]) -> Dict[str, Any]:
                         "``latest_commit`` for a write based on this read. "
                         "Null for a repository with no commits; absent from "
                         "a server that doesn't report it."
+                    ),
+                },
+                "version": {
+                    "type": "integer",
+                    "format": "int64",
+                    "description": (
+                        "The ``since_version`` for the next read: it "
+                        "misses nothing written after this one. Absent "
+                        "from a server that doesn't track versions."
                     ),
                 },
             },

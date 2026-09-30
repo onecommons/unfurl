@@ -492,6 +492,11 @@ fn local_error_response(err: LocalError) -> Response {
             Json(json!({"code": "VALIDATION_ERROR", "message": msg})),
         )
             .into_response(),
+        LocalError::Reset(msg) => (
+            StatusCode::CONFLICT,
+            Json(json!({"code": "RESET", "message": msg})),
+        )
+            .into_response(),
         LocalError::Internal(msg) => {
             tracing::error!("cloudmap handler error: {}", msg);
             (
@@ -513,7 +518,22 @@ enum LocalError {
     /// query struct carries no range validators, so bounds like
     /// `limit >= 1` are checked here instead.
     Unprocessable(String),
+    /// A `since_version` from before the view was rebuilt — 409 `RESET`:
+    /// the client drops what it holds and reads again from scratch.
+    Reset(String),
     Internal(String),
+}
+
+/// A git-sync read error: [`unfurl_git_sync::Error::Reset`] is the
+/// client's to handle, anything else is ours.
+fn read_error(what: &str, e: unfurl_git_sync::Error) -> LocalError {
+    match e {
+        unfurl_git_sync::Error::Reset { .. } => LocalError::Reset(e.to_string()),
+        unfurl_git_sync::Error::CursorAcrossFamilies { .. } => {
+            LocalError::BadRequest(e.to_string())
+        }
+        e => LocalError::Internal(format!("{what}: {e}")),
+    }
 }
 
 /// Outcome of [`CloudMapState::resolve_read`].
@@ -666,7 +686,7 @@ async fn conflict_groups(
             ..query.clone()
         })
         .await
-        .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+        .map_err(|e| read_error("find_records", e))?;
 
     let mut by_commit: std::collections::BTreeMap<Option<String>, Vec<Record>> =
         std::collections::BTreeMap::new();
@@ -720,11 +740,14 @@ async fn attach_conflicts(
     Ok(body)
 }
 
-/// [`build_response`] with the read worktree's head commit as `commit`.
+/// [`build_response`] with the read worktree's head commit as `commit`
+/// and its watermark as `version`.
 ///
-/// The head is read first, so a commit landing during the read makes it
-/// older than what the records show, never newer: a write sending it
-/// back as `latest_commit` then conflicts rather than passes.
+/// Both are read first, so a write landing during the read makes them
+/// older than what the records show, never newer: a write sending the
+/// commit back as `latest_commit` then conflicts rather than passes, and
+/// the next `since_version` read returns that write again rather than
+/// missing it.
 async fn with_head(
     cm: &CloudMapState,
     worktrees: Option<WorktreeFilter>,
@@ -739,12 +762,18 @@ async fn with_head(
             .map(|found| found.into_iter().next().and_then(|w| w.commit_id)),
     }
     .map_err(|e| LocalError::Internal(format!("head_commit: {e}")))?;
+    let version = cm
+        .inner
+        .watermark(worktrees.as_ref())
+        .await
+        .map_err(|e| read_error("watermark", e))?;
     let mut body = build_response(cm, worktrees, params).await?;
     if let Some(object) = body.as_object_mut() {
         object.insert(
             "commit".to_string(),
             head.map_or(Value::Null, Value::String),
         );
+        object.insert("version".to_string(), Value::from(version));
     }
     Ok(body)
 }
@@ -863,7 +892,7 @@ async fn build_response(
     let (initial, followed_records) = synced
         .find_records_follow(&query, follow, exclude_ids)
         .await
-        .map_err(|e| LocalError::Internal(format!("find_records_follow: {e}")))?;
+        .map_err(|e| read_error("find_records_follow", e))?;
 
     if let (Some(kind_str), Some(key_str)) = (kind, key) {
         if initial.is_empty() {
@@ -941,7 +970,7 @@ async fn paged_response(
     let mut rows = synced
         .find_records(query)
         .await
-        .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+        .map_err(|e| read_error("find_records", e))?;
 
     // Cut on a `(path, key)` boundary. The token names one, so resuming
     // past it drops anything else that shared it -- and a group split
@@ -970,7 +999,7 @@ async fn paged_response(
                     ..query.clone()
                 })
                 .await
-                .map_err(|e| LocalError::Internal(format!("find_records: {e}")))?;
+                .map_err(|e| read_error("find_records", e))?;
             more = !probe.is_empty();
         }
     }
@@ -990,7 +1019,7 @@ async fn paged_response(
                 query.worktrees.as_ref(),
             )
             .await
-            .map_err(|e| LocalError::Internal(format!("follow_records: {e}")))?
+            .map_err(|e| read_error("follow_records", e))?
     } else {
         Vec::new()
     };
@@ -1122,7 +1151,7 @@ async fn build_facets_response(
         .inner
         .facet_records(&selection.into_query(), &spec)
         .await
-        .map_err(|e| LocalError::Internal(format!("facet_records: {e}")))?;
+        .map_err(|e| read_error("facet_records", e))?;
 
     // Canonicalize, merge, nest. BTreeMaps double as the sorted-key
     // emission the parity tests byte-compare.
@@ -1732,6 +1761,7 @@ async fn post_cloudmap_apply(
             LocalError::NotFound(m)
             | LocalError::BadRequest(m)
             | LocalError::Unprocessable(m)
+            | LocalError::Reset(m)
             | LocalError::Internal(m) => format!("conflict_groups: {m}"),
         })
     })?;

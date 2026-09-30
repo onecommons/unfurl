@@ -18,6 +18,7 @@ from unfurl.cloudmap.proxy import (
     CloudMapProxy,
     CloudMapProxyConflict,
     CloudMapProxyError,
+    CloudMapProxyReset,
 )
 from unfurl.tosca_plugins.cloudmap_defs import (
     Artifact,
@@ -938,6 +939,65 @@ def test_refresh_uses_since_version() -> None:
         "limit": "500",
     }
     assert proxy._cache._max_version == 12
+
+
+def test_refresh_resumes_from_the_reported_version() -> None:
+    """A server reporting ``version`` sets where the next refresh resumes,
+    not the highest record version, which a rewrite can leave below it."""
+    first = _response({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=11)}})
+    first["version"] = 20
+    delta = _response({})
+    delta["version"] = 25
+    proxy, session = _make_proxy(
+        get_returns=[_make_response(first), _make_response(delta), _make_response(_response({}))]
+    )
+
+    proxy.refresh()
+    proxy.refresh()
+    proxy.refresh()
+
+    sent = [dict(c.kwargs["params"]).get("since_version") for c in session.get.call_args_list]
+    assert sent == ["0", "20", "25"]
+
+
+def test_refresh_after_a_reset_drops_the_cache_and_rereads() -> None:
+    """A 409 RESET means records may have left without tombstones: the
+    cache is replaced by a whole re-read, which sets the next cursor, and
+    staged writes survive."""
+    first = _response({"artifacts": {"pkg:oci/a": _artifact_payload("pkg:oci/a", version=11)}})
+    first["version"] = 20
+    reread = _response({"artifacts": {"pkg:oci/b": _artifact_payload("pkg:oci/b", version=3)}})
+    reread["version"] = 30
+    proxy, session = _make_proxy(
+        get_returns=[
+            _make_response(first),
+            _make_response({"code": "RESET", "message": "stale"}, status=409),
+            _make_response(reread),
+            _make_response(_response({})),
+        ]
+    )
+    proxy.refresh()
+    proxy.add_record(Artifact(url="pkg:oci/staged", metadata=ArtifactMetadata(title="s")))
+
+    proxy.refresh()
+
+    calls = [dict(c.kwargs["params"]) for c in session.get.call_args_list]
+    assert calls[1]["since_version"] == "20"
+    assert "since_version" not in calls[2], "the re-read is whole"
+    assert proxy._cache.get_record("artifacts", "pkg:oci/a") is None
+    assert proxy._cache.get_record("artifacts", "pkg:oci/b") is not None
+    assert "pkg:oci/staged" in proxy._pending_writes["artifacts"]
+    proxy.refresh()
+    assert dict(session.get.call_args.kwargs["params"])["since_version"] == "30"
+
+
+def test_a_conflict_other_than_reset_is_an_error() -> None:
+    proxy, _ = _make_proxy(
+        get_returns=[_make_response({"code": "CONFLICT", "message": "x"}, status=409)]
+    )
+    with pytest.raises(CloudMapProxyError) as err:
+        proxy.refresh()
+    assert not isinstance(err.value, CloudMapProxyReset)
 
 
 def test_base_url_query_preserved_on_every_call() -> None:

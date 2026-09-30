@@ -2695,6 +2695,75 @@ async fn since_version_reports_deleted_records() {
     );
 }
 
+#[tokio::test]
+async fn a_rewritten_head_resets_a_stale_since_version() {
+    // A reset drops a commit's record from the view without a tombstone,
+    // so a cursor from before it can't catch up; a re-read hands back one
+    // that can.
+    let (cm, tmp) = open_cloudmap_state().await;
+    let git = |args: &[&str]| {
+        let out = std::process::Command::new("git")
+            .args(args)
+            .current_dir(tmp.path())
+            .output()
+            .expect("git");
+        assert!(out.status.success(), "git {args:?}: {out:?}");
+        String::from_utf8(out.stdout)
+            .expect("utf8")
+            .trim()
+            .to_string()
+    };
+    let base = git(&["rev-parse", "HEAD"]);
+    let synced = cm.synced();
+    synced
+        .upsert_record(
+            Some("cloudmap.yaml"),
+            "/repositories",
+            "git://example.com/dropped.git",
+            serde_json::json!({"name": "dropped"}),
+            None,
+            false,
+        )
+        .await
+        .expect("write");
+    synced
+        .commit_repository("dropped")
+        .await
+        .expect("commit")
+        .expect("a commit");
+
+    let (status, body) = get_json(router(make_state(cm.clone())), "/cloudmap").await;
+    assert_eq!(status, StatusCode::OK);
+    let stale = body["version"].as_i64().expect("version: {body:?}");
+
+    git(&["reset", "-q", "--hard", &base]);
+    synced
+        .update_from_working_dir(unfurl_git_sync::ScanOptions::default())
+        .await
+        .expect("scan after the reset");
+
+    let uri = format!("/cloudmap?since_version={stale}");
+    let (status, body) = get_json(router(make_state(cm.clone())), &uri).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body:?}");
+    assert_eq!(body["code"], "RESET");
+
+    let (status, body) = get_json(router(make_state(cm.clone())), "/cloudmap").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(body["result"]["repositories"]
+        .get("git://example.com/dropped.git")
+        .is_none());
+    let resume = body["version"].as_i64().expect("version");
+
+    let uri = format!("/cloudmap?since_version={resume}");
+    let (status, body) = get_json(router(make_state(cm)), &uri).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["result"],
+        serde_json::json!({}),
+        "nothing changed since"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // GET /cloudmap/facets
 // ---------------------------------------------------------------------------

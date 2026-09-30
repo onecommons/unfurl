@@ -254,6 +254,8 @@ pub struct CloudMapResult {
     /// Cursor to pass as ``page_token`` for the next page. Present only on a ``limit`` request that has one -- its absence ends the walk.
     pub next_page_token: Option<String>,
     pub result: CloudMapDocument,
+    /// The ``since_version`` for the next read: it misses nothing written after this one. Absent from a server that doesn't track versions.
+    pub version: Option<i64>,
 }
 #[serde_with::skip_serializing_none]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, oas3_gen_support::Default)]
@@ -1277,7 +1279,7 @@ pub struct GetCloudmapRequestQuery {
     /// Also return the working tree's side of any record the query selected that the database and the file disagree about, under ``conflicts``. Off by default, so an ordinary read sees one version of each record -- the database's, which is what a write acts on. Turn it on to see what a write carrying ``unfurl.server.resolve: true`` would discard. Requires the rust git-sync backend.
     #[default(Some(false))]
     pub conflicts: Option<bool>,
-    /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.
+    /// When set, return only records whose ``unfurl.server.version`` is greater than this value, including records deleted since then -- those come back carrying ``unfurl.server.deleted: true`` so a client catching up can drop them, which it could not otherwise learn (a deleted record simply stops being returned). Pass the ``version`` of the previous response. A value from before the branch's history was rewritten (a reset, rebase or force-push) answers 409 with the code ``RESET``: records may have left without tombstones, so drop what you hold, read again without ``since_version`` and resume from that response's ``version``. Requires the rust git-sync backend; ignored by the Python YAML fallback, which reports neither versions nor deletions.
     pub since_version: Option<i64>,
     /// Comma-separated list of record primary-key ids (``unfurl.server.id`` values) to exclude from the response. Used by clients with a warm cache to avoid re-receiving records they already hold during a ``follow`` walk. Requires the rust git-sync backend; ignored by the Python YAML fallback.
     pub exclude: Option<String>,
