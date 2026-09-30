@@ -2915,7 +2915,11 @@ SELECT count(*) FROM worktree WHERE family_id = :w AND id <> :w;
 
 -- W's head and draft go with it (segment.owner_id cascades), and with them
 -- their rows, entries and aliases; a root alone takes its family's
--- remaining segments first, since they reference its version_seq row
+-- remaining segments first, since they reference its version_seq row,
+-- after letting go of its own head and draft
+UPDATE worktree SET head_segment_id = NULL, draft_segment_id = NULL
+WHERE id = :w AND family_id = :w;
+
 DELETE FROM segment
 WHERE family_id = :w
   AND NOT EXISTS (SELECT 1 FROM worktree o

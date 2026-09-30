@@ -147,11 +147,13 @@ impl GitMirror {
             }
             let head = *world.imp.wts[w].history.last().unwrap();
             let oid = self.oids[head].clone();
+            let mut moved = false;
             match self.checkouts.get_mut(&w) {
                 Some(c) if c.head == head => {}
                 Some(c) => {
                     git(&c.dir, &["reset", "-q", "--mixed", &oid], None);
                     c.head = head;
+                    moved = true;
                 }
                 None if w == MAIN => {
                     git(&self.root, &["reset", "-q", "--mixed", &oid], None);
@@ -166,23 +168,25 @@ impl GitMirror {
                     self.checkouts.insert(w, Checkout { dir, head });
                 }
             }
-            // only where the content differs: the implementation writes
-            // these files too, in its own layout
+            // only where the content differs, or HEAD moved: the
+            // implementation writes these files too, in its own layout
             let dir = &self.checkouts[&w].dir;
             for f in 0..KEYS / KEYS_PER_FILE {
                 let path = dir.join(file_name(f));
                 let want: BTreeMap<Key, Ver> =
                     keys_of(f).filter_map(|k| m.disk.get(&k).map(|&v| (k, v))).collect();
                 let now = std::fs::read_to_string(&path).ok().map(|t| parse_file(f, &t));
-                if now.as_ref() != Some(&want) {
-                    // HEAD's own bytes where it's HEAD's content, as a
-                    // checkout writes them
-                    let spec = format!("{}:{}", self.oids[self.checkouts[&w].head], file_name(f));
-                    if parse_file(f, &git(&self.root, &["show", &spec], None)) == want {
-                        git(dir, &["checkout", "-q", "HEAD", "--", &file_name(f)], None);
-                    } else {
-                        std::fs::write(path, file_json(&m.disk, f)).unwrap();
-                    }
+                let differs = now.as_ref() != Some(&want);
+                if !differs && !moved {
+                    continue;
+                }
+                // HEAD's own bytes where it's HEAD's content, as a checkout
+                // writes them
+                let spec = format!("{}:{}", self.oids[self.checkouts[&w].head], file_name(f));
+                if parse_file(f, &git(&self.root, &["show", &spec], None)) == want {
+                    git(dir, &["checkout", "-q", "HEAD", "--", &file_name(f)], None);
+                } else if differs {
+                    std::fs::write(path, file_json(&m.disk, f)).unwrap();
                 }
             }
         }

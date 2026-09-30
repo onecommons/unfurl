@@ -5,7 +5,9 @@
 mod common;
 
 use common::*;
-use unfurl_git_sync::{Error, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter};
+use unfurl_git_sync::{
+    DbConfig, Error, FormatRegistry, RecordQuery, ScanOptions, SyncedRepo, WorktreeFilter,
+};
 
 /// Every record `sync` shows: key → (name, id).
 async fn names(sync: &SyncedRepo) -> std::collections::BTreeMap<String, (String, i64)> {
@@ -388,7 +390,7 @@ async fn a_split_leaves_a_record_main_rejects_alone() {
 
 /// A fork at a commit where a record was invalid sees the row the scan
 /// kept for it then, not a deletion. (Here that row is below main's head;
-/// one the head replaced in place since is lost: open-review-findings 6.)
+/// one the head has since replaced in place is lost.)
 #[tokio::test]
 async fn a_fork_where_a_record_was_invalid_keeps_its_row() {
     const GITLAB_CI: &str = "git://unfurl.cloud/feb20a/dashboard.git#:.gitlab-ci.yml";
@@ -601,4 +603,93 @@ async fn a_worktree_opened_detached_keeps_scanning() {
             .await
             .expect("scan while detached");
     }
+}
+
+/// Deleting a fork leaves main's records; the fork's root can't go while
+/// the fork belongs to its family, and can once it's alone, taking the
+/// family with it: the checkout opens afresh as the origin's one worktree.
+async fn deleting_worktrees_on(tmp: &tempfile::TempDir, config: DbConfig) {
+    let open = |dir: std::path::PathBuf| {
+        let config = config.clone();
+        async move {
+            SyncedRepo::open(&dir, config, FormatRegistry::with_builtins())
+                .await
+                .expect("open")
+        }
+    };
+    git(
+        tmp.path(),
+        &["remote", "add", "origin", "https://example.com/fork.git"],
+    );
+    let main = open(tmp.path().to_path_buf()).await;
+    main.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    write_and_commit(&main, "one").await;
+    let dir = tmp.path().parent().expect("parent").join(format!(
+        "{}-deleted",
+        tmp.path().file_name().expect("name").to_string_lossy()
+    ));
+    git(
+        tmp.path(),
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "gone",
+            dir.to_str().expect("utf8"),
+            "HEAD",
+        ],
+    );
+    let fork = open(dir.clone()).await;
+    fork.update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan");
+    write_and_commit(&fork, "theirs").await;
+    let before = names(&main).await;
+
+    let err = open(tmp.path().to_path_buf())
+        .await
+        .delete_worktree()
+        .await
+        .expect_err("main is the family's root");
+    assert!(matches!(err, Error::FamilyInUse { members: 1 }), "{err:?}");
+
+    fork.delete_worktree().await.expect("delete the fork");
+    assert_eq!(names(&main).await, before, "main's view is unchanged");
+    main.delete_worktree().await.expect("a root alone");
+
+    let again = open(tmp.path().to_path_buf()).await;
+    again
+        .update_from_working_dir(ScanOptions::default())
+        .await
+        .expect("scan afresh");
+    assert!(names(&again).await.contains_key("one"), "HEAD's records");
+    let origin = WorktreeFilter {
+        origin: Some("https://example.com/fork.git".into()),
+        branch: None,
+    };
+    let left = again.worktrees(&origin).await.expect("worktrees");
+    assert_eq!(left.len(), 1, "{left:?}");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[tokio::test]
+async fn deleting_worktrees() {
+    let (tmp, db) = file_backed_fixture().await;
+    deleting_worktrees_on(&tmp, DbConfig::Sqlite { url: db }).await;
+}
+
+#[cfg(feature = "postgres")]
+#[tokio::test]
+async fn deleting_worktrees_on_postgres() {
+    let Some(scope) = PgScope::setup().await else {
+        eprintln!("skip: UNFURL_TEST_PG_URL not set");
+        return;
+    };
+    let tmp = tempfile::tempdir().expect("tempdir");
+    init_repo_with_fixture(tmp.path()).await;
+    deleting_worktrees_on(&tmp, scope.db_config()).await;
+    scope.teardown().await;
 }

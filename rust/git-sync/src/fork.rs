@@ -776,6 +776,23 @@ pub(crate) async fn rebuild(
             }
         };
         rebuild_on(&mut tx, family, w, base, n, files).await?;
+        // `w`'s old exclusive segments are in no chain now (§4.13)
+        Store::compact(&mut tx, family).await?;
+        tx.commit().await?;
+        Ok(())
+    })
+}
+
+/// C.19: delete worktree `w` of `family`, then compact what only it used.
+pub(crate) async fn delete(db: &Db, w: i64, family: i64) -> Result<()> {
+    on_pool!(db, pool => {
+        let mut tx = pool.begin().await?;
+        Store::lock_family(&mut tx, family).await?;
+        Store::delete_worktree(&mut tx, w).await?;
+        // a root alone took its family with it
+        if family != w {
+            Store::compact(&mut tx, family).await?;
+        }
         tx.commit().await?;
         Ok(())
     })

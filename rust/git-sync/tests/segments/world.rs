@@ -593,6 +593,18 @@ impl World {
     /// worktree's chain up to an index, or none (a new root), with `k`
     /// changed; then scanned.
     fn rebuild(&mut self, w: Wt, base: Option<(Wt, usize)>, k: Key, deleted: bool) {
+        // onto a line that already holds w's HEAD it's a fast-forward and a
+        // commit, not a rewrite: a base ending at HEAD, below an empty head,
+        // say
+        if let Some((u, i)) = base {
+            let seg = self.imp.wts[u].chain[i].0;
+            let bc = self.imp.segs[seg].head_commit.unwrap();
+            let head = *self.imp.wts[w].history.last().unwrap();
+            let upto = self.imp.wts[u].history.iter().position(|&x| x == bc).unwrap();
+            if self.imp.wts[u].history[..=upto].contains(&head) {
+                return;
+            }
+        }
         let base_commit = base.map(|(u, i)| {
             let seg = self.imp.wts[u].chain[i].0;
             self.imp.segs[seg].head_commit.unwrap()
@@ -1241,15 +1253,6 @@ impl World {
                 }
                 let u = others[other as usize % others.len()];
                 let i = back as usize % self.imp.wts[u].chain.len();
-                // onto a line that already holds w's HEAD it's a fast-forward
-                // and a commit, not a rewrite
-                let seg = self.imp.wts[u].chain[i].0;
-                let bc = self.imp.segs[seg].head_commit.unwrap();
-                let head = *self.imp.wts[w].history.last().unwrap();
-                let upto = self.imp.wts[u].history.iter().position(|&x| x == bc).unwrap();
-                if self.imp.wts[u].history[..=upto].contains(&head) {
-                    return;
-                }
                 self.rebuild(w, Some((u, i)), k, deleted);
             }
             Op::Delete(n) => {

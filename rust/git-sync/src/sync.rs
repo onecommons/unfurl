@@ -1148,6 +1148,18 @@ impl SyncedRepo {
         db::record::list_changes(self.db(), self.worktree_id(), since, include_conflicts).await
     }
 
+    /// Delete this worktree from the database: its records, draft and
+    /// files, and the segments only it used (§4.13). The checkout on disk
+    /// is left alone, and opening it again starts afresh. A family's root
+    /// can't be deleted while other worktrees belong to it:
+    /// [`Error::FamilyInUse`].
+    ///
+    /// Drop this handle's other clones first: they still name the deleted
+    /// worktree, so every call through one fails.
+    pub async fn delete_worktree(self) -> Result<()> {
+        crate::fork::delete(self.db(), self.worktree_id(), self.family_id()).await
+    }
+
     /// The highest version written so far to the worktrees `worktrees`
     /// selects, or to this one: a `since_version` for the next read that
     /// misses nothing written after this call. Read it before the read it

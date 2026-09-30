@@ -70,6 +70,13 @@ pub enum Error {
         /// How many families the read's worktrees belong to.
         families: i64,
     },
+    /// Deleting a family's root worktree while other worktrees belong to
+    /// the family: their segments draw versions from its sequence.
+    #[error("the worktree is the root of a family {members} other worktrees belong to")]
+    FamilyInUse {
+        /// How many other worktrees belong to the family.
+        members: i64,
+    },
     /// A `gitoxide` operation failed; the inner string is the
     /// upstream gix error formatted for display.
     #[error("git error: {0}")]

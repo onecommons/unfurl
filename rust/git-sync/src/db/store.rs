@@ -485,6 +485,38 @@ pub(crate) trait Store: sqlx::Database + Sized {
         w: i64,
     ) -> impl Future<Output = Result<Vec<(i64, i64)>>> + Send;
 
+    /// C.19: delete worktree `w`, with its head, draft, chain and files;
+    /// a family root others belong to is refused with
+    /// [`Error::FamilyInUse`].
+    fn delete_worktree(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        w: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// C.14: delete `family`'s committed segments no chain holds, and fold
+    /// each internal segment left with one internal child into it, unless
+    /// that crosses a fork boundary (§4.13).
+    fn compact(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
+    /// The first internal segment of `family`, by id, with exactly one
+    /// child that's internal too, where no worktree holds the two with
+    /// different `inherited` flags: `(parent, child)`.
+    fn fold_pair(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        family: i64,
+    ) -> impl Future<Output = Result<Option<(i64, i64)>>> + Send;
+
+    /// C.14's fold of internal segment `p` into its only child `c`, which
+    /// keeps its id.
+    fn fold(
+        tx: &mut sqlx::Transaction<'_, Self>,
+        p: i64,
+        c: i64,
+    ) -> impl Future<Output = Result<()>> + Send;
+
     /// §4.8 step 5: draft `d`'s entries on worktree `w`'s chain rows at
     /// keys the draft holds no row at.
     fn drop_stale_entries(
@@ -1375,6 +1407,138 @@ macro_rules! store_impl {
                 .bind(w)
                 .fetch_all(&mut **tx)
                 .await?)
+            }
+
+            async fn delete_worktree(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                w: i64,
+            ) -> Result<()> {
+                let members: i64 = sqlx::query_scalar(sql!(
+                    tx,
+                    "SELECT count(*) FROM worktree WHERE family_id = ?1 AND id <> ?1"
+                ))
+                .bind(w)
+                .fetch_one(&mut **tx)
+                .await?;
+                if members > 0 {
+                    return Err(Error::FamilyInUse { members });
+                }
+                // a root alone: its family's segments reference its
+                // version_seq row, which goes with it; its own row points at
+                // its head and draft
+                sqlx::query(sql!(
+                    tx,
+                    "UPDATE worktree SET head_segment_id = NULL, draft_segment_id = NULL \
+                     WHERE id = ?1 AND family_id = ?1"
+                ))
+                .bind(w)
+                .execute(&mut **tx)
+                .await?;
+                sqlx::query(sql!(tx, "DELETE FROM segment WHERE family_id = ?1"))
+                    .bind(w)
+                    .execute(&mut **tx)
+                    .await?;
+                sqlx::query(sql!(tx, "DELETE FROM worktree WHERE id = ?1"))
+                    .bind(w)
+                    .execute(&mut **tx)
+                    .await?;
+                Ok(())
+            }
+
+            async fn compact(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+            ) -> Result<()> {
+                loop {
+                    // descendants of a segment no chain holds are in none
+                    // either (I1), so one statement takes them all
+                    let dead = sqlx::query(sql!(
+                        tx,
+                        "DELETE FROM segment WHERE family_id = ?1 AND kind <> 'draft' \
+                         AND NOT EXISTS (SELECT 1 FROM worktree_segment ws \
+                                         WHERE ws.segment_id = segment.id)"
+                    ))
+                    .bind(family)
+                    .execute(&mut **tx)
+                    .await?
+                    .rows_affected();
+                    if dead > 0 {
+                        continue;
+                    }
+                    let Some((p, c)) = Self::fold_pair(tx, family).await? else {
+                        return Ok(());
+                    };
+                    Self::fold(tx, p, c).await?;
+                }
+            }
+
+            async fn fold_pair(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                family: i64,
+            ) -> Result<Option<(i64, i64)>> {
+                let pairs: Vec<(i64, i64, String)> = sqlx::query_as(sql!(
+                    tx,
+                    "SELECT p.id, MIN(c.id), MIN(c.kind) FROM segment p \
+                     JOIN segment c ON c.parent_id = p.id \
+                     WHERE p.family_id = ?1 AND p.kind = 'internal' \
+                     GROUP BY p.id HAVING COUNT(*) = 1 ORDER BY p.id"
+                ))
+                .bind(family)
+                .fetch_all(&mut **tx)
+                .await?;
+                for (p, c, kind) in pairs {
+                    // never into an open head, whose writes replace its rows
+                    if kind != "internal" {
+                        continue;
+                    }
+                    // nor across a fork boundary (§4.13)
+                    let crosses: bool = sqlx::query_scalar(sql!(
+                        tx,
+                        "SELECT EXISTS (SELECT 1 FROM worktree_segment a \
+                         JOIN worktree_segment b ON b.worktree_id = a.worktree_id \
+                         WHERE a.segment_id = ?1 AND b.segment_id = ?2 \
+                           AND a.inherited <> b.inherited)"
+                    ))
+                    .bind(p)
+                    .bind(c)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    if !crosses {
+                        return Ok(Some((p, c)));
+                    }
+                }
+                Ok(None)
+            }
+
+            async fn fold(
+                tx: &mut sqlx::Transaction<'_, Self>,
+                p: i64,
+                c: i64,
+            ) -> Result<()> {
+                const STEPS: [&str; 7] = [
+                    // the parent's rows the child overrides are hidden in
+                    // every chain that holds the parent
+                    "DELETE FROM record WHERE segment_id = ?1 AND EXISTS \
+                     (SELECT 1 FROM superseded x WHERE x.record_id = record.id \
+                      AND x.segment_id = ?2)",
+                    "UPDATE record SET segment_id = ?2 WHERE segment_id = ?1",
+                    "INSERT INTO superseded (record_id, segment_id, key_id) \
+                     SELECT record_id, ?2, key_id FROM superseded WHERE segment_id = ?1 \
+                     ON CONFLICT DO NOTHING",
+                    "DELETE FROM superseded WHERE segment_id = ?1",
+                    "UPDATE segment SET parent_id = \
+                     (SELECT parent_id FROM segment WHERE id = ?1) WHERE id = ?2",
+                    "DELETE FROM worktree_segment WHERE segment_id = ?1",
+                    "DELETE FROM segment WHERE id = ?1",
+                ];
+                for step in STEPS {
+                    sqlx::query(&db::spell(&*tx, step.to_string()))
+                        .bind(p)
+                        .bind(c)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                Ok(())
             }
 
             async fn drop_stale_entries(

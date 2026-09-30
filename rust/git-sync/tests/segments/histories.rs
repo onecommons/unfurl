@@ -2036,3 +2036,35 @@ fn fork_after_a_rebuild_and_a_deletion() {
         Op::Fork(8, 1),
     ]);
 }
+
+/// A worktree rebased onto main's line with a pending deletion that main
+/// already committed: the commit after it has nothing to carry.
+#[test]
+fn rebase_under_a_deletion_main_committed() {
+    run(&[
+        Op::Write(0, 2, true),
+        Op::Fork(0, 0),
+        Op::Commit(104),
+        Op::Rebase(20, 0, 0, 2, true),
+        Op::Commit(30),
+    ]);
+}
+
+/// A "rebuild" onto the segment ending at HEAD, below the empty head a
+/// fork left, is a fast-forward and a commit: the op mustn't model it as
+/// a rewrite, which would compact where a scan doesn't.
+#[test]
+fn rebuild_onto_head_below_an_empty_head_is_a_fast_forward() {
+    run(&[
+        Op::Write(0, 0, false),
+        Op::Fork(0, 0),
+        Op::Write(0, 0, false),
+        Op::Write(0, 0, false),
+        Op::Write(0, 0, false),
+        Op::Delete(0),
+        Op::Write(0, 0, false),
+        Op::Commit(0),
+        Op::Fork(0, 0),
+        Op::Rebuild(0, 235, 0, false),
+    ]);
+}

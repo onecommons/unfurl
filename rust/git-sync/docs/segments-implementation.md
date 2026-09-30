@@ -144,7 +144,7 @@ Two entry points, each replacing what happens today:
 
 ```rust
 Error::BranchChanged { expected: String, found: String }
-Error::FamilyInUse          // deleting a family root other worktrees belong to
+Error::FamilyInUse { members: i64 }   // deleting a family root others belong to
 ```
 
 - **Structural operations take the family lock first** (§4.14):
@@ -405,6 +405,71 @@ Behaviour changes, beyond §5's:
 
 Not done yet: the ancestry check and `Error::BranchChanged`, which go
 with phase 2's rebuild.
+
+### 7.2 Phase 2: done
+
+Fork on open, placement, split, rebuild, deletion and compaction (C.13,
+C.14, C.16–C.19), with the rollup id lookup through parents. The crate's
+suites, the server's, and `rust/dev/verify.sh`'s random histories (100
+of each kind per run, on SQLite and Postgres) agree with the in-memory
+implementation. The harness runs Fork, Rebuild, Rebase and Delete, and
+checks each worktree's chain length as well as its view, which is what
+makes compaction visible to it.
+
+How it differs from the plan:
+
+- **A rebuild can land on another worktree's line,** as `git rebase
+  main` does after main moved on. It prepares the base as a fork does
+  (`Store::prepare_base`, shared with C.13): another worktree's open
+  head closes, or an empty one steps to its parent. The rebuilt chain
+  takes the base's ancestry it didn't hold. The harness's `Op::Rebase`
+  covers it, with a strategy of its own so seeds saved under `op()` still
+  replay the same histories.
+- **Reset is an error, not a `Changes` enum.** `list_changes`,
+  `find_records` and facets fail with `Error::Reset` below the view's
+  `reset_version`, and `watermark()` gives the cursor to resume from,
+  which `GET /cloudmap` returns as `version`. A rebuild draws the version
+  it stores, so a watermark read after it is never stale. A cursor over
+  worktrees of more than one family is refused
+  (`Error::CursorAcrossFamilies`).
+- **A rebuild re-derives the draft's entries** before re-linking
+  (§4.8 step 5), and the scan after it parses every file again, so a
+  `git reset --mixed` that kept the working tree shows what it holds.
+- **Compaction runs inline,** in the deletion's or rebuild's
+  transaction, as the model runs it, and **never folds into an open
+  head** (§4.13): the head's writes replace its rows in place, which
+  would erase the parent's, and with them the id a split recovers.
+- **A split keeps what a scan skipped:** a record validation rejected
+  at the fork commit takes the row the scan kept, and a place whose
+  value there is what's below only moves its entries (§4.7).
+- **C.19 lets go of a root's head and draft** before deleting its
+  family's segments, which the worktree row references.
+- **A handle opened on a detached HEAD keeps scanning;** one opened on
+  a branch refuses a detached HEAD (`Error::Detached`) or another branch
+  (`Error::BranchChanged`).
+
+Behaviour changes, beyond §5's:
+
+- **`GET /cloudmap` returns `version`**, and a stale `since_version`
+  answers `409 RESET`; the Python proxy resumes from `version` and
+  re-reads on `RESET`, keeping staged writes.
+- **The scan's head update and the commit take the family lock** before
+  reading the head.
+- **A new origin's family trailer is looked for along first parents
+  only,** at most 1000 commits back, and only in this database's
+  rollups.
+
+Open:
+
+- **A rollup could name an id its head row doesn't get,** if two places
+  were ever given one id. Not reproduced; `advance_head` debug-asserts
+  it.
+- **A skipped record's row a head replaced in place is lost to a
+  split.** In a worktree with no fork yet, whose one head spans all its
+  commits, a fork at a commit where a record was rejected can't recover
+  the row the scan kept then once the head has changed it since.
+- **The rollup lookup through merges made outside the database**, which
+  is phase 4's.
 
 ## 8. For review
 

@@ -12,7 +12,7 @@ fn sql_supports(op: &Op) -> bool {
         Op::Write(..) | Op::Commit(_) | Op::External(..) | Op::Move(..) | Op::Resolve(..) => true,
         // a trailer is a commit's; there's no working-tree form of it
         Op::DiskEdit(_, _, _, wins) => !matches!(wins, FileWins::Diverged),
-        Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) => true,
+        Op::Fork(..) | Op::Rebuild(..) | Op::Rebase(..) | Op::Delete(_) => true,
         _ => false,
     }
 }
@@ -237,6 +237,18 @@ impl SqlWorld {
                     .block_on(self.repos[&w].resolve_conflict(&file, path, &key, resolution, None))
                     .unwrap();
             }
+            Op::Delete(_) => {
+                let gone: Vec<Wt> = self
+                    .repos
+                    .keys()
+                    .copied()
+                    .filter(|&w| !world.model.wts[w].alive)
+                    .collect();
+                for w in gone {
+                    let repo = self.repos.remove(&w).expect("open");
+                    self.rt.block_on(repo.delete_worktree()).unwrap();
+                }
+            }
             _ => unreachable!("unsupported ops aren't run"),
         }
     }
@@ -290,6 +302,25 @@ impl SqlWorld {
             .into_iter()
             .map(|r| (key_of(&r.file_path, &r.key), (version_of(&r.json), r.id)))
             .collect()
+    }
+
+    /// How many segments worktree `w`'s committed chain holds: what
+    /// compaction shortens.
+    fn chain_len(&self, w: Wt) -> usize {
+        let sql = "SELECT count(*) FROM worktree_segment WHERE worktree_id = ?1";
+        let w = self.repos[&w].worktree_id();
+        let n: i64 = match &self.raw {
+            Raw::Sqlite(pool) => self
+                .rt
+                .block_on(sqlx::query_scalar(sql).bind(w).fetch_one(pool))
+                .unwrap(),
+            #[cfg(feature = "postgres")]
+            Raw::Postgres(pool, _) => self
+                .rt
+                .block_on(sqlx::query_scalar(&sql.replace("?1", "$1")).bind(w).fetch_one(pool))
+                .unwrap(),
+        };
+        usize::try_from(n).expect("a count")
     }
 
     /// Worktree `w`'s committed chain, the same way.
@@ -379,6 +410,11 @@ impl SqlWorld {
             let chain = self.chain(w);
             self.same_ids(&format!("worktree {w}'s committed chain"), step, &chain, &rows(imp.chain_set(w)));
             assert_eq!(self.conflicts(w), imp.conflicts(w), "step {step}: worktree {w}'s conflicts");
+            assert_eq!(
+                self.chain_len(w),
+                imp.wts[w].chain.len(),
+                "step {step}: worktree {w}'s chain length"
+            );
         }
     }
 }
