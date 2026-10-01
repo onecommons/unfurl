@@ -199,6 +199,8 @@ const fn put_range(out: &mut [u8], n: usize, b: &[u8], from: usize, to: usize) -
     n + to - from
 }
 
+#[cfg(test)]
+mod bench;
 pub mod commit;
 pub mod file;
 pub mod record;

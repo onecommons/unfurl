@@ -13,7 +13,9 @@ SELECT 1 AS main,
        (SELECT min(id) FROM worktree WHERE branch = 'main' AND id > 1) AS fork_wt,
        (SELECT max(version) - 1000 FROM record) AS cursor
 \gset
-\set probe_key 'k0000123'
+\set probe_key 'k0000121'
+-- in /components, so a miss in /artifacts
+\set miss_key 'k0000123'
 \set tag_filter '{"tags": ["tag7"]}'
 \set type_names '{T2}'
 
@@ -36,6 +38,23 @@ WHERE r.conflict IS NULL
                   JOIN v vx ON vx.segment_id = x.segment_id
                   WHERE x.record_id = r.id)
   AND r.file_path = 'cloudmap.yaml' AND r.path = '/artifacts' AND r.key = :'probe_key';
+
+\echo
+\echo ==== 1b. get a key the section lacks, main view
+EXPLAIN (ANALYZE, BUFFERS, SETTINGS)
+WITH v AS (
+    SELECT segment_id, added_version FROM worktree_segment WHERE worktree_id = :main
+    UNION ALL
+    SELECT draft_segment_id, 0 FROM worktree WHERE id = :main
+)
+SELECT r.key_id, r.json, r.version, r.deleted
+FROM record r
+JOIN v ON v.segment_id = r.segment_id
+WHERE r.conflict IS NULL
+  AND NOT EXISTS (SELECT 1 FROM superseded x
+                  JOIN v vx ON vx.segment_id = x.segment_id
+                  WHERE x.record_id = r.id)
+  AND r.file_path = 'cloudmap.yaml' AND r.path = '/artifacts' AND r.key = :'miss_key';
 
 \echo
 \echo ==== 2. find with a JSON filter, one page, main view

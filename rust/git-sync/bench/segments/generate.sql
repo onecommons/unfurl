@@ -1,6 +1,6 @@
 -- Synthetic data for the segment design (docs/branch-segments.md): one
 -- family with a main branch, forks, user branches layered over main, and
--- drafts. Run after schema.sql, into an empty database:
+-- drafts. Run after migrations/postgres, into an empty database:
 --
 --   psql "$URL" -v records=20000 -v users=300 -f generate.sql
 --

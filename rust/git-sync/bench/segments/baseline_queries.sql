@@ -7,7 +7,7 @@
 \pset pager off
 
 SELECT 1 AS main, (SELECT max(version) - 1000 FROM record) AS cursor \gset
-\set probe_key 'k0000123'
+\set probe_key 'k0000121'
 \set tag_filter '{"tags": ["tag7"]}'
 
 -- what the types cache would hand the query
