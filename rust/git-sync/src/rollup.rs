@@ -15,7 +15,7 @@
 //! [`crate::SyncedRepo::update_from_working_dir_with`].
 
 use crate::error::{Error, Result};
-use crate::model::{CommitRollup, RollupTxn, TxnRecord};
+use crate::model::{CommitRollup, RollupTxn, TxnMeta, TxnRecord};
 
 /// Render a commit message in the format [`parse_commit_rollup`] reads
 /// back. See there for the grammar and the reasoning behind it.
@@ -34,7 +34,7 @@ pub(crate) fn build_commit_message(subject: &str, rollup: &CommitRollup) -> Stri
         } else {
             format!("{}-{}", txn.first_version, txn.last_version)
         };
-        let author = match &txn.author {
+        let author = match &txn.meta.author {
             Some(a) => format!(" {a}"),
             None => String::new(),
         };
@@ -42,7 +42,7 @@ pub(crate) fn build_commit_message(subject: &str, rollup: &CommitRollup) -> Stri
             " - {range} on {} {}{author}\n",
             txn.branch, txn.created_at
         ));
-        if let Some(message) = &txn.message {
+        if let Some(message) = &txn.meta.message {
             for line in message.lines() {
                 if line.is_empty() {
                     out.push_str("   |\n");
@@ -448,12 +448,12 @@ fn is_rollup_header(line: &str) -> bool {
 }
 
 fn push_message_line(txn: &mut RollupTxn, text: &str) {
-    match &mut txn.message {
+    match &mut txn.meta.message {
         Some(existing) => {
             existing.push('\n');
             existing.push_str(text);
         }
-        None => txn.message = Some(text.to_string()),
+        None => txn.meta.message = Some(text.to_string()),
     }
 }
 
@@ -479,8 +479,10 @@ fn parse_entry_header(rest: &str) -> Result<RollupTxn> {
         last_version: last.parse().map_err(|_| bad())?,
         branch: branch.to_string(),
         created_at: created_at.to_string(),
-        author: author.map(str::to_string),
-        message: None,
+        meta: TxnMeta {
+            author: author.map(str::to_string),
+            message: None,
+        },
         records: Vec::new(),
     })
 }

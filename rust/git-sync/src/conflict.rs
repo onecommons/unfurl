@@ -18,7 +18,8 @@
 use crate::crud::{compute_aliases, enforce_conflict};
 use unfurl_merge::markdown::Applied;
 
-use crate::db::store::{At, Filter, Row, Scope, Store};
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, RecordRow};
 use crate::document::{apply_delete, apply_insert};
 use crate::error::{Error, Result};
 use crate::model::{
@@ -128,7 +129,7 @@ pub(crate) async fn refresh_conflict_row<DB: Store>(
     sync: &SyncedRepo,
     at: At<'_>,
     theirs: TheirSide<'_>,
-    existing: Option<&Row>,
+    existing: Option<&RecordRow>,
 ) -> Result<()> {
     if matches!(existing, Some(c)
         if c.conflict == Some(ConflictState::Conflict)
@@ -152,7 +153,7 @@ pub(crate) async fn drop_conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     at: At<'_>,
-    existing: Option<&Row>,
+    existing: Option<&RecordRow>,
 ) -> Result<()> {
     if existing.is_none() {
         return Ok(());
@@ -383,7 +384,7 @@ pub(crate) async fn conflict_rows<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     sync: &SyncedRepo,
     file_path: &str,
-) -> Result<std::collections::BTreeMap<(String, String), Row>> {
+) -> Result<std::collections::BTreeMap<(String, String), RecordRow>> {
     let d = DB::segs(tx, sync.worktree_id()).await?.draft;
     Ok(DB::rows_in(tx, d, Some(file_path), true)
         .await?

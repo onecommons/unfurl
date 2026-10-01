@@ -3,10 +3,15 @@
 //! Database connection and per-dialect SQL helpers.
 //!
 //! [`Db`] is a dialect-tagged enum that wraps either a SQLite or a
-//! Postgres connection pool. Submodules ([`worktree`], [`mod@file`],
-//! [`record`], [`commit`], `store`) hold the SQL helpers used by
-//! [`crate::sync`]; sync code only sees these high-level functions, never
-//! raw `sqlx::query` invocations.
+//! Postgres connection pool. The SQL is in three layers:
+//!
+//! - `tables`: the tables' row types, and how a row is read back.
+//! - `store::Store`: row-level statements over those types, run inside
+//!   a caller's transaction. The segment code (scans, forks, writes)
+//!   builds on it.
+//! - [`worktree`], [`mod@file`], [`record`], [`commit`]: queries that
+//!   each run in their own transaction and return [`crate::model`]
+//!   types.
 //!
 //! SQL is written once, in SQLite's syntax, and [`sql!`] gives Postgres
 //! its spelling ([`pg_write`]) at compile time. A body is written once
@@ -198,6 +203,7 @@ pub mod commit;
 pub mod file;
 pub mod record;
 pub(crate) mod store;
+pub(crate) mod tables;
 pub mod worktree;
 
 /// User-facing database connection configuration.

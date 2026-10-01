@@ -13,7 +13,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::conflict::{classify_conflict, drop_conflict_row, refresh_conflict_row, TheirSide};
-use crate::db::store::{At, FileRow, Filter, NewRow, Row, Scope, Store};
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, FileRow, NewRecordRow, Place, RecordRow};
 use crate::error::Result;
 use crate::format::SectionKind;
 use crate::model::{ConflictState, Record, RecordConflict, SyncOutcome};
@@ -180,17 +181,6 @@ impl HeadFile {
     }
 }
 
-/// A place in a file, owned.
-pub(crate) type Place = (String, String, String);
-
-fn place_at(p: &Place) -> At<'_> {
-    At {
-        file_path: &p.0,
-        path: &p.1,
-        key: &p.2,
-    }
-}
-
 /// The committed side of a scan (§4.3): bring the head up to `commit`,
 /// whose blobs of `files` differ from what the committed segments hold.
 /// `named` is the ids `commit`'s rollup names, which a record takes
@@ -207,25 +197,21 @@ async fn advance_head<DB: Store>(
 ) -> Result<BTreeSet<String>> {
     let w = sync.worktree_id();
     let chain = DB::visible(tx, w, Scope::Chain, Filter::All).await?;
-    let live_at = |p: &Place| {
-        chain
-            .iter()
-            .find(|r| !r.deleted && (&r.file_path, &r.path, &r.key) == (&p.0, &p.1, &p.2))
-    };
+    let live_at = |p: &Place| chain.iter().find(|r| !r.deleted && r.at() == p.as_at());
     let mut changes: BTreeMap<Place, Option<serde_json::Value>> = BTreeMap::new();
     for f in files {
         let head: BTreeMap<Place, &serde_json::Value> = f
             .records
             .iter()
-            .map(|(path, key, v)| ((f.rel_path.clone(), path.clone(), key.clone()), v))
+            .map(|(path, key, v)| (Place::new(&f.rel_path, path, key), v))
             .collect();
         let shown: BTreeSet<Place> = chain
             .iter()
             .filter(|r| r.file_path == f.rel_path && !r.deleted)
-            .map(|r| (r.file_path.clone(), r.path.clone(), r.key.clone()))
+            .map(Place::from)
             .collect();
         for p in head.keys().chain(&shown).collect::<BTreeSet<_>>() {
-            if f.skips(&p.1, &p.2) {
+            if f.skips(&p.path, &p.key) {
                 continue;
             }
             let now = head.get(p).copied();
@@ -245,7 +231,10 @@ async fn advance_head<DB: Store>(
             continue;
         }
         let from = changes.iter().find(|(q, c)| {
-            c.is_none() && q.0 != p.0 && (&q.1, &q.2) == (&p.1, &p.2) && live_at(q).is_some()
+            c.is_none()
+                && q.file_path != p.file_path
+                && (&q.path, &q.key) == (&p.path, &p.key)
+                && live_at(q).is_some()
         });
         if let Some((q, _)) = from {
             moved.insert(p.clone(), live_at(q).expect("checked").key_id);
@@ -256,7 +245,7 @@ async fn advance_head<DB: Store>(
     let kept: BTreeSet<i64> = chain
         .iter()
         .filter(|r| !r.deleted)
-        .filter(|r| !changes.contains_key(&(r.file_path.clone(), r.path.clone(), r.key.clone())))
+        .filter(|r| !changes.contains_key(&Place::from(*r)))
         .map(|r| r.key_id)
         .collect();
     let mut taken = kept.clone();
@@ -293,7 +282,7 @@ async fn advance_head<DB: Store>(
         let written = segments::scan_key(
             tx,
             w,
-            place_at(p),
+            p.as_at(),
             change.as_ref(),
             commit,
             first + i as i64,
@@ -303,13 +292,13 @@ async fn advance_head<DB: Store>(
         if let (Some(written), Some(value)) = (written, change) {
             given.insert(written.key_id);
             stats.records_upserted += 1;
-            if let Some(format) = sync.formats().for_path(&p.1) {
+            if let Some(format) = sync.formats().for_path(&p.path) {
                 let record = Record {
                     id: written.key_id,
                     worktree_id: w,
-                    file_path: p.0.clone(),
-                    path: p.1.clone(),
-                    key: p.2.clone(),
+                    file_path: p.file_path.clone(),
+                    path: p.path.clone(),
+                    key: p.key.clone(),
                     commit_id: Some(commit.to_string()),
                     json: value.clone(),
                     deleted: false,
@@ -322,7 +311,7 @@ async fn advance_head<DB: Store>(
             stats.records_deleted += 1;
         }
     }
-    let mut touched: BTreeSet<String> = changes.keys().map(|p| p.0.clone()).collect();
+    let mut touched: BTreeSet<String> = changes.keys().map(|p| p.file_path.clone()).collect();
     touched.extend(segments::follow_records(tx, w).await?);
     Ok(touched)
 }
@@ -339,7 +328,7 @@ pub(crate) struct DiskFile<'a> {
 /// three-way decision, against the committed version the edit was made
 /// over.
 fn diverges(
-    x: &Row,
+    x: &RecordRow,
     theirs: Option<&serde_json::Value>,
 ) -> Option<crate::model::RecordConflictKind> {
     classify_conflict(
@@ -397,10 +386,10 @@ struct FileScan<'a> {
     d: i64,
     wins: FileWins,
     /// The committed chain's rows in the file.
-    chain: Vec<Row>,
+    chain: Vec<RecordRow>,
     /// The committed chain's live rows in every file. A scan writes only
     /// to the draft, so this holds for the whole file.
-    live: Vec<Row>,
+    live: Vec<RecordRow>,
 }
 
 /// The draft side of a scan (§4.3): take one file's working tree into
@@ -535,9 +524,9 @@ async fn pending_edit<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     scan: &FileScan<'_>,
     at: At<'_>,
-    p: &Row,
+    p: &RecordRow,
     theirs: Option<&serde_json::Value>,
-    existing: Option<&Row>,
+    existing: Option<&RecordRow>,
     stats: &mut SyncOutcome,
 ) -> Result<Option<i64>> {
     let file = scan.file;
@@ -607,10 +596,10 @@ async fn pending_edit<DB: Store>(
 async fn align_id<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
-    r: Row,
-    committed: Option<&Row>,
+    r: RecordRow,
+    committed: Option<&RecordRow>,
     elsewhere: &BTreeSet<i64>,
-) -> Result<Option<Row>> {
+) -> Result<Option<RecordRow>> {
     match committed {
         Some(c) if c.key_id != r.key_id => {
             DB::set_key_id(tx, r.id, c.key_id).await?;
@@ -689,7 +678,7 @@ async fn rename_file<DB: Store>(
 ) -> Result<()> {
     let w = sync.worktree_id();
     let d = DB::segs(tx, w).await?.draft;
-    let moved_at = |r: &Row| (r.path.clone(), r.key.clone());
+    let moved_at = |r: &RecordRow| (r.path.clone(), r.key.clone());
     let mut held: BTreeSet<(String, String)> = BTreeSet::new();
     for x in DB::rows_in(tx, d, Some(from), false)
         .await?
@@ -715,17 +704,15 @@ async fn rename_file<DB: Store>(
             path: &c.path,
             key: &c.key,
         };
-        let row = |at, deleted| NewRow {
-            at,
-            key_id: Some(c.key_id),
-            commit_id: c.commit_id.as_deref(),
-            json: &c.json,
-            deleted,
-            version: c.version,
-            base_commit_id: None,
-            base_json: None,
-            settled: &[],
-            conflict: None,
+        let row = |at, deleted| {
+            NewRecordRow::new(
+                at,
+                Some(c.key_id),
+                c.commit_id.as_deref(),
+                &c.json,
+                deleted,
+                c.version,
+            )
         };
         DB::insert(tx, d, row(old, true)).await?;
         DB::entry(tx, c.id, d, c.key_id).await?;

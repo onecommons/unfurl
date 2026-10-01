@@ -17,81 +17,12 @@
 use std::future::Future;
 
 use crate::db;
+use crate::db::tables::{
+    At, FileRow, NewRecordRow, RecordColumns, RecordRow, SegmentEnd, Superseded, WorktreeSegs,
+    ROW_COLUMNS,
+};
 use crate::error::{Error, Result};
 use crate::model::ConflictState;
-
-/// One version of one record (§3.4).
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct Row {
-    pub(crate) id: i64,
-    pub(crate) key_id: i64,
-    pub(crate) segment_id: i64,
-    pub(crate) file_path: String,
-    pub(crate) path: String,
-    pub(crate) key: String,
-    pub(crate) commit_id: Option<String>,
-    pub(crate) json: serde_json::Value,
-    pub(crate) deleted: bool,
-    pub(crate) version: i64,
-    pub(crate) base_commit_id: Option<String>,
-    /// The content of the version `base_commit_id` names.
-    pub(crate) base_json: Option<serde_json::Value>,
-    pub(crate) settled: Vec<i64>,
-    pub(crate) conflict: Option<ConflictState>,
-}
-
-impl Row {
-    pub(crate) fn at(&self) -> At<'_> {
-        At {
-            file_path: &self.file_path,
-            path: &self.path,
-            key: &self.key,
-        }
-    }
-
-    /// A client's edit, rather than a value taken in from the file.
-    pub(crate) fn is_edit(&self) -> bool {
-        self.commit_id.is_none()
-    }
-}
-
-/// A record's place: file, section and key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct At<'a> {
-    pub(crate) file_path: &'a str,
-    pub(crate) path: &'a str,
-    pub(crate) key: &'a str,
-}
-
-/// An entry a segment holds: the row it's on, and the edit that made it.
-#[derive(Debug, Clone)]
-pub(crate) struct Entry {
-    pub(crate) row: i64,
-    pub(crate) file_path: String,
-    pub(crate) path: String,
-    pub(crate) key: String,
-    /// The row's own record, and whether it's a tombstone.
-    pub(crate) row_key_id: i64,
-    pub(crate) deleted: bool,
-    pub(crate) key_id: i64,
-}
-
-impl Entry {
-    pub(crate) fn at(&self) -> At<'_> {
-        At {
-            file_path: &self.file_path,
-            path: &self.path,
-            key: &self.key,
-        }
-    }
-}
-
-/// A worktree's open head segment and its draft.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Segs {
-    pub(crate) head: i64,
-    pub(crate) draft: i64,
-}
 
 /// Which segments a read looks through: a worktree's, or a segment's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -115,40 +46,6 @@ pub(crate) enum Filter<'a> {
     All,
 }
 
-/// A row to insert. `key_id: None` starts a new record, whose id is the
-/// row's own.
-pub(crate) struct NewRow<'a> {
-    pub(crate) at: At<'a>,
-    pub(crate) key_id: Option<i64>,
-    pub(crate) commit_id: Option<&'a str>,
-    pub(crate) json: &'a serde_json::Value,
-    pub(crate) deleted: bool,
-    pub(crate) version: i64,
-    pub(crate) base_commit_id: Option<&'a str>,
-    pub(crate) base_json: Option<&'a serde_json::Value>,
-    pub(crate) settled: &'a [i64],
-    pub(crate) conflict: Option<ConflictState>,
-}
-
-/// A segment, and the commit whose state it ends at.
-#[derive(Debug, Clone, sqlx::FromRow)]
-pub(crate) struct SegmentEnd {
-    pub(crate) id: i64,
-    /// `None` for a new worktree's head, until its first scan.
-    pub(crate) head_commit: Option<String>,
-}
-
-/// A file row to record. `Some` on an optional field sets it; the
-/// working-tree side (`commit_id`, `source_oid`) and the committed side
-/// (`committed_oid`) are set by different passes of a scan.
-pub(crate) struct FileRow<'a> {
-    pub(crate) path: &'a str,
-    pub(crate) format: &'a str,
-    pub(crate) commit_id: Option<Option<&'a str>>,
-    pub(crate) source_oid: Option<Option<&'a str>>,
-    pub(crate) committed_oid: Option<Option<&'a str>>,
-}
-
 /// The view of worktree `?1`, as the CTE `v`.
 fn view_cte(scope: Scope) -> &'static str {
     match scope {
@@ -167,68 +64,7 @@ fn view_cte(scope: Scope) -> &'static str {
     }
 }
 
-const ROW_COLUMNS: &str = "r.id, r.key_id, r.segment_id, r.file_path, r.path, r.key, \
-     r.commit_id, json(r.json), r.deleted, r.version, r.base_commit_id, json(r.settled), \
-     r.conflict, json(r.base_json)";
-
-/// A row as [`ROW_COLUMNS`] selects it.
-type RowTuple = (
-    i64,
-    i64,
-    i64,
-    String,
-    String,
-    String,
-    Option<String>,
-    String,
-    bool,
-    i64,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-    Option<String>,
-);
-
-fn to_row(t: RowTuple) -> Result<Row> {
-    let (id, key_id, segment_id, file_path, path, key, commit_id, json, deleted, version) =
-        (t.0, t.1, t.2, t.3, t.4, t.5, t.6, t.7, t.8, t.9);
-    let json = serde_json::from_str(&json).map_err(|e| Error::Json {
-        path: path.clone(),
-        source: e,
-    })?;
-    let settled = match t.11.as_deref() {
-        Some(s) => serde_json::from_str(s).map_err(|e| Error::Json {
-            path: path.clone(),
-            source: e,
-        })?,
-        None => Vec::new(),
-    };
-    let base_json = match t.13.as_deref() {
-        Some(s) => Some(serde_json::from_str(s).map_err(|e| Error::Json {
-            path: path.clone(),
-            source: e,
-        })?),
-        None => None,
-    };
-    Ok(Row {
-        id,
-        key_id,
-        segment_id,
-        file_path,
-        path,
-        key,
-        commit_id,
-        json,
-        deleted,
-        version,
-        base_commit_id: t.10,
-        base_json,
-        settled,
-        conflict: ConflictState::from_column(t.12.as_deref()),
-    })
-}
-
-fn sort_rows(rows: &mut [Row]) {
+fn sort_rows(rows: &mut [RecordRow]) {
     rows.sort_by(|a, b| (a.at(), a.id).cmp(&(b.at(), b.id)));
 }
 
@@ -242,7 +78,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn segs(
         tx: &mut sqlx::Transaction<'_, Self>,
         worktree_id: i64,
-    ) -> impl Future<Output = Result<Segs>> + Send;
+    ) -> impl Future<Output = Result<WorktreeSegs>> + Send;
 
     /// The rows `worktree_id`'s view shows: visible in `scope`, not
     /// conflict rows, sorted by place. With [`Scope::State`],
@@ -252,7 +88,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         worktree_id: i64,
         scope: Scope,
         filter: Filter<'_>,
-    ) -> impl Future<Output = Result<Vec<Row>>> + Send;
+    ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
 
     /// Segment `seg`'s own rows: its conflict rows with `conflicts`,
     /// otherwise the rest.
@@ -261,13 +97,13 @@ pub(crate) trait Store: sqlx::Database + Sized {
         seg: i64,
         file_path: Option<&str>,
         conflicts: bool,
-    ) -> impl Future<Output = Result<Vec<Row>>> + Send;
+    ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
 
     /// Insert a row; returns its id and `key_id`.
     fn insert(
         tx: &mut sqlx::Transaction<'_, Self>,
         seg: i64,
-        row: NewRow<'_>,
+        row: NewRecordRow<'_>,
     ) -> impl Future<Output = Result<(i64, i64)>> + Send;
 
     /// Delete a row, with the entries on it and its aliases.
@@ -288,7 +124,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
     fn entries_in(
         tx: &mut sqlx::Transaction<'_, Self>,
         seg: i64,
-    ) -> impl Future<Output = Result<Vec<Entry>>> + Send;
+    ) -> impl Future<Output = Result<Vec<Superseded>>> + Send;
 
     /// Drop one entry.
     fn untag(
@@ -466,7 +302,7 @@ pub(crate) trait Store: sqlx::Database + Sized {
         tx: &mut sqlx::Transaction<'_, Self>,
         family: i64,
         at: At<'_>,
-    ) -> impl Future<Output = Result<Vec<Row>>> + Send;
+    ) -> impl Future<Output = Result<Vec<RecordRow>>> + Send;
 
     /// A new open head for worktree `owner`, above `parent`, at `commit`.
     fn new_head(
@@ -616,14 +452,14 @@ macro_rules! store_impl {
         impl Store for $db {
             const POSTGRES: bool = $postgres;
 
-            async fn segs(tx: &mut sqlx::Transaction<'_, Self>, worktree_id: i64) -> Result<Segs> {
+            async fn segs(tx: &mut sqlx::Transaction<'_, Self>, worktree_id: i64) -> Result<WorktreeSegs> {
                 let sql = sql!(tx, "SELECT head_segment_id, draft_segment_id FROM worktree WHERE id = ?1",);
                 let (head, draft): (Option<i64>, Option<i64>) = sqlx::query_as(&sql)
                     .bind(worktree_id)
                     .fetch_one(&mut **tx)
                     .await?;
                 match (head, draft) {
-                    (Some(head), Some(draft)) => Ok(Segs { head, draft }),
+                    (Some(head), Some(draft)) => Ok(WorktreeSegs { head, draft }),
                     _ => Err(Error::Other(format!(
                         "worktree {worktree_id} has no segments"
                     ))),
@@ -635,7 +471,7 @@ macro_rules! store_impl {
                 worktree_id: i64,
                 scope: Scope,
                 filter: Filter<'_>,
-            ) -> Result<Vec<Row>> {
+            ) -> Result<Vec<RecordRow>> {
                 let cond = match filter {
                     Filter::At(_) => "AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4",
                     Filter::PathKey(..) => "AND r.path = ?2 AND r.key = ?3",
@@ -652,7 +488,7 @@ macro_rules! store_impl {
                     view_cte(scope)
                 );
                 let sql = db::spell(&*tx, text);
-                let q = sqlx::query_as::<_, RowTuple>(&sql).bind(worktree_id);
+                let q = sqlx::query_as::<_, RecordColumns>(&sql).bind(worktree_id);
                 let q = match filter {
                     Filter::At(at) => q.bind(at.file_path).bind(at.path).bind(at.key),
                     Filter::PathKey(path, key) => q.bind(path).bind(key),
@@ -664,7 +500,7 @@ macro_rules! store_impl {
                     .fetch_all(&mut **tx)
                     .await?
                     .into_iter()
-                    .map(to_row)
+                    .map(RecordRow::try_from)
                     .collect::<Result<Vec<_>>>()?;
                 sort_rows(&mut rows);
                 Ok(rows)
@@ -675,21 +511,21 @@ macro_rules! store_impl {
                 seg: i64,
                 file_path: Option<&str>,
                 conflicts: bool,
-            ) -> Result<Vec<Row>> {
+            ) -> Result<Vec<RecordRow>> {
                 let text = format!(
                     "SELECT {ROW_COLUMNS} FROM record r WHERE r.segment_id = ?1 \
                        AND (CAST(?2 AS TEXT) IS NULL OR r.file_path = ?2) \
                        AND (r.conflict IS NOT NULL) = ?3"
                 );
                 let sql = db::spell(&*tx, text);
-                let mut rows = sqlx::query_as::<_, RowTuple>(&sql)
+                let mut rows = sqlx::query_as::<_, RecordColumns>(&sql)
                     .bind(seg)
                     .bind(file_path)
                     .bind(conflicts)
                     .fetch_all(&mut **tx)
                     .await?
                     .into_iter()
-                    .map(to_row)
+                    .map(RecordRow::try_from)
                     .collect::<Result<Vec<_>>>()?;
                 sort_rows(&mut rows);
                 Ok(rows)
@@ -698,7 +534,7 @@ macro_rules! store_impl {
             async fn insert(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 seg: i64,
-                row: NewRow<'_>,
+                row: NewRecordRow<'_>,
             ) -> Result<(i64, i64)> {
                 let json = serde_json::to_string(row.json).map_err(|e| Error::Json {
                     path: row.at.path.to_string(),
@@ -727,7 +563,7 @@ macro_rules! store_impl {
                     .bind(row.version)
                     .bind(row.base_commit_id)
                     .bind(settled)
-                    .bind(row.conflict.map(|c| c.as_str()))
+                    .bind(row.conflict.map(|c| c.to_column()))
                     .bind(base_json)
                     .fetch_one(&mut **tx)
                     .await?;
@@ -768,7 +604,7 @@ macro_rules! store_impl {
             async fn entries_in(
                 tx: &mut sqlx::Transaction<'_, Self>,
                 seg: i64,
-            ) -> Result<Vec<Entry>> {
+            ) -> Result<Vec<Superseded>> {
                 let sql = sql!(tx, "SELECT x.record_id, r.file_path, r.path, r.key, r.key_id, r.deleted, x.key_id \
                      FROM superseded x JOIN record r ON r.id = x.record_id \
                      WHERE x.segment_id = ?1 ORDER BY x.record_id, x.key_id",);
@@ -776,7 +612,7 @@ macro_rules! store_impl {
                     sqlx::query_as(&sql).bind(seg).fetch_all(&mut **tx).await?;
                 Ok(rows
                     .into_iter()
-                    .map(|(row, file_path, path, key, row_key_id, deleted, key_id)| Entry {
+                    .map(|(row, file_path, path, key, row_key_id, deleted, key_id)| Superseded {
                         row,
                         file_path,
                         path,
@@ -830,7 +666,7 @@ macro_rules! store_impl {
                 let sql = sql!(tx, "UPDATE record SET conflict = ?2, version = ?3 WHERE id = ?1");
                 sqlx::query(&sql)
                     .bind(row)
-                    .bind(state.as_str())
+                    .bind(state.to_column())
                     .bind(version)
                     .execute(&mut **tx)
                     .await?;
@@ -1354,21 +1190,21 @@ macro_rules! store_impl {
                 tx: &mut sqlx::Transaction<'_, Self>,
                 family: i64,
                 at: At<'_>,
-            ) -> Result<Vec<Row>> {
-                const SQL: &str = "SELECT r.id, r.key_id, r.segment_id, r.file_path, r.path, r.key, \
-                     r.commit_id, json(r.json), r.deleted, r.version, r.base_commit_id, \
-                     json(r.settled), r.conflict, json(r.base_json) \
-                     FROM record r JOIN segment s ON s.id = r.segment_id \
+            ) -> Result<Vec<RecordRow>> {
+                let text = format!(
+                    "SELECT {ROW_COLUMNS} FROM record r JOIN segment s ON s.id = r.segment_id \
                      WHERE s.family_id = ?1 AND r.file_path = ?2 AND r.path = ?3 AND r.key = ?4 \
-                       AND r.conflict IS NULL";
-                let rows = sqlx::query_as::<_, RowTuple>(sql!(tx, SQL))
+                       AND r.conflict IS NULL"
+                );
+                let sql = db::spell(&*tx, text);
+                let rows = sqlx::query_as::<_, RecordColumns>(&sql)
                     .bind(family)
                     .bind(at.file_path)
                     .bind(at.path)
                     .bind(at.key)
                     .fetch_all(&mut **tx)
                     .await?;
-                rows.into_iter().map(to_row).collect()
+                rows.into_iter().map(RecordRow::try_from).collect()
             }
 
             async fn new_head(

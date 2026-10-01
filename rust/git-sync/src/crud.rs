@@ -10,7 +10,8 @@
 //! error -- an [`crate::Error::Conflict`] included -- the transaction is
 //! dropped without commit, so it rolls back.
 
-use crate::db::store::{At, Filter, Row, Scope, Store};
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, RecordRow};
 use crate::error::{Error, Result};
 use crate::model::{Applied, BatchOp, BatchOutcome, Failed, Record, TxnMeta, WriteOutcome};
 use crate::segments::{self, Origin, Value};
@@ -129,7 +130,7 @@ async fn write_in_tx<DB: Store>(
         }),
         None => Filter::PathKey(path, key),
     };
-    let live: Option<Row> = DB::visible(tx, w, Scope::Own, filter)
+    let live: Option<RecordRow> = DB::visible(tx, w, Scope::Own, filter)
         .await?
         .into_iter()
         .find(|r| !r.deleted);
@@ -528,7 +529,7 @@ pub(crate) async fn delete_file_in_pool<DB: Store>(
             file_path: file_path.to_string(),
             path: String::new(),
         })?;
-    let live: Vec<Row> = DB::visible(&mut tx, w, Scope::Own, Filter::File(file_path))
+    let live: Vec<RecordRow> = DB::visible(&mut tx, w, Scope::Own, Filter::File(file_path))
         .await?
         .into_iter()
         .filter(|r| !r.deleted)

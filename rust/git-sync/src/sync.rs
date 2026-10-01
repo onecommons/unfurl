@@ -550,7 +550,7 @@ impl SyncedRepo {
                             error = error.to_string().as_str(),
                             "file could not be parsed"
                         );
-                        stats.unparsed.push(crate::model::ScanFailure {
+                        stats.unparsed.push(crate::model::FileFailure {
                             file_path: tf.rel_path.clone(),
                             error,
                         });
@@ -784,7 +784,7 @@ impl SyncedRepo {
         on_pool!(self.db(), pool => {
             let mut tx = pool.begin().await?;
             if let Some(f) = crate::db::store::Store::files(&mut tx, w, Some(file_path)).await?.pop() {
-                crate::db::store::Store::upsert_file(&mut tx, w, &crate::db::store::FileRow {
+                crate::db::store::Store::upsert_file(&mut tx, w, &crate::db::tables::FileRow {
                     path: file_path,
                     format: &f.format,
                     commit_id: Some(commit),
@@ -814,8 +814,8 @@ impl SyncedRepo {
     ///
     /// All `Some(...)` filters are AND'd together; `None` matches any
     /// value. With `alias = true` and a `key` filter, a record also
-    /// matches when one of its [`crate::Alias`] rows has that key
-    /// (joined on `record_id`). Without a `key` filter, `alias` is a
+    /// matches when one of its aliases, which
+    /// [`crate::DataFormat::find_alias`] gives it, has that key. Without a `key` filter, `alias` is a
     /// no-op. Tombstoned records are hidden.
     ///
     /// `type_names`, when set and non-empty, restricts results to
@@ -1468,7 +1468,7 @@ impl SyncedRepo {
                     outcome.written.extend(res.written);
                     outcome.conflicts.extend(res.conflicts);
                 }
-                Err(error) => outcome.failed.push(crate::model::SaveFailure {
+                Err(error) => outcome.failed.push(crate::model::FileFailure {
                     file_path: fp,
                     error,
                 }),
@@ -1948,8 +1948,7 @@ impl SyncedRepo {
                 last_version: txn.last_version,
                 branch: worktree.branch.clone(),
                 created_at: txn.created_at,
-                author: txn.author,
-                message: txn.message,
+                meta: txn.meta,
                 records: batch,
             });
         }
@@ -1971,13 +1970,13 @@ impl SyncedRepo {
         };
         let message = build_commit_message(message, &rollup);
         // the commit's head rows take the ids its rollup names
-        let named: std::collections::BTreeMap<crate::scan::Place, i64> = rollup
+        let named: std::collections::BTreeMap<crate::db::tables::Place, i64> = rollup
             .txns
             .iter()
             .flat_map(|t| &t.records)
             .chain(&rollup.records)
             .filter_map(|r| {
-                let place = (r.file_path.clone()?, r.path.clone(), r.key.clone());
+                let place = crate::db::tables::Place::new(r.file_path.as_deref()?, &r.path, &r.key);
                 Some((place, r.key_id?))
             })
             .collect();

@@ -329,7 +329,7 @@ crud_test!(save_reports_each_file);
 /// which a build inside the crate never notices.
 #[test]
 fn sync_outcome_types_are_public() {
-    fn _takes(_: unfurl_git_sync::SyncOutcome, _: unfurl_git_sync::SaveFailure) {}
+    fn _takes(_: unfurl_git_sync::SyncOutcome, _: unfurl_git_sync::FileFailure) {}
 }
 
 // ---------------------------------------------------------------------------

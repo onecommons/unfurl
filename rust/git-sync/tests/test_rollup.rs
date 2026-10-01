@@ -111,8 +111,8 @@ async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &
     assert_eq!(a.branch, wd.branch);
     // Verbatim, not a re-rendered date -- this has to round-trip exactly.
     assert_eq!(a.created_at, rows[0].created_at);
-    assert_eq!(a.author.as_deref(), Some(AUTHOR));
-    assert_eq!(a.message.as_deref(), Some(MESSAGE_A));
+    assert_eq!(a.meta.author.as_deref(), Some(AUTHOR));
+    assert_eq!(a.meta.message.as_deref(), Some(MESSAGE_A));
     // txn-a was rewritten by the second batch, so only txn-b still
     // carries a version of this one -- and the difference is reported
     // rather than silently dropped.
@@ -124,8 +124,15 @@ async fn rollup_round_trips_through_the_commit_message(sync: &SyncedRepo, tmp: &
     assert_eq!(a.unaccounted(), 1, "{body}");
 
     let b = &parsed.txns[1];
-    assert_eq!(b.author, None, "an absent author round-trips as absent");
-    assert_eq!(b.message.as_deref(), Some(MESSAGE_B), "blank line survives");
+    assert_eq!(
+        b.meta.author, None,
+        "an absent author round-trips as absent"
+    );
+    assert_eq!(
+        b.meta.message.as_deref(),
+        Some(MESSAGE_B),
+        "blank line survives"
+    );
     assert_eq!(b.unaccounted(), 0, "{body}");
     let deleted: Vec<&str> = b
         .records
@@ -244,7 +251,7 @@ async fn keys_needing_quoting_round_trip(sync: &SyncedRepo, tmp: &TempDir) {
     // The author is the remainder of the header line, so a colon in it
     // is not a delimiter.
     assert_eq!(
-        parsed.txns[0].author.as_deref(),
+        parsed.txns[0].meta.author.as_deref(),
         Some("Ada: the first <ada@example.com>"),
         "{body}"
     );

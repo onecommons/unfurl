@@ -35,19 +35,6 @@ pub(crate) async fn update_commit(db: &Db, worktree_id: i64, commit: Option<&str
     Ok(())
 }
 
-/// A `worktree` row: `id, origin, branch, commit_id, default_file_path`.
-type WorktreeRow = (i64, String, String, Option<String>, Option<String>);
-
-fn into_worktree(row: WorktreeRow) -> crate::model::Worktree {
-    crate::model::Worktree {
-        id: row.0,
-        origin: row.1,
-        branch: row.2,
-        commit_id: row.3,
-        default_file_path: row.4,
-    }
-}
-
 /// Every worktree `filter` matches, by id.
 pub(crate) async fn matching(
     db: &Db,
@@ -57,26 +44,24 @@ pub(crate) async fn matching(
          WHERE (CAST(?1 AS TEXT) IS NULL OR origin = ?1) \
            AND (CAST(?2 AS TEXT) IS NULL OR branch = ?2) ORDER BY id";
     let (origin, branch) = filter.normalized();
-    let rows: Vec<WorktreeRow> = on_pool!(db, pool => {
+    Ok(on_pool!(db, pool => {
         sqlx::query_as(sql!(pool, SQL))
             .bind(origin)
             .bind(branch)
             .fetch_all(pool)
             .await?
-    });
-    Ok(rows.into_iter().map(into_worktree).collect())
+    }))
 }
 
 pub(crate) async fn get(db: &Db, worktree_id: i64) -> Result<crate::model::Worktree> {
     const SQL: &str =
         "SELECT id, origin, branch, commit_id, default_file_path FROM worktree WHERE id = ?1";
-    let row: WorktreeRow = on_pool!(db, pool => {
+    Ok(on_pool!(db, pool => {
         sqlx::query_as(sql!(pool, SQL))
             .bind(worktree_id)
             .fetch_one(pool)
             .await?
-    });
-    Ok(into_worktree(row))
+    }))
 }
 
 /// The root worktree of `worktree_id`'s family: the upstream it and its

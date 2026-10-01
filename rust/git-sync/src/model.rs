@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 /// `commit_id` is the most recent HEAD oid observed on the branch; it
 /// advances whenever [`crate::SyncedRepo::update_from_working_dir`] or
 /// [`crate::SyncedRepo::commit_repository`] runs.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Worktree {
     /// Auto-assigned primary key.
     pub id: i64,
@@ -88,8 +88,6 @@ pub struct File {
     pub deleted: bool,
 }
 
-/// One row of the `record` table — a single extracted JSON value.
-///
 /// A search over a record's JSON contents: the value at `tokens` has to match
 /// `value`.
 ///
@@ -567,7 +565,7 @@ pub struct FacetRows {
 /// in-flight edit that hasn't been committed yet.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Record {
-    /// Auto-assigned primary key.
+    /// The record's id, the same for every version of it.
     pub id: i64,
     /// Foreign key into [`Worktree`].
     pub worktree_id: i64,
@@ -643,27 +641,6 @@ pub enum ConflictState {
     Resolved,
 }
 
-impl ConflictState {
-    /// The `record.conflict` column value.
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Conflict => "conflict",
-            Self::Resolved => "resolved",
-        }
-    }
-
-    /// Read the column back. An unrecognized non-NULL value reads as
-    /// [`Self::Conflict`]: whatever wrote it meant "the two sides
-    /// disagree", and the unresolved reading is the safe one.
-    pub(crate) fn from_column(value: Option<&str>) -> Option<Self> {
-        match value {
-            None => None,
-            Some("resolved") => Some(Self::Resolved),
-            Some(_) => Some(Self::Conflict),
-        }
-    }
-}
-
 /// How [`crate::SyncedRepo::resolve_conflict`] settles a conflicted
 /// record.
 ///
@@ -714,7 +691,7 @@ pub struct ScanOptions {
 /// the `txn` audit table. Both fields are optional — a caller that knows
 /// neither can still pass `TxnMeta::default()` to get a row recording
 /// just the version range and timestamp.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, sqlx::FromRow)]
 pub struct TxnMeta {
     /// Free-form author string, e.g. `Name <email>`. Stored verbatim.
     pub author: Option<String>,
@@ -729,7 +706,7 @@ pub struct TxnMeta {
 /// [`TxnMeta`], read back by [`crate::SyncedRepo::list_transactions`],
 /// and reported in the commit-message body by
 /// [`crate::SyncedRepo::commit_repository`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct Txn {
     /// Auto-assigned primary key.
     pub id: i64,
@@ -740,10 +717,11 @@ pub struct Txn {
     /// Highest [`Record::version`] the batch stamped. Equal to
     /// `first_version` for a one-op batch.
     pub last_version: i64,
-    /// Author as supplied in [`TxnMeta::author`].
-    pub author: Option<String>,
-    /// Message as supplied in [`TxnMeta::message`].
-    pub message: Option<String>,
+    /// Author and message, as supplied to
+    /// [`crate::SyncedRepo::apply_batch`].
+    #[serde(flatten)]
+    #[sqlx(flatten)]
+    pub meta: TxnMeta,
     /// RFC 3339 timestamp with the local offset, taken when the batch
     /// was applied.
     pub created_at: String,
@@ -853,10 +831,8 @@ pub struct RollupTxn {
     pub branch: String,
     /// RFC 3339 timestamp, verbatim from [`Txn::created_at`].
     pub created_at: String,
-    /// Author as supplied in [`TxnMeta::author`].
-    pub author: Option<String>,
-    /// Message as supplied in [`TxnMeta::message`].
-    pub message: Option<String>,
+    /// Author and message, verbatim from [`Txn::meta`].
+    pub meta: TxnMeta,
     /// The records still carrying a version from this batch, in version
     /// order.
     pub records: Vec<TxnRecord>,
@@ -884,22 +860,6 @@ impl RollupTxn {
     pub fn unaccounted(&self) -> i64 {
         (self.last_version - self.first_version + 1) - self.records.len() as i64
     }
-}
-
-/// One row of the `alias` table — an alternate `(path, key)` lookup
-/// pointing at a record.
-///
-/// Aliases let callers find a record by a synonym (e.g. a versioned
-/// URL) via [`crate::SyncedRepo::find_records`] with `alias = true`.
-/// They are populated by [`crate::DataFormat::find_alias`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Alias {
-    /// Foreign key into [`Record`].
-    pub record_id: i64,
-    /// Parent JSON-pointer of the alias.
-    pub path: String,
-    /// Unescaped alias key.
-    pub key: String,
 }
 
 /// Snapshot of the gix working tree this [`crate::SyncedRepo`] is bound to.
@@ -1001,7 +961,7 @@ pub struct SyncOutcome {
     /// because one failure says nothing about the rest, and reading
     /// this is the only way to learn which files a partly-successful
     /// save left modified on disk.
-    pub failed: Vec<SaveFailure>,
+    pub failed: Vec<FileFailure>,
     /// Files a scan could not parse, each with the reason. Reported
     /// rather than returned as an error because one unreadable file
     /// says nothing about the rest of the tree: failing the scan over
@@ -1011,7 +971,7 @@ pub struct SyncOutcome {
     /// stale — the same gap a file no format claims any more leaves,
     /// and for the same reason: a parse failure means broken, not
     /// emptied, so its records cannot be cleared on the strength of it.
-    pub unparsed: Vec<ScanFailure>,
+    pub unparsed: Vec<FileFailure>,
     /// Files that do not conform to the schema of the format that claimed
     /// them, each with what was found and at what grade.
     ///
@@ -1104,12 +1064,12 @@ pub struct WriteFileOutcome {
     pub conflicts: Vec<RecordConflict>,
 }
 
-/// One file [`crate::SyncedRepo::save_changes`] could not write.
+/// One file a scan could not parse, or a save could not write.
 #[derive(Debug)]
-pub struct SaveFailure {
+pub struct FileFailure {
     /// Working-tree-relative path of the file.
     pub file_path: String,
-    /// Why it could not be written.
+    /// Why it failed.
     pub error: crate::Error,
 }
 
@@ -1128,16 +1088,6 @@ pub struct ValidationFailure {
     /// cannot hand out a borrow into itself, and a
     /// [`crate::ValidationError`] is not `Clone`.
     pub validation: std::sync::Arc<crate::Validation>,
-}
-
-/// One file [`crate::SyncedRepo::update_from_working_dir`] could not
-/// parse.
-#[derive(Debug)]
-pub struct ScanFailure {
-    /// Working-tree-relative path of the file.
-    pub file_path: String,
-    /// Why it could not be parsed.
-    pub error: crate::Error,
 }
 
 /// One operation in a batch passed to

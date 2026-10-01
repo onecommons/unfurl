@@ -1719,7 +1719,7 @@ async fn commit_body_attributes_the_write_to_the_x_unfurl_user_header() {
         .expect("a git-sync commit");
     assert_eq!(rollup.txns.len(), 1, "{body}");
     assert_eq!(
-        rollup.txns[0].author.as_deref(),
+        rollup.txns[0].meta.author.as_deref(),
         Some("Adam Souzis <adam@souzis.com>")
     );
     assert_eq!(rollup.txns[0].records.len(), 1, "{body}");
@@ -1785,10 +1785,13 @@ async fn commit_body_rolls_up_every_staged_writers_attribution() {
         .expect("a git-sync commit");
     assert_eq!(rollup.txns.len(), 2, "{body}");
     assert_eq!(
-        rollup.txns[0].author.as_deref(),
+        rollup.txns[0].meta.author.as_deref(),
         Some("Ada <ada@example.com>")
     );
-    assert_eq!(rollup.txns[1].author.as_deref(), Some("bob@example.com"));
+    assert_eq!(
+        rollup.txns[1].meta.author.as_deref(),
+        Some("bob@example.com")
+    );
     for txn in &rollup.txns {
         assert_eq!(txn.records.len(), 1, "one record each: {body}");
         assert!(!txn.records[0].deleted, "{body}");

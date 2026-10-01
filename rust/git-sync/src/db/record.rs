@@ -1,10 +1,12 @@
 // Copyright (c) 2026 Adam Souzis
 // SPDX-License-Identifier: MIT
-//! `record` table reads and writes (non-transactional).
+//! `record` table queries that each run in their own transaction and
+//! return [`crate::model`] types.
 
 use std::collections::BTreeSet;
 
-use crate::db::store::{At, Filter, Row, Scope, Store};
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, RecordRow};
 use crate::db::Db;
 use crate::error::{Error, Result};
 use crate::model::{
@@ -12,19 +14,62 @@ use crate::model::{
     WorktreeFilter,
 };
 
-/// A row as the API reports it: the record's `key_id` is its id.
-fn to_record(worktree_id: i64, r: Row) -> Record {
-    Record {
-        id: r.key_id,
-        worktree_id,
-        file_path: r.file_path,
-        path: r.path,
-        key: r.key,
-        commit_id: r.commit_id,
-        json: r.json,
-        deleted: r.deleted,
-        version: r.version,
-        conflict: r.conflict,
+impl RecordRow {
+    /// The row as the API reports it: the record's `key_id` is its id.
+    fn into_record(self, worktree_id: i64) -> Record {
+        Record {
+            id: self.key_id,
+            worktree_id,
+            file_path: self.file_path,
+            path: self.path,
+            key: self.key,
+            commit_id: self.commit_id,
+            json: self.json,
+            deleted: self.deleted,
+            version: self.version,
+            conflict: self.conflict,
+        }
+    }
+}
+
+/// A record as the find queries select it: `key_id AS id`, the worktree
+/// it was read through, and its JSON as text. The follow queries select
+/// neither `deleted` nor `conflict`: they return live, settled records.
+#[derive(sqlx::FromRow)]
+struct FoundColumns {
+    id: i64,
+    worktree_id: i64,
+    file_path: String,
+    path: String,
+    key: String,
+    commit_id: Option<String>,
+    json: String,
+    version: i64,
+    #[sqlx(default)]
+    deleted: bool,
+    #[sqlx(default)]
+    conflict: Option<String>,
+}
+
+impl TryFrom<FoundColumns> for Record {
+    type Error = Error;
+
+    fn try_from(c: FoundColumns) -> Result<Self> {
+        Ok(Record {
+            json: serde_json::from_str(&c.json).map_err(|source| Error::Json {
+                path: c.path.clone(),
+                source,
+            })?,
+            conflict: ConflictState::from_column(c.conflict.as_deref()),
+            id: c.id,
+            worktree_id: c.worktree_id,
+            file_path: c.file_path,
+            path: c.path,
+            key: c.key,
+            commit_id: c.commit_id,
+            deleted: c.deleted,
+            version: c.version,
+        })
     }
 }
 
@@ -76,7 +121,7 @@ pub(crate) async fn list_dirty_files(db: &Db, worktree_id: i64) -> Result<Vec<St
         let mut files: BTreeSet<String> = Store::rows_in(tx, d, None, false)
             .await?
             .into_iter()
-            .filter(Row::is_edit)
+            .filter(RecordRow::is_edit)
             .map(|r| r.file_path)
             .collect();
         files.extend(
@@ -100,13 +145,13 @@ pub(crate) async fn load_pending(
 ) -> Result<Vec<Record>> {
     on_pool!(db, pool => read(pool, async |tx| {
         let d = Store::segs(tx, worktree_id).await?.draft;
-        let mut rows: Vec<Row> = Store::rows_in(tx, d, Some(file_path), false)
+        let mut rows: Vec<RecordRow> = Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
-            .filter(Row::is_edit)
+            .filter(RecordRow::is_edit)
             .collect();
         rows.sort_by_key(|r| r.id);
-        Ok(rows.into_iter().map(|r| to_record(worktree_id, r)).collect())
+        Ok(rows.into_iter().map(|r| r.into_record(worktree_id)).collect())
     }).await)
 }
 
@@ -122,7 +167,7 @@ pub(crate) async fn pending_base_values(
         Ok(Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
-            .filter(Row::is_edit)
+            .filter(RecordRow::is_edit)
             .map(|r| ((r.path, r.key), r.base_json))
             .collect())
     }).await)
@@ -143,7 +188,7 @@ pub(crate) async fn pending_bases(
         Ok(Store::rows_in(tx, d, Some(file_path), false)
             .await?
             .into_iter()
-            .filter(Row::is_edit)
+            .filter(RecordRow::is_edit)
             .map(|r| ((r.path, r.key), r.base_commit_id))
             .collect())
     }).await)
@@ -619,8 +664,8 @@ async fn find_sqlite(
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     let mut sql = String::from(
-        "SELECT r.key_id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, json(r.json), \
-         r.version, r.deleted, r.conflict FROM record r",
+        "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+         json(r.json) AS json, r.version, r.deleted, r.conflict FROM record r",
     );
     sql.push_str(&view_join(false));
     sql.push_str(" WHERE ");
@@ -681,48 +726,11 @@ async fn find_sqlite(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
-    let rows = sqlx::query_as_with::<
-        _,
-        (
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            i64,
-            i64,
-            Option<String>,
-        ),
-        _,
-    >(&sql, args)
-    .fetch_all(pool)
-    .await?;
+    let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
+        .fetch_all(pool)
+        .await?;
 
-    let mut out = Vec::with_capacity(rows.len());
-    for (id, worktree_id, file_path, path, key, commit_id, json_text, version, deleted, conflict) in
-        rows
-    {
-        let json: serde_json::Value =
-            serde_json::from_str(&json_text).map_err(|e| Error::Json {
-                path: path.clone(),
-                source: e,
-            })?;
-        out.push(Record {
-            id,
-            worktree_id,
-            file_path,
-            path,
-            key,
-            commit_id,
-            json,
-            deleted: deleted != 0,
-            version,
-            conflict: ConflictState::from_column(conflict.as_deref()),
-        });
-    }
-    Ok(out)
+    rows.into_iter().map(Record::try_from).collect()
 }
 
 /// Postgres twin of [`push_filter_sql_sqlite`]: append the shared
@@ -834,8 +842,8 @@ async fn find_pg(
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
     let mut sql = String::from(
-        "SELECT r.key_id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version, \
-         r.deleted, r.conflict FROM record r",
+        "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+         r.json::text AS json, r.version, r.deleted, r.conflict FROM record r",
     );
     sql.push_str(&view_join(true));
     sql.push_str(" WHERE ");
@@ -902,41 +910,10 @@ async fn find_pg(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
-    let rows = sqlx::query_as_with::<
-        _,
-        (
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            serde_json::Value,
-            i64,
-            bool,
-            Option<String>,
-        ),
-        _,
-    >(&sql, args)
-    .fetch_all(pool)
-    .await?;
-    Ok(rows
-        .into_iter()
-        .map(
-            |(id, worktree_id, fp, p, k, cid, json, version, deleted, conflict)| Record {
-                id,
-                worktree_id,
-                file_path: fp,
-                path: p,
-                key: k,
-                commit_id: cid,
-                json,
-                deleted,
-                version,
-                conflict: ConflictState::from_column(conflict.as_deref()),
-            },
-        )
-        .collect())
+    let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
+        .fetch_all(pool)
+        .await?;
+    rows.into_iter().map(Record::try_from).collect()
 }
 
 /// Run a facet aggregation: group the records matching `query` by the
@@ -1367,8 +1344,8 @@ async fn find_many_sqlite(
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.key_id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, json(r.json), \
-         r.version FROM record r",
+        "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+         json(r.json) AS json, r.version FROM record r",
     );
     sql.push_str(&view_join(false));
     sql.push_str(" WHERE ");
@@ -1415,22 +1392,10 @@ async fn find_many_sqlite(
     sql.push_str(" ORDER BY r.path, r.key, v.worktree_id");
     let _ = idx;
 
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            String,
-            i64,
-        ),
-    >(&sql)
-    .bind(scope.id)
-    .bind(scope.origin)
-    .bind(scope.branch);
+    let mut q = sqlx::query_as::<_, FoundColumns>(&sql)
+        .bind(scope.id)
+        .bind(scope.origin)
+        .bind(scope.branch);
     for k in keys {
         q = q.bind(*k);
     }
@@ -1447,27 +1412,7 @@ async fn find_many_sqlite(
     }
     let rows = q.fetch_all(pool).await?;
 
-    let mut out = Vec::with_capacity(rows.len());
-    for (id, worktree_id, file_path, path, key, commit_id, json_text, version) in rows {
-        let json: serde_json::Value =
-            serde_json::from_str(&json_text).map_err(|e| Error::Json {
-                path: path.clone(),
-                source: e,
-            })?;
-        out.push(Record {
-            id,
-            worktree_id,
-            file_path,
-            path,
-            key,
-            commit_id,
-            json,
-            deleted: false,
-            version,
-            conflict: None,
-        });
-    }
-    Ok(out)
+    rows.into_iter().map(Record::try_from).collect()
 }
 
 #[cfg(feature = "postgres")]
@@ -1480,8 +1425,8 @@ async fn find_many_pg(
     since_version: Option<i64>,
 ) -> Result<Vec<Record>> {
     let mut sql = String::from(
-        "SELECT r.key_id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, r.json, r.version \
-         FROM record r",
+        "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+         r.json::text AS json, r.version FROM record r",
     );
     sql.push_str(&view_join(true));
     sql.push_str(" WHERE ");
@@ -1529,22 +1474,10 @@ async fn find_many_pg(
     sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", v.worktree_id");
     let _ = idx;
 
-    let mut q = sqlx::query_as::<
-        _,
-        (
-            i64,
-            i64,
-            String,
-            String,
-            String,
-            Option<String>,
-            serde_json::Value,
-            i64,
-        ),
-    >(&sql)
-    .bind(scope.id)
-    .bind(scope.origin)
-    .bind(scope.branch);
+    let mut q = sqlx::query_as::<_, FoundColumns>(&sql)
+        .bind(scope.id)
+        .bind(scope.origin)
+        .bind(scope.branch);
     for k in keys {
         q = q.bind(*k);
     }
@@ -1560,21 +1493,7 @@ async fn find_many_pg(
         q = q.bind(v);
     }
     let rows = q.fetch_all(pool).await?;
-    Ok(rows
-        .into_iter()
-        .map(|(id, worktree_id, fp, p, k, cid, json, version)| Record {
-            id,
-            worktree_id,
-            file_path: fp,
-            path: p,
-            key: k,
-            commit_id: cid,
-            json,
-            deleted: false,
-            version,
-            conflict: None,
-        })
-        .collect())
+    rows.into_iter().map(Record::try_from).collect()
 }
 
 pub(crate) async fn get(
@@ -1594,7 +1513,7 @@ pub(crate) async fn get(
             .await?
             .into_iter()
             .find(|r| !r.deleted)
-            .map(|r| to_record(worktree_id, r)))
+            .map(|r| r.into_record(worktree_id)))
     }).await)
 }
 
@@ -1606,7 +1525,7 @@ pub(crate) async fn get_by_id(db: &Db, worktree_id: i64, id: i64) -> Result<Opti
             .await?
             .into_iter()
             .next()
-            .map(|r| to_record(worktree_id, r)))
+            .map(|r| r.into_record(worktree_id)))
     }).await)
 }
 
@@ -1631,7 +1550,7 @@ pub(crate) async fn list_changes(
     }
     on_pool!(db, pool => read(pool, async |tx| {
         let d = Store::segs(tx, worktree_id).await?.draft;
-        let mut rows: Vec<Row> = match since {
+        let mut rows: Vec<RecordRow> = match since {
             Some(v) => Store::visible(tx, worktree_id, Scope::Own, Filter::All)
                 .await?
                 .into_iter()
@@ -1640,7 +1559,7 @@ pub(crate) async fn list_changes(
             None => Store::rows_in(tx, d, None, false)
                 .await?
                 .into_iter()
-                .filter(Row::is_edit)
+                .filter(RecordRow::is_edit)
                 .collect(),
         };
         if include_conflicts {
@@ -1652,7 +1571,7 @@ pub(crate) async fn list_changes(
             );
         }
         rows.sort_by_key(|r| (r.version, r.id));
-        Ok(rows.into_iter().map(|r| to_record(worktree_id, r)).collect())
+        Ok(rows.into_iter().map(|r| r.into_record(worktree_id)).collect())
     }).await)
 }
 

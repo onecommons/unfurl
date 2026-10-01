@@ -10,7 +10,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::db::store::{At, Filter, NewRow, Row, Scope, Store};
+use crate::db::store::{Filter, Scope, Store};
+use crate::db::tables::{At, NewRecordRow, RecordRow};
 use crate::error::Result;
 use crate::model::ConflictState;
 
@@ -114,7 +115,7 @@ pub(crate) async fn write<DB: Store>(
     let (id, key_id) = DB::insert(
         tx,
         d,
-        NewRow {
+        NewRecordRow {
             at,
             key_id: record,
             commit_id: match origin {
@@ -141,7 +142,7 @@ pub(crate) async fn write<DB: Store>(
 async fn live_anywhere<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
-    draft: &[Row],
+    draft: &[RecordRow],
     id: i64,
 ) -> Result<bool> {
     Ok(draft.iter().any(|y| y.key_id == id && !y.deleted)
@@ -157,7 +158,7 @@ async fn replace_other<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     d: i64,
-    y: &Row,
+    y: &RecordRow,
     id: i64,
 ) -> Result<()> {
     drop_conflict(tx, d, y.at()).await?;
@@ -188,8 +189,8 @@ async fn edit_base<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     record: Option<i64>,
-    prior: Option<&Row>,
-    other: Option<&Row>,
+    prior: Option<&RecordRow>,
+    other: Option<&RecordRow>,
 ) -> Result<(Option<String>, Option<serde_json::Value>)> {
     if let Some(y) = prior.or(other) {
         return Ok((y.base_commit_id.clone(), y.base_json.clone()));
@@ -211,9 +212,9 @@ async fn seen_rows<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     w: i64,
     at: At<'_>,
-    shown: &[Row],
+    shown: &[RecordRow],
     record: Option<i64>,
-) -> Result<Vec<Row>> {
+) -> Result<Vec<RecordRow>> {
     let mut seen = shown.to_vec();
     let Some(id) = record else {
         return Ok(seen);
@@ -241,7 +242,7 @@ async fn hide<DB: Store>(
     d: i64,
     at: At<'_>,
     key_id: i64,
-    seen: &[Row],
+    seen: &[RecordRow],
 ) -> Result<()> {
     let elsewhere: BTreeSet<i64> = DB::rows_in(tx, d, None, false)
         .await?
@@ -334,7 +335,7 @@ pub(crate) async fn conflict_row<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
     at: At<'_>,
-) -> Result<Option<Row>> {
+) -> Result<Option<RecordRow>> {
     Ok(DB::rows_in(tx, d, Some(at.file_path), true)
         .await?
         .into_iter()
@@ -365,17 +366,9 @@ pub(crate) async fn set_conflict<DB: Store>(
     DB::insert(
         tx,
         d,
-        NewRow {
-            at,
-            key_id: record,
-            commit_id,
-            json,
-            deleted,
-            version,
-            base_commit_id: None,
-            base_json: None,
-            settled: &[],
+        NewRecordRow {
             conflict: Some(ConflictState::Conflict),
+            ..NewRecordRow::new(at, record, commit_id, json, deleted, version)
         },
     )
     .await?;
@@ -429,7 +422,7 @@ pub(crate) async fn scan_key<DB: Store>(
         .into_iter()
         .find(|r| r.at() == at);
     // the rows below the head the key shows once its own row goes
-    let below: Vec<Row> = match &head_row {
+    let below: Vec<RecordRow> = match &head_row {
         Some(_) => Vec::new(),
         None => chain
             .iter()
@@ -466,18 +459,7 @@ pub(crate) async fn scan_key<DB: Store>(
     let (id, key_id) = DB::insert(
         tx,
         h,
-        NewRow {
-            at,
-            key_id,
-            commit_id: Some(commit),
-            json: &json,
-            deleted,
-            version,
-            base_commit_id: None,
-            base_json: None,
-            settled: &[],
-            conflict: None,
-        },
+        NewRecordRow::new(at, key_id, Some(commit), &json, deleted, version),
     )
     .await?;
     for r in below {
@@ -534,7 +516,7 @@ pub(crate) async fn follow_records<DB: Store>(
 async fn relocate<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
-    x: &Row,
+    x: &RecordRow,
     to: At<'_>,
 ) -> Result<()> {
     if let Some(c) = conflict_row(tx, d, x.at()).await? {
@@ -556,7 +538,7 @@ async fn relocate<DB: Store>(
 pub(crate) async fn renew<DB: Store>(
     tx: &mut sqlx::Transaction<'_, DB>,
     d: i64,
-    x: &Row,
+    x: &RecordRow,
 ) -> Result<i64> {
     let old = x.key_id;
     // A key_id is its first row's id, so a new record needs a new row.
@@ -564,17 +546,10 @@ pub(crate) async fn renew<DB: Store>(
     let (_, fresh) = DB::insert(
         tx,
         d,
-        NewRow {
-            at: x.at(),
+        NewRecordRow {
             key_id: None,
-            commit_id: x.commit_id.as_deref(),
-            json: &x.json,
-            deleted: x.deleted,
-            version: x.version,
-            base_commit_id: x.base_commit_id.as_deref(),
-            base_json: x.base_json.as_ref(),
-            settled: &x.settled,
             conflict: None,
+            ..NewRecordRow::from(x)
         },
     )
     .await?;
@@ -664,7 +639,7 @@ async fn carried<DB: Store>(
     d: i64,
     files: &BTreeSet<String>,
     watermark: i64,
-) -> Result<Vec<Row>> {
+) -> Result<Vec<RecordRow>> {
     let conflicts = DB::rows_in(tx, d, None, true).await?;
     Ok(DB::rows_in(tx, d, None, false)
         .await?
@@ -672,13 +647,6 @@ async fn carried<DB: Store>(
         .filter(|x| files.contains(&x.file_path) && x.version < watermark)
         .filter(|x| !conflicts.iter().any(|c| c.at() == x.at()))
         .collect())
-}
-
-/// A row's `(file_path, path, key)`, borrowed.
-type Place<'a> = (&'a str, &'a str, &'a str);
-
-fn place(r: &Row) -> Place<'_> {
-    (&r.file_path, &r.path, &r.key)
 }
 
 /// The rows whose value a commit of worktree `w`'s `files` changes: what
@@ -692,24 +660,24 @@ pub(crate) async fn changed<DB: Store>(
     w: i64,
     files: &BTreeSet<String>,
     watermark: i64,
-) -> Result<Vec<Row>> {
+) -> Result<Vec<RecordRow>> {
     let d = DB::segs(tx, w).await?.draft;
     let chain = DB::visible(tx, w, Scope::Chain, Filter::All).await?;
-    let mut live_at: BTreeMap<Place<'_>, &Row> = BTreeMap::new();
+    let mut live_at: BTreeMap<At<'_>, &RecordRow> = BTreeMap::new();
     for r in chain.iter().filter(|r| !r.deleted) {
-        live_at.entry(place(r)).or_insert(r);
+        live_at.entry(r.at()).or_insert(r);
     }
-    let live = |x: &Row| live_at.get(&place(x)).copied();
-    let changes = |x: &Row| match live(x) {
+    let live = |x: &RecordRow| live_at.get(&x.at()).copied();
+    let changes = |x: &RecordRow| match live(x) {
         Some(c) => x.deleted || c.json != x.json,
         None => !x.deleted,
     };
     let draft = DB::rows_in(tx, d, None, false).await?;
-    let mut drafted_at: BTreeMap<Place<'_>, &Row> = BTreeMap::new();
+    let mut drafted_at: BTreeMap<At<'_>, &RecordRow> = BTreeMap::new();
     for y in &draft {
-        drafted_at.entry(place(y)).or_insert(y);
+        drafted_at.entry(y.at()).or_insert(y);
     }
-    let mut rows: Vec<Row> = Vec::new();
+    let mut rows: Vec<RecordRow> = Vec::new();
     for mut x in carried(tx, d, files, watermark).await? {
         if !changes(&x) {
             continue;
@@ -724,7 +692,7 @@ pub(crate) async fn changed<DB: Store>(
         if !files.contains(&c.file_path) || !changes(&c) {
             continue;
         }
-        let drafted = drafted_at.get(&place(&c)).copied();
+        let drafted = drafted_at.get(&c.at()).copied();
         if let Some(id) = live(&c).or(drafted).map(|r| r.key_id) {
             c.key_id = id;
             rows.push(c);
