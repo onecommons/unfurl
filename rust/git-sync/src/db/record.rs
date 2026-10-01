@@ -436,7 +436,9 @@ async fn subtypes(
                  SELECT name FROM sub ORDER BY name",
                 type_edges_cte_pg(4)
             );
+            // planned per call, as in `find_pg`
             Ok(sqlx::query_scalar(&sql)
+                .persistent(false)
                 .bind(scope.id)
                 .bind(scope.origin)
                 .bind(scope.branch)
@@ -841,10 +843,12 @@ async fn find_pg(
 ) -> Result<Vec<Record>> {
     use sqlx::Arguments;
     let RecordQuery { after, limit, .. } = query;
-    let mut sql = String::from(
-        "SELECT r.key_id AS id, v.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
-         r.json::text AS json, r.version, r.deleted, r.conflict FROM record r",
-    );
+    // The page is found from ids and sort keys, then joined to the rest of
+    // its rows: Postgres computes the select list below the sort, so every
+    // candidate's JSON would be rendered and carried through the anti-join.
+    // SQLite computes it only for the rows the limit keeps, so its arm
+    // doesn't need this.
+    let mut sql = String::from("SELECT r.id, v.worktree_id FROM record r");
     sql.push_str(&view_join(true));
     sql.push_str(" WHERE ");
     sql.push_str(&visible(true));
@@ -879,15 +883,21 @@ async fn find_pg(
         idx += cols.len();
     }
     // `r.id` last -- see the sqlite arm.
-    sql.push_str(
-        " ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
-         r.file_path COLLATE \"C\", v.worktree_id, r.id",
-    );
     if limit.is_some() {
-        sql.push_str(&format!(" LIMIT ${idx}"));
+        sql.push_str(&format!(
+            " ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
+             r.file_path COLLATE \"C\", v.worktree_id, r.id LIMIT ${idx}"
+        ));
         idx += 1;
     }
     let _ = idx;
+    let sql = format!(
+        "SELECT r.key_id AS id, p.worktree_id, r.file_path, r.path, r.key, r.commit_id, \
+         r.json::text AS json, r.version, r.deleted, r.conflict \
+         FROM ({sql}) p JOIN record r ON r.id = p.id \
+         ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", \
+         r.file_path COLLATE \"C\", p.worktree_id, r.id"
+    );
 
     let mut args = sqlx::postgres::PgArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
@@ -910,7 +920,11 @@ async fn find_pg(
     if let Some(n) = limit {
         args.add(*n).map_err(arg_err)?;
     }
+    // Unnamed, so Postgres plans it with the values bound. A cached statement
+    // gets a generic plan, which can't see the type list's length or how many
+    // worktrees the scope matches, and probes the GIN index once per segment.
     let rows = sqlx::query_as_with::<_, FoundColumns, _>(&sql, args)
+        .persistent(false)
         .fetch_all(pool)
         .await?;
     rows.into_iter().map(Record::try_from).collect()
@@ -1003,19 +1017,51 @@ async fn facet_sqlite(
     })
 }
 
+/// Count the cells of `extracted`, a query yielding `id`, the group value
+/// `g` and each member's value `u{i}`, one row per combination: rollup paths
+/// LEFT JOIN `rollup_pairs` and group by `COALESCE(bucket, value)`, so a
+/// value with pairs counts under each of its buckets and one without under
+/// itself. A record reaching a cell through several values (duplicate array
+/// elements, diamond rollup paths) counts once: `DISTINCT` then `COUNT(*)`,
+/// which can hash where `COUNT(DISTINCT r.id)` sorts every row.
+fn facet_cells_sql(group_rollup: bool, members: &[FacetPath], extracted: &str) -> String {
+    let group_out = if group_rollup {
+        "COALESCE(mg.anc, f.g)"
+    } else {
+        "f.g"
+    };
+    let mut cells = format!("SELECT DISTINCT {group_out} AS g0");
+    for (i, member) in members.iter().enumerate() {
+        let out = if member.rollup {
+            format!("COALESCE(m{i}.anc, f.u{i})")
+        } else {
+            format!("f.u{i}")
+        };
+        cells.push_str(&format!(", {out} AS v{i}"));
+    }
+    cells.push_str(&format!(", f.id FROM ({extracted}) f"));
+    if group_rollup {
+        cells.push_str(" LEFT JOIN rollup_pairs mg ON mg.decl = f.g");
+    }
+    for (i, member) in members.iter().enumerate() {
+        if member.rollup {
+            cells.push_str(&format!(
+                " LEFT JOIN rollup_pairs m{i} ON m{i}.decl = f.u{i}"
+            ));
+        }
+    }
+    let cols: String = (0..members.len()).map(|i| format!(", v{i}")).collect();
+    format!("SELECT g0{cols}, COUNT(*) AS n FROM ({cells}) d GROUP BY g0{cols}")
+}
+
 /// One sqlite facet aggregation over the group path plus `members`
 /// (empty for the group-only counts).
 ///
 /// Shape: one `json_each` lateral per path contributing values per
-/// [`facet_value_sqlite`]; paths with [`FacetPath::rollup`] LEFT JOIN a
-/// `MATERIALIZED` CTE of `(type, bucket)` pairs -- each type with an
-/// ancestor paired with itself and each of its ancestors, JSON-quoted so
-/// both sides compare as JSON text -- and group by
-/// `COALESCE(bucket, value)`: a value with pairs counts under each of
-/// its buckets, one without falls back to itself. `COUNT(DISTINCT
-/// r.id)` keeps a record that reaches the same cell through several
-/// values (duplicate array elements, diamond rollup paths) counted
-/// once.
+/// [`facet_value_sqlite`], counted by [`facet_cells_sql`]. The
+/// `rollup_pairs` it joins are a `MATERIALIZED` CTE of `(type, bucket)`
+/// pairs -- each type with an ancestor paired with itself and each of its
+/// ancestors, JSON-quoted so both sides compare as JSON text.
 async fn facet_aggregate_sqlite(
     pool: &sqlx::Pool<sqlx::Sqlite>,
     worktree_id: i64,
@@ -1064,48 +1110,23 @@ async fn facet_aggregate_sqlite(
             type_edges_cte_sqlite(fi)
         ));
     }
-    let group_expr = facet_value_sqlite("jg");
-    let group_out = if group.rollup {
-        format!("COALESCE(mg.anc, {group_expr})")
-    } else {
-        group_expr.clone()
-    };
-    sql.push_str(&format!("SELECT {group_out} AS g0"));
-    let member_exprs: Vec<String> = (0..members.len())
-        .map(|i| facet_value_sqlite(&format!("j{i}")))
-        .collect();
-    for (i, member) in members.iter().enumerate() {
-        let out = if member.rollup {
-            format!("COALESCE(m{i}.anc, {})", member_exprs[i])
-        } else {
-            member_exprs[i].clone()
-        };
-        sql.push_str(&format!(", {out} AS v{i}"));
-    }
-    sql.push_str(", COUNT(DISTINCT r.id) AS n FROM record r");
-    sql.push_str(&view_join(false));
-    sql.push_str(&format!(" JOIN json_each(r.json, ?{group_idx}) jg"));
-    if group.rollup {
-        sql.push_str(&format!(
-            " LEFT JOIN rollup_pairs mg ON mg.decl = {group_expr}"
+    let mut extracted = format!("SELECT r.id, {} AS g", facet_value_sqlite("jg"));
+    for i in 0..members.len() {
+        extracted.push_str(&format!(
+            ", {} AS u{i}",
+            facet_value_sqlite(&format!("j{i}"))
         ));
     }
-    for (i, member) in members.iter().enumerate() {
-        sql.push_str(&format!(" JOIN json_each(r.json, ?{}) j{i}", member_idx[i]));
-        if member.rollup {
-            sql.push_str(&format!(
-                " LEFT JOIN rollup_pairs m{i} ON m{i}.decl = {}",
-                member_exprs[i]
-            ));
-        }
+    extracted.push_str(" FROM record r");
+    extracted.push_str(&view_join(false));
+    extracted.push_str(&format!(" JOIN json_each(r.json, ?{group_idx}) jg"));
+    for (i, idx) in member_idx.iter().enumerate() {
+        extracted.push_str(&format!(" JOIN json_each(r.json, ?{idx}) j{i}"));
     }
-    sql.push_str(" WHERE ");
-    sql.push_str(&visible(false));
-    sql.push_str(&where_sql);
-    sql.push_str(" GROUP BY g0");
-    for i in 0..members.len() {
-        sql.push_str(&format!(", v{i}"));
-    }
+    extracted.push_str(" WHERE ");
+    extracted.push_str(&visible(false));
+    extracted.push_str(&where_sql);
+    sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::sqlite::SqliteArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
@@ -1170,7 +1191,11 @@ async fn facet_pg(
     args.add(scope.origin).map_err(arg_err)?;
     args.add(scope.branch).map_err(arg_err)?;
     add_filter_args_pg(&mut args, query)?;
-    let (total,): (i64,) = sqlx::query_as_with(&sql, args).fetch_one(pool).await?;
+    // planned per call, as in `find_pg`
+    let (total,): (i64,) = sqlx::query_as_with(&sql, args)
+        .persistent(false)
+        .fetch_one(pool)
+        .await?;
 
     let groups = facet_aggregate_pg(pool, worktree_id, query, spec, &[])
         .await?
@@ -1236,41 +1261,23 @@ async fn facet_aggregate_pg(
             type_edges_cte_pg(fi)
         ));
     }
-    let group_out = if group.rollup {
-        "COALESCE(mg.anc, jg.val)"
-    } else {
-        "jg.val"
-    };
-    sql.push_str(&format!("SELECT {group_out} AS g0"));
-    for (i, member) in members.iter().enumerate() {
-        let out = if member.rollup {
-            format!("COALESCE(m{i}.anc, j{i}.val)")
-        } else {
-            format!("j{i}.val")
-        };
-        sql.push_str(&format!(", {out} AS v{i}"));
-    }
-    sql.push_str(", COUNT(DISTINCT r.id) AS n FROM record r");
-    sql.push_str(&view_join(true));
-    sql.push_str(&facet_lateral_pg("jg", group_idx));
-    if group.rollup {
-        sql.push_str(" LEFT JOIN rollup_pairs mg ON mg.decl = jg.val");
-    }
-    for (i, member) in members.iter().enumerate() {
-        sql.push_str(&facet_lateral_pg(&format!("j{i}"), member_idx[i]));
-        if member.rollup {
-            sql.push_str(&format!(
-                " LEFT JOIN rollup_pairs m{i} ON m{i}.decl = j{i}.val"
-            ));
-        }
-    }
-    sql.push_str(" WHERE ");
-    sql.push_str(&visible(true));
-    sql.push_str(&where_sql);
-    sql.push_str(" GROUP BY g0");
+    let mut extracted = String::from("SELECT r.id, jg.val AS g");
     for i in 0..members.len() {
-        sql.push_str(&format!(", v{i}"));
+        extracted.push_str(&format!(", j{i}.val AS u{i}"));
     }
+    extracted.push_str(" FROM record r");
+    extracted.push_str(&view_join(true));
+    extracted.push_str(&facet_lateral_pg("jg", group_idx));
+    for (i, idx) in member_idx.iter().enumerate() {
+        extracted.push_str(&facet_lateral_pg(&format!("j{i}"), *idx));
+    }
+    extracted.push_str(" WHERE ");
+    extracted.push_str(&visible(true));
+    extracted.push_str(&where_sql);
+    // A fence: without it the planner joins the rollup pairs first and
+    // extracts the members once per bucket instead of once per record.
+    extracted.push_str(" OFFSET 0");
+    sql.push_str(&facet_cells_sql(group.rollup, members, &extracted));
 
     let mut args = sqlx::postgres::PgArguments::default();
     let scope = WorktreeScope::new(worktree_id, query.worktrees.as_ref());
@@ -1285,7 +1292,11 @@ async fn facet_aggregate_pg(
     if types_file_idx.is_some() {
         args.add(query.file_path.as_deref()).map_err(arg_err)?;
     }
-    let rows = sqlx::query_with(&sql, args).fetch_all(pool).await?;
+    // planned per call, as in `find_pg`
+    let rows = sqlx::query_with(&sql, args)
+        .persistent(false)
+        .fetch_all(pool)
+        .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in rows {
         let group_value: serde_json::Value = row.try_get(0)?;
@@ -1474,7 +1485,9 @@ async fn find_many_pg(
     sql.push_str(" ORDER BY r.path COLLATE \"C\", r.key COLLATE \"C\", v.worktree_id");
     let _ = idx;
 
+    // planned per call, as in `find_pg`
     let mut q = sqlx::query_as::<_, FoundColumns>(&sql)
+        .persistent(false)
         .bind(scope.id)
         .bind(scope.origin)
         .bind(scope.branch);
@@ -1551,11 +1564,7 @@ pub(crate) async fn list_changes(
     on_pool!(db, pool => read(pool, async |tx| {
         let d = Store::segs(tx, worktree_id).await?.draft;
         let mut rows: Vec<RecordRow> = match since {
-            Some(v) => Store::visible(tx, worktree_id, Scope::Own, Filter::All)
-                .await?
-                .into_iter()
-                .filter(|r| r.version > v)
-                .collect(),
+            Some(v) => Store::visible(tx, worktree_id, Scope::Own, Filter::Since(v)).await?,
             None => Store::rows_in(tx, d, None, false)
                 .await?
                 .into_iter()

@@ -43,22 +43,26 @@ pub(crate) enum Filter<'a> {
     PathKey(&'a str, &'a str),
     File(&'a str),
     KeyId(i64),
+    /// Rows changed since a cursor: written after it, or in a segment that
+    /// joined the view after it (§4.10).
+    Since(i64),
     All,
 }
 
-/// The view of worktree `?1`, as the CTE `v`.
+/// The view of worktree `?1`, as the CTE `v(segment_id, added_version)`. A
+/// draft's rows, and a segment's ancestors, count as always present.
 fn view_cte(scope: Scope) -> &'static str {
     match scope {
         Scope::Own => {
-            "WITH v AS (SELECT segment_id FROM worktree_segment WHERE worktree_id = ?1 \
-             UNION ALL SELECT draft_segment_id FROM worktree WHERE id = ?1) "
+            "WITH v AS (SELECT segment_id, added_version FROM worktree_segment WHERE worktree_id = ?1 \
+             UNION ALL SELECT draft_segment_id, 0 FROM worktree WHERE id = ?1) "
         }
         Scope::Chain => {
-            "WITH v AS (SELECT segment_id FROM worktree_segment WHERE worktree_id = ?1) "
+            "WITH v AS (SELECT segment_id, added_version FROM worktree_segment WHERE worktree_id = ?1) "
         }
         Scope::State => {
-            "WITH RECURSIVE v(segment_id) AS (SELECT CAST(?1 AS BIGINT) \
-             UNION ALL SELECT s.parent_id FROM segment s JOIN v ON s.id = v.segment_id \
+            "WITH RECURSIVE v(segment_id, added_version) AS (SELECT CAST(?1 AS BIGINT), CAST(0 AS BIGINT) \
+             UNION ALL SELECT s.parent_id, CAST(0 AS BIGINT) FROM segment s JOIN v ON s.id = v.segment_id \
              WHERE s.parent_id IS NOT NULL) "
         }
     }
@@ -477,6 +481,7 @@ macro_rules! store_impl {
                     Filter::PathKey(..) => "AND r.path = ?2 AND r.key = ?3",
                     Filter::File(_) => "AND r.file_path = ?2",
                     Filter::KeyId(_) => "AND r.key_id = ?2",
+                    Filter::Since(_) => "AND (r.version > ?2 OR v.added_version > ?2)",
                     Filter::All => "",
                 };
                 let text = format!(
@@ -493,7 +498,7 @@ macro_rules! store_impl {
                     Filter::At(at) => q.bind(at.file_path).bind(at.path).bind(at.key),
                     Filter::PathKey(path, key) => q.bind(path).bind(key),
                     Filter::File(f) => q.bind(f),
-                    Filter::KeyId(id) => q.bind(id),
+                    Filter::KeyId(id) | Filter::Since(id) => q.bind(id),
                     Filter::All => q,
                 };
                 let mut rows = q
